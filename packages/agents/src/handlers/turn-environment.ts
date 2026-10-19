@@ -29,7 +29,12 @@ import { type PinnedBlockVersions, resolveTurnBlocks } from './resolve-blocks.js
 import { resolveTurnTools } from './resolve-tools.js';
 import { type ToolErrorPolicy, effectiveToolErrorPolicy } from './tool-errors.js';
 
-/** The conversation the turn runs in: open, and opened with this agent version. */
+/**
+ * The conversation the turn runs in: open, and opened with this agent
+ * version. Its agent's inactivity policy doesn't close it here, as the
+ * turn starts or resumes: the turn's own run is in flight, which holds it
+ * open (`autoCloseDue`).
+ */
 export async function loadTurnConversation(ctx: TurnContext): Promise<Conversation> {
   const conv = await ctx.bindings.conversationBinding.getConversation(
     ctx.input.tenantId,

@@ -3,7 +3,9 @@
 
 import type { Context } from 'hono';
 
+import { type ConversationPolicy, autoCloseDue } from '@kindgi/agents';
 import { type ResourceRef, ref } from '@kindgi/authz';
+import type { TenantId } from '@kindgi/types';
 
 import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
@@ -23,7 +25,29 @@ export interface TurnConversation {
   readonly openedBy?: string;
   /** When it was closed: absent while it's open (`closedRefusal`). */
   readonly closedAt?: string;
+  /** When it was opened, and its last message (absent before the first): its inactivity. */
+  readonly openedAt: string;
+  readonly lastMessageAt?: string;
+  /**
+   * Its agent version's policy, as far as closing it for inactivity goes
+   * (`closedRefusal`). Absent: none is set, or it's closed already.
+   */
+  readonly conversationPolicy?: Pick<ConversationPolicy, 'autoCloseAfterInactiveSeconds'>;
 }
+
+/**
+ * Closes a conversation its agent's policy closes for inactivity, if
+ * nothing has happened in it for `afterInactiveSeconds`, its runs
+ * included (`autoCloseDue`): its `closedAt` then, nothing when it isn't
+ * idle (a run in it is in flight, or a message, a turn or a run's end came
+ * since). Any other failure throws, so no turn runs into one it should
+ * have closed.
+ */
+export type CloseInactive = (
+  tenantId: TenantId,
+  conversationId: string,
+  afterInactiveSeconds: number,
+) => Promise<string | undefined>;
 
 /** A turn posted into the conversation `conversationId` names. */
 export interface TurnInto {
@@ -117,13 +141,28 @@ function checkedOn(conversation: TurnConversation): ResourceRef {
  * `participantRefusal`), so a caller who can't read the conversation still
  * gets the answer for one that doesn't exist. No conversation: nothing to
  * refuse here.
+ *
+ * One its agent's policy may close for inactivity is closed here first
+ * (`closeInactive`), then refused the same. What's read here is its own
+ * record, without its runs (`autoCloseDue` says whether it may be due);
+ * the close decides with them, and one a run holds open lets the turn
+ * through.
  */
-export function closedRefusal(
+export async function closedRefusal(
   c: Context<AppEnv>,
   conversationId: string | undefined,
   conversation: TurnConversation | null,
-): Response | undefined {
-  if (conversationId === undefined || conversation?.closedAt === undefined) return undefined;
+  closeInactive: CloseInactive,
+): Promise<Response | undefined> {
+  if (conversationId === undefined || conversation === null) return undefined;
+  if (conversation.closedAt === undefined) {
+    const due = autoCloseDue(conversation, conversation.conversationPolicy, new Date());
+    if (due === undefined) return undefined;
+    const tenantId = c.get('tenantId') as TenantId;
+    if ((await closeInactive(tenantId, conversationId, due.afterSeconds)) === undefined) {
+      return undefined;
+    }
+  }
   c.status(statusFor('conversation-closed') as never);
   return c.json(
     toWireError(

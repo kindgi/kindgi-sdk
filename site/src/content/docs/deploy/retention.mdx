@@ -531,6 +531,18 @@ later):
   violation, for each run and step. It holds the check's ids and what it
   came to, never the check's reason or a judge's answer.
 
+A conversation's close is recorded too (runtime 0.1.10 or later), as
+`conversation-closed`: one record for each conversation, when it closes.
+Conversations closed before the upgrade have none. Its actor is who closed
+it: the caller of
+[close](../../guides/agents/conversations/#open-list-and-close-conversations),
+such as `user:<id>` or `service_account:<id>`, or
+`system:conversation-auto-close` when its agent's
+[inactivity window](../../guides/agents/conversations/#close-conversations-that-go-quiet)
+closed it. A close by the window also says since when nothing had happened
+in it, and the window. It names the conversation and its agent version,
+never what was said in it.
+
 ### On legal hold
 
 The changes on legal hold are these kinds:

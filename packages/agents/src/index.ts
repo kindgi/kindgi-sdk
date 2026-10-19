@@ -4,6 +4,7 @@
 export type {
   AppendMessageInput,
   ConversationBinding,
+  ConversationClose,
   ConversationPage,
   ConversationPageCursor,
   ListConversationsInput,
@@ -16,6 +17,12 @@ export type {
   RunSnapshotRecord,
   RunSnapshotWriteInput,
 } from './run-snapshot-binding.js';
+export { AUTO_CLOSE_ACTOR, autoCloseDue, inactiveSince } from './conversation-inactivity.js';
+export type {
+  AutoCloseDue,
+  ConversationActivity,
+  ConversationRunsActivity,
+} from './conversation-inactivity.js';
 export { DRAFTED_TEMPLATE_MAX, checkDraftedTemplate } from './drafted-template.js';
 export type { DraftedTemplateContext } from './drafted-template.js';
 export { templateProblem } from './liquid.js';

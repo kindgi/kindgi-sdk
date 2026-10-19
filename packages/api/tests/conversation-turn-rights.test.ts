@@ -10,8 +10,10 @@
  * conversation from before projects). A caller who can't read the
  * conversation gets the answer for a conversation that doesn't exist, byte
  * for byte. A closed conversation takes no new turns: once the caller may
- * add the turn, it's refused before a run is made. None of it depends on an
- * environment order: the app here has none, and the rule holds the same.
+ * add the turn, it's refused before a run is made. One its agent's policy
+ * closes for inactivity is closed then, and refused the same. None of it
+ * depends on an environment order: the app here has none, and the rule
+ * holds the same.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -50,12 +52,22 @@ const CLOSED_ALICES = randomUUID();
 const CLOSED_CAROLS = randomUUID();
 /** No conversation has this id. */
 const MISSING = randomUUID();
+/** Alice's, as `ALICES` is: last spoken in 2 minutes ago. */
+const IDLE_ALICES = randomUUID();
+/** Alice's: opened 2 minutes ago, and never spoken in. */
+const UNSPOKEN_ALICES = randomUUID();
+/** Alice's: last spoken in 30 seconds ago. */
+const RECENT_ALICES = randomUUID();
+
+const ago = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString();
 
 interface Stored {
   readonly projectId?: string;
   readonly openedBy?: string;
   readonly participantId?: string;
   readonly closedAt?: string;
+  readonly openedAt?: string;
+  readonly lastMessageAt?: string;
 }
 
 const STORED: ReadonlyMap<string, Stored> = new Map<string, Stored>([
@@ -73,6 +85,15 @@ const STORED: ReadonlyMap<string, Stored> = new Map<string, Stored>([
       participantId: CAROL,
       closedAt: '2026-10-17T10:05:07Z',
     },
+  ],
+  [
+    IDLE_ALICES,
+    { projectId: B, openedBy: `user:${ALICE}`, openedAt: ago(600), lastMessageAt: ago(120) },
+  ],
+  [UNSPOKEN_ALICES, { projectId: B, openedBy: `user:${ALICE}`, openedAt: ago(120) }],
+  [
+    RECENT_ALICES,
+    { projectId: B, openedBy: `user:${ALICE}`, openedAt: ago(600), lastMessageAt: ago(30) },
   ],
 ]);
 
@@ -140,10 +161,21 @@ function decision(grants: readonly string[], action: Action, resource: ResourceR
 function makeApp({
   withAuthz = true,
   stored = STORED,
-}: { withAuthz?: boolean; stored?: ReadonlyMap<string, Stored> } = {}) {
+  autoCloseAfterInactiveSeconds,
+  closes = 'closed',
+}: {
+  withAuthz?: boolean;
+  stored?: ReadonlyMap<string, Stored>;
+  /** The agent version's `conversationPolicy.autoCloseAfterInactiveSeconds`. */
+  autoCloseAfterInactiveSeconds?: number;
+  /** What closing it answers: closed, open (it isn't idle, its runs included), or a failure. */
+  closes?: 'closed' | 'open' | 'fails';
+} = {}) {
   let current = 'alice';
   let reached = 0;
   let opened = 0;
+  const versionReads: { agentId: string; version: string }[] = [];
+  const closing: { id: string; runBinding: unknown; close: unknown }[] = [];
   const stub = createStubAppBindings();
   const toHandler = async () => {
     reached += 1;
@@ -164,11 +196,17 @@ function makeApp({
         version: '1.0.0',
         projectId: B,
       }),
-      getVersion: async ({ agentId }: { agentId: string }) => ({
-        agentId,
-        version: '1.0.0',
-        projectId: B,
-      }),
+      // The policy is the conversations' own version's (1.0.0): another one sets none.
+      getVersion: async ({ agentId, version }: { agentId: string; version: string }) => {
+        versionReads.push({ agentId, version });
+        return {
+          agentId,
+          version,
+          projectId: B,
+          ...(autoCloseAfterInactiveSeconds !== undefined &&
+            version === '1.0.0' && { conversationPolicy: { autoCloseAfterInactiveSeconds } }),
+        };
+      },
     } as never,
     conversationBinding: {
       ...stub.conversationBinding,
@@ -186,11 +224,31 @@ function makeApp({
                 agentId: 'acme.desk',
                 agentVersion: '1.0.0',
                 title: '',
+                openedAt: new Date().toISOString(),
                 ...found,
                 scope: { tenantId },
-                openedAt: new Date().toISOString(),
               },
             };
+      },
+      closeConversation: async (_t: TenantId, id: string, runBinding: unknown, close: unknown) => {
+        closing.push({ id, runBinding, close });
+        if (closes === 'fails') {
+          return { kind: 'err', error: { code: 'internal', message: 'the database is busy' } };
+        }
+        return {
+          kind: 'ok',
+          value: {
+            id,
+            agentId: 'acme.desk',
+            agentVersion: '1.0.0',
+            title: '',
+            openedAt: ago(600),
+            scope: { tenantId },
+            ...(closes === 'closed'
+              ? { closedAt: new Date().toISOString() }
+              : { lastMessageAt: new Date().toISOString() }),
+          },
+        };
       },
       openConversation: async (input: { projectId?: string }) => {
         opened += 1;
@@ -279,7 +337,13 @@ function makeApp({
         }),
     };
   };
-  return { as, reached: () => reached, opened: () => opened };
+  return {
+    as,
+    reached: () => reached,
+    opened: () => opened,
+    closing,
+    versionReads: () => [...versionReads],
+  };
 }
 
 type Answer = Awaited<ReturnType<ReturnType<ReturnType<typeof makeApp>['as']>['turn']>>;
@@ -534,6 +598,81 @@ describe('a turn into a closed conversation', () => {
     expect(reached()).toBe(0);
     expect(continued(await as('alice').flowRun(ALICES))).toBe(true);
     expect(reached()).toBe(1);
+  });
+});
+
+describe("a turn into a conversation its agent's policy closes for inactivity", () => {
+  const policy = { autoCloseAfterInactiveSeconds: 60 };
+  const asPolicy = { actor: 'system:conversation-auto-close', afterInactiveSeconds: 60 };
+
+  test('past its window: closed as its policy, then refused 409 as a closed one is, before a run is made', async () => {
+    for (const wait of [true, false]) {
+      const { as, reached, closing, versionReads } = makeApp(policy);
+      const r = await as('alice').turn(IDLE_ALICES, { wait });
+      expect(closed(r)).toBe(true);
+      expect(r.message).toBe(`Conversation "${IDLE_ALICES}" is closed`);
+      expect(r.details).toEqual({ conversationId: IDLE_ALICES });
+      // The policy of the version it opened with.
+      expect(versionReads()).toEqual([{ agentId: 'acme.desk', version: '1.0.0' }]);
+      // No run binding: an idle conversation has no wait to cancel.
+      expect(closing).toEqual([{ id: IDLE_ALICES, runBinding: undefined, close: asPolicy }]);
+      expect(reached()).toBe(0);
+    }
+  });
+
+  test('never spoken in, past its window since it opened: the same', async () => {
+    const { as, reached, closing } = makeApp(policy);
+    expect(closed(await as('alice').turn(UNSPOKEN_ALICES))).toBe(true);
+    expect(closing).toHaveLength(1);
+    expect(reached()).toBe(0);
+  });
+
+  test('a flow run naming it is closed and refused the same', async () => {
+    const { as, reached, closing } = makeApp({ ...policy, withAuthz: false });
+    expect(closed(await as('alice').flowRun(IDLE_ALICES))).toBe(true);
+    expect(closing).toHaveLength(1);
+    expect(reached()).toBe(0);
+  });
+
+  test('within its window, or with no policy: the turn goes through and nothing is closed', async () => {
+    const within = makeApp(policy);
+    expect(continued(await within.as('alice').turn(RECENT_ALICES))).toBe(true);
+    expect(within.closing).toEqual([]);
+    expect(within.reached()).toBe(1);
+    const none = makeApp();
+    expect(continued(await none.as('alice').turn(IDLE_ALICES))).toBe(true);
+    expect(none.closing).toEqual([]);
+    expect(none.reached()).toBe(1);
+  });
+
+  test('the close finds it not idle (a run in it in flight, or a message, a turn or a run end since): left open, and the turn goes through', async () => {
+    const { as, reached, closing } = makeApp({ ...policy, closes: 'open' });
+    expect(continued(await as('alice').turn(IDLE_ALICES))).toBe(true);
+    expect(closing).toHaveLength(1);
+    expect(reached()).toBe(1);
+  });
+
+  test('a close that fails: a 500, and no turn', async () => {
+    const { as, reached } = makeApp({ ...policy, closes: 'fails' });
+    expect((await as('alice').turn(IDLE_ALICES)).status).toBe(500);
+    expect(reached()).toBe(0);
+  });
+
+  test('a caller who may not add a turn is answered as before, and closes nothing', async () => {
+    const { as, reached, closing } = makeApp(policy);
+    expect(forbidden(await as('viewer').turn(IDLE_ALICES))).toBe(true);
+    const hidden = await as('stranger').turn(IDLE_ALICES);
+    expect(notFound(hidden)).toBe(true);
+    expect(hidden.bytes).toBe((await asIfMissing('stranger', IDLE_ALICES)).bytes);
+    expect(closing).toEqual([]);
+    expect(reached()).toBe(0);
+  });
+
+  test("closed already: refused, with no read of the agent's policy and nothing closed again", async () => {
+    const { as, closing, versionReads } = makeApp(policy);
+    expect(closed(await as('alice').turn(CLOSED_ALICES))).toBe(true);
+    expect(closing).toEqual([]);
+    expect(versionReads()).toEqual([]);
   });
 });
 

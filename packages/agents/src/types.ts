@@ -247,8 +247,15 @@ export interface BlockRef {
  * Per-agent behavior for multi-turn conversations. The agent chooses:
  *   - How many prior messages to load (`historyLimit`; unset = all).
  *   - Whether to auto-close a conversation after a period of inactivity
- *     (`autoCloseAfterInactiveSeconds` — checked at read time; unset =
- *     never auto-close).
+ *     (`autoCloseAfterInactiveSeconds`: nothing happening in it for that
+ *     long, no message, no turn in progress or waiting; unset = never
+ *     auto-close). Its inactivity runs from the latest of its last
+ *     message, the last turn posted into it, its last run's end, and its
+ *     opening (`autoCloseDue`). A turn posted into one past its window
+ *     closes it and is refused `conversation-closed`; the Kindgi runtime
+ *     also closes such conversations as it sweeps, about once a minute. A
+ *     turn waiting, on an approval or anything else, holds it open, so a
+ *     close by the policy never cancels a wait.
  *   - A turn count after which each new turn waits for HITL approval
  *     before it runs (`hitlAfterTurns`; `hitl.afterTurns` takes
  *     precedence when both are set).

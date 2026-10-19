@@ -16,7 +16,7 @@ import type { RunBinding } from '@kindgi/runtime';
 import type { AgentId, ProjectId, Semver, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
-import { callerRef } from '../caller.js';
+import { callerIdentity, callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -386,6 +386,7 @@ export function conversationsRouter(
       tenantId,
       conversationId,
       runBinding,
+      { actor: callerIdentity(c) },
     );
     if (closed.kind === 'err') {
       c.status(statusFor(closed.error.code) as never);
