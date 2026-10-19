@@ -191,9 +191,10 @@ service is, and checks it. It never creates or deletes one.
    A deployment needs one while it's routed: it's the newest with routes for
    some tool version or pack check, it has no endpoint or a cleared one, and
    nothing about it is closing or suspended. Each entry has the tenant's id,
-   the deployment's id, its pack (and project, if it has one), and its image:
-   the digest-pinned `imageRef`, its digest, the artifact version and when it
-   went live. It has nothing else of the tenant.
+   the deployment's id, its pack and project (the one it named, else the
+   tenant's Default), and its image: the digest-pinned `imageRef`, its
+   digest, the artifact version and when it went live. It has nothing else
+   of the tenant.
 2. **Run the image as a service** whose host begins with the deployment's own
    service name, `packServiceName(tenantId, deploymentId)` from `@kindgi/api`
    (`kp-` and 20 characters), then `-` or `.`. Give it a token of its own,

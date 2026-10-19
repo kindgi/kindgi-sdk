@@ -9,7 +9,7 @@ import type { Cursor, FixProposalId, LiveScope, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { EvalComparison } from '../eval-run-binding.js';
-import { type ItemRights, liveScopeCheck, writeWhereMade } from '../item-rights.js';
+import { type ItemRights, liveScopeCheck, widthRefusal, writeWhereMade } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import {
@@ -295,6 +295,12 @@ export function proposalsRouter(
   r.post('/:proposalId/request', async (c) => {
     const ready = await prepare(c, 'promote');
     if (ready instanceof Response) return ready;
+    const spans = await widthRefusal(c, {
+      rights: itemRights,
+      agentId: ready.proposal.agentId as unknown as string,
+      scope: ready.proposal.scope,
+    });
+    if (spans !== undefined) return spans;
     const reason = optionalText(ready.body, 'reason');
     if (reason.kind === 'err') return badInput(c, reason.message);
     const outcome = await service.request({
@@ -316,6 +322,12 @@ export function proposalsRouter(
   r.post('/:proposalId/rollback', async (c) => {
     const ready = await prepare(c, 'promote');
     if (ready instanceof Response) return ready;
+    const spans = await widthRefusal(c, {
+      rights: itemRights,
+      agentId: ready.proposal.agentId as unknown as string,
+      scope: ready.proposal.scope,
+    });
+    if (spans !== undefined) return spans;
     const reason = optionalText(ready.body, 'reason');
     if (reason.kind === 'err') return badInput(c, reason.message);
     const outcome = await service.rollback({
