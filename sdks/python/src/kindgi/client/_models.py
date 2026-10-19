@@ -8169,6 +8169,10 @@ class JudgingRecentQueued(BaseModel):
     """
     Matching recent runs this rule had already queued (deduped per `(rule, run)`).
     """
+    already_reviewed: Annotated[int, Field(alias="alreadyReviewed", ge=0)]
+    """
+    Matching recent runs whose run was already judged or dismissed: left as they are, not re-queued. An already-erased run is no longer a match and is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed` together are the matches.
+    """
 
 
 class AccessPathDirect(BaseModel):

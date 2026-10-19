@@ -194,6 +194,13 @@ export interface JudgingRecentQueued {
   readonly queued: number;
   /** Matching recent runs this rule had already queued (deduped per `(rule, run)`). */
   readonly alreadyQueued: number;
+  /**
+   * Matching recent runs whose run was already judged or dismissed: left as
+   * they are, not re-queued. An already-erased run is no longer a match and
+   * is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed`
+   * together are the matches.
+   */
+  readonly alreadyReviewed: number;
 }
 
 export type JudgingErrorCode =
@@ -301,7 +308,10 @@ export interface JudgingQueueBinding {
    * runs — `last` of them (newest first) and/or those completed at or
    * after `since` — sampled as the rule samples, deduped per `(rule, run)`
    * as run-end matching is. For catching a rule up on past runs; `maxOpen`
-   * is not applied. At least one of `last`, `since` is given.
+   * is not applied. At least one of `last`, `since` is given. The answer
+   * splits the matches into `queued`, `alreadyQueued` and `alreadyReviewed`:
+   * a run already judged or dismissed is left as it is, and an erased run is
+   * no longer a match.
    */
   queueRecent(
     input: InProject & {

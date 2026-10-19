@@ -227,7 +227,7 @@ function memoryBinding() {
         ...(since !== undefined && { since }),
         ...(by !== undefined && { by }),
       });
-      return { kind: 'ok', value: { queued: 2, alreadyQueued: 1 } };
+      return { kind: 'ok', value: { queued: 2, alreadyQueued: 1, alreadyReviewed: 4 } };
     },
   };
   const queue = (runId: string) =>
@@ -406,7 +406,7 @@ describe('queue the recent matches', () => {
       last: 100,
     });
     expect(queued.status).toBe(200);
-    expect(queued.body).toEqual({ queued: 2, alreadyQueued: 1 });
+    expect(queued.body).toEqual({ queued: 2, alreadyQueued: 1, alreadyReviewed: 4 });
     expect(h.queueRecentCalls.at(-1)).toEqual({ ruleId, last: 100, by: 'user:editor' });
 
     await h.call(EDITOR, 'POST', `/judging-rules/${ruleId}/queue-recent`, {

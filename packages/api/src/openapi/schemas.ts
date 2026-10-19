@@ -10478,7 +10478,7 @@ export const JudgingQueueRecentInputSchema: JsonSchema = {
 export const JudgingRecentQueuedSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['queued', 'alreadyQueued'],
+  required: ['queued', 'alreadyQueued', 'alreadyReviewed'],
   properties: {
     queued: {
       type: 'integer',
@@ -10489,6 +10489,12 @@ export const JudgingRecentQueuedSchema: JsonSchema = {
       type: 'integer',
       minimum: 0,
       description: 'Matching recent runs this rule had already queued (deduped per `(rule, run)`).',
+    },
+    alreadyReviewed: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Matching recent runs whose run was already judged or dismissed: left as they are, not re-queued. An already-erased run is no longer a match and is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed` together are the matches.',
     },
   },
 };

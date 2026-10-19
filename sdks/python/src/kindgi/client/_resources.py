@@ -7936,7 +7936,7 @@ class ProjectsJudgingRulesResource:
     ) -> _models.JudgingRecentQueued:
         """Queue a rule's recent matches. `POST /v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent`
 
-        Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. At least one of `last`, `since` is given. Needs `write` on the project.
+        Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already judged or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.
         """
         return self._client._request(
             _OPERATIONS["projects.judgingRules.queueRecent"],
@@ -16574,7 +16574,7 @@ class AsyncProjectsJudgingRulesResource:
     ) -> _models.JudgingRecentQueued:
         """Queue a rule's recent matches. `POST /v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent`
 
-        Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. At least one of `last`, `since` is given. Needs `write` on the project.
+        Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already judged or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.
         """
         return await self._client._request(
             _OPERATIONS["projects.judgingRules.queueRecent"],
