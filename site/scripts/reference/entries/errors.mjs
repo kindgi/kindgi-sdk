@@ -1164,7 +1164,7 @@ export const ERROR_ENTRIES = {
     description:
       "The database was too busy to answer the read in time: a lock held by other work or a query past the database's time limit ended it, or no database connection came free within the server's wait. Only a `GET` or `HEAD` answers it. Retry after the `Retry-After` header. A request with any other method that the database was too busy for answers a 500 (`internal-server-error`, or the code of what failed, such as `persistence-error`), since it may have saved part of its work: check what it changed before you send it again.",
     details: [],
-    seeAlso: ['GET /v1/runs'],
+    seeAlso: ['GET /v1/runs', 'reference/env-vars'],
   },
   'journal-error': {
     description:
@@ -2557,6 +2557,30 @@ export const ERROR_ENTRIES = {
     description:
       "The request would change what a person a site signs in may do: give them or take away a grant, a tenant role, a project or team membership or its role, or a reviewer role, or mint them a key. Such a person holds only what their site's sign-in writes: their next sign-in would undo a change, and a key would outlive a paused or unregistered site. Change their role on the site, remove the person, or pause the site instead.",
     details: [],
+  },
+  'site-person-not-found': {
+    description:
+      'The site has no link to that person: they never signed in through it. Only the people a site signs in are let back in through it. Find their id with `kindgi people list --include-removed`.',
+    details: [
+      {
+        key: 'userId',
+        meaning: 'the person who was to be let back in',
+      },
+    ],
+  },
+  'site-person-restore-refused': {
+    description:
+      "The site's person wasn't let back in, and nothing changed. `not-removed`: they're in the tenant and their site still knows them, so there's nothing to undo. `left`: their site said they left it. A site forgets a person who leaves, so if they come back, it signs them in as a new person. `linked-elsewhere`: they also sign in another way (through another site, or the tenant's own sign-in), and letting them back in would let them in there too: add them again instead, as a new person.",
+    details: [
+      {
+        key: 'reason',
+        meaning: "why it was refused: 'not-removed', 'left' or 'linked-elsewhere'",
+      },
+      {
+        key: 'userId',
+        meaning: 'the person who was to be let back in',
+      },
+    ],
   },
   'token-sign-in-needs-an-api-token': {
     description:

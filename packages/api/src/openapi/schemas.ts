@@ -2441,6 +2441,17 @@ export const SiteEnrollmentCodeSchema: JsonSchema = {
   },
 };
 
+export const SitePersonRestoreResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['user'],
+  description:
+    "A site's person let back in after a removal made in Kindgi (`POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`).",
+  properties: {
+    user: { $ref: '#/components/schemas/UserRecord' },
+  },
+};
+
 export const RegisterSiteResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -14357,6 +14368,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateSiteBody', UpdateSiteBodySchema],
   ['SiteEnrollmentCode', SiteEnrollmentCodeSchema],
   ['RegisterSiteResult', RegisterSiteResultSchema],
+  ['SitePersonRestoreResult', SitePersonRestoreResultSchema],
   ['EnrollSiteBody', EnrollSiteBodySchema],
   ['EnrollSiteResult', EnrollSiteResultSchema],
   ['SiteSignInBody', SiteSignInBodySchema],

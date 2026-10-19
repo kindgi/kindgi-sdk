@@ -689,6 +689,9 @@ export const CLI_DEFAULTS = {
   'sites revoke-key': {
     project: "the tenant's Default project",
   },
+  'sites restore-person': {
+    project: "the tenant's Default project",
+  },
   'sites unregister': {
     project: "the tenant's Default project",
   },
@@ -1609,6 +1612,13 @@ export const CLI_EXAMPLES = {
     {
       purpose: "Refuse what a site's key signs from now on.",
       line: 'kindgi sites revoke-key <site-id> <kid>',
+    },
+  ],
+  'sites restore-person': [
+    {
+      purpose:
+        'Let a person removed in Kindgi back in through their site: the same person, with their history.',
+      line: 'kindgi sites restore-person <site-id> <user-id>',
     },
   ],
   'sites unregister': [
