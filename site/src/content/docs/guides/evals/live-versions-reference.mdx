@@ -136,7 +136,7 @@ A release gate policy's parts, and what each asks of a request to make a version
 | `metrics` | each named figure at least `minCandidate`, and lower than the live version's by at most `maxDrop`. The figures are `weightedYesShare`, `judgedCoverage`, or `weightedPrecisionAtK` with its `k` |
 | `replay` | at most this many diverged cases, errors, refused writes and stopped cases: `maxDiverged`, `maxErrors`, `maxRefusedWrites`, `maxStopped`. Those left out are 0. A version with other settings runs read-only tools live, which [counts as diverged](../compare-an-agent-version/#what-a-replay-does), so `maxDiverged: 0` refuses it |
 | `approvals` | then a reviewer with this role approves it, `senior` if left out. It's someone other than whoever asked, unless `separateApprover: false` lets the one who asked approve it |
-| `onlyRestrictedClasses: true` | a run on the test cases that [counted only experts' corrections](../compare-an-agent-version/#count-only-experts-corrections) |
+| `onlyRestrictedClasses: true` | a run on the test cases that [counted only restricted judge classes](../compare-an-agent-version/#count-only-restricted-judge-classes) |
 
 - **A request must name its run on the test cases** when the policy has
   `comparison`, `evidence`, `metrics`, `replay` or `onlyRestrictedClasses`.
@@ -145,7 +145,7 @@ A release gate policy's parts, and what each asks of a request to make a version
 - **With `onlyRestrictedClasses`,** a run that counted every class is
   refused with
   `` The policy counts only restricted judge classes; the comparison counted every class. Re-run it with `classWeights: 'restricted-only'`. ``.
-  So only the experts' corrections can release a version.
+  So only restricted judge classes can release a version.
 - **To change a gate,** publish a new version of the policy.
   `kindgi gate-policies unregister acme.order-desk-release <version>` goes
   back to the one before.
@@ -228,7 +228,7 @@ Pin that scope in place, and promote again.
   it with "Count only restricted judge classes"), so a class anyone may assert
   can't change what the release gate policy decides."
 - **Make a version live** has **Run on the test cases**, a finished run of the
-  version on them. One that counted only restricted classes says "restricted classes
+  version on them. One that counted only restricted judge classes says "restricted classes
   only". It runs the gate's check before anything is recorded: "The gate
   passes (gate policy acme.order-desk-release 1.0.0) Then a senior reviewer
   approves it, someone other than you, and it goes live.", with each check.

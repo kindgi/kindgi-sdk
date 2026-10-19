@@ -261,7 +261,7 @@ It prints the schedule, with the defaults applied to its input:
 At each fire, it counts the trusted "no" judgments on the agent's runs in
 its scope since the agent's last pass there. A trusted judgment is one
 recorded under a
-[restricted judge class](../../evals/judge-a-runs-output/#restrict-a-judge-class-to-experts).
+[restricted judge class](../../evals/judge-a-runs-output/#restrict-who-may-judge-as-a-class).
 The last pass is one that didn't fail or get cancelled, whoever started it.
 With enough of them, across enough runs, from enough judges, it starts a
 pass on a fresh test set of those runs, `improve.<pass-id>`. Otherwise the

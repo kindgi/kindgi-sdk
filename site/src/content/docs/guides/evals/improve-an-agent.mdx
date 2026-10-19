@@ -151,12 +151,11 @@ The cost is 0 on `dev-echo`, which costs nothing:
 
 `kindgi proposals passes get <pass-id>` reads the same Improve run back later.
 
-### It learns from experts' corrections
+### Whose corrections it learns from
 
-By default, an Improve run counts only the corrections of the people you trust: those
-recorded under a
-[judge class](../judge-a-runs-output/#restrict-a-judge-class-to-experts) you
-restrict, `classWeights: "restricted-only"`. So who may steer it is a choice
+By default, an Improve run counts only the corrections recorded under a
+[restricted judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class),
+`classWeights: "restricted-only"`. So who may steer it is a choice
 you make. `"as-recorded"` counts every correction, by its class's weight: set
 it in the API or the clients.
 
@@ -262,8 +261,9 @@ when it ends ([Webhook events and deliveries](../../webhooks/webhook-events/#imp
 
 ## Run Improve on a schedule
 
-A schedule can start an Improve run when enough new experts' corrections have come in,
-as [Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule)
+A schedule can start an Improve run when enough new corrections have come
+in, counted the way the Improve run will count them, as
+[Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule)
 shows.
 
 ## In the console

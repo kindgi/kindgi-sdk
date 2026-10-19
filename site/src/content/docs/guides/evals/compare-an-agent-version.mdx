@@ -193,10 +193,10 @@ the `yes` on `kb-301` counts for 0.2.0 too. The answer's text, and a list
 element without an id, carry a correction only when they're unchanged. A
 reworded answer is a new item, with no corrections yet.
 
-### Count only experts' corrections
+### Count only restricted judge classes
 
 `--class-weights=restricted-only` counts only the corrections made under a
-[restricted class](../judge-a-runs-output/#restrict-a-judge-class-to-experts), the experts' corrections.
+[restricted judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class).
 An item none of them marked counts as unmarked. In TypeScript, it's
 `classWeights: 'restricted-only'`, and in Python
 `class_weights="restricted-only"`. The summary says which it used, in
@@ -372,7 +372,7 @@ test cases** list links each one to its page, which has:
   of 3 cases with answers people corrected. In 1 case it read something the
   recording didn't have.";
 - the metrics, for the recorded runs and the version, with the change. A
-  run that counted only restricted classes says so: "Only corrections
+  run that counted only restricted judge classes says so: "Only corrections
   in judge classes restricted to experts counted; the others weighed
   0.", and lists mark it "restricted classes only";
 - **Case by case:** the recorded answer beside the version's, the marked items

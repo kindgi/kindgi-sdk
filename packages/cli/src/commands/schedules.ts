@@ -90,7 +90,7 @@ const TARGET_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
   improve: {
     type: 'string',
     description:
-      'Start Improve runs on this agent (instead of runs), when enough new corrections from experts marking answers wrong have come in: for the project (--project), or a segment of it (--segment). `--input` takes the Improve options, `threshold` and `monthlyCapUsd`.',
+      'Start Improve runs on this agent (instead of runs), when enough new corrections marking answers wrong have come in for the project (--project), or a segment of it (--segment), counted the way the Improve run counts them. `--input` takes the Improve options, `threshold` and `monthlyCapUsd`.',
   },
   segment: {
     type: 'string',

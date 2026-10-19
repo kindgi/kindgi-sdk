@@ -255,7 +255,7 @@ const evaluate: LeafCommand = {
     'class-weights': {
       type: 'string',
       description:
-        "`as-recorded` (the default) or `restricted-only`: only experts' corrections count.",
+        '`as-recorded` (the default) or `restricted-only`: only corrections in restricted judge classes count.',
     },
     rescore: {
       type: 'boolean',

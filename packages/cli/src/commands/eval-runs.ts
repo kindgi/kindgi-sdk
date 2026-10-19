@@ -259,7 +259,7 @@ const start: LeafCommand = {
     'class-weights': {
       type: 'string',
       description:
-        "Which corrections count: `as-recorded` (the default: each at its judge class's weight) or `restricted-only` (only corrections from classes restricted to some people; a release gate policy with `onlyRestrictedClasses` needs it).",
+        "Which corrections count: `as-recorded` (the default: each at its judge class's weight) or `restricted-only` (only corrections in restricted judge classes; a release gate policy with `onlyRestrictedClasses` needs it).",
     },
     'dry-run': { type: 'boolean', description: 'Check the request without running anything.' },
     wait: {
