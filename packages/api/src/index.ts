@@ -17,7 +17,7 @@ export {
   MULTI_TENANT_LOOKUP,
 } from './middleware/auth.js';
 export type { SessionCookieOptions, TokenResolution, TokenResolver } from './middleware/auth.js';
-export type { SignInOptionsRateLimit } from './routes/sign-in-options.js';
+export type { SignInLegalLinks, SignInOptionsRateLimit } from './routes/sign-in-options.js';
 export type {
   LicensePreview,
   LicenseStatus,

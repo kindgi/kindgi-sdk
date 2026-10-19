@@ -52,7 +52,7 @@ export interface ImproveDeps {
   readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
   /**
    * The tenant's judge classes. The `classWeights` default counts everyone
-   * (`as-recorded`) until an expert class (one with `assertableBy`) is named
+   * (`as-recorded`) until a restricted judge class (one with `assertableBy`) is named
    * in the tenant, the project the pass reads its judgments from, or on the
    * agent improved, then it's `restricted-only`. Absent: the default stays
    * `restricted-only`. Only `listClasses` is used.
@@ -71,7 +71,7 @@ export interface ImproveDeps {
 
 /**
  * The pass default for `classWeights` when the caller doesn't set one.
- * Until an expert judge class (one with `assertableBy`) is named — in the
+ * Until a restricted judge class (one with `assertableBy`) is named — in the
  * tenant, the project the pass reads its judgments from (`projectId`), or on
  * the agent being improved — Improve counts *everyone's* judgments
  * (`as-recorded`); once one is, the default is trusted judgments only
@@ -94,10 +94,10 @@ async function resolveClassWeights(
 }
 
 /**
- * Whether an expert judge class — one restricted to named asserters
+ * Whether a restricted judge class — one restricted to named asserters
  * (`assertableBy` set) — applies to this pass: one in tenant scope, in the
  * pass's project, or on the agent being improved (that agent, in that
- * project). A tenant-wide expert class names experts for every project;
+ * project). A tenant-wide restricted judge class names experts for every project;
  * another agent's class, or another project's, doesn't count.
  *
  * Exported so a caller that resolves the default outside the improve route
