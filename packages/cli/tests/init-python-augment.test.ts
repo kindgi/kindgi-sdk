@@ -95,6 +95,7 @@ describe('kindgi init in a uv app', () => {
     expect(skills.sort()).toEqual([
       'kindgi-authoring-mcp-servers',
       'kindgi-authoring-providers',
+      'kindgi-fix-corrections',
       'kindgi-framework-feedback',
       'kindgi-python-authoring-agents',
       'kindgi-python-authoring-flows',
