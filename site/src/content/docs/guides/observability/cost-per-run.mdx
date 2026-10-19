@@ -454,7 +454,7 @@ The sum covers only that customer's runs:
   `flowId` keeps one flow's spend: every record of the run trees whose root
   is a run of that flow, whatever its version. With `groupBy` `day`, that's
   the flow's spend by day. In Python, it's `flow_id`. It needs runtime
-  0.1.8.1 or later: an earlier one ignores it and sums every flow.
+  0.1.9 or later: an earlier one ignores it and sums every flow.
 
 A tool can check that a run belongs to the right customer, as
 [Check the run's org](../../tools/write-a-tool/#check-the-runs-org) shows.
@@ -535,7 +535,7 @@ cost over a range, against the range before. The range is **7 days**,
 - **Where it went:** **By agent**, **By model**, **By flow** or **By kind**,
   the costliest against the range before ("33% more (was $11.28)", "new").
   An agent's or a model's row filters the page to it. So does a flow's
-  (runtime 0.1.8.1 or later), and a flow's page opens this page filtered to
+  (runtime 0.1.9 or later), and a flow's page opens this page filtered to
   that flow with **Cost**. The table sorts by a column's header, and
   **Columns** chooses which columns it shows.
 - **Biggest changes:** against the range before, by dollars ("Research
