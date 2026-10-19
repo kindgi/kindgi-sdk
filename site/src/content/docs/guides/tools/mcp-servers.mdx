@@ -941,8 +941,9 @@ uv run kindgi tools unregister inventory.stock_level 1.0.0
 </Tabs>
 
 A pack deployed into another project can't take an endpoint's tool's id
-either: a tool stays in the project its first version was published into,
-so that's `tool-project-mismatch`.
+either, and nothing is deployed. The refusal is `tool-project-mismatch`,
+since a tool stays in the project its first version was published into,
+or `tool-kind-mismatch`.
 
 An id that holds both kinds' active versions from an earlier runtime is
 served as neither, as before. Until every active version of one kind is
