@@ -1534,7 +1534,8 @@ const SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES: Record<string, JsonSchema> = {
   },
   projectId: {
     type: 'string',
-    description: 'The project the deploy was scoped to. Absent for a tenant-wide deploy.',
+    description:
+      "The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project.",
   },
   imageRef: {
     type: 'string',

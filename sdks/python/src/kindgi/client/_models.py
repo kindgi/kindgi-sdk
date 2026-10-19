@@ -954,7 +954,7 @@ class SystemDeploymentEntry(BaseModel):
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    The project the deploy was scoped to. Absent for a tenant-wide deploy.
+    The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project.
     """
     image_ref: Annotated[str, Field(alias="imageRef")]
     """
@@ -11920,7 +11920,7 @@ class SystemPackEnvEntry(BaseModel):
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    The project the deploy was scoped to. Absent for a tenant-wide deploy.
+    The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project.
     """
     image_ref: Annotated[str, Field(alias="imageRef")]
     """
