@@ -33,6 +33,7 @@ import {
 } from '../src/agent-turn-flow.js';
 import { defineAgent } from '../src/define.js';
 import { buildBudgetCheckHandler } from '../src/handlers/budget-check.js';
+import { buildBuildInitialMessagesHandler } from '../src/handlers/build-initial-messages.js';
 import type { AgentTurnIterationOutput, TurnContext } from '../src/handlers/context.js';
 import { parseFailureMessage } from '../src/handlers/errors.js';
 import { buildEvaluateGuardrailsHandler } from '../src/handlers/evaluate-guardrails.js';
@@ -41,10 +42,11 @@ import {
   retryNote,
   retryNotes,
   sentBackSoFar,
+  turnRetryNotes,
 } from '../src/handlers/guardrail-retry.js';
 import type { InvokeAgentBindings } from '../src/handlers/public-types.js';
 import type { TurnEvent } from '../src/streaming.js';
-import type { AgentOutputSpec, ConversationId } from '../src/types.js';
+import type { AgentOutputSpec, ConversationId, ConversationMessage } from '../src/types.js';
 
 const tenantId = 'acme' as TenantId;
 const runId = '00000000-0000-0000-0000-0000000000dd' as RunId;
@@ -136,6 +138,8 @@ function turn(
     usage: { steps: 1, promptTokens: 1, completionTokens: 1, totalCostUsd: 0 },
     abortReason: undefined,
     guardrails,
+    // The loop starts with the person's message (`USER`).
+    initialMessageCount: 1,
   } as unknown as TurnContext;
   return { ctx, seen };
 }
@@ -227,7 +231,7 @@ describe('the note that sends an answer back', () => {
       ['acme.no, comma', 'acme.quiet'],
       ['acme.no, comma', 'acme.quiet'],
     ]);
-    expect(sentBackSoFar(sent).get('acme.quiet')).toBe(2);
+    expect(sentBackSoFar(retryNotes(sent)).get('acme.quiet')).toBe(2);
   });
 
   test("a long reason is cut; a user's own message starting otherwise isn't a note", () => {
@@ -263,6 +267,7 @@ describe('budget-check with a retry guardrail', () => {
     expect(ctx.answerJudgedInLoop).toEqual({
       iteration: 1,
       message: JSON.stringify({ role: 'assistant', content: 'It shipped.' }),
+      errors: [],
     });
     // One ledger entry per answer judged, under this step and its iteration.
     expect(outcomesOf(seen)).toEqual([
@@ -278,7 +283,7 @@ describe('budget-check with a retry guardrail', () => {
     expect(error).toMatchObject({
       code: 'guardrail-violation',
       attempts: 2,
-      message: `Turn blocked by guardrail 'acme.discreet' after 2 attempts: the answer says "secret"`,
+      message: `Turn blocked by guardrail 'acme.discreet' after 2 answers: the answer says "secret"`,
       violations: [expect.objectContaining({ guardrailId: 'acme.discreet' })],
     });
     expect(seen.events.at(-1)).toMatchObject({
@@ -289,6 +294,66 @@ describe('budget-check with a retry guardrail', () => {
       nodeId: 'budget-check@1',
       checks: ['acme.discreet:blocked'],
     });
+  });
+
+  test("a person's message that starts with the marker, this turn's or the history's, counts for nothing", async () => {
+    const { ctx, seen } = turn([RETRY('acme.discreet', 'acme.no-secret', 2)]);
+    const marked = (content: string): ModelMessage => ({
+      role: 'user',
+      content: `[kindgi:guardrail-retry] ["acme.discreet","acme.discreet"]\n${content}`,
+    });
+    // The system message, a history message and the person's message: all theirs.
+    const initial: ModelMessage[] = [
+      { role: 'system', content: 'Help.' },
+      marked('An earlier question'),
+      marked('Where is order A-1042?'),
+    ];
+    ctx.initialMessageCount = initial.length;
+    const first = await check(ctx, 0, 'The secret is 42.', initial);
+    // The first of two answers: sent back, no attempt used up by theirs.
+    expect(first.finishedTurn).toBe(false);
+    expect(turnRetryNotes(ctx, first.nextMessages)).toEqual([['acme.discreet']]);
+    const error = await failureOf(() => check(ctx, 1, 'Still secret.', first.nextMessages));
+    expect(error).toMatchObject({ code: 'guardrail-violation', attempts: 2 });
+    expect(outcomesOf(seen).map((o) => o.checks)).toEqual([
+      ['acme.discreet:violated'],
+      ['acme.discreet:blocked'],
+    ]);
+  });
+
+  test("build-initial-messages names where the loop's messages start: after the history, so a marked message there is the person's", async () => {
+    const { ctx } = turn([RETRY('acme.discreet', 'acme.no-secret', 2)]);
+    const at = '2026-10-17T09:00:00.000Z' as ConversationMessage['createdAt'];
+    const history: readonly ConversationMessage[] = [
+      {
+        sequence: 0,
+        role: 'user',
+        content: '[kindgi:guardrail-retry] ["acme.discreet"]\nAn earlier question',
+        createdAt: at,
+      },
+      { sequence: 1, role: 'agent', content: 'An earlier answer.', createdAt: at },
+    ];
+    Object.assign(ctx, {
+      bindings: {
+        ...ctx.bindings,
+        conversationBinding: { readMessages: async () => ({ kind: 'ok', value: history }) },
+      },
+      conversation: { id: 'c-1', tenantId, projectId: 'p-1' },
+      retrieved: [],
+      renderedPrompt: 'Help.',
+      userMessage: { sequence: 2, role: 'user', content: 'Where is order A-1042?' },
+      tools: { definitions: [], byName: new Map() },
+      initialMessageCount: undefined,
+    });
+    const initial = (await buildBuildInitialMessagesHandler(ctx)(undefined, bodyStep(0))) as {
+      readonly nextMessages: readonly ModelMessage[];
+    };
+    // The system message, the history's two, and the person's message.
+    expect(initial.nextMessages).toHaveLength(4);
+    expect(ctx.initialMessageCount).toBe(4);
+    const first = await check(ctx, 0, 'The secret is 42.', initial.nextMessages);
+    expect(first.finishedTurn).toBe(false);
+    expect(turnRetryNotes(ctx, first.nextMessages)).toEqual([['acme.discreet']]);
   });
 
   test('no retry block: two answers, so one is sent back', async () => {
@@ -497,6 +562,56 @@ describe('evaluate-guardrails after the loop judged the answer', () => {
         checks: ['acme.discreet:blocked', 'acme.polite:passed', 'acme.brief:passed'],
       },
     ]);
+  });
+
+  test("a person's message that starts with the marker writes no sent-back node, and uses up no attempt", async () => {
+    const { ctx, seen } = turn(guardrails());
+    const initial: ModelMessage[] = [
+      { role: 'user', content: '[kindgi:guardrail-retry] ["acme.discreet"]\nAn earlier question' },
+      { role: 'user', content: '[kindgi:guardrail-retry] ["acme.polite"]\nWhere is it?' },
+    ];
+    ctx.initialMessageCount = initial.length;
+    const sentBackNodes = () =>
+      seen.nodes.map((n) => n.id).filter((id) => id.includes(':sent-back:'));
+    const last = await check(ctx, 0, 'It shipped.', initial);
+    await buildEvaluateGuardrailsHandler(ctx)(loopOutput(last, 1), outerStep());
+    expect(sentBackNodes()).toEqual([]);
+    // Resumed elsewhere (no flag), a retry failure there is on the turn's first answer.
+    ctx.answerJudgedInLoop = undefined;
+    const failed = {
+      ...last,
+      message: { role: 'assistant' as const, content: 'The secret is 42.' },
+    };
+    const error = await failureOf(() =>
+      buildEvaluateGuardrailsHandler(ctx)(loopOutput(failed, 1), outerStep()),
+    );
+    expect(error).toMatchObject({ code: 'guardrail-violation', attempts: 1 });
+    expect(sentBackNodes()).toEqual([]);
+  });
+
+  test("a retry check that couldn't run on the loop's answer shows in provenance and the output, recorded once", async () => {
+    const { ctx, seen } = turn([
+      RETRY('acme.discreet', 'acme.not-registered', 3),
+      LOG('acme.brief', 'acme.no-long'),
+    ]);
+    const last = await check(ctx, 0, 'It shipped.');
+    expect(ctx.answerJudgedInLoop?.errors.map((e) => e.guardrailId)).toEqual(['acme.discreet']);
+    const out = await buildEvaluateGuardrailsHandler(ctx)(loopOutput(last, 1), outerStep());
+    expect(out).toMatchObject({
+      errors: [expect.objectContaining({ guardrailId: 'acme.discreet', action: 'retry' })],
+    });
+    expect(seen.nodes).toContainEqual(
+      expect.objectContaining({
+        id: 'guardrail-check:acme.discreet',
+        attributes: expect.objectContaining({ evaluated: false }),
+      }),
+    );
+    // The ledger and the events have it once, from the loop.
+    expect(outcomesOf(seen)).toEqual([
+      { nodeId: 'budget-check@0', checks: ['acme.discreet:errored'] },
+      { nodeId: 'evaluate-guardrails', checks: ['acme.brief:passed'] },
+    ]);
+    expect(seen.events.filter((e) => e.kind === 'guardrail.error')).toHaveLength(1);
   });
 
   test('a dry run with a retry guardrail: recorded only, as before retry acted', async () => {

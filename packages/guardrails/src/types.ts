@@ -50,8 +50,8 @@ export type GuardrailSeverity = 'info' | 'warn' | 'error' | 'critical';
  * `'redact-then-continue'`. Any non-empty name is accepted when the
  * guardrail is defined; with `EvaluationBindings.actions` set, a name
  * with no registered handler fails with `unknown-action` when the
- * guardrail fires. The agent runtime in 0.1 binds no action handlers
- * and acts only on `'halt'` (see `Action`).
+ * guardrail fires. The agent runtime binds no action handlers, and acts
+ * on `'halt'` and `'retry'` (see `Action`).
  */
 export type OnViolation = string;
 
@@ -79,9 +79,10 @@ export interface Action {
    */
   readonly 'on-violation': OnViolation;
   /**
-   * The answers a `'retry'` allows in one turn, the first one included:
-   * `maxAttempts: 3` sends a failed answer back up to twice. Left out, 2.
-   * The turn's `maxSteps` bounds it too.
+   * Counts the answers this guardrail fails in a turn, the first one
+   * included: with `maxAttempts: 3` it sends a failed answer back up to
+   * twice, and the third answer it fails ends the turn. Left out, 2. The
+   * turn's `maxSteps`, and the agent loop's 32 model calls, bound it too.
    */
   readonly retry?: { readonly maxAttempts: number };
   /** Where an `'escalate'` goes. In 0.1 nothing escalates. */

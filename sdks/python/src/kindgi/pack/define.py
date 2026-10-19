@@ -409,8 +409,8 @@ def guardrail(
     pass `action=` for the full object (`{"on-violation": "retry", "retry": {"maxAttempts": 2}}`).
     The runtime acts on `"halt"`: the turn fails with `guardrail-violation`. It acts on
     `"retry"` too: the answer goes back to the model with the check's reason, for a new
-    one, until `maxAttempts` answers in all (the first one included; 2 when left out),
-    and then the turn fails the same way. Any other action is recorded on the turn's
+    one, until the guardrail has failed `maxAttempts` answers (the first one included; 2
+    when left out), and then the turn fails the same way. Any other action is recorded on the turn's
     violations and the turn completes; in 0.1 nothing escalates or calls a compensating tool.
     `config=` is what the check is configured with, keyed as on the wire (a
     model's aliases); it is checked against the config type here. Without it

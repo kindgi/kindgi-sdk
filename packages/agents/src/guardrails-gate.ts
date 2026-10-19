@@ -346,7 +346,7 @@ export function categorizeOutcomes(
  *
  *   Turn blocked by guardrail 'no-pii': Response contains an email address
  *   Turn blocked by 2 guardrails: 'no-pii' (Response contains …); 'max-length'
- *   Turn blocked by guardrail 'cite' after 2 attempts: No source cited
+ *   Turn blocked by guardrail 'cite' after 2 answers: No source cited
  */
 export function describeBlockingViolations(
   blocking: readonly EvaluationResult[],
@@ -354,7 +354,7 @@ export function describeBlockingViolations(
   attempts?: number,
 ): string {
   const after =
-    attempts === undefined ? '' : ` after ${attempts} attempt${attempts === 1 ? '' : 's'}`;
+    attempts === undefined ? '' : ` after ${attempts} answer${attempts === 1 ? '' : 's'}`;
   const reasonOf = (v: EvaluationResult): string | undefined => {
     const reason = v.result.reason?.trim();
     return reason === undefined || reason === '' ? undefined : reason;

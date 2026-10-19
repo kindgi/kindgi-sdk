@@ -11,8 +11,8 @@ same version, and the CLI's own changes are in
 ## Unreleased
 
 - `kindgi`: **a `retry` guardrail sends a failed answer back to the model,
-  for a new one**, up to its `maxAttempts` answers (2 when left out), and
-  then the turn fails with `guardrail-violation`.
+  for a new one**, until it has failed `maxAttempts` answers (2 when left
+  out), and then the turn fails with `guardrail-violation`.
   `GuardrailViolationError.attempts` says how many answers the turn had
   (`None` when a `halt` guardrail stopped it). The `@guardrail` docstring
   says what `retry` does.

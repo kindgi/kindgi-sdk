@@ -885,7 +885,7 @@ export const ERROR_ENTRIES = {
   },
   'guardrail-violation': {
     description:
-      "A blocking guardrail stopped the agent's turn, a halting guardrail's check couldn't run, or a `retry` guardrail's answers ran out (each failed answer went back to the model for a new one, up to its `retry.maxAttempts`). The run fails; the violations say which guardrails fired.",
+      "A blocking guardrail stopped the agent's turn, a halting guardrail's check couldn't run, or a `retry` guardrail's attempts ran out (it sent each answer it failed back to the model for a new one, until it had failed `retry.maxAttempts`). The run fails; the violations say which guardrails fired.",
     details: [
       {
         key: 'violations',

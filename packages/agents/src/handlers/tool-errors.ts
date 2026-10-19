@@ -15,6 +15,7 @@
 import type { ModelMessage } from '@kindgi/capabilities';
 import { TOOL_ERROR_KINDS, type ToolErrorKind, type ToolErrorsSpec } from '@kindgi/policy-contract';
 
+import { isRetryNote } from './guardrail-retry.js';
 import { isRepairMessage } from './structured-output.js';
 
 /** Without an agent setting: one retry, for failures where nothing ran. */
@@ -98,13 +99,14 @@ export function toolErrorResult(
 /**
  * Retries this turn has taken: the marked tool results after the turn's
  * user message. Earlier turns' results come back as history; they don't
- * count.
+ * count. A repair request or a guardrail's note (a sent-back answer) is
+ * the loop's, not the turn's user message.
  */
 export function toolRetriesSoFar(messages: readonly ModelMessage[]): number {
   let start = 0;
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const m = messages[i];
-    if (m !== undefined && m.role === 'user' && !isRepairMessage(m)) {
+    if (m !== undefined && m.role === 'user' && !isRepairMessage(m) && !isRetryNote(m)) {
       start = i + 1;
       break;
     }

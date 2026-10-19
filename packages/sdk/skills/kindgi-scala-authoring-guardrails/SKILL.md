@@ -54,9 +54,9 @@ built:
 - **`halt` and `retry` act.** A failed `halt` guardrail fails the turn with
   `guardrail-violation`, and the answer is not stored. A failed `retry`
   guardrail sends the answer back to the model, with the check's reason in a
-  user message, for a new one; the failed answer isn't stored. When its
-  `retry.maxAttempts` answers in all (the first one included; 2 when left
-  out) have failed, the turn fails with `guardrail-violation` and
+  user message, for a new one; the failed answer isn't stored. When it has
+  failed `retry.maxAttempts` answers (the first one included; 2 when left
+  out), the turn fails with `guardrail-violation` and
   `details.attempts`. Each new answer is a model call that the agent's
   `budget.maxSteps` counts. The `halt` and `retry` guardrails judge each
   answer, a judge's calls included, which `budget.maxCostUsd` doesn't count;

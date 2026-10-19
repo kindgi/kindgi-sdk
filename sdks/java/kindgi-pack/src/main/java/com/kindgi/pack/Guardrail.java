@@ -188,8 +188,8 @@ public final class Guardrail<C> {
     /**
      * The runtime acts on {@code halt}: the turn fails with {@code guardrail-violation}. It acts
      * on {@code retry} too: the answer goes back to the model with the check's reason, for a new
-     * one, two answers in all ({@link #action(Map)} with {@code "retry": {"maxAttempts": n}} sets
-     * another count), and then the turn fails the same way. Any other action is recorded on the
+     * one, until the guardrail has failed two answers ({@link #action(Map)} with {@code "retry":
+     * {"maxAttempts": n}} sets another count), and then the turn fails the same way. Any other action is recorded on the
      * turn's violations and the turn completes; in 0.1 nothing escalates or calls a compensating
      * tool.
      *

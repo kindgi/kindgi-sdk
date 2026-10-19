@@ -964,7 +964,7 @@ export interface Guardrail {
 
 /**
  * Wire shape — matches `@kindgi/api/openapi.json#GuardrailAction`. What a
- * failed check does to the agent turn: in 0.1 the runtime acts only on `halt`.
+ * failed check does to the agent turn: the runtime acts on `halt` and `retry`.
  */
 export interface GuardrailAction {
   /**
@@ -978,9 +978,10 @@ export interface GuardrailAction {
    */
   readonly 'on-violation': string;
   /**
-   * The answers a `retry` allows in one turn, the first one included
-   * (`maxAttempts: 3` sends a failed answer back up to twice). Left out, 2.
-   * The turn's `maxSteps` bounds it too.
+   * Counts the answers this guardrail fails in a turn, the first one
+   * included: with `maxAttempts: 3` it sends a failed answer back up to
+   * twice, and the third answer it fails ends the turn. Left out, 2. The
+   * turn's `maxSteps`, and the agent loop's 32 model calls, bound it too.
    */
   readonly retry?: {
     readonly maxAttempts: number;

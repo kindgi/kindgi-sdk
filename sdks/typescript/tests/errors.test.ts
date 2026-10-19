@@ -46,7 +46,7 @@ describe('fromWire — guardrail-violation', () => {
   it("carries the answers a retry guardrail's attempts ran out after", () => {
     const err = fromWire({
       code: 'guardrail-violation',
-      message: "Turn blocked by guardrail 'cite' after 2 attempts: No source cited",
+      message: "Turn blocked by guardrail 'cite' after 2 answers: No source cited",
       details: {
         violations: [
           { guardrailId: 'cite', result: { passed: false }, action: 'retry', severity: 'warn' },

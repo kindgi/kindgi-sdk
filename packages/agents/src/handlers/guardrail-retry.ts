@@ -4,6 +4,9 @@
 import type { ModelMessage } from '@kindgi/capabilities';
 import type { EvaluationResult, Guardrail } from '@kindgi/guardrails';
 
+import type { TurnContext } from './context.js';
+import { throwAgentTurnFailure } from './errors.js';
+
 /**
  * A `retry` guardrail's attempts when it gives none (`action.retry`
  * left out): two answers in all, so one is sent back, as output repair's
@@ -36,20 +39,51 @@ export function attemptsOf(guardrail: Guardrail): number {
   return guardrail.action.retry?.maxAttempts ?? DEFAULT_GUARDRAIL_ATTEMPTS;
 }
 
+/** Whether a message reads as one of this module's notes (`retryNote`). */
+export function isRetryNote(m: ModelMessage): boolean {
+  return m.role === 'user' && typeof m.content === 'string' && m.content.startsWith(RETRY_MARKER);
+}
+
 /**
  * The guardrails each note in `messages` sent an answer back for, in
  * order. The note's first line names them as a JSON array after the
- * marker, so any guardrail id reads back as written.
+ * marker, so any guardrail id reads back as written. Read only what the
+ * turn's loop added (`turnRetryNotes`): anyone can write a message that
+ * starts with the marker.
  */
 export function retryNotes(messages: readonly ModelMessage[]): readonly (readonly string[])[] {
   const notes: string[][] = [];
   for (const m of messages) {
-    if (m.role !== 'user' || typeof m.content !== 'string') continue;
-    if (!m.content.startsWith(RETRY_MARKER)) continue;
-    const firstLine = m.content.slice(RETRY_MARKER.length).split('\n', 1)[0] ?? '';
+    if (!isRetryNote(m)) continue;
+    const content = m.content as string;
+    const firstLine = content.slice(RETRY_MARKER.length).split('\n', 1)[0] ?? '';
     notes.push(idsOf(firstLine));
   }
   return notes;
+}
+
+/**
+ * The notes this turn's loop added to `messages`, the messages a step
+ * of the loop sent: those after the loop's initial ones
+ * (`ctx.initialMessageCount`, the system message, the history, the
+ * memory and the person's message). A message of the person's, this
+ * turn's or one in the history, that starts with the marker is theirs,
+ * and counts for nothing. What the loop's attempts, the outer node's
+ * sent-back provenance and a failure's `attempts` all count.
+ */
+export function turnRetryNotes(
+  ctx: TurnContext,
+  messages: readonly ModelMessage[],
+): readonly (readonly string[])[] {
+  const start = ctx.initialMessageCount;
+  if (start === undefined) {
+    throwAgentTurnFailure({
+      code: 'model-invocation-failed',
+      message: "a guardrail's notes were read before build-initial-messages completed",
+      cause: null,
+    });
+  }
+  return retryNotes(messages.slice(start));
 }
 
 function idsOf(line: string): string[] {
@@ -63,12 +97,12 @@ function idsOf(line: string): string[] {
 
 /**
  * How many answers each guardrail has sent back this turn so far, by
- * guardrail id. Counted from the notes in the messages, as repairs are
- * (`repairsSoFar`), so a replayed or resumed turn counts the same.
+ * guardrail id, from the turn's notes (`turnRetryNotes`). Counted from
+ * the journaled messages, so a replayed or resumed turn counts the same.
  */
-export function sentBackSoFar(messages: readonly ModelMessage[]): ReadonlyMap<string, number> {
+export function sentBackSoFar(notes: readonly (readonly string[])[]): ReadonlyMap<string, number> {
   const counts = new Map<string, number>();
-  for (const ids of retryNotes(messages)) {
+  for (const ids of notes) {
     for (const id of ids) counts.set(id, (counts.get(id) ?? 0) + 1);
   }
   return counts;
@@ -97,7 +131,7 @@ export function retryNote(violations: readonly EvaluationResult[]): ModelMessage
       `${RETRY_MARKER} ${JSON.stringify(ids)}`,
       `Your answer wasn't sent: it didn't pass ${violations.length === 1 ? 'this guardrail' : 'these guardrails'}.`,
       ...lines,
-      'Write a new answer that meets them.',
+      `Write a new answer that meets ${violations.length === 1 ? 'it' : 'them'}.`,
     ].join('\n'),
   };
 }

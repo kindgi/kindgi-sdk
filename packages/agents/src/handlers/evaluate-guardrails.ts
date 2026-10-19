@@ -25,7 +25,7 @@ import type { ConversationMessage } from '../types.js';
 import type { AgentTurnIterationOutput, TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
 import { finalIteration } from './final-iteration.js';
-import { judgedInLoop, retryNotes } from './guardrail-retry.js';
+import { isRetryGuardrail, judgedInLoop, turnRetryNotes } from './guardrail-retry.js';
 import { replayTag } from './replay.js';
 import { parseJsonAnswer } from './structured-output.js';
 
@@ -83,9 +83,9 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
     // The loop judged this very answer on the `halt` and `retry` guardrails
     // (`budget-check`, in a turn with a `retry` guardrail), so the rest are
     // judged here. Any other final output is judged on every guardrail.
-    const guardrails = judgedByLoop(ctx, input, final)
-      ? ctx.guardrails.filter((g) => !judgedInLoop(g))
-      : ctx.guardrails;
+    const inLoop = judgedByLoop(ctx, input, final) ? ctx.answerJudgedInLoop : undefined;
+    const guardrails =
+      inLoop !== undefined ? ctx.guardrails.filter((g) => !judgedInLoop(g)) : ctx.guardrails;
     const categorized = await judgeAnswer(ctx, kctx, final.message, guardrails, evaluatedAt);
     // A `retry` guardrail that fails here can't send the answer back, as the
     // loop is done: it's out of attempts, and the turn fails. A dry run never
@@ -94,79 +94,25 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
     // Recorded before the gate acts on them, so a blocked turn is counted too.
     await recordOutcomes(ctx, kctx, evaluatedAt, withBlocked(categorized.checks, outOfAttempts));
     await emitGateEvents(ctx, categorized);
-
-    if (ctx.provenance !== undefined) {
-      for (const v of violationsOf(categorized)) {
-        ctx.provenance.addNode({
-          id: `guardrail-check:${v.guardrailId}`,
-          kind: 'guardrail-check',
-          timestamp: v.at,
-          attributes: {
-            guardrailId: v.guardrailId,
-            action: v.action,
-            severity: v.severity,
-            passed: false,
-            ...(v.result.reason !== undefined && { reason: v.result.reason }),
-          },
-        });
-        ctx.provenance.addEdge({
-          from: `guardrail-check:${v.guardrailId}`,
-          to: `model-output:${ctx.usage.steps}`,
-          kind: 'influenced-by',
-        });
-      }
-      for (const e of categorized.errors) {
-        ctx.provenance.addNode({
-          id: `guardrail-check:${e.guardrailId}`,
-          kind: 'guardrail-check',
-          timestamp: evaluatedAt,
-          attributes: {
-            guardrailId: e.guardrailId,
-            ...(e.action !== undefined && { action: e.action }),
-            ...(e.severity !== undefined && { severity: e.severity }),
-            evaluated: false,
-            error: e.code,
-            reason: e.message,
-          },
-        });
-        ctx.provenance.addEdge({
-          from: `guardrail-check:${e.guardrailId}`,
-          to: `model-output:${ctx.usage.steps}`,
-          kind: 'influenced-by',
-        });
-      }
-      // Each guardrail that sent an earlier answer back shaped this one: its
-      // note was in what the model read. From the journaled messages, so a
-      // resumed turn shows them too.
-      retryNotes(final.nextMessages).forEach((ids, i) => {
-        for (const guardrailId of ids) {
-          const id = `guardrail-check:${guardrailId}:sent-back:${i + 1}`;
-          ctx.provenance?.addNode({
-            id,
-            kind: 'guardrail-check',
-            timestamp: evaluatedAt,
-            attributes: { guardrailId, action: 'retry', passed: false, sentBack: i + 1 },
-          });
-          ctx.provenance?.addEdge({
-            from: id,
-            to: `model-output:${ctx.usage.steps}`,
-            kind: 'influenced-by',
-          });
-        }
-      });
-    }
+    // The checks the loop couldn't run on this answer show here as this
+    // node's own do, in provenance and in its output (the journal); the
+    // ledger and the events have them already, from `budget-check`.
+    const errors =
+      inLoop !== undefined
+        ? inGuardrailOrder(ctx.guardrails, [...inLoop.errors, ...categorized.errors])
+        : categorized.errors;
+    // The turn's notes, from the journaled messages, so a resumed turn reads
+    // them too. None without a `retry` guardrail.
+    const notes = ctx.guardrails.some(isRetryGuardrail)
+      ? turnRetryNotes(ctx, final.nextMessages)
+      : [];
+    addCheckNodes(ctx, violationsOf(categorized), errors, notes, evaluatedAt);
 
     if (categorized.blocking.length > 0 || categorized.blockingErrors.length > 0) {
-      return await failTurn(
-        ctx,
-        categorized.blocking,
-        categorized.blockingErrors,
-        categorized.errors,
-      );
+      return await failTurn(ctx, categorized.blocking, categorized.blockingErrors, errors);
     }
     if (outOfAttempts.length > 0) {
-      const attempts = retryNotes(final.nextMessages).length + 1;
-      return await failTurn(ctx, outOfAttempts, [], categorized.errors, attempts);
+      return await failTurn(ctx, outOfAttempts, [], errors, notes.length + 1);
     }
 
     const nonBlocking = [...categorized.warnings, ...categorized.retry, ...categorized.other];
@@ -177,7 +123,7 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
       warnings: categorized.warnings.length,
       other: categorized.retry.length + categorized.other.length,
       // The journal records the step's output: a check that couldn't run shows there.
-      errors: categorized.errors.map((e) => ({
+      errors: errors.map((e) => ({
         guardrailId: e.guardrailId,
         ...(e.action !== undefined && { action: e.action }),
         code: e.code,
@@ -211,6 +157,67 @@ function judgedByLoop(
 }
 
 type Categorized = ReturnType<typeof categorizeOutcomes>;
+
+/** `errors` in the order of the turn's guardrails, as the gate lists a turn's. */
+function inGuardrailOrder(
+  guardrails: readonly Guardrail[],
+  errors: readonly GuardrailEvaluationError[],
+): readonly GuardrailEvaluationError[] {
+  const at = new Map(guardrails.map((g, i) => [g.id as unknown as string, i]));
+  const order = (e: GuardrailEvaluationError) => at.get(e.guardrailId) ?? guardrails.length;
+  return [...errors].sort((a, b) => order(a) - order(b));
+}
+
+/**
+ * The final answer's guardrail checks in provenance, each `influenced-by`
+ * its `model-output` node: a node per failed check, one per check that
+ * couldn't run (`evaluated: false`), and one per guardrail that sent an
+ * earlier answer back (`notes`): its note was in what the model read.
+ */
+function addCheckNodes(
+  ctx: TurnContext,
+  violations: readonly EvaluationResult[],
+  errors: readonly GuardrailEvaluationError[],
+  notes: readonly (readonly string[])[],
+  evaluatedAt: Timestamp,
+): void {
+  const provenance = ctx.provenance;
+  if (provenance === undefined) return;
+  const output = `model-output:${ctx.usage.steps}`;
+  const add = (id: string, timestamp: Timestamp, attributes: Record<string, unknown>) => {
+    provenance.addNode({ id, kind: 'guardrail-check', timestamp, attributes });
+    provenance.addEdge({ from: id, to: output, kind: 'influenced-by' });
+  };
+  for (const v of violations) {
+    add(`guardrail-check:${v.guardrailId}`, v.at, {
+      guardrailId: v.guardrailId,
+      action: v.action,
+      severity: v.severity,
+      passed: false,
+      ...(v.result.reason !== undefined && { reason: v.result.reason }),
+    });
+  }
+  for (const e of errors) {
+    add(`guardrail-check:${e.guardrailId}`, evaluatedAt, {
+      guardrailId: e.guardrailId,
+      ...(e.action !== undefined && { action: e.action }),
+      ...(e.severity !== undefined && { severity: e.severity }),
+      evaluated: false,
+      error: e.code,
+      reason: e.message,
+    });
+  }
+  notes.forEach((ids, i) => {
+    for (const guardrailId of ids) {
+      add(`guardrail-check:${guardrailId}:sent-back:${i + 1}`, evaluatedAt, {
+        guardrailId,
+        action: 'retry',
+        passed: false,
+        sentBack: i + 1,
+      });
+    }
+  });
+}
 
 /** Every failed check, in the order the gate reports them. */
 function violationsOf(categorized: Categorized): readonly EvaluationResult[] {

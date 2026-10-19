@@ -75,7 +75,7 @@ describe('toolRetriesSoFar', () => {
     content: JSON.stringify(toolErrorResult('invalid-arguments', 'bad', undefined)),
   });
 
-  test("counts this turn's retries; earlier turns' results and repair prompts don't move the boundary", () => {
+  test("counts this turn's retries; earlier turns' results and repair prompts and guardrail notes don't move the boundary", () => {
     expect(
       toolRetriesSoFar([
         { role: 'user', content: 'earlier turn' },
@@ -87,8 +87,10 @@ describe('toolRetriesSoFar', () => {
         { role: 'tool', toolCallId: 'd', content: '{"ok":true}' },
         { role: 'user', content: '[kindgi:output-repair]\nfix it' },
         retry(),
+        { role: 'user', content: '[kindgi:guardrail-retry] ["acme.g"]\nWrite a new answer.' },
+        retry(),
       ]),
-    ).toBe(2);
+    ).toBe(3);
     expect(toolRetriesSoFar([{ role: 'user', content: 'hi' }])).toBe(0);
   });
 });
