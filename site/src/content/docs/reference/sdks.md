@@ -55,7 +55,7 @@ in as data, as the API names them: `set("budget", …)`, `node(Map.of(…))`,
 | [Start a run](../../guides/runs/start-a-run/), and wait for it or not | Yes | Yes | Yes | Yes |
 | [Follow a run's events](../../guides/runs/follow-a-run/), reconnecting until it ends | Yes | Yes | Yes | Yes |
 | Typed errors, and retries a call can take | Yes | Yes | Yes | Yes |
-| [Comparing an agent version](../../guides/evals/compare-an-agent-version/): a helper that reads the comparison | Yes | Yes | No | No |
+| [Trying an agent version on the test cases](../../guides/evals/compare-an-agent-version/): a helper that reads the result | Yes | Yes | No | No |
 | [Verifying a webhook](../../guides/webhooks/verify-a-webhook/), reading its event, signing a test one | Yes | Yes | No | No |
 | [Checking a signed export](../../guides/observability/export-signed-evidence/#check-an-export) | Yes | Yes | No | No |
 
@@ -69,11 +69,11 @@ in as data, as the API names them: `set("budget", …)`, `node(Map.of(…))`,
   build the context with `new ToolContext(…)`, which takes them. In those
   three, nothing fills in the defaults a tool declares for its env values or
   checks them, as TypeScript's `invokeToolForTest` does.
-- **The comparison helper:** an eval run's `result()`, from
-  `client.evalRuns().get(runId)`, is a map; for a comparison, read it as the
+- **The test-cases run helper:** an eval run's `result()`, from
+  `client.evalRuns().get(runId)`, is a map; for a run on the test cases, read it as the
   client's `JudgedComparisonResult`:
   `KindgiJson.read(KindgiJson.write(run.result()), JudgedComparisonResult.class)`.
-  Check first that the run is a comparison (`kind` `judged`) and has ended.
+  Check first that the run is a run on the test cases (`kind` `judged`) and has ended.
 - **Webhooks:** Kindgi's deliveries are
   [Standard Webhooks](https://www.standardwebhooks.com), so a Standard
   Webhooks library verifies them with the same secret.

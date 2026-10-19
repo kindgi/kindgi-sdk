@@ -39,7 +39,7 @@ const list: LeafCommand = {
     replays: {
       type: 'string',
       description:
-        "Replay conversations (a comparison's replays): `exclude` (the default) leaves them out, `include` lists them too, `only` lists just them.",
+        'Replay conversations (the replays of a run on the test cases): `exclude` (the default) leaves them out, `include` lists them too, `only` lists just them.',
     },
     limit: { type: 'string', description: 'The most conversations to return.' },
     cursor: {

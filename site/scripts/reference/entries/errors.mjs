@@ -1176,26 +1176,27 @@ export const ERROR_ENTRIES = {
   },
   'proposal-not-found': {
     description:
-      "The improvement proposal doesn't exist in the tenant, or your key can't see its agent.",
+      "The suggested change doesn't exist in the tenant, or your key can't see its agent.",
     details: [
       {
         key: 'proposalId',
-        meaning: 'the proposal id that was looked up',
+        meaning: 'the suggested change id that was looked up',
       },
     ],
     seeAlso: ['guides/evals/propose-a-change'],
   },
   'proposal-invalid-state-transition': {
     description:
-      "The proposal's status doesn't allow this action, or it changed while the request ran. Read the proposal again and retry if it still applies.",
+      "The suggested change's status doesn't allow this action, or it changed while the request ran. Read the suggested change again and retry if it still applies.",
     details: [
       {
         key: 'proposalId',
-        meaning: 'the proposal id',
+        meaning: 'the suggested change id',
       },
       {
         key: 'status',
-        meaning: 'the proposal status that refused the action; absent when it changed mid-request',
+        meaning:
+          'the suggested change status that refused the action; absent when it changed mid-request',
       },
     ],
   },
@@ -1205,11 +1206,11 @@ export const ERROR_ENTRIES = {
     details: [],
   },
   'improve-unsupported': {
-    description: "This runtime doesn't run improvement passes.",
+    description: "This runtime doesn't run Improve runs.",
     details: [],
   },
   'improvement-pass-not-found': {
-    description: "The improvement pass doesn't exist, or your key can't read its agent.",
+    description: "The Improve run doesn't exist, or your key can't read its agent.",
     details: [
       {
         key: 'passId',
@@ -1219,7 +1220,7 @@ export const ERROR_ENTRIES = {
     seeAlso: ['POST /v1/improvement-passes/{passId}/cancel'],
   },
   'improvement-pass-finished': {
-    description: 'The improvement pass has already ended, so there is nothing to cancel.',
+    description: 'The Improve run has already ended, so there is nothing to cancel.',
     details: [
       {
         key: 'passId',
@@ -1522,7 +1523,7 @@ export const ERROR_ENTRIES = {
   },
   'eval-run-not-rescorable': {
     description:
-      "Only a completed comparison of a test set can be rescored; this eval run is of another kind or hasn't completed.",
+      "Only a completed run on the test cases can be rescored; this eval run is of another kind or hasn't completed.",
     details: [
       {
         key: 'runId',
@@ -1532,7 +1533,7 @@ export const ERROR_ENTRIES = {
   },
   'judgment-not-found': {
     description:
-      "No judgment exists with that id, or it's in a project your key can't read. Unregistering also needs it to be live.",
+      "No correction exists with that id, or it's in a project your key can't read. Unregistering also needs it to be live.",
     details: [],
     seeAlso: ['guides/evals/judge-a-runs-output'],
   },
@@ -1564,7 +1565,7 @@ export const ERROR_ENTRIES = {
   },
   'judge-class-not-allowed': {
     description:
-      "The judge class limits who may assert it, and your key or role isn't one of them, so you can't record a judgment as that class.",
+      "The judge class limits who may assert it, and your key or role isn't one of them, so you can't record a correction as that class.",
     details: [
       {
         key: 'action',
@@ -1602,7 +1603,7 @@ export const ERROR_ENTRIES = {
   },
   'gate-failed': {
     description:
-      'A gate policy refused the promotion because one or more of its checks failed. The refusal is recorded; read the failing checks and fix what they name.',
+      'A release gate policy refused the promotion because one or more of its checks failed. The refusal is recorded; read the failing checks and fix what they name.',
     details: [
       {
         key: 'promotionId',
@@ -1610,7 +1611,7 @@ export const ERROR_ENTRIES = {
       },
       {
         key: 'policy',
-        meaning: 'the gate policy that applied (id and version), or null',
+        meaning: 'the release gate policy that applied (id and version), or null',
       },
       {
         key: 'checks',
@@ -1618,7 +1619,7 @@ export const ERROR_ENTRIES = {
       },
       {
         key: 'proposalId',
-        meaning: 'the proposal, when the request came through a proposal',
+        meaning: 'the suggested change, when the request came through a suggested change',
       },
     ],
   },
@@ -1629,7 +1630,7 @@ export const ERROR_ENTRIES = {
   },
   'promotion-gate-unsupported': {
     description:
-      "A gate policy applies to this promotion, and the deployment can't record a gated promotion, so the promotion is refused.",
+      "A release gate policy applies to this promotion, and the deployment can't record a gated promotion, so the promotion is refused.",
     details: [],
   },
   'separate-approver-required': {
@@ -1644,7 +1645,8 @@ export const ERROR_ENTRIES = {
     seeAlso: ['guides/approvals/decide-an-approval'],
   },
   'gate-policy-not-found': {
-    description: 'No gate policy with that id exists, or it has no version with that number.',
+    description:
+      'No release gate policy with that id exists, or it has no version with that number.',
     details: [
       {
         key: 'policyId',
@@ -1655,12 +1657,12 @@ export const ERROR_ENTRIES = {
   },
   'gate-policy-already-registered': {
     description:
-      'The gate policy already has a version with that number. Publish with a new version number.',
+      'The release gate policy already has a version with that number. Publish with a new version number.',
     details: [],
   },
   'gate-policy-scope-taken': {
     description:
-      'Another gate policy already gates this agent for the same scope. Publish a new version of that policy instead, or unregister it first.',
+      'Another release gate policy already gates this agent for the same scope. Publish a new version of that policy instead, or unregister it first.',
     details: [
       {
         key: 'heldBy',
@@ -1670,22 +1672,22 @@ export const ERROR_ENTRIES = {
   },
   'gate-policy-scope-changed': {
     description:
-      "A new version of a gate policy can't change the agent or the scope the policy gates. Create a new policy for the other agent or scope.",
+      "A new version of a release gate policy can't change the agent or the scope the policy gates. Create a new policy for the other agent or scope.",
     details: [],
   },
   'gate-policy-scope-unpinned': {
     description:
-      'The scope has no live version of its own, so the gate policy would not take effect. Pin a version for the scope first.',
+      'The scope has no live version of its own, so the release gate policy would not take effect. Pin a version for the scope first.',
     details: [],
   },
   'gate-policy-needs-pin': {
     description:
-      "The scope has a gate policy, and a gated scope keeps its own live version, so it can't be unpinned. Unregister the gate policy first, or roll back instead.",
+      "The scope has a release gate policy, and a gated scope keeps its own live version, so it can't be unpinned. Unregister the release gate policy first, or roll back instead.",
     details: [],
   },
   'gate-policy-descendant-unpinned': {
     description:
-      'The change would also move a narrower scope that a gate policy applies to and that has no live version of its own, bypassing its gate. Pin that scope at its current version first.',
+      'The change would also move a narrower scope that a release gate policy applies to and that has no live version of its own, bypassing its gate. Pin that scope at its current version first.',
     details: [],
   },
   'principal-not-found': {
@@ -2021,7 +2023,7 @@ export const ERROR_ENTRIES = {
   },
   'test-sets-not-supported': {
     description:
-      "This deployment can't list judged runs, so it can't build test sets from judgments.",
+      "This deployment can't list judged runs, so it can't build test cases from corrections.",
     details: [],
   },
   'run-failures-not-supported': {
@@ -2381,7 +2383,7 @@ export const ERROR_ENTRIES = {
   },
   'project-suspended': {
     description:
-      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an eval run started in it, an improvement pass for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. An eval run or a pass already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or pass: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project.",
+      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an eval run started in it, an Improve run for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. An eval run or a pass already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or pass: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project.",
     details: [],
     seeAlso: [
       'POST /v1/deployments',
