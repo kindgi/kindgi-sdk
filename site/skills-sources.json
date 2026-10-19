@@ -64,6 +64,10 @@
       ],
       "samples": "fragments"
     },
+    "kindgi-fix-corrections": {
+      "pages": ["guides/evals/fix-what-experts-corrected"],
+      "samples": "none"
+    },
     "kindgi-framework-feedback": {
       "pages": ["start/coding-agents"],
       "samples": "none"
