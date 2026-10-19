@@ -158,6 +158,58 @@ works under `kindgi dev` and fails once deployed. `kindgi dev` warns when a
 tool imports one, and `kindgi build` refuses the pack until it moves.
 Build-time tools (the `prisma` CLI, `typescript`) stay in `devDependencies`.
 
+### Code that imports `server-only`
+
+A tool can't import a module that starts with `import 'server-only'`, as
+Next.js server code often does, or a module that imports one. That line is
+for Next.js's build, which refuses a client component that imports the
+module. Anywhere else, it stops the module from loading, so `kindgi test`,
+`kindgi dev` and `kindgi build` (and so `kindgi deploy`) fail on the tool.
+
+When your app doesn't have the `server-only` package (Next.js doesn't need
+it), none of the pack's code builds, and `kindgi dev` loads none of it:
+
+```text
+…
+  Indexer failed: [bundle-failed] The pack's code did not build:
+      lib/requests.ts:1:7: Could not resolve "server-only"
+…
+```
+
+When it has the package, `kindgi dev` loads the pack without that tool. The
+error is the package's own, though a tool isn't a Client Component:
+
+```text
+…
+    ⚠ indexer: kindgi/tools/get-request/index.ts [file-import-failed] Failed to import kindgi/tools/get-request/index.ts: Error: This module cannot be imported from a Client Component module. It should only be used from a Server Component.
+…
+```
+
+Keep the line, and move the code the tool needs into a module without it.
+Ask your coding agent: "Our request lookup imports server-only: share it
+with the Kindgi tool." For reference, the code in `lib/requests.ts` moves,
+as it is, to `lib/requests-core.ts`, without the `import 'server-only'`
+line. `lib/requests.ts` keeps the line and passes the code on, so your
+app's own imports don't change:
+
+```ts
+// lib/requests.ts
+import 'server-only';
+
+export * from './requests-core';
+```
+
+The tool imports the module without the line:
+
+```ts excerpt
+// in kindgi/tools/get-request/index.ts
+import { findRequest } from '@/lib/requests-core'; // your app's own code
+```
+
+Next.js's build still refuses a client component that imports
+`lib/requests.ts`. Nothing guards `lib/requests-core.ts`, so import it only
+from your app's server code and from the pack.
+
 ## An agent that uses it
 
 Ask your coding agent: "Add an agent that reads a support request and sets
@@ -372,14 +424,14 @@ The build ends with the image and a check of what's in it:
     "esModuleInterop": true,
     "isolatedModules": true,
     "resolveJsonModule": true,
-    "paths": { "@/*": ["./src/*"] }
+    "paths": { "@/*": ["./*"] }
   },
-  "include": ["src/**/*.ts", "kindgi/**/*.ts"]
+  "include": ["lib/**/*.ts", "kindgi/**/*.ts"]
 }
 ```
 
 ```ts
-// src/lib/requests.ts
+// lib/requests-core.ts
 export function findRequest(id: string): { subject: string; body: string } | undefined {
   return id === 'REQ-1234' ? { subject: 'Refund', body: 'I was charged twice.' } : undefined;
 }

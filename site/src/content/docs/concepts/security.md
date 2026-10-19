@@ -56,7 +56,7 @@ agent's turn with `model-invocation-failed`:
 No setting changes it.
 
 The template can render in a worker process instead of the server's own
-(it needs runtime 0.1.8.1 or later): with `KINDGI_TEMPLATE_RENDER_WORKERS`
+(it needs runtime 0.1.9 or later): with `KINDGI_TEMPLATE_RENDER_WORKERS`
 at 1 or more, the default on a runtime serving many tenants
 (`KINDGI_TENANCY=multi`).
 The worker's heap has a cap of its own
