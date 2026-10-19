@@ -1,5 +1,11 @@
 # @kindgi/audit-events
 
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- @kindgi/types@0.1.9-rc.0
+
 ## 0.1.8
 
 ### Patch Changes

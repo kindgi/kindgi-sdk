@@ -1,5 +1,13 @@
 # @kindgi/schema
 
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- Updated dependencies [ffeecb2]
+  - @kindgi/bounds@0.1.9-rc.0
+  - @kindgi/types@0.1.9-rc.0
+
 ## 0.1.8
 
 ### Patch Changes

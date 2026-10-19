@@ -10,6 +10,8 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+## 0.1.9rc0
+
 - `kindgi`: **`deployments.pack_env` shows where each name a deployment's
   pack declares is set** (`project`, `org` or `tenant`) and why it can't be
   given to its pack service, if it can't, on a server that runs a pack
