@@ -77,11 +77,17 @@ export const agentConversations = pgTable(
      * session HITL gate and the UI conversation list.
      */
     turnCount: integer('turn_count').notNull().default(0),
-    /**
-     * Denormalized last-activity timestamp. Kept in sync by
-     * `appendMessage`. Enables cheap sort by recency in the UI list.
-     */
+    /** When its last message was appended. Kept in sync by `appendMessage`. */
     lastMessageAt: timestamp('last_message_at', { withTimezone: true }),
+    /**
+     * When anything last happened in it (`Conversation.lastActivityAt`),
+     * the list's sort: written with each thing that happens, never back in
+     * time. Null on a conversation nothing has touched since the column
+     * came (no backfill): read as its last message, else its opening. The
+     * list's indexes on it are built without blocking writes, outside these
+     * migrations.
+     */
+    lastActivityAt: timestamp('last_activity_at', { withTimezone: true }),
     /**
      * Free-form metadata (participant details, feature flags,
      * conversation-level notes). Versioned envelope.
@@ -94,11 +100,11 @@ export const agentConversations = pgTable(
       t.tenantId,
       t.participantId,
     ),
-    /** One project's conversations, newest first (`listConversationsPage({ scope })`). */
+    /** One project's conversations, by when they opened. */
     tenantProjectOpenedIdx: index('agent_conversations_tenant_project_opened_idx')
       .on(t.tenantId, t.projectId, t.openedAt.desc())
       .where(sql`${t.projectId} IS NOT NULL`),
-    // "My conversations" (`?openedBy=me`), newest first, as the list pages.
+    // "My conversations" (`?openedBy=me`), by when they opened.
     tenantOpenedByIdx: index('agent_conversations_tenant_opened_by_idx')
       .on(t.tenantId, t.openedBy, t.openedAt.desc(), t.id.desc())
       .where(sql`${t.openedBy} IS NOT NULL`),

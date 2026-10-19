@@ -84,10 +84,10 @@ export interface ReadMessagesInput {
 }
 
 /**
- * Keyset marker used by `listConversationsPage`. When present, only
- * rows strictly before this marker (by `openedAt` desc, then `id`
- * desc) are returned. The api route encodes / decodes this to an
- * opaque wire cursor.
+ * Keyset marker used by `listConversationsPage` of a binding that sorts
+ * by opening (its page has no `order`). When present, only rows strictly before
+ * this marker (by `openedAt` desc, then `id` desc) are returned. The api
+ * route encodes / decodes this to an opaque wire cursor.
  */
 export interface ConversationPageCursor {
   /**
@@ -99,6 +99,25 @@ export interface ConversationPageCursor {
    * opened earlier in the same millisecond.
    */
   readonly openedAt: string;
+  readonly id: ConversationId;
+}
+
+/**
+ * Keyset marker used by `listConversationsPage` of a binding that sorts
+ * by last activity (its page's `order` is `last-activity`). When present, only
+ * rows strictly before it (by `lastActivityAt` desc, then `id` desc) are
+ * returned. A conversation only ever gets later, so none shows twice as
+ * the list pages; one that something happens in meanwhile moves above
+ * the marker, and that pass doesn't show it.
+ */
+export interface ConversationActivityCursor {
+  /**
+   * `lastActivityAt` of the last row from the previous page, as the
+   * binding's `ConversationPage.nextByActivity` gives it: the stored value
+   * exactly, to the microsecond. Compared as given, never through a JS
+   * `Date`.
+   */
+  readonly lastActivityAt: string;
   readonly id: ConversationId;
 }
 
@@ -126,8 +145,19 @@ export interface ListConversationsPageInput {
    * conversation; the HTTP route defaults to `exclude`.
    */
   readonly replays?: 'exclude' | 'include' | 'only';
-  /** Keyset for the next page — see `ConversationPageCursor`. */
+  /**
+   * Keyset for the next page of a binding that sorts by opening — see
+   * `ConversationPageCursor`. A binding that sorts by last activity
+   * ignores it: its page's `order` tells the caller the cursor was from
+   * the other sort.
+   */
   readonly before?: ConversationPageCursor;
+  /**
+   * Keyset for the next page of a binding that sorts by last activity —
+   * see `ConversationActivityCursor`. A binding that sorts by opening
+   * ignores it.
+   */
+  readonly beforeActivity?: ConversationActivityCursor;
   /**
    * Row cap PER PAGE. Impls fetch `limit + 1` internally to compute
    * `hasMore` without a second query.
@@ -139,12 +169,24 @@ export interface ConversationPage {
   readonly data: readonly Conversation[];
   readonly hasMore: boolean;
   /**
+   * How the page is sorted. `last-activity`: by `lastActivityAt DESC, id
+   * DESC`, paged by `beforeActivity` / `nextByActivity`. Absent: by
+   * `openedAt DESC, id DESC`, paged by `before` / `next`.
+   */
+  readonly order?: 'last-activity';
+  /**
    * Where the next page starts: the last row's position as stored
    * (`openedAt` to the microsecond, and `id`). Set when `hasMore`. Absent
    * from a binding that doesn't give it: the caller then uses the last
    * row's `openedAt` and `id`.
    */
   readonly next?: ConversationPageCursor;
+  /**
+   * Where the next page starts, from a binding that sorts by last
+   * activity: the last row's `lastActivityAt` as stored, and `id`. Set
+   * when `hasMore`.
+   */
+  readonly nextByActivity?: ConversationActivityCursor;
 }
 
 /** Who closes a conversation, and whether its policy does. */
@@ -198,10 +240,10 @@ export interface ConversationBinding {
 
   /**
    * Cursor-paginated + keyset-ordered variant of `listConversations`
-   * for the HTTP surface. Sort: `openedAt DESC, id DESC` (chronological
-   * — most-recently-opened first, id disambiguating). Fills the
-   * `hasMore` marker inline. Filters: `agentId`, `status` (`open` /
-   * `closed`), `before` keyset.
+   * for the HTTP surface, sorted as its page's `order` says (id
+   * disambiguating).
+   * Fills the `hasMore` marker inline. Filters: `agentId`, `status`
+   * (`open` / `closed`), and the keyset.
    */
   listConversationsPage(
     input: ListConversationsPageInput,

@@ -5,9 +5,11 @@ import { type Context, Hono } from 'hono';
 
 import type {
   Conversation,
+  ConversationActivityCursor,
   ConversationBinding,
   ConversationId,
   ConversationMessage,
+  ConversationPage,
   ConversationPageCursor,
 } from '@kindgi/agents';
 import { type ResourceRef, denyPayload, ref } from '@kindgi/authz';
@@ -39,8 +41,9 @@ const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
  * Conversations resource routes. All storage access goes through the
  * `ConversationBinding` — the router never touches storage directly.
  * Messages sort is `sequence asc` (natural conversation reading
- * order); conversation list sort is `openedAt DESC, id DESC`
- * (most-recently-opened first).
+ * order); conversation list sort is the page's `order`:
+ * `lastActivityAt DESC, id DESC` (most recently active first), or
+ * `openedAt DESC, id DESC` from a binding that doesn't keep it.
  */
 /**
  * A `:conversationId` that isn't a conversation id is a 400
@@ -148,16 +151,24 @@ export function conversationsRouter(
     }
 
     let before: ConversationPageCursor | undefined;
+    let beforeActivity: ConversationActivityCursor | undefined;
     const rawCursor = c.req.query('cursor');
     if (rawCursor !== undefined && rawCursor.length > 0) {
       const decoded = decodeCursor(rawCursor);
-      if (decoded === null || !isCursorTime(decoded.createdAt)) {
+      if (
+        decoded === null ||
+        !isCursorTime(decoded.createdAt) ||
+        (decoded.order !== undefined && decoded.order !== LAST_ACTIVITY)
+      ) {
         c.status(statusFor('bad-input') as never);
         return c.json(
           toWireError({ code: 'bad-input', message: '`cursor` is malformed' }, requestId),
         );
       }
-      before = { openedAt: decoded.createdAt, id: decoded.id as unknown as ConversationId };
+      const id = decoded.id as unknown as ConversationId;
+      if (decoded.order === LAST_ACTIVITY)
+        beforeActivity = { lastActivityAt: decoded.createdAt, id };
+      else before = { openedAt: decoded.createdAt, id };
     }
 
     const listResult = await conversationBinding.listConversationsPage({
@@ -168,6 +179,7 @@ export function conversationsRouter(
       ...(openedBy !== undefined && { openedBy }),
       replays: replaysRaw ?? 'exclude',
       ...(before !== undefined && { before }),
+      ...(beforeActivity !== undefined && { beforeActivity }),
       limit,
     });
     if (listResult.kind === 'err') {
@@ -176,19 +188,14 @@ export function conversationsRouter(
       c.status(statusFor(listResult.error.code) as never);
       return c.json(toWireError(listResult.error as never, requestId));
     }
-    const { data, hasMore, next } = listResult.value;
-    const last = data[data.length - 1];
-    // The binding's exact position when it gives one (`openedAt` to the
-    // microsecond); else the last row's, as a binding before it answers.
-    const position =
-      next ?? (last !== undefined ? { openedAt: last.openedAt, id: last.id } : undefined);
-    const nextCursor =
-      hasMore && position !== undefined
-        ? encodeCursor({
-            createdAt: position.openedAt as unknown as string,
-            id: position.id as unknown as string,
-          })
-        : undefined;
+    const { data, hasMore } = listResult.value;
+    const byActivity = listResult.value.order === LAST_ACTIVITY;
+    const refused = otherSortRefusal(before, beforeActivity, byActivity);
+    if (refused !== undefined) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: refused }, requestId));
+    }
+    const nextCursor = hasMore ? nextPageCursor(listResult.value, byActivity) : undefined;
     // The binding narrows; this keeps a page right from one that doesn't.
     const theirs = openedBy === undefined ? data : data.filter((row) => row.openedBy === openedBy);
     const visible =
@@ -548,6 +555,60 @@ function conversationRef(conv: Conversation): ResourceRef {
 
 // ============ serializers ============
 
+/** The sort a page with `order: 'last-activity'` is in, as its cursors name it. */
+const LAST_ACTIVITY = 'last-activity';
+
+/**
+ * Why a page's cursor is refused, if it is: a cursor holds its row's
+ * position in the sort it came from, and the binding ignores one from the
+ * other sort (a list paged across an upgrade), so the page it answers is
+ * the first again, not the next.
+ */
+function otherSortRefusal(
+  before: ConversationPageCursor | undefined,
+  beforeActivity: ConversationActivityCursor | undefined,
+  byActivity: boolean,
+): string | undefined {
+  if (byActivity && before !== undefined) {
+    return '`cursor` is from before this list sorted by last activity: start again without it';
+  }
+  if (!byActivity && beforeActivity !== undefined) {
+    return "`cursor` is from a list sorted by last activity, which this one isn't: start again without it";
+  }
+  return undefined;
+}
+
+/**
+ * Where the next page starts, as a wire cursor: the binding's exact
+ * position when it gives one (to the microsecond); else the last row's,
+ * as a binding before it answers.
+ */
+function nextPageCursor(page: ConversationPage, byActivity: boolean): string | undefined {
+  const last = page.data[page.data.length - 1];
+  if (byActivity) {
+    const position =
+      page.nextByActivity ??
+      (last?.lastActivityAt !== undefined
+        ? { lastActivityAt: last.lastActivityAt as unknown as string, id: last.id }
+        : undefined);
+    return position === undefined
+      ? undefined
+      : encodeCursor({
+          createdAt: position.lastActivityAt,
+          id: position.id as unknown as string,
+          order: LAST_ACTIVITY,
+        });
+  }
+  const position =
+    page.next ?? (last !== undefined ? { openedAt: last.openedAt, id: last.id } : undefined);
+  return position === undefined
+    ? undefined
+    : encodeCursor({
+        createdAt: position.openedAt as unknown as string,
+        id: position.id as unknown as string,
+      });
+}
+
 function serializeConversation(c: Conversation): Record<string, unknown> {
   return {
     id: c.id as unknown as string,
@@ -567,6 +628,9 @@ function serializeConversation(c: Conversation): Record<string, unknown> {
     }),
     turnCount: c.turnCount,
     ...(c.lastMessageAt !== undefined && { lastMessageAt: c.lastMessageAt as unknown as string }),
+    ...(c.lastActivityAt !== undefined && {
+      lastActivityAt: c.lastActivityAt as unknown as string,
+    }),
     ...(c.metadata !== undefined && { metadata: c.metadata }),
   };
 }

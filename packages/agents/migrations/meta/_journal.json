@@ -50,6 +50,13 @@
       "when": 1791753250161,
       "tag": "0006_petite_misty_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792421266683,
+      "tag": "0007_tricky_dazzler",
+      "breakpoints": true
     }
   ]
 }

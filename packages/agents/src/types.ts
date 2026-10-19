@@ -634,6 +634,14 @@ export interface Conversation {
   readonly turnCount: number;
   readonly lastMessageAt?: Timestamp;
   /**
+   * When anything last happened in it (`lastActivityAt`): its opening, a
+   * message, a turn posted into it or ended, an approval on one of its
+   * turns opened or decided, or its close. The list of conversations is
+   * sorted by it, most recent first. Absent from a binding that doesn't
+   * keep it.
+   */
+  readonly lastActivityAt?: Timestamp;
+  /**
    * Free-form metadata. Persisted via the versioning envelope, so a
    * schema change can be migrated on read.
    */

@@ -4164,6 +4164,12 @@ export const ConversationSchema: JsonSchema = {
     },
     turnCount: { type: 'integer', minimum: 0 },
     lastMessageAt: { type: 'string', format: 'date-time' },
+    lastActivityAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When anything last happened in it: its opening, a message, a turn posted into it or ended, an approval on one of its turns opened or decided, or its close. The list is sorted by it, most recent first. Absent from an older runtime, which sorts the list by `openedAt`.',
+    },
     metadata: { type: 'object', additionalProperties: true },
   },
 };

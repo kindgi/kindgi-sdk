@@ -7,6 +7,10 @@
  * one, and the last row's otherwise (a binding from before `next`). A JS
  * `Date` keeps milliseconds, so a cursor built from the row's `openedAt`
  * alone skipped the conversations opened earlier in the same millisecond.
+ *
+ * From a binding that sorts by last activity (its page's `order`), the
+ * cursor is the row's `lastActivityAt` and says so, and one from the other
+ * sort (handed out before an upgrade, or after a downgrade) is refused.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -36,14 +40,17 @@ const conversation = {
   turnCount: 0,
 };
 
-function harness(page: Omit<ConversationPage, 'data'>) {
+function harness(
+  page: Omit<ConversationPage, 'data'>,
+  row: Record<string, unknown> = conversation,
+) {
   const seen: unknown[] = [];
   const stubs = createStubAppBindings();
   const conversationBinding = {
     ...stubs.conversationBinding,
     listConversationsPage: async (input: unknown) => {
       seen.push(input);
-      return { kind: 'ok', value: { data: [conversation], ...page } };
+      return { kind: 'ok', value: { data: [row], ...page } };
     },
   } as unknown as ConversationBinding;
   const app = createApp({
@@ -100,6 +107,109 @@ describe("GET /v1/conversations' next cursor", () => {
     const { status, body, seen } = await harness({ hasMore: false })(`&cursor=${cursor}`);
     expect(status).toBe(400);
     expect(body.error.code).toBe('bad-input');
+    expect(seen).toEqual([]);
+  });
+});
+
+describe('GET /v1/conversations sorted by last activity', () => {
+  const active = { ...conversation, lastActivityAt: '2026-10-09T12:30:00.456Z' };
+  const byActivity = { order: 'last-activity' } as const;
+
+  test("each row's lastActivityAt, as the binding gives it", async () => {
+    const { status, body } = await harness({ ...byActivity, hasMore: false }, active)();
+    expect(status).toBe(200);
+    expect(body.data[0].lastActivityAt).toBe('2026-10-09T12:30:00.456Z');
+  });
+
+  test('none from a binding that keeps none', async () => {
+    const { body } = await harness({ hasMore: false })();
+    expect(body.data[0]).not.toHaveProperty('lastActivityAt');
+  });
+
+  test("the cursor: the binding's exact position (microseconds), marked as this sort", async () => {
+    const nextByActivity = {
+      lastActivityAt: '2026-10-09 12:30:00.456789+00',
+      id: conversation.id as ConversationId,
+    };
+    const { status, body } = await harness(
+      { ...byActivity, hasMore: true, nextByActivity },
+      active,
+    )();
+    expect(status).toBe(200);
+    expect(decodeCursor(body.nextCursor)).toEqual({
+      createdAt: nextByActivity.lastActivityAt,
+      id: nextByActivity.id,
+      order: 'last-activity',
+    });
+  });
+
+  test("the last row's lastActivityAt from a binding without `nextByActivity`", async () => {
+    const { body } = await harness({ ...byActivity, hasMore: true }, active)();
+    expect(decodeCursor(body.nextCursor)).toEqual({
+      createdAt: active.lastActivityAt,
+      id: conversation.id,
+      order: 'last-activity',
+    });
+  });
+
+  test('a cursor of this sort reaches the binding as `beforeActivity`, as given', async () => {
+    const cursor = encodeCursor({
+      createdAt: '2026-10-09 12:30:00.456789+00',
+      id: conversation.id,
+      order: 'last-activity',
+    });
+    const { status, seen } = await harness(
+      { ...byActivity, hasMore: false },
+      active,
+    )(`&cursor=${cursor}`);
+    expect(status).toBe(200);
+    expect(seen[0]).toMatchObject({
+      beforeActivity: { lastActivityAt: '2026-10-09 12:30:00.456789+00', id: conversation.id },
+    });
+    expect(seen[0]).not.toHaveProperty('before');
+  });
+
+  test('a cursor from before the sort (by opening): 400, start again', async () => {
+    const cursor = encodeCursor({ createdAt: '2026-10-09T12:00:00.123Z', id: conversation.id });
+    const { status, body } = await harness(
+      { ...byActivity, hasMore: true },
+      active,
+    )(`&cursor=${cursor}`);
+    expect(status).toBe(400);
+    expect(body.error).toMatchObject({
+      code: 'bad-input',
+      message: '`cursor` is from before this list sorted by last activity: start again without it',
+    });
+  });
+
+  test('a cursor of this sort, to a binding that sorts by opening: 400, start again', async () => {
+    const cursor = encodeCursor({
+      createdAt: '2026-10-09T12:30:00.456Z',
+      id: conversation.id,
+      order: 'last-activity',
+    });
+    const { status, body, seen } = await harness({ hasMore: true })(`&cursor=${cursor}`);
+    expect(seen[0]).toMatchObject({ beforeActivity: { id: conversation.id } });
+    expect(status).toBe(400);
+    expect(body.error).toMatchObject({
+      code: 'bad-input',
+      message:
+        "`cursor` is from a list sorted by last activity, which this one isn't: start again without it",
+    });
+  });
+
+  test('a cursor of a sort the list never had: 400 malformed, the binding not called', async () => {
+    const cursor = encodeCursor({
+      createdAt: '2026-10-09T12:30:00.456Z',
+      id: conversation.id,
+      order: 'title',
+    });
+    const { status, body, seen } = await harness(
+      { ...byActivity, hasMore: false },
+      active,
+    )(`&cursor=${cursor}`);
+    expect(status).toBe(400);
+    expect(body.error).toMatchObject({ code: 'bad-input', message: '`cursor` is malformed' });
     expect(seen).toEqual([]);
   });
 });
