@@ -40,8 +40,10 @@ as `KINDGI_SEED_USER_ID`, are Kindgi's.
   people, make keys for anyone, and change tenant-wide settings: providers,
   policies, signing keys, deployments and identity providers.
 - **A tenant member** reads the tenant's settings, not its projects: its
-  providers, policies, adapters, signing keys and deployments. Everyone you
-  add is one.
+  providers, policies, adapters and signing keys. Everyone you add is one.
+  A deployment is read in the project it serves: a member lists and reads
+  only those in projects they read. One deployed without a project is the
+  Default project's.
 - **A role on a project** gives the work in it: its agents, runs and
   conversations. The roles are `owner`, `admin`, `editor` and `viewer`
   ([Project memberships](../authorization/#project-memberships)).
