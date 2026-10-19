@@ -392,7 +392,7 @@ machine:
 
 ## A second factor
 
-A person can add a second factor to signing in (runtime 0.1.8.1 or later):
+A person can add a second factor to signing in (runtime 0.1.9 or later):
 the codes an authenticator app shows (TOTP, as in Google Authenticator,
 1Password or Authy), and 10 recovery codes for when the phone is lost. They set it up in
 the console, which shows the key as a QR code, once. From then on, signing
@@ -447,7 +447,7 @@ admin removes it.
 ## Terms and privacy links
 
 The console's sign-in page can link your terms and privacy policy
-(runtime 0.1.8.1 or later):
+(runtime 0.1.9 or later):
 
 ```sh
 # kindgi.env

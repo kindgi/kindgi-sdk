@@ -683,7 +683,7 @@ describe('kindgi deployments list', () => {
         const { out } = await run(['deployments', 'list', ...argv], { list: answer });
         expect(out.exitCode).toBe(1);
         expect(out.stdout).toBe('');
-        expect(out.stderr).toBe(`Error: --${flag} needs a runtime on Kindgi 0.1.8.1 or later.\n`);
+        expect(out.stderr).toBe(`Error: --${flag} needs a runtime on Kindgi 0.1.9 or later.\n`);
       }
     });
   });

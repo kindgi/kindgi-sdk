@@ -103,7 +103,7 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 | `system:tenants:contacts` | A tenant's admins' contact addresses, for service notices |
 | `system:suspend` | Suspending and restoring a tenant, a project or a pack |
 | `system:deployments` | The deployments and their pack services' endpoints |
-| `system:pack-env` | The values each deployment's pack declares, for its pack service, and the revision it runs (runtime 0.1.8.1 or later). On a key of its own: the deployments key reads no value, and only a key holding this scope itself, not `kindgi:system`, reads a secret's |
+| `system:pack-env` | The values each deployment's pack declares, for its pack service, and the revision it runs (runtime 0.1.9 or later). On a key of its own: the deployments key reads no value, and only a key holding this scope itself, not `kindgi:system`, reads a secret's |
 | `system:license` | Reading the deployment's license, for its renewal |
 | `kindgi:system` | All of them: a full key |
 
@@ -201,7 +201,7 @@ service is, and checks it. It never creates or deletes one.
    its `KINDGI_PACK_SERVICE_TOKEN`: 16 to 512 printable characters, no
    spaces.
 
-   If its pack declares an environment (runtime 0.1.8.1 or later), read it
+   If its pack declares an environment (runtime 0.1.9 or later), read it
    first, with a key of its own holding `system:pack-env`:
    `GET …/deployments/{deploymentId}/pack-env` gives each declared name's
    plain value (`env`) and the `revision` they make. Ask with
@@ -235,7 +235,7 @@ service is, and checks it. It never creates or deletes one.
 4. **While you can't make a service, say why:**
    `PUT …/deployments/{deploymentId}/endpoint/problem` with a `code`:
    `tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed` or
-   `image-not-allowed`. For its environment (runtime 0.1.8.1 or later):
+   `image-not-allowed`. For its environment (runtime 0.1.9 or later):
    `pack-env-missing` (a required name is set nowhere), `pack-env-ambiguous`
    (set both as a secret and as a plain value) or `pack-env-secret-not-yet`
    (set only as a secret, read without `secrets=values`). With
@@ -250,7 +250,7 @@ service is, and checks it. It never creates or deletes one.
    just now for a service that can be given a secret, kept apart from other
    projects': try again. The tenant sees the code and when, so a deploy that
    waits for its pack service says why at once.
-5. **Give a running service its changed environment** (runtime 0.1.8.1 or
+5. **Give a running service its changed environment** (runtime 0.1.9 or
    later): `GET /v1/system/pack-env` lists the deployments with a `ready`
    service whose values changed since the revision it runs: ids, the image
    and the revision each runs, never a value. Read each one's values, start
@@ -372,7 +372,7 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
   or `KINDGI_OPENFGA_API_URL` isn't set as the server has it. **Exit 1** when rows or bytes of it are left, named: run it again.
 - **With a key for OpenFGA**
   ([Require a key for OpenFGA](../../authorization/#require-a-key-for-openfga)),
-  purging a tenant with an OpenFGA store needs runtime 0.1.8.1 or later. An
+  purging a tenant with an OpenFGA store needs runtime 0.1.9 or later. An
   earlier one doesn't send the key, or the ID token behind Cloud Run IAM, so
   the store's delete is refused, and the purge exits `2` with
   `OpenFGA answered <status> to deleting store <id>`.
