@@ -88,7 +88,7 @@ export interface StepRetryScheduledPayload {
   readonly previousError: string;
   /**
    * `true` when the step was left for the run's next resume; absent for a
-   * retry by the edge's policy. Written from runtime 0.1.9; earlier runtimes
+   * retry by the edge's policy. Written from runtime 0.1.12; earlier runtimes
    * never set it.
    */
   readonly left?: true;
