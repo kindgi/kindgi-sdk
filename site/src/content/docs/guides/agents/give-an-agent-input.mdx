@@ -28,9 +28,36 @@ step's input instead.
 
 A direct run gives the agent a message:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
+pnpm exec kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--agent` is the agent, and `--input` the turn's input, as JSON. It has these
 fields:
@@ -48,7 +75,9 @@ Without a `userMessage`, the run is refused:
 Error [invalid-request]: An agent run expects input { userMessage: string, conversationId?: string, participantId?: string, parameters?: { [name]: string | number | boolean } }.
 ```
 
-From your app, the same input goes in `runs.start`. This runs the
+From your app, the same input goes in `runs.start`. Ask your coding agent:
+"I want my app to run an agent with a customer's message, and print its
+answer." For reference, the code looks like this. It runs the
 `acme.reply-drafter` agent from the next section:
 
 <Tabs syncKey="lang">
@@ -164,7 +193,11 @@ it `completed`, with its `output`, once the turn ends.
 ## Parameters
 
 Parameters are your own variables in the agent's instructions. Declare each
-one, and the caller supplies the values.
+one, and the caller supplies the values. Ask your coding agent: "I want an
+agent that drafts replies to customers in the tone I ask for." Kindgi's
+skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+agent looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -281,9 +314,36 @@ instructions still name the variable, and rendering fails without a value.
 
 Run it with a `tone`:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme.reply-drafter --input='{"userMessage":"My parcel is a week late.","parameters":{"tone":"friendly"}}'
+pnpm exec kindgi runs start --agent=acme.reply-drafter --input='{"userMessage":"My parcel is a week late.","parameters":{"tone":"friendly"}}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme.reply-drafter --input='{"userMessage":"My parcel is a week late.","parameters":{"tone":"friendly"}}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme.reply-drafter --input='{"userMessage":"My parcel is a week late.","parameters":{"tone":"friendly"}}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme.reply-drafter --input='{"userMessage":"My parcel is a week late.","parameters":{"tone":"friendly"}}'
+```
+
+</TabItem>
+</Tabs>
 
 `parameters` in `--input` gives the parameters' values. It prints the run:
 
@@ -322,9 +382,11 @@ Error [model-invocation-failed]: Prompt render failed: Required parameter missin
 
 A flow runs an agent as a step: one turn, as a child run of the flow's run.
 The step's `inputMapping` builds the agent's input, and `config.parameters`
-fills its parameters. This flow looks an order up with `acme.lookup-order`,
-from [Write an agent](../write-an-agent/#the-tool-it-calls). Then it has an
-agent write the customer an update:
+fills its parameters. Ask your coding agent: "I want a flow that looks an
+order up, then has an agent write the customer an update about it." For
+reference, the flow looks like this. It looks the order up with
+`acme.lookup-order`, from [Write an agent](../write-an-agent/#the-tool-it-calls).
+Then it has an agent write the customer an update:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -536,6 +598,8 @@ The agent gets the step's input two ways:
 - as **`{{ input }}`** in its instructions, so it can use the fields;
 - as its **user message**: the input as JSON.
 
+For reference, the agent the flow runs looks like this:
+
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
@@ -641,9 +705,36 @@ object OrderUpdate {
 
 Run the flow:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
+pnpm exec kindgi runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--flow` is the flow, and `--input` its input. It prints the run, with the
 agent's update as the flow's output:

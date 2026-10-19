@@ -142,6 +142,42 @@ export function formatSseFrame(input: { id: string; event: string; data: unknown
   return `id: ${input.id}\nevent: ${input.event}\n${dataLines}\n\n`;
 }
 
+/**
+ * Resolves after `ms`, or as soon as `signal` aborts, whichever comes
+ * first, and leaves no timer behind. An event stream's loop waits on it,
+ * so cancelling the stream ends the wait at once.
+ */
+export function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const done = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener('abort', done, { once: true });
+  });
+}
+
+/**
+ * An event stream's reading signal. The stream's `cancel()` aborts it, and
+ * so does the request's own signal: a client that leaves before the route
+ * answers is never a cancel, because the server cancels only a body it is
+ * writing, but its request aborts. A request already aborted aborts it at
+ * once.
+ */
+export function readingOf(request: Request): AbortController {
+  const reading = new AbortController();
+  const gone = request.signal;
+  if (gone.aborted) reading.abort();
+  else gone.addEventListener('abort', () => reading.abort(), { once: true });
+  return reading;
+}
+
 /** Small unique-id helper used by tests that want a deterministic event id shape. */
 export function newSseCorrelationId(): string {
   return `sse-${randomUUID()}`;

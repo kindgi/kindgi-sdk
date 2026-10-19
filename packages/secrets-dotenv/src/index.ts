@@ -31,6 +31,8 @@
  *     page's last secret, and the next page starts after it, so a name
  *     added or removed between pages neither repeats nor skips another.
  *     Nothing is ever revoked here, so `includeRevoked` lists the same.
+ *   - **`listEnvNames`**: `local`, and each `.env.<envName>` file in the
+ *     pack, that holds a name `list` shows.
  *   - **`set`**: for `local`, writes Kindgi's `.kindgi/secrets.env`, a
  *     file the application doesn't load; with `appEnvFile`, the app's
  *     highest-precedence file (`.env.local` by default) instead, for a
@@ -55,8 +57,10 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { readdir } from 'node:fs/promises';
 
 import type {
+  EnvNamesInput,
   SecretBinding,
   SecretError,
   SecretGetInput,
@@ -84,9 +88,10 @@ import {
   renderEntry,
   setKey,
 } from '@kindgi/dotenv-file';
-import type { Cursor, Result } from '@kindgi/types';
+import { type Cursor, type EnvName, type Result, makeEnvName } from '@kindgi/types';
 
 import {
+  LOCAL_ENV_NAME,
   type PackEnv,
   describeUnreadable,
   displayEnvPath,
@@ -178,6 +183,34 @@ export function createDotenvSecretBinding(
       ...(page.length < names.length &&
         last !== undefined && { nextCursor: encodeListCursor(last) }),
     };
+  }
+
+  async function listEnvNames(input: EnvNamesInput): Promise<readonly EnvName[]> {
+    const candidates = new Set<EnvName>([LOCAL_ENV_NAME as EnvName]);
+    for (const file of await packEnvFileNames()) {
+      const envName = makeEnvName(file.slice(ENV_FILE_PREFIX.length));
+      if (envName !== null) candidates.add(envName);
+    }
+    const held: EnvName[] = [];
+    for (const envName of [...candidates].sort()) {
+      if (held.length === input.limit) break;
+      if (input.after !== undefined && envName <= input.after) continue;
+      if (Object.keys(await secretsOf(envName)).length > 0) held.push(envName);
+    }
+    return held;
+  }
+
+  /** The pack's `.env.*` file names; none when the pack dir isn't there. */
+  async function packEnvFileNames(): Promise<string[]> {
+    try {
+      const entries = await readdir(packDir, { withFileTypes: true });
+      return entries
+        .filter((e) => (e.isFile() || e.isSymbolicLink()) && e.name.startsWith(ENV_FILE_PREFIX))
+        .map((e) => e.name);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw err;
+    }
   }
 
   async function resolve(
@@ -328,12 +361,16 @@ export function createDotenvSecretBinding(
     revoke,
     writesAppEnvFiles: true,
     nameRefusal: refusedName,
+    listEnvNames,
   };
 }
 
 // ---------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------
+
+/** `.env.<envName>`: an environment other than `local` (`resolvePackEnvFiles`). */
+const ENV_FILE_PREFIX = '.env.';
 
 /**
  * A name `set` can't write, and why: a caller's mistake (a `400`), never the

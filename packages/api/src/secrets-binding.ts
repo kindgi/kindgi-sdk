@@ -3,7 +3,7 @@
 
 import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
-import type { Cursor, EnvName, Result } from '@kindgi/types';
+import type { Cursor, EnvName, Result, TenantId } from '@kindgi/types';
 
 /**
  * Secret names starting with this prefix are reserved for framework-internal
@@ -12,6 +12,48 @@ import type { Cursor, EnvName, Result } from '@kindgi/types';
  * Every adapter enforces the same prefix — import it, don't redefine it.
  */
 export const RESERVED_SECRET_NAME_PREFIX = 'kindgi.';
+
+/**
+ * The shape a secret name may take at the API border: ASCII letters, digits,
+ * and `.`, `-`, `_`, starting with a letter, digit or `_`, with any `.` between
+ * two non-`.` characters (so a name neither starts nor ends with `.`).
+ * {@link secretNameGrammarRefusal} holds a *fresh* create to this shape; a name
+ * already stored outside it still reads, rotates and takes new versions.
+ */
+export const SECRET_NAME_ALLOWED = /^[A-Za-z0-9_][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*$/;
+
+/**
+ * The longest a secret name may be at create. 255 is within every supported
+ * secret store's own limit, so a name of this length or less is writable
+ * wherever secrets are kept.
+ */
+export const SECRET_NAME_MAX_LENGTH = 255;
+
+/**
+ * Why a caller may not name a *new* secret `name` at the API border, or
+ * `undefined` when the name is allowed: the shared grammar
+ * ({@link SECRET_NAME_ALLOWED}, at most {@link SECRET_NAME_MAX_LENGTH}
+ * characters) the create routes hold a caller-supplied name to before anything
+ * is stored. A store may refuse further names of its own
+ * ({@link SecretBinding.nameRefusal}); this is the floor beneath that. The
+ * caller sees `secret-name-invalid` with the message as the request's `400`.
+ */
+export function secretNameGrammarRefusal(name: string): SecretNameRefusal | undefined {
+  if (name.length > SECRET_NAME_MAX_LENGTH) {
+    return {
+      code: 'secret-name-invalid',
+      message: `A secret name is at most ${SECRET_NAME_MAX_LENGTH} characters long; this one is ${name.length}.`,
+    };
+  }
+  if (!SECRET_NAME_ALLOWED.test(name)) {
+    return {
+      code: 'secret-name-invalid',
+      message:
+        'A secret name is 1 to 255 ASCII letters, digits, `.`, `-` and `_`; it starts with a letter, digit or `_`, and any `.` sits between two non-`.` characters. Rename it to that form.',
+    };
+  }
+  return undefined;
+}
 
 /**
  * Caller-plugged secret store — the framework consumer's surface for
@@ -56,8 +98,9 @@ export interface SecretBinding {
    * method from `get` — different capability gate, different audit
    * event, different rate profile. Called by the runtime (handler
    * dispatch, deploy-time sync, boot — see `ResolveContext.caller`),
-   * not by the HTTP routes. Emits a `secret-resolved` compliance-evidence
-   * event on every call.
+   * not by the HTTP routes, but for the orchestrator's pack env read.
+   * Emits a `secret-resolved` compliance-evidence event on every call,
+   * but for caller `pack-env`, whose reader writes its own.
    */
   resolve(input: SecretResolveInput): Promise<Result<SecretResolveOutcome, SecretError>>;
 
@@ -122,6 +165,25 @@ export interface SecretBinding {
    * Unset: `set` alone says.
    */
   nameRefusal?(name: string): SecretNameRefusal | undefined;
+
+  /**
+   * The env names this store holds a secret under, at any scope of the
+   * tenant; a revoked secret doesn't count. Each name once, in byte order,
+   * after `input.after`, at most `input.limit`. `GET /v1/environments`
+   * reads it; with a store that leaves it unset, that route answers
+   * `501 environments-unsupported`. A store that can't read throws, and the
+   * route answers `500`.
+   */
+  listEnvNames?(input: EnvNamesInput): Promise<readonly EnvName[]>;
+}
+
+/** Which of a tenant's env names a store gives ({@link SecretBinding.listEnvNames}, {@link EnvBinding.listEnvNames}). */
+export interface EnvNamesInput {
+  readonly tenantId: TenantId;
+  /** At most this many. */
+  readonly limit: number;
+  /** Only the names after this one, in byte order. */
+  readonly after?: EnvName;
 }
 
 /** A name a store can't write, and why ({@link SecretBinding.nameRefusal}). */
@@ -170,6 +232,7 @@ export const SECRET_BINDING_MEMBERS: Readonly<
   revoke: 'write',
   writesAppEnvFiles: 'flag',
   nameRefusal: 'read',
+  listEnvNames: 'read',
 };
 
 /**
@@ -216,6 +279,9 @@ export function observeSecretWrites(binding: SecretBinding): {
       ...(binding.nameRefusal !== undefined && {
         nameRefusal: (name: string) => binding.nameRefusal?.(name),
       }),
+      ...(binding.listEnvNames !== undefined && {
+        listEnvNames: binding.listEnvNames.bind(binding),
+      }),
     },
     writes: {
       subscribe(listener) {
@@ -241,6 +307,14 @@ export interface SecretRecord {
   readonly revokeReason?: string;
   readonly tags?: Readonly<Record<string, string>>;
   readonly rotationDueAt?: string;
+  /**
+   * The store's own id for the record, never on the wire. A secret removed
+   * and created again is a new record with a new id, so it's told from the
+   * old one even when both are at version 1 with the same update time. A
+   * revoked one set again, soft or hard, keeps its id: its versions go on. A
+   * store with no record id leaves it unset.
+   */
+  readonly recordId?: string;
 }
 
 export interface SecretVersionRecord {
@@ -313,7 +387,18 @@ export interface ResolveContext {
   readonly runId?: string;
   readonly deploymentId?: string;
   readonly nodeId?: string;
-  readonly caller: 'dispatch' | 'deploy-sync' | 'admin-cli' | 'boot-bridge' | 'webhook-receiver';
+  /**
+   * `pack-env`: the orchestrator's read of a deployment's pack env, which
+   * writes its own row per value it gives out, so a store doesn't emit one
+   * for it.
+   */
+  readonly caller:
+    | 'dispatch'
+    | 'deploy-sync'
+    | 'admin-cli'
+    | 'boot-bridge'
+    | 'webhook-receiver'
+    | 'pack-env';
 }
 
 export interface SecretResolveOutcome {

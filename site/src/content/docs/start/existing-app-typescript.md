@@ -113,7 +113,8 @@ the pack separate from the app instead, pass `--new-repo`.
 ## Your code as a tool
 
 A tool imports your app's modules like any other file in it, path aliases
-(`@/…`) included:
+(`@/…`) included. Ask your coding agent: "Make a Kindgi tool from our
+support request lookup." For reference, the tool looks like this:
 
 ```ts
 // kindgi/tools/get-request/index.ts
@@ -158,6 +159,9 @@ tool imports one, and `kindgi build` refuses the pack until it moves.
 Build-time tools (the `prisma` CLI, `typescript`) stay in `devDependencies`.
 
 ## An agent that uses it
+
+Ask your coding agent: "Add an agent that reads a support request and sets
+its priority." For reference, the agent looks like this:
 
 ```ts
 // kindgi/agents/triage/index.ts
@@ -305,7 +309,8 @@ kindgi-index: file-import-failed: Failed to import kindgi/tools/find-order/index
 ```
 
 `prisma()` copies the schema into the image and runs `prisma generate` after
-the install:
+the install. Ask your coding agent: "Run prisma generate in the pack's
+image." For reference, it adds this to `kindgi.config.ts`:
 
 ```ts excerpt
 // in kindgi.config.ts
@@ -340,7 +345,7 @@ The build ends with the image and a check of what's in it:
     ✓ /app/index.json in the image matches the local index byte for byte
 ```
 
-[Self-host with Docker](../../deploy/self-host/) pushes, signs and deploys it.
+[Self-host with Docker](../../deploy/self-hosted/self-host/) pushes, signs and deploys it.
 
 ## Next
 

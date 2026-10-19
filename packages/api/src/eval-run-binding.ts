@@ -114,6 +114,13 @@ export interface EvalRun {
   readonly completedAt?: Timestamp;
   readonly result?: Readonly<Record<string, unknown>>;
   readonly error?: string;
+  /**
+   * Why a `cancelled` run stopped when nobody cancelled it: its project or
+   * tenant took no new runs when a case started (`project-suspended`,
+   * `tenant-suspended`, `tenant-closing`). Absent when it was cancelled,
+   * and from a runtime that doesn't say.
+   */
+  readonly cancelReason?: string;
   readonly correlationId?: string;
   /** A comparison eval run's baseline, reads and repetitions. */
   readonly comparison?: EvalComparison;
@@ -227,7 +234,11 @@ export interface EvalRunStartInput {
   readonly suiteId: string;
   /**
    * The suite version to run (absent: the latest). A rescore names the
-   * version the run it rescores ran, so the cases are the same.
+   * version the run it rescores ran, so the cases are the same. In a
+   * tenant with environment orders, a run reaches the versions made in
+   * its project or an earlier environment of its order: absent, the
+   * latest of those; a named version made in a later environment reads
+   * as one the tenant doesn't have (`suite-not-found`).
    */
   readonly suiteVersion?: string;
   readonly agentRef?: AgentRef;

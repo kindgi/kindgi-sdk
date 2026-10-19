@@ -15,7 +15,9 @@
 
 import { describe, expect, test } from 'vitest';
 
+import * as envSchema from '../src/index.js';
 import {
+  AUTH_INVITE_EMAIL_DAILY_CAP_VAR,
   type EnvTarget,
   type EnvVarSpec,
   KINDGI_ENV_SCHEMA,
@@ -295,6 +297,23 @@ describe('envVarsForTarget — the executor lease', () => {
     expect(packService).not.toContain('KINDGI_RUN_LEASE_MS');
     expect(packService).not.toContain('KINDGI_RUN_SWEEP_INTERVAL_MS');
     expect(packService).not.toContain('KINDGI_RUN_ENDED_CHECK_MS');
+  });
+});
+
+describe('envVarsForTarget — invitation emails', () => {
+  test("the deployment's daily backstop is the server's, optional, in core, and says its range and default", () => {
+    const cap = envVarsForTarget({ component: 'server' }).find(
+      (v) => v.name === AUTH_INVITE_EMAIL_DAILY_CAP_VAR,
+    );
+    expect(AUTH_INVITE_EMAIL_DAILY_CAP_VAR).toBe('KINDGI_AUTH_INVITE_EMAIL_DAILY_CAP');
+    expect(cap).toMatchObject({ required: false, group: 'core', example: '500' });
+    expect(cap?.description).toContain('Default 500, a whole number from 1 to 100000');
+    expect(cap?.description).toContain('KINDGI_AUTH_EMAIL_SMTP_URL');
+    expect(
+      envVarsForTarget({ component: 'pack-service' }).some(
+        (v) => v.name === AUTH_INVITE_EMAIL_DAILY_CAP_VAR,
+      ),
+    ).toBe(false);
   });
 });
 
@@ -578,6 +597,16 @@ describe('KINDGI_ENV_SCHEMA — integrity', () => {
     const names = KINDGI_ENV_SCHEMA.map((v) => v.name);
     const set = new Set(names);
     expect(set.size).toBe(names.length);
+  });
+
+  test("every exported name (`*_VAR`) is a variable in the schema, so a reader and the docs can't drift", () => {
+    const names = new Set(KINDGI_ENV_SCHEMA.map((v) => v.name));
+    const exported = Object.entries(envSchema as Record<string, unknown>).filter(
+      (entry): entry is [string, string] =>
+        entry[0].endsWith('_VAR') && typeof entry[1] === 'string',
+    );
+    expect(exported.length).toBeGreaterThan(40);
+    expect(exported.filter(([, name]) => !names.has(name))).toEqual([]);
   });
 
   test('every var has a non-empty name + description', () => {

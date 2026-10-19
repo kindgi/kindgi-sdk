@@ -25,8 +25,8 @@
  * that's `kindgi deploy`.
  */
 
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
+import { lstat, mkdir, readFile, readlink, realpath, stat, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import {
   type DiscoveryConfig,
@@ -49,7 +49,6 @@ import {
 } from '../build/host-install.js';
 import {
   BuildServiceRefusal,
-  HOSTED_BUILD,
   describeBuildRefusal,
   hostedBuildEndpoint,
   hostedUploadTooLarge,
@@ -105,12 +104,39 @@ export interface EnvironmentConfig {
   readonly signerKeyId?: string;
   readonly tenantId?: string;
   readonly buildTarget?: string;
+  /**
+   * The project this environment is, by id or slug — what `prod` means in
+   * `kindgi environments set prod …`, `kindgi promote`, and the deploy /
+   * secrets env resolution. Resolved to a project id the way
+   * `kindgi deploy --project` resolves one.
+   */
+  readonly project?: string;
 }
 
 export interface PackConfig {
   readonly pack?: { readonly id?: string; readonly version?: string };
   readonly environments?: Readonly<Record<string, EnvironmentConfig>>;
   readonly [k: string]: unknown;
+}
+
+/**
+ * The project (id or slug) a pack config names for an environment, or
+ * `undefined` when the environment — or its `project` — is unset. One place
+ * decides what "the prod project" is, so `kindgi environments set`,
+ * `kindgi promote` and the deploy / secrets env resolution agree. The caller
+ * resolves the returned id-or-slug to a project id the same way
+ * `kindgi deploy --project` does.
+ */
+export function projectOfEnv(
+  config: { readonly environments?: unknown } | undefined,
+  name: string,
+): string | undefined {
+  const environments = config?.environments;
+  if (environments === null || typeof environments !== 'object') return undefined;
+  const block = (environments as Record<string, unknown>)[name];
+  if (block === null || typeof block !== 'object') return undefined;
+  const project = (block as { readonly project?: unknown }).project;
+  return typeof project === 'string' && project !== '' ? project : undefined;
 }
 
 export const DEFAULT_OUT_DIR = '.kindgi/build';
@@ -121,7 +147,9 @@ export const buildCommand: LeafCommand = {
   description:
     'Bundle + build + sign a pack image. Emits deploy-envelope.json for `kindgi deploy`. ' +
     "`--local` builds the image with this machine's Docker instead: no build service, no signing; " +
-    'with `--push`, it pushes the image, signs it, and writes the envelope.',
+    'with `--push`, it pushes the image, signs it, and writes the envelope. ' +
+    "`--hosted` (or the env block's `build: 'hosted'`) builds on Kindgi hosted's build service, at the API's address under `/cloud`, with your API key; the image goes to your workspace's own repository.",
+  hostedRun: { defaultEnv: 'staging', buildServerOption: 'endpoint' },
   usage:
     'kindgi build [--local [--push [<repository>]] [--platform <os/arch>]] [--hosted [--project <id>]] [--target <t>] [--endpoint <url>] [--env <name>] [--out <dir>] ' +
     '[--artifact-version <v>] [--published-at <iso>] [--tenant <id>] [--signing-key <path>] ' +
@@ -142,11 +170,6 @@ export const buildCommand: LeafCommand = {
       type: 'string',
       description:
         "With `--local`: the image's platform. Default: `linux/amd64` when pushing, else this machine's.",
-    },
-    hosted: {
-      type: 'boolean',
-      description:
-        "Build on Kindgi hosted's build service, at the API's address under `/cloud`, with your API key; the image goes to your workspace's own repository. Same as the env block's `build: 'hosted'`.",
     },
     project: {
       type: 'string',
@@ -170,7 +193,7 @@ export const buildCommand: LeafCommand = {
     out: {
       type: 'string',
       description:
-        'Where the build output and `deploy-envelope.json` go. Default: `.kindgi/build` under the pack root.',
+        'Where the build output and `deploy-envelope.json` go (default: `.kindgi/build`). It cannot be the pack root or a directory containing it; for a TypeScript pack it must stay under the pack root.',
     },
     'artifact-version': {
       type: 'string',
@@ -1189,6 +1212,53 @@ async function prepareJvmContext(
   return { kind: 'ok', contextDir, counts: localIndex.counts, secrets: [] };
 }
 
+// Resolve a path to its real location, following symlinks, even when the
+// path (or a leaf of it) does not exist yet: realpath the deepest existing
+// ancestor, then re-append the missing tail. A final dangling symlink (the
+// link exists, its target does not) is followed via readlink, so an in-pack
+// symlink that points outside the pack is caught here, not mistaken for a
+// plain in-pack path (nor surfaced later as an opaque ENOENT). Used so an
+// in-pack symlink can't point the build output outside the pack root.
+async function realpathUnderExisting(target: string, depth = 0): Promise<string> {
+  const abs = resolve(target);
+  try {
+    return await realpath(abs);
+  } catch (error) {
+    if ((error as { code?: string }).code !== 'ENOENT') return abs;
+  }
+  // `abs` is a dangling symlink, or it (or an ancestor) does not exist yet. A
+  // dangling symlink still has a target to follow; cap the chain so a cyclic
+  // one can't loop forever.
+  if (depth < 40) {
+    try {
+      if ((await lstat(abs)).isSymbolicLink()) {
+        return await realpathUnderExisting(resolve(dirname(abs), await readlink(abs)), depth + 1);
+      }
+    } catch {
+      // Not a symlink, or unreadable — fall through to the ancestor walk.
+    }
+  }
+  return realpathDeepestAncestor(abs);
+}
+
+// Walk up to the deepest existing ancestor, realpath it (following symlinks
+// in the ancestors), then re-append the missing tail lexically.
+async function realpathDeepestAncestor(abs: string): Promise<string> {
+  let existing = dirname(abs);
+  const missing: string[] = [basename(abs)];
+  for (;;) {
+    try {
+      return resolve(await realpath(existing), ...missing);
+    } catch (error) {
+      if ((error as { code?: string }).code !== 'ENOENT') return abs;
+      const parent = dirname(existing);
+      if (parent === existing) return abs;
+      missing.unshift(basename(existing));
+      existing = parent;
+    }
+  }
+}
+
 async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   // --path — pack root; auto-detects repo root separately so augment-
   // mode packs (kindgi.config.ts under <repo>/kindgi/, package.json at
@@ -1235,14 +1305,13 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       ? targetFlag
       : (envBlock?.buildTarget ?? envName);
 
-  // --hosted, or the env block's `build: 'hosted'`: the hosted build
-  // service at the API's address, which takes the API key.
+  // --hosted, or the env block's `build: 'hosted'` without --endpoint
+  // (main.ts, `hostedRun`): the hosted build service at the API's
+  // address, which takes the API key.
   const endpointFlag = ctx.options.endpoint;
   const explicitEndpoint =
     typeof endpointFlag === 'string' && endpointFlag !== '' ? endpointFlag : undefined;
-  const hosted =
-    ctx.options.hosted === true ||
-    (explicitEndpoint === undefined && envBlock?.build === HOSTED_BUILD);
+  const hosted = ctx.hosted;
   const projectFlag = ctx.options.project;
   const projectId = typeof projectFlag === 'string' && projectFlag !== '' ? projectFlag : undefined;
   const credsFlag = ctx.options['registry-push-creds'];
@@ -1298,6 +1367,51 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   const outFlag = ctx.options.out;
   const outDirRaw = typeof outFlag === 'string' && outFlag !== '' ? outFlag : DEFAULT_OUT_DIR;
   const outDir = isAbsolute(outDirRaw) ? outDirRaw : resolve(packDir, outDirRaw);
+
+  // The build writes its output — `dist/`, the Containerfile, `context/`
+  // (and `<language>/` for a JVM pack) — under --out. Rules constrain it,
+  // all following symlinks (realpath) so an in-pack symlink can't slip past.
+  // Mirrors the local-dependency refusal in build/host-install.ts.
+  const realPackDir = await realpathUnderExisting(packDir);
+  const realOutDir = await realpathUnderExisting(outDir);
+  // 1. In any language, --out must not BE the pack root: the build would
+  //    write its dist/, Containerfile and context/ over the pack's own files.
+  if (realOutDir === realPackDir) {
+    return failure(
+      `--out ${outDirRaw} is the pack root ${realPackDir}: the build writes dist/, the Containerfile and context/ there, over the pack's own files. Use a subdirectory (default: ${DEFAULT_OUT_DIR}).\n`,
+    );
+  }
+  // 1b. Nor may --out CONTAIN the pack root (an ancestor directory): the
+  //     build would write dist/, the Containerfile and context/ beside the
+  //     pack, over a sibling of the same name — or, when the pack is itself
+  //     named like one of them, over the pack. Same hazard as (1), any
+  //     language. (A TypeScript pack with such an --out is also outside-root,
+  //     caught by (2); this gives every language the clearer reason.)
+  const packRel = relative(realOutDir, realPackDir);
+  if (packRel !== '..' && !packRel.startsWith(`..${sep}`) && !isAbsolute(packRel)) {
+    return failure(
+      `--out ${outDirRaw} resolves to ${realOutDir}, which contains the pack root ${realPackDir}: the build writes dist/, the Containerfile and context/ there, beside the pack — over a sibling of the same name, or the pack itself. Use a path inside the pack (default: ${DEFAULT_OUT_DIR}).\n`,
+    );
+  }
+  // 2. A TypeScript pack's --out must stay UNDER the pack root. Its local
+  //    indexer runs `node <out>/dist/kindgi-index.mjs`, whose bundle keeps
+  //    the pack's dependencies (zod, @kindgi/*) as bare externals that Node
+  //    resolves by walking up from <out>/dist into the pack's node_modules —
+  //    only reachable under the pack root. A Python or JVM pack's indexer
+  //    takes the pack dir and an explicit output path and never walks up from
+  //    <out>, so its output may sit anywhere; only this walk-up is bound to
+  //    the pack root.
+  // 'node' is the one pack language whose indexer walks up from <out>/dist;
+  // naming it positively stays correct if another language is added later.
+  const isTypeScriptPack = language === 'node';
+  if (isTypeScriptPack) {
+    const outRel = relative(realPackDir, realOutDir);
+    if (outRel === '..' || outRel.startsWith(`..${sep}`) || isAbsolute(outRel)) {
+      return failure(
+        `--out ${outDirRaw} resolves to ${realOutDir}, outside the pack root ${realPackDir}: a TypeScript pack's build indexes from <out>/dist and resolves the pack's dependencies by walking up into its node_modules, which only works under the pack root. Use a path inside the pack (default: ${DEFAULT_OUT_DIR}).\n`,
+      );
+    }
+  }
 
   // --artifact-version and --published-at: pinned, else the build time.
   const defaults = buildTimeDefaults(new Date());
