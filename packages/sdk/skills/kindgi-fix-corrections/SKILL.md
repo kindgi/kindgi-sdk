@@ -22,6 +22,7 @@ sources:
   - packages/cli/src/commands/runs.ts
   - packages/cli/src/commands/blocks.ts
   - packages/cli/src/commands/agents.ts
+  - packages/cli/src/commands/eval-runs.ts
   - packages/cli/src/commands/test.ts
 ---
 
@@ -112,6 +113,13 @@ step by step, where the agent's tool calls and their arguments are. Between
 the correction's reason and the run, you have what the agent did and what it
 should have done.
 
+An expert can also have said exactly what the run should have done (runtime
+0.1.8.3 or later): the judgment then has a `correction`, with `calls` (each
+`{ tool, args }`, with only the argument fields that matter) and `notCalled`
+(the tools it shouldn't have called). Take those as what the pack test
+asserts. It's the expert's: never record or change a correction yourself.
+Test cases built from the run check each new version against it.
+
 ## Step 2 — Sort each correction to its layer
 
 | The expert wrote | Where it belongs | How you change it |
@@ -180,6 +188,18 @@ changed tool.
 Deriving needs `publish` on the agent, `blocks publish` needs `write` on the
 project, and promoting needs `promote` — the permission that makes a version
 live, which an agent's admins hold.
+
+If the person keeps test cases built from the corrected runs, try the new
+version on them first:
+
+```sh
+kindgi eval-runs start <test-set-id> --project=<project-id> \
+  --agent=acme-store.refunds --agent-version=1.0.4 --wait
+```
+
+Where an expert said what the run should have done, its summary's
+`corrections` says how many of those the version now passes (`passed` of
+`checked`). No gate checks it: quote it in the promote `--reason`.
 
 Either way, ask a person to make the new version live, naming the
 corrections it fixes. Check first what will happen, then promote:
