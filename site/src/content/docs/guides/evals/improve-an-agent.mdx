@@ -77,21 +77,30 @@ pnpm exec kindgi proposals improve --agent=acme.rank.scorer --tenant --test-set=
   `weightedPrecisionAtK`, as in a
   [comparison](../compare-an-agent-version/#read-the-result).
 - **How it decides:** it searches on 70% of the test set's cases and proves
-  its best candidate on the other 30%, a split fixed for the pass. Only a
-  candidate that beats the recorded outputs there, by more than the noise,
-  becomes a proposal.
+  its best candidate on the other 30% (the cases it didn't learn from), a
+  split fixed for the pass. On the 70%, a candidate has to beat the current
+  version by more than the spread between the current version's own repeated
+  runs. On the 30%, the best one has to beat the recorded outputs, and only
+  then does it become a proposal, which carries both figures: the recorded
+  outputs' score and the candidate's.
 
 It answers at once with the pass. `--wait` waits for its outcome, at most 30
 minutes, and prints it:
 
-- **`proposed`**, with the proposal it wrote, which a reviewer decides: run
-  `kindgi proposals request <proposal-id>`, then decide the approval.
-- **`nothing-found`**, with why. No candidate beat the current version by
-  more than the noise, and the reason gives the best one's numbers on the
-  hold-out part. Or the best one is a change an existing proposal already
-  holds. Or nothing could be measured, because no candidate's output had an
-  item the test set's judgments cover. A changed free-text answer is a new
-  item no one has judged: then
+- **`proposed`**, with the proposal it wrote, which a person decides: run
+  `kindgi proposals request <proposal-id>`, then decide the approval. A pass's
+  proposal always waits for a reviewer, because a pass, not a person, drafted
+  it. When the scope's [gate policy](../release-an-agent-version/#gate-a-release)
+  has no `approvals`, that reviewer can be you, if you're registered as a
+  reviewer. When it has, someone else must approve it, unless its `approvals`
+  sets `"separateApprover": false`.
+- **`nothing-found`**, with why. No candidate beat the current version by more
+  than the noise on the 70%. Or the best one didn't beat the recorded outputs
+  on the 30%, and the outcome's hold-out comparison gives both figures there.
+  Or the best one is a change an existing proposal already holds. Or nothing
+  could be measured: a pass scores only the items of an output that judgments
+  cover (a ranking's entries, say). So a changed free-text answer is a new
+  answer no one has judged yet and has nothing to score, and then you
   [judge the new answers, then rescore](../propose-a-change/#judge-the-new-answers-then-rescore).
   The reason also says if the pass ran out of budget before comparing the
   rest.
@@ -145,11 +154,12 @@ The cost is 0 on `dev-echo`, which costs nothing:
 
 ### It learns from trusted judgments
 
-A pass counts only judgments recorded under a
-[restricted judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class)
-by default, `classWeights: "restricted-only"`. So who may steer it is a
-choice you make. `"as-recorded"` counts every judgment, by its class's
-weight: set it in the API or the clients.
+By default, a pass counts only the judgments of the people you trust: those
+recorded under a
+[judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class) you
+restrict, `classWeights: "restricted-only"`. So who may steer it is a choice
+you make. `"as-recorded"` counts every judgment, by its class's weight: set
+it in the API or the clients.
 
 ## Draft a prompt instead
 
@@ -256,6 +266,17 @@ when it ends ([Webhook events and deliveries](../../webhooks/webhook-events/#imp
 A schedule can start a pass when enough new trusted judgments have come in,
 as [Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule)
 shows.
+
+## In the console
+
+The same loop runs in the console. On an agent's proposals page, **Improve**
+starts a pass, and the pass's page follows it. The proposal it writes shows
+its verdict and the comparison figures, and a **Request promotion** button to
+send it for a decision. A schedule that starts passes is made with the CLI,
+the API or the clients, as
+[Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule)
+shows: the console lists schedules and can pause, resume, run or remove them, but
+doesn't make them.
 
 ## Next
 
