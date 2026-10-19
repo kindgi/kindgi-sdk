@@ -851,3 +851,171 @@ describe('a rescore: the replays scored again, with what people judged on them s
     expect(plain.validate?.(suite, target, DEFAULT_COMPARISON)).toEqual({ kind: 'ok' });
   });
 });
+
+describe('corrections graded on the replay', () => {
+  const toolCall = (
+    toolId: string,
+    args: Record<string, unknown>,
+    source: ReplayToolTrace['source'] = 'recorded',
+  ): ReplayToolTrace => ({
+    step: 1,
+    callId: `c-${toolId}-${JSON.stringify(args)}`,
+    toolId,
+    toolVersion: '1.0.0',
+    arguments: args,
+    source,
+  });
+
+  const outcomeWith = (caseId: string, tools: ReplayToolTrace[]): EvalRunSubjectInvokeOutcome => ({
+    output: turn('ok'),
+    runId: `${caseId}-run` as RunId,
+    provider: { id: 'p', model: 'm' },
+    replay: { of: caseId as RunId, evalRunId: 'eval-1', tools },
+  });
+
+  test('a matching correction passes, a differing one fails and names the difference', async () => {
+    const corrected: JudgedEvalCase = {
+      ...caseA,
+      caseId: 'case-c',
+      corrections: [
+        {
+          judgmentId: 'j-amount',
+          calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+          notCalled: [],
+        },
+        { judgmentId: 'j-no-email', calls: [], notCalled: ['acme.email'] },
+      ],
+    };
+    const { summary, perCase, ...out } = await compare({
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 1 },
+      cases: [corrected],
+      answer: () => outcomeWith('case-c', [toolCall('acme.refund', { amount: 80 })]),
+    });
+    expect(perCase[0]?.corrections).toEqual([
+      { judgmentId: 'j-amount', pass: false, repetitionsPassed: 0, repetitions: 1 },
+      { judgmentId: 'j-no-email', pass: true, repetitionsPassed: 1, repetitions: 1 },
+    ]);
+    expect(perCase[0]?.correctionDifferences).toEqual([
+      {
+        judgmentId: 'j-amount',
+        repetition: 1,
+        differences: [
+          { tool: 'acme.refund', kind: 'field-value', field: 'amount', expected: 25, actual: 80 },
+        ],
+      },
+    ]);
+    expect(summary.corrections).toEqual({ checked: 2, passed: 1 });
+    // The new fields are exactly what the clients read: the wire schema accepts them.
+    expect(wireErrors({ summary, perCase })).toEqual([]);
+    expect(out.error).toBeUndefined();
+  });
+
+  test('a refused call then a real retry is counted twice, and the difference names the refused one', async () => {
+    const corrected: JudgedEvalCase = {
+      ...caseA,
+      caseId: 'case-c',
+      corrections: [
+        {
+          judgmentId: 'j-amount',
+          calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+          notCalled: [],
+        },
+      ],
+    };
+    const { perCase, summary } = await compare({
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 1 },
+      cases: [corrected],
+      answer: () =>
+        outcomeWith('case-c', [
+          toolCall('acme.refund', { amount: 25 }, 'refused'),
+          toolCall('acme.refund', { amount: 25 }),
+        ]),
+    });
+    expect(perCase[0]?.corrections).toEqual([
+      { judgmentId: 'j-amount', pass: false, repetitionsPassed: 0, repetitions: 1 },
+    ]);
+    expect(perCase[0]?.correctionDifferences).toEqual([
+      {
+        judgmentId: 'j-amount',
+        repetition: 1,
+        differences: [{ tool: 'acme.refund', kind: 'count', expected: 1, actual: 2, refused: 1 }],
+      },
+    ]);
+    expect(summary.corrections).toEqual({ checked: 1, passed: 0 });
+  });
+
+  test('a correction passes only when every repetition passes (k of n)', async () => {
+    const corrected: JudgedEvalCase = {
+      ...caseA,
+      caseId: 'case-c',
+      corrections: [
+        {
+          judgmentId: 'j-amount',
+          calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+          notCalled: [],
+        },
+      ],
+    };
+    const { perCase, summary } = await compare({
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 2 },
+      cases: [corrected],
+      // First repetition matches, second one differs.
+      answer: (_input, call) =>
+        outcomeWith('case-c', [toolCall('acme.refund', { amount: call === 1 ? 25 : 80 })]),
+    });
+    expect(perCase[0]?.corrections).toEqual([
+      { judgmentId: 'j-amount', pass: false, repetitionsPassed: 1, repetitions: 2 },
+    ]);
+    // The first repetition passed, so the differences come from the second,
+    // and say so — a later failure is no longer shown with none.
+    expect(perCase[0]?.correctionDifferences).toEqual([
+      {
+        judgmentId: 'j-amount',
+        repetition: 2,
+        differences: [
+          { tool: 'acme.refund', kind: 'field-value', field: 'amount', expected: 25, actual: 80 },
+        ],
+      },
+    ]);
+    expect(summary.corrections).toEqual({ checked: 1, passed: 0 });
+  });
+
+  test('restricted-only grades only the corrections recorded under a restricted class', async () => {
+    const corrected: JudgedEvalCase = {
+      ...caseA,
+      caseId: 'case-c',
+      corrections: [
+        {
+          judgmentId: 'j-restricted',
+          restricted: true,
+          calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+          notCalled: [],
+        },
+        {
+          judgmentId: 'j-open',
+          calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+          notCalled: [],
+        },
+      ],
+    };
+    const { perCase, summary } = await compare({
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 1, classWeights: 'restricted-only' },
+      cases: [corrected],
+      answer: () => outcomeWith('case-c', [toolCall('acme.refund', { amount: 25 })]),
+    });
+    expect(perCase[0]?.corrections).toEqual([
+      { judgmentId: 'j-restricted', pass: true, repetitionsPassed: 1, repetitions: 1 },
+    ]);
+    expect(summary.corrections).toEqual({ checked: 1, passed: 1 });
+  });
+
+  test('a case with no corrections has no correction fields and no summary tally', async () => {
+    const { perCase, summary } = await compare({
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 1 },
+      cases: [caseB],
+    });
+    expect(perCase[0]?.corrections).toBeUndefined();
+    expect(perCase[0]?.correctionDifferences).toBeUndefined();
+    expect(summary.corrections).toBeUndefined();
+  });
+});

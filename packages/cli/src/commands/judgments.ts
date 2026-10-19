@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { Correction, JudgedItem } from '@kindgi/client';
+import { CORRECTION_ITEM } from '@kindgi/types';
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
-import { integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
+import { integerFlag, readJsonInput, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
 const VERDICTS = ['yes', 'no'] as const;
@@ -21,13 +23,56 @@ function givenFlags<F extends string>(
   return out;
 }
 
+/** The optional `--correction` flag, parsed from JSON or `@<file>`. */
+async function correctionFlag(ctx: CommandContext): Promise<Correction | undefined> {
+  const text = stringFlag(ctx, 'correction');
+  return text === undefined ? undefined : ((await readJsonInput(text)) as Correction);
+}
+
+/** The judged item for an ordinary judgment, from `--item`/`--pointer`/`--rank`. */
+function ordinaryItem(ctx: CommandContext): JudgedItem {
+  const key = stringFlag(ctx, 'item');
+  if (key === undefined) throw new UsageError('--item=<key> is required');
+  const rank = integerFlag(ctx, 'rank');
+  if (rank !== undefined && rank < 0) throw new UsageError('--rank must be 0 or more');
+  const pointer = ctx.options.pointer;
+  return {
+    key,
+    // An empty pointer is valid: the whole output.
+    ...(typeof pointer === 'string' && { pointer }),
+    ...(rank !== undefined && { rank }),
+  };
+}
+
+/**
+ * The one reserved item a correction rides on — the whole output — so it counts
+ * once per run per expert. `--item`, `--pointer` or `--rank`, if given, may only
+ * name that whole-output item; `--rank` never applies, so it is refused.
+ */
+function correctionItem(ctx: CommandContext): JudgedItem {
+  const key = stringFlag(ctx, 'item');
+  if (key !== undefined && key !== CORRECTION_ITEM.key) {
+    throw new UsageError(
+      `a correction is recorded under --item=${CORRECTION_ITEM.key}; drop --item or set it to that`,
+    );
+  }
+  const pointer = ctx.options.pointer;
+  if (typeof pointer === 'string' && pointer !== CORRECTION_ITEM.pointer) {
+    throw new UsageError('a correction judges the whole output; drop --pointer');
+  }
+  if (integerFlag(ctx, 'rank') !== undefined) {
+    throw new UsageError('a correction judges the whole output; drop --rank');
+  }
+  return { key: CORRECTION_ITEM.key, pointer: CORRECTION_ITEM.pointer };
+}
+
 const add: LeafCommand = {
   kind: 'leaf',
   name: 'add',
   description:
     "Judge one item of a finished run's output: yes or no, with an optional reason. Judging the same item again as the same caller replaces the earlier judgment.",
   usage:
-    'kindgi judgments add --run=<run-id> --item=<key> [--pointer=<json-pointer>] [--rank=<n>] (--yes | --no) [--reason=<text>] [--class=<judge-class-id>] [--participant=<id>]',
+    'kindgi judgments add --run=<run-id> --item=<key> [--pointer=<json-pointer>] [--rank=<n>] (--yes | --no) [--reason=<text>] [--correction=<json-or-@file>] [--class=<judge-class-id>] [--participant=<id>]',
   optionSpec: {
     run: { type: 'string', description: 'The run whose output is judged. Required.' },
     item: {
@@ -43,6 +88,11 @@ const add: LeafCommand = {
     yes: { type: 'boolean', description: 'The verdict is yes. Give `--yes` or `--no`.' },
     no: { type: 'boolean', description: 'The verdict is no. Give `--yes` or `--no`.' },
     reason: { type: 'string', description: 'Why, recorded with the judgment.' },
+    correction: {
+      type: 'string',
+      description:
+        'What the agent should have done, as JSON or `@<file>`: `{ "calls": [{ "tool": "<tool-id>", "args": { … } }], "notCalled": ["<tool-id>"] }`. `args` are the partial top-level fields to compare (those left out are not compared); `notCalled` lists tools that should not have been called at all. Graded on a replay. Recorded against the whole output, so a later correction of the same run by the same caller replaces it; `--item`/`--pointer`/`--rank` aren\'t needed.',
+    },
     class: {
       type: 'string',
       description:
@@ -57,23 +107,16 @@ const add: LeafCommand = {
     runSdk(ctx, 'judgments add', async () => {
       const runId = stringFlag(ctx, 'run');
       if (runId === undefined) throw new UsageError('--run=<run-id> is required');
-      const key = stringFlag(ctx, 'item');
-      if (key === undefined) throw new UsageError('--item=<key> is required');
       const yes = ctx.options.yes === true;
       const no = ctx.options.no === true;
       if (yes === no) throw new UsageError('Give exactly one of --yes or --no');
-      const rank = integerFlag(ctx, 'rank');
-      if (rank !== undefined && rank < 0) throw new UsageError('--rank must be 0 or more');
-      const pointer = ctx.options.pointer;
+      const correction = await correctionFlag(ctx);
+      const item = correction === undefined ? ordinaryItem(ctx) : correctionItem(ctx);
       return await ctx.client().judgments.create({
         runId,
-        item: {
-          key,
-          // An empty pointer is valid: the whole output.
-          ...(typeof pointer === 'string' && { pointer }),
-          ...(rank !== undefined && { rank }),
-        },
+        item,
         verdict: yes ? 'yes' : 'no',
+        ...(correction !== undefined && { correction }),
         ...givenFlags(ctx, {
           reason: 'reason',
           class: 'judgeClassId',
