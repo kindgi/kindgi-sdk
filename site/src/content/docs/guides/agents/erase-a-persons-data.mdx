@@ -220,11 +220,11 @@ Once it completes, new turns for the person start again.
     (its cost stays);
   - evals' copies. A test set's case copied from an erased run reads
     `erased: true`, and comparisons leave it out and count it, in
-    `summary.erased`. A comparison's result for a case from such a run, or
-    that replayed one, loses what could quote them: its `changes`, `tools`
-    and `error`, and what differed from what the run should have done. Its
-    scores, its counts, and whether each correction passed stay, so the
-    comparison's numbers do.
+    `summary.erased`. For a case from such a run, or a replay of one, a run
+    on the test cases loses what could quote them: the case's `changes`,
+    `tools` and `error`, and what differed from what the run should have
+    done. Its scores, its counts, and whether each correction passed stay,
+    so its numbers do.
 
 Audit events of a kind your compliance setup holds, a legal hold, keep their
 text, and the erasure counts them. A fact under legal hold stops the erasure
