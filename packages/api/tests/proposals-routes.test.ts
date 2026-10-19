@@ -75,6 +75,8 @@ const SEGMENT: LiveScope = {
   path: [{ key: 'company', value: 'acme' }],
 };
 const SEGMENT_WIRE = { kind: 'segment', projectId, path: [{ key: 'company', value: 'acme' }] };
+const projectRef: ResourceRef = { type: 'project', id: projectId as unknown as string };
+const tenantRef: ResourceRef = { type: 'tenant', id: tenantId as unknown as string };
 
 const resolveToken: TokenResolver = async (token) =>
   token === TOKEN ? { tenantId, userId: 'user-1' as UserId } : null;
@@ -174,8 +176,9 @@ function evalRunFake(agents: AgentRegistryBinding) {
       runs.set(runId as unknown as string, {
         runId,
         tenantId: input.tenantId,
-        // The pass runs in the agent's project, so the drafted approval resolves
-        // to it (T1044): the roster count checks reviewers' read against it.
+        // The eval run records the agent's project. A drafter's approval resolves
+        // to the proposal's SCOPE, not this — set equal to the segment's project
+        // here, so only a tenant-scoped test tells the two apart (T1044).
         projectId,
         suiteId: input.suiteId,
         suiteVersion: '1.0.0',
@@ -1425,21 +1428,26 @@ describe('a proposal a drafter wrote (not a person)', () => {
   }
 
   /**
-   * An authorizer that allows `read` only for the named user ids, and records
-   * the checks it was asked — so a test can assert the count asked whether each
-   * reviewer may read the approval's resource (T1044).
+   * An authorizer that allows `read` only for the given `userId → resources`
+   * grants, and records the checks it was asked — so a test can assert the
+   * count asked whether each reviewer may read the approval's resource, and
+   * that it asked about the RIGHT one (the scope's, not the eval run's) (T1044).
    */
-  function authzReads(...readers: readonly string[]): {
+  function authzReads(grants: Record<string, readonly ResourceRef[]>): {
     binding: AuthzCheckBinding;
     checks: { userId: string; action: Action; resource: ResourceRef }[];
   } {
     const checks: { userId: string; action: Action; resource: ResourceRef }[] = [];
+    const keyOf = (r: ResourceRef) => `${r.type}:${r.id}`;
+    const allowed = new Map<string, Set<string>>(
+      Object.entries(grants).map(([u, rs]) => [u, new Set(rs.map(keyOf))]),
+    );
     const decide = (p: Principal, action: Action, resource: ResourceRef): Decision => {
       checks.push({ userId: p.actor.id, action, resource });
-      const allowed = readers.includes(p.actor.id);
+      const ok = allowed.get(p.actor.id)?.has(keyOf(resource)) ?? false;
       return {
-        allowed,
-        reason: allowed ? 'test: reader' : 'test: not a reader',
+        allowed: ok,
+        reason: ok ? 'test: reader' : 'test: not a reader',
         evidence: {
           action,
           relation: '',
@@ -1462,6 +1470,7 @@ describe('a proposal a drafter wrote (not a person)', () => {
     reviewers: Pick<ReviewerRegistryBinding, 'list'>,
     actor: { kind: 'user' | 'service'; id: string },
     authz?: AuthzCheckBinding,
+    scope: LiveScope = SEGMENT,
   ): Promise<{ role: string; count: number; separateApprover: boolean } | undefined> {
     const h = await harness();
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
@@ -1478,7 +1487,7 @@ describe('a proposal a drafter wrote (not a person)', () => {
       tenantId,
       agentId: AGENT,
       fromVersion: '1.0.0',
-      scope: SEGMENT,
+      scope,
       tier: 'settings-block',
       blockId: WEIGHTS,
       content: { values: { recency: 0.6, fit: 0.4 } },
@@ -1545,7 +1554,7 @@ describe('a proposal a drafter wrote (not a person)', () => {
   });
 
   test('a reviewer who cannot read the project does not count, so the requester approves alone (T1044)', async () => {
-    const authz = authzReads('u-alice');
+    const authz = authzReads({ 'u-alice': [projectRef] });
     const approval = await draftedApprovalFor(
       roster({ userId: 'u-alice' }, { userId: 'u-bob' }),
       { kind: 'user', id: 'u-alice' },
@@ -1562,7 +1571,7 @@ describe('a proposal a drafter wrote (not a person)', () => {
   });
 
   test('a reviewer who can read the project counts, so a separate approver is required (T1044)', async () => {
-    const authz = authzReads('u-alice', 'u-bob');
+    const authz = authzReads({ 'u-alice': [projectRef], 'u-bob': [projectRef] });
     const approval = await draftedApprovalFor(
       roster({ userId: 'u-alice' }, { userId: 'u-bob' }),
       { kind: 'user', id: 'u-alice' },
@@ -1588,6 +1597,41 @@ describe('a proposal a drafter wrote (not a person)', () => {
     };
     const approval = await draftedApprovalFor(paged, { kind: 'user', id: 'u-solo' });
     expect(approval).toMatchObject({ separateApprover: true });
+  });
+
+  test('a tenant-scoped drafter counts a reviewer who can read the tenant (T1044)', async () => {
+    const authz = authzReads({ 'u-alice': [tenantRef], 'u-bob': [tenantRef] });
+    const approval = await draftedApprovalFor(
+      roster({ userId: 'u-alice' }, { userId: 'u-bob' }),
+      { kind: 'user', id: 'u-alice' },
+      authz.binding,
+      { kind: 'tenant' },
+    );
+    expect(approval).toMatchObject({ separateApprover: true });
+    // A tenant-scoped promotion opens an approval with no project and no
+    // provenance run, so the decide route resolves it to the tenant — and the
+    // count asks the same resource (T1044).
+    expect(authz.checks).toContainEqual({ userId: 'u-bob', action: 'read', resource: tenantRef });
+  });
+
+  test("a tenant-scoped drafter asks the tenant, not the eval run's project (T1044)", async () => {
+    // u-bob may read the eval run's project but not the tenant. Resolving the
+    // count to the run's project (the bug) would admit u-bob; resolving to the
+    // tenant-scoped promotion's own resource does not.
+    const authz = authzReads({ 'u-alice': [tenantRef], 'u-bob': [projectRef] });
+    const approval = await draftedApprovalFor(
+      roster({ userId: 'u-alice' }, { userId: 'u-bob' }),
+      { kind: 'user', id: 'u-alice' },
+      authz.binding,
+      { kind: 'tenant' },
+    );
+    expect(approval).toMatchObject({ separateApprover: false });
+    expect(authz.checks).toContainEqual({ userId: 'u-bob', action: 'read', resource: tenantRef });
+    expect(authz.checks).not.toContainEqual({
+      userId: 'u-bob',
+      action: 'read',
+      resource: projectRef,
+    });
   });
 });
 

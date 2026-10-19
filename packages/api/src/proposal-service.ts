@@ -9,7 +9,6 @@ import {
   REVIEWER_ROLE_RANK,
   type ResourceRef,
   type ReviewerRole,
-  ref,
   tuplesForCreate,
   userPrincipal,
 } from '@kindgi/authz';
@@ -27,6 +26,7 @@ import type {
 } from '@kindgi/types';
 
 import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.js';
+import { approvalResourceRef, projectOfScope } from './approval-resource.js';
 import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
 import { type BlockEdit, blockEditDefinition, publishBlockEdit } from './block-publish.js';
 import { deriveAgentVersion } from './derive-agent-version.js';
@@ -224,25 +224,6 @@ export function createProposalService(deps: ProposalServiceDeps) {
   const err = (error: ProposalServiceError) => ({ kind: 'err' as const, error });
 
   /**
-   * The resource a drafter's promotion's approval resolves to, the way the
-   * decide route's `approvalRef` does (routes/approvals.ts): the proposal's
-   * eval run's project, or the tenant when there is no run. The roster count
-   * checks each reviewer's read against this same resource, so it counts only
-   * reviewers the decide route would let through (T1044).
-   */
-  async function approvalResource(
-    tenantId: TenantId,
-    proposal: StoredProposal,
-  ): Promise<ResourceRef> {
-    const runId = proposal.evaluation?.evalRunId;
-    const run =
-      runId === undefined ? null : await deps.evalRuns.get({ tenantId, runId: runId as RunId });
-    return run?.projectId !== undefined
-      ? ref('project', run.projectId as unknown as string)
-      : ref('tenant', tenantId as unknown as string);
-  }
-
-  /**
    * The approval a drafter's promotion needs (K2), with `separateApprover`
    * decided from the tenant roster (T1044). No reviewer registry wired keeps
    * the legacy rule (any reviewer, the requester included, may approve).
@@ -258,7 +239,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
       tenantId,
       DRAFTED_PROPOSAL_APPROVAL.role,
       actor.kind === 'user' ? (actor.id as UserId) : undefined,
-      await approvalResource(tenantId, proposal),
+      await approvalResourceRef(tenantId, { projectId: projectOfScope(proposal.scope) }),
       deps.authz,
     );
     return { ...DRAFTED_PROPOSAL_APPROVAL, separateApprover: second };
