@@ -37,9 +37,11 @@ export interface TurnConversation {
 
 /**
  * Closes a conversation its agent's policy closes for inactivity, if
- * nothing has been said in it for `afterInactiveSeconds` still: its
- * `closedAt` then, nothing when a message reached it since. Any other
- * failure throws, so no turn runs into one it should have closed.
+ * nothing has happened in it for `afterInactiveSeconds`, its runs
+ * included (`autoCloseDue`): its `closedAt` then, nothing when it isn't
+ * idle (a run in it is in flight, or a message, a turn or a run's end came
+ * since). Any other failure throws, so no turn runs into one it should
+ * have closed.
  */
 export type CloseInactive = (
   tenantId: TenantId,
@@ -140,9 +142,11 @@ function checkedOn(conversation: TurnConversation): ResourceRef {
  * gets the answer for one that doesn't exist. No conversation: nothing to
  * refuse here.
  *
- * One its agent's policy closes for inactivity (`autoCloseDue`) is closed
- * here first (`closeInactive`), then refused the same: the turn would have
- * found it closed at its setup.
+ * One its agent's policy may close for inactivity is closed here first
+ * (`closeInactive`), then refused the same. What's read here is its own
+ * record, without its runs (`autoCloseDue` says whether it may be due);
+ * the close decides with them, and one a run holds open lets the turn
+ * through.
  */
 export async function closedRefusal(
   c: Context<AppEnv>,

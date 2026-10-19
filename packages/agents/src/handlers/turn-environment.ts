@@ -17,7 +17,6 @@ import type { HitlSpec, ToolErrorsSpec } from '@kindgi/policy-contract';
 import type { ToolRegistry } from '@kindgi/tools';
 import type { TenantId } from '@kindgi/types';
 
-import { AUTO_CLOSE_ACTOR, autoCloseDue } from '../conversation-inactivity.js';
 import type { ConversationClosedError } from '../errors.js';
 import { resolveGuardrails } from '../guardrails-gate.js';
 import { type EffectiveHitlPolicy, resolveEffectiveHitlPolicy } from '../hitl-policy.js';
@@ -32,9 +31,9 @@ import { type ToolErrorPolicy, effectiveToolErrorPolicy } from './tool-errors.js
 
 /**
  * The conversation the turn runs in: open, and opened with this agent
- * version. One its agent's policy closes for inactivity
- * (`autoCloseAfterInactiveSeconds`) is closed here, as the turn starts or
- * resumes, and the turn fails as it does for a closed one.
+ * version. Its agent's inactivity policy doesn't close it here, as the
+ * turn starts or resumes: the turn's own run is in flight, which holds it
+ * open (`autoCloseDue`).
  */
 export async function loadTurnConversation(ctx: TurnContext): Promise<Conversation> {
   const conv = await ctx.bindings.conversationBinding.getConversation(
@@ -42,7 +41,14 @@ export async function loadTurnConversation(ctx: TurnContext): Promise<Conversati
     ctx.input.conversationId,
   );
   if (conv.kind === 'err') throwAgentTurnFailure(conv.error);
-  if (conv.value.closedAt !== undefined) throwConversationClosed(ctx);
+  if (conv.value.closedAt !== undefined) {
+    const err: ConversationClosedError = {
+      code: 'conversation-closed',
+      message: `Conversation "${ctx.input.conversationId}" is closed`,
+      conversationId: ctx.input.conversationId,
+    };
+    throwAgentTurnFailure(err);
+  }
   if (
     conv.value.agentId !== ctx.input.agent.id ||
     conv.value.agentVersion !== ctx.input.agent.version
@@ -55,40 +61,8 @@ export async function loadTurnConversation(ctx: TurnContext): Promise<Conversati
       actualVersion: ctx.input.agent.version,
     });
   }
-  const open = await openUnlessInactive(ctx, conv.value);
-  ctx.conversation = open;
-  return open;
-}
-
-/**
- * The conversation, unless its agent's policy closes it now: then it's
- * closed (cancelling its runs' pending waits), and the turn fails.
- */
-async function openUnlessInactive(
-  ctx: TurnContext,
-  conversation: Conversation,
-): Promise<Conversation> {
-  const due = autoCloseDue(conversation, ctx.input.agent.conversationPolicy, new Date());
-  if (due === undefined) return conversation;
-  const closed = await ctx.bindings.conversationBinding.closeConversation(
-    ctx.input.tenantId,
-    ctx.input.conversationId,
-    ctx.bindings.runBinding,
-    { actor: AUTO_CLOSE_ACTOR, afterInactiveSeconds: due.afterSeconds },
-  );
-  if (closed.kind === 'err') throwAgentTurnFailure(closed.error);
-  // A message reached it since it was read: open after all.
-  if (closed.value.closedAt === undefined) return closed.value;
-  throwConversationClosed(ctx);
-}
-
-function throwConversationClosed(ctx: TurnContext): never {
-  const err: ConversationClosedError = {
-    code: 'conversation-closed',
-    message: `Conversation "${ctx.input.conversationId}" is closed`,
-    conversationId: ctx.input.conversationId,
-  };
-  throwAgentTurnFailure(err);
+  ctx.conversation = conv.value;
+  return conv.value;
 }
 
 /** The model a turn was routed to, as `setup` journals it. */

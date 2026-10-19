@@ -157,7 +157,9 @@ export interface ConversationClose {
   readonly actor: string;
   /**
    * Its policy closes it (`conversationPolicy.autoCloseAfterInactiveSeconds`):
-   * only if nothing has been said in it for this many seconds.
+   * only if nothing has happened in it for this many seconds, by
+   * `autoCloseDue` with its runs: no message, no turn posted or ended, and
+   * no run in it in flight.
    */
   readonly afterInactiveSeconds?: number;
 }
@@ -210,8 +212,11 @@ export interface ConversationBinding {
    * answered as it is, closed once. Without `close`, an impl that keeps a
    * record of the close names its actor `unknown`. With
    * `close.afterInactiveSeconds`, its policy closes it, and only if nothing
-   * has been said in it for that long, checked as it closes: one a message
-   * reached since is answered open, as it is.
+   * has happened in it for that long (`autoCloseDue`, with its runs),
+   * checked as it closes: one that isn't idle (a message reached it since,
+   * a turn was posted, one of its runs is in flight or just ended) is
+   * answered open, as it is. A close by the policy cancels no wait: a
+   * conversation with a run waiting isn't idle.
    */
   closeConversation(
     tenantId: TenantId,

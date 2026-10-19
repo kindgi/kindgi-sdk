@@ -86,9 +86,15 @@ const STORED: ReadonlyMap<string, Stored> = new Map<string, Stored>([
       closedAt: '2026-10-17T10:05:07Z',
     },
   ],
-  [IDLE_ALICES, { projectId: B, openedBy: `user:${ALICE}`, lastMessageAt: ago(120) }],
+  [
+    IDLE_ALICES,
+    { projectId: B, openedBy: `user:${ALICE}`, openedAt: ago(600), lastMessageAt: ago(120) },
+  ],
   [UNSPOKEN_ALICES, { projectId: B, openedBy: `user:${ALICE}`, openedAt: ago(120) }],
-  [RECENT_ALICES, { projectId: B, openedBy: `user:${ALICE}`, lastMessageAt: ago(30) }],
+  [
+    RECENT_ALICES,
+    { projectId: B, openedBy: `user:${ALICE}`, openedAt: ago(600), lastMessageAt: ago(30) },
+  ],
 ]);
 
 /** Every key may run the desk agent; the rest is each key's own. */
@@ -162,7 +168,7 @@ function makeApp({
   stored?: ReadonlyMap<string, Stored>;
   /** The agent version's `conversationPolicy.autoCloseAfterInactiveSeconds`. */
   autoCloseAfterInactiveSeconds?: number;
-  /** What closing it answers: closed, open (a message reached it since), or a failure. */
+  /** What closing it answers: closed, open (it isn't idle, its runs included), or a failure. */
   closes?: 'closed' | 'open' | 'fails';
 } = {}) {
   let current = 'alice';
@@ -640,7 +646,7 @@ describe("a turn into a conversation its agent's policy closes for inactivity", 
     expect(none.reached()).toBe(1);
   });
 
-  test('a message reached it since it was read: left open, and the turn goes through', async () => {
+  test('the close finds it not idle (a run in it in flight, or a message, a turn or a run end since): left open, and the turn goes through', async () => {
     const { as, reached, closing } = makeApp({ ...policy, closes: 'open' });
     expect(continued(await as('alice').turn(IDLE_ALICES))).toBe(true);
     expect(closing).toHaveLength(1);

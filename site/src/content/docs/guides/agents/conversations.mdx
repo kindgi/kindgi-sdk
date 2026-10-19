@@ -521,6 +521,70 @@ Over HTTP, these are `POST /v1/conversations`, `GET /v1/conversations`,
 `GET /v1/conversations/{id}`, `POST /v1/conversations/{id}/close` and
 `GET /v1/conversations/{id}/messages`.
 
+## Close conversations that go quiet
+
+A conversation can close by itself once nothing has happened in it for a
+while (runtime 0.1.8.N or later). Ask your coding agent: "Close my agent's
+conversations once they've been idle for 30 minutes." For reference, it adds
+`autoCloseAfterInactiveSeconds` to the agent's definition:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+// in agents/order-desk/index.ts
+  conversationPolicy: { autoCloseAfterInactiveSeconds: 1800 },
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+# in agents/order_desk.py
+    conversation_policy={"autoCloseAfterInactiveSeconds": 1800},
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .set("conversationPolicy", Map.of("autoCloseAfterInactiveSeconds", 1800))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .set("conversationPolicy", Map("autoCloseAfterInactiveSeconds" -> 1800))
+```
+
+</TabItem>
+</Tabs>
+
+- **When it closes:** once no turn in it is in progress or waiting, and
+  1,800 seconds have passed since the last of these: its last message, the
+  last turn sent into it, the last turn's end, and its opening. The window
+  is a whole number of seconds, 1 or more.
+- **A turn in progress or waiting holds it open,** however long it takes:
+  one queued, running, or waiting, such as on a person's approval. The
+  window starts again when the turn ends.
+- **A turn into one past its window,** with no turn in progress or waiting
+  in it, closes it, and is refused as a turn into a closed conversation is, with
+  `409 conversation-closed` before a run is made.
+- **The runtime closes the others as it sweeps,** about once a minute.
+- **The window is the agent version's:** a conversation closes by the
+  policy of the version it
+  [was opened with](#a-conversation-keeps-its-agent-version), so a new
+  version's window doesn't change when older conversations close.
+- **Each close is recorded** in the
+  [audit trail](../../../deploy/retention/#audit-events), with
+  `system:conversation-auto-close` as who closed it.
+
+An older runtime accepts `autoCloseAfterInactiveSeconds`, and never closes a
+conversation for it.
+
 ## Remove a conversation
 
 Unregistering a conversation removes it from every read, list and recall:
