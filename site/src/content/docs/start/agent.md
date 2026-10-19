@@ -74,15 +74,18 @@ clipboard is empty, use the fallback: the person runs the command in their
 own terminal, where it asks for the value without showing it. On Windows,
 always use the fallback.
 
-Then run doctor:
+Then run doctor, as a command of its own:
 
 ```sh
 npx --yes @kindgi/cli@0.1 doctor --json
 ```
 
-It prints one JSON object and exits `0` when nothing fails, `1` when a check
-fails (and `2` on a usage error). Here, in a project with `kindgi dev`
-running and no model key yet:
+Run it like that here and in every later step: nothing before or after it,
+such as `;`, `&&`, a pipe or `echo $?`. Coding tools' permission rules match
+plain commands, so an "always allow" for doctor covers every later run. It
+prints one JSON object, whose `ok` is `false` when a check fails; it also
+exits `1` then (`0` when nothing fails, `2` on a usage error). Here, in a
+project with `kindgi dev` running and no model key yet:
 
 ```json
 {
