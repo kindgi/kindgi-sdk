@@ -27,7 +27,7 @@ const rename: LeafCommand = {
   kind: 'leaf',
   name: 'rename',
   description:
-    "Change your workspace's name, its slug, or both. Prints it. Its id stays, so whatever names it by its id keeps working. The console's addresses carry the slug: after a new one, links with the old one stop opening it. Nothing in the CLI uses the slug. For tenant admins. Needs a runtime on Kindgi 0.1.8.2 or later.",
+    "Change your workspace's name, its slug, or both. Prints it. Its id stays, so whatever names it by its id keeps working. The console's addresses carry the slug: after a new one, links with the old one stop opening it. Nothing in the CLI uses the slug. For tenant admins. Needs a runtime on Kindgi 0.1.10 or later.",
   usage: 'kindgi tenant rename [--name=<name>] [--slug=<slug>]',
   optionSpec: {
     name: { type: 'string', description: 'The new name, at most 100 characters.' },
