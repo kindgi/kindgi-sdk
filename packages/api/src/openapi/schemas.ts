@@ -1535,7 +1535,8 @@ const SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES: Record<string, JsonSchema> = {
   },
   projectId: {
     type: 'string',
-    description: 'The project the deploy was scoped to. Absent for a tenant-wide deploy.',
+    description:
+      "The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project.",
   },
   imageRef: {
     type: 'string',
@@ -3699,7 +3700,7 @@ export const ToolSpecSchema: JsonSchema = {
 
 export const RecordedSecretScopeSchema: JsonSchema = {
   description:
-    "Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.",
+    "Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.",
   oneOf: [
     {
       type: 'object',
@@ -9314,6 +9315,16 @@ export const SignInOptionsSchema: JsonSchema = {
             captchaSiteKey: { type: 'string', minLength: 1 },
           },
         },
+      },
+    },
+    legal: {
+      type: 'object',
+      additionalProperties: false,
+      description:
+        "The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.",
+      properties: {
+        termsUrl: { type: 'string', format: 'uri', description: 'Its terms.' },
+        privacyUrl: { type: 'string', format: 'uri', description: 'Its privacy policy.' },
       },
     },
   },

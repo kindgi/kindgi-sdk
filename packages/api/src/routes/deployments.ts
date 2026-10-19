@@ -18,7 +18,7 @@ import {
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
 import { resolvePackEnv } from '@kindgi/handler-runtime/pack-env';
-import type { ProjectBinding, Scope } from '@kindgi/platform';
+import type { ProjectBinding } from '@kindgi/platform';
 import { SchemaCompileBudgetError, compileInlineSchema } from '@kindgi/schema';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
 import type {
@@ -42,7 +42,6 @@ import {
   type DeployedAgent,
   type DeployedFlow,
   type DeployedVersion,
-  type Deployment,
   type DeploymentBinding,
   type DeploymentPrimitiveCounts,
   type DeploymentRegisterOutcome,
@@ -76,7 +75,12 @@ import {
   reservedToolMetadataMessage,
 } from '../reference-scope.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
-import { callerAdministers, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
+import {
+  callerAdministers,
+  deploymentSecretScope,
+  secretScopesFor,
+  toolSecretRefs,
+} from '../secret-scope.js';
 import { type SecretBinding, secretNameGrammarRefusal } from '../secrets-binding.js';
 import { type ServedEnvRule, readReferencesOnce, refuseUnservedValue } from '../served-env.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
@@ -88,12 +92,14 @@ import {
   carriedFor,
   isPromotionRoute,
   mountDeploymentPromotions,
-  servingProjectOf,
+  readableDeployment,
+  readableDeployments,
   valuesDepsFor,
 } from './deployment-promotions.js';
 import { requireEnvName } from './env.js';
 import type { GuardrailWriteHook } from './guardrails.js';
 import { clampLimit } from './pagination.js';
+import { scopeResourceRef } from './scope-params.js';
 import { tenantResourceAccess } from './tenant-access.js';
 import { parseTimeInput } from './time-input.js';
 import type { ToolWriteHook } from './tools.js';
@@ -301,6 +307,8 @@ export interface DeploymentsRouterBindings {
   readonly itemRights?: ItemRights;
 }
 
+const SECRETS_PATH = /\/deployments\/[^/]+\/secrets\/?$/;
+
 export function deploymentsRouter(
   bindings: DeploymentsRouterBindings,
   authorizer?: Authorizer,
@@ -309,14 +317,17 @@ export function deploymentsRouter(
   // Every schema a publish compiles counts against its tenant's budget.
   const publishCompiles = publishCompilesMiddleware();
   // A deploy into a named project needs admin on that project, as creating
-  // an agent there does; a tenant-wide deploy, and every other route here,
-  // the tenant's. (A key limited to another project was already refused,
-  // `refuseOtherProjectForKey`.)
+  // an agent there does; a tenant-wide deploy, the tenant's. Every read
+  // here needs `read` on the tenant, and a read of one deployment `read` on
+  // the project it serves as well (`readableDeployment`). (A key limited to
+  // another project was already refused, `refuseOtherProjectForKey`.)
   const tenantAccess = tenantResourceAccess(authorizer);
   r.use('*', async (c, next) => {
     // A promotion checks rights on the projects themselves: read on the
     // deployment's environment, admin on the target.
     if (isPromotionRoute(c.req.method, c.req.path)) return next();
+    // A secrets sync asks admin where it writes them, as `/v1/secrets` does.
+    if (c.req.method === 'POST' && SECRETS_PATH.test(c.req.path)) return next();
     if (
       authorizer === undefined ||
       c.req.method !== 'POST' ||
@@ -354,6 +365,15 @@ export function deploymentsRouter(
     // no project), and one pack's.
     const projectIdRaw = c.req.query('projectId');
     const packIdRaw = c.req.query('packId');
+    // One project's needs `read` on it (one that isn't there is refused to
+    // everyone, so it tells no one what exists). Either way the page keeps
+    // only the rows whose project the caller reads, whatever the binding
+    // returned, so it can come back short, its cursor still the next page's.
+    const oneProject = projectIdRaw !== undefined && projectIdRaw.length > 0;
+    const refused = oneProject
+      ? await deniedBy(authorizer, c, 'read', ref('project', projectIdRaw))
+      : undefined;
+    if (refused !== undefined) return refused;
 
     // A throw from list() propagates to the app's central error handler
     // (middleware/error-mapper.ts): a busy database answers this GET with a
@@ -371,18 +391,18 @@ export function deploymentsRouter(
         signerKeyIdRaw.length > 0 && {
           signerKeyId: signerKeyIdRaw as SigningKeyId,
         }),
-      ...(projectIdRaw !== undefined &&
-        projectIdRaw.length > 0 && { projectId: projectIdRaw as ProjectId }),
+      ...(oneProject && { projectId: projectIdRaw as ProjectId }),
       ...(packIdRaw !== undefined && packIdRaw.length > 0 && { packId: packIdRaw }),
     });
+    const readable = await readableDeployments(c, bindings, authorizer, page.data);
     return c.json({
-      data: page.data.map(serializeDeployment),
+      data: readable.map(serializeDeployment),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && {
         nextCursor: page.nextCursor as unknown as string,
       }),
       // The filters it applied, so a client can tell a runtime that ignored them.
-      ...(projectIdRaw !== undefined && projectIdRaw.length > 0 && { projectId: projectIdRaw }),
+      ...(oneProject && { projectId: projectIdRaw }),
       ...(packIdRaw !== undefined && packIdRaw.length > 0 && { packId: packIdRaw }),
     });
   });
@@ -390,11 +410,10 @@ export function deploymentsRouter(
   // ---------- GET /:deploymentId ----------
   r.get('/:deploymentId', async (c) => {
     const requestId = c.get('requestId');
-    const tenantId = c.get('tenantId') as TenantId;
     const deploymentId = c.req.param('deploymentId');
 
-    const record = await bindings.deploymentRegistry.get({ tenantId, deploymentId });
-    if (record === null) {
+    const located = await readableDeployment(c, bindings, authorizer);
+    if (located === undefined) {
       c.status(statusFor('deployment-not-found') as never);
       return c.json(
         toWireError(
@@ -407,7 +426,7 @@ export function deploymentsRouter(
         ),
       );
     }
-    return c.json(serializeDeployment(record));
+    return c.json(serializeDeployment(located.deployment));
   });
 
   // ---------- GET /:deploymentId/pack-env ----------
@@ -432,8 +451,8 @@ export function deploymentsRouter(
         ),
       );
     }
-    const record = await bindings.deploymentRegistry.get({ tenantId, deploymentId });
-    if (record === null) {
+    const located = await readableDeployment(c, bindings, authorizer);
+    if (located === undefined) {
       c.status(statusFor('deployment-not-found') as never);
       return c.json(
         toWireError(
@@ -446,6 +465,7 @@ export function deploymentsRouter(
         ),
       );
     }
+    const record = located.deployment;
     const check = await packEnvCheck(
       {
         env,
@@ -472,7 +492,8 @@ export function deploymentsRouter(
   // ---------- GET /:deploymentId/values ----------
   // What the deployment needs set in a project before it serves there,
   // names only (`deployment-values.ts`). It asks what listing secrets in
-  // that project asks, `admin` on it, on top of the tenant `read` above.
+  // that project asks, `admin` on it, on top of the tenant `read` above and
+  // the deployment's own read, as a promotion from it does.
   r.get('/:deploymentId/values', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -487,8 +508,8 @@ export function deploymentsRouter(
         ),
       );
     }
-    const record = await bindings.deploymentRegistry.get({ tenantId, deploymentId });
-    if (record === null) {
+    const located = await readableDeployment(c, bindings, authorizer);
+    if (located === undefined) {
       c.status(statusFor('deployment-not-found') as never);
       return c.json(
         toWireError(
@@ -501,7 +522,7 @@ export function deploymentsRouter(
         ),
       );
     }
-    const own = await servingProjectOf(bindings, record);
+    const { deployment: record, projectId: own } = located;
     const projectId = (named as ProjectId | undefined) ?? own;
     if (projectId === undefined) {
       c.status(statusFor('bad-input') as never);
@@ -990,6 +1011,7 @@ export function deploymentsRouter(
             const projectIdForTool = targetProjectId;
             // Where each secret it names is read: decided now, as the deployer
             // may read them, and kept with this version (`secret-scope.ts`).
+            // One set nowhere yet is read where this deployment's sync writes.
             const secretScopes = await secretScopesFor(
               c,
               {
@@ -999,6 +1021,7 @@ export function deploymentsRouter(
               },
               { kind: 'project', tenantId, projectId: projectIdForTool },
               toolSecretRefs(tool, bindings.envName),
+              deploymentSecretScope(tenantId, wire.projectId),
             );
             const outcome = await bindings.toolRegistry.publish({
               tenantId,
@@ -1248,9 +1271,11 @@ export function deploymentsRouter(
   //
   // Scope is derived from the target deployment record, NOT accepted from
   // the wire (CRITICAL): the project the deploy named (`projectId`), else
-  // the tenant (`deriveScopeFromDeployment`).
+  // the tenant (`deploymentSecretScope`).
   //
-  // Capability: `secrets:write` (fail-closed).
+  // Capability: `secrets:write` (fail-closed). Rights: the deployment's
+  // read (one the caller doesn't read is a `404`), then `admin` on the
+  // scope it writes, as `/v1/secrets` asks for a write there.
   // Idempotency-Key: honoured by the middleware layer.
   r.post('/:deploymentId/secrets', async (c) => {
     const requestId = c.get('requestId');
@@ -1277,8 +1302,8 @@ export function deploymentsRouter(
 
     // Resolve the target deployment first — its `(tenantId, projectId?)`
     // is what determines the write scope.
-    const deployment = await bindings.deploymentRegistry.get({ tenantId, deploymentId });
-    if (deployment === null) {
+    const located = await readableDeployment(c, bindings, authorizer);
+    if (located === undefined) {
       c.status(statusFor('deployment-not-found') as never);
       return c.json(
         toWireError(
@@ -1291,7 +1316,10 @@ export function deploymentsRouter(
         ),
       );
     }
-    const scope = deriveScopeFromDeployment(deployment);
+    const deployment = located.deployment;
+    const scope = deploymentSecretScope(deployment.tenantId, deployment.projectId);
+    const refused = await deniedBy(authorizer, c, 'admin', scopeResourceRef(scope, tenantId));
+    if (refused !== undefined) return refused;
 
     let body: unknown;
     try {
@@ -1494,26 +1522,6 @@ export function deploymentsRouter(
   });
 
   return r;
-}
-
-// ------------------------------------------------------------
-// Scope derivation for deployment secret sync
-// ------------------------------------------------------------
-
-/**
- * Derive the write scope for a deployment secret-sync request from
- * the deployment record itself. Never accepts a caller-supplied scope
- * override on the wire (CRITICAL — scope MUST be inferred
- * server-side to prevent tenant/project confusion attacks).
- *
- * A deploy into a named project syncs its secrets into that project; a
- * tenant-wide one (no `projectId`) syncs them tenant-wide.
- */
-function deriveScopeFromDeployment(d: Deployment): Scope {
-  if (d.projectId !== undefined) {
-    return { kind: 'project', tenantId: d.tenantId, projectId: d.projectId } as Scope;
-  }
-  return { kind: 'tenant', tenantId: d.tenantId } as Scope;
 }
 
 type ParsedSyncEntry =
