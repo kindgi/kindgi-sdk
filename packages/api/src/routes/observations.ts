@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
 import type {
   AgentId,
@@ -16,6 +16,7 @@ import type {
 import { ref } from '@kindgi/authz';
 
 import { statusFor, toWireError } from '../errors.js';
+import type { ItemRights } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import type {
@@ -55,11 +56,17 @@ const OBSERVATION_STATUSES: ReadonlySet<ObservationStatus> = new Set([
  *
  * Persistence + query wiring is caller-plugged via `SupervisorBinding`
  * — the API package doesn't own the supervisor runtime.
+ *
+ * An observation names no project. Of an agent more than one project
+ * serves, it could be of a turn in any of them, so reading it takes
+ * `read` on every one (`item-rights.ts`).
  */
 export function observationsRouter(
   binding: SupervisorBinding,
   /** With one (T243 A): only observations of agents the caller may read. */
   authorizer?: Authorizer,
+  /** Rights on an agent more than one project serves. Absent: one project each. */
+  itemRights?: ItemRights,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -164,18 +171,42 @@ export function observationsRouter(
       next !== undefined
         ? encodeCursor({ createdAt: next.observedAt, id: next.id })
         : (outcome.page.nextCursor as unknown as string | undefined);
-    const visible =
-      authorizer === undefined
-        ? data
-        : await authorizer.filterByCan(c, 'read', data, (o) =>
-            ref('agent', o.agentId as unknown as string),
-          );
+    const visible = authorizer === undefined ? data : await readable(c, authorizer, data);
     return c.json({
       data: visible.map(serializeObservation),
       hasMore: nextCursor !== undefined,
       ...(nextCursor !== undefined && { nextCursor }),
     });
   });
+
+  /**
+   * The observations the caller may read: of an agent with one project,
+   * `read` on the agent; of one more than one project serves, `read` on
+   * each of its projects. One ask of the binding, one check of the page.
+   */
+  async function readable(
+    c: Context<AppEnv>,
+    authorizer: Authorizer,
+    rows: readonly Observation[],
+  ): Promise<readonly Observation[]> {
+    const agentOf = (o: Observation) => o.agentId as unknown as string;
+    const many = await itemRights?.multiOfMany(c, 'agent', rows.map(agentOf));
+    if (many === undefined || many.size === 0) {
+      return authorizer.filterByCan(c, 'read', rows, (o) => ref('agent', agentOf(o)));
+    }
+    const one = rows.filter((o) => !many.has(agentOf(o)));
+    const allowed = new Set(
+      await authorizer.filterByCan(c, 'read', one, (o) => ref('agent', agentOf(o))),
+    );
+    const projects = [...new Set([...many.values()].flat())];
+    const read = new Set(
+      await authorizer.filterByCan(c, 'read', projects, (p) => ref('project', p)),
+    );
+    return rows.filter((o) => {
+      const served = many.get(agentOf(o));
+      return served === undefined ? allowed.has(o) : served.every((p) => read.has(p));
+    });
+  }
 
   return r;
 }

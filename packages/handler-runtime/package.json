@@ -26,6 +26,11 @@
       "import": "./dist/protocol.js",
       "default": "./dist/protocol.js"
     },
+    "./pack-env": {
+      "types": "./dist/pack-env.d.ts",
+      "import": "./dist/pack-env.js",
+      "default": "./dist/pack-env.js"
+    },
     "./pack-service": {
       "types": "./dist/pack-service/index.d.ts",
       "import": "./dist/pack-service/index.js",

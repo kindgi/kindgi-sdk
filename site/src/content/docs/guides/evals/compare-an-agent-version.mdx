@@ -44,9 +44,36 @@ instructions:
 
 The test set keeps its copies of the 0.1.0 runs. Compare 0.2.0 on it:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+pnpm exec kindgi eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+```
+
+</TabItem>
+</Tabs>
 
 - `acme.article-picks` is the test set.
 - `--project=<project-id>` is the project the replay runs land in.
@@ -314,9 +341,36 @@ new flow version, add `--with=<id>@<version>` once for each. Here the flow
 `acme-ops.suggest-articles` 0.1.0 runs its `acme-ops.find-articles` tool at
 0.2.0, which matches only the articles a question asks about:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
+pnpm exec kindgi eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
+```
+
+</TabItem>
+</Tabs>
 
 `--flow` and `--flow-version` are the flow version to compare, and
 `--reads=live` runs read-only tools live. Its summary names the swapped

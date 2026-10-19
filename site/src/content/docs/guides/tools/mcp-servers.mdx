@@ -259,9 +259,36 @@ The runtime connects, lists the server's tools and registers them. The
 
 The tools are now your tenant's:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi tools get inventory.stock_level
+pnpm exec kindgi tools get inventory.stock_level
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi tools get inventory.stock_level
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw tools get inventory.stock_level
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw tools get inventory.stock_level
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -296,6 +323,29 @@ tool's answer is the server's structured content, checked against it.
 Otherwise the answer is the text, parsed as JSON when the text is JSON.
 Servers built with the TypeScript MCP SDK often declare none: their `echo`
 tool answers `"Echo: hi"`.
+
+## Give some projects its tools
+
+The endpoint's scope decides which projects' runs can call its tools.
+Registered for the tenant, as above, the runs in every project can.
+Register it for one org, and only the runs in that org's projects can; for
+one project, only that project's runs can. In TypeScript, the scope is
+`{ kind: 'org', orgId: '<org-id>' }` or
+`{ kind: 'project', projectId: '<project-id>' }`. In the other languages
+and the API, `scopeKind` is `org` or `project`, and `scopeId` its id.
+
+- **Registering needs admin on that scope:** a tenant admin for the tenant,
+  an admin of the org or of the project for theirs.
+- **An endpoint id is unique in the tenant,** whatever its scope, so two
+  orgs' endpoints need two ids, such as `inventory-acme`.
+- **A run in another project** that names one of its tools is refused with
+  `reference-out-of-scope`, as
+  [What a project's runs can use](../../../concepts/projects-packs-values/#what-a-projects-runs-can-use)
+  shows.
+
+One MCP server registered for an org or the tenant gives all their projects
+the same tool, where a pack's own tool serves only its project
+([One tool for several clients](../../../concepts/projects-packs-values/#one-tool-for-several-clients)).
 
 ## Call its tools
 
@@ -347,9 +397,36 @@ Start a turn with a model that calls tools. Here it's Llama 3.1 on Ollama,
 as [Models](../../models/) sets up. `--agent` is the agent, and `--input`
 its input:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
+pnpm exec kindgi runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 "appended": [
@@ -384,8 +461,11 @@ A flow step names it in `ref`, like any tool:
 To send a token, ask your coding agent: "My inventory MCP server wants a
 bearer token." You store the token itself, as below. For reference, it adds
 `secretRef` to the registration.
-Kindgi resolves the secret in the tenant's secrets when it connects, and
-sends it as `Authorization: Bearer <value>`:
+Kindgi reads the secret when it connects, at the scope recorded when the
+endpoint was registered
+([Where values live](../../../concepts/projects-packs-values/#where-values-live)),
+and sends it as `Authorization: Bearer <value>`. For an endpoint registered
+for the tenant, that's the tenant's secrets:
 
 ```json excerpt
 "secretRef": { "envName": "local", "name": "INVENTORY_TOKEN" }
@@ -623,7 +703,7 @@ It keeps working, and:
   23:53:20.206 WARN  [mcp] MCP endpoint "inventory-moved" skipped: mcp-auth-failed: MCP endpoint "inventory-moved" redirected (HTTP 307) a request carrying a credential header in its config.headers (X-Api-Key, X-Api-Secret): register the URL it redirects to endpointId=inventory-moved transport=streamable-http
   ```
 - **is named, never its value:** by the runtime at every start (`WARN`
-  `mcp-header-credential`), by its [`check mcp-header-credentials`](../../../deploy/operate/#checks-you-can-run-before-upgrading),
+  `mcp-header-credential`), by its [`check mcp-header-credentials`](../../../deploy/self-hosted/operate/#checks-you-can-run-before-upgrading),
   and by `kindgi doctor` against the runtime it points at:
 
   ```text
@@ -645,7 +725,7 @@ called it." For reference, it adds `"sendTraceparent": true` to the
 registration, and each tool call to the server carries the W3C `traceparent`
 of the run that made it, as a request header. The server's logs can then be
 matched to the run, as [Follow a request or a
-run](../../../deploy/logs/#follow-a-request-or-a-run) shows. Only the ids go:
+run](../../../deploy/self-hosted/logs/#follow-a-request-or-a-run) shows. Only the ids go:
 the trace id and a span id, never the tool's input or output. It's off by
 default, and HTTP transports only. A `stdio` server gets no headers, so `true`
 there is refused with `invalid-mcp-endpoint`, reason
@@ -765,7 +845,7 @@ The runtime lists an endpoint's tools when the endpoint is registered. It
 doesn't watch the server. To pick up new or changed tools, unregister the
 endpoint and register it again. A runtime serving one tenant, the default,
 also lists every endpoint's tools each time it starts, so restarting it works
-too. A runtime [serving many tenants](../../../deploy/serve-many-tenants/)
+too. A runtime [serving many tenants](../../../deploy/self-hosted/serve-many-tenants/)
 (`KINDGI_TENANCY=multi`) lists none when it starts: there, only unregistering
 and registering again does. `inventory` in the path is the endpoint's id:
 

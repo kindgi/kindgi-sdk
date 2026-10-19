@@ -75,7 +75,7 @@ how keys are made and revoked.
 
 People sign in to the console with their email first. The sign-in page then
 offers the ways in the deployment has, which
-[Turn on sign-in](../../deploy/sign-in/) sets up:
+[Turn on sign-in](../../deploy/self-hosted/sign-in/) sets up:
 
 - **Only people already added to a workspace get in,** by an email their
   provider has proved. Nobody is created by signing in, and roles stay
@@ -254,7 +254,7 @@ The runtime's database user needs `CREATEROLE` and must own the runtime's
 database: the runtime uses it to set up the restricted role that requests run
 as. It needn't be a superuser, so managed Postgres services such as Cloud SQL,
 Amazon RDS and AlloyDB work. Create the `vector` extension once, as
-[Self-host](../../deploy/self-host/) shows.
+[Self-host](../../deploy/self-hosted/self-host/) shows.
 :::
 
 - **Development mode is for development.** `KINDGI_DEV=true` turns on

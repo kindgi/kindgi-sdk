@@ -6,7 +6,7 @@
  * in-memory reference adapter.
  */
 
-import type { TenantId } from '@kindgi/types';
+import type { ProjectId, TenantId } from '@kindgi/types';
 
 import { makeInMemoryProjectBinding } from '../src/in-memory/project-binding.js';
 import {
@@ -38,4 +38,28 @@ runProjectBindingConformance(
     }),
   'InMemoryProjectBinding (checking orgs)',
   { checksOrgs: true },
+);
+// With the environment-order guard: a project put in an order can't be
+// deleted or moved to another parent; a rename or slug change still works.
+runProjectBindingConformance(
+  () => {
+    const orders = new Map<string, string>();
+    const key = (tenantId: TenantId, projectId: ProjectId) => `${tenantId}::${projectId}`;
+    return {
+      ...makeInMemoryProjectBinding({
+        environmentOrderOf: (tenantId, projectId) => orders.get(key(tenantId, projectId)),
+      }),
+      putInEnvironmentOrder: (tenantId, projectId) => {
+        const orderId = `tenant:${tenantId}`;
+        orders.set(key(tenantId, projectId), orderId);
+        return Promise.resolve(orderId);
+      },
+      clearEnvironmentOrder: (tenantId, projectId) => {
+        orders.delete(key(tenantId, projectId));
+        return Promise.resolve();
+      },
+    };
+  },
+  'InMemoryProjectBinding (environment-order guard)',
+  { checksEnvironmentOrders: true },
 );
