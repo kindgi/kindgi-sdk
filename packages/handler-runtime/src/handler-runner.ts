@@ -263,7 +263,7 @@ export async function runHandler(
       kind: 'err',
       error: {
         code: 'handler-import-failed',
-        message: `Failed to import handler module '${tool.modulePath}': ${stringifyError(cause)}`,
+        message: `Failed to import handler module '${tool.modulePath}': ${stringifyError(cause)}${missingPackageHint(cause)}`,
         toolId: tool.id,
         cause: serializeCause(cause),
       },
@@ -313,7 +313,7 @@ export async function runHandler(
       kind: 'err',
       error: {
         code: 'handler-throw',
-        message: `Handler for tool "${tool.id}" threw: ${stringifyError(cause)}`,
+        message: `Handler for tool "${tool.id}" threw: ${stringifyError(cause)}${missingPackageHint(cause)}`,
         toolId: tool.id,
         cause: serializeCause(cause),
       },
@@ -430,7 +430,7 @@ export async function runCheck(options: RunCheckOptions): Promise<Result<unknown
       kind: 'err',
       error: {
         code: 'handler-import-failed',
-        message: `Failed to import check module '${check.modulePath}': ${stringifyError(cause)}`,
+        message: `Failed to import check module '${check.modulePath}': ${stringifyError(cause)}${missingPackageHint(cause)}`,
         toolId: check.id,
         cause: serializeCause(cause),
       },
@@ -459,7 +459,7 @@ export async function runCheck(options: RunCheckOptions): Promise<Result<unknown
       kind: 'err',
       error: {
         code: 'handler-throw',
-        message: `Check "${check.id}" evaluate() threw: ${stringifyError(cause)}`,
+        message: `Check "${check.id}" evaluate() threw: ${stringifyError(cause)}${missingPackageHint(cause)}`,
         toolId: check.id,
         cause: serializeCause(cause),
       },
@@ -583,4 +583,25 @@ function serializeCause(err: unknown): unknown {
   } catch {
     return String(err);
   }
+}
+
+/**
+ * In a pack image that keeps only what the pack loads (the image sets
+ * `KINDGI_IMAGE_DEPENDENCIES=loaded`), what to do about a package the
+ * code loads and the image doesn't have: a plugin named in a config
+ * string, say, which no build gate could see. Empty otherwise.
+ */
+export function missingPackageHint(
+  cause: unknown,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  if (env.KINDGI_IMAGE_DEPENDENCIES !== 'loaded') return '';
+  const code = (cause as { code?: unknown } | null)?.code;
+  if (code !== 'ERR_MODULE_NOT_FOUND' && code !== 'MODULE_NOT_FOUND') return '';
+  const message = cause instanceof Error ? cause.message : String(cause);
+  const specifier = /Cannot find (?:package|module) '([^']+)'/.exec(message)?.[1];
+  if (specifier === undefined || specifier.startsWith('.') || specifier.startsWith('/')) return '';
+  const parts = specifier.split('/');
+  const name = specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+  return `. ${name} isn't in this pack image, which keeps only the packages the pack's code imports by name: add it to image.keep in kindgi.config, or set image.dependencies: 'all'`;
 }
