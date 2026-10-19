@@ -188,6 +188,14 @@ export interface JudgingRulePreview {
   readonly matched: number;
 }
 
+/** The outcome of queueing a rule's matches among recent runs ({@link JudgingQueueBinding.queueRecent}). */
+export interface JudgingRecentQueued {
+  /** Matching recent runs this call newly added to the queue. */
+  readonly queued: number;
+  /** Matching recent runs this rule had already queued (deduped per `(rule, run)`). */
+  readonly alreadyQueued: number;
+}
+
 export type JudgingErrorCode =
   | 'judging-rule-not-found'
   | 'judging-item-not-found'
@@ -288,4 +296,19 @@ export interface JudgingQueueBinding {
       readonly ruleId?: string;
     },
   ): Promise<JudgingRulePreview>;
+  /**
+   * Queue the runs an existing rule matches among the project's recent
+   * runs — `last` of them (newest first) and/or those completed at or
+   * after `since` — sampled as the rule samples, deduped per `(rule, run)`
+   * as run-end matching is. For catching a rule up on past runs; `maxOpen`
+   * is not applied. At least one of `last`, `since` is given.
+   */
+  queueRecent(
+    input: InProject & {
+      readonly ruleId: string;
+      readonly last?: number;
+      readonly since?: Timestamp;
+      readonly by?: string;
+    },
+  ): Promise<Result<JudgingRecentQueued, JudgingError>>;
 }

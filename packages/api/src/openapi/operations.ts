@@ -8585,6 +8585,33 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/judging-rules/:ruleId/queue-recent',
+    openapiPath: '/v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent',
+    operationId: 'projects.judgingRules.queueRecent',
+    summary: "Queue a rule's recent matches",
+    description:
+      "Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. At least one of `last`, `since` is given. Needs `write` on the project.",
+    tags: ['judging'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'projectId',
+        in: 'path',
+        required: true,
+        description: 'ProjectId — opaque branded string.',
+        schema: { type: 'string' },
+      },
+      { name: 'ruleId', in: 'path', required: true, schema: { type: 'string' } },
+    ],
+    requestBody: { required: true, schema: ref('JudgingQueueRecentInput') },
+    responses: {
+      '200': { description: 'How many it queued.', schema: ref('JudgingRecentQueued') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No such rule (`judging-rule-not-found`).'),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/projects/:projectId/judging-queue',
     openapiPath: '/v1/projects/{projectId}/judging-queue',

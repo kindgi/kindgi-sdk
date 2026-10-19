@@ -15,7 +15,9 @@ import type {
   JudgingItemRule,
   JudgingQueueItem,
   JudgingQueuePage,
+  JudgingQueueRecentInput,
   JudgingQueueState,
+  JudgingRecentQueued,
   JudgingResultGroup,
   JudgingRule,
   JudgingRulePage,
@@ -33,7 +35,9 @@ export type {
   JudgingItemRule,
   JudgingQueueItem,
   JudgingQueuePage,
+  JudgingQueueRecentInput,
   JudgingQueueState,
+  JudgingRecentQueued,
   JudgingResultGroup,
   JudgingRule,
   JudgingRulePage,
@@ -94,6 +98,12 @@ export interface JudgingRulesClient {
   results(projectId: string, ruleId: string, since?: string): Promise<JudgingRuleResults>;
   /** What a rule would have queued. @wire GET /v1/projects/:projectId/judging-rules/preview */
   preview(projectId: string, input: JudgingRulePreviewInput): Promise<JudgingRulePreview>;
+  /** Queue the rule's matches among recent runs, to catch it up on runs that ended before it was there. @wire POST /v1/projects/:projectId/judging-rules/:ruleId/queue-recent */
+  queueRecent(
+    projectId: string,
+    ruleId: string,
+    input: JudgingQueueRecentInput,
+  ): Promise<JudgingRecentQueued>;
 }
 
 export interface JudgingQueueClient {
@@ -167,6 +177,15 @@ export function makeJudgingRulesClient(transport: Transport): JudgingRulesClient
           ...(input.sample !== undefined && { sample: input.sample }),
           ...(input.last !== undefined && { last: input.last }),
           ...(input.ruleId !== undefined && { ruleId: input.ruleId }),
+        },
+      }),
+    queueRecent: (projectId, ruleId, input) =>
+      transport.request<JudgingRecentQueued>({
+        method: 'POST',
+        path: `/v1/projects/${seg(projectId)}/judging-rules/${seg(ruleId)}/queue-recent`,
+        body: {
+          ...(input.last !== undefined && { last: input.last }),
+          ...(input.since !== undefined && { since: input.since }),
         },
       }),
   };
