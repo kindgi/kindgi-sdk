@@ -14,7 +14,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.12"
+version: "0.3.13"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -75,6 +75,20 @@ never creates env files: `kindgi dev` reads the app's own `.env` /
 `.env.local`. A package a tool imports must be in the app's `dependencies`,
 not `devDependencies`: the deployed pack installs production dependencies
 only (see `kindgi-authoring-tools`).
+
+In a Next.js app, a tool can't import a module that has
+`import 'server-only'`, directly or through another module. Outside Next.js
+that line stops the module from loading, so `kindgi test`, `kindgi dev` and
+`kindgi build` fail on the tool: `Could not resolve "server-only"` when the
+app doesn't install the package (Next.js doesn't need it), or the package's
+own "This module cannot be imported from a Client Component module" when it
+does. Don't remove the line, and don't alias `server-only` away in the
+vitest config: the build still fails. Move the code the tool needs, as it
+is, to a module without the line (`lib/orders.ts` → `lib/orders-core.ts`).
+The guarded module keeps the line and re-exports it
+(`import 'server-only'; export * from './orders-core';`), so the app's own
+imports don't change. The tool imports the new module, which only server
+code and the pack import.
 
 Either way, `init` adds `@kindgi/sdk` and `@kindgi/cli` to the project's
 `package.json`, so the project runs the `kindgi` it pins — never a global
