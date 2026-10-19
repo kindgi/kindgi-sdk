@@ -324,6 +324,29 @@ Otherwise the answer is the text, parsed as JSON when the text is JSON.
 Servers built with the TypeScript MCP SDK often declare none: their `echo`
 tool answers `"Echo: hi"`.
 
+## Give some projects its tools
+
+The endpoint's scope decides which projects' runs can call its tools.
+Registered for the tenant, as above, the runs in every project can.
+Register it for one org, and only the runs in that org's projects can; for
+one project, only that project's runs can. In TypeScript, the scope is
+`{ kind: 'org', orgId: '<org-id>' }` or
+`{ kind: 'project', projectId: '<project-id>' }`. In the other languages
+and the API, `scopeKind` is `org` or `project`, and `scopeId` its id.
+
+- **Registering needs admin on that scope:** a tenant admin for the tenant,
+  an admin of the org or of the project for theirs.
+- **An endpoint id is unique in the tenant,** whatever its scope, so two
+  orgs' endpoints need two ids, such as `inventory-acme`.
+- **A run in another project** that names one of its tools is refused with
+  `reference-out-of-scope`, as
+  [What a project's runs can use](../../../concepts/projects-packs-values/#what-a-projects-runs-can-use)
+  shows.
+
+One MCP server registered for an org or the tenant gives all their projects
+the same tool, where a pack's own tool serves only its project
+([One tool for several clients](../../../concepts/projects-packs-values/#one-tool-for-several-clients)).
+
 ## Call its tools
 
 An agent lists an MCP tool by id, with a version range. Ask your coding
@@ -438,8 +461,11 @@ A flow step names it in `ref`, like any tool:
 To send a token, ask your coding agent: "My inventory MCP server wants a
 bearer token." You store the token itself, as below. For reference, it adds
 `secretRef` to the registration.
-Kindgi resolves the secret in the tenant's secrets when it connects, and
-sends it as `Authorization: Bearer <value>`:
+Kindgi reads the secret when it connects, at the scope recorded when the
+endpoint was registered
+([Where values live](../../../concepts/projects-packs-values/#where-values-live)),
+and sends it as `Authorization: Bearer <value>`. For an endpoint registered
+for the tenant, that's the tenant's secrets:
 
 ```json excerpt
 "secretRef": { "envName": "local", "name": "INVENTORY_TOKEN" }
