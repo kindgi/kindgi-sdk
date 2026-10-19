@@ -100,7 +100,7 @@ export interface ImproveScheduleInput {
   /**
    * Which judgments each pass's comparisons count. Omitted: each fire
    * resolves the project default — everyone (`as-recorded`) until the
-   * project names an expert class, then `restricted-only`.
+   * project names a restricted judge class, then `restricted-only`.
    */
   readonly classWeights?: EvalClassWeights;
   readonly model?: ImprovementModel;

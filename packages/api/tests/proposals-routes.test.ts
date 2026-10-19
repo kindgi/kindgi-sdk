@@ -1525,7 +1525,7 @@ describe('improvement passes', () => {
     expect(again.body.error.code).toBe('improvement-pass-finished');
   });
 
-  test("counts everyone's judgments until the project names an expert class", async () => {
+  test("counts everyone's judgments until the project names a restricted judge class", async () => {
     const passes = inMemoryPasses();
     const judgments = inMemoryJudgments();
     const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
@@ -1537,7 +1537,7 @@ describe('improvement passes', () => {
     expect(res.body.classWeights).toBe('as-recorded');
   });
 
-  test('switches to trusted judgments once the project names an expert class', async () => {
+  test('switches to trusted judgments once the project names a restricted judge class', async () => {
     const passes = inMemoryPasses();
     const judgments = inMemoryJudgments();
     await judgments.createClass({
