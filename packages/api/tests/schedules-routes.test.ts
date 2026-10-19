@@ -150,7 +150,7 @@ describe('an improve schedule', () => {
       },
     });
     // classWeights is not defaulted onto the schedule: it's resolved against
-    // the project each time the schedule fires, so naming an expert class
+    // the project each time the schedule fires, so naming a restricted judge class
     // later flips the default without editing the schedule.
     expect(body.input).not.toHaveProperty('classWeights');
     expect(body).not.toHaveProperty('agentId');
