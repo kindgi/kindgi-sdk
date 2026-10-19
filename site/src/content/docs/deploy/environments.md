@@ -77,8 +77,11 @@ Each environment has its own values and its own data. Only the build moves.
 Changes made in the console start in the first environment too. A prompt
 or settings change, or an accepted proposal from Improve, makes a new
 version in the first environment. It reaches `prod` by promotion, like any
-build. Improve still learns from the runs of every environment, `prod`'s
-included.
+build. Improve learns from the runs judged in one project. A pass you
+start learns from the project the agent was first deployed into: here,
+`staging-1`, so not from `prod`'s runs. An improve schedule counts new
+judgments in its own project, and the passes it starts learn from that
+project's runs.
 
 In a later environment, the console doesn't offer those changes. In their
 place, it says where they're made, such as "New agent versions are made in
@@ -378,7 +381,9 @@ The other environments aren't, so their runs count as staging.
   **From the workspace**, for a value the project reads from its org or the
   workspace because it has none of its own. You can set a value there.
 - **Each agent's page** is where you make a version live in that
-  environment, or roll it back. Each agent in a column links to it.
+  environment, with **Promote a version**, or roll it back, with
+  **Roll back**. Those change what's live in that environment only. Each
+  agent in a column links to it.
 
 ## If something goes wrong
 
@@ -435,8 +440,10 @@ The other environments aren't, so their runs count as staging.
   order. Set the order without it, or clear it, first. Renaming it isn't
   refused. If you change its slug, change the `project` that names it in
   `kindgi.config.ts` too.
-- **A project outside the order can't take the pack.** It's refused as a
-  project of another pack
+- **A project outside the order can't take the pack.** Its ids already
+  belong to a project in the order, so the deploy is refused with
+  `409 tool-project-mismatch` (or `agent-…`, `flow-…`, `guardrail-…`), and
+  nothing is deployed
   ([A project for each client](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
 
 ## Without environments
