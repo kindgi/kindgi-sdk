@@ -221,7 +221,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS',
     description:
-      "Used from runtime 0.1.8.1; earlier runtimes ignore it. How long a transaction on the server's database connections may sit idle between statements before Postgres ends its session (`idle_in_transaction_session_timeout`), in milliseconds. Default 120000 (2 min); 0 turns it off. A whole number up to 2147483647; anything else stops the boot, naming the variable. The admin commands keep it.",
+      "Used from runtime 0.1.9; earlier runtimes ignore it. How long a transaction on the server's database connections may sit idle between statements before Postgres ends its session (`idle_in_transaction_session_timeout`), in milliseconds. Default 120000 (2 min); 0 turns it off. A whole number up to 2147483647; anything else stops the boot, naming the variable. The admin commands keep it.",
     example: '120000',
     required: false,
     appliesTo: appliesToServer,

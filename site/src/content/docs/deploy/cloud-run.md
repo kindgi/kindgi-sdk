@@ -753,7 +753,7 @@ A new grant can take a minute or two to apply.
   see the caller. Behind an external Application Load Balancer, set `"2"`:
   it adds the client and then its own address
   ([Google: X-Forwarded-For header](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).
-- **Database timeouts** (they need runtime 0.1.8.1 or later): the server's
+- **Database timeouts** (they need runtime 0.1.9 or later): the server's
   connections carry their own, 60 s a statement, 30 s waiting for a lock,
   and 2 minutes idle in a transaction, and a query waits at most 10 s for
   one of the server's pooled connections. `KINDGI_DB_STATEMENT_TIMEOUT_MS`,
