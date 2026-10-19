@@ -62,7 +62,7 @@ class ScalaPackSuite extends munit.FunSuite {
     val (report, index) = indexPack(Seq("tools/Greet", "agents/Lingers"))
     val errors = list(report.get("fileErrors")).map(e => s"${e.get("code")}: ${e.get("message")}")
     assertEquals(errors, Seq(
-      "manifest-validation-failed: agent 'acme.lingers' is invalid at" +
+      "manifest-validation-failed: src/main/scala/scalapack/agents/Lingers.scala: agent 'acme.lingers' is invalid at" +
         " /conversationPolicy/autoCloseAfterInactiveSeconds: must NOT be valid"))
     assertEquals(list(index.get("agents")), Seq.empty)
   }

@@ -550,19 +550,29 @@ describe('API — agents versions', () => {
 describe('API — an agent stored with autoCloseAfterInactiveSeconds, from before it was taken out', () => {
   test('every answer leaves it out and keeps the rest of the policy; the stored agent keeps it', async () => {
     const { app, registry } = makeApp();
-    const d = defineAgent({ ...agentSpec(), conversationPolicy: { historyLimit: 5, hitlAfterTurns: 3 } });
+    const d = defineAgent({
+      ...agentSpec(),
+      conversationPolicy: { historyLimit: 5, hitlAfterTurns: 3 },
+    });
     if (d.kind === 'err') throw new Error(d.error.message);
     const policy = { historyLimit: 5, hitlAfterTurns: 3, autoCloseAfterInactiveSeconds: 600 };
     registry.register({ ...d.value, conversationPolicy: policy });
     const read = async (path: string) => {
       const res = await app.request(path, { headers: { authorization: `Bearer ${TOKEN}` } });
       expect(res.status).toBe(200);
-      return (await res.json()) as { conversationPolicy?: unknown; data?: { conversationPolicy?: unknown }[] };
+      return (await res.json()) as {
+        conversationPolicy?: unknown;
+        data?: { conversationPolicy?: unknown }[];
+      };
     };
     const answered = { historyLimit: 5, hitlAfterTurns: 3 };
     expect((await read('/v1/agents/acme.drafting')).conversationPolicy).toEqual(answered);
-    expect((await read('/v1/agents/acme.drafting/versions/1.0.0')).conversationPolicy).toEqual(answered);
-    expect((await read('/v1/agents/acme.drafting/versions')).data?.map((a) => a.conversationPolicy)).toEqual([answered]);
+    expect((await read('/v1/agents/acme.drafting/versions/1.0.0')).conversationPolicy).toEqual(
+      answered,
+    );
+    expect(
+      (await read('/v1/agents/acme.drafting/versions')).data?.map((a) => a.conversationPolicy),
+    ).toEqual([answered]);
     expect((await read('/v1/agents')).data?.map((a) => a.conversationPolicy)).toEqual([answered]);
     const kept = registry.get(d.value.id, '1.0.0');
     expect(kept.kind === 'ok' ? kept.value.conversationPolicy : undefined).toEqual(policy);
