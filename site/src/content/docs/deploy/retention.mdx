@@ -531,6 +531,16 @@ later):
   violation, for each run and step. It holds the check's ids and what it
   came to, never the check's reason or a judge's answer.
 
+A conversation's close is recorded too (`conversation-closed`), and kept for
+good: one record for each conversation, when it closes. Its actor is who
+closed it: the person or app that called
+[close](../../guides/agents/conversations/#open-list-and-close-conversations) (`user:<id>`,
+`service_account:<id>`), or `system:conversation-auto-close` when its
+agent's `conversationPolicy.autoCloseAfterInactiveSeconds` closed it. A close
+by the policy also says since when nothing had been said in it, and the
+policy's window. Conversations closed before the runtime recorded closes
+have none.
+
 ### On legal hold
 
 The changes on legal hold are these kinds:

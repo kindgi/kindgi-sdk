@@ -95,6 +95,11 @@ export const EVIDENCE_KINDS = [
   // names both deployments, both projects, the image digest and the
   // versions carried — never anything a project holds.
   'deployment-promoted',
+  // A conversation was closed: by a caller (the record's actor), or by its
+  // agent's inactivity policy (`system:conversation-auto-close`; the
+  // payload says since when nothing was said in it, and the window). It
+  // names the conversation and its agent version — never what was said.
+  'conversation-closed',
 ] as const;
 
 /**

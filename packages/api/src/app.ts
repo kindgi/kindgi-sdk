@@ -5,7 +5,11 @@ import { type Logger, noopLogger } from '@kindgi/log';
 import { Scalar } from '@scalar/hono-api-reference';
 import { Hono } from 'hono';
 
-import type { ConversationBinding, RunSnapshotBinding } from '@kindgi/agents';
+import {
+  AUTO_CLOSE_ACTOR,
+  type ConversationBinding,
+  type RunSnapshotBinding,
+} from '@kindgi/agents';
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import type { AuthzCheckBinding } from '@kindgi/authz';
 import type { AdapterFactoryRegistry } from '@kindgi/capabilities';
@@ -20,7 +24,7 @@ import type {
   TeamMembershipBinding,
   TeamProjectGrantBinding,
 } from '@kindgi/platform';
-import type { KernelBinding } from '@kindgi/runtime';
+import type { KernelBinding, RunBinding } from '@kindgi/runtime';
 
 import type { BlobStorageBinding } from '@kindgi/blob-binding';
 import type { MemoryQueryBinding } from '@kindgi/memory';
@@ -1566,7 +1570,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
                   null,
           }),
         // Who a turn runs as, for the participant rule (`participantRefusal`).
-        ...participantLookups(input),
+        ...participantLookups(input, runBinding),
         ...(publicRunTokenLimits !== undefined && {
           publicRunTokens: {
             mint: (tenantId, runIds) =>
@@ -2553,11 +2557,13 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
 /**
  * What the runs router checks a turn against: a conversation's agent,
  * participant, project and opener (`turnRefusal`, `participantRefusal`),
- * whether it's closed (`closedRefusal`), and a target's own project.
+ * whether it's closed or its agent's policy closes it now (`closedRefusal`),
+ * and a target's own project.
  */
 function participantLookups(
   input: Pick<CreateAppInput, 'conversationBinding' | 'agentRegistry' | 'flowRegistry'>,
-): Pick<RunsRouterOptions, 'conversationOf' | 'targetProject'> {
+  runBinding: RunBinding,
+): Pick<RunsRouterOptions, 'conversationOf' | 'closeInactive' | 'targetProject'> {
   return {
     conversationOf: async (tenantId, conversationId) => {
       const got = await input.conversationBinding.getConversation(
@@ -2572,14 +2578,39 @@ function participantLookups(
           cause: got.error,
         });
       }
-      const { agentId, participantId, projectId, openedBy, closedAt } = got.value;
+      const { agentId, agentVersion, participantId, projectId, openedBy, closedAt } = got.value;
+      // Its agent version's policy, to close it for inactivity: read only while it's open.
+      const afterSeconds =
+        closedAt === undefined
+          ? (await input.agentRegistry?.getVersion({ tenantId, agentId, version: agentVersion }))
+              ?.conversationPolicy?.autoCloseAfterInactiveSeconds
+          : undefined;
       return {
         agentId: agentId as unknown as string,
+        openedAt: got.value.openedAt,
+        ...(got.value.lastMessageAt !== undefined && { lastMessageAt: got.value.lastMessageAt }),
         ...(participantId !== undefined && { participantId }),
         ...(projectId !== undefined && { projectId: projectId as unknown as string }),
         ...(openedBy !== undefined && { openedBy }),
         ...(closedAt !== undefined && { closedAt: closedAt as unknown as string }),
+        ...(afterSeconds !== undefined && {
+          conversationPolicy: { autoCloseAfterInactiveSeconds: afterSeconds },
+        }),
       };
+    },
+    closeInactive: async (tenantId, conversationId, afterInactiveSeconds) => {
+      const closed = await input.conversationBinding.closeConversation(
+        tenantId,
+        conversationId as never,
+        runBinding,
+        { actor: AUTO_CLOSE_ACTOR, afterInactiveSeconds },
+      );
+      if (closed.kind !== 'ok') {
+        throw new Error("Couldn't close the inactive conversation, so the turn wasn't started", {
+          cause: closed.error,
+        });
+      }
+      return closed.value.closedAt;
     },
     targetProject: async (tenantId, target) => {
       const record =

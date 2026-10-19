@@ -147,6 +147,21 @@ export interface ConversationPage {
   readonly next?: ConversationPageCursor;
 }
 
+/** Who closes a conversation, and whether its policy does. */
+export interface ConversationClose {
+  /**
+   * Who closes it, as the record of the close names its actor: the
+   * caller (`user:<id>`, `service_account:<id>`, ...), or
+   * `AUTO_CLOSE_ACTOR` when its policy does.
+   */
+  readonly actor: string;
+  /**
+   * Its policy closes it (`conversationPolicy.autoCloseAfterInactiveSeconds`):
+   * only if nothing has been said in it for this many seconds.
+   */
+  readonly afterInactiveSeconds?: number;
+}
+
 /**
  * `ConversationBinding` — the public seam between @kindgi/agents and
  * whatever conversation-store implementation a deployment plugs in
@@ -160,7 +175,8 @@ export interface ConversationPage {
  * `closeConversation` accepts an optional `RunBinding` so the impl can
  * cascade-cancel pending waitpoints owned by runs in the closing
  * conversation. Impls without access to the run lifecycle skip the
- * cascade.
+ * cascade. Its `ConversationClose` says who closes it, for the record of
+ * the close an impl keeps.
  *
  * `appendMessage` / `readMessages` route message content through the
  * memory subsystem — impls capture a `MemoryQueryBinding` at
@@ -189,10 +205,19 @@ export interface ConversationBinding {
     input: ListConversationsPageInput,
   ): Promise<Result<ConversationPage, AgentError>>;
 
+  /**
+   * Close it: from then on it takes no turns. One already closed is
+   * answered as it is, closed once. Without `close`, an impl that keeps a
+   * record of the close names its actor `unknown`. With
+   * `close.afterInactiveSeconds`, its policy closes it, and only if nothing
+   * has been said in it for that long, checked as it closes: one a message
+   * reached since is answered open, as it is.
+   */
   closeConversation(
     tenantId: TenantId,
     id: ConversationId,
     runBinding?: RunBinding,
+    close?: ConversationClose,
   ): Promise<Result<Conversation, AgentError>>;
 
   /**

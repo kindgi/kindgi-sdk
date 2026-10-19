@@ -18901,7 +18901,8 @@
           "person-ungranted",
           "trigger-owner-set",
           "environment-order-set",
-          "deployment-promoted"
+          "deployment-promoted",
+          "conversation-closed"
         ]
       },
       "EvidenceActor": {
@@ -19065,7 +19066,8 @@
               "person-ungranted",
               "trigger-owner-set",
               "environment-order-set",
-              "deployment-promoted"
+              "deployment-promoted",
+              "conversation-closed"
             ]
           },
           "timestamp": {
@@ -19252,7 +19254,8 @@
               "person-ungranted",
               "trigger-owner-set",
               "environment-order-set",
-              "deployment-promoted"
+              "deployment-promoted",
+              "conversation-closed"
             ]
           },
           "from": {
@@ -19337,7 +19340,8 @@
                   "person-ungranted",
                   "trigger-owner-set",
                   "environment-order-set",
-                  "deployment-promoted"
+                  "deployment-promoted",
+                  "conversation-closed"
                 ]
               },
               "from": {

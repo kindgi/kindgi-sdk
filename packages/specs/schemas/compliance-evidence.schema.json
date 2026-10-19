@@ -70,7 +70,8 @@
         "person-ungranted",
         "trigger-owner-set",
         "environment-order-set",
-        "deployment-promoted"
+        "deployment-promoted",
+        "conversation-closed"
       ]
     },
     "timestamp": {

@@ -63,7 +63,12 @@ import {
   readingOf,
   toRunProgressEvent,
 } from './sse.js';
-import { type TurnConversation, closedRefusal, turnRefusal } from './turn-access.js';
+import {
+  type CloseInactive,
+  type TurnConversation,
+  closedRefusal,
+  turnRefusal,
+} from './turn-access.js';
 import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
 
 const KERNEL_RUN_CHANNEL_PREFIX = 'kernel:run:';
@@ -116,6 +121,12 @@ export interface RunsRouterOptions {
     tenantId: TenantId,
     conversationId: string,
   ) => Promise<TurnConversation | null>;
+  /**
+   * Closes a conversation its agent's policy closes for inactivity, as a
+   * turn into it is refused (`closedRefusal`). Required, as
+   * `conversationOf` is.
+   */
+  readonly closeInactive: CloseInactive;
   /**
    * Rights on an agent or flow more than one project serves
    * (`item-rights.ts`): running it in one of its projects is that
@@ -310,7 +321,7 @@ export function runsRouter(
     }
     // A closed conversation takes no new turns: refused before a run is
     // made, once the rules above let the caller add the turn.
-    const closed = closedRefusal(c, conversationId, opened);
+    const closed = await closedRefusal(c, conversationId, opened, options.closeInactive);
     if (closed !== undefined) return closed;
 
     const trace = c.get('trace');
