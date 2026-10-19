@@ -231,7 +231,9 @@ Each repair is a line in its log:
 
   **A password with a raw `/`, `?` or `#`** has to be percent-encoded in
   `KINDGI_DATABASE_URL`: `%2F`, `%3F` and `%23`. Otherwise the runtime
-  misreads the URL, and can't connect.
+  misreads the URL. Most often it refuses it as not a valid `postgres://`
+  URL and exits with code 2. For some passwords it can't connect instead,
+  and its log names `KINDGI_DATABASE_URL` where the host would be.
 
 - **Another failure while starting:** it exits with code 1, and the log's
   first line starts with `kindgi-runtime: fatal:` and ends with the cause.
