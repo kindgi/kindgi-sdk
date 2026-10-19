@@ -88,13 +88,18 @@ for (const entry of [...OUTSIDE_THE_MAP, ...ACCESS_ERRORS.errors]) {
   const name = entry.code ?? `access.kindgi.com ${entry.error}`;
   if (!entry.description) gaps.push(`${name}: no description`);
   if (!entry.status) gaps.push(`${name}: no status`);
+  // extraLinks refuses a route or a page that doesn't exist; a command it doesn't check.
   const missing = (entry.seeAlso ?? []).filter((item) => {
     const command = item.match(/^reference\/cli\/([a-z-]+)$/)?.[1];
-    return command ? !topCommands.has(command) : !pagesBySlug.has(item);
+    return command && !topCommands.has(command);
   });
   for (const item of missing) gaps.push(`${name}: "see also" names ${item}, which doesn't exist`);
-  if (extraLinks(entry.seeAlso, { pagesBySlug, spec }).filter(Boolean).length === 0) {
-    gaps.push(`${name}: no "see also"`);
+  try {
+    if (extraLinks(entry.seeAlso, { pagesBySlug, spec }, name).length === 0) {
+      gaps.push(`${name}: no "see also"`);
+    }
+  } catch (error) {
+    gaps.push(error.message);
   }
 }
 if (!ACCESS_ERRORS.intro) gaps.push('access.kindgi.com: no introduction');

@@ -1164,7 +1164,7 @@ export const ERROR_ENTRIES = {
     description:
       "The database was too busy to answer the read in time: a lock held by other work or a query past the database's time limit ended it, or no database connection came free within the server's wait. Only a `GET` or `HEAD` answers it. Retry after the `Retry-After` header. A request with any other method that the database was too busy for answers a 500 (`internal-server-error`, or the code of what failed, such as `persistence-error`), since it may have saved part of its work: check what it changed before you send it again.",
     details: [],
-    seeAlso: ['GET /v1/runs'],
+    seeAlso: ['GET /v1/runs', 'reference/env-vars'],
   },
   'journal-error': {
     description:
