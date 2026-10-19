@@ -1087,12 +1087,12 @@ export const ERROR_ENTRIES = {
   },
   'rate-limit-exceeded': {
     description:
-      "You sent too many requests, or a tenant reached one of its limits: a webhook trigger got more deliveries than its per-minute limit, a client sent too many refused webhook requests, too many sign-in lookups came from one source, or the tenant reached its limit on API requests or webhook deliveries a minute, or on runs waiting to start. A tenant's API requests to `/v1` and `/s3` count together; on `/s3`, its limit answers as S3 does, with `503 SlowDown` and `Retry-After`, not with this code. On a server with budgets kept per tenant (Kindgi Cloud), it's also the answer when the tenant's schemas took their budget compiling, or its instructions templates rendering, in the last 60 seconds; an agent's turn refused this way fails its run with this code. Retry after the `Retry-After` header; a refusal by the limit on runs waiting to start has none: retry once some have started.",
+      "You sent too many requests, or a tenant reached one of its limits: a webhook trigger got more deliveries than its per-minute limit, a client sent too many refused webhook requests, too many sign-in lookups came from one source, or the tenant reached its limit on API requests or webhook deliveries a minute, or on runs waiting to start. A tenant's API requests to `/v1` and `/s3` count together; on `/s3`, its limit answers as S3 does, with `503 SlowDown` and `Retry-After`, not with this code. On a server with budgets kept per tenant (Kindgi Cloud), it's also the answer when the tenant's schemas took their budget compiling, or its instructions templates rendering, in the last 60 seconds; an agent's turn refused this way fails its run with this code. A deploy is refused with it too when the tenant's image reads unpacked as much as they may in an hour. Retry after the `Retry-After` header; a refusal by the limit on runs waiting to start has none: retry once some have started.",
     details: [
       {
         key: 'limit',
         meaning:
-          "the tenant's limit that was reached: `api-requests`, `webhook-receives`, `runs-pending`, or a budget, `schema-compile-time` or `template-render-time`. Absent when the limit isn't the tenant's",
+          "the tenant's limit that was reached: `api-requests`, `webhook-receives`, `runs-pending`, a budget, `schema-compile-time` or `template-render-time`, or `tenant-unpack-hour`, its image reads in the last hour. Absent when the limit isn't the tenant's",
       },
       {
         key: 'runsPending',
@@ -2655,7 +2655,7 @@ export const ERROR_ENTRIES = {
       {
         key: 'limit',
         meaning:
-          "with `image-limit-exceeded`, the bound: `manifest`, `file`, `layer`, `read` or `unpack` are the image's own, so the same image is refused again; `tenant-unpack-hour` is the tenant's image reads in the last hour, and passes: deploy again after the wait the message names",
+          "with `image-limit-exceeded`, the bound: `manifest`, `file`, `layer`, `read` or `unpack`, the image's own, so the same image is refused again. The tenant's hour of image reads is never this code: reaching it answers `rate-limit-exceeded` with `limit` `tenant-unpack-hour` and `Retry-After`",
       },
     ],
     seeAlso: ['POST /v1/deployments'],
