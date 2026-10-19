@@ -14,9 +14,12 @@ fresh one, with every erasure still in force.
   `kindgi-server` and `kindgi-db` containers, on the `kindgi` network, with
   `kindgi.env`.
 - **Docker**, on the machine that runs the containers.
-- **`KINDGI_API_TOKEN` set in your shell** to the runtime's API token, and
-  **`DB_PASSWORD`** to the database password from `kindgi.env`.
-- **For `kindgi` commands:** your pack's directory, with Kindgi 0.1's CLI.
+- **`KINDGI_API_TOKEN` exported in your shell** as the runtime's API token,
+  where the `kindgi` commands read it, and **`DB_PASSWORD`** set to the
+  database password from `kindgi.env`.
+- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+  pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## Back up Postgres
 
@@ -149,7 +152,7 @@ Then [restart the runtime](../restart-and-check-health/#restart-the-runtime).
 A run from before the backup is there, where `<run id>` is its id:
 
 ```sh
-pnpm exec kindgi runs get <run id> --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
+npx --yes @kindgi/cli@0.1 runs get <run id> --url http://localhost:4000
 ```
 
 ```text
@@ -225,7 +228,7 @@ Then:
    with everything else:
 
    ```sh
-   kindgi memory erasures export --out=erasures-$(date +%F).json
+   npx --yes @kindgi/cli@0.1 memory erasures export --out=erasures-$(date +%F).json
    ```
 
    `--out` is the file it writes. `$(date +%F)` names it with the date of the
@@ -243,7 +246,7 @@ Then:
    anyone. It erases again whoever the restored database holds:
 
    ```sh
-   kindgi memory erasures replay erasures-<date>.json
+   npx --yes @kindgi/cli@0.1 memory erasures replay erasures-<date>.json
    ```
 
    `erasures-<date>.json` is the latest export. Its answer sorts the

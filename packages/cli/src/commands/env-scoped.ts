@@ -18,6 +18,7 @@ import type { EnvName } from '@kindgi/types';
 import type { CommandContext } from '../context.js';
 import { extractKindgiError } from '../errors.js';
 import { renderJson } from '../output.js';
+import { type ResolvedEnvironment, valueTargetFor, withEnvironmentNote } from '../value-target.js';
 import { commandResultFromThrown, stringFlag } from './helpers.js';
 import type { CommandResult } from './types.js';
 
@@ -110,27 +111,61 @@ export function envErrorResult(err: unknown, ctx: CommandContext, label: string)
   return commandResultFromThrown(err, ctx, label);
 }
 
+/** Why `--scope=project`, with no id, names no project here. */
+export const PROJECT_SCOPE_ALONE =
+  "--scope=project alone is the project of the pack's environment --env names, on a runtime that keeps its values under one env. Here, name the project: --scope=project:<projectId>.\n";
+
 interface ScopedTarget {
   readonly scope: ScopeRef;
   readonly envName: string;
+  /** `--env` named one of the pack's environments: its project is `scope`. */
+  readonly environment?: ResolvedEnvironment;
 }
 
-/** `--scope` and the `--env` it requires. */
-function scopedTarget(
+/**
+ * `--scope` and the `--env` it requires: on a runtime that keeps its values
+ * under one env, that one by default, and a `set` under
+ * another is refused (`valueTargetFor`). There, `--env` may name one of the
+ * pack's environments with a project, and `--scope=project` is that
+ * project, under the env the runtime serves. `--scope` stays required:
+ * without it, `kindgi env` edits the pack's own env files.
+ */
+async function scopedTarget(
   ctx: CommandContext,
   verb: 'set' | 'list' | 'unset',
-): { readonly kind: 'ok'; readonly target: ScopedTarget } | (CommandResult & { kind: 'error' }) {
-  const parsed = parseScope(stringFlag(ctx, 'scope'));
-  if (parsed.kind === 'err') return { kind: 'error', stderr: parsed.stderr, exitCode: 2 };
-  const envName = stringFlag(ctx, 'env');
-  if (envName === undefined) {
+): Promise<
+  { readonly kind: 'ok'; readonly target: ScopedTarget } | (CommandResult & { kind: 'error' })
+> {
+  const raw = stringFlag(ctx, 'scope');
+  // `project` alone is the pack environment's project: known once --env is.
+  const parsed = raw === 'project' ? undefined : parseScope(raw);
+  if (parsed?.kind === 'err') return { kind: 'error', stderr: parsed.stderr, exitCode: 2 };
+  const target = await valueTargetFor(ctx, stringFlag(ctx, 'env'), {
+    write: verb === 'set',
+    what: 'an env value',
+    ...(raw !== undefined && { scope: raw }),
+  });
+  if (target.kind === 'missing') {
     return {
       kind: 'error',
       stderr: `Missing required flag: --env=<name>. \`kindgi env ${verb} --scope\` acts on the runtime's env values, which are per env: name the one the runtime serves (\`KINDGI_ENV\`; under \`kindgi dev\`, \`--env=local\`).\n`,
       exitCode: 2,
     };
   }
-  return { kind: 'ok', target: { scope: parsed.scope, envName } };
+  if (target.kind === 'refused') return { kind: 'error', stderr: target.stderr, exitCode: 2 };
+  const { environment } = target;
+  if (environment !== undefined) {
+    return {
+      kind: 'ok',
+      target: {
+        scope: { kind: 'project', projectId: environment.projectId },
+        envName: target.envName,
+        environment,
+      },
+    };
+  }
+  if (parsed === undefined) return { kind: 'error', stderr: PROJECT_SCOPE_ALONE, exitCode: 2 };
+  return { kind: 'ok', target: { scope: parsed.scope, envName: target.envName } };
 }
 
 /**
@@ -144,7 +179,7 @@ export function credentialWarning(key: string, target: ScopedTarget): string | u
   if (!CREDENTIAL_NAME.test(key)) return undefined;
   return (
     `${key} looks like a credential. Env values aren't secret: they're recorded with each run that uses them, ` +
-    `and shown in its journal. Store a credential as a secret: kindgi secrets set ${key} --env=${target.envName} --scope=${describeScope(target.scope)}`
+    `and shown in its journal. Store a credential as a secret: kindgi secrets set ${key} --env=${target.environment?.name ?? target.envName}${target.environment !== undefined ? '' : ` --scope=${describeScope(target.scope)}`}`
   );
 }
 
@@ -159,19 +194,31 @@ export async function setScoped(
   key: string,
   value: string,
 ): Promise<CommandResult> {
-  const t = scopedTarget(ctx, 'set');
+  const t = await scopedTarget(ctx, 'set');
   if (t.kind === 'error') return t;
-  const { scope, envName } = t.target;
+  return withEnvironmentNote(await setScopedAt(ctx, key, value, t.target), t.target);
+}
+
+async function setScopedAt(
+  ctx: CommandContext,
+  key: string,
+  value: string,
+  target: ScopedTarget,
+): Promise<CommandResult> {
+  const { scope, envName } = target;
   const where = `${describeScope(scope)} in env ${envName}`;
-  const warning = credentialWarning(key, t.target);
+  const warning = credentialWarning(key, target);
   const env = ctx.client().env;
   try {
     const existing = await env.get({ scope, envName: envName as EnvName, name: key });
-    if (existing !== null && existing.value === value) {
+    const same = existing !== null && existing.value === value;
+    // With --force, the same value is set again: a new revision, which a
+    // pack service whose new values didn't start tries again.
+    if (same && ctx.options.force !== true) {
       return ok(
         { envName, scope: describeScope(scope), key, changed: false, revision: existing.revision },
         ctx,
-        `\n  ✓ ${key} is already set to that value at ${where}: no change.\n\n`,
+        `\n  ✓ ${key} is already set to that value at ${where}: no change. Re-run with --force to set it again: on Kindgi Cloud, a pack service whose new values didn't start tries them again.\n\n`,
       );
     }
     if (existing !== null && ctx.options.force !== true) {
@@ -197,7 +244,9 @@ export async function setScoped(
     }
     const lines = [
       '',
-      `  ✓ ${existing !== null ? 'Updated' : 'Set'} ${key} at ${where}. A tool that declares it (\`needsSpec.env\`) gets it on its next call.`,
+      same
+        ? `  ✓ Set ${key} again at ${where}, to the same value: a new revision.`
+        : `  ✓ ${existing !== null ? 'Updated' : 'Set'} ${key} at ${where}. A tool that declares it (\`needsSpec.env\`) gets it on its next call.`,
       ...(warning !== undefined ? ['', `  ⚠ ${warning}`] : []),
       '',
       '',
@@ -222,9 +271,13 @@ export async function setScoped(
 
 /** `kindgi env list --scope=… --env=…`: values shown (env isn't secret). */
 export async function listScoped(ctx: CommandContext): Promise<CommandResult> {
-  const t = scopedTarget(ctx, 'list');
+  const t = await scopedTarget(ctx, 'list');
   if (t.kind === 'error') return t;
-  const { scope, envName } = t.target;
+  return withEnvironmentNote(await listScopedAt(ctx, t.target), t.target);
+}
+
+async function listScopedAt(ctx: CommandContext, target: ScopedTarget): Promise<CommandResult> {
+  const { scope, envName } = target;
   try {
     const records = [...(await listAllEnv(ctx, scope, envName as EnvName))].sort((a, b) =>
       a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
@@ -235,7 +288,7 @@ export async function listScoped(ctx: CommandContext): Promise<CommandResult> {
       revision: r.revision,
       updatedAt: r.updatedAt,
     }));
-    const lines = ['', `  Environment: ${envName}`, `  Scope:       ${describeScope(scope)}`, ''];
+    const lines = ['', `  Value set: ${envName}`, `  Scope:     ${describeScope(scope)}`, ''];
     lines.push(values.length === 0 ? '  (no values set here)' : `  ${values.length} key(s):`);
     for (const v of values) lines.push(`    ${v.key.padEnd(24, ' ')} ${v.value}`);
     lines.push('', "  A tool gets the project's value, else its org's, else the tenant's.", '', '');
@@ -259,9 +312,17 @@ const FALLBACK: Readonly<Record<ScopeRef['kind'], string>> = {
 
 /** `kindgi env unset <KEY> --scope=… --env=…`. Idempotent. */
 export async function unsetScoped(ctx: CommandContext, key: string): Promise<CommandResult> {
-  const t = scopedTarget(ctx, 'unset');
+  const t = await scopedTarget(ctx, 'unset');
   if (t.kind === 'error') return t;
-  const { scope, envName } = t.target;
+  return withEnvironmentNote(await unsetScopedAt(ctx, key, t.target), t.target);
+}
+
+async function unsetScopedAt(
+  ctx: CommandContext,
+  key: string,
+  target: ScopedTarget,
+): Promise<CommandResult> {
+  const { scope, envName } = target;
   const where = `${describeScope(scope)} in env ${envName}`;
   try {
     const { deleted } = await ctx

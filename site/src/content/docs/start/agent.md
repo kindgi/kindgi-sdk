@@ -38,11 +38,12 @@ URL with `.md`.
   change them, and ask before you change anything else. That includes an
   app's `package.json` name (pass `--pack-id` instead), its `zod` version,
   and its package manager's settings, such as pnpm's `minimumReleaseAge`.
-- **`kindgi` in this page's commands** means, until step 2 makes a project:
-  `npx --yes @kindgi/cli@0.1` if `node --version` works; else, for someone
-  using Python without Node, `uvx --from "kindgi-cli>=0.1,<0.2" kindgi`
-  (the CLI from PyPI; it needs no Node). From step 2 on, from the project's
-  folder:
+- **The commands run the CLI as `npx --yes @kindgi/cli@0.1` until step 2
+  makes a project,** if `node --version` works. For someone using Python
+  without Node, use `uvx --from "kindgi-cli>=0.1,<0.2" kindgi` in its place
+  (the CLI from PyPI; it needs no Node). From step 2 on, they write
+  `pnpm exec kindgi`, run from the project's folder. Use the project's form
+  in its place:
   - a TypeScript project: `pnpm exec kindgi` if `pnpm --version` works,
     else `npx --no -- kindgi`. `--no` keeps npx from downloading anything,
     so it runs the project's own CLI. The `--` passes every flag, `--help`
@@ -76,7 +77,7 @@ always use the fallback.
 Then run doctor:
 
 ```sh
-kindgi doctor --json
+npx --yes @kindgi/cli@0.1 doctor --json
 ```
 
 It prints one JSON object and exits `0` when nothing fails, `1` when a check
@@ -177,7 +178,7 @@ runtime: skip this step.
    robot name they gave you:
 
    ```sh
-   <read the clipboard> | kindgi auth registry --username <robot name> --password-stdin
+   <read the clipboard> | npx --yes @kindgi/cli@0.1 auth registry --username <robot name> --password-stdin
    ```
 
    It ends with:
@@ -272,8 +273,9 @@ and agents for this project.
 ## Step 3: start Kindgi
 
 Start `kindgi dev` from the project's folder so that it keeps running after
-your turn ends, with its output in `.kindgi/dev.log`. Run
-`mkdir -p .kindgi` first, on its own, so the log's folder exists. Then:
+your turn ends, with its output in `.kindgi/dev.log` (`.kindgi/` is
+git-ignored). Run `mkdir -p .kindgi` first, on its own, so the log's
+folder exists. Then:
 
 - **If your tool runs commands in the background itself** (Claude Code's
   background tasks do), start it that way: `kindgi dev`, as a background
@@ -282,7 +284,7 @@ your turn ends, with its output in `.kindgi/dev.log`. Run
 - **Otherwise,** start it detached, and note its process id:
 
   ```sh
-  nohup kindgi dev > .kindgi/dev.log 2>&1 &
+  nohup pnpm exec kindgi dev > .kindgi/dev.log 2>&1 &
   echo $!
   ```
 
@@ -291,9 +293,9 @@ your turn ends, with its output in `.kindgi/dev.log`. Run
   Run the `mkdir` before it, not as `mkdir … && nohup … &`: then `$!` is a
   subshell's id, and stopping it leaves `kindgi dev` running.
 
-Use `kindgi` as the project runs it (`.kindgi/` is git-ignored). It starts
-the runtime in Docker and answers with a stand-in model, `dev-echo`, until
-step 4 adds a real one.
+Use the project's form of the CLI in place of `pnpm exec kindgi`. It
+starts the runtime in Docker and answers with a stand-in model,
+`dev-echo`, until step 4 adds a real one.
 
 Run doctor every few seconds until `runtime` passes. `model-key` and
 `provider` still fail: that's expected until step 4. Then tell the person
@@ -332,8 +334,8 @@ user**, which needs no token: don't print the token in the chat.
    OpenAI:
 
    ```sh
-   <read the clipboard> | kindgi secrets set OPENAI_API_KEY --env=local --scope=tenant --from-stdin
-   kindgi providers register --preset=openai
+   <read the clipboard> | pnpm exec kindgi secrets set OPENAI_API_KEY --env=local --scope=tenant --from-stdin
+   pnpm exec kindgi providers register --preset=openai
    ```
 
    - `secrets set` writes the key to Kindgi's own `.kindgi/secrets.env`,
@@ -382,7 +384,7 @@ register the provider again or to restart `kindgi dev`.
    answer:
 
    ```sh
-   kindgi runs start --agent=<pack id>.<agent name> --input='{"userMessage":"…"}'
+   pnpm exec kindgi runs start --agent=<pack id>.<agent name> --input='{"userMessage":"…"}'
    ```
 
    `--agent` names the agent by its id, and `--input` is its input as JSON:

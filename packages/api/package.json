@@ -47,6 +47,7 @@
     "@kindgi/capabilities": "workspace:*",
     "@kindgi/crypto": "workspace:*",
     "@kindgi/flow": "workspace:*",
+    "@kindgi/handler-runtime": "workspace:*",
     "@kindgi/guardrails": "workspace:*",
     "@kindgi/log": "workspace:*",
     "@kindgi/memory": "workspace:*",

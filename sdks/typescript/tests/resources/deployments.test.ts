@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import { createClient } from '../../src/index.js';
 import type { RegisterDeploymentInput } from '../../src/resources/deployments.js';
-import { recordingFetch } from '../support/recording-fetch.js';
+import { jsonFetch, recordingFetch } from '../support/recording-fetch.js';
 
 const AUTH = { kind: 'apiToken' as const, token: 't' };
 const API = 'https://api.example.com';
@@ -74,5 +74,106 @@ describe('deployments — wire round-trips', () => {
     const deployment = await client.deployments.register(input);
     expect(JSON.parse(String(stub.calls[0]?.body))).toMatchObject({ projectId: PROJECT });
     expect(deployment.projectId).toBe(PROJECT);
+  });
+
+  it('packEnv: GET /v1/deployments/:id/pack-env, names and where each is set', async () => {
+    const names = {
+      envName: 'prod',
+      data: [
+        {
+          name: 'API_BASE',
+          required: true,
+          kind: null,
+          scope: null,
+          missing: true,
+          problem: 'missing',
+        },
+      ],
+      problem: 'pack-env-missing',
+    };
+    const stub = jsonFetch(names);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(await client.deployments.packEnv('dep/1')).toEqual(names);
+    expect(`${stub.calls[0]!.method} ${stub.calls[0]!.url}`).toBe(
+      `GET ${API}/v1/deployments/dep%2F1/pack-env`,
+    );
+  });
+
+  it('values.list reads what a deployment needs in a project, with or without projectId', async () => {
+    const PROJECT = '3f2b8c1e-4a5d-4e6f-9a0b-1c2d3e4f5a6b';
+    const VALUE = {
+      name: 'ACME_TOKEN',
+      kind: 'secret',
+      neededBy: { type: 'tool', id: 'acme.search', version: '1.0.0' },
+      foundAt: 'tenant',
+    };
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ data: [VALUE] }) },
+      { status: 200, body: JSON.stringify({ data: [] }) },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const own = await client.deployments.values.list('d1');
+    const there = await client.deployments.values.list('d1', { projectId: PROJECT });
+    expect(own.data).toEqual([VALUE]);
+    expect(there.data).toEqual([]);
+    expect(
+      stub.calls.map((c) => {
+        const url = new URL(c.url);
+        return `${c.method} ${url.pathname}${url.search}`;
+      }),
+    ).toEqual([
+      'GET /v1/deployments/d1/values',
+      `GET /v1/deployments/d1/values?projectId=${PROJECT}`,
+    ]);
+  });
+
+  it('promote and promoteCheck send where to; list filters by environment and pack', async () => {
+    const moves = {
+      imageDigest: 'sha256:abc',
+      agents: [{ id: 'acme.matcher', version: '1.0.1', carried: true }],
+      flows: [],
+      tools: [],
+      guardrails: [],
+    };
+    const stub = recordingFetch([
+      {
+        status: 201,
+        body: JSON.stringify({
+          deployment: { ...SAMPLE_DEPLOYMENT, deploymentId: 'd2', promotedFromDeploymentId: 'd1' },
+          moved: moves,
+        }),
+      },
+      {
+        status: 200,
+        body: JSON.stringify({
+          moves,
+          values: [],
+          nextEnvironment: { projectId: 'p-prod', position: 2 },
+        }),
+      },
+      { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const promoted = await client.deployments.promote('d1', {
+      toProjectId: 'p-staging-2',
+      reason: 'release',
+    });
+    const check = await client.deployments.promoteCheck('d2', { toProjectId: 'p-prod' });
+    await client.deployments.list({ projectId: 'p-prod', packId: 'acme.pack' });
+    expect(stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual([
+      'POST /v1/deployments/d1/promotions',
+      'POST /v1/deployments/d2/promotions/check',
+      'GET /v1/deployments',
+    ]);
+    expect(JSON.parse(String(stub.calls[0]?.body))).toEqual({
+      toProjectId: 'p-staging-2',
+      reason: 'release',
+    });
+    expect(new URL(stub.calls[2]?.url ?? '').searchParams.toString()).toBe(
+      'projectId=p-prod&packId=acme.pack',
+    );
+    expect(promoted.deployment.promotedFromDeploymentId).toBe('d1');
+    expect(promoted.moved.agents[0]?.carried).toBe(true);
+    expect(check.nextEnvironment.position).toBe(2);
   });
 });

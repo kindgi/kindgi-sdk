@@ -41,6 +41,12 @@ import {
   stripTrailingNewline,
 } from '../terminal-input.js';
 import {
+  type ResolvedEnvironment,
+  valueTargetFor,
+  withEnvironmentNote,
+  withLocalEnvHint,
+} from '../value-target.js';
+import {
   commandResultFromThrown,
   integerFlag,
   requiredPositional,
@@ -58,12 +64,12 @@ const SCOPE_OPTION_SPEC = {
   env: {
     type: 'string' as const,
     description:
-      "The environment the secret belongs to. Required; under `kindgi dev`, `local` is the pack's env files.",
+      "The environment the secret belongs to. Required, unless the runtime keeps its values under one env: then that one, and a set or rotation under another is refused. There, it may also name one of the pack's `environments` with a `project`: the secret is that project's, under the env the runtime serves, so --scope is left out. Under `kindgi dev`, `local` is the pack's env files.",
   },
   scope: {
     type: 'string' as const,
     description:
-      'Where the secret lives: `tenant`, `org:<orgId>` or `project:<projectId>`. Required.',
+      "Where the secret lives: `tenant`, `org:<orgId>` or `project:<projectId>`. Required, unless --env names one of the pack's environments with a project.",
   },
 };
 
@@ -74,6 +80,8 @@ const SCOPE_OPTION_SPEC = {
 interface ScopeAndEnv {
   readonly scope: ScopeRef;
   readonly envName: EnvName;
+  /** `--env` named one of the pack's environments: its project is `scope`. */
+  readonly environment?: ResolvedEnvironment;
 }
 
 type ScopeResult =
@@ -84,17 +92,41 @@ type ScopeResult =
  * Parse `--scope=<kind>[:id]` into the kind and its id. There's no
  * tenant id: the server takes the tenant from the bearer, and the CLI
  * doesn't know it, so what it prints from its own input names none.
+ *
+ * `--env` defaults to the env a runtime that refuses other envs serves.
+ * Another env is sent as given, a write too: a provider, MCP endpoint or
+ * webhook endpoint registered before may still read its secret there, at
+ * the scope it reads it at, and only the runtime knows. It refuses the
+ * rest (`409 env-not-served`). There, `--env` naming one of the pack's
+ * environments with a project is that project's scope, under the env it
+ * serves (`valueTargetFor`).
  */
-function parseScopeAndEnv(ctx: CommandContext): ScopeResult {
-  const envName = stringFlag(ctx, 'env');
-  if (envName === undefined) {
+async function parseScopeAndEnv(ctx: CommandContext): Promise<ScopeResult> {
+  const rawScope = stringFlag(ctx, 'scope');
+  const target = await valueTargetFor(ctx, stringFlag(ctx, 'env'), {
+    write: false,
+    what: 'a secret',
+    ...(rawScope !== undefined && { scope: rawScope }),
+  });
+  if (target.kind === 'missing') {
     return {
       kind: 'err',
       stderr:
         'Missing required flag: --env=<name>.\nEvery `kindgi secrets` command requires --env; secrets are per-environment.\n',
     };
   }
-  const rawScope = stringFlag(ctx, 'scope');
+  if (target.kind === 'refused') return { kind: 'err', stderr: target.stderr };
+  const envName = target.envName;
+  if (target.environment !== undefined) {
+    return {
+      kind: 'ok',
+      value: {
+        scope: { kind: 'project', projectId: target.environment.projectId },
+        envName: envName as unknown as EnvName,
+        environment: target.environment,
+      },
+    };
+  }
   if (rawScope === undefined) {
     return {
       kind: 'err',
@@ -134,7 +166,7 @@ function parseScopeAndEnv(ctx: CommandContext): ScopeResult {
     if (id === undefined || id === '') {
       return {
         kind: 'err',
-        stderr: `Malformed --scope: expected --scope=project:<projectId>, got "${rawScope}".\n`,
+        stderr: `Malformed --scope: expected --scope=project:<projectId>, got "${rawScope}". (\`--scope=project\` alone is the project of the pack's environment --env names, on a runtime that keeps its values under one env.)\n`,
       };
     }
     return {
@@ -148,6 +180,27 @@ function parseScopeAndEnv(ctx: CommandContext): ScopeResult {
   return {
     kind: 'err',
     stderr: `Unknown --scope kind "${String(kind)}".\nAccepted: tenant, org:<orgId>, project:<projectId>.\n`,
+  };
+}
+
+/**
+ * A `kindgi secrets` command's run, given its scope and env. When `--env`
+ * named one of the pack's environments, its output starts with the
+ * project and env that stood for.
+ */
+function withTarget(
+  run: (
+    ctx: CommandContext,
+    parsed: { readonly kind: 'ok'; readonly value: ScopeAndEnv },
+  ) => Promise<CommandResult>,
+): (ctx: CommandContext) => Promise<CommandResult> {
+  return async (ctx) => {
+    const parsed = await parseScopeAndEnv(ctx);
+    if (parsed.kind === 'err') return { kind: 'error', stderr: parsed.stderr, exitCode: 2 };
+    return withEnvironmentNote(await run(ctx, parsed), {
+      envName: parsed.value.envName as unknown as string,
+      ...(parsed.value.environment !== undefined && { environment: parsed.value.environment }),
+    });
   };
 }
 
@@ -305,9 +358,7 @@ const listCmd: LeafCommand = {
       description: 'The most secrets to return (default 25, at most 100).',
     },
   },
-  run: async (ctx): Promise<CommandResult> => {
-    const parsed = parseScopeAndEnv(ctx);
-    if (parsed.kind === 'err') return { kind: 'error', stderr: parsed.stderr, exitCode: 2 };
+  run: withTarget(async (ctx, parsed): Promise<CommandResult> => {
     try {
       const page = await secretsFrom(ctx).list({
         scope: parsed.value.scope,
@@ -327,7 +378,7 @@ const listCmd: LeafCommand = {
     } catch (err) {
       return commandResultFromThrown(err, ctx, 'kindgi secrets list');
     }
-  },
+  }),
 };
 
 // ---------------------------------------------------------------------
@@ -340,9 +391,7 @@ const getCmd: LeafCommand = {
   description: 'Fetch secret metadata (name + version + timestamps only, NEVER the value).',
   usage: 'kindgi secrets get <NAME> --env=<name> --scope=<kind>[:id]',
   optionSpec: SCOPE_OPTION_SPEC,
-  run: async (ctx): Promise<CommandResult> => {
-    const parsed = parseScopeAndEnv(ctx);
-    if (parsed.kind === 'err') return { kind: 'error', stderr: parsed.stderr, exitCode: 2 };
+  run: withTarget(async (ctx, parsed): Promise<CommandResult> => {
     let name: string;
     try {
       name = requiredPositional(ctx, 0, 'NAME');
@@ -366,7 +415,7 @@ const getCmd: LeafCommand = {
     } catch (err) {
       return commandResultFromThrown(err, ctx, 'kindgi secrets get');
     }
-  },
+  }),
 };
 
 // ---------------------------------------------------------------------
@@ -429,9 +478,7 @@ const setCmd: LeafCommand = {
         "Write only if the secret is still at this version (`0` when it doesn't exist yet); otherwise fail with a conflict.",
     },
   },
-  run: async (ctx): Promise<CommandResult> => {
-    const parsed = parseScopeAndEnv(ctx);
-    if (parsed.kind === 'err') return { kind: 'error', stderr: parsed.stderr, exitCode: 2 };
+  run: withTarget(async (ctx, parsed): Promise<CommandResult> => {
     let name: string;
     try {
       name = requiredPositional(ctx, 0, 'NAME');
@@ -501,9 +548,13 @@ const setCmd: LeafCommand = {
         },
       };
     } catch (err) {
-      return commandResultFromThrown(err, ctx, 'kindgi secrets set');
+      return withLocalEnvHint(
+        commandResultFromThrown(err, ctx, 'kindgi secrets set'),
+        err,
+        parsed.value.envName,
+      );
     }
-  },
+  }),
 };
 
 // ---------------------------------------------------------------------
@@ -544,9 +595,7 @@ const rotateCmd: LeafCommand = {
         "Print the API's first response instead of waiting for an asynchronous rotation to finish.",
     },
   },
-  run: async (ctx): Promise<CommandResult> => {
-    const parsed = parseScopeAndEnv(ctx);
-    if (parsed.kind === 'err') return { kind: 'error', stderr: parsed.stderr, exitCode: 2 };
+  run: withTarget(async (ctx, parsed): Promise<CommandResult> => {
     let name: string;
     try {
       name = requiredPositional(ctx, 0, 'NAME');
@@ -593,9 +642,13 @@ const rotateCmd: LeafCommand = {
       });
       return renderRotationOutcome(ctx, name, parsed.value, outcome);
     } catch (err) {
-      return commandResultFromThrown(err, ctx, 'kindgi secrets rotate');
+      return withLocalEnvHint(
+        commandResultFromThrown(err, ctx, 'kindgi secrets rotate'),
+        err,
+        parsed.value.envName,
+      );
     }
-  },
+  }),
 };
 
 function renderRotationOutcome(
@@ -669,9 +722,7 @@ const revokeCmd: LeafCommand = {
       description: 'Why the secret is revoked; kept on the record as `revokeReason`.',
     },
   },
-  run: async (ctx): Promise<CommandResult> => {
-    const parsed = parseScopeAndEnv(ctx);
-    if (parsed.kind === 'err') return { kind: 'error', stderr: parsed.stderr, exitCode: 2 };
+  run: withTarget(async (ctx, parsed): Promise<CommandResult> => {
     let name: string;
     try {
       name = requiredPositional(ctx, 0, 'NAME');
@@ -703,7 +754,7 @@ const revokeCmd: LeafCommand = {
     } catch (err) {
       return commandResultFromThrown(err, ctx, 'kindgi secrets revoke');
     }
-  },
+  }),
 };
 
 // ---------------------------------------------------------------------
@@ -723,9 +774,7 @@ const pullCmd: LeafCommand = {
         'The pack directory to write `.secrets/<env>/manifest.json` under (default: the current directory).',
     },
   },
-  run: async (ctx): Promise<CommandResult> => {
-    const parsed = parseScopeAndEnv(ctx);
-    if (parsed.kind === 'err') return { kind: 'error', stderr: parsed.stderr, exitCode: 2 };
+  run: withTarget(async (ctx, parsed): Promise<CommandResult> => {
     const runners = pickEnvRunners(ctx);
     if (runners === null) {
       return {
@@ -737,7 +786,8 @@ const pullCmd: LeafCommand = {
       };
     }
     const packDir = resolvePackDir(ctx);
-    const manifestDir = `${packDir}/.secrets/${parsed.value.envName as unknown as string}`;
+    // A pack environment's manifest is its own, though its values are under the served env.
+    const manifestDir = `${packDir}/.secrets/${parsed.value.environment?.name ?? (parsed.value.envName as unknown as string)}`;
     const manifestPath = `${manifestDir}/manifest.json`;
     try {
       const records: SecretRecord[] = [];
@@ -783,7 +833,7 @@ const pullCmd: LeafCommand = {
     } catch (err) {
       return commandResultFromThrown(err, ctx, 'kindgi secrets pull');
     }
-  },
+  }),
 };
 
 function pickEnvRunners(ctx: CommandContext): EnvRunners | null {

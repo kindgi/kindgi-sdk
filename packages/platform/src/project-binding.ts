@@ -87,7 +87,11 @@ export interface ProjectBinding {
    * Partially update a `Project`. `ProjectPatch.orgId` supports
    * `null` to re-assign the project out of any org. Resolves to
    * `project-not-found` when no project has `projectId` in the tenant,
-   * and to `slug-conflict` when `patch.slug` is another project's slug.
+   * to `slug-conflict` when `patch.slug` is another project's slug, and to
+   * `project-in-environment-order` when the patch would change `orgId` for a
+   * project that is a member of an environment order (clear it first). A
+   * patch that leaves `orgId` untouched — a rename, slug or description
+   * change — is never refused on that ground.
    */
   update(
     tenantId: TenantId,
@@ -95,12 +99,14 @@ export interface ProjectBinding {
     patch: ProjectPatch,
   ): Promise<ProjectUpdateOutcome>;
   /**
-   * Delete a `Project`. What happens to content rows that still
-   * reference the project is the storage layer's concern; the
-   * in-memory adapter removes the project's direct memberships and
-   * team grants with it.
+   * Delete a `Project`. Resolves to `project-in-environment-order` when the
+   * project is a member of an environment order — the delete does not happen;
+   * clear it from the order first. Deleting an id that names no project is
+   * `ok` (idempotent). What happens to content rows that still reference a
+   * deleted project is the storage layer's concern; the in-memory adapter
+   * removes the project's direct memberships and team grants with it.
    */
-  delete(tenantId: TenantId, projectId: ProjectId): Promise<void>;
+  delete(tenantId: TenantId, projectId: ProjectId): Promise<ProjectDeleteOutcome>;
   /**
    * Put the project in production (`production: true`), or take it out.
    * Optional: without it, the production route answers 501
@@ -232,6 +238,27 @@ export type ProjectUpdateOutcome =
        */
       readonly kind: 'org-not-found';
       readonly orgId: OrgId;
+    }
+  | {
+      /**
+       * The project is a member of an environment order, so it can't be
+       * moved to another parent. Clear it from the order first. Only a patch
+       * that changes `orgId` is refused; a rename or slug change is not.
+       */
+      readonly kind: 'project-in-environment-order';
+      readonly orderId: string;
+    };
+
+/** What `ProjectBinding.delete` did. */
+export type ProjectDeleteOutcome =
+  | { readonly kind: 'ok' }
+  | {
+      /**
+       * The project is a member of an environment order, so it can't be
+       * deleted. Clear it from the order first.
+       */
+      readonly kind: 'project-in-environment-order';
+      readonly orderId: string;
     };
 
 /** What `ProjectMembershipBinding.add` did (`ok` when already a member, too). */

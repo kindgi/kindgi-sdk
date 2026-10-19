@@ -58,8 +58,8 @@ Register it, then start a turn. `--spec=@acme-llm.json` reads the spec from
 that file. `--agent` is the agent, and `--input` its input:
 
 ```sh
-kindgi providers register --spec=@acme-llm.json
-kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1002?"}'
+pnpm exec kindgi providers register --spec=@acme-llm.json
+pnpm exec kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1002?"}'
 ```
 
 `register` prints the provider's id, as JSON. The turn's run shows which

@@ -13,7 +13,7 @@ import { describe, expect, test } from 'vitest';
 import type { Scope } from '@kindgi/platform';
 import type { EnvName, OrgId, ProjectId, TenantId } from '@kindgi/types';
 
-import { namedSecretScope, secretScopeChain } from '../src/secret-scope.js';
+import { findNamedSecretScope, namedSecretScope, secretScopeChain } from '../src/secret-scope.js';
 
 const tenantId = 't-1' as TenantId;
 const projectId = 'p-1' as ProjectId;
@@ -66,5 +66,44 @@ describe('namedSecretScope', () => {
   test("without authorization, every scope is the caller's", async () => {
     expect(await ask(has('tenant'))).toEqual(tenant);
     expect(await ask(has())).toEqual(tenant);
+  });
+});
+
+describe('findNamedSecretScope', () => {
+  const seen: string[] = [];
+  const stored = (...at: Scope['kind'][]) => ({
+    get: async ({ scope }: { scope: Scope }) => {
+      seen.push(scope.kind);
+      return at.includes(scope.kind) ? { name: 'x', revokedAt: '2026-01-01T00:00:00Z' } : null;
+    },
+  });
+  const find = (
+    secrets: ReturnType<typeof stored>,
+    admin?: ReturnType<typeof administers>,
+    envName: EnvName | 'none' = 'test' as EnvName,
+  ) =>
+    findNamedSecretScope({
+      secrets: secrets as never,
+      chain: secretScopeChain(project, orgId),
+      ...(admin !== undefined && { administers: admin }),
+      envName: envName === 'none' ? undefined : envName,
+      name: 'x',
+    });
+
+  test('the scope namedSecretScope records, with the secret found there, revoked or not', async () => {
+    expect(await find(stored('org', 'tenant'))).toEqual({
+      scope: org,
+      found: { name: 'x', revokedAt: '2026-01-01T00:00:00Z' },
+    });
+    // Not where the caller may record it: the broadest they administer, found nowhere.
+    expect(await find(stored('tenant'), administers('project', 'org'))).toEqual({ scope: org });
+    expect(await find(stored(), administers('project'))).toEqual({ scope: project });
+    expect(await find(stored('tenant'), administers())).toBeNull();
+  });
+
+  test('without the env, nothing is looked up: the broadest scope, found nowhere', async () => {
+    seen.length = 0;
+    expect(await find(stored('project'), undefined, 'none')).toEqual({ scope: tenant });
+    expect(seen).toEqual([]);
   });
 });
