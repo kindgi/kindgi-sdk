@@ -9361,6 +9361,20 @@ export const WhoamiResultSchema: JsonSchema = {
       description:
         'Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.',
     },
+    servedEnv: {
+      type: 'object',
+      description:
+        "The env this runtime serves (`KINDGI_ENV`): where the values its tools read are kept. With `refusesOtherEnvs`, it's the only one: a secret, env value or secret reference under another env is refused (`409 env-not-served`), so a client defaults to `envName`. Absent when the runtime serves no env, and from older servers.",
+      required: ['envName', 'refusesOtherEnvs'],
+      properties: {
+        envName: { type: 'string', description: 'The env name.' },
+        refusesOtherEnvs: {
+          type: 'boolean',
+          description: 'Whether values under any other env are refused.',
+        },
+      },
+      additionalProperties: false,
+    },
   },
 };
 
@@ -10483,9 +10497,279 @@ export const DeploymentRecordSchema: JsonSchema = {
         "The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's Default project).",
     },
     packEnv: { $ref: '#/components/schemas/PackEnvDeclaration' },
+    promotedFromDeploymentId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        'When this deployment was made by promoting another into the next environment of its order: the deployment it was promoted from. Absent for one deployed directly.',
+    },
+    packId: {
+      type: 'string',
+      description:
+        "The pack's id, from the image's index. Absent from a runtime that doesn't keep it.",
+    },
     endpoint: { $ref: '#/components/schemas/DeploymentEndpoint' },
     primitives: { $ref: '#/components/schemas/DeploymentPrimitiveCounts' },
     contents: { $ref: '#/components/schemas/DeploymentContents' },
+  },
+};
+
+/** What needs a deployment's value: a tool version, an agent version, a model provider, or the pack's service. */
+export const DeploymentValueNeededBySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['type', 'id'],
+  properties: {
+    type: {
+      type: 'string',
+      description:
+        '`tool`, `agent`, `provider` or `pack`; a later runtime may add kinds, so treat an unknown one as a need not yet named.',
+    },
+    id: { type: 'string' },
+    version: { type: 'string' },
+  },
+};
+
+/**
+ * One value a deployment needs set in a project before it serves there:
+ * a tool's secret or env value, a model provider's key, or the pack
+ * service's own env. Never the value itself: whether it's set, and where.
+ */
+export const DeploymentValueSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'kind', 'neededBy'],
+  properties: {
+    name: {
+      type: 'string',
+      description:
+        "The secret's or env value's name; for a model key, the key's secret name, or `any provider` when none is registered.",
+    },
+    kind: {
+      type: 'string',
+      description:
+        '`secret`, `env`, `model-key` or `pack-env`; a later runtime may add kinds, so treat an unknown one as a value not yet named.',
+    },
+    neededBy: { $ref: '#/components/schemas/DeploymentValueNeededBy' },
+    foundAt: {
+      type: 'string',
+      enum: ['project', 'org', 'tenant'],
+      description:
+        'Where a run finds it, when it is set: the project, else its org, else the tenant.',
+    },
+    problem: {
+      type: 'string',
+      description:
+        "Why it isn't ready; absent when it is. One of a fixed list; a later runtime may add problems, so treat an unknown one as a reason not yet named. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set both as a secret and as a plain value. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one). `no-provider`: an agent that runs on any provider (it names none, or names one that isn't registered), with no provider registered in the tenant, so a run has none to call.",
+    },
+  },
+};
+
+/** `POST /v1/deployments/{deploymentId}/promotions`: where to, and why. */
+export const DeploymentPromotionBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['toProjectId'],
+  properties: {
+    toProjectId: {
+      type: 'string',
+      minLength: 1,
+      description: "The next environment of the deployment's order.",
+    },
+    reason: {
+      type: 'string',
+      maxLength: 1000,
+      description: 'Why, kept in the `deployment-promoted` audit record.',
+    },
+    makeLive: {
+      type: 'boolean',
+      description:
+        "Make every agent version the promotion carries live in the target project, each through its scope's gate. The answer's `live` reports each. An error answered after some carried agents were already pinned lists those in `error.details.live`, in `live`'s shape.",
+    },
+  },
+};
+
+/** `POST /v1/deployments/{deploymentId}/promotions/check`: where to. */
+export const DeploymentPromotionCheckBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['toProjectId'],
+  properties: {
+    toProjectId: {
+      type: 'string',
+      minLength: 1,
+      description: "The next environment of the deployment's order.",
+    },
+  },
+};
+
+/** An agent or flow version a promotion moves: one the build ships, or one carried with it. */
+export const PromotionMovedVersionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id'],
+  properties: {
+    id: { type: 'string' },
+    version: { type: 'string' },
+    carried: {
+      type: 'boolean',
+      const: true,
+      description:
+        'Carried with the build: an edit of a version it ships. Absent for one it ships.',
+    },
+  },
+};
+
+/** What a promotion moves into the next environment: the build, and the edits carried with it. */
+export const PromotionMovesSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['imageDigest', 'agents', 'flows', 'tools', 'guardrails'],
+  properties: {
+    packId: { type: 'string' },
+    imageDigest: { type: 'string', pattern: '^sha256:[0-9a-f]{64}$' },
+    agents: { type: 'array', items: { $ref: '#/components/schemas/PromotionMovedVersion' } },
+    flows: { type: 'array', items: { $ref: '#/components/schemas/PromotionMovedVersion' } },
+    tools: { type: 'array', items: DeployedPrimitiveSchema },
+    guardrails: { type: 'array', items: DeployedPrimitiveSchema },
+  },
+};
+
+/** An edit of an agent or flow a build ships, made from a version it doesn't ship: it stays. */
+export const LeftBehindVersionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id', 'version', 'from'],
+  properties: {
+    kind: {
+      type: 'string',
+      description:
+        '`agent` or `flow`; a later runtime may add kinds, so treat an unknown one as an item not yet named.',
+    },
+    id: { type: 'string' },
+    version: { type: 'string' },
+    from: { type: 'string', description: 'The version its chain of edits starts from.' },
+  },
+};
+
+/** The gate's say on a carried version's pin, there when it isn't live yet or ran checks. */
+export const DeploymentLivePinGateSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['status', 'promotionId'],
+  properties: {
+    status: {
+      type: 'string',
+      enum: ['promoted', 'pending-approval', 'refused', 'superseded', 'rejected', 'expired'],
+    },
+    promotionId: { type: 'string', format: 'uuid' },
+    policy: {
+      oneOf: [{ $ref: '#/components/schemas/GatePolicyRef' }, { type: 'null' }],
+      description: 'The gate policy that applied; null when none did.',
+    },
+    approvalId: { type: 'string', description: 'The approval a `pending-approval` pin waits on.' },
+    checks: { type: 'array', items: { $ref: '#/components/schemas/GateCheck' } },
+  },
+};
+
+/** A carried agent version a make-live pinned, or tried to, in the target project. */
+export const DeploymentLivePinSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'version', 'pinned'],
+  properties: {
+    id: { type: 'string' },
+    version: { type: 'string' },
+    pinned: {
+      type: 'boolean',
+      description:
+        'Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).',
+    },
+    gate: { $ref: '#/components/schemas/DeploymentLivePinGate' },
+  },
+};
+
+/** A promotion's answer. */
+export const DeploymentPromotionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['deployment', 'created', 'moved'],
+  properties: {
+    deployment: { $ref: '#/components/schemas/DeploymentRecord' },
+    created: {
+      type: 'boolean',
+      description:
+        '`true`: the promotion made this deployment (`201`). `false`: the target had this build already (`200`), and only the versions it lacked were carried.',
+    },
+    moved: { $ref: '#/components/schemas/PromotionMoves' },
+    leftBehind: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/LeftBehindVersion' },
+      description: "Edits of the build's agents and flows that stay behind; absent when none.",
+    },
+    live: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/DeploymentLivePin' },
+      description:
+        'Each carried agent pinned live in the target; present only when `makeLive` was asked.',
+    },
+  },
+};
+
+/** The environment a deployment is promoted into: the next one in its order. */
+export const PromotionNextEnvironmentSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'position'],
+  properties: {
+    projectId: { type: 'string' },
+    position: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Its place in the order, from 0 (the first, which takes builds).',
+    },
+  },
+};
+
+/** A promotion check's answer: what would move, and the values not ready in the target. */
+export const DeploymentPromotionCheckSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['moves', 'values', 'nextEnvironment'],
+  properties: {
+    moves: { $ref: '#/components/schemas/PromotionMoves' },
+    values: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/DeploymentValue' },
+      description: 'Each value with a problem in the target; empty when every one is ready.',
+    },
+    nextEnvironment: { $ref: '#/components/schemas/PromotionNextEnvironment' },
+    envName: {
+      type: 'string',
+      description:
+        'The env this runtime serves, which a run in the target reads its values under: a value is set there (`--env=<envName>` with `--scope=project:<id>`). Absent when the runtime names none, and each value is then listed unread.',
+    },
+    leftBehind: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/LeftBehindVersion' },
+      description:
+        "Edits of the build's agents and flows that would stay behind; absent when none.",
+    },
+  },
+};
+
+/** Wire response for `GET /v1/deployments/:deploymentId/values`. */
+export const DeploymentValueListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      description:
+        "Every value the deployment needs in the project: each tool's secrets and env values (in the deployment's order), then each model key by provider, then the pack service's env.",
+      items: { $ref: '#/components/schemas/DeploymentValue' },
+    },
   },
 };
 
@@ -10625,6 +10909,16 @@ export const DeploymentCollectionPageSchema: JsonSchema = {
     },
     nextCursor: { type: 'string' },
     hasMore: { type: 'boolean' },
+    projectId: {
+      type: 'string',
+      description:
+        "The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `projectId` and lists them all.",
+    },
+    packId: {
+      type: 'string',
+      description:
+        "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `packId` and lists them all.",
+    },
   },
 };
 
@@ -11695,6 +11989,74 @@ export const EnvironmentPageSchema: JsonSchema = {
     data: { type: 'array', items: { $ref: '#/components/schemas/Environment' } },
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
+  },
+};
+
+/** The tenant itself, or one of its orgs, as an environment order's parent. */
+export const EnvironmentOrderParentSchema: JsonSchema = {
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind'],
+      properties: { kind: { type: 'string', enum: ['tenant'] } },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'orgId'],
+      properties: {
+        kind: { type: 'string', enum: ['org'] },
+        orgId: { type: 'string' },
+      },
+    },
+  ],
+};
+
+/** One project in an environment order. `projectId` is absent when the caller can't read it. */
+export const EnvironmentOrderEntrySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['position'],
+  properties: {
+    position: { type: 'integer', minimum: 0 },
+    projectId: { type: 'string' },
+  },
+};
+
+/** The projects a tenant (or one of its orgs) runs through to live, in order. */
+export const EnvironmentOrderSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['parent', 'entries'],
+  properties: {
+    parent: { $ref: '#/components/schemas/EnvironmentOrderParent' },
+    entries: { type: 'array', items: { $ref: '#/components/schemas/EnvironmentOrderEntry' } },
+  },
+};
+
+export const EnvironmentOrderPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/EnvironmentOrder' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+/**
+ * Set an environment order: the projects, in order. `[]` clears it; one
+ * project is refused (an order needs two or more); a project in another
+ * order is refused (`project-in-another-order`).
+ */
+export const EnvironmentOrderSetRequestSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectIds'],
+  properties: {
+    projectIds: { type: 'array', items: { type: 'string' } },
   },
 };
 
@@ -13817,6 +14179,19 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['DeploymentEndpointProblem', DeploymentEndpointProblemSchema],
   ['DeploymentEndpoint', DeploymentEndpointSchema],
   ['DeploymentRecord', DeploymentRecordSchema],
+  ['DeploymentValueNeededBy', DeploymentValueNeededBySchema],
+  ['DeploymentValue', DeploymentValueSchema],
+  ['DeploymentValueList', DeploymentValueListSchema],
+  ['DeploymentPromotionBody', DeploymentPromotionBodySchema],
+  ['DeploymentPromotionCheckBody', DeploymentPromotionCheckBodySchema],
+  ['PromotionMovedVersion', PromotionMovedVersionSchema],
+  ['PromotionMoves', PromotionMovesSchema],
+  ['LeftBehindVersion', LeftBehindVersionSchema],
+  ['DeploymentLivePinGate', DeploymentLivePinGateSchema],
+  ['DeploymentLivePin', DeploymentLivePinSchema],
+  ['DeploymentPromotion', DeploymentPromotionSchema],
+  ['PromotionNextEnvironment', PromotionNextEnvironmentSchema],
+  ['DeploymentPromotionCheck', DeploymentPromotionCheckSchema],
   ['DeploymentRegistrationBody', DeploymentRegistrationBodySchema],
   ['DeploymentCollectionPage', DeploymentCollectionPageSchema],
   ['DeploymentValidationDetails', DeploymentValidationDetailsSchema],
@@ -13895,6 +14270,11 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['EnvListPage', EnvListPageSchema],
   ['Environment', EnvironmentSchema],
   ['EnvironmentPage', EnvironmentPageSchema],
+  ['EnvironmentOrderParent', EnvironmentOrderParentSchema],
+  ['EnvironmentOrderEntry', EnvironmentOrderEntrySchema],
+  ['EnvironmentOrder', EnvironmentOrderSchema],
+  ['EnvironmentOrderPage', EnvironmentOrderPageSchema],
+  ['EnvironmentOrderSetRequest', EnvironmentOrderSetRequestSchema],
   ['EnvSetInput', EnvSetInputSchema],
   ['EnvSetOutcome', EnvSetOutcomeSchema],
   ['SecretRecord', SecretRecordSchema],

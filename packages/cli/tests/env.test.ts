@@ -684,7 +684,7 @@ describe("kindgi env set/list/unset --scope — the runtime's env values (ctx.en
       ['ACME_REGION', 'eu'],
       ['ZED', 'z'],
     ]);
-    expect(out.stderr).toContain('Scope:       tenant');
+    expect(out.stderr).toContain('Scope:     tenant');
   });
 
   test('unset removes the value at the scope and says what a call gets now', async () => {

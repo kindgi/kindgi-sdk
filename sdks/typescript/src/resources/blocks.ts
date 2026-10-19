@@ -23,6 +23,7 @@ import type {
 } from '../generated/api.js';
 import { type ScopeRef, scopeToQuery } from '../scope-wire.js';
 import type { Transport } from '../transport.js';
+import type { GetLatestOptions } from '../types.js';
 
 export type { Block, BlockKind };
 export type BlockPage = BlockCollectionPage;
@@ -65,8 +66,8 @@ export interface BlocksClient {
   publish(input: PublishBlockInput, options: PublishBlockOptions): Promise<PublishBlockResult>;
   /** @wire GET /v1/blocks */
   list(filter?: ListBlocksFilter): Promise<BlockPage>;
-  /** @wire GET /v1/blocks/:blockId */
-  get(blockId: string): Promise<Block>;
+  /** @wire GET /v1/blocks/:blockId — latest active version (`GetLatestOptions`) */
+  get(blockId: string, options?: GetLatestOptions): Promise<Block>;
   readonly versions: BlockVersionsClient;
 }
 
@@ -113,8 +114,12 @@ export function makeBlocksClient(transport: Transport): BlocksClient {
         },
       });
     },
-    async get(blockId) {
-      return transport.request<Block>({ method: 'GET', path: `/v1/blocks/${seg(blockId)}` });
+    async get(blockId, options) {
+      return transport.request<Block>({
+        method: 'GET',
+        path: `/v1/blocks/${seg(blockId)}`,
+        query: { ...(options?.projectId !== undefined && { projectId: options.projectId }) },
+      });
     },
     versions: {
       async list(blockId, filter) {

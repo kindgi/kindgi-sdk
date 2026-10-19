@@ -32,7 +32,9 @@ import type { CapabilityRegistryBinding } from './capability-binding.js';
 import type { CostBinding } from './cost-binding.js';
 import type { CursorSealer } from './cursor-seal.js';
 import type { DeploymentBinding } from './deployment-binding.js';
+import type { DeploymentValuesDeps } from './deployment-values.js';
 import type { EnvBinding } from './env-binding.js';
+import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import type { WireErrorBody } from './errors.js';
 import type { EvalCaseStoreBinding } from './eval-case-binding.js';
 import type { EvalRunBinding } from './eval-run-binding.js';
@@ -46,6 +48,8 @@ import type { IdentityDirectoryBinding } from './identity-directory-binding.js';
 import type { IdentityProviderBinding } from './identity-provider-binding.js';
 import type { ImageRegistryBinding } from './image-registry-binding.js';
 import type { ImprovementPassBinding } from './improvement-pass-binding.js';
+import type { ItemProjectsBinding } from './item-projects-binding.js';
+import { itemRightsOf, itemServingOf } from './item-rights.js';
 import type { JudgingQueueBinding } from './judging-queue-binding.js';
 import type { JudgmentRegistryBinding } from './judgment-binding.js';
 import type { AgentReleaseBindings } from './live-version-binding.js';
@@ -131,6 +135,7 @@ import { conversationsRouter } from './routes/conversations.js';
 import { costRouter } from './routes/cost.js';
 import { deploymentsRouter } from './routes/deployments.js';
 import { envRouter } from './routes/env.js';
+import { environmentOrdersRouter } from './routes/environment-orders.js';
 import { environmentsRouter } from './routes/environments.js';
 import { evalRunsRouters } from './routes/eval-runs.js';
 import { evalSuitesRouter } from './routes/eval-suites.js';
@@ -204,6 +209,7 @@ import { webhooksRouter } from './routes/webhooks.js';
 import type { S3CredentialBinding } from './s3-credential-binding.js';
 import type { SecondFactorBinding } from './second-factor-binding.js';
 import { type SecretBinding, observeSecretWrites } from './secrets-binding.js';
+import { type ServedEnvRule, secretReferencesOf } from './served-env.js';
 import type { ServiceAccountBinding } from './service-account-binding.js';
 import type { SessionStoreBinding } from './session-store-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from './signing-key-binding.js';
@@ -1168,6 +1174,14 @@ export interface CreateAppInput {
    */
   readonly envBinding?: EnvBinding;
   /**
+   * What a deployment's values check reads that only the runtime knows
+   * (`deployment-values.ts`): where a model provider's key is for a run in
+   * a project, and the pack service's own env. The check reads env values
+   * through `envBinding` and the providers through `providerRegistry`.
+   * Each one absent isn't checked.
+   */
+  readonly deploymentValues?: Pick<DeploymentValuesDeps, 'modelKeyLookup' | 'packEnv'>;
+  /**
    * Optional. Sensitive per-env values. Same mount rule as
    * `envBinding` — either binding present is enough to mount
    * `/v1/tenant/config`. Writes to `/v1/tenant/config` with
@@ -1182,6 +1196,25 @@ export interface CreateAppInput {
    */
   readonly secretsBinding?: SecretBinding;
   /**
+   * Optional. The order a tenant runs a project through on its way to live
+   * — its "environments". When present, mounts `/v1/environment-orders`,
+   * and a later environment of an order refuses deploys, API publishes and
+   * derived agent versions (`409 environment-takes-promotions`,
+   * `environment-entry.ts`): it takes builds by promotion only.
+   * The host application supplies it; `@kindgi/api` never constructs one.
+   */
+  readonly environmentOrders?: EnvironmentOrderBinding;
+  /**
+   * Optional. Which projects serve each agent, flow, eval suite, tool,
+   * guardrail and block. An item more than one project serves is governed
+   * by rights on those projects (`item-rights.ts`), not by the project it
+   * was first published in. Without `authz` there are no rights to ask,
+   * but it still decides which version `?projectId=` answers on a single
+   * read. Absent: every item has one project, and every check is the
+   * item's own. The host application supplies it.
+   */
+  readonly itemProjects?: ItemProjectsBinding;
+  /**
    * The env this deployment serves (`KINDGI_ENV`): where the secrets a
    * tool's code declares are looked for when the tool is published, to
    * record where they're read (`secret-scope.ts`). Absent: the webhook
@@ -1189,6 +1222,16 @@ export interface CreateAppInput {
    * registrant administers, without a lookup.
    */
   readonly envName?: import('@kindgi/types').EnvName;
+  /**
+   * This runtime is the only reader of its stores and keeps every value
+   * under the env it serves (`envName`). A secret or
+   * env value set under another env, and a provider, MCP endpoint or webhook
+   * endpoint that names its secret under another, answers `409
+   * env-not-served` (`served-env.ts`). whoami's `servedEnv` says so, for
+   * clients to default to it. Needs `envName` (or the webhook receiver's).
+   * Absent or false: any env, as before.
+   */
+  readonly refuseOtherEnvs?: boolean;
   /**
    * Optional. Backs the async-rotation wire (`POST /v1/secrets/:name/rotate`
    * → 202 Accepted; poll via `GET /v1/secrets/:name/rotations/:rotationId`;
@@ -1459,6 +1502,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   v1.use('*', tenantScopeMiddleware());
   const authorizer: Authorizer | undefined =
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
+  // Rights on an item more than one project serves (`item-rights.ts`).
+  const itemRights = itemRightsOf(authorizer, input.itemProjects, input.environmentOrders);
+  // With no authorizer, which projects serve an item still decides what
+  // `?projectId=` answers on its single read.
+  const itemServing =
+    input.itemProjects !== undefined ? itemServingOf(input.itemProjects) : undefined;
   // A system principal acts in no tenant: it reaches /v1/system/* (and the
   // deployment's license), nothing else, and each of its requests is recorded.
   v1.use(
@@ -1506,6 +1555,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.eventBus !== undefined && { eventBus: input.eventBus }),
         ...(input.hitlBinding !== undefined && { hitl: input.hitlBinding }),
         ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+        ...(itemRights !== undefined && { itemRights }),
         ...(input.agentRegistry !== undefined &&
           input.flowRegistry !== undefined && {
             targetExists: async (tenantId, target) =>
@@ -1536,6 +1586,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       authorizer,
       input.referenceScope,
       input.agentRegistry,
+      itemRights,
     ),
   );
   if (publicRunTokenLimits !== undefined) {
@@ -1590,7 +1641,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   if (input.enableObservations === true && input.supervisor !== undefined) {
-    v1.route('/observations', observationsRouter(input.supervisor, authorizer));
+    v1.route('/observations', observationsRouter(input.supervisor, authorizer, itemRights));
   }
   if (input.agentRegistry !== undefined) {
     v1.route(
@@ -1617,6 +1668,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           }),
         },
         input.referenceScope,
+        input.environmentOrders,
+        itemRights,
+        itemServing,
       ),
     );
   }
@@ -1637,6 +1691,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             }
           : undefined,
         input.referenceScope,
+        input.environmentOrders,
+        itemRights,
+        itemServing,
       ),
     );
   }
@@ -1661,6 +1718,26 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   // The env this deployment serves: where a tool's declared secrets are read.
   const servedEnv = input.envName ?? input.webhookReceiver?.envName;
+  if (input.refuseOtherEnvs === true && servedEnv === undefined) {
+    throw new Error(
+      'createApp: `refuseOtherEnvs` needs `envName`, the env this runtime serves (KINDGI_ENV)',
+    );
+  }
+  const servedEnvRule: ServedEnvRule | undefined =
+    input.refuseOtherEnvs === true && servedEnv !== undefined
+      ? {
+          envName: servedEnv,
+          references: secretReferencesOf({
+            ...(input.providerRegistry !== undefined && { providers: input.providerRegistry }),
+            ...(input.mcpEndpointRegistry !== undefined && {
+              mcpEndpoints: input.mcpEndpointRegistry,
+            }),
+            ...(input.webhookEndpoints !== undefined && {
+              webhookEndpoints: input.webhookEndpoints,
+            }),
+          }),
+        }
+      : undefined;
   if (input.toolRegistry !== undefined) {
     v1.route(
       '/tools',
@@ -1669,6 +1746,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.secretsBinding !== undefined && { secrets: input.secretsBinding }),
         ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         ...(servedEnv !== undefined && { envName: servedEnv }),
+        ...(input.environmentOrders !== undefined && {
+          environmentOrders: input.environmentOrders,
+        }),
+        ...(itemRights !== undefined && { itemRights }),
+        ...(itemServing !== undefined && { itemServing }),
       }),
     );
   }
@@ -1681,6 +1763,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.onGuardrailWrite,
         input.checkGuardrailConfig,
         input.referenceScope,
+        input.environmentOrders,
+        itemRights,
       ),
     );
   }
@@ -1726,12 +1810,17 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           releases: input.agentReleases,
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+          ...(input.environmentOrders !== undefined && { orders: input.environmentOrders }),
         },
         authorizer,
-        (r) => mountImproveRoute(r, improveDeps, authorizer),
+        (r) => mountImproveRoute(r, improveDeps, authorizer, itemRights),
+        itemRights,
       ),
     );
-    v1.route('/improvement-passes', improvementPassesRouter(input.improvementPasses, authorizer));
+    v1.route(
+      '/improvement-passes',
+      improvementPassesRouter(input.improvementPasses, authorizer, itemRights),
+    );
   }
   v1.route('/export-signing-keys', exportSigningKeysRouter(exportSigning));
   if (input.license !== undefined) {
@@ -1841,7 +1930,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.onProviderWrite,
         input.adapterFactories,
         authorizer,
-        { secretUsers },
+        { secretUsers, ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }) },
       ),
     );
   }
@@ -1853,6 +1942,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         providerKeys,
         ...(input.secretsBinding !== undefined && { secrets: input.secretsBinding }),
         ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+        ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
       }),
     );
   }
@@ -1870,6 +1960,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.personGrants !== undefined && { personGrants: input.personGrants }),
       ...(input.myAccess !== undefined && { myAccess: input.myAccess }),
       ...(input.envBinding !== undefined && { tenantConfig: input.envBinding }),
+      ...(servedEnv !== undefined && {
+        servedEnv: { envName: servedEnv, refusesOtherEnvs: servedEnvRule !== undefined },
+      }),
     }),
   );
   if (input.secondFactor !== undefined) {
@@ -1911,11 +2004,15 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           },
           input.referenceScope,
           input.auditEvents,
+          itemRights,
         ),
       );
     }
     if (kinds.has('event')) {
-      v1.route('/event-triggers', eventTriggersRouter(input.triggerRegistry, authorizer));
+      v1.route(
+        '/event-triggers',
+        eventTriggersRouter(input.triggerRegistry, authorizer, itemRights),
+      );
     }
     if (kinds.has('webhook')) {
       v1.route(
@@ -1933,6 +2030,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             }),
           },
           providerKeys,
+          ...(itemRights !== undefined && { itemRights }),
           ...(receiveUrl !== undefined && { receiveUrl }),
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
         }),
@@ -1942,7 +2040,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.webhookEndpoints !== undefined) {
     v1.route(
       '/webhook-endpoints',
-      webhookEndpointsRouter(input.webhookEndpoints, authorizer, { providerKeys }),
+      webhookEndpointsRouter(input.webhookEndpoints, authorizer, {
+        providerKeys,
+        ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
+      }),
     );
   }
   if (input.policyRegistry !== undefined) {
@@ -1954,10 +2055,22 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   if (input.evalSuiteRegistry !== undefined) {
-    v1.route('/eval-suites', evalSuitesRouter(input.evalSuiteRegistry, authorizer));
+    v1.route(
+      '/eval-suites',
+      evalSuitesRouter(input.evalSuiteRegistry, authorizer, itemRights, itemServing),
+    );
   }
   if (input.blockRegistry !== undefined) {
-    v1.route('/blocks', blocksRouter(input.blockRegistry, authorizer));
+    v1.route(
+      '/blocks',
+      blocksRouter(
+        input.blockRegistry,
+        authorizer,
+        input.environmentOrders,
+        itemRights,
+        itemServing,
+      ),
+    );
   }
   if (input.judgmentRegistry !== undefined) {
     v1.route(
@@ -1996,6 +2109,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.judgmentRegistry,
         input.evalCaseStore,
         authorizer,
+        itemRights,
       ),
     );
   }
@@ -2079,6 +2193,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(authorizer !== undefined && { authorizer }),
       ...(input.production?.next !== undefined && { productionNext: input.production.next }),
       ...(input.egress !== undefined && { egress: input.egress }),
+      // Its entries live where the runtime's tools read them.
+      ...(servedEnv !== undefined && { envName: servedEnv }),
     }),
   );
   // ---------- env + secrets ----------
@@ -2088,7 +2204,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // store — an in-memory reference is used when the caller doesn't
   // plug in a durable one.
   if (input.envBinding !== undefined) {
-    v1.route('/env', envRouter(input.envBinding, authorizer, input.auditEvents));
+    v1.route('/env', envRouter(input.envBinding, authorizer, input.auditEvents, servedEnvRule));
   }
   // Audit query surface. Admin-only PEP applied inside the router
   // (self-contained; no plumbing here).
@@ -2103,6 +2219,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         rotationStatusStore: input.rotationStatusStore ?? createInMemoryRotationStatusStore(),
         ...(authorizer !== undefined && { authorizer }),
         ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+        ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
       }),
     );
   }
@@ -2112,6 +2229,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       environmentsRouter({
         ...(input.envBinding !== undefined && { envBinding: input.envBinding }),
         ...(secretsBinding !== undefined && { secretsBinding }),
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
+  if (input.environmentOrders !== undefined) {
+    v1.route(
+      '/environment-orders',
+      environmentOrdersRouter({
+        binding: input.environmentOrders,
+        ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         ...(authorizer !== undefined && { authorizer }),
       }),
     );
@@ -2164,6 +2291,17 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.agentRegistry !== undefined && { agentRegistry: input.agentRegistry }),
           ...(input.flowRegistry !== undefined && { flowRegistry: input.flowRegistry }),
           ...(input.agentReleases !== undefined && { liveVersions: input.agentReleases.live }),
+          // A promotion asked to make its carried agents live pins each in
+          // the target through the same gate a live route uses.
+          ...(input.agentReleases !== undefined && {
+            agentReleases: input.agentReleases,
+            releaseGateDeps: {
+              ...(input.evalRunBinding !== undefined && { evalRuns: input.evalRunBinding }),
+              ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+              ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+            },
+          }),
+          ...(itemRights !== undefined && { itemRights }),
           // The deployments router's agents publish loop resolves the
           // Default project through this binding. Optional at wiring so
           // app compositions without a project binding still boot; the loop
@@ -2171,6 +2309,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           // but the binding is absent.
           ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+          ...(input.environmentOrders !== undefined && {
+            environmentOrders: input.environmentOrders,
+          }),
           // POST /v1/deployments/:deploymentId/secrets needs the
           // secretsBinding. Absent binding → the route answers 500 with an
           // operator-actionable message.
@@ -2180,10 +2321,19 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           // env its pack declares, from the env store.
           ...(input.systemDeployments !== undefined && { packEnvServed: true }),
           ...(input.envBinding !== undefined && { envBinding: input.envBinding }),
+          ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
           // A deploy registers tools and guardrails: the same cache hooks
           // `POST /v1/tools` / `POST /v1/guardrails` call.
           ...(input.onToolWrite !== undefined && { onToolWrite: input.onToolWrite }),
           ...(input.onGuardrailWrite !== undefined && { onGuardrailWrite: input.onGuardrailWrite }),
+          // A deployment's values check (a promotion's, and its values read)
+          // reads env values and model keys as a run does.
+          values: {
+            ...(input.envBinding !== undefined && { env: input.envBinding }),
+            ...(input.providerRegistry !== undefined && { providers: input.providerRegistry }),
+            ...input.deploymentValues,
+          },
+          ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         },
         authorizer,
       ),
@@ -2211,6 +2361,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       authorizer,
       input.referenceScope,
       input.projectSuspended,
+      itemRights,
     );
     v1.route('/eval-suites', evalRuns.start);
     v1.route('/eval-runs', evalRuns.readback);
@@ -2400,8 +2551,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
 }
 
 /**
- * Whose memory a turn would run with, for the runs router's participant rule:
- * a conversation's stored participant and project, and a target's own project.
+ * What the runs router checks a turn against: a conversation's agent,
+ * participant, project and opener (`turnRefusal`, `participantRefusal`), and
+ * a target's own project.
  */
 function participantLookups(
   input: Pick<CreateAppInput, 'conversationBinding' | 'agentRegistry' | 'flowRegistry'>,
@@ -2416,17 +2568,16 @@ function participantLookups(
         if (got.error.code === 'conversation-not-found') return null;
         // Any other failure isn't "no conversation": the turn would then run
         // as the stored participant unchecked. A 500, and no turn.
-        throw new Error(
-          "Couldn't read the conversation's participant, so the turn wasn't started",
-          {
-            cause: got.error,
-          },
-        );
+        throw new Error("Couldn't read the conversation, so the turn wasn't started", {
+          cause: got.error,
+        });
       }
-      const { participantId, projectId } = got.value;
+      const { agentId, participantId, projectId, openedBy } = got.value;
       return {
+        agentId: agentId as unknown as string,
         ...(participantId !== undefined && { participantId }),
         ...(projectId !== undefined && { projectId: projectId as unknown as string }),
+        ...(openedBy !== undefined && { openedBy }),
       };
     },
     targetProject: async (tenantId, target) => {
