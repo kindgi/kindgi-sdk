@@ -13721,9 +13721,20 @@ export const UsageGroupSchema: JsonSchema = {
   description:
     "One group: the dimensions it's grouped by (only those), then its count, the sum of its quantities, and its first and last times.",
   properties: {
-    tenantId: { type: 'string', format: 'uuid' },
-    projectId: { type: 'string' },
-    agentId: { type: 'string' },
+    tenantId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The tenant, on the operator's read across tenants.",
+    },
+    projectId: {
+      type: 'string',
+      description:
+        "Absent for a record with no project; a tenant admin's read includes those, and the CLI shows them as `(none)`.",
+    },
+    agentId: {
+      type: 'string',
+      description: 'Absent for a record with no agent; the CLI shows those as `(none)`.',
+    },
     kind: {
       type: 'string',
       description:
@@ -13748,7 +13759,7 @@ export const UsageGroupSchema: JsonSchema = {
     quantity: {
       type: 'number',
       description:
-        'The sum of their quantities: milliseconds for `run.ended`, tokens for model calls.',
+        'The sum of their quantities: milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count.',
     },
     firstAt: { type: 'string', format: 'date-time' },
     lastAt: { type: 'string', format: 'date-time' },

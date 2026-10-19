@@ -1867,8 +1867,17 @@ class UsageGroup(BaseModel):
         populate_by_name=True,
     )
     tenant_id: Annotated[UUID | None, Field(alias="tenantId")] = None
+    """
+    The tenant, on the operator's read across tenants.
+    """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    Absent for a record with no project; a tenant admin's read includes those, and the CLI shows them as `(none)`.
+    """
     agent_id: Annotated[str | None, Field(alias="agentId")] = None
+    """
+    Absent for a record with no agent; the CLI shows those as `(none)`.
+    """
     kind: str | None = None
     """
     What was counted: `run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`. A runtime may count more kinds later: show one you don't know as it is.
@@ -1891,7 +1900,7 @@ class UsageGroup(BaseModel):
     """
     quantity: float
     """
-    The sum of their quantities: milliseconds for `run.ended`, tokens for model calls.
+    The sum of their quantities: milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count.
     """
     first_at: Annotated[AwareDatetime, Field(alias="firstAt")]
     last_at: Annotated[AwareDatetime, Field(alias="lastAt")]

@@ -4939,13 +4939,16 @@
         "properties": {
           "tenantId": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The tenant, on the operator's read across tenants."
           },
           "projectId": {
-            "type": "string"
+            "type": "string",
+            "description": "Absent for a record with no project; a tenant admin's read includes those, and the CLI shows them as `(none)`."
           },
           "agentId": {
-            "type": "string"
+            "type": "string",
+            "description": "Absent for a record with no agent; the CLI shows those as `(none)`."
           },
           "kind": {
             "type": "string",
@@ -4971,7 +4974,7 @@
           },
           "quantity": {
             "type": "number",
-            "description": "The sum of their quantities: milliseconds for `run.ended`, tokens for model calls."
+            "description": "The sum of their quantities: milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count."
           },
           "firstAt": {
             "type": "string",
@@ -27381,7 +27384,7 @@
             }
           }
         },
-        "description": "Usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Records are counted when the counted thing happens, exactly once (`USAGE_KINDS`, each run with its class). `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A test tenant's usage, and one whose setup is pending, are never in the answer, even when `tenantId` names one. Takes `system:usage:read`; the access record marks a read across every tenant, or of the one named. A runtime that doesn't count usage answers 404.",
+        "description": "Usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Records are counted when the counted thing happens, exactly once (the kinds `kind` lists, each run with its class). `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A test tenant's usage, and one whose setup is pending, are never in the answer, even when `tenantId` names one. Takes `system:usage:read`; the access record marks a read across every tenant, or of the one named. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404.",
         "parameters": [
           {
             "name": "from",
@@ -27526,7 +27529,7 @@
             }
           }
         },
-        "description": "Your workspace's usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Over the projects you may read: a tenant admin's covers every project and the records with none; anyone else's, only the projects they may read, and one they can't read is absent rather than an error. `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A runtime that doesn't count usage answers 404. Model-call cost is on `/v1/cost`.",
+        "description": "Your workspace's usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Over the projects you may read: a tenant admin's covers every project and the records with none; anyone else's, only the projects they may read, and one they can't read is absent rather than an error. `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404. Model-call cost is on `/v1/cost`.",
         "parameters": [
           {
             "name": "from",

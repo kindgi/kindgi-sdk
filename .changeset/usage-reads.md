@@ -7,7 +7,7 @@
 
 **Usage reads: a tenant reads its own usage, aggregated, and the operator reads usage across tenants.**
 
-- **What's counted:** usage records (`USAGE_KINDS`): runs started and ended, each with its class; approvals requested and decided; model calls, inference and embedding; and a project put in production or taken out. A read answers groups: each group's count, the sum of its quantities (milliseconds for `run.ended`, tokens for model calls) and its first and last times. It never answers a record's content. Model-call cost stays on `/v1/cost`.
+- **What's counted:** usage records (`USAGE_KINDS`): runs started and ended, each with its class; approvals requested and decided; model calls, inference and embedding; and a project put in production or taken out. A read answers groups: each group's count, the sum of its quantities (milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count) and its first and last times. It never answers a record's content. Model-call cost stays on `/v1/cost`.
 - **The query,** the same on both routes:
   - `from` and `to`: times with a zone, `to` not included, at most 92 days apart. A longer span is read in parts;
   - `groupBy`, comma-separated;
