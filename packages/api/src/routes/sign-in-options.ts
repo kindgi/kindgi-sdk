@@ -48,7 +48,50 @@ export interface SignInOptionsRouteOptions {
     readonly captchaSiteKey?: string;
     readonly allowedFor?: (emailDomain: string) => Promise<boolean>;
   };
+  /** The deployment's terms and privacy policy, for a sign-in page to link. */
+  readonly legal?: SignInLegalLinks;
   readonly rateLimit?: SignInOptionsRateLimit;
+}
+
+/**
+ * The deployment's terms and privacy policy, which a sign-in page links:
+ * each an absolute https URL with no username or password, each on its own.
+ * The answer's `legal` has only the ones set, as a browser reads them, and
+ * is left out when neither is.
+ */
+export interface SignInLegalLinks {
+  readonly termsUrl?: string;
+  readonly privacyUrl?: string;
+}
+
+/**
+ * createApp's `signInLegal`: throws unless each link set is an absolute https
+ * URL with no username or password.
+ */
+export function checkSignInLegal(legal: SignInLegalLinks | undefined): void {
+  for (const field of ['termsUrl', 'privacyUrl'] as const) {
+    const url = legal?.[field];
+    if (url === undefined) continue;
+    const parsed = URL.canParse(url) ? new URL(url) : undefined;
+    // A sign-in page shows the link to anyone, so the value isn't quoted back.
+    if (parsed !== undefined && (parsed.username !== '' || parsed.password !== '')) {
+      throw new Error(`createApp: signInLegal.${field} must not carry a username or password.`);
+    }
+    if (parsed?.protocol !== 'https:') {
+      throw new Error(
+        `createApp: signInLegal.${field} must be an absolute https URL (got ${url}).`,
+      );
+    }
+  }
+}
+
+/**
+ * A checked link as a browser reads it: `https:host/terms` is
+ * `https://host/terms`, where the raw value would resolve against the
+ * sign-in page's own address.
+ */
+function asBrowserReads(url: string | undefined): string | undefined {
+  return url === undefined ? undefined : new URL(url).href;
 }
 
 export interface SignInOptionsRateLimit {
@@ -88,6 +131,18 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
   const windowMs = options.rateLimit?.windowMs ?? DEFAULT_WINDOW_MS;
   const clientKey = options.rateLimit?.clientKey ?? nearestForwardedClient;
   const store = options.rateLimit?.store ?? createInMemoryRateLimitStore();
+  const termsUrl = asBrowserReads(options.legal?.termsUrl);
+  const privacyUrl = asBrowserReads(options.legal?.privacyUrl);
+  // The answer's `legal`: only what's set, and no key at all when neither is.
+  const legalPart =
+    termsUrl === undefined && privacyUrl === undefined
+      ? {}
+      : {
+          legal: {
+            ...(termsUrl !== undefined && { termsUrl }),
+            ...(privacyUrl !== undefined && { privacyUrl }),
+          },
+        };
   let lastWarnedAt: number | undefined;
   let uncounted = 0;
 
@@ -168,6 +223,7 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
           },
         }),
       },
+      ...legalPart,
     });
   });
   return router;

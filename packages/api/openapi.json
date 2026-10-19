@@ -260,6 +260,7 @@
           "agent-already-registered": 409,
           "agent-project-mismatch": 409,
           "registry-read-only": 409,
+          "live-scope-spans-environments": 409,
           "agent-gone": 410,
           "run-erased": 410,
           "flow-gone": 410,
@@ -2851,7 +2852,7 @@
           },
           "projectId": {
             "type": "string",
-            "description": "The project the deploy was scoped to. Absent for a tenant-wide deploy."
+            "description": "The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project."
           },
           "imageRef": {
             "type": "string",
@@ -3159,7 +3160,7 @@
           },
           "projectId": {
             "type": "string",
-            "description": "The project the deploy was scoped to. Absent for a tenant-wide deploy."
+            "description": "The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project."
           },
           "imageRef": {
             "type": "string",
@@ -15667,6 +15668,23 @@
                 }
               }
             }
+          },
+          "legal": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.",
+            "properties": {
+              "termsUrl": {
+                "type": "string",
+                "format": "uri",
+                "description": "Its terms."
+              },
+              "privacyUrl": {
+                "type": "string",
+                "format": "uri",
+                "description": "Its privacy policy."
+              }
+            }
           }
         }
       },
@@ -18350,6 +18368,10 @@
             "type": "string",
             "maxLength": 1000,
             "description": "Why, kept in the `deployment-promoted` audit record."
+          },
+          "makeLive": {
+            "type": "boolean",
+            "description": "Make every agent version the promotion carries live in the target project, each through its scope's gate. The answer's `live` reports each. An error answered after some carried agents were already pinned lists those in `error.details.live`, in `live`'s shape."
           }
         }
       },
@@ -18483,6 +18505,76 @@
           }
         }
       },
+      "DeploymentLivePinGate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "promotionId"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "promoted",
+              "pending-approval",
+              "refused",
+              "superseded",
+              "rejected",
+              "expired"
+            ]
+          },
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "policy": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/GatePolicyRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The gate policy that applied; null when none did."
+          },
+          "approvalId": {
+            "type": "string",
+            "description": "The approval a `pending-approval` pin waits on."
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GateCheck"
+            }
+          }
+        }
+      },
+      "DeploymentLivePin": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "pinned"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "pinned": {
+            "type": "boolean",
+            "description": "Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`)."
+          },
+          "gate": {
+            "$ref": "#/components/schemas/DeploymentLivePinGate"
+          }
+        }
+      },
       "DeploymentPromotion": {
         "type": "object",
         "additionalProperties": false,
@@ -18508,6 +18600,13 @@
               "$ref": "#/components/schemas/LeftBehindVersion"
             },
             "description": "Edits of the build's agents and flows that stay behind; absent when none."
+          },
+          "live": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeploymentLivePin"
+            },
+            "description": "Each carried agent pinned live in the target; present only when `makeLive` was asked."
           }
         }
       },
@@ -30886,7 +30985,7 @@
             }
           },
           "409": {
-            "description": "`promotion-superseded`: the scope's live version changed while the gate ran; check again. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first.",
+            "description": "`promotion-superseded`: the scope's live version changed while the gate ran; check again. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `live-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -31989,7 +32088,7 @@
             }
           },
           "409": {
-            "description": "`not-pinned`: the scope has no pin of its own. `nothing-to-roll-back`: no earlier version to go back to. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first.",
+            "description": "`not-pinned`: the scope has no pin of its own. `nothing-to-roll-back`: no earlier version to go back to. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `live-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide rollback would act in every environment of the order at once; roll back a project (or a segment of it) instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36800,7 +36899,7 @@
             }
           },
           "409": {
-            "description": "The proposal's status doesn't allow it.",
+            "description": "The proposal's status doesn't allow it. Or `live-scope-spans-environments`: the agent has a project in an environment order, and the proposal's tenant- or org-wide scope would act in every environment of the order at once; a proposal for a project (or a segment of it) can be requested.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36929,7 +37028,7 @@
             }
           },
           "409": {
-            "description": "It isn't promoted, or its version doesn't serve the scope anymore.",
+            "description": "It isn't promoted, or its version doesn't serve the scope anymore. Or `live-scope-spans-environments`: the agent has a project in an environment order, and the proposal's tenant- or org-wide scope would act in every environment of the order at once.",
             "content": {
               "application/json": {
                 "schema": {
