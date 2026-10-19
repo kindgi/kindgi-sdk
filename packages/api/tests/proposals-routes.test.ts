@@ -1555,7 +1555,7 @@ describe('improvement passes', () => {
     expect(res.body.classWeights).toBe('restricted-only');
   });
 
-  test('a tenant-wide expert class names experts for every project', async () => {
+  test('a tenant-wide restricted judge class names experts for every project', async () => {
     const passes = inMemoryPasses();
     const judgments = inMemoryJudgments();
     await judgments.createClass({
@@ -1642,10 +1642,10 @@ describe('improvement passes', () => {
     expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
   });
 
-  test('finds an expert class past the first page of its scope', async () => {
+  test('finds a restricted judge class past the first page of its scope', async () => {
     const passes = inMemoryPasses();
     const judgments = inMemoryJudgments();
-    // The expert class is the oldest, so it falls on the second page once 100
+    // The restricted judge class is the oldest, so it falls on the second page once 100
     // newer open classes are listed ahead of it: the resolver must read on.
     await judgments.createClass({
       tenantId,
@@ -1674,7 +1674,7 @@ describe('improvement passes', () => {
     const judgments = inMemoryJudgments();
     const suiteProjectId = randomUUID() as ProjectId;
     // The agent is made in `projectId`, but its suite reads judgments from
-    // another environment's project, where the expert class lives: the pass
+    // another environment's project, where the restricted judge class lives: the pass
     // counts trusted only, keying off the suite's project.
     await judgments.createClass({
       tenantId,
@@ -1695,11 +1695,11 @@ describe('improvement passes', () => {
     expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
   });
 
-  test("an expert class only where the agent is made, not in the suite's project, doesn't count", async () => {
+  test("a restricted judge class only where the agent is made, not in the suite's project, doesn't count", async () => {
     const passes = inMemoryPasses();
     const judgments = inMemoryJudgments();
     const suiteProjectId = randomUUID() as ProjectId;
-    // The inverse: the expert class is in the agent's own project, but the
+    // The inverse: the restricted judge class is in the agent's own project, but the
     // suite reads from another, so the default must NOT flip — the pass
     // counts the suite project's judgments, not `from.projectId`'s.
     await judgments.createClass({
@@ -1727,7 +1727,7 @@ describe('improvement passes', () => {
     const rowProjectId = randomUUID() as ProjectId;
     const specProjectId = randomUUID() as ProjectId;
     // A non-judged suite records its project on the row, not in `spec`. The
-    // expert class is in the row project, so the default flips. Reading
+    // restricted judge class is in the row project, so the default flips. Reading
     // `spec.projectId` regardless of kind would miss it; dropping the
     // `?? row project` fallback would read the agent's project instead.
     await judgments.createClass({
@@ -1760,7 +1760,7 @@ describe('improvement passes', () => {
     const passes = inMemoryPasses();
     const judgments = inMemoryJudgments();
     // The suite binding finds no record; the default then keys off the agent
-    // version's project, where this expert class lives. Dropping the
+    // version's project, where this restricted judge class lives. Dropping the
     // `?? from.projectId` fallback would ask only the tenant scope.
     await judgments.createClass({
       tenantId,
@@ -1781,11 +1781,11 @@ describe('improvement passes', () => {
     expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
   });
 
-  test("an expert class on the agent in the suite's project flips the default", async () => {
+  test("a restricted judge class on the agent in the suite's project flips the default", async () => {
     const passes = inMemoryPasses();
     const judgments = inMemoryJudgments();
     const suiteProjectId = randomUUID() as ProjectId;
-    // The agent-scope expert class is in the SUITE's project, not the agent's
+    // The agent-scope restricted judge class is in the SUITE's project, not the agent's
     // own. Keying off the suite's project, the agent clause finds it; keying
     // off `from.projectId` would miss it.
     await judgments.createClass({
@@ -1839,7 +1839,7 @@ describe('improvement passes', () => {
     expect(res.body.classWeights).toBe('restricted-only');
   });
 
-  test('an unrestricted class is not an expert class: still counts everyone', async () => {
+  test('an unrestricted class is not a restricted judge class: still counts everyone', async () => {
     const passes = inMemoryPasses();
     const judgments = inMemoryJudgments();
     await judgments.createClass({
@@ -1860,7 +1860,7 @@ describe('improvement passes', () => {
     const judgments = inMemoryJudgments();
     const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    // No expert class named, but the caller asks for restricted-only outright.
+    // No restricted judge class named, but the caller asks for restricted-only outright.
     const res = await h.call('POST', '/v1/proposals/improve', {
       ...IMPROVE,
       classWeights: 'restricted-only',

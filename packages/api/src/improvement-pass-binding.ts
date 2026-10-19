@@ -71,7 +71,7 @@ export interface StartImprovementPassInput {
   readonly suiteId: string;
   readonly tiers: readonly ImprovementTier[];
   readonly objective: ProposalObjective;
-  /** Which judgments its comparisons count (K4: trusted ones only, by default). */
+  /** Which judgments its comparisons count: everyone (`as-recorded`) or trusted only (`restricted-only`). */
   readonly classWeights: EvalClassWeights;
   /** For a prompt pass: what drafts the templates. */
   readonly model?: ImprovementModel;
@@ -82,10 +82,12 @@ export interface StartImprovementPassInput {
 }
 
 /**
- * When an `improve` schedule's fire starts a pass: enough trusted "no"
- * judgments (recorded under a restricted class) on the agent's runs in the
- * scope since its last pass, across enough runs, from enough judges. One
- * judge can't start a pass alone.
+ * When an `improve` schedule's fire starts a pass: enough "no" judgments on
+ * the agent's runs in the scope since its last pass, across enough runs, from
+ * enough judges. Everyone's "no" counts until a restricted judge class is
+ * named (in the tenant, the project, or on the agent), then only trusted ones
+ * do; with no judge-class binding wired, trusted only. One judge can't start a
+ * pass alone.
  */
 export interface ImproveThreshold {
   readonly judgments: number;
