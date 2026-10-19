@@ -16,6 +16,12 @@ import { isTimeInput } from './time-input.js';
 export interface DecodedCursor {
   readonly createdAt: string;
   readonly id: string;
+  /**
+   * The sort its list pages by, when a list has had more than one: a
+   * cursor from one sort is refused by the other. Absent: the list's
+   * first.
+   */
+  readonly order?: string;
 }
 
 export function encodeCursor(cursor: DecodedCursor): string {
@@ -36,9 +42,12 @@ export function decodeCursor(raw: string): DecodedCursor | null {
     ) {
       return null;
     }
+    const order = (parsed as { order?: unknown }).order;
+    if (order !== undefined && typeof order !== 'string') return null;
     return {
       createdAt: (parsed as DecodedCursor).createdAt,
       id: (parsed as DecodedCursor).id,
+      ...(order !== undefined && { order }),
     };
   } catch {
     return null;

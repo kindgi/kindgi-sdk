@@ -7,13 +7,21 @@
  * message, no turn posted or ended, since the latest of those and its
  * opening, and no run in it in flight. A turn's own run is in flight, so a
  * turn's setup, as it starts or resumes, never closes it for inactivity.
+ *
+ * The list of conversations sorts by when anything last happened in one
+ * (`lastActivityAt`): the same rule, with its approvals and its close.
  */
 
 import type { Semver, TenantId, Timestamp } from '@kindgi/types';
 import { describe, expect, test } from 'vitest';
 
 import type { ConversationBinding } from '../src/conversation-binding.js';
-import { AUTO_CLOSE_ACTOR, autoCloseDue, inactiveSince } from '../src/conversation-inactivity.js';
+import {
+  AUTO_CLOSE_ACTOR,
+  autoCloseDue,
+  inactiveSince,
+  lastActivityAt,
+} from '../src/conversation-inactivity.js';
 import { defineAgent } from '../src/define.js';
 import type { TurnContext } from '../src/handlers/context.js';
 import { AgentTurnFailure } from '../src/handlers/errors.js';
@@ -88,6 +96,46 @@ describe('autoCloseDue', () => {
 
   test('the actor a close by the policy records', () => {
     expect(AUTO_CLOSE_ACTOR).toBe('system:conversation-auto-close');
+  });
+});
+
+describe('lastActivityAt', () => {
+  const at = (seconds: number) => new Date(NOW.getTime() - seconds * 1000).toISOString();
+  const quiet = { inFlight: false };
+
+  test('the latest of inactiveSince, an approval opened or decided, and the close', () => {
+    const base = {
+      openedAt: at(900),
+      lastMessageAt: at(400),
+      runs: { ...quiet, lastPostedAt: at(300), lastEndedAt: at(200) },
+    };
+    expect(lastActivityAt(base)).toEqual(new Date(at(200)));
+    for (const [later, c] of [
+      [at(150), { ...base, approvals: { lastOpenedAt: at(150), lastDecidedAt: at(250) } }],
+      [at(100), { ...base, approvals: { lastOpenedAt: at(250), lastDecidedAt: at(100) } }],
+      [at(50), { ...base, approvals: { lastDecidedAt: at(100) }, closedAt: at(50) }],
+    ] as const) {
+      expect(lastActivityAt(c)).toEqual(new Date(later));
+      // The sweep's rule reads neither: its inactivity is still its runs'.
+      expect(inactiveSince(c)).toEqual(new Date(at(200)));
+    }
+  });
+
+  test('each of what inactiveSince reads, when it is the latest', () => {
+    expect(lastActivityAt({ openedAt: at(900) })).toEqual(new Date(at(900)));
+    expect(lastActivityAt({ openedAt: at(900), lastMessageAt: at(10) })).toEqual(new Date(at(10)));
+    expect(
+      lastActivityAt({ openedAt: at(900), runs: { inFlight: true, lastPostedAt: at(5) } }),
+    ).toEqual(new Date(at(5)));
+  });
+
+  test("approvals earlier than its runs' times change nothing", () => {
+    const c = {
+      openedAt: at(900),
+      runs: { ...quiet, lastPostedAt: at(300), lastEndedAt: at(200) },
+      approvals: { lastOpenedAt: at(290), lastDecidedAt: at(210) },
+    };
+    expect(lastActivityAt(c)).toEqual(inactiveSince(c));
   });
 });
 

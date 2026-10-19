@@ -1079,6 +1079,13 @@ export interface Conversation {
   /** Set on the answer to `unregister`: reads no longer return it. */
   readonly unregisteredAt?: import('@kindgi/types').Timestamp;
   readonly lastMessageAt?: import('@kindgi/types').Timestamp;
+  /**
+   * When anything last happened in it: its opening, a message, a turn
+   * posted into it or ended, an approval on one of its turns opened or
+   * decided, or its close. `list` is sorted by it, most recent first.
+   * Absent in an older runtime's answers, which sort `list` by `openedAt`.
+   */
+  readonly lastActivityAt?: import('@kindgi/types').Timestamp;
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
 

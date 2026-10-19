@@ -24,7 +24,7 @@ function oneOf<T extends string>(
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: 'List conversations, newest first.',
+  description: 'List conversations, most recently active first.',
   usage:
     'kindgi conversations list [--status=open|closed] [--opened-by=me] [--replays=exclude|include|only] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {

@@ -61,6 +61,10 @@ export interface ConversationsClient {
   get(id: ThreadId): Promise<Conversation>;
 
   /**
+   * Most recently active first (`lastActivityAt`). A conversation
+   * something happens in while you page moves to the top: that pass
+   * doesn't show it, and none shows twice.
+   *
    * @wire `GET /v1/conversations` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1conversations/get`.
    */

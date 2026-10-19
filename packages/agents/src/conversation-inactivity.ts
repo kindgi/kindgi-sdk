@@ -7,7 +7,10 @@
 // message and no turn in progress or waiting. One rule for every place
 // that applies it: `POST /v1/runs` before a turn is posted into one, and
 // the binding as it closes one, and the server's sweep, which state the
-// same rule in SQL.
+// same rule in SQL. And when anything last happened in one
+// (`lastActivityAt`), which the list of conversations is sorted by: the
+// same rule, with the two things that happen only while a turn is in
+// flight or once it's over, its approvals and its close.
 //
 
 import type { ConversationPolicy } from './types.js';
@@ -32,6 +35,19 @@ export interface ConversationRunsActivity {
   readonly lastEndedAt?: string | undefined;
 }
 
+/**
+ * The approvals on a conversation's turns, as far as its activity goes:
+ * ISO 8601 times. Each opens and is decided while its turn waits on it,
+ * and a turn's end withdraws any still open, in the transaction that ends
+ * it.
+ */
+export interface ConversationApprovalsActivity {
+  /** When the last of them opened. Absent: none has. */
+  readonly lastOpenedAt?: string | undefined;
+  /** When the last of them was decided (approved, rejected, escalated, expired or withdrawn). */
+  readonly lastDecidedAt?: string | undefined;
+}
+
 /** A conversation as far as its inactivity goes: ISO 8601 times. */
 export interface ConversationActivity {
   readonly openedAt: string;
@@ -45,6 +61,8 @@ export interface ConversationActivity {
    * only make it later, and the binding decides as it closes, with them.
    */
   readonly runs?: ConversationRunsActivity | undefined;
+  /** The approvals on its turns. Read only by `lastActivityAt`. */
+  readonly approvals?: ConversationApprovalsActivity | undefined;
 }
 
 /** Why a conversation's policy closes it now. */
@@ -67,6 +85,26 @@ export function inactiveSince(conversation: ConversationActivity): Date {
     conversation.runs?.lastPostedAt,
     conversation.runs?.lastEndedAt,
   ].flatMap((at) => (at === undefined ? [] : [new Date(at).getTime()]));
+  return new Date(Math.max(...times));
+}
+
+/**
+ * When anything last happened in a conversation, as the list of
+ * conversations sorts it: `inactiveSince`, or later, when an approval on
+ * one of its turns opened or was decided, or it closed. For an open
+ * conversation with no run in flight, that's `inactiveSince`, or a moment
+ * after it: its approvals opened and were decided while their turns
+ * waited, and a turn's end withdraws those still open just after it ends.
+ */
+export function lastActivityAt(conversation: ConversationActivity): Date {
+  const times = [
+    inactiveSince(conversation).getTime(),
+    ...[
+      conversation.approvals?.lastOpenedAt,
+      conversation.approvals?.lastDecidedAt,
+      conversation.closedAt,
+    ].flatMap((at) => (at === undefined ? [] : [new Date(at).getTime()])),
+  ];
   return new Date(Math.max(...times));
 }
 

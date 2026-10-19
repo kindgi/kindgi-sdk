@@ -3,6 +3,7 @@
 
 export type {
   AppendMessageInput,
+  ConversationActivityCursor,
   ConversationBinding,
   ConversationClose,
   ConversationPage,
@@ -17,10 +18,16 @@ export type {
   RunSnapshotRecord,
   RunSnapshotWriteInput,
 } from './run-snapshot-binding.js';
-export { AUTO_CLOSE_ACTOR, autoCloseDue, inactiveSince } from './conversation-inactivity.js';
+export {
+  AUTO_CLOSE_ACTOR,
+  autoCloseDue,
+  inactiveSince,
+  lastActivityAt,
+} from './conversation-inactivity.js';
 export type {
   AutoCloseDue,
   ConversationActivity,
+  ConversationApprovalsActivity,
   ConversationRunsActivity,
 } from './conversation-inactivity.js';
 export { DRAFTED_TEMPLATE_MAX, checkDraftedTemplate } from './drafted-template.js';

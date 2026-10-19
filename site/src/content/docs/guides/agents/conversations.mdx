@@ -449,9 +449,17 @@ one project's or org's.
   - It's a filter, not privacy: anyone who may read the project reads its
     conversations.
 - `close` is safe to repeat: closing a closed conversation returns it as it is.
-- `list` filters by agent and by `status` (`open` or `closed`), newest first;
-  `get` fetches one conversation. From the CLI:
-  `kindgi conversations list --status=closed`.
+- `list` filters by agent and by `status` (`open` or `closed`), the most
+  recently active first (runtime 0.1.10 or later), and `get` fetches one
+  conversation. From the CLI: `kindgi conversations list --status=closed`.
+  - **Most recently active** goes by `lastActivityAt`, when anything last
+    happened in the conversation: its opening, a message, a turn sent into
+    it, a turn's end, an approval on one of its turns opened, or decided,
+    escalated, expired or withdrawn, or its close.
+  - A conversation something happens in while you page moves to the top:
+    that pass doesn't show it, and none shows twice.
+  - An older runtime lists the most recently opened first, and answers no
+    `lastActivityAt`.
 - **A [comparison](../../evals/compare-an-agent-version/)'s replays** have
   conversations too, and lists leave them out unless you ask: `replays:
   'include'` or `'only'` (`--replays=include` or `--replays=only` in the CLI).

@@ -3452,6 +3452,10 @@ class Conversation(BaseModel):
     """
     turn_count: Annotated[int, Field(alias="turnCount", ge=0)]
     last_message_at: Annotated[AwareDatetime | None, Field(alias="lastMessageAt")] = None
+    last_activity_at: Annotated[AwareDatetime | None, Field(alias="lastActivityAt")] = None
+    """
+    When anything last happened in it: its opening, a message, a turn posted into it or ended, an approval on one of its turns opened, or decided, escalated, expired or withdrawn, or its close. The list is sorted by it, most recent first. Absent from an older runtime, which sorts the list by `openedAt`.
+    """
     metadata: dict[str, Any] | None = None
 
 
