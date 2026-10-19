@@ -71,9 +71,16 @@ several clients' projects the same tool:
 
 A run uses four kinds of values, each kept in its own place.
 
-- **Model keys.** A model provider and its key are the tenant's (on Kindgi
-  Cloud, your workspace's), for an env. Runs in every project use them
-  ([Models](../../guides/models/)).
+- **Model keys.** A model provider is the tenant's (on Kindgi Cloud, your
+  workspace's), and runs in every project can use it. Its key is a secret
+  of an env, read on each model call where the call's run is (runtime
+  0.1.8.1 or later): the run's project's key, else its org's, else the
+  tenant's. So a project or an org can have a key of its own, set with
+  `kindgi secrets set <KEY_NAME> --env=<env> --scope=project:<project-id>`,
+  or `--scope=org:<org-id>`. Unlike a tool's secrets, where it's read isn't
+  recorded: a key set later in the run's project is used from the next
+  call. An older runtime reads the tenant's key only
+  ([Models](../../guides/models/#keys)).
 - **A tool's secrets,** in `ctx.secrets`. Where a tool version reads each
   secret is decided once, when that version is registered, and recorded on
   it. Kindgi looks in the tool's project, then that project's org, then the

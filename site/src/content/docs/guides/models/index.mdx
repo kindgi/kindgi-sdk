@@ -652,8 +652,11 @@ uv run kindgi secrets set <KEY_NAME> --env=local --scope=tenant
 - `--env=local` is the environment the secret belongs to. Under
   `kindgi dev`, `local` is the pack's env files.
 - `--scope=tenant` is where the secret lives: the tenant, rather than one org
-  (`org:<orgId>`) or project (`project:<projectId>`). A provider reads its key
-  from the tenant.
+  (`org:<orgId>`) or project (`project:<projectId>`). Under `kindgi dev`, the
+  files hold one value for every scope. On a runtime, a run reads a
+  provider's key at its project, else its org, else the tenant (runtime
+  0.1.8.1 or later; an older runtime reads the tenant's only), so the
+  tenant's key serves every project without one of its own.
 
 It prompts for the value and writes it to `.kindgi/secrets.env`, which your
 app doesn't load. In a script, pipe the value in and add `--from-stdin`. To
