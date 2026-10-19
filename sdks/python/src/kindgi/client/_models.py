@@ -8163,7 +8163,7 @@ class JudgingRecentQueued(BaseModel):
     )
     queued: Annotated[int, Field(ge=0)]
     """
-    Matching recent runs this call newly added to the queue.
+    Matching recent runs this call newly queued for the rule: a new queue item, or the rule added to one already waiting for another rule.
     """
     already_queued: Annotated[int, Field(alias="alreadyQueued", ge=0)]
     """

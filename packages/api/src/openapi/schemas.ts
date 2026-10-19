@@ -10483,7 +10483,8 @@ export const JudgingRecentQueuedSchema: JsonSchema = {
     queued: {
       type: 'integer',
       minimum: 0,
-      description: 'Matching recent runs this call newly added to the queue.',
+      description:
+        'Matching recent runs this call newly queued for the rule: a new queue item, or the rule added to one already waiting for another rule.',
     },
     alreadyQueued: {
       type: 'integer',

@@ -106,7 +106,7 @@ than `maxOpen` of the rule's runs waiting, and the rule then adds nothing at
 run end until fewer wait. The answer counts the matches three ways, which
 together are all of them:
 
-- **`queued`**: added to the queue by this call.
+- **`queued`**: queued for the rule by this call, as a new item or added to one that's already waiting for another rule.
 - **`alreadyQueued`**: the rule had queued them already, and they're still waiting.
 - **`alreadyReviewed`**: their run was already judged or dismissed, so
   they're left as they are.

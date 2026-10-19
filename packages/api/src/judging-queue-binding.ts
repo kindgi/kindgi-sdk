@@ -190,7 +190,7 @@ export interface JudgingRulePreview {
 
 /** The outcome of queueing a rule's matches among recent runs ({@link JudgingQueueBinding.queueRecent}). */
 export interface JudgingRecentQueued {
-  /** Matching recent runs this call newly added to the queue. */
+  /** Matching recent runs this call newly queued for the rule: a new queue item, or the rule added to one already waiting for another rule. */
   readonly queued: number;
   /** Matching recent runs this rule had already queued and that are still open (deduped per `(rule, run)`). */
   readonly alreadyQueued: number;
