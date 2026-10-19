@@ -24,7 +24,7 @@ import type {
   TeamMembershipBinding,
   TeamProjectGrantBinding,
 } from '@kindgi/platform';
-import type { KernelBinding, RunBinding } from '@kindgi/runtime';
+import type { KernelBinding } from '@kindgi/runtime';
 
 import type { BlobStorageBinding } from '@kindgi/blob-binding';
 import type { MemoryQueryBinding } from '@kindgi/memory';
@@ -1570,7 +1570,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
                   null,
           }),
         // Who a turn runs as, for the participant rule (`participantRefusal`).
-        ...participantLookups(input, runBinding),
+        ...participantLookups(input),
         ...(publicRunTokenLimits !== undefined && {
           publicRunTokens: {
             mint: (tenantId, runIds) =>
@@ -2562,7 +2562,6 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
  */
 function participantLookups(
   input: Pick<CreateAppInput, 'conversationBinding' | 'agentRegistry' | 'flowRegistry'>,
-  runBinding: RunBinding,
 ): Pick<RunsRouterOptions, 'conversationOf' | 'closeInactive' | 'targetProject'> {
   return {
     conversationOf: async (tenantId, conversationId) => {
@@ -2598,11 +2597,12 @@ function participantLookups(
         }),
       };
     },
+    // No run binding: an idle conversation has no run in flight, so no wait to cancel.
     closeInactive: async (tenantId, conversationId, afterInactiveSeconds) => {
       const closed = await input.conversationBinding.closeConversation(
         tenantId,
         conversationId as never,
-        runBinding,
+        undefined,
         { actor: AUTO_CLOSE_ACTOR, afterInactiveSeconds },
       );
       if (closed.kind !== 'ok') {

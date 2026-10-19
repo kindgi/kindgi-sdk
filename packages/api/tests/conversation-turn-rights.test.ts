@@ -343,7 +343,6 @@ function makeApp({
     opened: () => opened,
     closing,
     versionReads: () => [...versionReads],
-    runBinding: stub.kernelBinding.run,
   };
 }
 
@@ -608,15 +607,15 @@ describe("a turn into a conversation its agent's policy closes for inactivity", 
 
   test('past its window: closed as its policy, then refused 409 as a closed one is, before a run is made', async () => {
     for (const wait of [true, false]) {
-      const { as, reached, closing, runBinding, versionReads } = makeApp(policy);
+      const { as, reached, closing, versionReads } = makeApp(policy);
       const r = await as('alice').turn(IDLE_ALICES, { wait });
       expect(closed(r)).toBe(true);
       expect(r.message).toBe(`Conversation "${IDLE_ALICES}" is closed`);
       expect(r.details).toEqual({ conversationId: IDLE_ALICES });
       // The policy of the version it opened with.
       expect(versionReads()).toEqual([{ agentId: 'acme.desk', version: '1.0.0' }]);
-      // Its runs' pending waits are cancelled with it.
-      expect(closing).toEqual([{ id: IDLE_ALICES, runBinding, close: asPolicy }]);
+      // No run binding: an idle conversation has no wait to cancel.
+      expect(closing).toEqual([{ id: IDLE_ALICES, runBinding: undefined, close: asPolicy }]);
       expect(reached()).toBe(0);
     }
   });
