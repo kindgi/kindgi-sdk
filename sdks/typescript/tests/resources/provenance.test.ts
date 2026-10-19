@@ -64,6 +64,7 @@ describe('provenance.query', () => {
         },
       ],
       hasMore: false,
+      flowId: 'acme.report',
     });
     const client = createClient({
       apiUrl: 'https://api.example.com',
@@ -73,11 +74,14 @@ describe('provenance.query', () => {
 
     const page = await client.provenance.query({
       runId: 'run-1' as never,
+      flowId: 'acme.report' as never,
       createdAfter: '2026-01-01T00:00:00Z' as never,
     });
     expect(page.items[0]?.signed).toBe(false);
+    expect(page.flowId).toBe('acme.report');
     const url = new URL(stub.calls[0]?.url);
     expect(url.searchParams.get('runId')).toBe('run-1');
+    expect(url.searchParams.get('flowId')).toBe('acme.report');
     expect(url.searchParams.get('createdAfter')).toBe('2026-01-01T00:00:00Z');
   });
 });

@@ -9,7 +9,7 @@ import type { AuditEventBinding } from '@kindgi/audit-events';
 import { ref } from '@kindgi/authz';
 import type { ExportSigningBinding } from '@kindgi/crypto';
 import type { RunBinding } from '@kindgi/runtime';
-import type { ConversationId, RunId, TenantId } from '@kindgi/types';
+import type { ConversationId, FlowId, RunId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 
@@ -21,6 +21,7 @@ import type {
   ProvenanceBindingError,
   ProvenanceListCursor,
   ProvenanceRecordSummary,
+  StepUsageByNodeId,
 } from '../provenance-binding.js';
 import {
   exportActor,
@@ -72,7 +73,8 @@ export interface ProvenanceRouterOptions {
 /** Bundle schema version — bump when the wire shape of `bundle.body` changes. */
 /** 1.1.0 adds `callUsage`: the model calls' usage from the cost ledger, when the run has any. */
 /** 1.2.0: `exportedAt` is in the signed body (was the envelope's only). */
-const BUNDLE_SCHEMA_VERSION = '1.2.0';
+/** 1.3.0 adds `stepUsage`: a flow record's model usage per step. */
+const BUNDLE_SCHEMA_VERSION = '1.3.0';
 
 export function provenanceRouter(
   binding: ProvenanceBinding,
@@ -135,6 +137,9 @@ export function provenanceRouter(
 
     const runIdFilter = c.req.query('runId');
     const agentIdFilter = c.req.query('agentId');
+    const flowIdFilter = c.req.query('flowId');
+    const flowId =
+      flowIdFilter !== undefined && flowIdFilter.length > 0 ? (flowIdFilter as FlowId) : undefined;
     const createdAfterRaw = c.req.query('createdAfter');
 
     let createdAfter: Date | undefined;
@@ -158,6 +163,7 @@ export function provenanceRouter(
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(runIdFilter !== undefined && runIdFilter.length > 0 && { runId: runIdFilter as RunId }),
       ...(agentIdFilter !== undefined && agentIdFilter.length > 0 && { agentId: agentIdFilter }),
+      ...(flowId !== undefined && { flowId }),
       ...(createdAfter !== undefined && { createdAfter }),
       ...(cursorFilter !== undefined && { cursor: cursorFilter }),
     });
@@ -181,6 +187,8 @@ export function provenanceRouter(
       ...(nextCursor !== undefined && {
         nextCursor: encodeCursor({ createdAt: nextCursor.createdAt, id: nextCursor.id }),
       }),
+      // Said on every page, an empty one too: the list holds only this flow's records.
+      ...(flowId !== undefined && { flowId: flowId as unknown as string }),
     });
   });
 
@@ -193,17 +201,7 @@ export function provenanceRouter(
     const result = await binding.getByRunId(tenantId, runId);
     if (result.kind === 'err') {
       if (result.error.code === 'provenance-not-found') {
-        c.status(statusFor('not-found') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'provenance-not-found',
-              message: result.error.message,
-              runId: runId as unknown as string,
-            },
-            requestId,
-          ),
-        );
+        return provenanceNotFound(c, result.error, runId, requestId);
       }
       return readFailed(c, result.error, requestId);
     }
@@ -211,6 +209,10 @@ export function provenanceRouter(
     const callUsage = await readCallUsage(binding, tenantId, runId);
     if (callUsage.kind === 'err') {
       return readFailed(c, callUsage.error, requestId);
+    }
+    const stepUsage = await readStepUsage(binding, tenantId, provenance);
+    if (stepUsage.kind === 'err') {
+      return readFailed(c, stepUsage.error, requestId);
     }
     return c.json({
       id: provenance.id as unknown as string,
@@ -230,6 +232,7 @@ export function provenanceRouter(
       },
       ...(provenance.signature !== undefined && { signature: provenance.signature }),
       ...(callUsage.value !== undefined && { callUsage: callUsage.value }),
+      ...(stepUsage.value !== undefined && { stepUsage: stepUsage.value }),
     });
   });
 
@@ -253,17 +256,7 @@ export function provenanceRouter(
     const loaded = await binding.getByRunId(tenantId, runId);
     if (loaded.kind === 'err') {
       if (loaded.error.code === 'provenance-not-found') {
-        c.status(statusFor('not-found') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'provenance-not-found',
-              message: loaded.error.message,
-              runId: runId as unknown as string,
-            },
-            requestId,
-          ),
-        );
+        return provenanceNotFound(c, loaded.error, runId, requestId);
       }
       c.status(statusFor(loaded.error.code) as never);
       return c.json(
@@ -277,6 +270,13 @@ export function provenanceRouter(
       c.status(statusFor(callUsage.error.code) as never);
       return c.json(
         toWireError({ code: callUsage.error.code, message: callUsage.error.message }, requestId),
+      );
+    }
+    const stepUsage = await readStepUsage(binding, tenantId, provenance);
+    if (stepUsage.kind === 'err') {
+      c.status(statusFor(stepUsage.error.code) as never);
+      return c.json(
+        toWireError({ code: stepUsage.error.code, message: stepUsage.error.message }, requestId),
       );
     }
 
@@ -324,6 +324,7 @@ export function provenanceRouter(
         },
         ...(messages !== undefined && { messages }),
         ...(callUsage.value !== undefined && { callUsage: callUsage.value }),
+        ...(stepUsage.value !== undefined && { stepUsage: stepUsage.value }),
       },
       ...(options.auditEvents !== undefined && {
         record: {
@@ -410,6 +411,51 @@ function readFailed(
   if (busy !== undefined) return busy;
   c.status(statusFor(error.code) as never);
   return c.json(toWireError({ code: error.code, message: error.message }, requestId));
+}
+
+/**
+ * `404 provenance-not-found` with the run id and, when the binding says
+ * why the run has no record yet, its `recordState` and `reason`.
+ */
+function provenanceNotFound(
+  c: Context<AppEnv>,
+  error: ProvenanceBindingError,
+  runId: RunId,
+  requestId: string,
+): Response {
+  c.status(statusFor('not-found') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'provenance-not-found',
+        message: error.message,
+        runId: runId as unknown as string,
+        ...(typeof error.recordState === 'string' && { recordState: error.recordState }),
+        ...(typeof error.reason === 'string' && { reason: error.reason }),
+      },
+      requestId,
+    ),
+  );
+}
+
+/**
+ * A flow record's usage per step, when the binding has a cost ledger and
+ * the record has `step` nodes with usage. A turn's record has none, so
+ * it's never read for one.
+ */
+async function readStepUsage(
+  binding: ProvenanceBinding,
+  tenantId: TenantId,
+  provenance: { readonly runId: RunId; readonly nodes: readonly { readonly kind: string }[] },
+): Promise<
+  | { readonly kind: 'ok'; readonly value: StepUsageByNodeId | undefined }
+  | { readonly kind: 'err'; readonly error: ProvenanceBindingError }
+> {
+  if (binding.getStepUsage === undefined) return { kind: 'ok', value: undefined };
+  if (!provenance.nodes.some((n) => n.kind === 'step')) return { kind: 'ok', value: undefined };
+  const read = await binding.getStepUsage(tenantId, provenance.runId);
+  if (read.kind === 'err') return read;
+  return { kind: 'ok', value: Object.keys(read.value).length > 0 ? read.value : undefined };
 }
 
 /** The run's call usage, when the binding has a cost ledger and the run made calls. */

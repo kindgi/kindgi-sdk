@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kindgi.com/schemas/v1/provenance.schema.json",
-  "$comment": "schema-version: 1.0.0",
+  "$comment": "schema-version: 1.1.0",
   "title": "Provenance DAG",
   "description": "Causal DAG for a run. Every output node has edges back to every input that influenced it — prompts, retrieved chunks, tool results, prior turns, model version, tenant policy in effect. This is the PRIMARY audit artifact, not a derivative of OTel spans. Signed with Ed25519 for verification outside the runtime.",
   "type": "object",
@@ -90,7 +90,8 @@
             "memory-read",
             "memory-write",
             "wait",
-            "resume"
+            "resume",
+            "step"
           ],
           "description": "What this node represents in the causal chain."
         },

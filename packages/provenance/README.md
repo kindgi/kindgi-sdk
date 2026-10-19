@@ -16,7 +16,7 @@ Record what went into a run's output (inputs, prompts, retrievals, model calls, 
   - **`EDGE_KINDS`** / **`EdgeKind`** — `caused-by`, `influenced-by`, `retrieved-from`, `invoked`, `produced`, `checked-against`, `waited-on`, `resumed-from`.
   - **`Signature`** — `{ algorithm: 'ed25519', keyId, value, signedAt }`.
 - **Building**
-  - **`newBuilder(options: BuilderOptions)`** — returns a `ProvenanceBuilder` for one run. `BuilderOptions`: `id`, `runId`, `tenantId`, optional `flowRef`, `version` (default `'1.0.0'`), `createdAt`.
+  - **`newBuilder(options: BuilderOptions)`** — returns a `ProvenanceBuilder` for one run. `BuilderOptions`: `id`, `runId`, `tenantId`, optional `flowRef`, `version` (default `'1.1.0'`), `createdAt`.
   - **`ProvenanceBuilder`** — `addNode(node)`, `addEdge(edge)`, `snapshot()` (the unsigned record so far), `finalize(keyProvider)` (the signed record, as a `Result`). A builder is not safe to share across concurrent runs.
 - **Keys**
   - **`KeyProvider`** — caller-implemented key store: `signingKey(tenantId)`, `verificationKey(keyId)`, `deploymentKey()`, `describe()`. An implementation can return a per-tenant key or fall back to a deployment key; the chosen `keyId` is recorded in the signature.
