@@ -268,6 +268,9 @@ function makeApp({
             ...(participantId !== undefined && { participantId }),
           },
         }),
+      /** A flow run whose input names `conversationId`. */
+      flowRun: (conversationId: string) =>
+        post('/v1/runs', { flow: 'acme.triage', input: { conversationId } }),
       open: (projectId?: string) =>
         post('/v1/conversations', {
           agentId: 'acme.desk',
@@ -523,6 +526,14 @@ describe('a turn into a closed conversation', () => {
     const { as, reached } = makeApp({ withAuthz: false });
     expect(closed(await as('stranger').turn(CLOSED_ALICES, { wait: false }))).toBe(true);
     expect(reached()).toBe(0);
+  });
+
+  test('a flow run naming it in `input.conversationId` is refused too; an open one goes through', async () => {
+    const { as, reached } = makeApp({ withAuthz: false });
+    expect(closed(await as('alice').flowRun(CLOSED_ALICES))).toBe(true);
+    expect(reached()).toBe(0);
+    expect(continued(await as('alice').flowRun(ALICES))).toBe(true);
+    expect(reached()).toBe(1);
   });
 });
 

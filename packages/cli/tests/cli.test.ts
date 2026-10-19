@@ -632,43 +632,6 @@ describe('kindgi runs start', () => {
       expect(started).toEqual([]);
     }
   });
-});
-
-describe('missing required arguments', () => {
-  test('kindgi runs get without run-id fails', async () => {
-    const out = await runCli(baseInputs({ argv: ['runs', 'get', '--url=https://x', '--token=t'] }));
-    expect(out.exitCode).toBe(2);
-    expect(out.stderr).toContain('Missing required argument: run-id');
-  });
-
-  test('kindgi runs start without --agent/--flow fails', async () => {
-    const out = await runCli(
-      baseInputs({
-        argv: ['runs', 'start', '--input={"x":1}', '--url=https://x', '--token=t'],
-      }),
-    );
-    expect(out.exitCode).toBe(2);
-    expect(out.stderr.toLowerCase()).toContain('--agent');
-  });
-
-  test('kindgi runs start with both --agent and --flow fails', async () => {
-    const out = await runCli(
-      baseInputs({
-        argv: [
-          'runs',
-          'start',
-          '--agent=a',
-          '--flow=g',
-          '--input={"x":1}',
-          '--url=https://x',
-          '--token=t',
-        ],
-      }),
-    );
-    expect(out.exitCode).toBe(2);
-    expect(out.stderr).toContain('mutually exclusive');
-  });
-
   test('a turn into a closed conversation prints the refusal, and no run, with --no-wait too', async () => {
     const id = '0c9b03fb-be50-4076-be4f-7c019c3bc634';
     const out = await runCli(
@@ -704,6 +667,42 @@ describe('missing required arguments', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stdout).toBe('');
     expect(out.stderr).toContain(`Error [conversation-closed]: Conversation "${id}" is closed`);
+  });
+});
+
+describe('missing required arguments', () => {
+  test('kindgi runs get without run-id fails', async () => {
+    const out = await runCli(baseInputs({ argv: ['runs', 'get', '--url=https://x', '--token=t'] }));
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain('Missing required argument: run-id');
+  });
+
+  test('kindgi runs start without --agent/--flow fails', async () => {
+    const out = await runCli(
+      baseInputs({
+        argv: ['runs', 'start', '--input={"x":1}', '--url=https://x', '--token=t'],
+      }),
+    );
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr.toLowerCase()).toContain('--agent');
+  });
+
+  test('kindgi runs start with both --agent and --flow fails', async () => {
+    const out = await runCli(
+      baseInputs({
+        argv: [
+          'runs',
+          'start',
+          '--agent=a',
+          '--flow=g',
+          '--input={"x":1}',
+          '--url=https://x',
+          '--token=t',
+        ],
+      }),
+    );
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain('mutually exclusive');
   });
 });
 
