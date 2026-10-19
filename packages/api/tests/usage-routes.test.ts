@@ -339,6 +339,16 @@ describe('GET /v1/usage', () => {
     expect(h.reads).toEqual([]);
   });
 
+  test('a tenantId query param is ignored: an admin reads its own tenant, never another', async () => {
+    const h = harness({ authz: withList });
+    // `tenantId` isn't a query the parser knows, so it's dropped and the read goes to
+    // the caller's own tenant. The ofTenant mock asserts `asked === tenantId`, so a
+    // route that read the tenant from the query would ask for the foreign one and 500.
+    const res = await h.read(ADMIN, `&tenantId=${randomUUID()}`);
+    expect(res.status).toBe(200);
+    expect(h.reads).toHaveLength(1);
+  });
+
   test('a window of 92 days is read; a longer one, or none, is 400 before any project is worked out', async () => {
     const h = harness({ authz: checkOnly, withProjects: false });
     const ok = await h.readRaw(ADMIN, 'from=2026-01-01T00:00:00Z&to=2026-04-03T00:00:00Z');
