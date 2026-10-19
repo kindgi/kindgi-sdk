@@ -81,11 +81,12 @@ npx --yes @kindgi/cli@0.1 doctor --json
 ```
 
 Run it like that here and in every later step: nothing before or after it,
-such as `;`, `&&`, a pipe or `echo $?`. Coding tools' permission rules match
-plain commands, so an "always allow" for doctor covers every later run. It
-prints one JSON object, whose `ok` is `false` when a check fails; it also
-exits `1` then (`0` when nothing fails, `2` on a usage error). Here, in a
-project with `kindgi dev` running and no model key yet:
+such as `cd … &&`, `;`, a pipe, `sleep` or `echo $?`. To run it in another
+folder, `cd` there first, as a command of its own. Coding tools' permission
+rules match plain commands, so an "always allow" for doctor covers every
+later run. It prints one JSON object, whose `ok` is `false` when a check
+fails; it also exits `1` then (`0` when nothing fails, `2` on a usage
+error). Here, in a project with `kindgi dev` running and no model key yet:
 
 ```json
 {
@@ -273,7 +274,8 @@ and agents for this project.
 ## Step 3: start Kindgi
 
 Start `kindgi dev` from the project's folder so that it keeps running after
-your turn ends:
+your turn ends. As with doctor, `cd` there first, in a command of its own;
+then:
 
 - **If your tool runs commands in the background itself** (Claude Code's
   background tasks do), start it that way: `kindgi dev` (the project's form
@@ -298,7 +300,8 @@ Use the project's form of the CLI in place of `pnpm exec kindgi`. It
 starts the runtime in Docker and answers with a stand-in model,
 `dev-echo`, until step 4 adds a real one.
 
-Run doctor every few seconds until `runtime` passes. `model-key` and
+Run doctor again until `runtime` passes, a few seconds apart: each run on
+its own, as in step 0, not in a loop or after `sleep … &&`. `model-key` and
 `provider` still fail: that's expected until step 4. Then tell the person
 it's running, and how to stop it: `kill <the process id>`, or, if your
 tool started it, how your tool stops it. If your tool's background tasks end
