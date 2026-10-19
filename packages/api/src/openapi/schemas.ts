@@ -9114,6 +9114,16 @@ export const SignInOptionsSchema: JsonSchema = {
         },
       },
     },
+    legal: {
+      type: 'object',
+      additionalProperties: false,
+      description:
+        "The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.",
+      properties: {
+        termsUrl: { type: 'string', format: 'uri', description: 'Its terms.' },
+        privacyUrl: { type: 'string', format: 'uri', description: 'Its privacy policy.' },
+      },
+    },
   },
 };
 

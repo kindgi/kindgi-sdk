@@ -7165,6 +7165,25 @@ class Methods(BaseModel):
     """
 
 
+class Legal(BaseModel):
+    """
+    The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    terms_url: Annotated[AnyUrl | None, Field(alias="termsUrl")] = None
+    """
+    Its terms.
+    """
+    privacy_url: Annotated[AnyUrl | None, Field(alias="privacyUrl")] = None
+    """
+    Its privacy policy.
+    """
+
+
 class SignInOptions(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -7174,6 +7193,10 @@ class SignInOptions(BaseModel):
     methods: Methods | None = None
     """
     The ways in this deployment allows, for a sign-in page to show. Absent from older servers.
+    """
+    legal: Legal | None = None
+    """
+    The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.
     """
 
 
