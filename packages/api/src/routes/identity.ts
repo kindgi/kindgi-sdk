@@ -284,17 +284,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
       // Without an authorizer nothing is checked, so an observer would
       // read everything a member does: none is added, and nothing written.
       if (parsed.tenantRole === 'observer' && authorizer === undefined) {
-        c.status(statusFor('observer-not-served') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'observer-not-served',
-              message:
-                "This runtime checks no one's access (it runs without an authorization store), so it can't hold an observer to their projects. Add them as a member, or run with authorization.",
-            },
-            requestId,
-          ),
-        );
+        return observerNotServed(c, 'Add them as a member');
       }
       const createdBy = callerRef(c);
       const outcome = await createUser({
@@ -590,11 +580,8 @@ function mountPersonGrants(
       if (!(await isTenantAdmin(c, authorizer))) {
         return denied(c, "Only a tenant admin changes a person's grants");
       }
-      const grant = parsePersonGrant(await c.req.json().catch(() => undefined));
-      if (typeof grant === 'string') {
-        c.status(statusFor('bad-input') as never);
-        return c.json(toWireError({ code: 'bad-input', message: grant }, c.get('requestId')));
-      }
+      const grant = await grantAsked(c, action, authorizer);
+      if (grant instanceof Response) return grant;
       if (binding === undefined) return unsupported(c);
       const tenantId = c.get('tenantId') as TenantId;
       const userId = c.req.param('userId');
@@ -609,6 +596,29 @@ function mountPersonGrants(
       return c.json(serializePersonGrants(result.value));
     });
   }
+}
+
+/**
+ * The grant the body asks for, or the answer refusing it before anything
+ * is read or written: a body that names none (`bad-input`), or making a
+ * person the observer where no one's access is checked
+ * (`observer-not-served`): as for the add, nothing would hold them to
+ * their projects.
+ */
+async function grantAsked(
+  c: Context<AppEnv>,
+  action: 'grant' | 'ungrant',
+  authorizer: Authorizer | undefined,
+): Promise<PersonGrant | Response> {
+  const grant = parsePersonGrant(await c.req.json().catch(() => undefined));
+  if (typeof grant === 'string') {
+    c.status(statusFor('bad-input') as never);
+    return c.json(toWireError({ code: 'bad-input', message: grant }, c.get('requestId')));
+  }
+  if (action === 'grant' && grant.kind === 'tenant-observer' && authorizer === undefined) {
+    return observerNotServed(c, 'Keep them a member');
+  }
+  return grant;
 }
 
 /**
@@ -848,6 +858,23 @@ function byName<T extends { readonly name: string }>(id: (x: T) => string) {
     a.name < b.name ? -1 : a.name > b.name ? 1 : id(a) < id(b) ? -1 : id(a) > id(b) ? 1 : 0;
 }
 
+/**
+ * `501 observer-not-served`: a runtime that checks no one's access can't
+ * hold an observer to their projects. `instead` is what to do instead.
+ */
+function observerNotServed(c: Context<AppEnv>, instead: string) {
+  c.status(statusFor('observer-not-served') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'observer-not-served',
+        message: `This runtime checks no one's access (it runs without an authorization store), so it can't hold an observer to their projects. ${instead}, or run with authorization.`,
+      },
+      c.get('requestId'),
+    ),
+  );
+}
+
 function notFound(c: Context<AppEnv>, userId: string) {
   c.status(statusFor('identity-user-not-found') as never);
   return c.json(
@@ -954,7 +981,8 @@ function parsePersonGrant(raw: unknown): PersonGrant | string {
  * (`person-holds-keys`). The project roles are those granted directly: a
  * team's are a team's, and an org's admin is a tenant admin, who created
  * it. A grant already held, or a person who isn't there, is the binding's
- * to answer.
+ * to answer, and so is a person a site signs in (`siteManaged`): the
+ * binding refuses them every grant (`site-person-grants-managed`).
  */
 async function observerGrantConflict(
   binding: PersonGrantsBinding,
@@ -967,7 +995,9 @@ async function observerGrantConflict(
   | undefined
 > {
   const held = await binding.read({ tenantId, userId });
-  if (held === null) return undefined;
+  // A person their site's sign-in gives grants to: the binding refuses
+  // every grant naming them, so it answers, not what they hold.
+  if (held === null || held.siteManaged === true) return undefined;
   if (grant.kind === 'tenant-admin') {
     return held.tenantObserver === true
       ? {
@@ -1069,6 +1099,7 @@ function serializePersonGrants(g: PersonGrants): Record<string, unknown> {
     projects: g.projects.map((p) => ({ projectId: p.projectId, role: p.role })),
     teams: g.teams.map((t) => ({ teamId: t.teamId, role: t.role })),
     ...(g.reviewer !== undefined && { reviewer: { role: g.reviewer.role } }),
+    ...(g.siteManaged === true && { siteManaged: true }),
   };
 }
 

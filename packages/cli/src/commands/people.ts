@@ -4,7 +4,7 @@
 import type { InviteEmail, ListPage, PersonGrant, PersonGrants, User } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
-import { UsageError } from '../errors.js';
+import { UsageError, extractKindgiError } from '../errors.js';
 import { renderJson } from '../output.js';
 import {
   type TableSpec,
@@ -77,11 +77,37 @@ function inviteLine(person: User, email: InviteEmail | undefined): string {
   }
 }
 
+/**
+ * Whether the runtime holds the tenant's observer: it answers
+ * `tenant.observer` on `me/permissions`. One from before the observer
+ * ignores `tenantRole` and adds a member, and one that checks no one's
+ * access (no authorization store, `permissions-unsupported`) can't hold
+ * one.
+ */
+async function servesObserver(ctx: CommandContext): Promise<boolean> {
+  try {
+    return (await ctx.client().identity.me.permissions()).tenant.observer !== undefined;
+  } catch (err) {
+    const wire = extractKindgiError(err);
+    if (wire?.code === 'not-found') return false;
+    if (wire?.code === 'server' && wire.serverCode === 'permissions-unsupported') return false;
+    throw err;
+  }
+}
+
+/** `add --observer` asks first, and adds no one where the runtime holds no observer. */
+async function mustServeObserver(ctx: CommandContext): Promise<void> {
+  if (await servesObserver(ctx)) return;
+  throw new Error(
+    "--observer needs a runtime that holds the tenant's observer: a newer one, which checks access (it runs with an authorization store). No one was added.",
+  );
+}
+
 const add: LeafCommand = {
   kind: 'leaf',
   name: 'add',
   description:
-    "Add a person to the tenant; prints their id. They can read the tenant's settings at once; give them a project role to work on its agents and runs, and their first key (`kindgi tokens create --for=user:<id>`). With `--observer`, they're the tenant's observer instead: they read only the projects you give them, and hold no key (where the runtime checks access). Where the runtime invites people, one added with an email is invited, and the invitation emailed unless `--no-invite`; it says whether it was. Tenant admins only.",
+    "Add a person to the tenant; prints their id. They can read the tenant's settings at once; give them a project role to work on its agents and runs, and their first key (`kindgi tokens create --for=user:<id>`). With `--observer`, they're the tenant's observer instead: they read only the projects you give them, and hold no key. A runtime that holds no observer (an older one, or one that checks no one's access) is asked first, and no one is added. Where the runtime invites people, one added with an email is invited, and the invitation emailed unless `--no-invite`; it says whether it was. Tenant admins only.",
   usage: 'kindgi people add --name=<display-name> [--email=<email>] [--observer] [--no-invite]',
   optionSpec: {
     name: { type: 'string', description: 'Their name, as people see it.' },
@@ -102,6 +128,7 @@ const add: LeafCommand = {
       if (displayName === undefined) throw new UsageError('--name is required');
       const email = stringFlag(ctx, 'email');
       const observer = ctx.options.observer === true;
+      if (observer) await mustServeObserver(ctx);
       const created = await ctx.client().users.create({
         displayName,
         ...(email !== undefined && { email }),
@@ -238,6 +265,9 @@ const GRANTS_TABLE: TableSpec<PersonGrants, readonly [string, string]> = {
     ...g.projects.map((p) => [`project ${p.projectId}`, p.role] as const),
     ...g.teams.map((t) => [`team ${t.teamId}`, t.role] as const),
     ...(g.reviewer !== undefined ? [['reviewer roster', g.reviewer.role] as const] : []),
+    ...(g.siteManaged === true
+      ? [['site', 'its sign-in gives these: change their role on the site'] as const]
+      : []),
   ],
   columns: [
     { header: 'WHERE', get: (r) => r[0] },
@@ -249,7 +279,7 @@ const grants: LeafCommand = {
   kind: 'leaf',
   name: 'grants',
   description:
-    "What a person may do, as granted directly: tenant admin, tenant member (reads the tenant's settings) or the tenant's observer (views only the projects it's given), project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.",
+    "What a person may do, as granted directly: tenant admin, tenant member (reads the tenant's settings) or the tenant's observer (views only the projects it's given), project and team roles, the reviewer roster, and whether their site's sign-in gives them (change those on the site). A tenant admin reads anyone's; anyone else only their own.",
   usage: 'kindgi people grants <user-id> [--table]',
   run: (ctx) =>
     runSdk(

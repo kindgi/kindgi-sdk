@@ -14948,6 +14948,10 @@ class PersonGrants(BaseModel):
     Team memberships.
     """
     reviewer: PersonReviewerRole | None = None
+    site_managed: Annotated[Literal[True] | None, Field(alias="siteManaged")] = None
+    """
+    A person a site signs in: their site's sign-in gives them what they hold, so every grant naming them is refused (`403 site-person-grants-managed`). Change their role on the site instead. Absent for everyone else, and where the runtime doesn't say.
+    """
 
 
 class EnvSetOutcome(

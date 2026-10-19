@@ -81,7 +81,8 @@ npx --yes @kindgi/cli@0.1 people add --name="Sam Rivera" --email=sam@acme.exampl
 - `--email` is the email they sign in with. It's unique among the tenant's
   people. A person added with one is [invited](#their-invitation).
 - `--observer` adds them as the tenant's observer, not a member
-  ([The tenant's observer](#the-tenants-observer)).
+  ([The tenant's observer](#the-tenants-observer)). With an older runtime,
+  `--observer` is refused and no one is added.
 - `--no-invite` doesn't email them the invitation, for when you tell them
   yourself. They're still invited.
 
@@ -214,8 +215,8 @@ holds from their next request.
 
 `kindgi people grants <user-id> --table` lists what someone holds, as
 granted directly: tenant admin, tenant member or the tenant's observer,
-project and team roles, and a reviewer role. What a team or an org gives isn't expanded. Sam, newly added,
-holds only the tenant membership:
+project and team roles, and a reviewer role. What a team or an org gives
+isn't expanded. Sam, newly added, holds only the tenant membership:
 
 ```text
 WHERE   ROLE
@@ -228,6 +229,12 @@ In TypeScript, that's `users.list({ includeGrants: true })`, and in Python
 `identity.users.list(include="grants")`. Each person then carries `grants`,
 the same shape as their own grants read. A runtime without an authorization
 store lists the people without them.
+
+A person a site signs in holds what their site's sign-in gives them, so
+`grant` refuses them every one (`403 site-person-grants-managed`): change
+their role on the site instead.
+Their grants say so with `siteManaged: true`, and the table with a `site`
+row.
 
 Taking tenant admin away is refused in two cases:
 
@@ -285,7 +292,8 @@ npx --yes @kindgi/cli@0.1 people ungrant <user-id> --tenant-observer
 
 `ungrant --tenant-observer` makes them a member again: a person you add is
 always one of the two. A person a site signs in is neither, and isn't made
-the observer: their site gives their grants (`403 site-person-grants-managed`).
+the observer: their site gives their grants (`siteManaged`,
+`403 site-person-grants-managed`).
 Making someone the observer is refused (`409`) while they're one of these,
 until that's undone:
 
@@ -303,9 +311,14 @@ reviewer roster, given a role above `viewer` on a project, added to a team,
 or given a key someone else makes for them (`409 person-is-observer`).
 
 Only a runtime that checks access has an observer. On one without an
-authorization store, adding one answers `501 observer-not-served`.
+authorization store, adding one or making a member the observer answers
+`501 observer-not-served`, before anything is written.
 `GET /v1/identity/me/permissions` carries `tenant.observer` where the
 runtime has one, so a client offers the role only there.
+
+With an older runtime, `--observer` is refused and no one is added: the CLI
+reads `tenant.observer` first. A direct `POST /v1/identity/users` with
+`tenantRole` adds a member there, so check `tenant.observer` first.
 
 ## What you may do
 

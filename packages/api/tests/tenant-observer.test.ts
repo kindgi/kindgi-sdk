@@ -42,10 +42,27 @@ const TEAM = '00000000-0000-4000-8000-0000000000f1';
 /**
  * The tenant's people. Alice is a tenant admin on the reviewer roster;
  * Olive is the observer, a viewer on P1; Bob is an editor on P1; Carol a
- * viewer on P1; Dave is in a team; Rita is on the roster; Kim holds a
- * live key; Many holds a role above viewer on 25 projects.
+ * viewer on P1 whose key was revoked; Dave is in a team; Rita is on the
+ * roster; Kim holds a live key; Many holds a role above viewer on 25
+ * projects; Eve holds only a key that expired, and Fay one that expires
+ * later; Pat's live key is on the second page of their keys; Sam is a
+ * person a site signs in, an editor on P1 and on the roster, as their
+ * site's sign-in made them.
  */
-const PEOPLE = ['alice', 'olive', 'bob', 'carol', 'dave', 'rita', 'kim', 'many'] as const;
+const PEOPLE = [
+  'alice',
+  'olive',
+  'bob',
+  'carol',
+  'dave',
+  'rita',
+  'kim',
+  'many',
+  'eve',
+  'fay',
+  'pat',
+  'sam',
+] as const;
 const MANY_PROJECTS = Array.from({ length: 25 }, (_, i) => ({
   projectId: `00000000-0000-4000-8000-0000000001${String(i).padStart(2, '0')}`,
   role: 'editor' as const,
@@ -59,10 +76,12 @@ const OLIVE_SESSION_ON_P1 = 'static-olive-session-p1';
 function harness(options: { readonly allowAll?: boolean; readonly authorizer?: false } = {}) {
   const admins = new Set(['alice']);
   const observers = new Set(['olive']);
-  const reviewers = new Set(['alice', 'rita']);
+  const reviewers = new Set(['alice', 'rita', 'sam']);
+  const sitePeople = new Set(['sam']);
   const projects = new Map<string, { projectId: string; role: string }[]>([
     ['olive', [{ projectId: P1, role: 'viewer' }]],
     ['bob', [{ projectId: P1, role: 'editor' }]],
+    ['sam', [{ projectId: P1, role: 'editor' }]],
     ['carol', [{ projectId: P1, role: 'viewer' }]],
     ['many', MANY_PROJECTS],
   ]);
@@ -81,8 +100,32 @@ function harness(options: { readonly allowAll?: boolean; readonly authorizer?: f
       },
     ]),
   );
-  /** Kim's key is live; Carol's is revoked; Bob's expired. */
+  const key = (
+    userId: string,
+    n: number,
+    record: Partial<ApiTokenRecord> = {},
+  ): ApiTokenRecord => ({
+    tokenId: `k-${userId}-${String(n).padStart(3, '0')}` as ApiTokenId,
+    principal: { kind: 'user', userId },
+    role: 'member',
+    capabilities: [],
+    createdAt: new Date(Date.UTC(2026, 9, 1)),
+    ...record,
+  });
+  /**
+   * Kim's key is live; Carol's is revoked; Eve's expired; Fay's expires
+   * later. Pat's newest hundred are revoked, and the live one is older.
+   */
   const keys: ApiTokenRecord[] = [
+    key('eve', 1, { expiresAt: new Date(Date.UTC(2026, 9, 2)) }),
+    key('fay', 1, { expiresAt: new Date(Date.UTC(2099, 0, 1)) }),
+    key('pat', 0),
+    ...Array.from({ length: 100 }, (_, i) =>
+      key('pat', i + 1, {
+        createdAt: new Date(Date.UTC(2026, 9, 2, 0, i)),
+        revokedAt: new Date(Date.UTC(2026, 9, 3)),
+      }),
+    ),
     {
       tokenId: 'k-kim' as ApiTokenId,
       principal: { kind: 'user', userId: 'kim' },
@@ -97,14 +140,6 @@ function harness(options: { readonly allowAll?: boolean; readonly authorizer?: f
       capabilities: [],
       createdAt: new Date(Date.UTC(2026, 9, 1)),
       revokedAt: new Date(Date.UTC(2026, 9, 2)),
-    },
-    {
-      tokenId: 'k-bob' as ApiTokenId,
-      principal: { kind: 'user', userId: 'bob' },
-      role: 'member',
-      capabilities: [],
-      createdAt: new Date(Date.UTC(2026, 9, 1)),
-      expiresAt: new Date(Date.UTC(2026, 9, 2)),
     },
   ];
   /** Every key minted, every person created, every grant and membership written. */
@@ -171,9 +206,14 @@ function harness(options: { readonly allowAll?: boolean; readonly authorizer?: f
       };
       return { record, token: `kgi_ak_test_${minted.length}` };
     },
-    async list({ principal, limit }) {
+    // Newest first, strictly after `after`, as a store pages them.
+    async list({ principal, limit, after }) {
+      const order = (k: ApiTokenRecord) => `${k.createdAt.toISOString()} ${k.tokenId}`;
+      const from = after !== undefined ? `${after.createdAt.toISOString()} ${after.tokenId}` : '~';
       return keys
         .filter((k) => JSON.stringify(k.principal) === JSON.stringify(principal))
+        .sort((a, b) => order(b).localeCompare(order(a)))
+        .filter((k) => order(k) < from)
         .slice(0, limit);
     },
     async get({ tokenId }) {
@@ -211,8 +251,17 @@ function harness(options: { readonly allowAll?: boolean; readonly authorizer?: f
           projects: (projects.get(userId) ?? []) as PersonGrants['projects'],
           teams: teams.get(userId) ?? [],
           ...(reviewers.has(userId) && { reviewer: { role: 'standard' as const } }),
+          ...(sitePeople.has(userId) && { siteManaged: true as const }),
         }
       : null;
+  /**
+   * A site's person: the runtime's guard refuses every grant naming them,
+   * writing nothing. An ungrant takes nothing from them, so it passes.
+   */
+  const siteManaged = {
+    code: 'site-person-grants-managed',
+    message: 'their site gives it',
+  } as const;
   /** Grant and ungrant change what's held; one already held, or not held, is a no-op. */
   const held = (grant: PersonGrant) => (grant.kind === 'tenant-admin' ? admins : observers);
   const personGrants: PersonGrantsBinding = {
@@ -220,6 +269,7 @@ function harness(options: { readonly allowAll?: boolean; readonly authorizer?: f
       return grantsOf(userId);
     },
     async grant({ userId, grant }) {
+      if (sitePeople.has(userId)) return { kind: 'err', error: siteManaged };
       grantWrites.push(`grant ${grant.kind} ${userId}`);
       held(grant).add(userId);
       return { kind: 'ok', value: grantsOf(userId) as PersonGrants };
@@ -448,11 +498,62 @@ describe('making someone the observer, and a member again: the person grant `ten
     expect(h.grantWrites).toEqual(['grant tenant-observer carol', 'ungrant tenant-observer carol']);
   });
 
-  test('a revoked or an expired key is no live key', async () => {
+  test('a revoked or an expired key is no live key; one that expires later is', async () => {
     const h = harness();
-    expect((await grant(h, 'carol', 'tenant-observer')).status).toBe(200);
-    // Bob's only key expired; his project role is what refuses him.
-    expect(error(await grant(h, 'bob', 'tenant-observer'))?.code).toBe('person-holds-project-role');
+    // Carol's only key was revoked, and Eve's expired: they hold nothing else.
+    for (const who of ['carol', 'eve']) {
+      const r = await grant(h, who, 'tenant-observer');
+      expect(r.status, `${who}: ${JSON.stringify(r.body)}`).toBe(200);
+    }
+    const fay = await grant(h, 'fay', 'tenant-observer');
+    expect(fay.status).toBe(409);
+    expect(error(fay)).toMatchObject({ code: 'person-holds-keys', details: { userId: 'fay' } });
+    expect(h.grantWrites).toEqual(['grant tenant-observer carol', 'grant tenant-observer eve']);
+  });
+
+  test('a live key on a later page of their keys is found', async () => {
+    const h = harness();
+    const r = await grant(h, 'pat', 'tenant-observer');
+    expect(r.status, JSON.stringify(r.body)).toBe(409);
+    expect(error(r)?.code).toBe('person-holds-keys');
+    expect(h.grantWrites).toEqual([]);
+  });
+
+  test('a person a site signs in is left to the binding, which refuses every grant (403), whatever they hold', async () => {
+    const h = harness();
+    for (const kind of ['tenant-observer', 'tenant-admin']) {
+      const r = await grant(h, 'sam', kind);
+      expect(r.status, `${kind}: ${JSON.stringify(r.body)}`).toBe(403);
+      expect(error(r)?.code, kind).toBe('site-person-grants-managed');
+    }
+    expect(h.grantWrites).toEqual([]);
+    // Their grants say so.
+    const read = await h.call('alice', 'GET', '/v1/identity/users/sam/grants');
+    expect(read.body).toMatchObject({ siteManaged: true, reviewer: { role: 'standard' } });
+    const bob = await h.call('alice', 'GET', '/v1/identity/users/bob/grants');
+    expect(bob.body).not.toHaveProperty('siteManaged');
+    // An ungrant goes to the binding too, and its answer says so.
+    const ungranted = await h.call('alice', 'POST', '/v1/identity/users/sam/ungrant', {
+      kind: 'tenant-observer',
+    });
+    expect(ungranted.status, JSON.stringify(ungranted.body)).toBe(200);
+    expect(ungranted.body).toMatchObject({ siteManaged: true });
+  });
+
+  test('without an authorizer, `tenant-observer` is refused (501 observer-not-served) before anything is read; ungrant and tenant admin go to the binding', async () => {
+    const h = harness({ authorizer: false });
+    const r = await grant(h, 'carol', 'tenant-observer');
+    expect(r.status, JSON.stringify(r.body)).toBe(501);
+    expect(error(r)?.code).toBe('observer-not-served');
+    // Bob holds what an observer doesn't: no 409, since nothing was read.
+    expect(error(await grant(h, 'bob', 'tenant-observer'))?.code).toBe('observer-not-served');
+    expect(h.grantWrites).toEqual([]);
+    const back = await h.call('alice', 'POST', '/v1/identity/users/olive/ungrant', {
+      kind: 'tenant-observer',
+    });
+    expect(back.status, JSON.stringify(back.body)).toBe(200);
+    expect((await grant(h, 'carol', 'tenant-admin')).status).toBe(200);
+    expect(h.grantWrites).toEqual(['ungrant tenant-observer olive', 'grant tenant-admin carol']);
   });
 
   test('the observer, made the observer again, is the binding no-op it always was', async () => {

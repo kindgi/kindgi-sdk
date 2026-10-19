@@ -9657,6 +9657,12 @@ export const PersonGrantsSchema: JsonSchema = {
       items: { $ref: '#/components/schemas/PersonTeamRole' },
     },
     reviewer: { $ref: '#/components/schemas/PersonReviewerRole' },
+    siteManaged: {
+      type: 'boolean',
+      const: true,
+      description:
+        "A person a site signs in: their site's sign-in gives them what they hold, so every grant naming them is refused (`403 site-person-grants-managed`). Change their role on the site instead. Absent for everyone else, and where the runtime doesn't say.",
+    },
   },
 };
 

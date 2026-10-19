@@ -7065,7 +7065,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.grant',
     summary: "Make a person a tenant admin, or the tenant's observer",
     description:
-      "Written before the call answers, so the person's next request holds it. A no-op when held. `tenant-observer` makes the person the tenant's observer in place of a member, in one write, and their recorded role with it. The observer only views, so a person who holds what the observer doesn't is refused until that's undone by its own call: a tenant admin (`person-is-tenant-admin`), a person on the reviewer roster (`person-is-reviewer`), one who holds a role above `viewer` on a project (`person-holds-project-role`), one in a team (`person-in-team`), and one who holds a live API key (`person-holds-keys`). An observer isn't made a tenant admin (`person-is-observer`). Tenant admins only.",
+      "Written before the call answers, so the person's next request holds it. A no-op when held. `tenant-observer` makes the person the tenant's observer in place of a member, in one write, and their recorded role with it. The observer only views, so a person who holds what the observer doesn't is refused until that's undone by its own call: a tenant admin (`person-is-tenant-admin`), a person on the reviewer roster (`person-is-reviewer`), one who holds a role above `viewer` on a project (`person-holds-project-role`), one in a team (`person-in-team`), and one who holds a live API key (`person-holds-keys`). An observer isn't made a tenant admin (`person-is-observer`). A person a site signs in (`siteManaged` on their grants) is given neither: their site gives their grants (`site-person-grants-managed`). Tenant admins only.",
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -7083,7 +7083,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "The person was removed from the tenant (`identity-user-unregistered`); `tenant-admin` for the tenant's observer (`person-is-observer`); `tenant-observer` for a tenant admin (`person-is-tenant-admin`), a person on the reviewer roster (`person-is-reviewer`), one who holds a role above `viewer` on a project (`person-holds-project-role`, `details.projects` naming at most 20, `details.truncated` when there are more), one in a team (`person-in-team`, `details.teams` the same way) or one who holds a live API key (`person-holds-keys`); or an idempotency conflict. `details.userId` names the person.",
       ),
-      '501': ErrorResponse('The runtime has no authorization store (`person-grants-unsupported`).'),
+      '501': ErrorResponse(
+        "The runtime has no authorization store (`person-grants-unsupported`); or `tenant-observer` on a runtime that checks no one's access, which can't hold an observer to their projects (`observer-not-served`), asked before anything is read.",
+      ),
     },
   },
   {

@@ -2513,6 +2513,12 @@ export interface PersonGrants {
   }[];
   readonly teams: readonly { readonly teamId: string; readonly role: 'member' | 'admin' }[];
   readonly reviewer?: { readonly role: 'standard' | 'senior' | 'admin' };
+  /**
+   * A person a site signs in: their site's sign-in gives their grants, so
+   * `users.grant` refuses them every one (`403 site-person-grants-managed`).
+   * Change their role on the site instead. Absent for everyone else, and where the runtime doesn't say.
+   */
+  readonly siteManaged?: true;
 }
 
 /**

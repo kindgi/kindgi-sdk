@@ -16615,6 +16615,11 @@
           },
           "reviewer": {
             "$ref": "#/components/schemas/PersonReviewerRole"
+          },
+          "siteManaged": {
+            "type": "boolean",
+            "const": true,
+            "description": "A person a site signs in: their site's sign-in gives them what they hold, so every grant naming them is refused (`403 site-person-grants-managed`). Change their role on the site instead. Absent for everyone else, and where the runtime doesn't say."
           }
         }
       },
@@ -47250,7 +47255,7 @@
             }
           },
           "501": {
-            "description": "The runtime has no authorization store (`person-grants-unsupported`).",
+            "description": "The runtime has no authorization store (`person-grants-unsupported`); or `tenant-observer` on a runtime that checks no one's access, which can't hold an observer to their projects (`observer-not-served`), asked before anything is read.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47260,7 +47265,7 @@
             }
           }
         },
-        "description": "Written before the call answers, so the person's next request holds it. A no-op when held. `tenant-observer` makes the person the tenant's observer in place of a member, in one write, and their recorded role with it. The observer only views, so a person who holds what the observer doesn't is refused until that's undone by its own call: a tenant admin (`person-is-tenant-admin`), a person on the reviewer roster (`person-is-reviewer`), one who holds a role above `viewer` on a project (`person-holds-project-role`), one in a team (`person-in-team`), and one who holds a live API key (`person-holds-keys`). An observer isn't made a tenant admin (`person-is-observer`). Tenant admins only.",
+        "description": "Written before the call answers, so the person's next request holds it. A no-op when held. `tenant-observer` makes the person the tenant's observer in place of a member, in one write, and their recorded role with it. The observer only views, so a person who holds what the observer doesn't is refused until that's undone by its own call: a tenant admin (`person-is-tenant-admin`), a person on the reviewer roster (`person-is-reviewer`), one who holds a role above `viewer` on a project (`person-holds-project-role`), one in a team (`person-in-team`), and one who holds a live API key (`person-holds-keys`). An observer isn't made a tenant admin (`person-is-observer`). A person a site signs in (`siteManaged` on their grants) is given neither: their site gives their grants (`site-person-grants-managed`). Tenant admins only.",
         "parameters": [
           {
             "name": "userId",

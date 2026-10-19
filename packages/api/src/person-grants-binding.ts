@@ -40,6 +40,13 @@ export interface PersonGrants {
   readonly teams: readonly { readonly teamId: string; readonly role: TeamRole }[];
   /** The person's active entry on the reviewer roster. */
   readonly reviewer?: { readonly role: ReviewerRole };
+  /**
+   * A person a site signs in: their site's sign-in gives them what they
+   * hold, so the binding refuses every grant naming them
+   * (`site-person-grants-managed`), and the route leaves them to it.
+   * Absent for everyone else, and where the runtime doesn't say.
+   */
+  readonly siteManaged?: true;
 }
 
 /**

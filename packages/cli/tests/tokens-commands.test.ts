@@ -9,6 +9,8 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { KindgiApiError, fromWire } from '@kindgi/client';
+
 import { runCli } from '../src/main.js';
 
 let home: string;
@@ -70,6 +72,16 @@ const SECOND_FACTOR = {
 };
 const SETTINGS = { required: false, onPreviousSecret: 0, unusable: 0 };
 
+/** A tenant admin's permissions, on a runtime that holds the tenant's observer. */
+const PERMISSIONS = {
+  tenantId: 't-1',
+  tenant: { admin: true, member: true, observer: false },
+  tokenCapabilities: [],
+};
+/** A refusal as the client throws it. */
+const wireError = (code: string, status: number) =>
+  new KindgiApiError(fromWire({ code, message: `refused: ${code}`, details: {} }, status));
+
 /** What `users.*` answers, where a test needs another answer. */
 interface UsersAnswers {
   readonly create?: unknown;
@@ -77,6 +89,8 @@ interface UsersAnswers {
   readonly list?: unknown;
   readonly resendInvite?: unknown;
   readonly removeSecondFactor?: unknown;
+  /** What `identity.me.permissions()` answers, or throws. */
+  readonly permissions?: () => Promise<unknown>;
   readonly settings?: {
     readonly required: boolean;
     readonly onPreviousSecret: number;
@@ -104,6 +118,14 @@ async function run(argv: readonly string[], answers: UsersAnswers = {}) {
           list: rec('tokens.list', { data: [META], hasMore: false }),
           get: rec('tokens.get', META),
           revoke: rec('tokens.revoke', undefined),
+        },
+        identity: {
+          me: {
+            permissions: async () => {
+              calls.push(['identity.me.permissions']);
+              return answers.permissions !== undefined ? answers.permissions() : PERMISSIONS;
+            },
+          },
         },
         auth: {
           settings: {
@@ -352,11 +374,43 @@ describe('kindgi people', () => {
     ]);
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
+      ['identity.me.permissions'],
       ['users.create', { displayName: 'Carol', email: 'carol@acme.test', tenantRole: 'observer' }],
     ]);
     expect(out.stderr).toBe(
       "Added as the tenant's observer: give them a project role to view its agents and runs. An observer holds no key.\n",
     );
+  });
+
+  test('add --observer adds no one where the runtime holds no observer: an older one, or one that checks no access', async () => {
+    const add = ['people', 'add', '--name=Carol', '--observer'];
+    const older = { ...PERMISSIONS, tenant: { admin: true, member: true } };
+    for (const permissions of [
+      async () => older,
+      async () => {
+        throw wireError('not-found', 404);
+      },
+      async () => {
+        throw wireError('permissions-unsupported', 501);
+      },
+    ]) {
+      const { out, calls } = await run(add, { permissions });
+      expect(out.exitCode).not.toBe(0);
+      expect(calls).toEqual([['identity.me.permissions']]);
+      expect(out.stderr).toContain(
+        "--observer needs a runtime that holds the tenant's observer: a newer one, which checks access (it runs with an authorization store). No one was added.",
+      );
+    }
+    // Any other refusal is said as it is, and no one is added either.
+    const { out, calls } = await run(add, {
+      permissions: async () => {
+        throw wireError('database-busy', 503);
+      },
+    });
+    expect(out.exitCode).not.toBe(0);
+    expect(calls).toEqual([['identity.me.permissions']]);
+    expect(out.stderr).toContain('database-busy');
+    expect(out.stderr).not.toContain('No one was added');
   });
 
   test('add says where the invitation went, and when it expires', async () => {
@@ -496,6 +550,16 @@ describe("kindgi people: a person's grants", () => {
     expect(out.exitCode, out.stderr).toBe(0);
     expect(out.stdout).toMatch(/tenant\s+observer \(views only the projects it is given\)/);
     expect(out.stdout).not.toContain('member (reads its settings)');
+  });
+
+  test('grants as a table: a person a site signs in says their site gives them', async () => {
+    const { out } = await run(['people', 'grants', 'u-9', '--table'], {
+      grants: { ...GRANTS, siteManaged: true },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toMatch(/site\s+its sign-in gives these: change their role on the site/);
+    const other = await run(['people', 'grants', 'u-9', '--table']);
+    expect(other.out.stdout).not.toContain('sign-in gives these');
   });
 
   test('grant and ungrant tenant admin; nothing else is granted here', async () => {
