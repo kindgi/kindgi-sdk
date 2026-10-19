@@ -429,12 +429,19 @@ export type {
   ListEvidenceFilter,
 } from './resources/compliance.js';
 export type {
+  CheckDeploymentPromotionInput,
   Deployment,
   DeploymentPage,
+  DeploymentPromotion,
+  DeploymentPromotionCheck,
   DeploymentsClient,
+  DeploymentValue,
+  DeploymentValues,
+  DeploymentValuesClient,
   ListDeploymentsFilter,
   PackEnvNameStatus,
   PackEnvNames,
+  PromoteDeploymentInput,
   RegisterDeploymentInput,
   SyncSecretsInput,
   SyncSecretsResult,
@@ -785,6 +792,7 @@ export type {
   SupersedeFactInput,
   UpdateJudgeClassInput,
   Verdict,
+  GetLatestOptions,
 } from './types.js';
 
 export type {

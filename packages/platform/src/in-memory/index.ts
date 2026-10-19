@@ -8,6 +8,7 @@
  */
 
 export { makeInMemoryOrgBinding } from './org-binding.js';
+export type { InMemoryOrgBindingOptions } from './org-binding.js';
 export { makeInMemoryTeamBinding } from './team-binding.js';
 export { makeInMemoryProjectBinding } from './project-binding.js';
 export type { InMemoryHierarchyOptions } from './project-binding.js';

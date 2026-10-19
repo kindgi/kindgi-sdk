@@ -27,9 +27,12 @@ as `KINDGI_SEED_USER_ID`, are Kindgi's.
 - **Authorization is on** for your runtime
   ([Run with authorization](../authorization/)).
 - **You're a tenant admin,** such as the seed user.
-- **The `kindgi` CLI reaches your runtime as you:** `KINDGI_API_URL` is the
-  runtime's address, and `KINDGI_API_TOKEN` is your API key. The `curl`
-  examples read the same two variables.
+- **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
+  exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`. The
+  `curl` examples read the same two variables.
+- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.1` ([Install](../../start/install/)). Inside a pack
+  project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## Who can do what
 
@@ -37,8 +40,10 @@ as `KINDGI_SEED_USER_ID`, are Kindgi's.
   people, make keys for anyone, and change tenant-wide settings: providers,
   policies, signing keys, deployments and identity providers.
 - **A tenant member** reads the tenant's settings, not its projects: its
-  providers, policies, adapters, signing keys and deployments. Everyone you
-  add is one.
+  providers, policies, adapters and signing keys. Everyone you add is one.
+  A deployment is read in the project it serves: a member lists and reads
+  only those in projects they read. One deployed without a project is the
+  Default project's.
 - **A role on a project** gives the work in it: its agents, runs and
   conversations. The roles are `owner`, `admin`, `editor` and `viewer`
   ([Project memberships](../authorization/#project-memberships)).
@@ -64,7 +69,7 @@ Adding a person gives them a place in the tenant, so they can sign in and
 get keys:
 
 ```sh
-kindgi people add --name="Sam Rivera" --email=sam@acme.example
+npx --yes @kindgi/cli@0.1 people add --name="Sam Rivera" --email=sam@acme.example
 ```
 
 - `--name` is their name, as people see it.
@@ -158,7 +163,7 @@ with their email, or send it again. To send it again, open for 7 days from
 then:
 
 ```sh
-kindgi people invite <user-id>
+npx --yes @kindgi/cli@0.1 people invite <user-id>
 ```
 
 Someone who has joined, or was never invited, is refused with
@@ -177,7 +182,7 @@ The people invited who haven't signed in yet, with a STATE of `pending` or
 `expired`:
 
 ```sh
-kindgi people list --pending --table
+npx --yes @kindgi/cli@0.1 people list --pending --table
 ```
 
 To take an invitation back, [remove the person](#remove-a-person).
@@ -193,8 +198,8 @@ A tenant admin can do everything in the tenant. `grant` makes someone one,
 and `ungrant` takes it away:
 
 ```sh
-kindgi people grant <user-id> --tenant-admin
-kindgi people ungrant <user-id> --tenant-admin
+npx --yes @kindgi/cli@0.1 people grant <user-id> --tenant-admin
+npx --yes @kindgi/cli@0.1 people ungrant <user-id> --tenant-admin
 ```
 
 `<user-id>` is the person's id, as `kindgi people add` printed it. The grant
@@ -249,8 +254,8 @@ first admin stops being a tenant admin or is removed, and as a tenant
 admin, whoever holds it can make new keys with its capabilities:
 
 ```sh
-kindgi service-accounts create acme-deploy --description="Deploys" --tenant-admin
-kindgi tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=deploy --expires=90d
+npx --yes @kindgi/cli@0.1 service-accounts create acme-deploy --description="Deploys" --tenant-admin
+npx --yes @kindgi/cli@0.1 tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=deploy --expires=90d
 ```
 
 ## What you may do
@@ -304,7 +309,7 @@ On a runtime without an authorization store, it answers
 Everyone can make their own keys, for the API, the CLI and the SDKs:
 
 ```sh
-kindgi tokens create --label=laptop --expires=30d
+npx --yes @kindgi/cli@0.1 tokens create --label=laptop --expires=30d
 ```
 
 - `--label` is a name for the key, to tell your keys apart.
@@ -346,7 +351,7 @@ Make longer-lived keys with one of those, such as the 90-day key in
 A tenant admin made Sam's first key:
 
 ```sh
-kindgi tokens create --for=user:<user-id> --label=laptop --expires=30d
+npx --yes @kindgi/cli@0.1 tokens create --for=user:<user-id> --label=laptop --expires=30d
 ```
 
 ```text
@@ -370,7 +375,7 @@ kindgi tokens create --for=user:<user-id> --label=laptop --expires=30d
 ```
 
 ```sh
-kindgi tokens list --table
+npx --yes @kindgi/cli@0.1 tokens list --table
 ```
 
 ```text
@@ -405,7 +410,7 @@ so a tool that needs a person's yes when no one is watching waits for one
 Make one:
 
 ```sh
-kindgi service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:editor
+npx --yes @kindgi/cli@0.1 service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:editor
 ```
 
 - `acme-ci` is the account's name.
@@ -433,7 +438,7 @@ kindgi service-accounts create acme-ci --description="Deploys from CI" --project
 Then make it a key:
 
 ```sh
-kindgi tokens create --for=sa:<service-account-id> --label=ci --expires=90d
+npx --yes @kindgi/cli@0.1 tokens create --for=sa:<service-account-id> --label=ci --expires=90d
 ```
 
 `<service-account-id>` is the `serviceAccountId` that `create` printed.
@@ -464,7 +469,7 @@ A person's record and sessions are for a tenant admin, or that person.
 Removing a person ends all their access at once:
 
 ```sh
-kindgi people remove <user-id>
+npx --yes @kindgi/cli@0.1 people remove <user-id>
 ```
 
 ```text
@@ -487,7 +492,7 @@ Removed Sam Rivera: 1 key(s) and 0 session(s) revoked, 5 role(s) and membership(
 In one step, before it answers, their API keys are revoked, their sessions
 end, and every grant, membership and capability is taken away, with what
 their creates gave them: `owner` on each agent, flow, tool, guardrail and
-eval suite they made, and `admin` on an org they made (runtime 0.1.8.1 or
+eval suite they made, and `admin` on an org they made (runtime 0.1.9 or
 later). What they made stays. The tenant's admins still manage all of it,
 and an org's admins what's in their org; no one becomes its owner. The next
 request with Sam's key:
@@ -501,7 +506,7 @@ say who they were. Adding their email again makes a new person, with nothing
 granted.
 
 Schedules and webhook triggers they own stop running as them (runtime
-0.1.8.1 or later). Each fire is `refused` and counts toward pausing it:
+0.1.9 or later). Each fire is `refused` and counts toward pausing it:
 after 5 in a row that were refused or failed, it
 [pauses itself](../../guides/runs/run-on-a-schedule/#each-time-it-fires).
 The fire's `detail`, in `kindgi schedules fires` or `kindgi webhooks fires`,

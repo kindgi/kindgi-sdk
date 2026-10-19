@@ -38,6 +38,7 @@ export const ENV_DEFAULTS = {
   KINDGI_LICENSE_RENEWER_REF: 'none: expiry warnings print a placeholder in the renew command',
   KINDGI_ENV:
     'none: `local` in development mode, else no env (a tool that declares secrets or env values fails its calls)',
+  KINDGI_REFUSE_OTHER_ENVS: '`false`: a value or a registration under any env is taken',
   KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH:
     'none: in development mode a key generated at start; otherwise public run tokens are off',
   KINDGI_PUBLIC_TOKEN_SIGNING_KEY:
@@ -77,6 +78,8 @@ export const ENV_DEFAULTS = {
     'none (with `KINDGI_AUTH_TURNSTILE_SECRET_PATH` unset): no Turnstile check on emailed-link requests',
   KINDGI_AUTH_TURNSTILE_SECRET_PATH: 'none: no Turnstile secret file',
   KINDGI_AUTH_TURNSTILE_SITE_KEY: 'none: no Turnstile widget',
+  KINDGI_AUTH_TERMS_URL: 'none: the sign-in page links no terms',
+  KINDGI_AUTH_PRIVACY_URL: 'none: the sign-in page links no privacy policy',
   KINDGI_TRUSTED_PROXIES:
     "none: no trusted proxies; the connection's peer is the client address and `X-Forwarded-For` is ignored",
   KINDGI_SESSION_TTL_MS: '`43200000` (12 hours); at least `60000`',

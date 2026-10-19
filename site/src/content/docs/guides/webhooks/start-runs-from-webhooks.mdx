@@ -222,10 +222,40 @@ sender, and `--generate-secret` has your runtime make a signing secret, store
 it in the trigger's project, and show it once so you can paste it into the
 sender:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi webhooks register --flow=acme-shop.order-review --flow-version=0.1.0 \
+pnpm exec kindgi webhooks register --flow=acme-shop.order-review --flow-version=0.1.0 \
   --preset=woocommerce --secret=acme-woo-orders --generate-secret
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi webhooks register --flow=acme-shop.order-review --flow-version=0.1.0 \
+  --preset=woocommerce --secret=acme-woo-orders --generate-secret
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw webhooks register --flow=acme-shop.order-review --flow-version=0.1.0 \
+  --preset=woocommerce --secret=acme-woo-orders --generate-secret
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw webhooks register --flow=acme-shop.order-review --flow-version=0.1.0 \
+  --preset=woocommerce --secret=acme-woo-orders --generate-secret
+```
+
+</TabItem>
+</Tabs>
 
 It prints the trigger as JSON, then where to point the sender: the trigger's
 id, its **receive URL** (`https://<your runtime>/v1/hooks/<tenant id>/<webhook id>`),
@@ -334,9 +364,36 @@ when it has a secret.
 
 Each delivery is on record, with what it started or why it didn't:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi webhooks fires <trigger-id> --table
+pnpm exec kindgi webhooks fires <trigger-id> --table
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi webhooks fires <trigger-id> --table
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw webhooks fires <trigger-id> --table
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw webhooks fires <trigger-id> --table
+```
+
+</TabItem>
+</Tabs>
 
 `<trigger-id>` is the trigger's id, which `register` printed. `--table`
 prints a table instead of JSON. From the same WooCommerce run:
@@ -428,7 +485,7 @@ A delivery is data from outside. Its run says a webhook started it,
 - **It stays data in the conversation.** A later turn reads the delivery
   back from its history as an `<event>` block too, whoever starts that turn,
   so a person continuing the conversation reads it as data (it needs
-  runtime 0.1.8.1 or later: a message an earlier runtime kept reads as it
+  runtime 0.1.9 or later: a message an earlier runtime kept reads as it
   came).
 - **Every agent step of the run reads its message this way,** so put a
   step's task in the agent's instructions, not in its input.
@@ -463,7 +520,7 @@ A run an event trigger starts reads the same, with `startedBy: "event"`.
   instance that took the rotation, and within 10 seconds on the others.
 - **`kindgi webhooks take-ownership <trigger-id>`:** for a trigger whose owner
   left. Once they're removed from the tenant, its deliveries are refused
-  (runtime 0.1.8.1 or later). After 5 deliveries in a row that were refused
+  (runtime 0.1.9 or later). After 5 deliveries in a row that were refused
   or failed, a trigger pauses itself, with the reason in its `statusReason`:
   take it over, then `kindgi webhooks resume <trigger-id>`. Its runs act as
   you from the next delivery. This needs `admin` on the project and `execute`

@@ -17,6 +17,7 @@ import { devCommand } from './dev.js';
 import { doctorCommand } from './doctor.js';
 import { egressCommand } from './egress.js';
 import { envCommand } from './env.js';
+import { environmentsCommand } from './environments.js';
 import { evalRunsCommand } from './eval-runs.js';
 import { evalSuitesCommand } from './eval-suites.js';
 import { exportsCommand } from './exports.js';
@@ -35,6 +36,7 @@ import { memoryCommand } from './memory.js';
 import { observationsCommand } from './observations.js';
 import { peopleCommand } from './people.js';
 import { projectsCommand } from './projects.js';
+import { promoteCommand } from './promote.js';
 import { proposalsCommand } from './proposals.js';
 import { provenanceCommand } from './provenance.js';
 import { providersCommand } from './providers.js';
@@ -64,8 +66,10 @@ export const ROOT_COMMANDS: readonly Command[] = [
   buildCommand,
   deployCommand,
   deploymentsCommand,
+  promoteCommand,
   testCommand,
   envCommand,
+  environmentsCommand,
   secretsCommand,
   ssoCommand,
   signInCommand,

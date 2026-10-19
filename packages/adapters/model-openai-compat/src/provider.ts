@@ -22,6 +22,7 @@ import type {
 } from '@kindgi/capabilities';
 import { adapterConfigError, samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
+import { createClientsByKey } from '@kindgi/capabilities/clients-by-key';
 import { nameToolsAsSent, toolIdsBySentName } from '@kindgi/capabilities/tool-names';
 import { bearerValueProblem } from '@kindgi/types';
 
@@ -154,9 +155,12 @@ export function createOpenAICompatModelProvider(
   }
   const extraBody = options.extraBody ?? {};
   const modelsByName = new Map<string, ModelInfo>(metadata.models.map((m) => [m.name, m] as const));
-  // One client per key: reused while the resolver returns the same key
-  // (the SDK keeps its connection pool), rebuilt when it rotates.
-  let cached: { readonly key: string; readonly client: OpenAI } | undefined;
+  // One client per key, reused while the resolver returns that key, so a call
+  // doesn't build one (connections live in the `fetch` every client sends
+  // with, so they're kept either way): calls whose keys take turns (a run in
+  // each of two projects with keys of their own) each reuse their own; a
+  // rotated key builds a new one.
+  const clients = createClientsByKey<OpenAI>();
   // Counts each call's HTTP attempts, the adapter's own retries included
   // (`sendWithRetries`), through the `fetch` the client sends with.
   const attempts = createAttemptCounter(options.clientOptions?.fetch);
@@ -175,19 +179,20 @@ export function createOpenAICompatModelProvider(
         `${OPENAI_COMPAT_ADAPTER_ID}: provider "${metadata.id}": its API key has ${problem}, which a header can't carry: store the secret without it`,
       );
     }
-    if (cached !== undefined && cached.key === key) return cached.client;
-    const client = new OpenAI({
-      apiKey: key,
-      baseURL: options.baseURL,
-      ...SERVER_ENV_NEVER,
-      ...(options.clientOptions ?? {}),
-      // The adapter retries (`sendWithRetries`); the SDK must not, or a refused
-      // connection would be tried again before the adapter could classify it.
-      maxRetries: 0,
-      fetch: attempts.fetch,
-    });
-    cached = { key, client };
-    return client;
+    return clients.get(
+      key,
+      () =>
+        new OpenAI({
+          apiKey: key,
+          baseURL: options.baseURL,
+          ...SERVER_ENV_NEVER,
+          ...(options.clientOptions ?? {}),
+          // The adapter retries (`sendWithRetries`); the SDK must not, or a refused
+          // connection would be tried again before the adapter could classify it.
+          maxRetries: 0,
+          fetch: attempts.fetch,
+        }),
+    );
   }
 
   return {

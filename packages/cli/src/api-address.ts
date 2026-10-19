@@ -15,13 +15,16 @@
  * - **Every command** that sends the key to the CLI's own address
  *   (`ctx.client()`, `ctx.token()`): `ownAddressKeyRefusal`.
  *
- * - **Hosted** (`--hosted`, or the env block's `build: 'hosted'`): the API
+ * - **Hosted** (`--hosted`, or the env block's `build: 'hosted'` for the
+ *   env the command acts in: `hostedScope`), on every command: the API
  *   is the CLI's own address (`--url`, KINDGI_API_URL or the stored one),
  *   whatever key it goes with. An address named elsewhere may only repeat
- *   it, and with no own address there's nothing to build at. A folder's
+ *   it, and with no own address there's nothing to go to. A folder's
  *   .kindgirc.json for a `kindgi dev` runtime (`kindgi dev` wrote it, or
  *   it's at a loopback address) isn't read, address or key: a dev
- *   runtime is never a hosted target.
+ *   runtime is never a hosted target. A command that isn't hosted and
+ *   goes to that runtime says so first when another address is in reach
+ *   (`devRuntimeHint`).
  * - **A deploy to a runtime of your own:** `--endpoint`, else the env
  *   block's `endpoint`, else the CLI's own address. A key given for the
  *   command (`--token`, or an exported KINDGI_API_TOKEN) may go to any of
@@ -89,17 +92,7 @@ export function hostedApiAddress(
 ): ApiAddress {
   const hosted = config.devRuntime?.without ?? config;
   const own = hosted.apiUrl;
-  if (own === undefined || own === '') {
-    const dev = config.devRuntime;
-    const at = dev?.apiUrl === undefined ? '' : ` (${dev.apiUrl})`;
-    const unread =
-      dev === undefined
-        ? ''
-        : ` ${dev.file} points this folder at a \`kindgi dev\` runtime${at}, which isn't a hosted target, so ${command} doesn't read it.`;
-    return refused(
-      `${command} goes to the API your key is for, and no API address is set.${unread} Run \`kindgi auth login --url <url> --token <its key>\`, export KINDGI_API_URL, or pass --url <url>.`,
-    );
-  }
+  if (own === undefined || own === '') return refused(hostedNoAddress(command, config));
   const keyElsewhere = storedKeyRefusal(command, hosted, own, ownWhere(hosted), false);
   if (keyElsewhere !== undefined) return refused(keyElsewhere);
   const other = named.find((n) => given(n.url) && !sameAddress(n.url as string, own));
@@ -114,21 +107,114 @@ export function hostedApiAddress(
 }
 
 /**
+ * Why a hosted command has nowhere to go: no own address is set, and a
+ * folder's .kindgirc.json for a `kindgi dev` runtime, if there's one,
+ * isn't read.
+ */
+export function hostedNoAddress(command: string, config: ResolvedConfig): string {
+  const dev = config.devRuntime;
+  const at = dev?.apiUrl === undefined ? '' : ` (${dev.apiUrl})`;
+  const unread =
+    dev === undefined
+      ? ''
+      : ` ${dev.file} points this folder at a \`kindgi dev\` runtime${at}, which isn't a hosted target, so ${command} doesn't read it.`;
+  return `${command} goes to the API your key is for, and no API address is set.${unread} Run \`kindgi auth login --url <url> --token <its key>\`, export KINDGI_API_URL, or pass --url <url>.`;
+}
+
+/** Whether a command is hosted, and the config it goes on with. */
+export interface HostedScope {
+  /** `--hosted`, or the env the command acts in has `build: 'hosted'`. */
+  readonly hosted: boolean;
+  /** The config, without a `kindgi dev` runtime's .kindgirc.json when hosted (`hostedConfig`). */
+  readonly config: ResolvedConfig;
+}
+
+export interface HostedScopeInputs {
+  readonly config: ResolvedConfig;
+  /** `--hosted`. */
+  readonly flag: boolean;
+  /** The env the command acts in (`--env`, else its default); `undefined` when none applies. */
+  readonly envName: string | undefined;
+  /**
+   * Read the env block whether or not a `kindgi dev` runtime's
+   * .kindgirc.json is here: for a command whose run hosted changes, not
+   * only its address (`kindgi build`, `kindgi deploy`).
+   */
+  readonly always: boolean;
+  /** Whether the pack's env block says `build: 'hosted'`; `false` with no pack config, or a broken one. */
+  readonly envIsHosted: (envName: string) => Promise<boolean>;
+}
+
+/**
+ * The one hosted rule, for every command: `--hosted`, or the env the
+ * command acts in has `build: 'hosted'`. Hosted, the command goes on the
+ * config without a `kindgi dev` runtime's .kindgirc.json. Elsewhere the
+ * env block can only change the address when such a file is here, so it's
+ * read only then, unless `always`.
+ */
+export async function hostedScope(inputs: HostedScopeInputs): Promise<HostedScope> {
+  const { config, envName } = inputs;
+  const hosted =
+    inputs.flag ||
+    (envName !== undefined &&
+      (inputs.always || config.devRuntime !== undefined) &&
+      (await inputs.envIsHosted(envName)));
+  return { hosted, config: hosted ? hostedConfig(config) : config };
+}
+
+/**
+ * The config a hosted command goes on with: the one resolved without a
+ * `kindgi dev` runtime's .kindgirc.json (`devRuntime.without`), the file
+ * still known, so `ctx.config`, `ctx.client()` and `ctx.token()` agree.
+ */
+export function hostedConfig(config: ResolvedConfig): ResolvedConfig {
+  const dev = config.devRuntime;
+  return dev === undefined ? config : { ...dev.without, devRuntime: dev };
+}
+
+/**
+ * The line a command that isn't hosted prints first when it sends a key
+ * to the `kindgi dev` runtime this folder's .kindgirc.json names, and
+ * another address is in reach: a stored sign-in for another address
+ * (`--hosted` goes there), or a key given for the command (its own
+ * address needs naming). `undefined` when the address was named for the
+ * command (`--url`, KINDGI_API_URL), or nothing else is in reach.
+ */
+export function devRuntimeHint(command: string, config: ResolvedConfig): string | undefined {
+  const dev = config.devRuntime;
+  const url = config.apiUrl;
+  if (dev === undefined || url === undefined || config.files?.apiUrl?.path !== dev.file) {
+    return undefined;
+  }
+  const goes = `${command} goes to the kindgi dev runtime at ${url} (${dev.file} says so).`;
+  const other = dev.without.apiUrl;
+  if (given(other) && !sameAddress(other as string, url)) {
+    return `${goes} For ${other}, pass --hosted.\n`;
+  }
+  if (config.source.token === 'flag' || config.source.token === 'env') {
+    return `${goes} To send it to the address your key is for, pass --url <that address> or export KINDGI_API_URL.\n`;
+  }
+  return undefined;
+}
+
+/**
  * A deploy's API: the first of `named` that's given, else the CLI's own
  * address; `undefined` when there's none. A stored key goes only to the
  * address stored with it; a key given for the command goes where the
- * command says.
+ * command says. `command` names the command in the refusal (`kindgi
+ * promote` goes where a deploy does).
  */
 export function deployApiAddress(
   config: ResolvedConfig,
   named: readonly NamedAddress[],
+  command = 'kindgi deploy',
 ): ApiAddress | undefined {
   const chosen = named.find((n) => given(n.url));
   const url = chosen?.url ?? config.apiUrl;
   if (url === undefined || url === '') return undefined;
   const keyed = keyedFor(config, url);
   const keyElsewhere = storedKeyRefusal(
-    'kindgi deploy',
+    command,
     keyed,
     url,
     chosen?.where ?? ownWhere(config),

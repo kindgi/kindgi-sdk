@@ -24,6 +24,7 @@
  *   - `signEnvelope` — returns a canned signature.
  */
 
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -595,6 +596,29 @@ describe('kindgi build --hosted', () => {
       packId: undefined,
     });
     expect(selfHosted.state.streamAuthorizations).toEqual([undefined]);
+  });
+
+  test("--env=prod with prod's `build: 'hosted'` and no `kindgi dev` file here: hosted, the env block read all the same", async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(
+        fixtures,
+        { env: loggedIn },
+        {
+          environments: {
+            prod: { build: 'hosted', signingKey: join(home, 'signing-key.pem'), tenantId: 't-1' },
+          },
+        },
+      ),
+      argv: ['build', '--env=prod', `--path=${packDir}`],
+    });
+    expect(existsSync(join(cwd, '.kindgirc.json'))).toBe(false);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.capturedPostBody).toMatchObject({
+      endpoint: `${API}/cloud`,
+      authorization: `Bearer ${KEY}`,
+    });
+    expect(out.stderr).toContain(`Build:       hosted (${API}/cloud)`);
   });
 
   test("an env block's `endpoint` other than the CLI's own address is refused, naming both; nothing is built", async () => {

@@ -12,7 +12,7 @@ deployment chooses which ones ([Turn on sign-in](../../../deploy/self-hosted/sig
 
 ## Your email first
 
-Enter your work email and **Continue**. The page then lists, under **Choose
+Enter your email and **Continue**. The page then lists, under **Choose
 how to sign in:**
 
 - **Sign in with** your workspace's own identity provider, first, when your
