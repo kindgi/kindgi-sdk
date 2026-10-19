@@ -380,7 +380,7 @@ describe('kindgi promote', () => {
       pages: [{ data: [deployment('dep-a'), deployment('dep-b')], hasMore: false }],
     });
     expect(out.exitCode).not.toBe(0);
-    expect(out.stderr).toContain('needs a runtime on Kindgi 0.1.8.1 or later');
+    expect(out.stderr).toContain('needs a runtime on Kindgi 0.1.9 or later');
     expect(named(calls, 'promoteCheck')).toEqual([]);
   });
 

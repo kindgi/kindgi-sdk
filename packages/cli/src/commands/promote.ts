@@ -192,7 +192,7 @@ async function servingIn(client: KindgiClient, projectId: string, packId: string
     // A runtime from before these filters ignores them and lists every deployment.
     if (page.projectId !== projectId || page.packId !== packId) {
       throw new Error(
-        "`kindgi promote` needs a runtime on Kindgi 0.1.8.1 or later: this one doesn't list deployments by environment and pack.",
+        "`kindgi promote` needs a runtime on Kindgi 0.1.9 or later: this one doesn't list deployments by environment and pack.",
       );
     }
     for (const d of page.data) (retiredReason(d) === undefined ? serving : retired).push(d);

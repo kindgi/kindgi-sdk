@@ -68,7 +68,7 @@ clipboard command:
 | Windows | use the fallback (next paragraph) | |
 
 Before you pipe the clipboard, check it isn't empty, without printing it:
-`[ -n "$(pbpaste)" ]` (with this OS's command). If the clipboard command
+`pbpaste | grep -q .` (with this OS's command). If the clipboard command
 fails (on a server, over SSH or in a container there's no clipboard) or the
 clipboard is empty, use the fallback: the person runs the command in their
 own terminal, where it asks for the value without showing it. On Windows,
@@ -273,15 +273,16 @@ and agents for this project.
 ## Step 3: start Kindgi
 
 Start `kindgi dev` from the project's folder so that it keeps running after
-your turn ends, with its output in `.kindgi/dev.log` (`.kindgi/` is
-git-ignored). Run `mkdir -p .kindgi` first, on its own, so the log's
-folder exists. Then:
+your turn ends:
 
 - **If your tool runs commands in the background itself** (Claude Code's
-  background tasks do), start it that way: `kindgi dev`, as a background
-  task, with its output in `.kindgi/dev.log`, and no `&` or `nohup`: the
-  task is in the background already. Your tool can stop it.
-- **Otherwise,** start it detached, and note its process id:
+  background tasks do), start it that way: `kindgi dev` (the project's form
+  of the CLI) on its own, as a background task, with no `&`, `nohup` or
+  redirect. The task is in the background already, and your tool keeps its
+  output. Your tool can stop it.
+- **Otherwise,** start it detached, with its output in `.kindgi/dev.log`
+  (`.kindgi/` is git-ignored), and note its process id. Run
+  `mkdir -p .kindgi` first, on its own, so the log's folder exists. Then:
 
   ```sh
   nohup pnpm exec kindgi dev > .kindgi/dev.log 2>&1 &
@@ -302,9 +303,10 @@ Run doctor every few seconds until `runtime` passes. `model-key` and
 it's running, and how to stop it: `kill <the process id>`, or, if your
 tool started it, how your tool stops it. If your tool's background tasks end
 with your session, tell them `kindgi dev` stops then too. Also tell them
-where the console is: the `Console` line of `.kindgi/dev.log`, its first
-address (`kindgi doctor --json` has it as `consoleUrl`, and `kindgi console`
-opens it in their browser). They sign in there with **Sign in as seeded
+where the console is: the `Console` line of `kindgi dev`'s output (in
+`.kindgi/dev.log` if you started it detached), its first address
+(`kindgi doctor --json` has it as `consoleUrl`, and `kindgi console` opens
+it in their browser). They sign in there with **Sign in as seeded
 user**, which needs no token: don't print the token in the chat.
 
 ## Step 4: the model key

@@ -740,7 +740,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_EGRESS_SERVER_ADDRESSES',
     description:
-      "Used from runtime 0.1.8.1; earlier runtimes ignore it. The IP addresses this server's own calls to other sites come from, such as its calls to MCP servers and model providers, and its webhook deliveries: comma-separated IPv4 or IPv6 addresses, such as your NAT's. It publishes them for a site that admits only known addresses: `GET /v1/tenant` shows them to every tenant as `egress.server`, and `kindgi egress` prints them. It changes nothing about where calls go or come from, so set it only once calls really come from these addresses. A value that isn't an IP address stops the server from starting.",
+      "Used from runtime 0.1.9; earlier runtimes ignore it. The IP addresses this server's own calls to other sites come from, such as its calls to MCP servers and model providers, and its webhook deliveries: comma-separated IPv4 or IPv6 addresses, such as your NAT's. It publishes them for a site that admits only known addresses: `GET /v1/tenant` shows them to every tenant as `egress.server`, and `kindgi egress` prints them. It changes nothing about where calls go or come from, so set it only once calls really come from these addresses. A value that isn't an IP address stops the server from starting.",
     example: '192.0.2.10',
     required: false,
     appliesTo: appliesToServer,
@@ -749,7 +749,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_EGRESS_DEPLOYMENT_ADDRESSES',
     description:
-      "Used from runtime 0.1.8.1; earlier runtimes ignore it. The IP addresses calls made by the code deployed to this server come from: comma-separated IPv4 or IPv6 addresses. As with `KINDGI_EGRESS_SERVER_ADDRESSES`, it only publishes them: `GET /v1/tenant` shows them to every tenant as `egress.deployments`, and `kindgi egress` prints them. A value that isn't an IP address stops the server from starting.",
+      "Used from runtime 0.1.9; earlier runtimes ignore it. The IP addresses calls made by the code deployed to this server come from: comma-separated IPv4 or IPv6 addresses. As with `KINDGI_EGRESS_SERVER_ADDRESSES`, it only publishes them: `GET /v1/tenant` shows them to every tenant as `egress.deployments`, and `kindgi egress` prints them. A value that isn't an IP address stops the server from starting.",
     example: '198.51.100.20,198.51.100.21',
     required: false,
     appliesTo: appliesToServer,
@@ -974,7 +974,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_TEMPLATE_RENDER_WORKERS',
     description:
-      "Used from runtime 0.1.8.1; earlier runtimes ignore it. How many worker processes the server renders a turn's instruction template in, off the thread that runs the turn. Default 1 on a runtime serving many tenants (`KINDGI_TENANCY=multi`): one worker process, started at the first render and shared across turns; a higher count lets several templates render at once. Default 0 on a runtime serving one: the template renders in the server process, as before, and no worker starts. A runtime serving one tenant gives a render no time limit: with workers turned on there, a render that never ends holds its worker until a restart, and the turns after it wait for a free worker. Each worker holds about 67 MiB at rest, and up to its heap cap (`KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB`) under load. A value that isn't a whole number of at least 0 stops the server at boot, naming this variable (exit code 2).",
+      "Used from runtime 0.1.9; earlier runtimes ignore it. How many worker processes the server renders a turn's instruction template in, off the thread that runs the turn. Default 1 on a runtime serving many tenants (`KINDGI_TENANCY=multi`): one worker process, started at the first render and shared across turns; a higher count lets several templates render at once. Default 0 on a runtime serving one: the template renders in the server process, as before, and no worker starts. A runtime serving one tenant gives a render no time limit: with workers turned on there, a render that never ends holds its worker until a restart, and the turns after it wait for a free worker. Each worker holds about 67 MiB at rest, and up to its heap cap (`KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB`) under load. A value that isn't a whole number of at least 0 stops the server at boot, naming this variable (exit code 2).",
     example: '1',
     required: false,
     appliesTo: appliesToServer,
@@ -983,7 +983,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB',
     description:
-      "Used from runtime 0.1.8.1; earlier runtimes ignore it. Each template-render worker process's old-space heap cap, in MiB (`--max-old-space-size`), when `KINDGI_TEMPLATE_RENDER_WORKERS` is 1 or more; unused when it is 0. Default 128. A value that isn't a whole number of at least 1 stops the server at boot, naming this variable (exit code 2).",
+      "Used from runtime 0.1.9; earlier runtimes ignore it. Each template-render worker process's old-space heap cap, in MiB (`--max-old-space-size`), when `KINDGI_TEMPLATE_RENDER_WORKERS` is 1 or more; unused when it is 0. Default 128. A value that isn't a whole number of at least 1 stops the server at boot, naming this variable (exit code 2).",
     example: '128',
     required: false,
     appliesTo: appliesToServer,
