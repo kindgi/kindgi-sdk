@@ -65,6 +65,14 @@ export interface ConversationMessage {
    * messages while the reviewer sees who was actually authoring.
    */
   readonly actor?: string;
+  /**
+   * The message came from outside: a turn's message in a run a webhook or
+   * an event started. Kept as it came, and read back as data in every
+   * later turn's history (an `<event>` block), whoever started that turn.
+   * A message from before the mark was kept has none, and reads as it
+   * came.
+   */
+  readonly fromEvent?: true;
   readonly createdAt: Timestamp;
 }
 
@@ -280,6 +288,13 @@ export interface ConversationPolicy {
  */
 export type { ToolHitlMode, ToolHitlRule } from '@kindgi/policy-contract';
 
+/** Four eyes per tool: `default` for every gated tool, `overrides` keyed by ToolId. */
+export interface SeparateApproverPolicy {
+  /** For every gated tool without an entry in `overrides`. Absent = `false`. */
+  readonly default?: boolean;
+  readonly overrides?: Readonly<Record<string, boolean>>;
+}
+
 export interface ConversationHitlPolicy {
   /**
    * Session-turn count gate: once the conversation has this many
@@ -312,6 +327,15 @@ export interface ConversationHitlPolicy {
    * gates. Absent = `'standard'`.
    */
   readonly defaultReviewerRole?: 'standard' | 'senior' | 'admin';
+  /**
+   * Four eyes on tool calls: whether the person whose turn asked for a
+   * call may also approve it. `true` (or `false`) for every gated tool, or
+   * per tool, keyed by ToolId as in `tools`. A tool's approval then needs
+   * a reviewer other than the person who asked
+   * (`separate-approver-required` refuses their own approve). Absent =
+   * `false`: whoever asked may approve, as before.
+   */
+  readonly separateApprover?: boolean | SeparateApproverPolicy;
   /**
    * Timeout the approval carries at enqueue time. Absent = the
    * framework default (24h). A tenant policy's `maxTimeoutMs` caps it
@@ -581,6 +605,13 @@ export interface Conversation {
    * and on those from before it was stored.
    */
   readonly projectId?: ProjectId;
+  /**
+   * Who opened it: the caller's principal (`user:<id>`,
+   * `service_account:<id>`), or, for one a turn opened, whoever the run
+   * acts for. Absent on conversations opened before it was kept, and when
+   * the caller had no principal.
+   */
+  readonly openedBy?: string;
   /** Additional attributes (project id, matter id, etc.). */
   readonly scope: MemoryScope;
   readonly openedAt: Timestamp;

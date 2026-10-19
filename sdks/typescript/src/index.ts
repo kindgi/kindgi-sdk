@@ -116,6 +116,12 @@ export type {
   EnvSetOutcome,
 } from './resources/env.js';
 export type {
+  Environment,
+  EnvironmentsClient,
+  EnvironmentsListInput,
+  EnvironmentsPage,
+} from './resources/environments.js';
+export type {
   PollingOverrides,
   RawRotationResponse,
   RotationOutcome,
@@ -144,6 +150,7 @@ export type {
 } from './resources/guardrails.js';
 export type {
   ConversationFilter,
+  ConversationPage,
   ConversationsClient,
   MessageFilter,
 } from './resources/conversations.js';
@@ -181,6 +188,7 @@ export type {
 export type {
   PoliciesClient,
   PolicyListFilter,
+  PolicyVersionRow,
   PolicyVersionsFilter,
 } from './resources/policies.js';
 export type {
@@ -247,6 +255,21 @@ export type {
   JudgingRulesClient,
   JudgingRuleWhen,
 } from './resources/judging.js';
+export type {
+  EnrollSiteBody,
+  EnrollSiteResult,
+  RegisterSiteBody,
+  RegisterSiteResult,
+  Site,
+  SiteCollectionPage,
+  SiteEnrollmentCode,
+  SiteKey,
+  SiteRoleGrant,
+  SiteSignInBody,
+  SiteSignInResult,
+  SitesClient,
+  UpdateSiteBody,
+} from './resources/sites.js';
 export type {
   CreateOrgInput,
   ListOrgsFilter,
@@ -370,12 +393,16 @@ export type {
 export type {
   DeploymentEndpointProblemSpec,
   PackEndpointSpec,
+  PackEnvRecordSpec,
   PackSuspension,
   PackSuspensionSpec,
   SystemDeploymentEntry,
   SystemDeploymentPage,
   SystemDeploymentsClient,
   SystemDeploymentsWanted,
+  SystemPackEnv,
+  SystemPackEnvEntry,
+  SystemPackEnvPage,
 } from './resources/system-deployments.js';
 export type {
   CreatedSystemTenant,
@@ -411,10 +438,19 @@ export type {
   ListEvidenceFilter,
 } from './resources/compliance.js';
 export type {
+  CheckDeploymentPromotionInput,
   Deployment,
   DeploymentPage,
+  DeploymentPromotion,
+  DeploymentPromotionCheck,
   DeploymentsClient,
+  DeploymentValue,
+  DeploymentValues,
+  DeploymentValuesClient,
   ListDeploymentsFilter,
+  PackEnvNameStatus,
+  PackEnvNames,
+  PromoteDeploymentInput,
   RegisterDeploymentInput,
   SyncSecretsInput,
   SyncSecretsResult,
@@ -485,14 +521,23 @@ export type {
   IdentityUser,
   IdentityUserPage,
   IdentityUsersClient,
+  IdentityMeSecondFactorClient,
   ListIdentityUsersFilter,
   MyPermissions,
   RevokeSessionsOutcome,
+  SecondFactorKey,
+  SecondFactorProof,
+  SecondFactorRecoveryCodes,
+  SecondFactorRemoved,
+  SecondFactorStatus,
   WhoamiInfo,
 } from './resources/identity.js';
 export type {
   AuthClient,
   AuthProvidersClient,
+  AuthSettings,
+  AuthSettingsClient,
+  AuthSettingsPatch,
   IdentityProviderPage,
   IdentityProviderRegisterInput,
   IdentityProviderRegisterOutcome,
@@ -581,6 +626,9 @@ export type {
   GetArtifactResult,
   InstallationId,
   InstalledPack,
+  InviteEmail,
+  InviteEmailUnsent,
+  InviteRenewed,
   Filter,
   FixProposal,
   FixProposalId,
@@ -740,7 +788,9 @@ export type {
   UsageRecord,
   UsageSummary,
   User,
+  UserCreated,
   UserId,
+  UserInvite,
   UserPatch,
   UserSpec,
   WaitResumedEvent,
@@ -751,6 +801,7 @@ export type {
   SupersedeFactInput,
   UpdateJudgeClassInput,
   Verdict,
+  GetLatestOptions,
 } from './types.js';
 
 export type {

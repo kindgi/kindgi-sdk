@@ -15,7 +15,8 @@
     is still running on the server, and the idempotency key doesn't hold
     while it runs, so a repeat could run it again (a run started twice).
 - A 2xx answer is validated into the operation's model; anything else
-  raises a typed `KindgiApiError`.
+  raises a typed `KindgiApiError`. Its enums and tagged unions are read open,
+  so a newer runtime's value parses; a request body is sent closed (`_open`).
 - A stream (`text/event-stream`) reconnects with `Last-Event-Id` after a
   drop (backoff 0.5 s → 30 s, up to 10 attempts) and ends when the server
   closes it.
@@ -39,6 +40,7 @@ from pydantic import ValidationError as PydanticError
 
 from .._version import __version__
 from ._errors import KindgiApiError, NetworkError, from_wire
+from ._open import SEND
 from ._sse import SseParser
 
 __all__ = ["AsyncClientBase", "Operation", "SyncClientBase", "_body", "_segments"]
@@ -84,15 +86,20 @@ def _segments(path: Sequence[BaseModel | Mapping[str, Any]] | None) -> list[str]
 
 
 def _body(model: Any, body: Any, fields: Mapping[str, Any]) -> Any:
-    """The wire JSON of a request body given as a model, a mapping, or keyword fields."""
+    """The wire JSON of a request body given as a model, a mapping, or keyword fields.
+
+    Validated again as sent (`_open.SEND`): a value a response enum doesn't know, or a
+    union's unrecognized member (one read from a newer runtime), is refused here, as a
+    closed `Literal` refuses it, at any depth.
+    """
     if body is not None and fields:
         raise TypeError("pass the body, or its fields as keywords — not both")
     value = body if body is not None else dict(fields)
-    if isinstance(value, BaseModel):
-        return value.model_dump(mode="json", by_alias=True, exclude_unset=True)
-    adapter = _adapter(model)
+    adapter = _adapter(type(value) if isinstance(value, BaseModel) else model)
+    read = value if isinstance(value, BaseModel) else adapter.validate_python(value)
+    wire = adapter.dump_python(read, mode="json", by_alias=True, exclude_unset=True)
     return adapter.dump_python(
-        adapter.validate_python(value), mode="json", by_alias=True, exclude_unset=True
+        adapter.validate_python(wire, context=SEND), mode="json", by_alias=True, exclude_unset=True
     )
 
 

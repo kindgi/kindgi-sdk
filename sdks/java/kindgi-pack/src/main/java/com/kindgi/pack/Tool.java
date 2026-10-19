@@ -47,6 +47,7 @@ public final class Tool<I, O> {
   private final Type outputType;
   private final @Nullable Map<String, Object> outputSchema;
   private final @Nullable Boolean mutating;
+  private final @Nullable Boolean needsApprovalWhenUnattended;
   private final List<Map<String, Object>> effects;
   private final Map<String, Object> extra;
   private final ToolHandler<I, O> handler;
@@ -61,6 +62,7 @@ public final class Tool<I, O> {
     this.outputType = b.outputType;
     this.outputSchema = b.outputSchema;
     this.mutating = b.mutating;
+    this.needsApprovalWhenUnattended = b.needsApprovalWhenUnattended;
     this.effects = List.copyOf(b.effects);
     this.extra = Map.copyOf(b.extra);
     this.handler = Objects.requireNonNull(handler, "handler");
@@ -96,6 +98,14 @@ public final class Tool<I, O> {
   /** @return whether the tool changes something; {@code null} when it doesn't say (it may) */
   public @Nullable Boolean mutating() {
     return mutating;
+  }
+
+  /**
+   * @return whether each call waits for a person's approval in a run no person started; {@code
+   *     null} when it doesn't say (it needs none)
+   */
+  public @Nullable Boolean needsApprovalWhenUnattended() {
+    return needsApprovalWhenUnattended;
   }
 
   List<Map<String, Object>> effects() {
@@ -171,6 +181,7 @@ public final class Tool<I, O> {
     private Type outputType = Map.class;
     private @Nullable Map<String, Object> outputSchema = ANY_OBJECT;
     private @Nullable Boolean mutating;
+    private @Nullable Boolean needsApprovalWhenUnattended;
     private final List<Map<String, Object>> effects = new ArrayList<>();
     private final Map<String, Object> extra = new LinkedHashMap<>();
     private final Class<?> definedIn;
@@ -255,6 +266,17 @@ public final class Tool<I, O> {
      */
     public Builder<I, O> mutating(boolean mutating) {
       this.mutating = mutating;
+      return this;
+    }
+
+    /**
+     * @param needsApprovalWhenUnattended {@code true} makes each call wait for a person's approval
+     *     in a run no person started (a webhook, a schedule, an event, or a service account's key);
+     *     in a flow's tool step it is refused. A run a person starts is unaffected
+     * @return this
+     */
+    public Builder<I, O> needsApprovalWhenUnattended(boolean needsApprovalWhenUnattended) {
+      this.needsApprovalWhenUnattended = needsApprovalWhenUnattended;
       return this;
     }
 

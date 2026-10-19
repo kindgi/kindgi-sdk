@@ -1,0 +1,513 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+/**
+ * `kindgi promote --from=<env> --to=<env>`: it finds the pack's deployment
+ * serving in `--from`, asks what would move and prints it, prints each
+ * value not set in `--to` with the command that sets it, and promotes only
+ * when every one is.
+ */
+
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { KindgiApiError } from '@kindgi/client';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+
+import { runCli } from '../src/main.js';
+
+let home: string;
+let cwd: string;
+beforeEach(async () => {
+  home = await mkdtemp(join(tmpdir(), 'kindgi-cli-home-'));
+  cwd = await mkdtemp(join(tmpdir(), 'kindgi-cli-cwd-'));
+});
+afterEach(async () => {
+  await rm(home, { recursive: true, force: true });
+  await rm(cwd, { recursive: true, force: true });
+});
+
+const PROJECTS = [
+  { id: 'p-staging', name: 'Staging', slug: 'staging' },
+  { id: 'p-prod', name: 'Prod', slug: 'prod' },
+];
+
+const CONFIG = {
+  pack: { id: 'acme.shop' },
+  environments: { staging: { project: 'staging' }, prod: { project: 'prod' } },
+};
+
+const deployment = (id: string, extra: Record<string, unknown> = {}) => ({
+  deploymentId: id,
+  imageDigest: `sha256:${'a'.repeat(64)}`,
+  artifactVersion: '20261018.1',
+  activatedAt: '2026-10-18T08:00:00.000Z',
+  ...extra,
+});
+
+const MOVES = {
+  packId: 'acme.shop',
+  imageDigest: `sha256:${'a'.repeat(64)}`,
+  agents: [
+    { id: 'acme.matcher', version: '1.0.0' },
+    { id: 'acme.matcher', version: '1.0.2', carried: true },
+  ],
+  flows: [{ id: 'acme.checkout', version: '2.0.0' }],
+  tools: [{ id: 'acme.lookup', version: '1.1.0' }],
+  guardrails: [{ id: 'acme.pii' }],
+};
+
+const READY_CHECK = {
+  moves: MOVES,
+  values: [],
+  nextEnvironment: { projectId: 'p-prod', position: 1 },
+  leftBehind: [{ kind: 'agent', id: 'acme.matcher', version: '1.1.1', from: '1.1.0' }],
+};
+
+const NOT_READY = [
+  {
+    name: 'ACME_TOKEN',
+    kind: 'secret',
+    neededBy: { type: 'tool', id: 'acme.lookup', version: '1.1.0' },
+    problem: 'missing',
+  },
+  {
+    name: 'SHOP_URL',
+    kind: 'pack-env',
+    neededBy: { type: 'pack', id: 'acme.shop' },
+    problem: 'missing',
+  },
+  {
+    name: 'API_BASE',
+    kind: 'pack-env',
+    neededBy: { type: 'pack', id: 'acme.shop' },
+    foundAt: 'project',
+    problem: 'ambiguous',
+  },
+  {
+    name: 'ACME_MODEL_KEY',
+    kind: 'model-key',
+    neededBy: { type: 'provider', id: 'acme-llm' },
+    foundAt: 'tenant',
+    problem: 'revoked',
+  },
+  {
+    name: 'LATER',
+    kind: 'env',
+    neededBy: { type: 'agent', id: 'acme.matcher', version: '1.0.0' },
+    problem: 'quota',
+  },
+  {
+    name: 'any provider',
+    kind: 'model-key',
+    neededBy: { type: 'agent', id: 'acme.matcher', version: '1.0.0' },
+    problem: 'no-provider',
+  },
+];
+
+type Call = readonly unknown[];
+
+async function run(
+  argv: readonly string[],
+  opts: {
+    readonly config?: Record<string, unknown>;
+    readonly pages?: readonly Record<string, unknown>[];
+    readonly check?: unknown;
+    readonly promote?: () => unknown;
+    /** No pack config: the cwd has none. */
+    readonly noPack?: boolean;
+    readonly projects?: readonly Record<string, unknown>[];
+  } = {},
+) {
+  const calls: Call[] = [];
+  let page = 0;
+  const out = await runCli({
+    argv: [...argv, '--url=https://x', '--token=t'],
+    env: {},
+    cwd,
+    home,
+    ...(opts.noPack !== true && {
+      buildConfigLoader: async () => (opts.config ?? CONFIG) as { readonly [k: string]: unknown },
+    }),
+    clientFactory: (url: string) => {
+      calls.push(['client', url]);
+      return {
+        projects: {
+          list: async (...args: unknown[]) => {
+            calls.push(['projects.list', ...args]);
+            return { data: opts.projects ?? PROJECTS, hasMore: false };
+          },
+        },
+        deployments: {
+          list: async (...args: unknown[]) => {
+            calls.push(['deployments.list', ...args]);
+            const pages = opts.pages ?? [
+              {
+                data: [deployment('dep-s1')],
+                hasMore: false,
+                projectId: 'p-staging',
+                packId: 'acme.shop',
+              },
+            ];
+            const answer = pages[page] ?? pages[pages.length - 1];
+            page += 1;
+            return answer;
+          },
+          promoteCheck: async (...args: unknown[]) => {
+            calls.push(['promoteCheck', ...args]);
+            return opts.check ?? READY_CHECK;
+          },
+          promote: async (...args: unknown[]) => {
+            calls.push(['promote', ...args]);
+            if (opts.promote !== undefined) return opts.promote();
+            return { deployment: deployment('dep-prod-1'), created: true, moved: MOVES };
+          },
+        },
+      } as never;
+    },
+  });
+  return { out, calls };
+}
+
+const named = (calls: readonly Call[], name: string) => calls.filter((c) => c[0] === name);
+
+describe('kindgi promote', () => {
+  test("finds the pack's one deployment serving in --from, prints what moves, then promotes", async () => {
+    const { out, calls } = await run([
+      'promote',
+      '--from=staging',
+      '--to=prod',
+      '--reason=release 12',
+    ]);
+    expect(out.exitCode).toBe(0);
+    expect(named(calls, 'deployments.list')).toEqual([
+      ['deployments.list', { projectId: 'p-staging', packId: 'acme.shop' }],
+    ]);
+    expect(named(calls, 'promoteCheck')).toEqual([
+      ['promoteCheck', 'dep-s1', { toProjectId: 'p-prod' }],
+    ]);
+    expect(named(calls, 'promote')).toEqual([
+      ['promote', 'dep-s1', { toProjectId: 'p-prod', reason: 'release 12' }],
+    ]);
+    const text = out.stdout;
+    expect(text).toContain('What moves from staging to prod (pack acme.shop, build sha256:');
+    expect(text).toMatch(/agent +acme\.matcher +1\.0\.2 +carried: an edit made in staging/);
+    expect(text).toMatch(/guardrail +acme\.pii/);
+    expect(text).toContain(
+      "agent acme.matcher 1.1.1: an edit of 1.1.0, which this build doesn't ship",
+    );
+    expect(text).toContain("Test sets don't move");
+    expect(text).toContain('Every value it needs is set in prod.');
+    expect(text).toContain('Promoted: deployment dep-prod-1 in prod.');
+    // What moves is printed before the result.
+    expect(text.indexOf('What moves')).toBeLessThan(text.indexOf('Promoted'));
+  });
+
+  test('a deployment whose pack service is gone for good is passed over; one that waits for it again is not', async () => {
+    const retired = deployment('dep-old', {
+      endpoint: { status: 'cleared', since: 'x', retired: 'superseded' },
+    });
+    const waiting = deployment('dep-s1', {
+      endpoint: { status: 'cleared', since: 'x', waiting: true },
+    });
+    const { out, calls } = await run(['promote', '--from=staging', '--to=prod'], {
+      pages: [
+        {
+          data: [retired],
+          hasMore: true,
+          nextCursor: 'c1',
+          projectId: 'p-staging',
+          packId: 'acme.shop',
+        },
+        { data: [waiting], hasMore: false, projectId: 'p-staging', packId: 'acme.shop' },
+      ],
+    });
+    expect(out.exitCode).toBe(0);
+    expect(named(calls, 'deployments.list')[1]).toEqual([
+      'deployments.list',
+      { projectId: 'p-staging', packId: 'acme.shop', cursor: 'c1' },
+    ]);
+    expect(named(calls, 'promote')[0]?.[1]).toBe('dep-s1');
+  });
+
+  test('values not set in --to: each with the command that sets it, exit 1, nothing promoted', async () => {
+    // In a pack too, a value goes at the project's scope under the env the runtime serves, never
+    // under the environment's name.
+    const { out, calls } = await run(['promote', '--from=staging', '--to=prod'], {
+      check: { ...READY_CHECK, values: NOT_READY, envName: 'production' },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(named(calls, 'promote')).toEqual([]);
+    const text = out.stdout;
+    expect(text).toContain('What moves from staging to prod');
+    expect(text).toContain('Not ready in prod:');
+    expect(text).toContain(
+      'ACME_TOKEN (secret, for tool acme.lookup 1.1.0): set nowhere a run looks. Set it with `kindgi secrets set ACME_TOKEN --env=production --scope=project:p-prod`.',
+    );
+    expect(text).toContain(
+      "SHOP_URL (pack-env, for the pack's service): set nowhere a run looks. Set it with `kindgi env set SHOP_URL <value> --scope=project:p-prod --env=production`.",
+    );
+    expect(text).toContain(
+      "API_BASE (pack-env, for the pack's service): set both as a secret and as a plain value.",
+    );
+    expect(text).toContain(
+      'ACME_MODEL_KEY (model-key, for provider acme-llm): revoked where a run reads it (the tenant)',
+    );
+    expect(text).toContain(
+      '`kindgi secrets set ACME_MODEL_KEY --env=production --scope=project:p-prod`',
+    );
+    // A reason a later runtime names is said by its code.
+    expect(text).toContain('LATER (env, for agent acme.matcher 1.0.0): not ready (quota).');
+    expect(text).toContain(
+      'any provider (model-key, for agent acme.matcher 1.0.0): no model provider is registered, so a run has none to call. Register one with `kindgi providers register --preset=<name>` (`kindgi providers presets` lists them), then check again: its key is needed in prod.',
+    );
+  });
+
+  test('--check prints the same and never promotes: exit 0 when ready, 1 when not', async () => {
+    const ready = await run(['promote', '--from=staging', '--to=prod', '--check']);
+    expect(ready.out.exitCode).toBe(0);
+    expect(ready.out.stdout).toContain('Every value it needs is set in prod.');
+    expect(named(ready.calls, 'promote')).toEqual([]);
+
+    const notReady = await run(['promote', '--from=staging', '--to=prod', '--check'], {
+      check: { ...READY_CHECK, values: NOT_READY },
+    });
+    expect(notReady.out.exitCode).toBe(1);
+    expect(notReady.out.stdout).toContain('Not ready in prod:');
+    expect(named(notReady.calls, 'promote')).toEqual([]);
+  });
+
+  test('a value gone missing between the check and the promotion: the refusal’s values, exit 1', async () => {
+    const { out } = await run(['promote', '--from=staging', '--to=prod'], {
+      promote: () => {
+        throw new KindgiApiError({
+          code: 'conflict',
+          serverCode: 'promotion-values-not-ready',
+          message: 'Values are not ready in the target.',
+          reason: 'promotion-values-not-ready',
+          fields: { values: [NOT_READY[0]] },
+        });
+      },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stdout).toContain('Not ready in prod:');
+    expect(out.stdout).toContain('ACME_TOKEN (secret, for tool acme.lookup 1.1.0)');
+    expect(out.stdout).not.toContain('Promoted');
+  });
+
+  test('the target had the build already: says so', async () => {
+    const { out } = await run(['promote', '--from=staging', '--to=prod'], {
+      promote: () => ({ deployment: deployment('dep-prod-0'), created: false, moved: MOVES }),
+    });
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).toContain('prod has this build already, as deployment dep-prod-0');
+  });
+
+  test('--json: the deployment, the check and the promotion, as one object', async () => {
+    const { out } = await run(['promote', '--from=staging', '--to=prod', '--json']);
+    expect(out.exitCode).toBe(0);
+    expect(JSON.parse(out.stdout)).toEqual({
+      deploymentId: 'dep-s1',
+      check: READY_CHECK,
+      promotion: { deployment: deployment('dep-prod-1'), created: true, moved: MOVES },
+    });
+  });
+
+  test('several deployments serving: lists them and asks for --deployment, exit 2', async () => {
+    const { out, calls } = await run(['promote', '--from=staging', '--to=prod'], {
+      pages: [
+        {
+          data: [deployment('dep-new'), deployment('dep-older')],
+          hasMore: false,
+          projectId: 'p-staging',
+          packId: 'acme.shop',
+        },
+      ],
+    });
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain('2 deployments of acme.shop serve in staging');
+    expect(out.stderr).toContain('--deployment=<id>');
+    expect(out.stderr).toContain('dep-new');
+    expect(out.stderr).toContain('dep-older');
+    expect(named(calls, 'promoteCheck')).toEqual([]);
+  });
+
+  test('none serving: says so, and why the newest was taken down, exit 1', async () => {
+    const none = await run(['promote', '--from=staging', '--to=prod'], {
+      pages: [{ data: [], hasMore: false, projectId: 'p-staging', packId: 'acme.shop' }],
+    });
+    expect(none.out.exitCode).toBe(1);
+    expect(none.out.stderr).toContain(
+      'No deployment of acme.shop serves in staging. Deploy it there first',
+    );
+    expect(named(none.calls, 'promoteCheck')).toEqual([]);
+
+    const suspended = (id: string) =>
+      deployment(id, { endpoint: { status: 'cleared', since: 'x', retired: 'project-suspended' } });
+    const down = await run(['promote', '--from=staging', '--to=prod'], {
+      pages: [
+        {
+          data: [suspended('dep-b'), suspended('dep-a')],
+          hasMore: false,
+          projectId: 'p-staging',
+          packId: 'acme.shop',
+        },
+      ],
+    });
+    expect(down.out.exitCode).toBe(1);
+    expect(down.out.stderr).toContain('The newest, dep-b, was taken down (project-suspended).');
+    expect(named(down.calls, 'promoteCheck')).toEqual([]);
+  });
+
+  test('a cleared deployment from a server that says neither waiting nor retired still serves, as the promotion reads it', async () => {
+    const { out, calls } = await run(['promote', '--from=staging', '--to=prod'], {
+      pages: [
+        {
+          data: [deployment('dep-s1', { endpoint: { status: 'cleared', since: 'x' } })],
+          hasMore: false,
+          projectId: 'p-staging',
+          packId: 'acme.shop',
+        },
+      ],
+    });
+    expect(out.exitCode).toBe(0);
+    expect(named(calls, 'promote')[0]?.[1]).toBe('dep-s1');
+  });
+
+  test("a runtime that ignores the list's filters is refused before anything moves", async () => {
+    const { out, calls } = await run(['promote', '--from=staging', '--to=prod'], {
+      pages: [{ data: [deployment('dep-a'), deployment('dep-b')], hasMore: false }],
+    });
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('needs a runtime on Kindgi 0.1.9 or later');
+    expect(named(calls, 'promoteCheck')).toEqual([]);
+  });
+
+  test('--deployment names the build: no list; without it, a config naming no pack is refused', async () => {
+    const config = { environments: CONFIG.environments };
+    const given = await run(['promote', '--from=staging', '--to=prod', '--deployment=dep-x'], {
+      config,
+    });
+    expect(given.out.exitCode).toBe(0);
+    expect(named(given.calls, 'deployments.list')).toEqual([]);
+    expect(named(given.calls, 'promote')[0]?.[1]).toBe('dep-x');
+
+    const missing = await run(['promote', '--from=staging', '--to=prod'], { config });
+    expect(missing.out.exitCode).not.toBe(0);
+    expect(missing.out.stderr).toContain('pack.id');
+    expect(named(missing.calls, 'deployments.list')).toEqual([]);
+  });
+
+  test('outside a pack: project slugs, any pack serving there, and each hint names the project and the env the runtime serves', async () => {
+    const { out, calls } = await run(['promote', '--from=staging', '--to=prod'], {
+      noPack: true,
+      pages: [{ data: [deployment('dep-s1')], hasMore: false, projectId: 'p-staging' }],
+      check: { ...READY_CHECK, values: NOT_READY.slice(0, 2), envName: 'production' },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(named(calls, 'deployments.list')).toEqual([
+      ['deployments.list', { projectId: 'p-staging' }],
+    ]);
+    expect(named(calls, 'promoteCheck')).toEqual([
+      ['promoteCheck', 'dep-s1', { toProjectId: 'p-prod' }],
+    ]);
+    expect(out.stdout).toContain('Not ready in prod:');
+    expect(out.stdout).toContain(
+      'Set it with `kindgi secrets set ACME_TOKEN --env=production --scope=project:p-prod`.',
+    );
+    expect(out.stdout).toContain(
+      'Set it with `kindgi env set SHOP_URL <value> --scope=project:p-prod --env=production`.',
+    );
+    expect(named(calls, 'promote')).toEqual([]);
+
+    // A runtime that names no env: what to put there, not a name made up.
+    const unnamed = await run(['promote', '--from=staging', '--to=prod', '--check'], {
+      noPack: true,
+      pages: [{ data: [deployment('dep-s1')], hasMore: false, projectId: 'p-staging' }],
+      check: { ...READY_CHECK, values: NOT_READY.slice(0, 1) },
+    });
+    expect(unnamed.out.stdout).toContain(
+      '`kindgi secrets set ACME_TOKEN --env=<the env the runtime serves> --scope=project:p-prod`',
+    );
+  });
+
+  test('outside a pack, several serving: each with its pack', async () => {
+    const { out } = await run(['promote', '--from=staging', '--to=prod'], {
+      noPack: true,
+      pages: [
+        {
+          data: [
+            deployment('dep-shop', { packId: 'acme.shop' }),
+            deployment('dep-blog', { packId: 'acme.blog' }),
+          ],
+          hasMore: false,
+          projectId: 'p-staging',
+        },
+      ],
+    });
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain('2 deployments serve in staging, newest first.');
+    expect(out.stderr).toMatch(/PACK +DEPLOYMENT/);
+    expect(out.stderr).toMatch(/acme\.blog +dep-blog/);
+  });
+
+  test('outside a pack, a slug two projects share is refused before any deployment is read', async () => {
+    const { out, calls } = await run(['promote', '--from=staging', '--to=prod'], {
+      noPack: true,
+      projects: [...PROJECTS, { id: 'p-prod-eu', name: 'Prod EU', slug: 'prod', orgId: 'o-eu' }],
+    });
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('"prod" is the slug of 2 projects');
+    expect(named(calls, 'deployments.list')).toEqual([]);
+  });
+
+  test('in a pack: --from and --to on another runtime or tenant are refused, naming both; else it goes where a deploy into --from does', async () => {
+    const on = (staging: object, prod: object) => ({
+      ...CONFIG,
+      environments: {
+        staging: { project: 'staging', ...staging },
+        prod: { project: 'prod', ...prod },
+      },
+    });
+    const split = await run(['promote', '--from=staging', '--to=prod'], {
+      config: on({ endpoint: 'https://a.acme.example' }, { endpoint: 'https://b.acme.example' }),
+    });
+    expect(split.out.exitCode).not.toBe(0);
+    expect(split.out.stderr).toContain(
+      'environments.staging.endpoint is https://a.acme.example, and environments.prod.endpoint is https://b.acme.example: an environment order lives in one tenant on one runtime',
+    );
+    expect(split.calls).toEqual([]);
+
+    const tenants = await run(['promote', '--from=staging', '--to=prod'], {
+      config: on({ tenantId: 't-acme' }, {}),
+    });
+    expect(tenants.out.exitCode).not.toBe(0);
+    expect(tenants.out.stderr).toContain(
+      'environments.staging.tenantId is t-acme, and environments.prod.tenantId is unset',
+    );
+    expect(tenants.calls).toEqual([]);
+
+    const same = await run(['promote', '--from=staging', '--to=prod', '--check'], {
+      config: on(
+        { endpoint: 'https://a.acme.example', tenantId: 't-acme' },
+        { endpoint: 'https://a.acme.example/', tenantId: 't-acme' },
+      ),
+    });
+    expect(same.out.exitCode).toBe(0);
+    const clients = named(same.calls, 'client');
+    expect(clients.length).toBeGreaterThan(0);
+    expect(clients.every((c) => c[1] === 'https://a.acme.example')).toBe(true);
+  });
+
+  test('an environment the config lacks, or a missing --to, is refused', async () => {
+    const unknown = await run(['promote', '--from=staging', '--to=qa']);
+    expect(unknown.out.exitCode).not.toBe(0);
+    expect(unknown.out.stderr).toContain('environments.qa.project');
+    expect(named(unknown.calls, 'promoteCheck')).toEqual([]);
+
+    const half = await run(['promote', '--from=staging']);
+    expect(half.out.exitCode).not.toBe(0);
+    expect(half.out.stderr).toContain('--from=staging --to=prod');
+  });
+});

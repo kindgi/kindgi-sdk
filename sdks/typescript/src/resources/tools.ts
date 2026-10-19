@@ -6,7 +6,7 @@ import type { Cursor, ToolId } from '@kindgi/types';
 import { KindgiApiError, notYetWired } from '../errors.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
-import type { Tool } from '../types.js';
+import type { GetLatestOptions, Tool } from '../types.js';
 
 /**
  * Tools resource — discovery + versioned lifecycle.
@@ -45,8 +45,9 @@ export interface ToolsClient {
    *
    * @wire `GET /v1/tools/{toolId}` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1tools~1{toolId}/get`.
+   *   Which version: `GetLatestOptions`.
    */
-  get(id: ToolId): Promise<Tool>;
+  get(id: ToolId, options?: GetLatestOptions): Promise<Tool>;
 
   /**
    * Register a tool manifest (the tool minus its handler) at its version,
@@ -269,10 +270,11 @@ export function makeToolsClient(transport: Transport): ToolsClient {
       return listPage(page);
     },
 
-    async get(id) {
+    async get(id, options) {
       return transport.request<Tool>({
         method: 'GET',
         path: `/v1/tools/${encodeURIComponent(id as unknown as string)}`,
+        query: { ...(options?.projectId !== undefined && { projectId: options.projectId }) },
       });
     },
 

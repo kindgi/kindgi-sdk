@@ -11,7 +11,9 @@
 import { describe, expect, test } from 'vitest';
 
 import type { ResolveContext } from '@kindgi/api';
+import type { AuditEventBinding } from '@kindgi/audit-events';
 import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
+import { createLogger } from '@kindgi/log';
 import type { Scope } from '@kindgi/platform';
 import type { OrgId, ProjectId, TenantId } from '@kindgi/types';
 import { makeEnvName } from '@kindgi/types';
@@ -57,6 +59,23 @@ describe('createInMemoryEnvBinding — basic CRUD', () => {
 
     const page = await b.list({ scope: tenantScope, envName: staging, limit: 50 });
     expect(page.data).toHaveLength(1);
+  });
+
+  test('a row keeps its id when set again, and a removed value set again is a new row', async () => {
+    const b = createInMemoryEnvBinding();
+    const at = { scope: tenantScope, envName: staging, name: 'KB_URL' };
+    const set = { ...at, value: 'https://kb.example.com', enqueueTuples: () => [] };
+    await b.set(set);
+    const first = (await b.get(at))?.recordId;
+    expect(typeof first).toBe('string');
+    expect(first).toMatch(/^[0-9a-f-]{36}$/);
+    await b.set(set);
+    expect((await b.get(at))?.recordId).toBe(first);
+    await b.delete(at);
+    await b.set(set);
+    const again = await b.get(at);
+    expect(again?.revision).toBe(1);
+    expect(again?.recordId).not.toBe(first);
   });
 
   test('set overwrites and bumps revision', async () => {
@@ -384,6 +403,42 @@ describe('createInMemoryEnvBinding — compliance evidence emission', () => {
     const serialized = JSON.stringify(list.value.data);
     expect(serialized).not.toContain(sentinel);
   });
+
+  test('an append that fails never fails the op, and each is logged through `log`', async () => {
+    const auditEvents = {
+      append: async () => {
+        throw new Error('the audit store is down');
+      },
+    } as unknown as AuditEventBinding;
+    const lines: string[] = [];
+    const b = createInMemoryEnvBinding({
+      auditEvents,
+      tenantId: t,
+      projectId: p,
+      log: createLogger({ write: (line) => lines.push(line) }),
+    });
+    const sentinel = 'super-secret-plaintext-abc123';
+    const set = { scope: tenantScope, envName: staging, name: 'K', value: sentinel };
+    expect((await b.set({ ...set, enqueueTuples: () => [] })).kind).toBe('ok');
+    expect((await b.set({ ...set, ifRevision: 7, enqueueTuples: () => [] })).kind).toBe(
+      'revision-conflict',
+    );
+    const read = { scope: tenantScope, envName: staging, resolveContext: ctx };
+    expect((await b.resolve({ ...read, name: 'K' })).kind).toBe('ok');
+    expect((await b.resolve({ ...read, name: 'MISSING' })).kind).toBe('err');
+    expect(await b.delete({ scope: tenantScope, envName: staging, name: 'K' })).toEqual({
+      deleted: true,
+    });
+    const records = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(records.map((r) => [r.level, r.kind])).toEqual([
+      ['warn', 'env-set'],
+      ['warn', 'env-set'],
+      ['warn', 'env-resolved'],
+      ['warn', 'env-resolved'],
+      ['warn', 'env-deleted'],
+    ]);
+    expect(lines.join('\n')).not.toContain(sentinel);
+  });
 });
 
 describe('createInMemoryEnvBinding — production gate', () => {
@@ -405,5 +460,34 @@ describe('createInMemoryEnvBinding — production gate', () => {
     } finally {
       process.env.NODE_ENV = prev;
     }
+  });
+});
+
+describe('createInMemoryEnvBinding — env names', () => {
+  const qa = makeEnvName('qa') as EnvName;
+  const write = (b: ReturnType<typeof createInMemoryEnvBinding>, scope: Scope, envName: EnvName) =>
+    b.set({ scope, envName, name: 'K', value: 'v', enqueueTuples: () => [] });
+
+  test("each of the tenant's env names once, at any scope, in order, after `after`, up to `limit`", async () => {
+    const b = createInMemoryEnvBinding();
+    await write(b, projectScope, staging);
+    await write(b, tenantScope, staging);
+    await write(b, orgScope, production);
+    await write(b, tenantScope, qa);
+    expect(await b.listEnvNames?.({ tenantId: t, limit: 10 })).toEqual([
+      'production',
+      'qa',
+      'staging',
+    ]);
+    expect(await b.listEnvNames?.({ tenantId: t, limit: 1, after: production })).toEqual(['qa']);
+  });
+
+  test("another tenant's names, a deleted entry's and one only read are not held", async () => {
+    const b = createInMemoryEnvBinding();
+    await write(b, { kind: 'tenant', tenantId: 't-2' as TenantId }, production);
+    await write(b, tenantScope, qa);
+    await b.delete({ scope: tenantScope, envName: qa, name: 'K' });
+    await b.list({ scope: tenantScope, envName: staging, limit: 10 });
+    expect(await b.listEnvNames?.({ tenantId: t, limit: 10 })).toEqual([]);
   });
 });

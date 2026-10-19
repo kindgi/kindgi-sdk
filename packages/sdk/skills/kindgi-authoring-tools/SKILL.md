@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.9"
+version: "0.4.10"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -224,6 +224,23 @@ A tool that writes also says what it writes, in `effects`, beside `mutating: tru
 ```
 
 The kinds are `reads`, `writes`, `deletes`, `network`, `spawns-run`, `emits-event`, `external-side-effect` and `sensitive-data-egress` (`EFFECT_KINDS` in `@kindgi/tools`); `defineTool` refuses any other. `resource` is free text naming what the tool touches. A read-only tool keeps `effects: []`.
+
+## A person's yes when no one is watching: `needsApprovalWhenUnattended`
+
+`needsApprovalWhenUnattended: true` declares that a person must say yes to every call of the tool in a run no person started: one a schedule, a webhook, an event or a service account's key started. In such a run:
+
+- **An agent's call waits** for a person's yes, whatever the agent's `conversationPolicy.hitl.tools` says. The agent's rules can't lift it: agents are reused, and the tool's author knows what it does.
+- **A flow's tool step that calls it is refused.** Put the tool behind an agent step instead, whose call waits.
+
+In a run a person started (signed in, or with their own API key), the agent's rules decide, as for any tool. Absent means `false`. Declare it on a tool that moves money or changes something people rely on:
+
+```ts
+  effects: [{ kind: 'writes', resource: 'acme:refunds' }],
+  mutating: true,
+  needsApprovalWhenUnattended: true,
+```
+
+Docs: https://docs.kindgi.com/v0.1/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
 
 A step can run more than once (resumed after an approval, retried after a failure, run again after a crash), so a tool that writes uses `ctx.idempotencyKey`: the same every time this call runs, different for every other call. Pass it to the system you write to (an `Idempotency-Key` header, a client reference, a unique column) or look for it there first, and a refund never goes out twice. Not `ctx.requestId`: a model's call id is only unique within one of its answers. The key is absent outside a run and from a runtime before 0.1.6. Docs: https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#make-a-side-effect-happen-once
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
 import type {
   Conversation,
@@ -10,14 +10,17 @@ import type {
   ConversationMessage,
   ConversationPageCursor,
 } from '@kindgi/agents';
-import { type ResourceRef, ref } from '@kindgi/authz';
+import { type ResourceRef, denyPayload, ref } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
 import type { RunBinding } from '@kindgi/runtime';
 import type { AgentId, ProjectId, Semver, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
+import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
+import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
@@ -67,6 +70,14 @@ export function conversationsRouter(
   referenceScope?: ReferenceScopeBinding,
   /** Where an agent is filed: a conversation opened without `projectId` goes there. */
   agentRegistry?: AgentRegistryBinding,
+  /**
+   * Rights on an agent more than one project serves (`item-rights.ts`):
+   * opening or closing a conversation in one of its projects is that
+   * project's `call`, and a project-scoped key's conversation opened
+   * without `projectId` goes to the key's project. Absent: every agent has
+   * one project.
+   */
+  itemRights?: ItemRights,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -92,6 +103,24 @@ export function conversationsRouter(
     }
 
     const agentIdRaw = c.req.query('agentId');
+
+    // "My conversations": the ones the caller opened. Only `me`: a list of
+    // someone else's isn't a filter this route offers.
+    const openedByRaw = c.req.query('openedBy');
+    if (openedByRaw !== undefined && openedByRaw !== 'me') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError({ code: 'bad-input', message: '`openedBy` must be `me`' }, requestId),
+      );
+    }
+    const openedBy = openedByRaw === 'me' ? callerRef(c) : undefined;
+    // Every page of the list says it holds only the caller's own, an empty
+    // one too, so a client can tell a runtime that ignores the filter.
+    const filtered = openedByRaw === 'me' ? { openedBy: 'me' as const } : {};
+    // A caller with no principal opened nothing it could be listed by.
+    if (openedByRaw === 'me' && openedBy === undefined) {
+      return c.json({ data: [], hasMore: false, ...filtered });
+    }
 
     // Replay conversations (a comparison's replays) are left out unless asked for.
     const replaysRaw = c.req.query('replays');
@@ -136,11 +165,14 @@ export function conversationsRouter(
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(agentIdRaw !== undefined && agentIdRaw.length > 0 && { agentId: agentIdRaw as AgentId }),
       ...(statusFilter !== undefined && { status: statusFilter }),
+      ...(openedBy !== undefined && { openedBy }),
       replays: replaysRaw ?? 'exclude',
       ...(before !== undefined && { before }),
       limit,
     });
     if (listResult.kind === 'err') {
+      const busy = databaseBusyAnswer(listResult.error, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(listResult.error.code) as never);
       return c.json(toWireError(listResult.error as never, requestId));
     }
@@ -157,14 +189,17 @@ export function conversationsRouter(
             id: position.id as unknown as string,
           })
         : undefined;
+    // The binding narrows; this keeps a page right from one that doesn't.
+    const theirs = openedBy === undefined ? data : data.filter((row) => row.openedBy === openedBy);
     const visible =
       authorizer === undefined
-        ? data
-        : await authorizer.filterByCan(c, 'read', data, conversationRef);
+        ? theirs
+        : await authorizer.filterByCan(c, 'read', theirs, conversationRef);
     return c.json({
       data: visible.map(serializeConversation),
       hasMore,
       ...(nextCursor !== undefined && { nextCursor }),
+      ...filtered,
     });
   });
 
@@ -176,6 +211,8 @@ export function conversationsRouter(
 
     const got = await conversationBinding.getConversation(tenantId, conversationId);
     if (got.kind === 'err') {
+      const busy = databaseBusyAnswer(got.error, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(got.error.code) as never);
       return c.json(toWireError(got.error as never, requestId));
     }
@@ -204,6 +241,51 @@ export function conversationsRouter(
       return c.json(toWireError(parsed.error, requestId));
     }
     const supplied = parsed.value.projectId;
+    const agentId = parsed.value.agentId as unknown as string;
+    // The agent's projects when more than one serves it (`item-rights.ts`).
+    const served =
+      authorizer === undefined ? undefined : await itemRights?.multi(c, 'agent', agentId);
+    // Opening it in a project the caller names needs `write` there, as a run
+    // naming one outside its agent's projects does: its turns land there.
+    // Named one of its projects, for an agent more than one project serves,
+    // `call` there is the whole check instead (`openIn`), as for a run.
+    // Checked first, so a caller without it learns nothing of which projects
+    // exist.
+    if (authorizer !== undefined && supplied !== undefined && served?.includes(supplied) !== true) {
+      const named = ref('project', supplied as unknown as string);
+      const decision = await authorizer.check(c, 'write', named);
+      if (!decision.allowed) {
+        const deny = denyPayload('write', named.type, named.id, decision.reason);
+        c.status(403);
+        return c.json(
+          toWireError(
+            {
+              code: deny.code,
+              message: `Permission denied: opening a conversation in project ${named.id} needs write on it; omit \`projectId\` to open it in the agent's own project`,
+              action: deny.action,
+              resource: deny.resource,
+              reason: deny.reason,
+            },
+            requestId,
+          ),
+        );
+      }
+    }
+    // Omitted: the agent's own project, as for a run. An agent the registry
+    // doesn't place (or from before projects): the tenant's Default. No
+    // Default (or no project binding): no project, never a refusal.
+    const own = async () =>
+      (
+        await agentRegistry?.getVersion({
+          tenantId,
+          agentId: parsed.value.agentId,
+          version: parsed.value.agentVersion,
+        })
+      )?.projectId ?? (await projectBinding?.getDefault(tenantId))?.id;
+    // Also before the named project's existence: a caller refused there gets
+    // the same answer whether it exists or not.
+    const open = await openIn(c, authorizer, itemRights, served, agentId, supplied, own);
+    if (open.refused !== undefined) return open.refused;
     if (
       supplied !== undefined &&
       projectBinding !== undefined &&
@@ -220,30 +302,17 @@ export function conversationsRouter(
         ),
       );
     }
-    const refused = await deniedBy(
-      authorizer,
-      c,
-      'execute',
-      ref('agent', parsed.value.agentId as unknown as string),
-    );
-    if (refused !== undefined) return refused;
-    // Omitted: the agent's own project, as for a run. An agent the registry
-    // doesn't place (or from before projects): the tenant's Default. No
-    // Default (or no project binding): no project, never a refusal.
-    const projectId =
-      supplied ??
-      (
-        await agentRegistry?.getVersion({
-          tenantId,
-          agentId: parsed.value.agentId,
-          version: parsed.value.agentVersion,
-        })
-      )?.projectId ??
-      (await projectBinding?.getDefault(tenantId))?.id;
-    // Its agent must be its project's to reach (`reference-scope.ts`).
+    const projectId = open.projectId;
+    // Its agent, at the version its turns run, must be its project's to
+    // reach (`reference-scope.ts`).
     if (projectId !== undefined) {
       const outOfScope = await referencesOutOfScope(referenceScope, tenantId, projectId, [
-        { path: '/agentId', kind: 'agent', id: parsed.value.agentId as unknown as string },
+        {
+          path: '/agentId',
+          kind: 'agent',
+          id: parsed.value.agentId as unknown as string,
+          version: parsed.value.agentVersion as unknown as string,
+        },
       ]);
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
@@ -254,9 +323,12 @@ export function conversationsRouter(
     });
     if (notAllowed !== undefined) return notAllowed;
 
+    // Who opened it: the caller, never the body.
+    const openedBy = callerRef(c);
     const opened = await conversationBinding.openConversation({
       tenantId,
       ...(projectId !== undefined && { projectId }),
+      ...(openedBy !== undefined && { openedBy }),
       agentId: parsed.value.agentId,
       agentVersion: parsed.value.agentVersion,
       title: parsed.value.title,
@@ -285,12 +357,25 @@ export function conversationsRouter(
       c.status(statusFor(existing.error.code) as never);
       return c.json(toWireError(existing.error as never, requestId));
     }
-    const refused = await deniedBy(
-      authorizer,
-      c,
-      'execute',
-      ref('agent', existing.value.agentId as unknown as string),
-    );
+    // An agent more than one project serves: closing a conversation in one
+    // of its projects is that project's `call`.
+    const agentId = existing.value.agentId as unknown as string;
+    const served =
+      authorizer === undefined ? undefined : await itemRights?.multi(c, 'agent', agentId);
+    const own = existing.value.projectId as unknown as string | undefined;
+    const refused =
+      served !== undefined &&
+      itemRights !== undefined &&
+      own !== undefined &&
+      served.includes(own as ProjectId)
+        ? await runIn(
+            c,
+            itemRights,
+            { kind: 'agent', id: agentId },
+            own,
+            `closing a conversation with agent "${agentId}"`,
+          )
+        : await deniedBy(authorizer, c, 'execute', ref('agent', agentId));
     if (refused !== undefined) return refused;
     // Close is idempotent — closing an already-closed conversation
     // returns 200 with the current row, no error and no timestamp bump.
@@ -372,6 +457,8 @@ export function conversationsRouter(
     if (authorizer !== undefined) {
       const got = await conversationBinding.getConversation(tenantId, conversationId);
       if (got.kind === 'err') {
+        const busy = databaseBusyAnswer(got.error, c);
+        if (busy !== undefined) return busy;
         c.status(statusFor(got.error.code) as never);
         return c.json(toWireError(got.error as never, requestId));
       }
@@ -385,6 +472,8 @@ export function conversationsRouter(
       limit: limit + 1,
     });
     if (result.kind === 'err') {
+      const busy = databaseBusyAnswer(result.error, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(result.error.code) as never);
       return c.json(toWireError(result.error as never, requestId));
     }
@@ -402,6 +491,47 @@ export function conversationsRouter(
   });
 
   return r;
+}
+
+/**
+ * Where a conversation opens, and whether the caller may open it there:
+ * `execute` on its agent, or, for an agent more than one project serves
+ * (`served`, its projects) opened in one of its projects, that project's
+ * `call` alone (`item-rights.ts`). Unnamed, a project-scoped key's
+ * conversation goes to the key's project when it serves the agent, as its
+ * unnamed run does; else to `own()`. A refused caller is never placed.
+ */
+async function openIn(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  itemRights: ItemRights | undefined,
+  served: readonly ProjectId[] | undefined,
+  agentId: string,
+  supplied: ProjectId | undefined,
+  own: () => Promise<ProjectId | undefined>,
+): Promise<{ readonly projectId?: ProjectId | undefined; readonly refused?: Response }> {
+  if (served === undefined || itemRights === undefined) {
+    const refused = await deniedBy(authorizer, c, 'execute', ref('agent', agentId));
+    if (refused !== undefined) return { refused };
+    return { projectId: supplied ?? (await own()) };
+  }
+  const keyProject = c.get('tokenProjectId') as ProjectId | undefined;
+  const placed =
+    supplied === undefined && keyProject !== undefined && served.includes(keyProject)
+      ? keyProject
+      : undefined;
+  const projectId = supplied ?? placed ?? (await own());
+  const refused =
+    projectId !== undefined && served.includes(projectId)
+      ? await runIn(
+          c,
+          itemRights,
+          { kind: 'agent', id: agentId },
+          projectId,
+          `opening a conversation with agent "${agentId}"`,
+        )
+      : await deniedBy(authorizer, c, 'execute', ref('agent', agentId));
+  return refused !== undefined ? { refused } : { projectId };
 }
 
 /**
@@ -426,6 +556,7 @@ function serializeConversation(c: Conversation): Record<string, unknown> {
     title: c.title,
     ...(c.participantId !== undefined && { participantId: c.participantId }),
     ...(c.projectId !== undefined && { projectId: c.projectId as unknown as string }),
+    ...(c.openedBy !== undefined && { openedBy: c.openedBy }),
     scope: c.scope,
     status: (c.closedAt === undefined ? 'open' : 'closed') as 'open' | 'closed',
     openedAt: c.openedAt as unknown as string,

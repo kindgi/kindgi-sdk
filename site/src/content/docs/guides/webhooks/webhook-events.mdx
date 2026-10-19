@@ -162,8 +162,8 @@ To email the reviewers themselves instead, see
 ## Delivery
 
 - **A delivery succeeds on a 2xx answer.** Any other answer, or none, is
-  retried with backoff: a minute later, then five minutes later, then
-  longer.
+  retried with backoff: about a minute later, then about five minutes
+  later, then longer.
 - **A delivery is at least once.** The same event can arrive twice, so
   deduplicate on `webhook-id`.
 - **Outside development, every attempt checks the receiver's address

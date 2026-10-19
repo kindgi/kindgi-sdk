@@ -147,6 +147,12 @@ export interface ServerError {
   readonly serverCode: string;
   readonly message: string;
   readonly fields?: Readonly<Record<string, unknown>>;
+  /**
+   * On a 503 that carries `Retry-After` (such as `database-busy`): the
+   * seconds the server asked to wait before a retry. The client doesn't
+   * retry on its own.
+   */
+  readonly retryAfterSeconds?: number;
 }
 
 /**
@@ -261,6 +267,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
       return { code: 'auth', message, reason: 'forbidden' };
     case 'rate-limited':
     case 'rate-limit-exceeded':
+    case 'invite-capped':
       return rateLimited(message, obj);
     case 'not-found':
     case 'run-not-found':
@@ -337,6 +344,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'seed-user-admin':
     case 'identity-user-unregister-refused':
     case 'identity-user-unregistered':
+    case 'identity-user-not-invited':
     case 'provider-key-in-use':
       return conflict(code, message, details);
     case 'invalid-request':

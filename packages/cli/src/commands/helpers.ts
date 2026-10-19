@@ -51,6 +51,15 @@ function renderPageTable<T, Row>(page: T, table: TableSpec<T, Row>): Rendered {
     : rendered;
 }
 
+/**
+ * A list asked for with `--<flag>` whose page doesn't say it was filtered:
+ * a runtime from before the filter ignored it and listed them all. The
+ * command stops instead of printing that list as the filtered one.
+ */
+export function filterIgnored(flag: string, since: string): Error {
+  return new Error(`--${flag} needs a runtime on Kindgi ${since} or later.`);
+}
+
 /** `text` cut to `max` characters, ending in `…` when cut — for a table cell. */
 export function truncateCell(text: string, max: number): string {
   const oneLine = text.replace(/\s+/g, ' ').trim();

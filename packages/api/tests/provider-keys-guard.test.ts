@@ -12,10 +12,10 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
-import type { EnvName, TenantId } from '@kindgi/types';
+import type { Cursor, EnvName, TenantId } from '@kindgi/types';
 
 import { guardProviderKeys } from '../src/index.js';
-import type { ProviderKeys, SecretBinding } from '../src/index.js';
+import type { EnvNamesInput, ProviderKeys, SecretBinding } from '../src/index.js';
 import { usersOfSecret } from '../src/provider-keys.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -97,11 +97,34 @@ describe('guardProviderKeys', () => {
     expect(r.kind).toBe('ok');
   });
 
-  test('what the store says about itself passes through', () => {
+  test('what the store says about itself passes through', async () => {
     const { binding } = store();
-    const dev = { ...binding, writesAppEnvFiles: true } as SecretBinding;
-    expect(guardProviderKeys(dev, keys, 'a tool').writesAppEnvFiles).toBe(true);
+    const refusal = { code: 'secret-name-invalid', message: 'not an env-file key' } as const;
+    const asked: EnvNamesInput[] = [];
+    const dev = {
+      ...binding,
+      writesAppEnvFiles: true,
+      nameRefusal: (name: string) => (name === 'acme-key' ? refusal : undefined),
+      listEnvNames: async (input: EnvNamesInput) => {
+        asked.push(input);
+        return ['local'] as EnvName[];
+      },
+      issuedCursor: (list: 'secrets' | 'versions', cursor: Cursor) =>
+        list === 'secrets' && (cursor as unknown as string) === 'issued',
+    } as SecretBinding;
+    const guarded = guardProviderKeys(dev, keys, 'a tool');
+    expect(guarded.writesAppEnvFiles).toBe(true);
+    expect(guarded.nameRefusal?.('acme-key')).toEqual(refusal);
+    expect(guarded.nameRefusal?.('ACME_KEY')).toBeUndefined();
+    const input: EnvNamesInput = { tenantId: 'tenant-test' as TenantId, limit: 2 };
+    expect(await guarded.listEnvNames?.(input)).toEqual(['local']);
+    expect(asked).toEqual([input]);
+    expect(guarded.issuedCursor?.('secrets', 'issued' as Cursor)).toBe(true);
+    expect(guarded.issuedCursor?.('versions', 'issued' as Cursor)).toBe(false);
     expect(guardProviderKeys(binding, keys, 'a tool')).not.toHaveProperty('writesAppEnvFiles');
+    expect(guardProviderKeys(binding, keys, 'a tool')).not.toHaveProperty('nameRefusal');
+    expect(guardProviderKeys(binding, keys, 'a tool')).not.toHaveProperty('listEnvNames');
+    expect(guardProviderKeys(binding, keys, 'a tool')).not.toHaveProperty('issuedCursor');
   });
 
   test('the words name what asked', async () => {

@@ -24,6 +24,7 @@ import {
   presetRegistration,
   presetSettingFlag,
 } from '../providers/preset-loader.js';
+import { valueEnvFor } from '../value-target.js';
 import {
   type TableSpec,
   readJsonInput,
@@ -142,7 +143,7 @@ const register: LeafCommand = {
     env: {
       type: 'string',
       description:
-        "With `--preset`, the environment of the key's secret (default `local`; in a pack, the key must already be in its env files).",
+        "With `--preset`, the environment of the key's secret: default `local` (in a pack, the key must already be in its env files), or on a runtime that keeps its values under one env, that one.",
     },
   },
   run: (ctx) =>
@@ -156,7 +157,7 @@ const register: LeafCommand = {
         const spec = (await readJsonInput(specText)) as RegisterProviderInput;
         return renderJson(await ctx.client().providers.register(spec), ctx.globals.format);
       }
-      const input = await presetInput(ctx, presetName as string);
+      const { input, keyHint } = await presetInput(ctx, presetName as string);
       const outcome = await ctx.client().providers.register(input);
       const wanted = input.metadata.defaultModel;
       const models = input.metadata.models
@@ -169,7 +170,7 @@ const register: LeafCommand = {
       const kept = await runtimeNotes(ctx, input);
       return {
         stdout: renderJson(outcome, ctx.globals.format).stdout,
-        stderr: `✓ Registered ${input.metadata.id}: ${models}${key}\n${kept}`,
+        stderr: `✓ Registered ${input.metadata.id}: ${models}${key}\n${keyHint}${kept}`,
       };
     }),
 };
@@ -225,7 +226,10 @@ async function runtimeNotes(ctx: CommandContext, input: RegisterProviderInput): 
  * there at turn time, so a missing key is caught here rather than on the
  * first agent turn.
  */
-async function presetInput(ctx: CommandContext, name: string): Promise<RegisterProviderInput> {
+async function presetInput(
+  ctx: CommandContext,
+  name: string,
+): Promise<{ readonly input: RegisterProviderInput; readonly keyHint: string }> {
   const presets = await loadProviderPresets();
   const preset = presets[name];
   if (preset === undefined) {
@@ -235,7 +239,21 @@ async function presetInput(ctx: CommandContext, name: string): Promise<RegisterP
   }
   const modelsFlag = stringFlag(ctx, 'models');
   const secret = stringFlag(ctx, 'secret');
-  const envName = stringFlag(ctx, 'env') ?? LOCAL_ENV_NAME;
+  // The key's env: `local` (the pack's env files) by default, but on a
+  // runtime that keeps its values under one env, that one;
+  // another is refused there. A pack environment named there is that env
+  // too: a registration is the tenant's, and the key is stored per
+  // environment, in its project, so the project isn't looked up here.
+  const target = await valueEnvFor(ctx, stringFlag(ctx, 'env'), {
+    write: true,
+    what: "a provider's key",
+    fallback: LOCAL_ENV_NAME,
+  });
+  if (target.kind !== 'ok') {
+    // Never `missing`: there's a fallback.
+    throw new UsageError(target.kind === 'refused' ? target.stderr.trimEnd() : 'Missing --env');
+  }
+  const envName = target.envName;
   const maxOutput = stringFlag(ctx, 'max-output-tokens');
   if (maxOutput !== undefined && !/^[1-9]\d*$/.test(maxOutput)) {
     throw new UsageError(
@@ -262,7 +280,19 @@ async function presetInput(ctx: CommandContext, name: string): Promise<RegisterP
     const missing = await missingPackSecret(ctx, ref.name, preset);
     if (missing !== undefined) throw new Error(missing);
   }
-  return built.input;
+  return { input: built.input, keyHint: perEnvironmentKeyHint(target.environment, ref) };
+}
+
+/**
+ * When `--env` named a pack environment: storing the key per environment,
+ * in each one's project. Nothing otherwise, or for a preset with no key.
+ */
+function perEnvironmentKeyHint(
+  environment: { readonly name: string } | undefined,
+  ref: { readonly name: string } | undefined,
+): string {
+  if (environment === undefined || ref === undefined) return '';
+  return `  Store the key per environment: \`kindgi secrets set ${ref.name} --env=${environment.name}\`, and the same with each other environment's name.\n`;
 }
 
 /** Why `name` can't be resolved from the pack's env files, or `undefined` when it can (or this isn't a pack). */

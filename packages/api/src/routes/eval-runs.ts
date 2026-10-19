@@ -21,6 +21,7 @@ import {
   type EvalRunStatus,
   type FlowRef,
 } from '../eval-run-binding.js';
+import { type ItemRights, filterOwned, ownProject, runIn } from '../item-rights.js';
 import { VERSIONS_NEED_A_FLOW } from '../judged-dispatcher.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
@@ -32,10 +33,10 @@ import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import { parseComparison } from './eval-comparison.js';
 import { type SettingsOverridesCheck, checkSettingsOverrides } from './eval-overrides.js';
-import { type FlowVersionsCheck, checkFlowVersions } from './eval-versions.js';
+import { type FlowVersionsCheck, checkFlowVersions, versionsReferences } from './eval-versions.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
-import { formatSseFrame } from './sse.js';
+import { formatSseFrame, pause, readingOf } from './sse.js';
 import { parseTimeInput } from './time-input.js';
 
 /**
@@ -81,10 +82,28 @@ export function evalRunsRouters(
   authorizer?: Authorizer,
   /** What an eval run's project may run (`reference-scope.ts`); absent → as named. */
   referenceScope?: ReferenceScopeBinding,
+  /** Whether a project is suspended: no eval run starts in one. Absent: no check. */
+  projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>,
+  /**
+   * Rights on a suite, agent or flow more than one project serves
+   * (`item-rights.ts`): running one in one of its projects is that
+   * project's `execute` (`call` for an agent), and a run of such a suite
+   * is read, cancelled and rescored on its own project. Absent: every item
+   * has one project.
+   */
+  itemRights?: ItemRights,
 ): EvalRunsRouters {
   return {
-    start: startRouter(binding, versionsCheck, overridesCheck, authorizer, referenceScope),
-    readback: readbackRouter(binding, authorizer),
+    start: startRouter(
+      binding,
+      versionsCheck,
+      overridesCheck,
+      authorizer,
+      referenceScope,
+      projectSuspended,
+      itemRights,
+    ),
+    readback: readbackRouter(binding, authorizer, itemRights),
   };
 }
 
@@ -151,8 +170,27 @@ function startRouter(
   overridesCheck?: SettingsOverridesCheck,
   authorizer?: Authorizer,
   referenceScope?: ReferenceScopeBinding,
+  projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>,
+  itemRights?: ItemRights,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+
+  /**
+   * Running `item` for a run filed in `projectId`: for an item more than
+   * one project serves, with `projectId` among them, that project's right
+   * (`runIn`); else `execute` on the item.
+   */
+  async function runRefusal(
+    c: Context<AppEnv>,
+    item: { readonly kind: 'agent' | 'flow' | 'eval_suite'; readonly id: string },
+    projectId: string,
+  ): Promise<Response | undefined> {
+    const served =
+      authorizer === undefined ? undefined : await itemRights?.multi(c, item.kind, item.id);
+    return itemRights !== undefined && served?.includes(projectId as ProjectId) === true
+      ? runIn(c, itemRights, item, projectId)
+      : deniedBy(authorizer, c, 'execute', ref(item.kind, item.id));
+  }
 
   r.post('/:suiteId/runs', async (c) => {
     const requestId = c.get('requestId');
@@ -182,23 +220,52 @@ function startRouter(
     const { projectId, agentRef, flowRef } = parsed.value;
     const target =
       agentRef !== undefined
-        ? ref('agent', agentRef.agentId as unknown as string)
-        : ref('flow', flowRef?.flowId as unknown as string);
+        ? { kind: 'agent' as const, id: agentRef.agentId as unknown as string }
+        : { kind: 'flow' as const, id: flowRef?.flowId as unknown as string };
     // Running the suite takes `execute` on it (an editor of its project, or
-    // an executor), whichever project the run lands in.
+    // an executor), whichever project the run lands in; its results land
+    // in that project, which takes `write`. A suite or target more than one
+    // project serves, run in one of them: that project's right instead.
     const refused =
-      (await deniedBy(authorizer, c, 'execute', ref('eval_suite', suiteId))) ??
+      (await runRefusal(c, { kind: 'eval_suite', id: suiteId }, projectId as unknown as string)) ??
       (await deniedBy(authorizer, c, 'write', ref('project', projectId as unknown as string))) ??
-      (await deniedBy(authorizer, c, 'execute', target));
+      (await runRefusal(c, target, projectId as unknown as string));
     if (refused !== undefined) return refused;
-    // The suite and what it runs must be the run's project's to reach (`reference-scope.ts`).
+    // The suite and what it runs must be the run's project's to reach
+    // (`reference-scope.ts`): at the version named, when one is, since each
+    // case replays that version in the run's project. That holds for a flow
+    // candidate's `versions` too, each at its own path.
     const outOfScope = await referencesOutOfScope(referenceScope, tenantId, projectId, [
       { path: '/suiteId', kind: 'suite', id: suiteId },
       agentRef !== undefined
-        ? { path: '/agentRef/agentId', kind: 'agent', id: agentRef.agentId as unknown as string }
-        : { path: '/flowRef/flowId', kind: 'flow', id: flowRef?.flowId as unknown as string },
+        ? {
+            path: '/agentRef/agentId',
+            kind: 'agent',
+            id: agentRef.agentId as unknown as string,
+            ...(agentRef.version !== undefined && { version: agentRef.version }),
+          }
+        : {
+            path: '/flowRef/flowId',
+            kind: 'flow',
+            id: flowRef?.flowId as unknown as string,
+            ...(flowRef?.version !== undefined && { version: flowRef.version }),
+          },
+      ...versionsReferences(parsed.value.comparison?.versions),
     ]);
     if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+    if (projectSuspended !== undefined && (await projectSuspended(tenantId, projectId))) {
+      c.status(statusFor('project-suspended') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'project-suspended',
+            message:
+              "The project is suspended, so nothing new runs in it until it's restored; the eval run wasn't started",
+          },
+          requestId,
+        ),
+      );
+    }
     const refusal =
       (await versionsRefusal(versionsCheck, tenantId, parsed.value)) ??
       (await overridesRefusal(overridesCheck, tenantId, parsed.value));
@@ -297,15 +364,36 @@ function startAnswer(
 
 // ---------- /v1/eval-runs/* (readback + cancel + SSE) ----------
 
-function readbackRouter(binding: EvalRunBinding, authorizer?: Authorizer): Hono<AppEnv> {
+function readbackRouter(
+  binding: EvalRunBinding,
+  authorizer?: Authorizer,
+  itemRights?: ItemRights,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
-  /** The refusal, if any, of `action` on the suite of the run named in the path. */
-  const onRunSuite = async (c: Context<AppEnv>, action: Action): Promise<Response | undefined> => {
+  /**
+   * The refusal, if any, of `action` on the suite of the run named in the
+   * path. A run of a suite more than one project serves is its own
+   * project's: `read` on it, or to change it, `execute` (`onProject`).
+   */
+  const onRunSuite = async (
+    c: Context<AppEnv>,
+    action: Action,
+    onProject: Action = action,
+  ): Promise<Response | undefined> => {
     if (authorizer === undefined) return undefined;
     const tenantId = c.get('tenantId') as TenantId;
     const run = await binding.get({ tenantId, runId: c.req.param('runId') as RunId });
     if (run === null) return undefined;
-    return deniedBy(authorizer, c, action, ref('eval_suite', run.suiteId));
+    const own = await ownProject(
+      c,
+      itemRights,
+      'eval_suite',
+      run.suiteId,
+      run.projectId as unknown as string | undefined,
+    );
+    return own === undefined
+      ? deniedBy(authorizer, c, action, ref('eval_suite', run.suiteId))
+      : deniedBy(authorizer, c, onProject, ref('project', own));
   };
 
   // ---------- GET / (list) ----------
@@ -379,9 +467,11 @@ function readbackRouter(binding: EvalRunBinding, authorizer?: Authorizer): Hono<
     const visible =
       authorizer === undefined
         ? page.data
-        : await authorizer.filterByCan(c, 'read', page.data, (run) =>
-            ref('eval_suite', run.suiteId),
-          );
+        : await filterOwned(c, authorizer, itemRights, 'eval_suite', page.data, {
+            idOf: (run) => run.suiteId,
+            projectOf: (run) => run.projectId as unknown as string | undefined,
+            todayRef: (run) => ref('eval_suite', run.suiteId),
+          });
     return c.json({
       data: visible.map(serializeEvalRun),
       hasMore: page.nextCursor !== undefined,
@@ -415,7 +505,7 @@ function readbackRouter(binding: EvalRunBinding, authorizer?: Authorizer): Hono<
   // settings that replays nothing: it scores the run's replays again, with
   // what people judged on them since. The run rescored stays as it was.
   r.post('/:runId/rescore', async (c) => {
-    const refused = await onRunSuite(c, 'admin');
+    const refused = await onRunSuite(c, 'admin', 'execute');
     if (refused !== undefined) return refused;
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -463,7 +553,7 @@ function readbackRouter(binding: EvalRunBinding, authorizer?: Authorizer): Hono<
 
   // ---------- POST /:runId/cancel ----------
   r.post('/:runId/cancel', async (c) => {
-    const refused = await onRunSuite(c, 'write');
+    const refused = await onRunSuite(c, 'write', 'execute');
     if (refused !== undefined) return refused;
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -524,15 +614,37 @@ function readbackRouter(binding: EvalRunBinding, authorizer?: Authorizer): Hono<
       );
     }
 
+    const headers = {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Request-Id': requestId,
+    };
+    // Nobody will read this stream when the request is a HEAD (Hono answers a
+    // HEAD with this GET route and drops the body unread, and nothing cancels
+    // it) or when the client left during the read above (its request aborts,
+    // but the server cancels only a body it's writing). Then the route
+    // answers the stream's status and headers, before the stream exists, and
+    // starts none of its work.
+    if (c.req.method === 'HEAD' || c.req.raw.signal.aborted) {
+      return new Response(null, { status: 200, headers });
+    }
+
     const encoder = new TextEncoder();
     const POLL_MS = 100;
     const MAX_WAIT_MS = 5 * 60_000;
+    // Aborted when the client goes away: the reader cancels the stream, or
+    // the request aborts. The poll below ends on it at once.
+    const reading = readingOf(c.req.raw);
 
     // Track which per-case events we've already emitted (index within
     // result.perCase). Kept intentionally small — only the accuracy
     // kind's per-case shape is streamed; other kinds would need their
     // own projection.
     const body = new ReadableStream<Uint8Array>({
+      cancel() {
+        reading.abort();
+      },
       async start(controller) {
         const startedAt = Date.now();
         let lastEmittedCaseIndex = -1;
@@ -614,7 +726,8 @@ function readbackRouter(binding: EvalRunBinding, authorizer?: Authorizer): Hono<
             return;
           }
           while (Date.now() - startedAt < MAX_WAIT_MS) {
-            await new Promise((r2) => setTimeout(r2, POLL_MS));
+            await pause(POLL_MS, reading.signal);
+            if (reading.signal.aborted) break;
             const step = await emit();
             if (step.terminal) break;
           }
@@ -624,15 +737,7 @@ function readbackRouter(binding: EvalRunBinding, authorizer?: Authorizer): Hono<
       },
     });
 
-    return new Response(body, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        'X-Request-Id': requestId,
-      },
-    });
+    return new Response(body, { status: 200, headers });
   });
 
   return r;
@@ -666,6 +771,8 @@ function serializeEvalRun(run: EvalRun): Record<string, unknown> {
     ...(run.completedAt !== undefined && { completedAt: run.completedAt }),
     ...(run.result !== undefined && { result: run.result }),
     ...(run.error !== undefined && { error: run.error }),
+    ...(run.status === 'cancelled' &&
+      run.cancelReason !== undefined && { cancelReason: run.cancelReason }),
     ...(run.correlationId !== undefined && { correlationId: run.correlationId }),
     ...(run.comparison !== undefined && { comparison: run.comparison }),
   };

@@ -46,6 +46,8 @@ export interface PackEnvPlan {
   readonly entries: readonly PackEnvPlanEntry[];
   /** Required names the environment gives no value. */
   readonly missing: readonly string[];
+  /** Every name `environments.<env>.env` gives a value or a reference, declared or not, in name order. */
+  readonly given: readonly string[];
   /** What makes the plan unusable: a secret as a plain value, a malformed entry. */
   readonly problems: readonly string[];
   /** Worth knowing, not blocking: `latest` versions, values for undeclared names. */
@@ -190,7 +192,8 @@ export function planPackEnv(
     }
   }
   const missing = entries.filter((e) => e.required && e.source === undefined).map((e) => e.name);
-  return { kind: 'ok', plan: { envName, entries, missing, problems, warnings } };
+  const given = [...sources.keys()].sort();
+  return { kind: 'ok', plan: { envName, entries, missing, given, problems, warnings } };
 }
 
 /** A secret source as Cloud Run takes it: `SECRET:VERSION`, or the full name for another project. */

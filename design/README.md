@@ -75,6 +75,6 @@ commit.
   fontsource's `IBM Plex Sans Variable` (`@fontsource-variable/ibm-plex-sans`),
   or your own `@font-face` that names the variable file `IBM Plex Sans` with
   `font-stretch: 85% 100%`.
-- **Shape** is square (`radius`). Only form fields are slightly rounded
-  (`radius-field`, 3px). Rows default to `row` (38px); a long list may offer
-  `row-compact`.
+- **Shape** is square (`radius`). Buttons are slightly rounded
+  (`radius-button`, 4px), and form fields a little less (`radius-field`, 3px).
+  Rows default to `row` (38px); a long list may offer `row-compact`.

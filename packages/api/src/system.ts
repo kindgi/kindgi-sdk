@@ -31,9 +31,13 @@ export const FULL_SYSTEM_CAPABILITY = 'kindgi:system';
 
 /**
  * The scopes a system key can hold, each the least one service needs.
- * `kindgi:system` holds them all. None of them reads customer content
- * (runs, conversations, secrets, memory, files); `system:tenants:contacts`
- * reads account contacts only.
+ * `kindgi:system` holds them all, but for one read. None of them reads
+ * customer content (runs, conversations, memory, files);
+ * `system:tenants:contacts` reads account contacts only, and
+ * `system:pack-env` reads the env values a deployment's pack declares. Its
+ * secrets' values are given only when asked (`?secrets=values`), each
+ * audited, and only to a key holding `system:pack-env` itself, never to
+ * one holding `kindgi:system`.
  */
 export const SYSTEM_SCOPES = [
   /** Create, list, read and close tenants. */
@@ -57,6 +61,12 @@ export const SYSTEM_SCOPES = [
   'system:suspend',
   /** The packs' deployments and their endpoints. */
   'system:deployments',
+  /**
+   * The plain env values each deployment's pack declares, to give its pack
+   * service, and what its service runs on. On a key of its own: the
+   * deployments key can't read a value.
+   */
+  'system:pack-env',
   /** Usage across tenants: counts and sums only. */
   'system:usage:read',
   /** The deployment's license: reading it, for its renewal. */
