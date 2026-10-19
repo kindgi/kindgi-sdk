@@ -371,9 +371,10 @@ export interface JournalEntry {
 export interface JournalEntryFacts {
   /**
    * The step's scope where it isn't the entry's node id: a loop-body
-   * step's `bodyStepKey` on its `step.*` entries, and a nested loop's on
-   * its `iteration.*` entries. On `wait.*` entries, always the waiting
-   * step's scope.
+   * step's `bodyStepKey` on its `step.*` entries. On `iteration.*`
+   * entries, always the loop execution's scope: a nested loop's
+   * `bodyStepKey`, a top-level loop's node id. On `wait.*` entries,
+   * always the waiting step's scope.
    */
   readonly scope?: string;
   /**
@@ -390,8 +391,9 @@ export interface JournalEntryFacts {
   /**
    * A fixed word: `step.failed`'s attribution (`timeout`, `cancelled`),
    * `fanout.branch-failed`'s and `fanout.cancelled-siblings`' reason, or
-   * `run.cancelled`'s, when it's one the kernel knows. More words may
-   * come.
+   * `run.cancelled`'s or `wait.cancelled`'s (such as `timeout`,
+   * `conversation-closed`), when it's one the kernel knows. More words
+   * may come.
    */
   readonly reason?: string;
   /** `step.failed` on a timeout. */

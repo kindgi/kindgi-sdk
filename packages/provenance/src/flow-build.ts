@@ -186,6 +186,8 @@ interface WaitAcc {
   readonly kind: 'wait' | 'resume';
   readonly sequence: number;
   readonly at: Timestamp;
+  /** A resume that is the wait's cancel, and the cancel's reason when the kernel kept it. */
+  readonly cancelled?: { readonly reason?: string };
 }
 
 interface BodyNodeDef {
@@ -207,17 +209,14 @@ interface Candidate {
 export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBuilder {
   const L = FLOW_PROVENANCE_LIMITS;
   const topNodes = new Map<string, FlowNode>(run.flow.nodes.map((n) => [n.id, n]));
-  const bodyNodes = new Map<string, Map<string, BodyNodeDef>>();
-  const bodyOwner = new Map<string, string>();
+  /** Every loop body's nodes, by node id: ids are unique across the whole flow, bodies included. */
+  const bodyNodes = new Map<string, BodyNodeDef>();
   for (const node of run.flow.nodes) {
     if (node.kind === 'loop') indexLoop(node, node.id);
   }
   function indexLoop(loop: LoopNode, topLoopId: string): void {
-    const byId = new Map<string, BodyNodeDef>();
-    bodyNodes.set(loop.id, byId);
     for (const node of loop.body.nodes) {
-      byId.set(node.id, { node, loop, topLoopId });
-      if (!bodyOwner.has(node.id)) bodyOwner.set(node.id, topLoopId);
+      bodyNodes.set(node.id, { node, loop, topLoopId });
       if (node.kind === 'loop') indexLoop(node, topLoopId);
     }
   }
@@ -225,10 +224,12 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
   const steps = new Map<string, StepAcc>();
   /** A loop execution's iterations, by its scope. */
   const iterations = new Map<string, Map<number, IterationAcc>>();
-  /** Which loop node a loop execution runs, by its scope. */
-  const loopOfScope = new Map<string, string>();
   const topEdges = new Map<string, boolean>();
-  /** Body steps from before the kernel kept facts, by the flow's own loop they sit in. */
+  /**
+   * Body steps whose start couldn't be placed, by the flow's own loop they
+   * sit in: started before the kernel kept facts, or in a loop execution
+   * whose own step wasn't seen.
+   */
   const unplaced = new Map<string, number>();
   /** The flow's own loops with entries that couldn't be placed. */
   const partialLoops = new Set<string>();
@@ -280,7 +281,6 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
       waits: [],
     };
     steps.set(scope, step);
-    if (def.kind === 'loop') loopOfScope.set(scope, def.id);
     if (place.loopScope !== undefined && place.iteration !== undefined) {
       iterationOf(place.loopScope, place.iteration, entry).steps.add(scope);
     }
@@ -316,7 +316,8 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
   function cantPlace(nodeId: string | undefined, isStepStart: boolean): void {
     if (nodeId === undefined) return;
     const top =
-      bodyOwner.get(nodeId) ?? (topNodes.get(nodeId)?.kind === 'loop' ? nodeId : undefined);
+      bodyNodes.get(nodeId)?.topLoopId ??
+      (topNodes.get(nodeId)?.kind === 'loop' ? nodeId : undefined);
     if (top === undefined) return;
     partialLoops.add(top);
     if (isStepStart) unplaced.set(top, (unplaced.get(top) ?? 0) + 1);
@@ -340,12 +341,16 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
     if (facts?.scope !== undefined) {
       const known = steps.get(facts.scope);
       if (known !== undefined) return known;
-      if (facts.loopScope === undefined || facts.iteration === undefined) return undefined;
-      const loopId = loopOfScope.get(facts.loopScope) ?? facts.loopScope;
-      const def = bodyNodes.get(loopId)?.get(nodeId);
-      if (def === undefined) return undefined;
+      const def = bodyNodes.get(nodeId);
+      // Its loop execution's own step must have been seen: one that started
+      // before the kernel kept facts, or in the gap, wasn't.
+      const loop = facts.loopScope === undefined ? undefined : steps.get(facts.loopScope);
+      if (def === undefined || loop?.nodeId !== def.loop.id || facts.iteration === undefined) {
+        cantPlace(nodeId, entry.kind === 'step.started');
+        return undefined;
+      }
       return newStep(entry, facts.scope, def.node, {
-        loopScope: facts.loopScope,
+        loopScope: loop.scope,
         iteration: facts.iteration,
       });
     }
@@ -535,6 +540,10 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
           kind,
           sequence: entry.sequence,
           at: entry.timestamp,
+          // The step fails on replay; its resume node says the wait was cancelled, as a turn's does.
+          ...(entry.kind === 'wait.cancelled' && {
+            cancelled: { ...(facts?.reason !== undefined && { reason: facts.reason }) },
+          }),
         });
         touch(step, entry);
         return;
@@ -654,10 +663,15 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
             id: wait.id,
             kind: wait.kind,
             timestamp: wait.at,
-            attributes:
-              step.scope.length > L.maxIdLength
+            attributes: {
+              ...(step.scope.length > L.maxIdLength
                 ? { truncated: { reason: 'ids', idsOmitted: 1 } }
-                : { scope: step.scope },
+                : { scope: step.scope }),
+              ...(wait.cancelled !== undefined && {
+                decision: 'cancelled',
+                ...(wait.cancelled.reason !== undefined && { reason: wait.cancelled.reason }),
+              }),
+            },
           },
         });
       }
@@ -802,8 +816,7 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
         .filter((e) => e.to === step.nodeId && topEdges.get(e.id) === true)
         .map((e) => e.id);
     }
-    const loopId = loopOfScope.get(step.loopScope) ?? step.loopScope;
-    const loop = bodyNodes.get(loopId)?.get(step.nodeId)?.loop;
+    const loop = bodyNodes.get(step.nodeId)?.loop;
     const it =
       step.iteration === undefined
         ? undefined
@@ -1050,8 +1063,7 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
         }
       } else {
         add(self, stepKey(step.loopScope), 'invoked');
-        const loopId = loopOfScope.get(step.loopScope) ?? step.loopScope;
-        const loop = bodyNodes.get(loopId)?.get(step.nodeId)?.loop;
+        const loop = bodyNodes.get(step.nodeId)?.loop;
         const it =
           step.iteration === undefined
             ? undefined

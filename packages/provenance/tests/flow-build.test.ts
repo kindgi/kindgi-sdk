@@ -179,10 +179,10 @@ function runLoop(
   const scope = ownPlace?.scope ?? loop.id;
   for (let i = 0; i < count; i += 1) {
     const path = [{ loopNodeId: loop.id, iteration: i }, ...outer];
-    j.iteration('started', loop.id, { ...(ownPlace && { scope }), iteration: i });
+    j.iteration('started', loop.id, { scope, iteration: i });
     body(path, i);
     j.iteration('completed', loop.id, {
-      ...(ownPlace && { scope }),
+      scope,
       iteration: i,
       ...(i === count - 1 && { stopReason: 'items-done' }),
     });
@@ -439,11 +439,43 @@ describe('a flow run', () => {
       timestamp: at(waited),
       attributes: { scope: 'approve' },
     });
+    expect(attrs(record, `resume:${resumed}`)).toEqual({ scope: 'approve' });
     expect(edgeSet(record.edges)).toEqual([
       'step:approve -caused-by-> input',
       `step:approve -waited-on-> wait:${waited}`,
       `wait:${waited} -resumed-from-> resume:${resumed}`,
     ]);
+  });
+
+  test("a cancelled wait's resume says so, with the kernel's reason, and the step then fails", () => {
+    const f = flowOf([tool('approve')], [edge('e1', '$start', 'approve')]);
+    for (const [kept, said] of [
+      [{ reason: 'timeout' }, { decision: 'cancelled', reason: 'timeout' }],
+      // A reason the kernel doesn't know stays out of the facts.
+      [{}, { decision: 'cancelled' }],
+    ] as const) {
+      const j = new Journal();
+      j.edge('e1');
+      j.add('step.started', 'approve');
+      const waited = j.add('wait.suspended', 'approve', { scope: 'approve' });
+      // The timeout sweep cancels the wait; on replay the step's handler throws.
+      const cancelled = j.add('wait.cancelled', 'approve', { scope: 'approve', ...kept });
+      j.add('step.failed', 'approve', {});
+      const record = build(runOf(f, { status: 'failed', hasOutput: false }), j.entries);
+
+      expect(nodeOf(record, `resume:${cancelled}`)).toEqual({
+        id: `resume:${cancelled}`,
+        kind: 'resume',
+        timestamp: at(cancelled),
+        attributes: { scope: 'approve', ...said },
+      });
+      expect(attrs(record, 'step:approve')).toMatchObject({ status: 'failed' });
+      expect(edgeSet(record.edges)).toEqual([
+        'step:approve -caused-by-> input',
+        `step:approve -waited-on-> wait:${waited}`,
+        `wait:${waited} -resumed-from-> resume:${cancelled}`,
+      ]);
+    }
   });
 
   test('a waitpoint from before waits kept their scope: a top-level step’s wait is placed by its node id', () => {
@@ -591,22 +623,22 @@ describe('loops', () => {
     j.edge('e1');
     j.add('step.started', 'L');
     for (const i of [0, 1]) {
-      j.iteration('started', 'L', { iteration: i });
+      j.iteration('started', 'L', { scope: 'L', iteration: i });
       iterationOf(j, i);
-      j.iteration('completed', 'L', { iteration: i });
+      j.iteration('completed', 'L', { scope: 'L', iteration: i });
     }
     // Resumed: the kernel replays iterations 0 and 1 without their completed steps.
     for (const i of [0, 1]) {
       const place = { loopScope: 'L', iteration: i };
-      j.iteration('started', 'L', { iteration: i });
+      j.iteration('started', 'L', { scope: 'L', iteration: i });
       j.edge('le1', true, place);
       j.edge('le2', true, place);
       j.edge('le3', true, place);
-      j.iteration('completed', 'L', { iteration: i });
+      j.iteration('completed', 'L', { scope: 'L', iteration: i });
     }
-    j.iteration('started', 'L', { iteration: 2 });
+    j.iteration('started', 'L', { scope: 'L', iteration: 2 });
     iterationOf(j, 2);
-    j.iteration('completed', 'L', { iteration: 2 });
+    j.iteration('completed', 'L', { scope: 'L', iteration: 2 });
     j.add('step.completed', 'L');
     const record = build(runOf(flow, { hasOutput: false }), j.entries);
 
@@ -617,6 +649,21 @@ describe('loops', () => {
     ]);
     expect(attrs(record, 'step:L')).toMatchObject({ iterations: { count: 3 } });
     expect(attrs(record, 'step:x@L#0')).toMatchObject({ attempts: 1, reachedBy: ['le1'] });
+  });
+
+  test("an iteration with no scope is placed by a top-level loop's id", () => {
+    const j = new Journal();
+    j.edge('e1');
+    j.add('step.started', 'L');
+    j.iteration('started', 'L', { iteration: 0 });
+    iterationOf(j, 0);
+    j.iteration('completed', 'L', { iteration: 0, stopReason: 'items-done' });
+    j.add('step.completed', 'L');
+    const record = build(runOf(flow, { hasOutput: false }), j.entries);
+
+    expect(attrs(record, 'step:L')).toMatchObject({ iterations: { count: 1 } });
+    expect(attrs(record, 'step:L')).not.toHaveProperty('partial');
+    expect(has(record, 'step:x@L#0')).toBe(true);
   });
 
   test('a foreach finishing out of order keeps iterations 0..24 and the last 25, by index', () => {
@@ -630,12 +677,12 @@ describe('loops', () => {
     // Two workers: each pair starts in swapped order; then all finish, last first.
     for (let k = 0; k < n; k += 1) {
       const i = k % 2 === 0 ? k + 1 : k - 1;
-      j.iteration('started', 'L', { iteration: i });
+      j.iteration('started', 'L', { scope: 'L', iteration: i });
       j.add('step.started', 'x', inBody('x', [{ loopNodeId: 'L', iteration: i }]));
     }
     for (let i = n - 1; i >= 0; i -= 1) {
       j.add('step.completed', 'x', inBody('x', [{ loopNodeId: 'L', iteration: i }]));
-      j.iteration('completed', 'L', { iteration: i });
+      j.iteration('completed', 'L', { scope: 'L', iteration: i });
     }
     j.add('step.completed', 'L');
     j.edge('e2');
@@ -755,7 +802,7 @@ describe('loops', () => {
     j.edge('e1');
     j.add('step.started', 'L');
     for (const x of [x0, x1]) {
-      j.iteration('started', 'L', { iteration: x.iteration });
+      j.iteration('started', 'L', { scope: 'L', iteration: x.iteration });
       j.add('step.started', 'x', x);
     }
     // Each suspension's two copies: the body node's, then the outer loop's.
@@ -769,7 +816,7 @@ describe('loops', () => {
     const resumed0 = j.add('wait.resumed', 'L', { scope: x0.scope });
     for (const x of [x1, x0]) {
       j.add('step.completed', 'x', x);
-      j.iteration('completed', 'L', { iteration: x.iteration });
+      j.iteration('completed', 'L', { scope: 'L', iteration: x.iteration });
     }
     j.add('step.completed', 'L');
     const record = build(runOf(f, { hasOutput: false }), j.entries);
@@ -835,6 +882,40 @@ describe('loops', () => {
 
     expect(has(record, 'step:z@I#0/O#0')).toBe(true);
     expect(attrs(record, 'step:O')).toMatchObject({ partial: true });
+  });
+
+  test('across the upgrade, a body step of a nested loop whose own start had no facts is counted', () => {
+    const inner = loopOf('I', tool('z'));
+    const outer = loopOf('O', inner);
+    const f = flowOf([outer], [edge('e1', '$start', 'O')]);
+    const ownPlace = inBody('I', [{ loopNodeId: 'O', iteration: 0 }]);
+    const z = inBody('z', [
+      { loopNodeId: 'I', iteration: 0 },
+      { loopNodeId: 'O', iteration: 0 },
+    ]);
+    const j = new Journal();
+    j.edge('e1');
+    // Before the upgrade: no facts.
+    j.add('step.started', 'O');
+    j.add('iteration.started', 'O');
+    j.add('step.started', 'I');
+    // After it: z names its loop execution, whose own step was never placed.
+    j.iteration('started', 'I', { scope: ownPlace.scope, iteration: 0 });
+    j.step('z', z);
+    j.iteration('completed', 'I', {
+      scope: ownPlace.scope,
+      iteration: 0,
+      stopReason: 'items-done',
+    });
+    j.add('step.completed', 'I', ownPlace);
+    j.iteration('completed', 'O', { scope: 'O', iteration: 0, stopReason: 'items-done' });
+    j.add('step.completed', 'O');
+    const record = build(runOf(f, { hasOutput: false }), j.entries);
+
+    expect(has(record, `step:${z.scope}`)).toBe(false);
+    expect(attrs(record, 'step:O')).toMatchObject({ partial: true });
+    // I's start from before the upgrade, and z's after it.
+    expect(attrs(record, 'step:O#folded')).toMatchObject({ folded: { unplaced: 2 } });
   });
 });
 
