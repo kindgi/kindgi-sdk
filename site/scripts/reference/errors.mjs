@@ -129,18 +129,29 @@ export function codeSeeAlso(code, context) {
 }
 
 /**
+ * The codes a `#code` item can link: the written entries' (the reference
+ * check holds them to the API's map, whose codes each have an entry here)
+ * and the codes outside the map.
+ */
+const CODES_ON_PAGE = new Set([
+  ...Object.keys(ERROR_ENTRIES),
+  ...OUTSIDE_THE_MAP.map((entry) => entry.code),
+]);
+
+/**
  * Links for an entry's own "see also": routes (`POST /v1/runs`), `#code` on
  * this page, CLI commands, the environment variables reference, and the
  * hand-written pages' slugs. An item that is none of these (a route the spec
- * doesn't have, a slug no page has) stops the generation, naming `name` (the
- * entry) and the item, rather than dropping out of the list unseen.
+ * doesn't have, a code with no entry here, a slug no page has) stops the
+ * generation, naming `name` (the entry) and the item, rather than dropping
+ * out of the list unseen.
  */
 export function extraLinks(list, { pagesBySlug, spec }, name) {
   return (list ?? []).map((item) => {
     const link = extraLink(item, pagesBySlug, spec);
     if (!link) {
       throw new Error(
-        `${name}: "see also" names ${item}, which is no route in the spec and no page`,
+        `${name}: "see also" names ${item}, which is no route in the spec, no code on this page and no page`,
       );
     }
     return link;
@@ -149,7 +160,9 @@ export function extraLinks(list, { pagesBySlug, spec }, name) {
 
 function extraLink(item, pagesBySlug, spec) {
   if (/^(GET|POST|PUT|PATCH|DELETE) \//.test(item)) return routeLink(item, spec);
-  if (item.startsWith('#')) return `[\`${item.slice(1)}\`](${item})`;
+  if (item.startsWith('#')) {
+    return CODES_ON_PAGE.has(item.slice(1)) ? `[\`${item.slice(1)}\`](${item})` : undefined;
+  }
   const command = item.match(/^reference\/cli\/([a-z-]+)$/)?.[1];
   if (command) return `[\`kindgi ${command}\`](${linkTo(SLUG, item)})`;
   if (item === ENV_VARS_SLUG) return `[${ENV_VARS_TITLE}](${linkTo(SLUG, item)})`;

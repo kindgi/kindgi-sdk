@@ -137,6 +137,7 @@ test('an error entry\'s own "see also" links each item, or stops naming the one 
       [
         'GET /v1/runs',
         '#run-not-found',
+        '#build-job-gone',
         'reference/cli/runs',
         'reference/env-vars',
         'guides/runs/start-a-run',
@@ -147,6 +148,7 @@ test('an error entry\'s own "see also" links each item, or stops naming the one 
     [
       '[`GET /v1/runs`](../api/operations/runslist/)',
       '[`run-not-found`](#run-not-found)',
+      '[`build-job-gone`](#build-job-gone)',
       '[`kindgi runs`](../cli/runs/)',
       '[Environment variables](../env-vars/)',
       '[Start a run](../../guides/runs/start-a-run/)',
@@ -154,7 +156,10 @@ test('an error entry\'s own "see also" links each item, or stops naming the one 
   );
   assert.throws(() => extraLinks(['GET /v1/runs', 'guides/gone'], context, 'database-busy'), {
     message:
-      'database-busy: "see also" names guides/gone, which is no route in the spec and no page',
+      'database-busy: "see also" names guides/gone, which is no route in the spec, no code on this page and no page',
+  });
+  assert.throws(() => extraLinks(['#run-gone'], context, 'database-busy'), {
+    message: /^database-busy: "see also" names #run-gone,/,
   });
   assert.throws(() => extraLinks(['DELETE /v1/runs'], context, 'access.kindgi.com unavailable'), {
     message: /^access\.kindgi\.com unavailable: "see also" names DELETE \/v1\/runs,/,
