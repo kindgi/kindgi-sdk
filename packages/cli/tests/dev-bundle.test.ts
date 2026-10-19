@@ -286,6 +286,92 @@ describe("the dev bundler's externals", () => {
     expect(dev?.map((e) => e.name)).toEqual(image.externals);
   });
 
+  test("image.dependencies: 'loaded': dist/ also gets what the bundles import and the closure's script", async () => {
+    await put('tools/ids.ts', "import { id } from '@acme/ids/sub';\nexport default { id };\n");
+    try {
+      const outputDir = join(dir, '.kindgi', 'build-loaded', 'dist');
+      const loaded = await esbuildBundleReal({
+        packDir: dir,
+        outputDir,
+        discoveryPatterns: PATTERNS,
+        configPath: join(dir, 'kindgi.config.ts'),
+        nodeMajor: 22,
+        dependencies: 'loaded',
+      });
+      expect(JSON.parse(await readFile(join(outputDir, 'externals.json'), 'utf8'))).toEqual({
+        packages: ['@acme/ids', 'acme-clock', 'acme-config-helper'],
+        specifiers: ['@acme/ids/sub', 'acme-clock', 'acme-config-helper'],
+      });
+      expect(loaded.emitted).toContain(join(outputDir, 'kindgi-closure.mjs'));
+      expect(loaded.computedImports).toEqual([]);
+
+      const allDir = join(dir, '.kindgi', 'build-all', 'dist');
+      const all = await esbuildBundleReal({
+        packDir: dir,
+        outputDir: allDir,
+        discoveryPatterns: PATTERNS,
+        configPath: join(dir, 'kindgi.config.ts'),
+        nodeMajor: 22,
+      });
+      expect(all.emitted).not.toContain(join(allDir, 'kindgi-closure.mjs'));
+      await expect(readFile(join(allDir, 'externals.json'), 'utf8')).rejects.toThrow();
+    } finally {
+      await rm(join(dir, 'tools/ids.ts'), { force: true });
+    }
+  });
+
+  test("'loaded': esbuild names each computed import in the pack's own code, and nothing that only looks like one", async () => {
+    await put(
+      'tools/plugin.ts',
+      [
+        'export async function load(name: string) {',
+        '  return import(name);',
+        '}',
+        'export function req(name: string) { return require(name); }',
+        'const r = require;',
+        'export function indirect(name: string) { return r(name); }',
+        "export const text = 'require(name) and import(name) in a string';",
+        '// import(name) in a comment',
+        '/* require(name) in a block comment */',
+        'export const loader = { import: (n: string) => n };',
+        'export const viaMethod = loader.import("x");',
+        'export const wrapped = () => import(',
+        "  'acme-clock'",
+        ');',
+        "export const annotated = () => import(/* chunk */ 'acme-clock');",
+        '',
+      ].join('\n'),
+    );
+    try {
+      const options = {
+        packDir: dir,
+        discoveryPatterns: PATTERNS,
+        configPath: join(dir, 'kindgi.config.ts'),
+        nodeMajor: 22,
+      };
+      const loaded = await esbuildBundleReal({
+        ...options,
+        outputDir: join(dir, '.kindgi', 'build-computed', 'dist'),
+        dependencies: 'loaded',
+      });
+      expect(
+        loaded.computedImports?.map((c) => [c.file.slice(dir.length + 1), c.line, c.text]),
+      ).toEqual([
+        ['tools/plugin.ts', 2, 'return import(name);'],
+        ['tools/plugin.ts', 4, 'export function req(name: string) { return require(name); }'],
+        ['tools/plugin.ts', 5, 'const r = require;'],
+      ]);
+      // 'all' doesn't ask esbuild for them.
+      const all = await esbuildBundleReal({
+        ...options,
+        outputDir: join(dir, '.kindgi', 'build-computed-all', 'dist'),
+      });
+      expect(all.computedImports).toEqual([]);
+    } finally {
+      await rm(join(dir, 'tools/plugin.ts'), { force: true });
+    }
+  });
+
   // Each edit is written as soon as watching starts, while watch mode's
   // first build may be reading the file — the race an editor's save can
   // hit. Whatever that build read, the last build reported is the edit's.
