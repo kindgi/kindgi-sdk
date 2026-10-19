@@ -905,10 +905,40 @@ endpoint, as [When the server changes](#when-the-server-changes) shows, or
 the published tool's active versions, then publish, deploy or register
 again:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi tools versions inventory.stock_level
-kindgi tools unregister inventory.stock_level 1.0.0
+pnpm exec kindgi tools versions inventory.stock_level
+pnpm exec kindgi tools unregister inventory.stock_level 1.0.0
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi tools versions inventory.stock_level
+uv run kindgi tools unregister inventory.stock_level 1.0.0
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw tools versions inventory.stock_level
+./kindgiw tools unregister inventory.stock_level 1.0.0
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw tools versions inventory.stock_level
+./kindgiw tools unregister inventory.stock_level 1.0.0
+```
+
+</TabItem>
+</Tabs>
 
 A pack deployed into another project can't take an endpoint's tool's id
 either: a tool stays in the project its first version was published into,
