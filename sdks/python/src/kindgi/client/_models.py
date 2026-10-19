@@ -954,7 +954,7 @@ class SystemDeploymentEntry(BaseModel):
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    The project the deploy was scoped to. Absent for a tenant-wide deploy.
+    The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project.
     """
     image_ref: Annotated[str, Field(alias="imageRef")]
     """
@@ -3527,7 +3527,7 @@ class ConversationCollectionPage(BaseModel):
         Annotated[Literal["me"] | str, _open.OPEN] | None, Field(alias="openedBy")
     ] = None
     """
-    `me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.
+    `me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.9, which ignores `openedBy` and lists everyone's.
     """
 
 
@@ -7165,6 +7165,25 @@ class Methods(BaseModel):
     """
 
 
+class Legal(BaseModel):
+    """
+    The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    terms_url: Annotated[AnyUrl | None, Field(alias="termsUrl")] = None
+    """
+    Its terms.
+    """
+    privacy_url: Annotated[AnyUrl | None, Field(alias="privacyUrl")] = None
+    """
+    Its privacy policy.
+    """
+
+
 class SignInOptions(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -7174,6 +7193,10 @@ class SignInOptions(BaseModel):
     methods: Methods | None = None
     """
     The ways in this deployment allows, for a sign-in page to show. Absent from older servers.
+    """
+    legal: Legal | None = None
+    """
+    The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.
     """
 
 
@@ -7435,11 +7458,11 @@ class UserCreated(BaseModel):
     """
     invite: UserInvite | None = None
     """
-    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).
+    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.9).
     """
     first_signed_in_at: Annotated[AwareDatetime | None, Field(alias="firstSignedInAt")] = None
     """
-    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).
+    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).
     """
     metadata: dict[str, Any] | None = None
     invite_email: Annotated[InviteEmail | None, Field(alias="inviteEmail")] = None
@@ -8350,6 +8373,10 @@ class DeploymentPromotionBody(BaseModel):
     """
     Why, kept in the `deployment-promoted` audit record.
     """
+    make_live: Annotated[bool | None, Field(alias="makeLive")] = None
+    """
+    Make every agent version the promotion carries live in the target project, each through its scope's gate. The answer's `live` reports each. An error answered after some carried agents were already pinned lists those in `error.details.live`, in `live`'s shape.
+    """
 
 
 class DeploymentPromotionCheckBody(BaseModel):
@@ -8391,6 +8418,42 @@ class LeftBehindVersion(BaseModel):
     """
     The version its chain of edits starts from.
     """
+
+
+class DeploymentLivePinGate(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    status: Annotated[
+        Literal["promoted", "pending-approval", "refused", "superseded", "rejected", "expired"]
+        | str,
+        _open.OPEN,
+    ]
+    promotion_id: Annotated[UUID, Field(alias="promotionId")]
+    policy: GatePolicyRef | None = None
+    """
+    The gate policy that applied; null when none did.
+    """
+    approval_id: Annotated[str | None, Field(alias="approvalId")] = None
+    """
+    The approval a `pending-approval` pin waits on.
+    """
+    checks: list[GateCheck] | None = None
+
+
+class DeploymentLivePin(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str
+    pinned: bool
+    """
+    Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).
+    """
+    gate: DeploymentLivePinGate | None = None
 
 
 class PromotionNextEnvironment(BaseModel):
@@ -10655,7 +10718,7 @@ class CodeArtifactRefFilesystem(BaseModel):
 
 class RecordedSecretScopeTenant(BaseModel):
     """
-    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
     """
 
     model_config = ConfigDict(
@@ -10667,7 +10730,7 @@ class RecordedSecretScopeTenant(BaseModel):
 
 class RecordedSecretScopeOrg(BaseModel):
     """
-    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
     """
 
     model_config = ConfigDict(
@@ -10680,7 +10743,7 @@ class RecordedSecretScopeOrg(BaseModel):
 
 class RecordedSecretScopeProject(BaseModel):
     """
-    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
     """
 
     model_config = ConfigDict(
@@ -11857,7 +11920,7 @@ class SystemPackEnvEntry(BaseModel):
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    The project the deploy was scoped to. Absent for a tenant-wide deploy.
+    The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project.
     """
     image_ref: Annotated[str, Field(alias="imageRef")]
     """
@@ -12192,7 +12255,7 @@ class ApprovalCollectionPage(BaseModel):
         Annotated[Literal["me"] | str, _open.OPEN] | None, Field(alias="decidedBy")
     ] = None
     """
-    `me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.
+    `me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.9, which ignores `decidedBy` and lists them all.
     """
 
 
@@ -13636,6 +13699,10 @@ class DeploymentPromotion(BaseModel):
     """
     Edits of the build's agents and flows that stay behind; absent when none.
     """
+    live: list[DeploymentLivePin] | None = None
+    """
+    Each carried agent pinned live in the target; present only when `makeLive` was asked.
+    """
 
 
 class DeploymentPromotionCheck(BaseModel):
@@ -13669,11 +13736,11 @@ class DeploymentCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `projectId` and lists them all.
+    The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `projectId` and lists them all.
     """
     pack_id: Annotated[str | None, Field(alias="packId")] = None
     """
-    The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `packId` and lists them all.
+    The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `packId` and lists them all.
     """
 
 
@@ -15353,11 +15420,11 @@ class UserRecord(BaseModel):
     """
     invite: UserInvite | None = None
     """
-    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).
+    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.9).
     """
     first_signed_in_at: Annotated[AwareDatetime | None, Field(alias="firstSignedInAt")] = None
     """
-    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).
+    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).
     """
     metadata: dict[str, Any] | None = None
     grants: PersonGrants | None = None

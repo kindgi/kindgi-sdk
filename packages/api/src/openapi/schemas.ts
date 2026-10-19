@@ -1534,7 +1534,8 @@ const SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES: Record<string, JsonSchema> = {
   },
   projectId: {
     type: 'string',
-    description: 'The project the deploy was scoped to. Absent for a tenant-wide deploy.',
+    description:
+      "The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project.",
   },
   imageRef: {
     type: 'string',
@@ -2185,7 +2186,7 @@ export const ApprovalCollectionPageSchema: JsonSchema = {
       type: 'string',
       enum: ['me'],
       description:
-        '`me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.',
+        '`me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.9, which ignores `decidedBy` and lists them all.',
     },
   },
 };
@@ -3698,7 +3699,7 @@ export const ToolSpecSchema: JsonSchema = {
 
 export const RecordedSecretScopeSchema: JsonSchema = {
   description:
-    "Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.",
+    "Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.",
   oneOf: [
     {
       type: 'object',
@@ -4238,7 +4239,7 @@ export const ConversationCollectionPageSchema: JsonSchema = {
       type: 'string',
       enum: ['me'],
       description:
-        "`me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.",
+        "`me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.9, which ignores `openedBy` and lists everyone's.",
     },
   },
 };
@@ -9114,6 +9115,16 @@ export const SignInOptionsSchema: JsonSchema = {
         },
       },
     },
+    legal: {
+      type: 'object',
+      additionalProperties: false,
+      description:
+        "The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.",
+      properties: {
+        termsUrl: { type: 'string', format: 'uri', description: 'Its terms.' },
+        privacyUrl: { type: 'string', format: 'uri', description: 'Its privacy policy.' },
+      },
+    },
   },
 };
 
@@ -9385,13 +9396,13 @@ const USER_PROPERTIES: Record<string, JsonSchema> = {
   invite: {
     $ref: '#/components/schemas/UserInvite',
     description:
-      "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).",
+      "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.9).",
   },
   firstSignedInAt: {
     type: 'string',
     format: 'date-time',
     description:
-      'Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).',
+      'Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).',
   },
   metadata: { type: 'object', additionalProperties: true },
 };
@@ -10571,6 +10582,11 @@ export const DeploymentPromotionBodySchema: JsonSchema = {
       maxLength: 1000,
       description: 'Why, kept in the `deployment-promoted` audit record.',
     },
+    makeLive: {
+      type: 'boolean',
+      description:
+        "Make every agent version the promotion carries live in the target project, each through its scope's gate. The answer's `live` reports each. An error answered after some carried agents were already pinned lists those in `error.details.live`, in `live`'s shape.",
+    },
   },
 };
 
@@ -10637,6 +10653,43 @@ export const LeftBehindVersionSchema: JsonSchema = {
   },
 };
 
+/** The gate's say on a carried version's pin, there when it isn't live yet or ran checks. */
+export const DeploymentLivePinGateSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['status', 'promotionId'],
+  properties: {
+    status: {
+      type: 'string',
+      enum: ['promoted', 'pending-approval', 'refused', 'superseded', 'rejected', 'expired'],
+    },
+    promotionId: { type: 'string', format: 'uuid' },
+    policy: {
+      oneOf: [{ $ref: '#/components/schemas/GatePolicyRef' }, { type: 'null' }],
+      description: 'The gate policy that applied; null when none did.',
+    },
+    approvalId: { type: 'string', description: 'The approval a `pending-approval` pin waits on.' },
+    checks: { type: 'array', items: { $ref: '#/components/schemas/GateCheck' } },
+  },
+};
+
+/** A carried agent version a make-live pinned, or tried to, in the target project. */
+export const DeploymentLivePinSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'version', 'pinned'],
+  properties: {
+    id: { type: 'string' },
+    version: { type: 'string' },
+    pinned: {
+      type: 'boolean',
+      description:
+        'Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).',
+    },
+    gate: { $ref: '#/components/schemas/DeploymentLivePinGate' },
+  },
+};
+
 /** A promotion's answer. */
 export const DeploymentPromotionSchema: JsonSchema = {
   type: 'object',
@@ -10654,6 +10707,12 @@ export const DeploymentPromotionSchema: JsonSchema = {
       type: 'array',
       items: { $ref: '#/components/schemas/LeftBehindVersion' },
       description: "Edits of the build's agents and flows that stay behind; absent when none.",
+    },
+    live: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/DeploymentLivePin' },
+      description:
+        'Each carried agent pinned live in the target; present only when `makeLive` was asked.',
     },
   },
 };
@@ -10854,12 +10913,12 @@ export const DeploymentCollectionPageSchema: JsonSchema = {
     projectId: {
       type: 'string',
       description:
-        "The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `projectId` and lists them all.",
+        "The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `projectId` and lists them all.",
     },
     packId: {
       type: 'string',
       description:
-        "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `packId` and lists them all.",
+        "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `packId` and lists them all.",
     },
   },
 };
@@ -14129,6 +14188,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PromotionMovedVersion', PromotionMovedVersionSchema],
   ['PromotionMoves', PromotionMovesSchema],
   ['LeftBehindVersion', LeftBehindVersionSchema],
+  ['DeploymentLivePinGate', DeploymentLivePinGateSchema],
+  ['DeploymentLivePin', DeploymentLivePinSchema],
   ['DeploymentPromotion', DeploymentPromotionSchema],
   ['PromotionNextEnvironment', PromotionNextEnvironmentSchema],
   ['DeploymentPromotionCheck', DeploymentPromotionCheckSchema],

@@ -19,7 +19,10 @@ import type { Context } from 'hono';
 import { ref } from '@kindgi/authz';
 import type { ProjectId, TenantId } from '@kindgi/types';
 
-import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
+import type {
+  EnvironmentOrderBinding,
+  EnvironmentOrderLocation,
+} from './environment-orders-binding.js';
 import { statusFor, toWireError } from './errors.js';
 import type { Authorizer } from './middleware/authorize.js';
 import type { AppEnv } from './types.js';
@@ -66,6 +69,27 @@ export async function firstEnvironmentOf(
 ): Promise<ProjectId | undefined> {
   if (orders === undefined) return undefined;
   return (await orders.orderOf({ tenantId, projectId }))?.projects[0];
+}
+
+/**
+ * The environment order one of `projects` belongs to — the first such
+ * project's, in the order given — or `undefined` when none is in an order
+ * (or there are no orders). A live change wider than one project for an item
+ * any of whose projects is in an order would span that order's environments,
+ * so it's refused (the width refusal), whether one project serves the item
+ * or several.
+ */
+export async function orderSpanning(
+  orders: Pick<EnvironmentOrderBinding, 'orderOf'> | undefined,
+  tenantId: TenantId,
+  projects: readonly ProjectId[],
+): Promise<EnvironmentOrderLocation | undefined> {
+  if (orders === undefined) return undefined;
+  for (const projectId of projects) {
+    const order = await orders.orderOf({ tenantId, projectId });
+    if (order !== undefined) return order;
+  }
+  return undefined;
 }
 
 /** The refusal's message: the rule, then what to do instead, then that nothing was written. */

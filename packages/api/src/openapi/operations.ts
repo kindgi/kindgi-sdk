@@ -3294,7 +3294,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The version is not registered, or was unregistered; or the eval run is not found.',
       ),
       '409': ErrorResponse(
-        "`promotion-superseded`: the scope's live version changed while the gate ran; check again. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first.",
+        "`promotion-superseded`: the scope's live version changed while the gate ran; check again. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `live-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead.",
       ),
       '422': ErrorResponse(
         '`gate-failed`: the gate refused it. `details.checks` has every check; the refusal is recorded (`details.promotionId`).',
@@ -3540,7 +3540,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '404': ErrorResponse('`toVersion` is not registered, or was unregistered.'),
       '409': ErrorResponse(
-        '`not-pinned`: the scope has no pin of its own. `nothing-to-roll-back`: no earlier version to go back to. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first.',
+        '`not-pinned`: the scope has no pin of its own. `nothing-to-roll-back`: no earlier version to go back to. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `live-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide rollback would act in every environment of the order at once; roll back a project (or a segment of it) instead.',
       ),
     },
   },
@@ -4606,7 +4606,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed request body. Or `reference-out-of-scope`: the proposal's project or segment scope no longer reaches the agent (`details.issues`).",
       ),
       '404': ErrorResponse('No such proposal.'),
-      '409': ErrorResponse("The proposal's status doesn't allow it."),
+      '409': ErrorResponse(
+        "The proposal's status doesn't allow it. Or `live-scope-spans-environments`: the agent has a project in an environment order, and the proposal's tenant- or org-wide scope would act in every environment of the order at once; a proposal for a project (or a segment of it) can be requested.",
+      ),
       '422': ErrorResponse(
         '`gate-failed`: the gate refused it (the error carries the checks and `proposalId`).',
       ),
@@ -4628,7 +4630,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The proposal, `rolled-back`.', schema: ref('FixProposal') },
       ...CommonMutationErrors,
       '404': ErrorResponse('No such proposal.'),
-      '409': ErrorResponse("It isn't promoted, or its version doesn't serve the scope anymore."),
+      '409': ErrorResponse(
+        "It isn't promoted, or its version doesn't serve the scope anymore. Or `live-scope-spans-environments`: the agent has a project in an environment order, and the proposal's tenant- or org-wide scope would act in every environment of the order at once.",
+      ),
     },
   },
   {
@@ -6576,7 +6580,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.settings.get',
     summary: "The workspace's sign-in settings",
     description:
-      "Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+      "Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).",
     tags: ['auth'],
     security: 'bearer',
     responses: {
@@ -6592,7 +6596,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.settings.update',
     summary: 'Require a second factor at sign-in',
     description:
-      "Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+      "Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).",
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6680,7 +6684,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         in: 'query',
         required: false,
         description:
-          "With `true`, only people with an open invitation (`invite`: pending or expired), who haven't signed in yet. An older runtime ignores it and lists everyone (from 0.1.8.1).",
+          "With `true`, only people with an open invitation (`invite`: pending or expired), who haven't signed in yet. An older runtime ignores it and lists everyone (from 0.1.9).",
         schema: { type: 'boolean' },
       },
       {
@@ -6794,7 +6798,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.resendInvite',
     summary: "Renew a person's invitation",
     description:
-      "For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).",
+      "For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.9).",
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -6826,7 +6830,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.secondFactor',
     summary: 'My second factor',
     description:
-      'Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+      'Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.9).',
     tags: ['identity'],
     security: 'bearer',
     responses: {
@@ -6842,7 +6846,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.startSecondFactor',
     summary: 'Start setting up a second factor',
     description:
-      'A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+      'A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).',
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6866,7 +6870,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.confirmSecondFactor',
     summary: 'Confirm a new second factor',
     description:
-      'A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+      'A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).',
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6894,7 +6898,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.newRecoveryCodes',
     summary: 'New recovery codes',
     description:
-      '10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+      '10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).',
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6921,7 +6925,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.removeSecondFactor',
     summary: 'Take my second factor off',
     description:
-      'Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+      'Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).',
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6948,7 +6952,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.secondFactor',
     summary: "A person's second factor",
     description:
-      'Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).',
+      'Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).',
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -6968,7 +6972,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.removeSecondFactor',
     summary: "Remove a person's second factor",
     description:
-      "For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.8.1).",
+      "For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.9).",
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -7125,7 +7129,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.register',
     summary: 'Register a signed deployment',
     description:
-      "Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's Default project), then record the deployment. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.",
+      "Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's Default project), then record the deployment. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.",
     tags: ['deployments'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -7159,7 +7163,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.list',
     summary: 'List signed deployments',
     description:
-      'Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.',
+      "Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Only the deployments in projects the caller reads are listed (a deployment naming no project is the Default project's), so a page can hold fewer than `limit` with `hasMore` true: page by `nextCursor`, not by count. Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.",
     tags: ['deployments'],
     security: 'bearer',
     parameters: [
@@ -7184,7 +7188,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         in: 'query',
         required: false,
         description:
-          "Filter to one environment's deployments. The tenant's Default project also finds those that name no project.",
+          "Filter to one environment's deployments. The tenant's Default project also finds those that name no project. Needs `read` on that project.",
         schema: { type: 'string' },
       },
       {
@@ -7201,6 +7205,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('DeploymentCollectionPage'),
       },
       ...CommonAuthErrors,
+      '403': ErrorResponse(
+        "No `read` on the tenant, or a `projectId` naming a project the caller doesn't read, or one that isn't there (the tenant admin too, so it tells no one what exists).",
+      ),
       '500': ErrorResponse('List failed inside the caller-plugged binding.'),
     },
   },
@@ -7224,7 +7231,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Deployment record.', schema: ref('DeploymentRecord') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No deployment with that id under this tenant.'),
+      '404': ErrorResponse(
+        "No deployment with that id under this tenant, or one in a project the caller doesn't read (`deployment-not-found`).",
+      ),
     },
   },
   {
@@ -7250,7 +7259,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Where each declared name is set.', schema: ref('PackEnvNames') },
       ...CommonAuthErrors,
       '404': ErrorResponse(
-        'No deployment with that id under this tenant (`deployment-not-found`).',
+        "No deployment with that id under this tenant, or one in a project the caller doesn't read (`deployment-not-found`).",
       ),
       '501': ErrorResponse(
         "The server's pack services take their env from how they're run, not from the env store (`pack-env-not-served`).",
@@ -7264,7 +7273,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.syncSecrets',
     summary: 'Sync secrets against a deployment',
     description:
-      'Deployment-scoped bulk secret sync. Body carries `{ envName, secrets: Array<{ name, ref } | { name, value }> }`. `{ name, ref }` entries validate against `SecretBinding.get` — no bytes cross the wire; missing → 404 `secret-not-found`. `{ name, value }` entries write via `SecretBinding.set` with `writeMode: add-version` + `tags.deployment = deploymentId` and return the created reference. The write scope is derived from the deployment record itself (tenant scope, or project scope when the deployment carries a `projectId`) and CANNOT be overridden on the wire. Requires the `secrets:write` capability. Idempotency-Key applies.',
+      'Deployment-scoped bulk secret sync. Body carries `{ envName, secrets: Array<{ name, ref } | { name, value }> }`. `{ name, ref }` entries validate against `SecretBinding.get` — no bytes cross the wire; missing → 404 `secret-not-found`. `{ name, value }` entries write via `SecretBinding.set` with `writeMode: add-version` + `tags.deployment = deploymentId` and return the created reference. The write scope is derived from the deployment record itself (tenant scope, or project scope when the deployment carries a `projectId`) and CANNOT be overridden on the wire. A secret the tools of this deployment name that was set nowhere when a deploy or a promotion published them is read at that scope, when whoever published them administers it: a deploy needs `admin` there, while a promotion into the Default project needs it only on that project. Requires the `secrets:write` capability. Idempotency-Key applies.',
     tags: ['deployments'],
     security: 'bearer',
     parameters: [
@@ -7285,8 +7294,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       ...SecretWriteErrors,
-      '403': ErrorResponse('Bearer token missing `secrets:write` capability.'),
-      '404': ErrorResponse('No deployment with that id, or referenced secret does not exist.'),
+      '403': ErrorResponse(
+        "Bearer token missing `secrets:write` capability, or no `admin` on the scope it writes: the deployment's project, else the tenant.",
+      ),
+      '404': ErrorResponse(
+        "No deployment with that id, or one in a project the caller doesn't read, or referenced secret does not exist.",
+      ),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_VALUE),
     },
   },
@@ -7297,7 +7310,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.values.list',
     summary: 'List the values a deployment needs in a project',
     description:
-      "Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), and `read` on the tenant, as every deployments route does.",
+      "Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), `read` on the project the deployment serves, and `read` on the tenant, as every deployments route does.",
     tags: ['deployments'],
     security: 'bearer',
     parameters: [
@@ -7328,7 +7341,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '403': ErrorResponse('No `admin` on the project, or no `read` on the tenant.'),
       '404': ErrorResponse(
-        'No deployment with that id under this tenant (`deployment-not-found`), or `projectId` names no project of this tenant (`project-not-found`).',
+        "No deployment with that id under this tenant, or one in a project the caller doesn't read (`deployment-not-found`), or `projectId` names no project of this tenant (`project-not-found`).",
       ),
     },
   },

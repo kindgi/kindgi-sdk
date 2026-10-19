@@ -43,7 +43,7 @@ import { ref } from '@kindgi/authz';
 import { emitAuditEvent } from '@kindgi/compliance';
 import { verifyEd25519 } from '@kindgi/crypto';
 import type { Scope } from '@kindgi/platform';
-import type { ProjectId, Semver, TenantId, ToolId } from '@kindgi/types';
+import type { LiveScope, ProjectId, Semver, TenantId, ToolId } from '@kindgi/types';
 
 import { callerIdentity } from '../caller.js';
 import {
@@ -66,10 +66,15 @@ import {
   deploymentValues,
 } from '../deployment-values.js';
 import { statusFor, toWireError } from '../errors.js';
+import type { GatePolicyRef } from '../gate-policy-binding.js';
+import type { GateCheck } from '../gate.js';
+import { liveChangeRefusal } from '../item-rights.js';
+import type { Promotion, PromotionStatus } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { limitedCaller } from '../middleware/key-project.js';
-import { secretScopesFor, toolSecretRefs } from '../secret-scope.js';
+import { deploymentSecretScope, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
 import type { AppEnv } from '../types.js';
+import { actorOf, policyFor, promotionResponse, requestPromotion } from './agent-releases.js';
 import { deniedBy, refused } from './denied.js';
 import type { DeploymentsRouterBindings } from './deployments.js';
 import { scopeResourceRef } from './scope-params.js';
@@ -105,8 +110,77 @@ export async function servingProjectOf(
   bindings: Pick<DeploymentsRouterBindings, 'projectBinding'>,
   deployment: Deployment,
 ): Promise<ProjectId | undefined> {
-  if (deployment.projectId !== undefined) return deployment.projectId;
-  return (await bindings.projectBinding?.getDefault(deployment.tenantId))?.id;
+  return (await servingProjectsOf(bindings, [deployment]))[0];
+}
+
+/** {@link servingProjectOf} for each of one tenant's `deployments`, in their order: the Default read once. */
+async function servingProjectsOf(
+  bindings: Pick<DeploymentsRouterBindings, 'projectBinding'>,
+  deployments: readonly Deployment[],
+): Promise<(ProjectId | undefined)[]> {
+  const unnamed = deployments.find((d) => d.projectId === undefined);
+  const defaultId =
+    unnamed === undefined
+      ? undefined
+      : (await bindings.projectBinding?.getDefault(unnamed.tenantId))?.id;
+  return deployments.map((d) => d.projectId ?? defaultId);
+}
+
+/**
+ * What reading a deployment asks: `read` on the project it serves, or on
+ * the tenant without a project binding to find the Default.
+ */
+function readRef(tenantId: TenantId, projectId: ProjectId | undefined) {
+  return projectId === undefined
+    ? ref('tenant', tenantId as unknown as string)
+    : ref('project', projectId as unknown as string);
+}
+
+/**
+ * The deployment `:deploymentId` names and the project it serves, when the
+ * caller reads that project ({@link readRef}). `undefined` for one that
+ * isn't there and for one they don't read alike, so a route answers both
+ * with its one `404`. Without an authorizer, every caller in the tenant
+ * reads it.
+ */
+export async function readableDeployment(
+  c: Context<AppEnv>,
+  bindings: Pick<DeploymentsRouterBindings, 'deploymentRegistry' | 'projectBinding'>,
+  authorizer: Authorizer | undefined,
+): Promise<
+  { readonly deployment: Deployment; readonly projectId: ProjectId | undefined } | undefined
+> {
+  const tenantId = c.get('tenantId') as TenantId;
+  const deploymentId = c.req.param('deploymentId') ?? '';
+  const deployment = await bindings.deploymentRegistry.get({ tenantId, deploymentId });
+  if (deployment === null) return undefined;
+  const projectId = await servingProjectOf(bindings, deployment);
+  if (
+    authorizer !== undefined &&
+    !(await authorizer.can(c, 'read', readRef(tenantId, projectId)))
+  ) {
+    return undefined;
+  }
+  return { deployment, projectId };
+}
+
+/** The ones of `deployments` the caller reads, as {@link readableDeployment} decides one, in their order. */
+export async function readableDeployments(
+  c: Context<AppEnv>,
+  bindings: Pick<DeploymentsRouterBindings, 'projectBinding'>,
+  authorizer: Authorizer | undefined,
+  deployments: readonly Deployment[],
+): Promise<Deployment[]> {
+  if (authorizer === undefined) return [...deployments];
+  const tenantId = c.get('tenantId') as TenantId;
+  const projects = await servingProjectsOf(bindings, deployments);
+  const readable = await authorizer.filterByCan(
+    c,
+    'read',
+    deployments.map((deployment, i) => ({ deployment, projectId: projects[i] })),
+    ({ projectId }) => readRef(tenantId, projectId),
+  );
+  return readable.map(({ deployment }) => deployment);
 }
 
 /**
@@ -153,6 +227,24 @@ export interface PromotionMoves {
   readonly guardrails: readonly DeployedPrimitive[];
 }
 
+/** The gate's say on a carried version's pin: there when it isn't live yet (an approval or a failed check), or ran checks. */
+export interface DeploymentLivePinGate {
+  readonly status: PromotionStatus;
+  readonly promotionId: string;
+  readonly policy?: GatePolicyRef | null;
+  readonly approvalId?: string;
+  readonly checks?: readonly GateCheck[];
+}
+
+/** A carried agent version the make-live pinned, or tried to, in the target project. */
+export interface DeploymentLivePin {
+  readonly id: string;
+  readonly version: string;
+  /** Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`). */
+  readonly pinned: boolean;
+  readonly gate?: DeploymentLivePinGate;
+}
+
 /**
  * What a promotion did. The handler builds it once and answers it through
  * `promotionAnswer`, so what's added after the write (making versions
@@ -166,6 +258,8 @@ export interface PromotionResult {
   readonly leftBehind: readonly LeftBehindVersion[];
   /** `true`: a new deployment (`201`); `false`: the target had it (`200`). */
   readonly created: boolean;
+  /** Each carried agent pinned live in the target, present only when `makeLive` was asked. */
+  readonly live?: readonly DeploymentLivePin[];
 }
 
 /** The moves of `deployment` with the versions carried with it: each list as shipped, then carried. */
@@ -203,6 +297,7 @@ export function promotionAnswer(c: Context<AppEnv>, result: PromotionResult): Re
     created: result.created,
     moved: result.moved,
     ...(result.leftBehind.length > 0 && { leftBehind: result.leftBehind }),
+    ...(result.live !== undefined && { live: result.live }),
   });
 }
 
@@ -238,6 +333,8 @@ interface PromotionPlan {
 interface PromotionBody {
   readonly toProjectId: ProjectId;
   readonly reason?: string;
+  /** Make every agent version the promotion carries live in the target project. */
+  readonly makeLive?: boolean;
 }
 
 const MAX_REASON = 1000;
@@ -298,11 +395,169 @@ export function mountDeploymentPromotions(
       leftBehind: plan.carried.leftBehind,
       created: outcome.kind === 'ok',
     };
-    if (result.created || outcome.carried.length > 0) {
-      await auditPromotion(c, bindings, plan, result, outcome.carried, body.reason);
-    }
-    return promotionAnswer(c, result);
+    return finishPromotion(c, bindings, authorizer, plan, result, outcome.carried, body);
   });
+}
+
+/**
+ * After the move commits: record it, and — when `makeLive` was asked — pin
+ * every carried agent live in the target (`makeCarriedLive`), adding `live`
+ * to the answer. Answers the promotion either way.
+ */
+async function finishPromotion(
+  c: Context<AppEnv>,
+  bindings: DeploymentsRouterBindings,
+  authorizer: Authorizer | undefined,
+  plan: PromotionPlan,
+  result: PromotionResult,
+  carried: readonly CarriedVersion[],
+  body: PromotionBody,
+): Promise<Response> {
+  if (result.created || carried.length > 0) {
+    await auditPromotion(c, bindings, plan, result, carried, body.reason);
+  }
+  if (body.makeLive !== true) return promotionAnswer(c, result);
+  const live = await makeCarriedLive(c, bindings, authorizer, plan, result, body.reason);
+  return live instanceof Response ? live : promotionAnswer(c, { ...result, live });
+}
+
+/**
+ * `promotion-gate-unsupported`, decidable before any pin: when this
+ * deployment can't record a gated promotion, the first carried agent
+ * whose scope a gate policy applies to is answered here, so nothing is
+ * pinned. `undefined` when every carried agent can promote without one.
+ */
+async function gateUnsupportedBefore(
+  c: Context<AppEnv>,
+  agentReleases: NonNullable<DeploymentsRouterBindings['agentReleases']>,
+  tenantId: TenantId,
+  pinnable: readonly (MovedVersion & { version: string })[],
+  scope: LiveScope,
+): Promise<Response | undefined> {
+  if (agentReleases.promotions.request !== undefined) return undefined;
+  for (const agent of pinnable) {
+    const policy = await policyFor(agentReleases, tenantId, agent.id, scope);
+    if (policy !== null) return promotionResponse(c, { kind: 'gate-unsupported', policy });
+  }
+  return undefined;
+}
+
+/**
+ * Authorize making every carried agent live in the target — a project scope
+ * at `toProjectId`, `liveChangeRefusal`, the one the live routes use — before
+ * any pin, so a refusal is the 403 answered with nothing pinned. The 403 to
+ * answer, or `undefined` when every agent is cleared (or the authorizer is
+ * off, as it is in a plain composition).
+ */
+async function authorizeCarried(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  rights: DeploymentsRouterBindings['itemRights'],
+  pinnable: readonly (MovedVersion & { version: string })[],
+  scope: LiveScope,
+): Promise<Response | undefined> {
+  if (authorizer === undefined) return undefined;
+  for (const agent of pinnable) {
+    const denied = await liveChangeRefusal(c, {
+      authorizer,
+      rights,
+      agentId: agent.id,
+      scope,
+      setsLive: true,
+    });
+    if (denied !== undefined) return denied;
+  }
+  return undefined;
+}
+
+/**
+ * Pin every carried agent version live in the target project, through the
+ * same gate a live route does (`requestPromotion`). The promotion is
+ * already committed, so this runs after it. Everything decidable before a
+ * pin is decided for every agent first, so a refusal is answered with
+ * nothing pinned: each agent is authorized — a project scope at the
+ * target, `liveChangeRefusal`, the one the live routes use — and, when
+ * this deployment can't record a gated promotion, any agent whose scope a
+ * gate policy applies to answers `promotion-gate-unsupported` here (fix
+ * the grant or the deployment and promote again: the move is idempotent,
+ * and so is a pin in place). The width check in `liveChangeRefusal` never
+ * fires here: the scope is one project. Then each version is requested
+ * through its scope's gate: live now, waiting for an approval, or refused
+ * by a check, each reported in `live`. (`requestPromotion`'s own
+ * out-of-scope check — `reachable` for the agent by its id, not where its
+ * versions run — passes here under a reach rule that reaches an item from
+ * every project of its environment order: the target is the next
+ * environment of the deployment's order. A reach rule that instead refused
+ * a later carried agent is answered like a write error, with the pins so
+ * far.) Returns the pins, or the response to answer instead (a 403, a gate
+ * this deployment can't record, or a write error carrying the pins so far
+ * in `error.details.live`).
+ */
+async function makeCarriedLive(
+  c: Context<AppEnv>,
+  bindings: DeploymentsRouterBindings,
+  authorizer: Authorizer | undefined,
+  plan: PromotionPlan,
+  result: PromotionResult,
+  reason: string | undefined,
+): Promise<readonly DeploymentLivePin[] | Response> {
+  const { agentReleases, agentRegistry, releaseGateDeps } = bindings;
+  if (agentReleases === undefined || agentRegistry === undefined || releaseGateDeps === undefined) {
+    return unsupported(c);
+  }
+  const tenantId = plan.source.tenantId;
+  const scope: LiveScope = { kind: 'project', projectId: plan.toProjectId };
+  const pinnable = result.moved.agents.filter(
+    (a): a is MovedVersion & { version: string } => a.version !== undefined,
+  );
+  const denied = await authorizeCarried(c, authorizer, bindings.itemRights, pinnable, scope);
+  if (denied !== undefined) return denied;
+  const gated = await gateUnsupportedBefore(c, agentReleases, tenantId, pinnable, scope);
+  if (gated !== undefined) return gated;
+  const live: DeploymentLivePin[] = [];
+  for (const agent of pinnable) {
+    const outcome = await requestPromotion(agentRegistry, agentReleases, releaseGateDeps, {
+      tenantId,
+      agentId: agent.id,
+      version: agent.version as unknown as Semver,
+      scope,
+      requestedBy: actorOf(c),
+      ...(reason !== undefined && { reason }),
+    });
+    // What the pre-checks leave is answered with the pins already made, so
+    // the caller sees what went live.
+    if (outcome.kind !== 'ok') {
+      return promotionResponse(c, outcome, live.length > 0 ? { live } : {});
+    }
+    live.push(livePinOf(agent, outcome.promotion, outcome.checks));
+  }
+  return live;
+}
+
+/** A carried agent's `live` entry from its promotion: pinned unless a gate holds it, with the gate's say when it does or ran checks. */
+function livePinOf(
+  agent: MovedVersion & { version: string },
+  promotion: Promotion,
+  outcomeChecks: readonly GateCheck[] | undefined,
+): DeploymentLivePin {
+  const pinned = (promotion.status ?? 'promoted') === 'promoted';
+  const checks = promotion.checks ?? outcomeChecks;
+  const gate: DeploymentLivePinGate | undefined =
+    !pinned || (checks !== undefined && checks.length > 0)
+      ? {
+          status: promotion.status ?? 'promoted',
+          promotionId: promotion.id,
+          ...(promotion.policy !== undefined && { policy: promotion.policy }),
+          ...(promotion.approvalId !== undefined && { approvalId: promotion.approvalId }),
+          ...(checks !== undefined && { checks }),
+        }
+      : undefined;
+  return {
+    id: agent.id,
+    version: (promotion.toVersion as unknown as string | null) ?? agent.version,
+    pinned,
+    ...(gate !== undefined && { gate }),
+  };
 }
 
 /** The body: `toProjectId`, and `reason` where the route takes one; anything else is refused. */
@@ -320,19 +575,23 @@ async function promotionBody(
     return badInput(c, 'The body must be a JSON object.');
   }
   const body = raw as Record<string, unknown>;
-  const allowed = takesReason ? ['toProjectId', 'reason'] : ['toProjectId'];
+  const allowed = takesReason ? ['toProjectId', 'reason', 'makeLive'] : ['toProjectId'];
   const unknownKey = Object.keys(body).find((k) => !allowed.includes(k));
   if (unknownKey !== undefined) return badInput(c, `Unknown field \`${unknownKey}\`.`);
-  const { toProjectId, reason } = body;
+  const { toProjectId, reason, makeLive } = body;
   if (typeof toProjectId !== 'string' || toProjectId.length === 0) {
     return badInput(c, '`toProjectId` must name the project to promote the deployment to.');
   }
   if (reason !== undefined && (typeof reason !== 'string' || reason.length > MAX_REASON)) {
     return badInput(c, `\`reason\` must be a string of at most ${MAX_REASON} characters.`);
   }
+  if (makeLive !== undefined && typeof makeLive !== 'boolean') {
+    return badInput(c, '`makeLive` must be `true` or `false`.');
+  }
   return {
     toProjectId: toProjectId as ProjectId,
     ...(typeof reason === 'string' && { reason }),
+    ...(typeof makeLive === 'boolean' && { makeLive }),
   };
 }
 
@@ -432,26 +691,15 @@ async function sourceFor(
   bindings: DeploymentsRouterBindings,
   authorizer: Authorizer | undefined,
 ): Promise<{ readonly source: Deployment; readonly fromProjectId: ProjectId } | Response> {
-  const tenantId = c.get('tenantId') as TenantId;
-  const deploymentId = c.req.param('deploymentId') ?? '';
-  const source = await bindings.deploymentRegistry.get({ tenantId, deploymentId });
-  const fromProjectId = source === null ? undefined : await servingProjectOf(bindings, source);
-  const reads =
-    source !== null &&
-    (authorizer === undefined ||
-      (await authorizer.can(
-        c,
-        'read',
-        fromProjectId === undefined
-          ? ref('tenant', tenantId as unknown as string)
-          : ref('project', fromProjectId as unknown as string),
-      )));
-  if (source === null || !reads) {
+  const located = await readableDeployment(c, bindings, authorizer);
+  if (located === undefined) {
+    const deploymentId = c.req.param('deploymentId') ?? '';
     return refusal(c, 'deployment-not-found', {
       message: `Deployment "${deploymentId}" not found`,
       deploymentId,
     });
   }
+  const { deployment: source, projectId: fromProjectId } = located;
   if (fromProjectId === undefined) {
     // No project binding to find the Default: no order places it.
     return notNext(c, undefined, undefined);
@@ -642,7 +890,10 @@ async function signerRefusal(
 /**
  * Where each secret of each tool version the build ships is read in the
  * target, decided now as the promoter may read them: a deploy's own rule
- * (`secretScopesFor`), at the target project.
+ * (`secretScopesFor`), at the target project. One set nowhere yet is read
+ * where the promoted deployment's secrets sync writes
+ * (`deploymentSecretScope`): the target project, or the tenant for the
+ * Default project, which stores no `projectId`.
  */
 async function targetSecretScopes(
   c: Context<AppEnv>,
@@ -665,6 +916,7 @@ async function targetSecretScopes(
       { secrets: bindings.secretsBinding, projects: bindings.projectBinding, authorizer },
       { kind: 'project', tenantId, projectId: plan.toProjectId },
       toolSecretRefs(tool, bindings.envName),
+      deploymentSecretScope(tenantId, plan.storedProjectId),
     );
     if (secretScopes !== undefined) out.push({ toolId: id, version, secretScopes });
   }
