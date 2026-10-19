@@ -71,7 +71,10 @@ export interface StartImprovementPassInput {
   readonly suiteId: string;
   readonly tiers: readonly ImprovementTier[];
   readonly objective: ProposalObjective;
-  /** Which judgments its comparisons count: everyone (`as-recorded`) or trusted only (`restricted-only`). */
+  /**
+   * Which judgments its comparisons count: everyone (`as-recorded`) or trusted
+   * only (`restricted-only`).
+   */
   readonly classWeights: EvalClassWeights;
   /** For a prompt pass: what drafts the templates. */
   readonly model?: ImprovementModel;
