@@ -58,7 +58,7 @@ On a stop, the runtime stops taking requests and gives the runs it's
 executing up to 7 seconds to finish. Then it exits with code 0.
 
 A stop that comes while it's still starting, before it serves, such as
-while it waits for its database, ends it within 3 seconds (runtime 0.1.8.2
+while it waits for its database, ends it within 3 seconds (runtime 0.1.10
 or later). Its log says `Stopped while starting (SIGTERM).`, and it exits
 with code 143, as a process that `SIGTERM` ends does. Stopped with Ctrl-C
 in a terminal, it says `(SIGINT)` and exits with code 130. A second Ctrl-C
@@ -218,7 +218,7 @@ Each repair is a line in its log:
   Can't connect to the database at kindgi-db:5432/kindgi: host not found (getaddrinfo ENOTFOUND kindgi-db). Check KINDGI_DATABASE_URL, and that Postgres is up and reachable from here.
   ```
 
-  **A database that never answers** (runtime 0.1.8.2 or later), such as
+  **A database that never answers** (runtime 0.1.10 or later), such as
   one behind a firewall that drops its packets: the runtime waits its
   connect timeout, then exits with code 1, and the reason is
   `no host answered within 30 s`. With several hosts in
