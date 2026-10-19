@@ -955,6 +955,7 @@ export { IMPROVE_SCHEDULE_DEFAULTS } from './improvement-pass-binding.js';
 export {
   DEFAULT_BUDGET as DEFAULT_IMPROVEMENT_BUDGET,
   parseImproveScheduleInput,
+  projectHasExpertClass,
   serializePass,
 } from './routes/improvement-passes.js';
 export { sampleCases } from './eval-sample.js';
