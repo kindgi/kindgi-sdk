@@ -277,7 +277,7 @@ export interface SubflowDispatchedPayload {
    * The loop iteration the subgraph node ran in, when it's in a loop body
    * (as a body step's `step.*` entries carry it): a resume finds the child
    * run of that iteration. Absent outside a loop body. Written from runtime
-   * 0.1.9; earlier runtimes never set it.
+   * 0.1.12; earlier runtimes never set it.
    */
   readonly loopContext?: LoopContext | undefined;
 }
@@ -297,7 +297,7 @@ export interface SubflowCompletedPayload {
    * The loop iteration the subgraph node ran in, when it's in a loop body
    * (as a body step's `step.*` entries carry it): a resume finds the child
    * run of that iteration. Absent outside a loop body. Written from runtime
-   * 0.1.9; earlier runtimes never set it.
+   * 0.1.12; earlier runtimes never set it.
    */
   readonly loopContext?: LoopContext | undefined;
 }
@@ -334,7 +334,7 @@ export interface SubflowFailedPayload {
    * The loop iteration the subgraph node ran in, when it's in a loop body
    * (as a body step's `step.*` entries carry it): a resume finds the child
    * run of that iteration. Absent outside a loop body. Written from runtime
-   * 0.1.9; earlier runtimes never set it.
+   * 0.1.12; earlier runtimes never set it.
    */
   readonly loopContext?: LoopContext | undefined;
 }
@@ -355,7 +355,7 @@ export interface SubflowCancelledPayload {
    * The loop iteration the subgraph node ran in, when it's in a loop body
    * (as a body step's `step.*` entries carry it): a resume finds the child
    * run of that iteration. Absent outside a loop body. Written from runtime
-   * 0.1.9; earlier runtimes never set it.
+   * 0.1.12; earlier runtimes never set it.
    */
   readonly loopContext?: LoopContext | undefined;
 }
