@@ -429,8 +429,6 @@ describe('a flow run', () => {
     // The same suspension again: still one wait.
     j.add('wait.suspended', 'approve', { scope: 'approve' });
     const resumed = j.add('wait.resumed', 'approve', { scope: 'approve' });
-    // From before the kernel kept facts: not placed, so not drawn.
-    j.add('wait.suspended', 'approve');
     j.add('step.completed', 'approve');
     const record = build(runOf(f, { hasOutput: false }), j.entries);
 
@@ -441,6 +439,25 @@ describe('a flow run', () => {
       timestamp: at(waited),
       attributes: { scope: 'approve' },
     });
+    expect(edgeSet(record.edges)).toEqual([
+      'step:approve -caused-by-> input',
+      `step:approve -waited-on-> wait:${waited}`,
+      `wait:${waited} -resumed-from-> resume:${resumed}`,
+    ]);
+  });
+
+  test('a waitpoint from before waits kept their scope: a top-level step’s wait is placed by its node id', () => {
+    const f = flowOf([tool('approve')], [edge('e1', '$start', 'approve')]);
+    const j = new Journal();
+    j.edge('e1');
+    j.add('step.started', 'approve');
+    // Made before the upgrade: no facts. Resumed after it: facts, but the row has no scope.
+    const waited = j.add('wait.suspended', 'approve');
+    const resumed = j.add('wait.resumed', 'approve', {});
+    j.add('step.completed', 'approve');
+    const record = build(runOf(f, { hasOutput: false }), j.entries);
+
+    expect(ids(record)).toEqual(['input', 'step:approve', `wait:${waited}`, `resume:${resumed}`]);
     expect(edgeSet(record.edges)).toEqual([
       'step:approve -caused-by-> input',
       `step:approve -waited-on-> wait:${waited}`,
@@ -727,6 +744,97 @@ describe('loops', () => {
       nodeId: 'L',
       folded: { count: 0, byStatus: {}, runs: 0, unplaced: 3 },
     });
+  });
+
+  test('two body steps waiting at once, resumed in reverse order: each wait on its own step', () => {
+    const loop = loopOf('L', tool('x'));
+    const f = flowOf([loop], [edge('e1', '$start', 'L')]);
+    const x0 = inBody('x', [{ loopNodeId: 'L', iteration: 0 }]);
+    const x1 = inBody('x', [{ loopNodeId: 'L', iteration: 1 }]);
+    const j = new Journal();
+    j.edge('e1');
+    j.add('step.started', 'L');
+    for (const x of [x0, x1]) {
+      j.iteration('started', 'L', { iteration: x.iteration });
+      j.add('step.started', 'x', x);
+    }
+    // Each suspension's two copies: the body node's, then the outer loop's.
+    // The outer copies of both waits share one node id; only the scope tells them apart.
+    const [waited0, waited1] = [x0, x1].map((x) => {
+      const first = j.add('wait.suspended', 'x', { scope: x.scope });
+      j.add('wait.suspended', 'L', { scope: x.scope });
+      return first;
+    });
+    const resumed1 = j.add('wait.resumed', 'L', { scope: x1.scope });
+    const resumed0 = j.add('wait.resumed', 'L', { scope: x0.scope });
+    for (const x of [x1, x0]) {
+      j.add('step.completed', 'x', x);
+      j.iteration('completed', 'L', { iteration: x.iteration });
+    }
+    j.add('step.completed', 'L');
+    const record = build(runOf(f, { hasOutput: false }), j.entries);
+
+    expect(ids(record).filter((id) => /^(wait|resume):/.test(id))).toEqual([
+      `wait:${waited0}`,
+      `wait:${waited1}`,
+      `resume:${resumed1}`,
+      `resume:${resumed0}`,
+    ]);
+    const edges = edgeSet(record.edges);
+    expect(edges).toContain(`step:x@L#0 -waited-on-> wait:${waited0}`);
+    expect(edges).toContain(`wait:${waited0} -resumed-from-> resume:${resumed0}`);
+    expect(edges).toContain(`step:x@L#1 -waited-on-> wait:${waited1}`);
+    expect(edges).toContain(`wait:${waited1} -resumed-from-> resume:${resumed1}`);
+    expect(attrs(record, 'step:L')).not.toHaveProperty('partial');
+  });
+
+  test('a waitpoint from before waits kept their scope, under a loop: not drawn, and the loop is partial', () => {
+    const loop = loopOf('L', tool('x'));
+    const f = flowOf([loop], [edge('e1', '$start', 'L')]);
+    const x0 = inBody('x', [{ loopNodeId: 'L', iteration: 0 }]);
+    const j = new Journal();
+    j.edge('e1');
+    // Before the upgrade: no facts.
+    j.add('step.started', 'L');
+    j.add('iteration.started', 'L');
+    j.add('step.started', 'x');
+    j.add('wait.suspended', 'x');
+    j.add('wait.suspended', 'L');
+    // After it: the waitpoint's row has no scope, so neither has its resume.
+    j.add('wait.resumed', 'L', {});
+    j.iteration('started', 'L', { scope: 'L', iteration: 0 });
+    j.add('step.started', 'x', x0);
+    j.add('step.completed', 'x', x0);
+    j.iteration('completed', 'L', { scope: 'L', iteration: 0, stopReason: 'items-done' });
+    j.add('step.completed', 'L');
+    const record = build(runOf(f, { hasOutput: false }), j.entries);
+
+    // In journal order: the folded node holds the step started before the upgrade.
+    expect(ids(record)).toEqual(['input', 'step:L', 'step:L#folded', 'step:x@L#0']);
+    expect(attrs(record, 'step:L')).toMatchObject({ partial: true });
+    expect(attrs(record, 'step:x@L#0')).toMatchObject({ status: 'completed', iteration: 0 });
+    expect(attrs(record, 'step:L#folded')).toMatchObject({ folded: { unplaced: 1 } });
+  });
+
+  test("a nested loop's iteration with no scope can't be placed: its top loop is partial", () => {
+    const inner = loopOf('I', tool('z'));
+    const outer = loopOf('O', inner);
+    const f = flowOf([outer], [edge('e1', '$start', 'O')]);
+    const j = new Journal();
+    j.edge('e1');
+    runLoop(j, outer, undefined, [], 1, (path) => {
+      const place = inBody('I', path);
+      j.add('step.started', 'I', place);
+      // The plain loop id names no single execution of a nested loop.
+      j.iteration('started', 'I', { iteration: 0 });
+      j.step('z', inBody('z', [{ loopNodeId: 'I', iteration: 0 }, ...path]));
+      j.iteration('completed', 'I', { scope: place.scope, iteration: 0 });
+      j.add('step.completed', 'I', place);
+    });
+    const record = build(runOf(f, { hasOutput: false }), j.entries);
+
+    expect(has(record, 'step:z@I#0/O#0')).toBe(true);
+    expect(attrs(record, 'step:O')).toMatchObject({ partial: true });
   });
 });
 

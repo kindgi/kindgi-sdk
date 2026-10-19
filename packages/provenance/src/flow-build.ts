@@ -322,6 +322,16 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
     if (isStepStart) unplaced.set(top, (unplaced.get(top) ?? 0) + 1);
   }
 
+  /** The entry's node id when it names a top-level node of a kind `fits` accepts. */
+  function topLevel(
+    entry: JournalEntryPosition,
+    fits: (kind: string) => boolean,
+  ): string | undefined {
+    const nodeId = entry.nodeId as string | undefined;
+    const top = nodeId === undefined ? undefined : topNodes.get(nodeId);
+    return top !== undefined && fits(top.kind) ? nodeId : undefined;
+  }
+
   /** The step a `step.*` entry is about, created on its first entry; undefined when it can't be placed. */
   function stepOf(entry: JournalEntryPosition): StepAcc | undefined {
     const nodeId = entry.nodeId as string | undefined;
@@ -460,9 +470,10 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
       }
       case 'iteration.started':
       case 'iteration.completed': {
-        const loopScope = facts?.scope ?? (entry.nodeId as string | undefined);
-        if (loopScope === undefined) return;
-        if (facts?.iteration === undefined) {
+        // Without a scope only a top-level loop's id names its execution:
+        // a nested loop runs once per iteration of the loops above it.
+        const loopScope = facts?.scope ?? topLevel(entry, (kind) => kind === 'loop');
+        if (loopScope === undefined || facts?.iteration === undefined) {
           cantPlace(entry.nodeId as string | undefined, false);
           return;
         }
@@ -503,8 +514,14 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
       case 'wait.suspended':
       case 'wait.resumed':
       case 'wait.cancelled': {
-        const scope = facts?.scope;
-        if (scope === undefined) return;
+        // A waitpoint made before waits kept their scope gives none. Its
+        // node id still names a top-level step, but under a loop it's the
+        // loop's, which can't say which body step waited.
+        const scope = facts?.scope ?? topLevel(entry, (kind) => kind !== 'loop');
+        if (scope === undefined) {
+          cantPlace(entry.nodeId as string | undefined, false);
+          return;
+        }
         const step = steps.get(scope);
         // An agent step's or a sub-flow's own wait is for its child run,
         // which the step's `runs` already link.

@@ -170,6 +170,18 @@ def test_approvals_list_takes_wait_token_ids() -> None:
     assert seen[0].url.params.get_list("waitTokenId") == ["tok-a", "tok-b"]
 
 
+def test_provenance_list_by_flow_says_the_flow_back_or_nothing() -> None:
+    # The page names the flow it lists; a runtime that doesn't list records
+    # by flow ignores the filter and sends no `flowId`, which still parses.
+    page_json = {"data": [], "hasMore": False, "flowId": "acme.report"}
+    api, seen = client(lambda r: httpx.Response(200, json=page_json))
+    assert api.provenance.list(flow_id="acme.report").flow_id == "acme.report"
+    assert seen[0].url.params.get("flowId") == "acme.report"
+
+    api, _ = client(lambda r: httpx.Response(200, json={"data": [], "hasMore": False}))
+    assert api.provenance.list(flow_id="acme.report").flow_id is None
+
+
 def test_path_and_query_parameters() -> None:
     page = {"data": [], "hasMore": False}
     api, seen = client(

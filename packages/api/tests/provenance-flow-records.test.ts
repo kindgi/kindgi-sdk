@@ -216,10 +216,13 @@ describe('GET /v1/provenance — ?flowId=', () => {
     const res = await app(read).request('/v1/provenance?flowId=acme.report', { headers: auth });
     expect(res.status).toBe(200);
     expect(inputs[0]?.flowId).toBe('acme.report');
+    // The page says the flow back, so a client can tell a runtime that ignored it.
+    expect(await res.json()).toMatchObject({ data: [], flowId: 'acme.report' });
 
-    // An empty filter is no filter.
-    await app(read).request('/v1/provenance?flowId=', { headers: auth });
+    // An empty filter is no filter, and the page says no flow.
+    const unfiltered = await app(read).request('/v1/provenance?flowId=', { headers: auth });
     expect(inputs[1]).not.toHaveProperty('flowId');
+    expect(await unfiltered.json()).not.toHaveProperty('flowId');
   });
 });
 
