@@ -1633,6 +1633,144 @@ describe('a proposal a drafter wrote (not a person)', () => {
       resource: projectRef,
     });
   });
+
+  /**
+   * Like `draftedApprovalFor`, but with a scope policy in force — so the
+   * promotion's approval is `resolveApproval`'s combination of the policy's own
+   * approval and the drafter's separate-approver rule. `approvals` is the
+   * policy's approvals block; `undefined` is a policy with none (only a metric
+   * bar the candidate clears), where the drafter's own approval applies.
+   */
+  async function underPolicy(
+    approvals: NonNullable<GatePolicySpec['approvals']> | undefined,
+    reviewers: Pick<ReviewerRegistryBinding, 'list'>,
+    actor: { kind: 'user' | 'service'; id: string },
+  ): Promise<{ role: string; count: number; separateApprover: boolean } | undefined> {
+    const h = await harness();
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    h.releases.state.policy = {
+      id: 'acme.prod',
+      version: '1.0.0',
+      tenantId,
+      agentId: AGENT,
+      scope: SEGMENT,
+      spec:
+        approvals === undefined
+          ? { metrics: [{ name: 'weightedYesShare', minCandidate: 0.1 }] }
+          : { approvals },
+      createdAt: NOW,
+    };
+    const service = createProposalService({
+      store: h.proposals,
+      agents: h.agents,
+      blocks: h.blocks,
+      evalRuns: h.evalRuns.binding,
+      releases: h.releases.releases,
+      reviewers,
+    });
+    const drafted = await service.draft({
+      tenantId,
+      agentId: AGENT,
+      fromVersion: '1.0.0',
+      scope: SEGMENT,
+      tier: 'settings-block',
+      blockId: WEIGHTS,
+      content: { values: { recency: 0.6, fit: 0.4 } },
+      hypothesis: 'The search found these weights',
+      drafter: { kind: 'settings-optimizer', version: '1' },
+    });
+    if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
+    const evaluated = await service.evaluate({
+      tenantId,
+      proposal: drafted.value.proposal,
+      suiteId: 'acme.scoring-judged',
+      objective: 'weightedYesShare',
+      actor,
+    });
+    if (evaluated.kind !== 'ok') throw new Error(JSON.stringify(evaluated.error));
+    const runId = evaluated.value.evaluation?.evalRunId as string;
+    await h.evalRuns.finish(runId, { delta: 0.2 });
+    const requested = await service.request({ tenantId, proposal: evaluated.value, actor });
+    if (requested.kind !== 'ok') throw new Error(JSON.stringify(requested.error));
+    const request = h.releases.calls.find((c) => c.method === 'request')?.input as {
+      gate: { approval?: { role: string; count: number; separateApprover: boolean } };
+    };
+    return request.gate.approval;
+  }
+
+  test('a policy that asks for a separate approver is a floor the drafter cannot loosen', async () => {
+    // Explicit true, with a lone roster the drafter's own rule would let self-approve.
+    const approval = await underPolicy(
+      { role: 'standard', separateApprover: true },
+      roster({ userId: 'u-solo' }),
+      {
+        kind: 'user',
+        id: 'u-solo',
+      },
+    );
+    expect(approval).toMatchObject({ role: 'standard', separateApprover: true });
+  });
+
+  test("a policy's separate-approver default (unset) is true, so a lone drafter still cannot self-approve", async () => {
+    const approval = await underPolicy({ role: 'standard' }, roster({ userId: 'u-solo' }), {
+      kind: 'user',
+      id: 'u-solo',
+    });
+    expect(approval).toMatchObject({ role: 'standard', separateApprover: true });
+  });
+
+  test('a policy that sets separateApprover false still gets one when a second reviewer could decide', async () => {
+    const approval = await underPolicy(
+      { role: 'standard', separateApprover: false },
+      roster({ userId: 'u-solo' }, { userId: 'u-two' }),
+      { kind: 'user', id: 'u-solo' },
+    );
+    expect(approval).toMatchObject({ role: 'standard', separateApprover: true });
+  });
+
+  test('a policy that sets separateApprover false lets a lone reviewer approve their own drafted promotion', async () => {
+    const approval = await underPolicy(
+      { role: 'standard', separateApprover: false },
+      roster({ userId: 'u-solo' }),
+      { kind: 'user', id: 'u-solo' },
+    );
+    expect(approval).toMatchObject({ role: 'standard', separateApprover: false });
+  });
+
+  test("a false policy's rule is re-checked at the policy's role, so a junior second reviewer does not count", async () => {
+    // Policy role senior; the only other reviewer is standard — below senior, so
+    // no separate approver. Ranking the re-check at the drafter's own 'standard'
+    // (the bug) would count u-two and demand one.
+    const approval = await underPolicy(
+      { role: 'senior', separateApprover: false },
+      roster({ userId: 'u-solo' }, { userId: 'u-two', role: 'standard' }),
+      { kind: 'user', id: 'u-solo' },
+    );
+    expect(approval).toMatchObject({ role: 'senior', separateApprover: false });
+  });
+
+  test("a false policy's rule counts a second reviewer ranked at the policy's role", async () => {
+    const approval = await underPolicy(
+      { role: 'senior', separateApprover: false },
+      roster({ userId: 'u-solo' }, { userId: 'u-sr', role: 'senior' }),
+      { kind: 'user', id: 'u-solo' },
+    );
+    expect(approval).toMatchObject({ role: 'senior', separateApprover: true });
+  });
+
+  test("a policy with no approvals block leaves the drafter's own approval to apply", async () => {
+    // Only a metric bar: the gate passes, names no approval, so the drafter's
+    // approval (its own separate-approver rule, at standard) is what waits.
+    const approval = await underPolicy(
+      undefined,
+      roster({ userId: 'u-solo' }, { userId: 'u-two' }),
+      {
+        kind: 'user',
+        id: 'u-solo',
+      },
+    );
+    expect(approval).toMatchObject({ role: 'standard', count: 1, separateApprover: true });
+  });
 });
 
 /**
