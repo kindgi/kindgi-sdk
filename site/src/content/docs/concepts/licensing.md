@@ -81,8 +81,9 @@ way, with its own message.
 ## When a key expires
 
 - **From 30 days before** the expiry date, the banner warns that the key
-  expires soon, and says how to renew it. A tenant admin also sees a line on
-  every console page.
+  expires soon, and says how to renew it. Where the deployment is set up to
+  serve one tenant (without `KINDGI_TENANCY=multi`) and its database holds
+  only that one, that tenant's admins also see a line on every console page.
 - **After it expires,** the runtime still starts for 14 days, with a warning
   that says until when.
 - **After those 14 days,** it refuses to start, naming the date the key
@@ -100,7 +101,7 @@ To renew a production key, which goes with your contract, write to
 contact@kindgi.com. A non-production key from access.kindgi.com renews when
 you sign in there again. When access.kindgi.com has it turned on, a
 deployment can also renew its key itself, by hand or on a schedule. See
-[Renew the license key](../../deploy/renew-the-license-key/).
+[Renew the license key](../../deploy/self-hosted/renew-the-license-key/).
 
 ## Preview releases stop starting after 90 days
 
@@ -108,8 +109,9 @@ Until Kindgi 1.0, each runtime release stops starting 90 days after it was
 released. That holds in every mode, development mode included. A setup that
 upgrades with each release never meets it.
 
-- **From 30 days before,** the startup banner warns, and so do the console
-  (for a tenant admin) and `kindgi dev`.
+- **From 30 days before,** the startup banner warns, and so does
+  `kindgi dev`. So does the console, for the same tenant admins as a key's
+  expiry ([above](#when-a-key-expires)).
 - **From that day on,** the runtime refuses to start, with exit code 2. In
   development mode it says:
 

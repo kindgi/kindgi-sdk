@@ -4,15 +4,16 @@
 /** `kindgi doctor` (T130): each check, from fakes of the tools, Docker, the runtime and the client. */
 
 import { generateKeyPairSync, sign } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { type DoctorReport, type DoctorSeam, MIN_NODE, atLeast } from '../src/commands/doctor.js';
+import type { DoctorReport, DoctorSeam } from '../src/commands/doctor.js';
 import type { DockerRunner } from '../src/dev/runtime-container.js';
 import { runCli } from '../src/main.js';
+import { MIN_NODE } from '../src/node-version.js';
 import { loadProviderPresets } from '../src/providers/preset-loader.js';
 
 let dir: string;
@@ -213,6 +214,7 @@ describe('outside a project', () => {
       'docker',
       'registry',
       'dev-sandbox',
+      'api-key',
       'console-sign-in',
       'license',
       'mcp-headers',
@@ -223,6 +225,7 @@ describe('outside a project', () => {
       'provider',
       'erasures',
     ]);
+    expect(check('api-key')).toMatchObject({ status: 'skip' });
     expect(check('console-sign-in')).toMatchObject({ status: 'skip' });
     expect(check('console-sign-in')?.message).toContain('no runtime to ask');
     // Every config name looked for, `.mts` (a CommonJS app's) among them.
@@ -355,6 +358,7 @@ describe('the machine', () => {
     expect(check('node')).toMatchObject({
       status: 'fail',
       message: `Node 20.11.1; Kindgi needs ${MIN_NODE} or later.`,
+      fix: `Install Node ${MIN_NODE} or later from https://nodejs.org (or: nvm install 22).`,
     });
     expect(check('npm')).toMatchObject({ status: 'fail' });
   });
@@ -1087,14 +1091,79 @@ describe('under kindgi-cli, the PyPI build (T127)', () => {
   });
 });
 
-test('MIN_NODE is the CLI package’s engines.node', async () => {
-  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {
-    engines: { node: string };
+describe('the API key: a stored key goes only to the address stored with it', () => {
+  const SIGNED_IN = 'https://platform.example.com';
+  const OTHER = 'https://other.example.com';
+  const KEY = 'kgi_tk_home_never_printed';
+  const signedIn = async () => {
+    await mkdir(join(home, '.kindgi'), { recursive: true });
+    await writeFile(
+      join(home, '.kindgi', 'config.json'),
+      JSON.stringify({ apiUrl: SIGNED_IN, token: KEY }),
+    );
   };
-  expect(pkg.engines.node).toBe(`>=${MIN_NODE}`);
-  expect(atLeast('22.12.0', MIN_NODE)).toBe(true);
-  expect(atLeast('22.11.9', MIN_NODE)).toBe(false);
-  expect(atLeast('v23.0.0', MIN_NODE)).toBe(true);
+  /** Sign-in with an identity provider on, so the console check would list them with the key. */
+  const recording = (sent: (string | null)[]): typeof fetch =>
+    (async (input: string | URL | Request, init?: RequestInit) => {
+      sent.push(new Headers(init?.headers).get('authorization'));
+      return String(input).endsWith('/v1/auth/sign-in-options')
+        ? new Response(
+            JSON.stringify({ data: [], methods: { identityProviders: true, apiToken: false } }),
+            { status: 200 },
+          )
+        : new Response(JSON.stringify({ data: [] }), { status: 200 });
+    }) as typeof fetch;
+
+  test('stored for the address the CLI uses: pass', async () => {
+    await signedIn();
+    const { check } = await doctor({ fetchImpl: recording([]) });
+    expect(check('api-key')).toMatchObject({
+      status: 'pass',
+      message: `The API key stored in ${join(home, '.kindgi', 'config.json')} is for ${SIGNED_IN}, the address commands go to.`,
+    });
+  });
+
+  test('given with KINDGI_API_TOKEN: pass, whatever is stored', async () => {
+    await signedIn();
+    const { check } = await doctor({
+      env: { KINDGI_API_URL: OTHER, KINDGI_API_TOKEN: 'kgi_given' },
+      fetchImpl: recording([]),
+    });
+    expect(check('api-key')).toMatchObject({
+      status: 'pass',
+      message: `The API key is given with KINDGI_API_TOKEN, and goes to ${OTHER}.`,
+    });
+  });
+
+  test('stored for another address: a failure naming both and the fixes; no check sends the key', async () => {
+    await signedIn();
+    const sent: (string | null)[] = [];
+    const mcpCalls: unknown[] = [];
+    const { out, report, check } = await doctor({
+      env: { KINDGI_API_URL: OTHER },
+      fetchImpl: recording(sent),
+      mcpCalls,
+    });
+    expect(report?.ok).toBe(false);
+    expect(check('api-key')).toEqual({
+      id: 'api-key',
+      status: 'fail',
+      message: `Every command that needs the API key refuses: it would send the API key stored in ${join(home, '.kindgi', 'config.json')}, which is for ${SIGNED_IN}, to ${OTHER}, which KINDGI_API_URL names.`,
+      fix: `The key goes only to its own address: point KINDGI_API_URL at ${SIGNED_IN}, sign in to ${OTHER} with \`kindgi auth login --url ${OTHER} --token <its key>\`, or give that server's key with --token or KINDGI_API_TOKEN.`,
+    });
+    expect(check('console-sign-in')).toMatchObject({ status: 'skip' });
+    expect(check('console-sign-in')?.message).toContain(
+      `the API key isn't for ${OTHER} (API key, above)`,
+    );
+    expect(check('mcp-headers')).toMatchObject({
+      status: 'skip',
+      message: `Not checked: the API key isn't for ${OTHER} (API key, above).`,
+    });
+    expect(mcpCalls).toEqual([]);
+    expect(sent.filter((a) => a !== null)).toEqual([]);
+    expect(out.stdout).not.toContain(KEY);
+    expect(out.stderr).not.toContain(KEY);
+  });
 });
 
 describe('console sign-in: can anyone sign in to the console of the runtime the CLI points at', () => {

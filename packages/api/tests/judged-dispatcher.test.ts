@@ -139,7 +139,7 @@ async function compare(options: {
     ...(options.agents !== undefined && { agents: options.agents }),
   }).dispatch(ctx);
   const result = out.result as { summary: JudgedComparisonSummary; perCase: JudgedCaseResult[] };
-  return { ...result, invoked, progress, error: out.error };
+  return { ...result, invoked, progress, error: out.error, cancelReason: out.cancelReason };
 }
 
 /** A result as it reaches the wire, against the schema the clients read it as. */
@@ -392,6 +392,57 @@ describe('an erased case (T273 M-5)', () => {
     expect(perCase.map((c) => c.caseId)).toEqual(['case-a']);
     expect(summary).toMatchObject({ cases: 1, erased: 1, errors: 0, status: 'completed' });
     expect(wireErrors({ summary, perCase })).toEqual([]);
+  });
+});
+
+describe('a case its project or tenant takes no new runs for (halt)', () => {
+  const halt: EvalRunSubjectInvokeOutcome = {
+    halt: { reason: 'project-suspended', message: 'The project is suspended' },
+  };
+  const answered = (input: EvalRunSubjectInvokeInput) =>
+    answers[input.replay?.of as unknown as string] as EvalRunSubjectInvokeOutcome;
+
+  test('stops the run there, cancelled with the reason; the cases before it are its result', async () => {
+    const result = await compare({
+      answer: (input) =>
+        (input.replay?.of as unknown as string) === 'case-b' ? halt : answered(input),
+    });
+    expect(result.invoked.map((i) => i.replay?.of)).toEqual(['case-a', 'case-b']);
+    expect(result.perCase.map((c) => c.caseId)).toEqual(['case-a']);
+    expect(result.error).toBe('cancelled');
+    expect(result.cancelReason).toBe('project-suspended');
+    expect(result.summary.errors).toBe(0);
+    expect(wireErrors(result)).toEqual([]);
+  });
+
+  test('at the first case: nothing after it runs', async () => {
+    const result = await compare({ answer: () => halt });
+    expect(result.invoked).toHaveLength(1);
+    expect(result.perCase).toEqual([]);
+    expect(result.cancelReason).toBe('project-suspended');
+  });
+
+  test("between a case's repetitions: the case isn't counted from the ones that ran", async () => {
+    const result = await compare({
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 3 },
+      answer: (input, call) => (call === 2 ? halt : answered(input)),
+    });
+    expect(result.invoked).toHaveLength(2);
+    expect(result.perCase).toEqual([]);
+    expect(result.cancelReason).toBe('project-suspended');
+  });
+
+  test("a case's error isn't a halt: the run goes on, and isn't cancelled", async () => {
+    const result = await compare({
+      answer: (input) =>
+        (input.replay?.of as unknown as string) === 'case-a'
+          ? { error: 'pack-suspended: the pack is suspended' }
+          : answered(input),
+    });
+    expect(result.invoked).toHaveLength(2);
+    expect(result.perCase.map((c) => c.caseId)).toEqual(['case-a', 'case-b']);
+    expect(result.error).toBeUndefined();
+    expect(result.cancelReason).toBeUndefined();
   });
 });
 

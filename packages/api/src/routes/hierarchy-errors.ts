@@ -60,6 +60,35 @@ export function projectDefaultAlreadyExistsError() {
 }
 
 /**
+ * `409 project-in-environment-order`: the project is a member of an
+ * environment order, so it can't be deleted or moved to another parent.
+ * Clear it from the order first. The answer names the order (`details.orderId`).
+ */
+export function projectInEnvironmentOrderError(orderId: string) {
+  return {
+    code: 'project-in-environment-order',
+    message:
+      'The project is a member of an environment order; clear it from the order before deleting or moving it.',
+    orderId,
+  } as const;
+}
+
+/**
+ * `409 org-has-environment-order`: the org is the parent of an environment
+ * order, so deleting it would orphan the order. A tenant admin clears the
+ * order first (`PUT /v1/environment-orders/orgs/{orgId}` with `[]`). The
+ * answer names the order (`details.orderId`).
+ */
+export function orgHasEnvironmentOrderError(orderId: string) {
+  return {
+    code: 'org-has-environment-order',
+    message:
+      'The org is the parent of an environment order; clear the order before deleting the org.',
+    orderId,
+  } as const;
+}
+
+/**
  * `501 authz-membership-unsupported`: authorization is enforced, but the
  * tenant-hierarchy binding can't change a membership together with its
  * authorization tuple (it has no `method`). Nothing is changed: removing

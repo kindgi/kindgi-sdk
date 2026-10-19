@@ -4,7 +4,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { isLocalAddress } from './api-address.js';
+import { isLocalAddress, storedKeyFor } from './api-address.js';
 
 /**
  * Resolved configuration used by every command. Precedence at load
@@ -30,6 +30,13 @@ export interface ResolvedConfig {
    */
   readonly keyAddress?: string;
   /**
+   * When the key is a stored one: every key the config files hold, each
+   * with the address stored beside it, the home file's before this
+   * folder's. A stored key goes only to its own address, and the key for
+   * an address is found by it (`storedKeyFor` in api-address.ts).
+   */
+  readonly storedKeys?: readonly StoredKey[];
+  /**
    * This folder's `.kindgirc.json` when it points at a `kindgi dev`
    * runtime (`kindgi dev` wrote it, or its `apiUrl` is a loopback one),
    * with the config resolved without that file. `--hosted` goes on
@@ -44,6 +51,13 @@ export interface ResolvedConfig {
 }
 
 export type ConfigSource = 'flag' | 'env' | 'file' | 'unset';
+
+/** A key a config file holds, and the address stored beside it, if any. */
+export interface StoredKey {
+  readonly token: string;
+  readonly apiUrl?: string;
+  readonly file: ConfigFile;
+}
 
 /**
  * A config file: `~/.kindgi/config.json` (`home`, which `kindgi auth
@@ -126,7 +140,8 @@ function pointsAtDevRuntime(file: ReadConfigFile): boolean {
 
 /**
  * Each value: the flag, else the env var, else the last of `files` that
- * holds it (this folder's file over the home one, field by field).
+ * holds it (this folder's file over the home one, field by field). A
+ * stored key is the one for the address: see `storedKeyFor`.
  */
 function resolveConfig(
   flagUrl: string | undefined,
@@ -135,21 +150,33 @@ function resolveConfig(
   files: readonly (ReadConfigFile | undefined)[],
 ): ResolvedConfig {
   const urlFile = lastHolding(files, 'apiUrl');
-  const tokenFile = lastHolding(files, 'token');
   const apiUrl = pickWithSource(flagUrl, env.KINDGI_API_URL, urlFile?.values.apiUrl);
-  const token = pickWithSource(flagToken, env.KINDGI_API_TOKEN, tokenFile?.values.token);
-  const keyAddress = token.source === 'file' ? tokenFile?.values.apiUrl : undefined;
+  const keys = storedKeysOf(files);
+  const stored = storedKeyFor(keys, apiUrl.value);
+  const token = pickWithSource(flagToken, env.KINDGI_API_TOKEN, stored?.token);
+  const key = token.source === 'file' ? stored : undefined;
   const from = {
     ...(apiUrl.source === 'file' && urlFile !== undefined && { apiUrl: fileRef(urlFile) }),
-    ...(token.source === 'file' && tokenFile !== undefined && { token: fileRef(tokenFile) }),
+    ...(key !== undefined && { token: key.file }),
   };
   return {
     apiUrl: apiUrl.value,
     token: token.value,
     source: { apiUrl: apiUrl.source, token: token.source },
     ...(Object.keys(from).length > 0 && { files: from }),
-    ...(keyAddress !== undefined && keyAddress !== '' && { keyAddress }),
+    ...(key?.apiUrl !== undefined && { keyAddress: key.apiUrl }),
+    ...(key !== undefined && { storedKeys: keys }),
   };
+}
+
+/** The keys `files` hold, in their order, each with the address beside it. */
+function storedKeysOf(files: readonly (ReadConfigFile | undefined)[]): StoredKey[] {
+  return files.flatMap((f) => {
+    const token = f?.values.token;
+    if (f === undefined || token === undefined) return [];
+    const apiUrl = f.values.apiUrl;
+    return [{ token, ...(apiUrl !== undefined && apiUrl !== '' && { apiUrl }), file: fileRef(f) }];
+  });
 }
 
 function lastHolding(

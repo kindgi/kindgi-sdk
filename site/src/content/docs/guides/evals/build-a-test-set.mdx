@@ -44,10 +44,40 @@ its own id:
 Judge each article by its id. Then a judgment of `kb-101` still applies when
 a new version returns `kb-101`, at any place in its list.
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi judgments add --run=<run-id> --item=kb-101 --pointer=/output/articles/0 --rank=0 --yes --reason="Resets the password"
-kindgi judgments add --run=<run-id> --item=kb-102 --pointer=/output/articles/1 --rank=1 --no --reason="Not about signing in"
+pnpm exec kindgi judgments add --run=<run-id> --item=kb-101 --pointer=/output/articles/0 --rank=0 --yes --reason="Resets the password"
+pnpm exec kindgi judgments add --run=<run-id> --item=kb-102 --pointer=/output/articles/1 --rank=1 --no --reason="Not about signing in"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi judgments add --run=<run-id> --item=kb-101 --pointer=/output/articles/0 --rank=0 --yes --reason="Resets the password"
+uv run kindgi judgments add --run=<run-id> --item=kb-102 --pointer=/output/articles/1 --rank=1 --no --reason="Not about signing in"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw judgments add --run=<run-id> --item=kb-101 --pointer=/output/articles/0 --rank=0 --yes --reason="Resets the password"
+./kindgiw judgments add --run=<run-id> --item=kb-102 --pointer=/output/articles/1 --rank=1 --no --reason="Not about signing in"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw judgments add --run=<run-id> --item=kb-101 --pointer=/output/articles/0 --rank=0 --yes --reason="Resets the password"
+./kindgiw judgments add --run=<run-id> --item=kb-102 --pointer=/output/articles/1 --rank=1 --no --reason="Not about signing in"
+```
+
+</TabItem>
+</Tabs>
 
 - `<run-id>` is the run's id.
 - `--item` is the article's id, and `--pointer` where it is in the output.
@@ -66,9 +96,36 @@ rest: reasons, your users' judgments, and judge classes.
 Build version 1.0.0 of a test set, `acme.article-picks`, from the agent's
 judged runs in a project:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi eval-suites from-judgments acme.article-picks --suite-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
+pnpm exec kindgi eval-suites from-judgments acme.article-picks --suite-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi eval-suites from-judgments acme.article-picks --suite-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw eval-suites from-judgments acme.article-picks --suite-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw eval-suites from-judgments acme.article-picks --suite-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
+```
+
+</TabItem>
+</Tabs>
 
 - `acme.article-picks` is the test set's id, and `--suite-version` its
   version.
@@ -91,7 +148,9 @@ It prints the test set:
 With [authorization](../../../deploy/authorization/) on, building a test set
 under a new id takes `admin` on the project it names.
 
-From your code, with the project's id as the script's argument:
+From your code, ask your coding agent: "I want a script that builds a test
+set from my agent's judged runs, and shows me its cases." For reference, the
+script looks like this, with the project's id as its argument:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -186,10 +245,40 @@ items' counts.
 `--segment=<key:value>` keeps the runs started in that segment or below it.
 Repeat it for a path, coarse to fine. In the clients, it's `segments`:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi eval-suites from-judgments acme.rank-acme-segment --suite-version=1.0.0 --project=<project-id> \
+pnpm exec kindgi eval-suites from-judgments acme.rank-acme-segment --suite-version=1.0.0 --project=<project-id> \
   --agent=acme.rank.scorer --segment=company:acme --description="acme company only"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi eval-suites from-judgments acme.rank-acme-segment --suite-version=1.0.0 --project=<project-id> \
+  --agent=acme.rank.scorer --segment=company:acme --description="acme company only"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw eval-suites from-judgments acme.rank-acme-segment --suite-version=1.0.0 --project=<project-id> \
+  --agent=acme.rank.scorer --segment=company:acme --description="acme company only"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw eval-suites from-judgments acme.rank-acme-segment --suite-version=1.0.0 --project=<project-id> \
+  --agent=acme.rank.scorer --segment=company:acme --description="acme company only"
+```
+
+</TabItem>
+</Tabs>
 
 `--description` says what the test set holds. It prints the test set:
 
@@ -211,9 +300,36 @@ narrowed test set leaves it out.
 
 To see what each case holds, list the cases:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi eval-suites cases acme.article-picks --suite-version=1.0.0
+pnpm exec kindgi eval-suites cases acme.article-picks --suite-version=1.0.0
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi eval-suites cases acme.article-picks --suite-version=1.0.0
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw eval-suites cases acme.article-picks --suite-version=1.0.0
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw eval-suites cases acme.article-picks --suite-version=1.0.0
+```
+
+</TabItem>
+</Tabs>
 
 One of them:
 

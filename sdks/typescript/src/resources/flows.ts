@@ -6,7 +6,7 @@ import type { Cursor, Filter, FlowId } from '@kindgi/types';
 import { KindgiApiError, notYetWired } from '../errors.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
-import type { Flow } from '../types.js';
+import type { Flow, GetLatestOptions } from '../types.js';
 
 /**
  * Flows resource — raw task-flow authoring.
@@ -57,8 +57,9 @@ export interface FlowsClient {
   /**
    * @wire `GET /v1/flows/{flowId}` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1flows~1{flowId}/get`.
+   *   Which version: `GetLatestOptions`.
    */
-  get(id: FlowId): Promise<Flow>;
+  get(id: FlowId, options?: GetLatestOptions): Promise<Flow>;
 
   /**
    * Flows, the latest version of each. `filter.includeRetired = true`
@@ -76,7 +77,7 @@ export interface FlowsClient {
    */
   readonly versions: FlowVersionsClient;
   /** @deprecated Use `flows.versions.get`; removed in 0.2. */
-  getVersion(id: FlowId, version: string): Promise<Flow>;
+  getVersion(id: FlowId, version: string): Promise<FlowVersionRow>;
   /** @deprecated Use `flows.versions.unregister`; removed in 0.2. */
   delete(
     id: FlowId,
@@ -104,12 +105,13 @@ export interface FlowVersionsClient {
    */
   list(id: FlowId, filter?: FlowVersionFilter): Promise<ListPage<FlowVersionRow>>;
   /**
-   * Fetch a specific version of a flow.
+   * Fetch a specific version of a flow. An unregistered version is
+   * returned too, with its `unregisteredAt`; an active one has none.
    *
    * @wire `GET /v1/flows/{flowId}/versions/{version}` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1flows~1{flowId}~1versions~1{version}/get`.
    */
-  get(id: FlowId, version: string): Promise<Flow>;
+  get(id: FlowId, version: string): Promise<FlowVersionRow>;
   /**
    * Unregister a specific version (an explicit version is required —
    * flows are versioned). Historical runs remain in the journal; only
@@ -165,10 +167,11 @@ export interface PageFilter {
 }
 
 /**
- * A flow as a list reads it: the standard `Flow` fields plus
- * `unregisteredAt`, present on an unregistered version (a retired
- * flow's, or one `includeTombstoned` lists). Callers can ignore the
- * extra field and treat the row as a plain `Flow`.
+ * A flow as a list or `versions.get` reads it: the standard `Flow`
+ * fields plus `unregisteredAt`, present on an unregistered version (a
+ * retired flow's, one `includeTombstoned` lists, or one fetched by its
+ * version). Callers can ignore the extra field and treat the row as a
+ * plain `Flow`.
  */
 export type FlowVersionRow = Flow & {
   readonly unregisteredAt?: string;
@@ -217,7 +220,7 @@ export function makeFlowsClient(transport: Transport): FlowsClient {
     {
       list,
       async get(id: FlowId, version: string) {
-        return transport.request<Flow>({
+        return transport.request<FlowVersionRow>({
           method: 'GET',
           path: `/v1/flows/${encodeURIComponent(id as unknown as string)}/versions/${encodeURIComponent(version)}`,
         });
@@ -294,10 +297,11 @@ export function makeFlowsClient(transport: Transport): FlowsClient {
       );
     },
 
-    async get(id) {
+    async get(id, options) {
       return transport.request<Flow>({
         method: 'GET',
         path: `/v1/flows/${encodeURIComponent(id as unknown as string)}`,
+        query: { ...(options?.projectId !== undefined && { projectId: options.projectId }) },
       });
     },
 

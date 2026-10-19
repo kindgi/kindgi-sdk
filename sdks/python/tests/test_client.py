@@ -1009,6 +1009,136 @@ def test_named_models_keep_their_names() -> None:
         assert not hasattr(models, name), name
 
 
+def test_a_model_is_its_schemas_and_its_old_names_stay_gone() -> None:
+    # A judged run's inline `flow` and an approval's inline `tool` once took `Flow` and
+    # `Tool` (the flow graph and the tool were `Flow1`, `Tool1`); a union's members were
+    # numbered in the order codegen met them (`Scope2` the tenant, `Scope4` the project).
+    assert {"nodes", "edges"} <= set(models.Flow.model_fields)
+    assert {"input", "output"} <= set(models.Tool.model_fields)
+    assert set(models.JudgedRunContextFlow.model_fields) == {"calls", "steps", "truncated"}
+    assert set(models.RunWaitingApprovalTool.model_fields) == {"id", "version", "call_id"}
+    assert models.ScopeOrg(kind="org", tenant_id="t", org_id="o").org_id == "o"
+    for name in (
+        "Agent1",
+        "CodeArtifactRef1",
+        "CodeArtifactRef2",
+        "ComparisonCandidate1",
+        "ComparisonCandidate2",
+        "EnvSetOutcome1",
+        "EnvSetOutcome2",
+        "EnvSetOutcome3",
+        "Flow1",
+        "Flow2",
+        "Guardrail1",
+        "HttpAuthSpec1",
+        "HttpAuthSpec2",
+        "HttpRequestBodySpec1",
+        "HttpRequestBodySpec2",
+        "HttpRequestBodySpec3",
+        "JudgeClassScope1",
+        "JudgeClassScope2",
+        "JudgeClassScope3",
+        "RecordedSecretScope1",
+        "RecordedSecretScope2",
+        "RecordedSecretScope3",
+        "Scope",
+        "Scope2",
+        "Scope3",
+        "Scope4",
+        "SecretRotateOutcome1",
+        "SecretRotateOutcome2",
+        "SecretSetOutcome1",
+        "SecretSetOutcome2",
+        "SecretSetOutcome3",
+        "SecretSetOutcome4",
+        "Tool1",
+        "Tool2",
+        "Tool3",
+        "WebhookSignature1",
+        "WebhookSignature2",
+    ):
+        assert not hasattr(models, name), name
+
+
+FLOW = {
+    "id": "acme.triage",
+    "version": "1.2.0",
+    "name": "Triage",
+    "nodes": [
+        {"id": "classify", "kind": "agent", "ref": "acme.classifier@1.0.0"},
+        {"id": "route", "kind": "tool", "ref": "acme.router@2.1.0"},
+    ],
+    "edges": [{"id": "classify-route", "from": "classify", "to": "route"}],
+}
+
+TOOL = {
+    "id": "acme.lookup",
+    "version": "1.0.0",
+    "description": "Look up an order by its number.",
+    "input": {"type": "object", "properties": {"orderNumber": {"type": "string"}}},
+    "output": {"type": "object"},
+}
+
+
+def registry(request: httpx.Request) -> httpx.Response:
+    """A flow or a tool; a version answered by `/versions/` is a retired one."""
+    body = FLOW if request.url.path.startswith("/v1/flows/") else TOOL
+    if "/versions/" in request.url.path:
+        body = {**body, "unregisteredAt": "2026-10-01T14:07:42.379Z"}
+    return httpx.Response(200, json=body)
+
+
+def a_flow(flow: models.Flow, retired: bool) -> None:
+    assert isinstance(flow, models.Flow)
+    assert all(isinstance(node, models.FlowNode) for node in flow.nodes)
+    assert [node.kind for node in flow.nodes] == ["agent", "tool"]
+    assert (flow.edges[0].from_, flow.edges[0].to) == ("classify", "route")
+    assert (flow.unregistered_at is not None) is retired
+
+
+def a_tool(tool: models.Tool, retired: bool) -> None:
+    assert isinstance(tool, models.Tool)
+    assert tool.input["properties"] == {"orderNumber": {"type": "string"}}
+    assert tool.description == TOOL["description"]
+    assert (tool.unregistered_at is not None) is retired
+
+
+def test_flows_get_and_get_version_answer_the_flow() -> None:
+    api, seen = client(registry)
+    a_flow(api.flows.get("acme.triage"), retired=False)
+    a_flow(api.flows.get_version("acme.triage", "1.2.0"), retired=True)
+    assert [r.url.path for r in seen] == [
+        "/v1/flows/acme.triage",
+        "/v1/flows/acme.triage/versions/1.2.0",
+    ]
+
+    async def scenario() -> None:
+        http = httpx.AsyncClient(transport=httpx.MockTransport(registry))
+        async with AsyncKindgi("http://kindgi.test", token="t", http_client=http) as api:
+            a_flow(await api.flows.get("acme.triage"), retired=False)
+            a_flow(await api.flows.get_version("acme.triage", "1.2.0"), retired=True)
+
+    asyncio.run(scenario())
+
+
+def test_tools_get_and_get_version_answer_the_tool() -> None:
+    api, seen = client(registry)
+    a_tool(api.tools.get("acme.lookup"), retired=False)
+    a_tool(api.tools.get_version("acme.lookup", "1.0.0"), retired=True)
+    assert [r.url.path for r in seen] == [
+        "/v1/tools/acme.lookup",
+        "/v1/tools/acme.lookup/versions/1.0.0",
+    ]
+
+    async def scenario() -> None:
+        http = httpx.AsyncClient(transport=httpx.MockTransport(registry))
+        async with AsyncKindgi("http://kindgi.test", token="t", http_client=http) as api:
+            a_tool(await api.tools.get("acme.lookup"), retired=False)
+            a_tool(await api.tools.get_version("acme.lookup", "1.0.0"), retired=True)
+
+    asyncio.run(scenario())
+
+
 OPENAPI = Path(__file__).resolve().parents[3] / "packages" / "api" / "openapi.json"
 
 

@@ -38,7 +38,7 @@ rolled back.
 A draft says what to change, for which scope, and why:
 
 ```sh
-kindgi proposals draft --agent=acme.rank.scorer --from-version=1.0.0 --tenant \
+pnpm exec kindgi proposals draft --agent=acme.rank.scorer --from-version=1.0.0 --tenant \
   --block=acme.rank.weights --values='{"recency":0.2,"fit":0.8}' \
   --hypothesis="Fit matters more than recency for acme rankings."
 ```
@@ -94,7 +94,7 @@ same version for the same scope returns the proposal drafted before.
 An evaluation tests the change on your test set before anything serves it:
 
 ```sh
-kindgi proposals evaluate <proposal-id> --test-set=acme.rank-prompt-52080 --wait
+pnpm exec kindgi proposals evaluate <proposal-id> --test-set=acme.rank-prompt-52080 --wait
 ```
 
 - `<proposal-id>` is the proposal's `id`.
@@ -154,7 +154,7 @@ prompt change from "Answer briefly." to "Answer warmly." rewrote the answer
 in each of a test set's three cases. The comparison lists them case by case:
 
 ```sh
-kindgi eval-runs show <eval-run-id>
+pnpm exec kindgi eval-runs show <eval-run-id>
 ```
 
 `<eval-run-id>` is the proposal's `evaluation.evalRunId`. It prints the
@@ -205,7 +205,7 @@ replay run, at the `pointer` the comparison names. A replay's answer is at
 isn't in the run's output is refused with `400 item-not-found`:
 
 ```sh
-kindgi judgments add --run=c839338c-cfc1-4bf3-b4e3-c7f24e38a473 --item=answer --pointer=/appended/1/content --yes
+pnpm exec kindgi judgments add --run=c839338c-cfc1-4bf3-b4e3-c7f24e38a473 --item=answer --pointer=/appended/1/content --yes
 ```
 
 It prints the judgment as JSON.
@@ -213,7 +213,7 @@ It prints the judgment as JSON.
 Then rescore the proposal:
 
 ```sh
-kindgi proposals evaluate <proposal-id> --rescore --wait
+pnpm exec kindgi proposals evaluate <proposal-id> --rescore --wait
 ```
 
 A rescore is a new comparison, with the same test set version and settings,
@@ -304,7 +304,7 @@ A request promotes the candidate for the proposal's scope, through the
 scope's gate, with the evaluation as its comparison:
 
 ```sh
-kindgi proposals request <proposal-id> --reason="Live check: promote by hand."
+pnpm exec kindgi proposals request <proposal-id> --reason="Live check: promote by hand."
 ```
 
 `--reason` is kept with the promotion.
@@ -347,7 +347,7 @@ no approval. Requesting needs `promote` on the agent.
 A rollback puts the scope back on the version that served it before:
 
 ```sh
-kindgi proposals rollback <proposal-id> --reason="Live check: put it back."
+pnpm exec kindgi proposals rollback <proposal-id> --reason="Live check: put it back."
 ```
 
 It prints the proposal, now `rolled-back`:
@@ -375,7 +375,7 @@ A withdrawal closes a proposal before review, or after its promotion was
 refused, superseded or expired:
 
 ```sh
-kindgi proposals withdraw <proposal-id> --reason="Superseded by a better draft"
+pnpm exec kindgi proposals withdraw <proposal-id> --reason="Superseded by a better draft"
 ```
 
 It prints the proposal, now `withdrawn`. `--reason` is required, and
@@ -384,8 +384,8 @@ withdrawing needs `publish` on the agent.
 ## Find them
 
 ```sh
-kindgi proposals list --agent=acme.rank.scorer --table
-kindgi proposals get <proposal-id>
+pnpm exec kindgi proposals list --agent=acme.rank.scorer --table
+pnpm exec kindgi proposals get <proposal-id>
 ```
 
 - `--agent` lists one agent's proposals, and `--table` prints a table: each

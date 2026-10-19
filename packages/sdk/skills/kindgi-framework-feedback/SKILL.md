@@ -12,9 +12,12 @@ description: >
   from authoring skills (which help you build packs) and from
   getting-started (which onboards new packs); this skill turns your
   diagnostic output into durable input for framework improvement.
+  Also load to send entries to Kindgi (only after the person says yes
+  to the preview), to check what became of sent ones at the start of a
+  session, or to take one back.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.3"
+version: "0.4.4"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 ---
@@ -101,6 +104,80 @@ Body-input modes:
 The entry lands as a new `## <title>` section appended to
 `FEEDBACK.md`, stamped with a fresh `id: YYYY-MM-DD.N`. The file is
 created with a header if it doesn't yet exist.
+
+## Sending it to Kindgi: only with the person's yes
+
+`FEEDBACK.md` stays in the pack until the person decides to send it.
+`kindgi feedback submit` sends entries to Kindgi's private intake on
+access.kindgi.com. Only Kindgi's maintainers read reports there. They're
+kept 90 days, and the person can take one back at any time.
+
+**Never send on your own.** Every time:
+
+1. **Preview.** Run `kindgi feedback submit --preview`, or name entries by
+   id or hash: `kindgi feedback submit 2026-09-25.3 --preview`. With none
+   named it takes every entry not sent yet and not marked fixed. It prints
+   exactly what would be sent, after redaction, and its `digest`. Nothing
+   is sent.
+2. **Show the person.** Show them each entry's title and body as they'll
+   go, and the environment sent with them: the OS, Node and CLI versions,
+   the pack's language, and `kindgi doctor`'s checks as id and status
+   only. Point out anything redaction missed, like a customer's name or an
+   internal host name. If something shouldn't go, edit the entry in
+   `FEEDBACK.md` and preview again.
+3. **Ask, then send.** Ask "Send this to Kindgi?" Only after a clear yes,
+   run the same command with `--yes=<digest>` in place of `--preview`. If
+   anything changed since the preview, it refuses: preview and ask again.
+
+If `submit` says "Kindgi may have received it" (the answer was lost, came
+too late, or couldn't be read), tell the person, and don't send again on
+your own: a second send makes a second report, and one that arrived can't
+be withdrawn from this machine. Let them decide.
+
+What redaction takes out before the preview:
+- the home directory alone becomes `~`, and paths in the pack become `./…`;
+- other absolute paths become `[path]`, a path under `~` too;
+- values from the pack's `.env*` files and `.kindgi/secrets.env` become
+  `[redacted]`;
+- private keys and token shapes become `[redacted]` (a Kindgi token keeps
+  its prefix and last four characters);
+- a URL keeps its host and path but loses its user info and query values;
+- email addresses become `[email]`.
+
+It can't catch everything in free text: the preview is the check.
+
+Once sent, each entry gets a line like
+`- **submitted:** 2026-09-25T15:02:11.000Z · **report:** fbr_…`. The
+report id isn't a secret, so `FEEDBACK.md` can still be committed. The key
+that takes a report back is kept in `~/.kindgi/feedback/keys.json` on this
+machine and is never printed. Don't read or copy that file.
+
+If `KINDGI_FEEDBACK_SUBMIT=off` is set, `submit` refuses. That's the
+person's or their team's choice, so don't work around it. `write`,
+`status` and `withdraw` still work.
+
+## Hearing back
+
+At the start of a session, when `FEEDBACK.md` has submitted entries, run
+`kindgi feedback status`. It asks about each report at most once a day,
+and never again once it's fixed, won't be fixed, or was withdrawn, or once
+the intake doesn't have it (past its 90 days) unless it's named. A fixed
+entry gets `> **Fixed:** in <version> (report fbr_…)` under its heading.
+Tell the person what changed:
+- **fixed**, with the version: suggest upgrading to it;
+- **known**, with the public issue when there is one;
+- **won't fix**, with the one-line reason.
+
+Name an entry or a report id (`kindgi feedback status 2026-09-25.3`) to
+ask about it now. A teammate's report id works too: it isn't a secret.
+
+## Taking one back
+
+When the person asks to withdraw a report, run
+`kindgi feedback withdraw <id|hash|reportId>`. The intake clears its text
+at once, and the entry's line gets `· **withdrawn:** <date>`. It needs the
+key on the machine that sent the report. A withdrawn entry isn't sent again
+unless the person names it in `submit`.
 
 ## Entry shape (what the CLI produces)
 
@@ -202,7 +279,8 @@ directly for maintenance operations within one pack.
    write` once per bug. Each gets its own number, its own fix
    status, its own removal path.
 4. **Sensitive state in reproducers.** Reproducer sections sometimes
-   contain API keys, tenant IDs, secrets — review before committing.
+   contain API keys, tenant IDs, secrets — review before committing,
+   and read the preview before anyone says yes to sending.
 5. **Filing "the way I'd design it" as a bug.** Design disagreements
    are `--kind=design`, not `--kind=bug`. Both are welcome; the
    classification helps prioritization.
@@ -210,3 +288,4 @@ directly for maintenance operations within one pack.
 ## References
 
 - `FEEDBACK.md` at the pack root — the running list itself.
+- `kindgi feedback submit --help`, `status --help` and `withdraw --help`.
