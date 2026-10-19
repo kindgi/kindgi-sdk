@@ -722,6 +722,7 @@ export const CLI_DEFAULTS = {
   },
   'judgments add': {
     class: 'none (the judgment is unclassified)',
+    correction: 'none (an ordinary judgment, with no correction)',
     item: 'required',
     no: 'off (exactly one of `--yes` or `--no` is required)',
     participant: 'none',
