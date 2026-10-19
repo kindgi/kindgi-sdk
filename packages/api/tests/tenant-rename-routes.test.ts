@@ -186,6 +186,20 @@ describe('PATCH /v1/tenant', () => {
     expect(taken.error?.message).toBe('Another tenant has the slug "acme-store".');
   });
 
+  test('an empty body still meets the tenant’s state: closing and setup-pending answer their 409s', async () => {
+    const id = ACME as unknown as string;
+    for (const [outcome, code, details] of [
+      [{ kind: 'tenant-closing' }, 'tenant-closing', { tenantId: id, state: 'closing' }],
+      [{ kind: 'tenant-setup-pending' }, 'tenant-setup-pending', { tenantId: id }],
+    ] as const) {
+      const { calls, renameTenant } = renamer(outcome);
+      const r = await tenantApp(renameTenant)({});
+      expect([r.status, r.error?.code], code).toEqual([409, code]);
+      expect(r.error?.details, code).toEqual(details);
+      expect(calls, code).toEqual([{ tenantId: ACME }]);
+    }
+  });
+
   test('sign-in settings that name its current slug: its own entries, and what the operator does', async () => {
     const r = await tenantApp(
       renamer({
@@ -327,6 +341,18 @@ describe('PATCH /v1/system/tenants/{tenantId}', () => {
       expect([r.status, r.error?.code], id).toEqual([404, 'tenant-not-found']);
     }
     expect(calls).toEqual([]);
+  });
+
+  test('an empty body: a closing tenant is refused before the binding, a setup-pending one by it', async () => {
+    const closing = randomUUID();
+    const refused = renamer();
+    const c = await systemApp(refused.renameTenant, { [closing]: 'closing' }).patch(closing, {});
+    expect([c.status, c.error?.code]).toEqual([409, 'tenant-closing']);
+    expect(refused.calls).toEqual([]);
+    const pending = renamer({ kind: 'tenant-setup-pending' });
+    const p = await systemApp(pending.renameTenant).patch(ACME, {});
+    expect([p.status, p.error?.code]).toEqual([409, 'tenant-setup-pending']);
+    expect(pending.calls).toEqual([{ tenantId: ACME }]);
   });
 
   test("the body's rules and the binding's refusals are the tenant route's", async () => {
