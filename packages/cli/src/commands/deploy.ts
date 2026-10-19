@@ -82,7 +82,8 @@ export const deployCommand: LeafCommand = {
   name: 'deploy',
   description:
     'Deploy a signed pack image to Kindgi. Reads deploy-envelope.json (or runs `kindgi build` inline) + POSTs to /v1/deployments. ' +
-    "`--hosted` (or the env block's `build: 'hosted'`) deploys to Kindgi hosted: an inline build runs on the hosted build service (as `kindgi build --hosted`), and after the deploy it waits, up to 5 minutes, for the deployment's pack service to be ready.",
+    "`--hosted` (or the env block's `build: 'hosted'`) deploys to Kindgi hosted: an inline build runs on the hosted build service (as `kindgi build --hosted`), and after the deploy it waits, up to 5 minutes, for the deployment's pack service to be ready. " +
+    "A deploy into the Default project with a pack tool whose id is an MCP endpoint's tool's is refused (`tool-kind-mismatch`), and nothing is deployed.",
   hostedRun: { defaultEnv: 'staging' },
   usage:
     'kindgi deploy [--env <name>] [--from-envelope <path>] [--endpoint <url>] [--token <bearer>] ' +
@@ -226,9 +227,11 @@ interface ResolvedDeployArgs {
    */
   readonly syncSecrets: boolean;
   readonly envBlock: EnvironmentConfig | undefined;
-  /** Each environment of the pack config that names its project, to name the environments a refusal into a later one points at. */
-  readonly envProjects: readonly { readonly name: string; readonly ref: string }[];
-  /** The pack's environments, each with the project it names, if any. */
+  /**
+   * The pack's environments, each with the project it names, if any: for the
+   * value target, and to name the environments a refusal into a later one
+   * points at.
+   */
   readonly environments: PackEnvironments;
   /** The pack service's process env in this environment (`env` + `environments.<env>.env`). */
   readonly packEnv: PackEnvPlan;
@@ -1284,7 +1287,6 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       dryRun,
       syncSecrets,
       envBlock,
-      envProjects: envProjectRefs(cfg),
       environments: environmentsOf(cfg),
       packEnv: packEnv.plan,
       allowMissingEnv: ctx.options['allow-missing-env'] === true,
@@ -1330,7 +1332,7 @@ async function promotionPathOf(
     position,
     orders: orders.orders,
     projects: projects.projects,
-    environments: args.envProjects,
+    environments: envProjectRefs(args.environments),
   });
 }
 

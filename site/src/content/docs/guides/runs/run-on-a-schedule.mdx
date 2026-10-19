@@ -109,7 +109,7 @@ each time still fires once.
   `--catch-up=skip` fires none of them. A time is missed when the fire would
   start more than `--starting-deadline` seconds late, 600 by default.
 - **Its owner may no longer run it,** such as when they lost their role on
-  the project, or were removed from the tenant (runtime 0.1.8.1 or later).
+  the project, or were removed from the tenant (runtime 0.1.9 or later).
   The fire is `refused`, with why. Whoever holds `admin` on the project can
   make themselves its owner: `kindgi schedules take-ownership <schedule-id>`,
   or hand it to a service account

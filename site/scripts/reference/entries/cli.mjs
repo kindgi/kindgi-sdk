@@ -86,6 +86,8 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     'image-ref-prefix': 'none',
     limit: '`25` (at most `100`)',
+    pack: 'none: every pack',
+    project: 'none: every project',
     'signer-key-id': 'none',
   },
   test: {
@@ -1040,6 +1042,11 @@ export const CLI_EXAMPLES = {
         "Find a deployment's id, with each one's pack service: ready, held on its last values (with the code), pending or cleared.",
       line: 'kindgi deployments list --table',
     },
+    {
+      purpose:
+        "One environment's deployments, by its project's slug or id. The Default project's include the deployments that name no project.",
+      line: 'kindgi deployments list --project=staging --table',
+    },
   ],
   'env unset': [
     {
@@ -1101,6 +1108,11 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Promote the build serving in staging to prod, saying why.',
       line: 'kindgi promote --from=staging --to=prod --reason="release 12"',
+    },
+    {
+      purpose:
+        'Promote to prod and make each agent the build carries live there, each through its gate.',
+      line: 'kindgi promote --from=staging --to=prod --make-live --reason="release 12"',
     },
     {
       purpose: 'See what would move to prod and which values it lacks, changing nothing.',

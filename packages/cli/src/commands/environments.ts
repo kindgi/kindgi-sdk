@@ -11,6 +11,7 @@ import { UsageError } from '../errors.js';
 import { type Column, renderJson, renderTable } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import { PROJECT_ID_RE, listAllProjects, resolveProjectRefs } from '../project-ref.js';
+import { environmentsOf } from '../value-target.js';
 import { projectOfEnv } from './build.js';
 import { commandResultFromThrown, runSdk, stringFlag } from './helpers.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
@@ -84,7 +85,7 @@ async function envNameLabels(ctx: CommandContext): Promise<Map<string, string>> 
   try {
     const loaded = await loadPackConfig(ctx, packDirOf(ctx));
     if (loaded.kind !== 'ok') return new Map();
-    const named = envProjectRefs(loaded.config);
+    const named = envProjectRefs(environmentsOf(loaded.config));
     if (named.length === 0) return new Map();
     const needsList = named.some((n) => !PROJECT_ID_RE.test(n.ref));
     return envNamesByProject(named, needsList ? await listAllProjects(ctx) : []);

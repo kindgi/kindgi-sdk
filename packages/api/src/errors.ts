@@ -87,6 +87,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'agent-already-registered': 409,
   'agent-project-mismatch': 409,
   'registry-read-only': 409,
+  'live-scope-spans-environments': 409,
   'agent-gone': 410,
   'run-erased': 410,
   'flow-gone': 410,

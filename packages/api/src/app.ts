@@ -175,7 +175,12 @@ import { schedulesRouter } from './routes/schedules.js';
 import { authSettingsRouter, secondFactorIdentityRouter } from './routes/second-factor.js';
 import { secretsRouter } from './routes/secrets.js';
 import { serviceAccountsRouter } from './routes/service-accounts.js';
-import { type SignInOptionsRateLimit, signInOptionsRouter } from './routes/sign-in-options.js';
+import {
+  type SignInLegalLinks,
+  type SignInOptionsRateLimit,
+  checkSignInLegal,
+  signInOptionsRouter,
+} from './routes/sign-in-options.js';
 import { signingKeysRouter } from './routes/signing-keys.js';
 import { siteEnrollRouter, siteSignInRouter } from './routes/site-auth.js';
 import { sitesRouter } from './routes/sites.js';
@@ -1047,6 +1052,14 @@ export interface CreateAppInput {
     /** Whether the link is offered for an email's domain. Absent: every domain. */
     readonly allowedFor?: (emailDomain: string) => Promise<boolean>;
   };
+  /**
+   * The deployment's terms and privacy policy, which a sign-in page links
+   * (sign-in options' `legal`): each an absolute https URL with no username
+   * or password, each on its own; anything else, and createApp throws. The
+   * answer carries each as a browser reads it. Absent, or neither set: the
+   * answer has no `legal`.
+   */
+  readonly signInLegal?: SignInLegalLinks;
   /**
    * Optional. Signed-deployment ledger — the audit anchor for every
    * `POST /v1/deployments` landing. Caller-plugged per the pattern
@@ -2278,6 +2291,17 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.agentRegistry !== undefined && { agentRegistry: input.agentRegistry }),
           ...(input.flowRegistry !== undefined && { flowRegistry: input.flowRegistry }),
           ...(input.agentReleases !== undefined && { liveVersions: input.agentReleases.live }),
+          // A promotion asked to make its carried agents live pins each in
+          // the target through the same gate a live route uses.
+          ...(input.agentReleases !== undefined && {
+            agentReleases: input.agentReleases,
+            releaseGateDeps: {
+              ...(input.evalRunBinding !== undefined && { evalRuns: input.evalRunBinding }),
+              ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+              ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+            },
+          }),
+          ...(itemRights !== undefined && { itemRights }),
           // The deployments router's agents publish loop resolves the
           // Default project through this binding. Optional at wiring so
           // app compositions without a project binding still boot; the loop
@@ -2373,6 +2397,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       `createApp: session.cookie.secure is false, so its name can't start with __Host- or __Secure- (got ${sessionCookie.name}); leave name unset for ${'`kindgi_session`'}.`,
     );
   }
+  checkSignInLegal(input.signInLegal);
   app.route(
     '/v1/auth/sign-in-options',
     signInOptionsRouter({
@@ -2383,6 +2408,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         rateLimit: input.signInOptionsRateLimit,
       }),
       ...(input.signInEmailLink !== undefined && { emailLink: input.signInEmailLink }),
+      ...(input.signInLegal !== undefined && { legal: input.signInLegal }),
     }),
   );
   // The inbound webhook receiver: outside the bearer chain (mounted ahead

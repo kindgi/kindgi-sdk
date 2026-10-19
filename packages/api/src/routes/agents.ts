@@ -54,6 +54,7 @@ import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import {
   type AgentReleaseGateDeps,
+  isLiveSet,
   isPromotionCheck,
   isPromotionWrite,
   mountAgentReleaseRoutes,
@@ -173,6 +174,7 @@ export function agentsRouter(
         rights: itemRights,
         agentId: c.req.param('agentId') ?? '',
         scope: await bodyScope(c),
+        setsLive: isLiveSet(c.req.method, c.req.path),
       });
       return refused ?? next();
     });
