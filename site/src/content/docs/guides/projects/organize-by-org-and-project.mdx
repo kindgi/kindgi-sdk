@@ -250,7 +250,11 @@ What a deploy into a project does, with the runtime 0.1.8 or later:
   `GET /v1/deployments/{deploymentId}`).
 - **`kindgi deploy --sync-secrets`** writes the secrets into that project,
   so one client's credentials stay in its own project. A tenant-wide
-  deploy writes them tenant-wide.
+  deploy writes them tenant-wide. A secret a tool names that's set nowhere
+  yet when it's deployed is read where the sync writes it (runtime 0.1.8.1
+  or later). So after a deploy into a project, set it later in that project
+  (`kindgi secrets set <name> --env=<env> --scope=project:<project-id>`),
+  not tenant-wide.
 - **It needs admin on that project** (a tenant-wide deploy needs admin on
   the tenant). An API key limited to another project is refused with
   `403 key-project-mismatch`.

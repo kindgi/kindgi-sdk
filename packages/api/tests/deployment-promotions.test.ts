@@ -27,8 +27,10 @@ import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/a
 import { generateEd25519KeyPair, signEd25519 } from '@kindgi/crypto';
 import type {
   Cursor,
+  EnvName,
   LiveScope,
   ProjectId,
+  RecordedSecretScope,
   SigningKeyId,
   TenantId,
   Timestamp,
@@ -37,7 +39,7 @@ import type {
 } from '@kindgi/types';
 
 import { canonicalizeEnvelope } from '../src/deployment-envelope.js';
-import { createApp } from '../src/index.js';
+import { createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
 import type {
   AgentReleaseBindings,
   CarriedVersion,
@@ -60,6 +62,8 @@ const tenantId = randomUUID() as TenantId;
 const TOKEN = 'promotions-token';
 /** A key minted for S1 alone. */
 const LIMITED = 'promotions-key-s1';
+/** A token that may sync a deployment's secrets (`secrets:write`). */
+const SECRETS = 'promotions-token-secrets';
 
 const S1 = randomUUID() as ProjectId;
 const S2 = randomUUID() as ProjectId;
@@ -72,6 +76,9 @@ const resolveToken: TokenResolver = async (token) => {
   if (token === TOKEN) return { tenantId, userId: 'user-1' as UserId };
   if (token === LIMITED) {
     return { tenantId, userId: 'user-1' as UserId, tokenProjectId: S1 as unknown as string };
+  }
+  if (token === SECRETS) {
+    return { tenantId, userId: 'user-1' as UserId, capabilities: ['secrets:write'] };
   }
   return null;
 };
@@ -340,6 +347,8 @@ function harness(
     readonly suspended?: readonly ProjectId[];
     /** The env the runtime serves; `null`: none named. */
     readonly envName?: string | null;
+    /** The tool's schema for `ACME_TOKEN`; absent: a required string. */
+    readonly secretSchema?: object;
     /** Wire a live-release binding (`livePins`), so `makeLive` can pin. */
     readonly live?: boolean;
     /** Carried agents whose scope has a gate policy this binding can't record. */
@@ -368,6 +377,41 @@ function harness(
   const secrets = opts.secrets ?? ['tenant::ACME_TOKEN'];
   const keyOf = (scope: { kind: string; projectId?: unknown }, name: string) =>
     `${scope.kind}:${(scope.projectId as string | undefined) ?? ''}:${name}`;
+  /** What a secrets sync wrote, by `keyOf`; a call reads it at that scope only (`exact`). */
+  const synced = new Map<string, string>();
+  const secretsBinding = {
+    get: async ({ scope, name }: { scope: { kind: string }; name: string }) =>
+      secrets.includes(keyOf(scope, name)) || synced.has(keyOf(scope, name))
+        ? { scope, envName: 'prod', name, currentVersion: 1 }
+        : null,
+    set: async (input: {
+      scope: { kind: string };
+      envName: string;
+      name: string;
+      value: string;
+    }) => {
+      synced.set(keyOf(input.scope, input.name), input.value);
+      const at = '2026-10-18T00:00:00.000Z';
+      return {
+        kind: 'ok',
+        record: {
+          scope: input.scope,
+          envName: input.envName,
+          name: input.name,
+          currentVersion: 1,
+          createdAt: at,
+          updatedAt: at,
+        },
+        versionId: 1,
+      };
+    },
+    resolve: async ({ scope, name }: { scope: { kind: string }; name: string }) => {
+      const value = synced.get(keyOf(scope, name));
+      return value === undefined
+        ? { kind: 'err', error: { code: 'secret-not-found', message: 'not set', name } }
+        : { kind: 'ok', value: { name, versionId: 1, value, scope } };
+    },
+  };
   const grants = opts.grants;
   const live =
     opts.live === true ? livePins({ gated: opts.gated, errorOn: opts.errorOn }) : undefined;
@@ -393,19 +437,17 @@ function harness(
       get: async () => null,
       getVersion: async ({ toolId, version }: { toolId: string; version: string }) =>
         toolId === TOOL.id && version === TOOL.version
-          ? { ...TOOL, needsSpec: { secrets: { ACME_TOKEN: { type: 'string' } } } }
+          ? {
+              ...TOOL,
+              needsSpec: { secrets: { ACME_TOKEN: opts.secretSchema ?? { type: 'string' } } },
+            }
           : null,
     } as never,
     agentRegistry: {
       getVersion: async () => null,
       listVersions: async () => ({ data: versions.rows }),
     } as never,
-    secretsBinding: {
-      get: async ({ scope, name }: { scope: { kind: string }; name: string }) =>
-        secrets.includes(keyOf(scope, name))
-          ? { scope, envName: 'prod', name, currentVersion: 1 }
-          : null,
-    } as never,
+    secretsBinding: secretsBinding as never,
     environmentOrders: environmentOrders(opts.orders ?? [ORDER]),
     ...(live !== undefined && { agentReleases: live.releases }),
     ...(items !== undefined && { itemProjects: items }),
@@ -448,6 +490,21 @@ function harness(
       call(`/v1/deployments/${id}/promotions`, { toProjectId, makeLive: true }, token),
     check: (id: string, toProjectId: ProjectId) =>
       call(`/v1/deployments/${id}/promotions/check`, { toProjectId }),
+    // What `kindgi deploy --sync-secrets` asks of a deployment once it lands.
+    sync: (id: string, value: string) =>
+      call(
+        `/v1/deployments/${id}/secrets`,
+        { envName: 'prod', secrets: [{ name: 'ACME_TOKEN', value }] },
+        SECRETS,
+      ),
+    // As a call reads a tool's secret: at the scope recorded for it, and there only.
+    read: (recorded: RecordedSecretScope) =>
+      resolveAtScope(secretsBinding as never, {
+        scope: scopeOfRecorded(tenantId, recorded),
+        envName: 'prod' as EnvName,
+        name: 'ACME_TOKEN',
+        resolveContext: { caller: 'dispatch' },
+      }),
     call,
   };
 }
@@ -509,6 +566,62 @@ describe('a promotion moves the exact build, one environment at a time', () => {
         secretScopes: { ACME_TOKEN: { kind: 'project', projectId: S2 } },
       },
     ]);
+  });
+
+  test("an optional secret set nowhere is recorded at the target project, where the promoted deployment's sync writes", async () => {
+    const optional = { type: ['string', 'null'] };
+    // Without authorization (every scope counts), and as the tenant's admin.
+    for (const grants of [
+      undefined,
+      [`read project:${S1}`, `admin project:${S2}`, `admin tenant:${tenantId}`],
+    ]) {
+      const h = harness({ secrets: [], secretSchema: optional, ...(grants && { grants }) });
+      const res = await h.promote('dep-s1', S2);
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      expect(h.deployments.secretScopes.get(res.body.deployment.deploymentId)).toEqual([
+        {
+          toolId: TOOL.id,
+          version: TOOL.version,
+          secretScopes: { ACME_TOKEN: { kind: 'project', projectId: S2 } },
+        },
+      ]);
+    }
+  });
+
+  test("an optional secret set nowhere, promoted into the Default project: recorded at the tenant, where the promoted deployment's sync writes", async () => {
+    const optional = { type: ['string', 'null'] };
+    // Without authorization (every scope counts), and as the tenant's admin.
+    for (const grants of [
+      undefined,
+      // Reading the Default too: its sync reads the deployment first.
+      [
+        `read project:${S2}`,
+        `read project:${PROD}`,
+        `admin project:${PROD}`,
+        `admin tenant:${tenantId}`,
+      ],
+    ]) {
+      const h = harness({
+        rows: [built({ id: 'dep-s2', projectId: S2 })],
+        secrets: [],
+        secretSchema: optional,
+        ...(grants && { grants }),
+      });
+      const res = await h.promote('dep-s2', PROD);
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      const promoted = res.body.deployment.deploymentId as string;
+      // The Default is stored with no project, so its sync writes the tenant.
+      expect(res.body.deployment.projectId).toBeUndefined();
+      const [tool] = h.deployments.secretScopes.get(promoted) ?? [];
+      expect(tool?.secretScopes).toEqual({ ACME_TOKEN: { kind: 'tenant' } });
+      const synced = await h.sync(promoted, 'acme-token-value');
+      expect(synced.status, JSON.stringify(synced.body)).toBe(200);
+      const read = await h.read(tool?.secretScopes.ACME_TOKEN as RecordedSecretScope);
+      expect(read, JSON.stringify(read)).toMatchObject({
+        kind: 'ok',
+        value: { value: 'acme-token-value' },
+      });
+    }
   });
 
   test('twice, or twice at once: one deployment in the target, answered 200 after the first', async () => {

@@ -72,7 +72,7 @@ import { liveChangeRefusal } from '../item-rights.js';
 import type { Promotion, PromotionStatus } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { limitedCaller } from '../middleware/key-project.js';
-import { secretScopesFor, toolSecretRefs } from '../secret-scope.js';
+import { deploymentSecretScope, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
 import type { AppEnv } from '../types.js';
 import { actorOf, policyFor, promotionResponse, requestPromotion } from './agent-releases.js';
 import { deniedBy, refused } from './denied.js';
@@ -890,7 +890,10 @@ async function signerRefusal(
 /**
  * Where each secret of each tool version the build ships is read in the
  * target, decided now as the promoter may read them: a deploy's own rule
- * (`secretScopesFor`), at the target project.
+ * (`secretScopesFor`), at the target project. One set nowhere yet is read
+ * where the promoted deployment's secrets sync writes
+ * (`deploymentSecretScope`): the target project, or the tenant for the
+ * Default project, which stores no `projectId`.
  */
 async function targetSecretScopes(
   c: Context<AppEnv>,
@@ -913,6 +916,7 @@ async function targetSecretScopes(
       { secrets: bindings.secretsBinding, projects: bindings.projectBinding, authorizer },
       { kind: 'project', tenantId, projectId: plan.toProjectId },
       toolSecretRefs(tool, bindings.envName),
+      deploymentSecretScope(tenantId, plan.storedProjectId),
     );
     if (secretScopes !== undefined) out.push({ toolId: id, version, secretScopes });
   }
