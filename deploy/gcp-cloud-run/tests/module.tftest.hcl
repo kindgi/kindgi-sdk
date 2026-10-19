@@ -507,6 +507,16 @@ run "backup_location_refuses_a_zone" {
   expect_failures = [var.database_backup_location]
 }
 
+run "backup_location_refuses_another_multi_region_name" {
+  command = plan
+
+  variables {
+    database_backup_location = "europe"
+  }
+
+  expect_failures = [var.database_backup_location]
+}
+
 run "backup_location_refuses_a_bucket_like_name" {
   command = plan
 

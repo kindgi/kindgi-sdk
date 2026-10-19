@@ -253,7 +253,7 @@ variable "database_backup_location" {
   type        = string
   default     = null
   validation {
-    condition     = var.database_backup_location == null ? true : can(regex("^[a-z]+(-[a-z]+[0-9]+)?$", var.database_backup_location))
+    condition     = var.database_backup_location == null ? true : can(regex("^(us|eu|asia|[a-z]+-[a-z]+[0-9]+)$", var.database_backup_location))
     error_message = "database_backup_location is a region (northamerica-northeast2) or a multi-region (us, eu, asia), not a zone."
   }
 }
