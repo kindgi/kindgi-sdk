@@ -274,6 +274,7 @@ export type {
   JudgingQueueListInput,
   JudgingQueuePage,
   JudgingQueueState,
+  JudgingRecentQueued,
   JudgingRule,
   JudgingRulePage,
   JudgingRulePatch,

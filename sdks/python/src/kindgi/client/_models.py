@@ -8167,7 +8167,7 @@ class JudgingRecentQueued(BaseModel):
     """
     already_queued: Annotated[int, Field(alias="alreadyQueued", ge=0)]
     """
-    Matching recent runs this rule had already queued (deduped per `(rule, run)`).
+    Matching recent runs this rule had already queued and that are still open (deduped per `(rule, run)`).
     """
     already_reviewed: Annotated[int, Field(alias="alreadyReviewed", ge=0)]
     """

@@ -192,7 +192,7 @@ export interface JudgingRulePreview {
 export interface JudgingRecentQueued {
   /** Matching recent runs this call newly added to the queue. */
   readonly queued: number;
-  /** Matching recent runs this rule had already queued (deduped per `(rule, run)`). */
+  /** Matching recent runs this rule had already queued and that are still open (deduped per `(rule, run)`). */
   readonly alreadyQueued: number;
   /**
    * Matching recent runs whose run was already judged or dismissed: left as
