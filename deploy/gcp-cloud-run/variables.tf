@@ -249,12 +249,12 @@ variable "database_backup_retention" {
 }
 
 variable "database_backup_location" {
-  description = "Where Cloud SQL stores the backups: a multi-region (us, eu, asia) or a region. Empty (the default): Cloud SQL's own choice, the multi-region nearest the instance. Set it when where backups are kept is a promise you make (us for an instance in us-central1, say)."
+  description = "Where Cloud SQL stores the backups: a multi-region (us, eu, asia) or a region (northamerica-northeast2, say). Null (the default): Cloud SQL's own choice, the multi-region nearest the instance, which can be in another region and country than the instance. Set it when where backups are kept is a promise you make. Point-in-time recovery's transaction logs stay in the instance's own location whatever it says. Setting it on a running deployment changes the instance in place, and the backups taken before stay where they were."
   type        = string
-  default     = ""
+  default     = null
   validation {
-    condition     = can(regex("^([a-z]+(-[a-z0-9]+)*)?$", var.database_backup_location))
-    error_message = "database_backup_location is a location name such as us or us-central1."
+    condition     = var.database_backup_location == null ? true : can(regex("^[a-z]+(-[a-z]+[0-9]+)?$", var.database_backup_location))
+    error_message = "database_backup_location is a region (northamerica-northeast2) or a multi-region (us, eu, asia), not a zone."
   }
 }
 

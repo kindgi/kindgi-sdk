@@ -437,6 +437,10 @@ run "backups_keep_cloud_sqls_defaults" {
     condition     = length(google_sql_database_instance.kindgi.settings[0].backup_configuration[0].backup_retention_settings) == 0
     error_message = "Without database_backup_retention, the module sets no retention: Cloud SQL's default (7) stays."
   }
+  assert {
+    condition     = google_sql_database_instance.kindgi.settings[0].backup_configuration[0].location == null
+    error_message = "Without database_backup_location, the module sets no location: Cloud SQL's choice stays."
+  }
 }
 
 run "backups_kept_where_and_as_long_as_asked" {
@@ -478,6 +482,29 @@ run "backup_retention_refuses_none_or_a_fraction" {
   }
 
   expect_failures = [var.database_backup_retention]
+}
+
+run "backup_location_takes_a_region" {
+  command = plan
+
+  variables {
+    database_backup_location = "northamerica-northeast2"
+  }
+
+  assert {
+    condition     = google_sql_database_instance.kindgi.settings[0].backup_configuration[0].location == "northamerica-northeast2"
+    error_message = "A region reaches the backups' location."
+  }
+}
+
+run "backup_location_refuses_a_zone" {
+  command = plan
+
+  variables {
+    database_backup_location = "us-central1-a"
+  }
+
+  expect_failures = [var.database_backup_location]
 }
 
 run "backup_location_refuses_a_bucket_like_name" {

@@ -52,7 +52,7 @@ resource "google_sql_database_instance" "kindgi" {
       enabled                        = true
       point_in_time_recovery_enabled = true
       # Unset unless a variable says otherwise: Cloud SQL's own defaults.
-      location                       = var.database_backup_location == "" ? null : var.database_backup_location
+      location                       = var.database_backup_location
       transaction_log_retention_days = var.database_point_in_time_days
 
       dynamic "backup_retention_settings" {
