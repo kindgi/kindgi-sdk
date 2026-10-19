@@ -24,7 +24,12 @@ import type { EnvRunners } from './env/runners.js';
 import { formatThrown } from './errors.js';
 import type { ExportsSeam } from './exports/create.js';
 import type { FeedbackSeam } from './feedback/run.js';
-import { commandHelpText, rootHelpText, unknownSubcommandText } from './help.js';
+import {
+  commandHelpText,
+  rootHelpText,
+  unknownCommandText,
+  unknownSubcommandText,
+} from './help.js';
 import type { KeyRunners } from './key/runners.js';
 import type { LicenseCommandDeps } from './license/renew.js';
 import type { OpenUrl } from './open-url.js';
@@ -179,7 +184,7 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
   if (found === null) {
     return {
       stdout: '',
-      stderr: `Unknown command: ${argv.join(' ')}\n\n${rootHelpText()}`,
+      stderr: unknownCommandText(argv),
       exitCode: 2,
     };
   }
