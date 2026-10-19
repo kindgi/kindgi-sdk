@@ -3,7 +3,7 @@
 A Terraform root module that runs Kindgi in one GCP project:
 - the runtime (the API, agent and flow execution) as a Cloud Run service;
 - your pack's code as a second, IAM-protected Cloud Run service;
-- Kindgi's own Cloud SQL (Postgres 16) instance;
+- Kindgi's own Cloud SQL (Postgres 16) instance (unless `database_host_instance` points at an existing one);
 - everything they stand on: service accounts, an Artifact Registry repository, a KMS key for the runtime's secrets (unless `secrets_backend = "none"`, below), and Secret Manager containers.
 
 **Three network shapes** (`network_mode`):
@@ -16,7 +16,7 @@ A Terraform root module that runs Kindgi in one GCP project:
 | Database | public IP (`/cloudsql`) or private IP | public IP (`/cloudsql`) or private IP | public IP (`/cloudsql`) only |
 | Example values | `example.tfvars` | `example-connector.tfvars` | `example-dev.tfvars` |
 
-In both shapes only the runtime's service account may invoke the pack service. The runtime sends a Google ID token (`KINDGI_PACK_SERVICE_AUTH=google-id-token`), so a public URL on the pack service is still closed to everyone else.
+In every shape only the runtime's service account may invoke the pack service. The runtime sends a Google ID token (`KINDGI_PACK_SERVICE_AUTH=google-id-token`), so a public URL on the pack service is still closed to everyone else.
 
 The `direct` shape was deployed end to end on 2026-10-04, with runtime 0.1.1:
 - the runtime reached the internal pack service with its ID token;
@@ -30,8 +30,8 @@ The `connector` shape is the same resources wired to an existing connector.
 For a dev environment next to an app, with no project of its own: `network_mode = "none"` (no VPC), the pack service sleeping to zero (`pack_min_instances = 0`), and Kindgi's database on the app's existing Cloud SQL instance (`database_host_instance`). `example-dev.tfvars` is a starting point. Not for production.
 
 - **No VPC.** Both services reach the internet through Cloud Run's own egress; the pack service takes all ingress, closed by IAM to the server's account (`pack_ingress = "INGRESS_TRAFFIC_ALL"`). There is no static egress IP, and the pack's tools reach only public addresses and the instances in `pack_cloud_sql_instances` — not a private-IP database.
-- **A shared database instance.** With `database_host_instance` set, the module makes no instance of its own: it creates Kindgi's `database_name` database on the named instance, and the operator creates Kindgi's user on that instance (step 3, run against the host). The instance must have a public IP and run **Postgres 16 or later** — before 16 a `CREATEROLE` user, which Kindgi's needs, could take any other role, so the two databases wouldn't be walled off. Run **one Kindgi deployment per host instance** (Kindgi's role and `PUBLIC` connect are instance-wide). The app's instance admins can reset Kindgi's database password; only secrets you store through Kindgi's API stay sealed under its key. Backups, point-in-time recovery and deletion protection are the app instance's, not Kindgi's; `database_deletion_protection` instead keeps Kindgi's database object from a Terraform-side drop (`ABANDON`). Choose a host or the module's own instance **at the first apply** — moving later is a dump and restore.
-- **The pack service at zero.** `pack_min_instances = 0` lets the pack service sleep when idle; the first tool call after idle waits for it to start (its startup budget is `pack_timeout`). The server keeps its default of one always-on instance.
+- **A shared database instance.** With `database_host_instance` set, the module makes no instance of its own: it creates Kindgi's `database_name` database on the named instance, and the operator creates Kindgi's user on that instance (step 3, run against the host). The instance must have a public IP and run **Postgres 16 or later** — before 16 a `CREATEROLE` user, which Kindgi's needs, could take any other role, so the two databases wouldn't be walled off. Run **one Kindgi deployment per host instance** (Kindgi's role and `PUBLIC` connect are instance-wide). The server's account gets `roles/cloudsql.client` on the app's instance, scoped to it by an IAM condition. The app's instance admins can reset Kindgi's database password; only secrets you store through Kindgi's API stay sealed under its key. Backups, point-in-time recovery and deletion protection are the app instance's, not Kindgi's; `database_deletion_protection` instead keeps Kindgi's database object from a Terraform-side drop (`ABANDON`). Choose a host or the module's own instance **at the first apply** — moving later is a dump and restore.
+- **The pack service at zero.** `pack_min_instances = 0` lets the pack service sleep when idle; the first tool call after idle waits for it to start, up to about two minutes (its startup probe). The server allows `pack_call_timeout_ms` for a single tool call (default 120 s, `KINDGI_PACK_CALL_TIMEOUT_MS`); raise it if cold starts run near that. The server keeps its default of one always-on instance.
 
 ## Before you start
 
@@ -99,6 +99,8 @@ With `tenancy = "multi"` (see "Many tenants") there's no `pack_image` and no pac
 ## 3. Secret values
 
 Each value is piped straight into Secret Manager. None goes on disk, into Terraform's state or into a command's arguments, which other processes can read and gcloud writes to its log file. `N` is your `name_prefix`. The commands are for bash or zsh.
+
+With `database_host_instance` set there is no `$N` instance of the module's own: in the `instances/…/users` path below, use the host instance's name in place of `$N` (the `$N-…` secret names stay as they are).
 
 ```sh
 CONN=$(terraform output -raw sql_connection_name)
@@ -377,6 +379,7 @@ With `database_host_instance` set there is no instance of the module's own, so a
    - **The plan refuses:**
      - private-IP mode;
      - the module's own instance or its `$N-database-url`;
+     - the host instance itself (`database_host_instance`), where Kindgi's database lives — serve from a clone of it;
      - an instance without a public IP;
      - a connection name for `name`, or a path for `url_secret`.
 6. **The module's own instance stays,** with its deletion protection. The `sql_connection_name` output still names it. Writes made since the restore point are on it alone. (With `database_host_instance` set there is no instance of the module's own: going back points the server at the host instance again, and `sql_connection_name` names the host.)

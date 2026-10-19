@@ -23,8 +23,9 @@ vertex_ai = true
 
 # Kindgi's database and user on the app's existing Cloud SQL instance; the
 # module makes no instance of its own. The instance has a public IP and runs
-# Postgres 16 or later. The operator creates Kindgi's user and database on it
-# and fills <name_prefix>-database-url with the URL (README, step 3).
+# Postgres 16 or later. The module creates Kindgi's database on it; the
+# operator creates Kindgi's user and fills <name_prefix>-database-url with the
+# URL (README, step 3).
 database_host_instance = "acme-app-dev-db"
 
 server_cpu    = "1"

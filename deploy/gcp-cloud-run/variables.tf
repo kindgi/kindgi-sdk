@@ -74,7 +74,7 @@ variable "server_max_instances" {
 }
 
 variable "nat_static_ip" {
-  description = "Reserve a static egress address for Cloud NAT, for allowlists on the other side (the app's webhook receiver, an outbound firewall). false: Google picks and may change it."
+  description = "Reserve a static egress address for Cloud NAT, for allowlists on the other side (the app's webhook receiver, an outbound firewall). false: Google picks and may change it. Applies in network_mode = \"direct\", the only mode with a Cloud NAT; no effect in \"connector\", refused in \"none\"."
   type        = bool
   default     = false
 }
@@ -269,7 +269,7 @@ variable "database_instance" {
 variable "database_host_instance" {
   description = <<-EOT
     Null: the module makes its own Cloud SQL instance (the default).
-    Set, Kindgi's database and user live on this existing Cloud SQL instance in this project instead, and the module makes no instance of its own. The name is an instance with a public IP, reached through the /cloudsql volume. The operator makes Kindgi's user and database on it (README, step 3) and fills <prefix>-database-url with the URL, postgres://<user>:<password>@/<db>?host=/cloudsql/<connection name>.
+    Set, Kindgi's database and user live on this existing Cloud SQL instance in this project instead, and the module makes no instance of its own. The name is an instance with a public IP, reached through the /cloudsql volume. The module makes Kindgi's database on it; the operator makes Kindgi's user (README, step 3) and fills <prefix>-database-url with the URL, postgres://<user>:<password>@/<db>?host=/cloudsql/<connection name>.
     The instance runs Postgres 16 or later, a role-isolation rule the module checks: before 16, CREATEROLE — which Kindgi's user needs — could grant itself any other user's role. Run one Kindgi deployment per host instance (Kindgi's role and PUBLIC connect are instance-wide), and expect Kindgi to share the instance's CPU, memory, connections and backups with the app. Choose a host or the module's own at the first apply: moving an existing deployment on or off a host instance is a dump and restore, not an in-place change. Public-IP mode only (database_private_network empty).
   EOT
   type        = string

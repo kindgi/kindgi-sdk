@@ -572,8 +572,8 @@ resource "google_cloud_run_v2_service" "server" {
       error_message = "network_mode = \"none\" creates no VPC: a private-IP database (database_private_network) needs \"direct\" or \"connector\"."
     }
     precondition {
-      condition     = var.network_mode == "direct" || !var.nat_static_ip
-      error_message = "nat_static_ip is a Cloud NAT address, which only network_mode = \"direct\" creates."
+      condition     = var.network_mode != "none" || !var.nat_static_ip
+      error_message = "network_mode = \"none\" creates no Cloud NAT, so nat_static_ip has nothing to reserve; it applies in \"direct\" and is ignored in \"connector\"."
     }
     precondition {
       condition     = !(var.server_public && var.server_invoker_iam_disabled)

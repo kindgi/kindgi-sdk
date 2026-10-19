@@ -11,7 +11,8 @@ mock_provider "google" {
       number = "123456789012"
     }
   }
-  # database_instance's instance: one a restore made, with a public IP.
+  # Stands in for a restore instance (database_instance) and a host instance
+  # (database_host_instance): a public IP, Postgres 16.
   mock_data "google_sql_database_instance" {
     defaults = {
       connection_name  = "acme-app-dev:northamerica-northeast2:kindgi-dev-restored"
@@ -991,6 +992,14 @@ run "host_puts_kindgis_database_on_the_app_instance" {
   variables {
     database_host_instance = "acme-app-db"
   }
+  override_data {
+    target = data.google_sql_database_instance.host
+    values = {
+      connection_name  = "acme-app-dev:northamerica-northeast2:acme-app-db"
+      database_version = "POSTGRES_16"
+      settings         = [{ ip_configuration = [{ ipv4_enabled = true }] }]
+    }
+  }
 
   assert {
     condition     = length(google_sql_database_instance.kindgi) == 0 && length(data.google_sql_database_instance.host) == 1
@@ -1005,8 +1014,12 @@ run "host_puts_kindgis_database_on_the_app_instance" {
     error_message = "On a host, with deletion protection on, the database object is abandoned, not dropped."
   }
   assert {
-    condition     = google_cloud_run_v2_service.server.template[0].volumes[0].cloud_sql_instance[0].instances == toset(["acme-app-dev:northamerica-northeast2:kindgi-dev-restored"])
+    condition     = google_cloud_run_v2_service.server.template[0].volumes[0].cloud_sql_instance[0].instances == toset(["acme-app-dev:northamerica-northeast2:acme-app-db"])
     error_message = "The /cloudsql volume names the host instance's connection name."
+  }
+  assert {
+    condition     = output.sql_connection_name == "acme-app-dev:northamerica-northeast2:acme-app-db"
+    error_message = "sql_connection_name is the host instance's connection name."
   }
   assert {
     condition     = google_project_iam_member.server_sql_client[0].condition[0].expression == "resource.name == \"projects/acme-app-dev/instances/acme-app-db\""
@@ -1148,4 +1161,18 @@ run "none_refuses_a_static_nat_ip" {
     nat_static_ip = true
   }
   expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "connector_plans_with_a_static_nat_ip" {
+  command = plan
+  variables {
+    network_mode  = "connector"
+    vpc_connector = "projects/acme-app-dev/locations/northamerica-northeast2/connectors/acme"
+    pack_ingress  = "INGRESS_TRAFFIC_ALL"
+    nat_static_ip = true
+  }
+  assert {
+    condition     = length(google_compute_address.nat) == 0
+    error_message = "connector mode creates no Cloud NAT, so nat_static_ip reserves nothing and the plan does not refuse it."
+  }
 }
