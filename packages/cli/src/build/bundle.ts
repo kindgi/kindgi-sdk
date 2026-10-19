@@ -109,12 +109,13 @@ const SKIP = Symbol('kindgi-externals-resolving');
  * Which packages are external doesn't depend on `importBy`: a dev bundle
  * and an image's leave out the same ones. `onExternal` (optional) is told
  * each external import: the package's name (`@scope/name` of
- * `@scope/name/sub`), and the absolute path of the file importing it.
+ * `@scope/name/sub`), the absolute path of the file importing it, and
+ * the specifier as written (`@scope/name/sub`).
  */
 export function nodeModulesExternalPlugin(
   options: {
     readonly importBy?: 'resolved' | 'bare';
-    readonly onExternal?: (name: string, importer: string) => void;
+    readonly onExternal?: (name: string, importer: string, specifier: string) => void;
   } = {},
 ): Plugin {
   const importBy = options.importBy ?? 'resolved';
@@ -132,7 +133,7 @@ export function nodeModulesExternalPlugin(
         });
         if (resolved.errors.length > 0 || resolved.external) return undefined;
         if (/[\\/]node_modules[\\/]/.test(resolved.path)) {
-          onExternal?.(packageName(args.path), args.importer);
+          onExternal?.(packageName(args.path), args.importer, args.path);
           const path = importBy === 'bare' ? args.path : resolvedSpecifier(resolved.path, args.kind);
           return { path, external: true };
         }
