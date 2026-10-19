@@ -580,25 +580,28 @@ function otherSortRefusal(
 
 /**
  * Where the next page starts, as a wire cursor: the binding's exact
- * position when it gives one (to the microsecond); else the last row's,
- * as a binding before it answers.
+ * position (to the microsecond). A page sorted by last activity always
+ * gives it when it has more: one that doesn't is the binding's fault, a
+ * `500` the error mapper logs, never a cursor from the last row's
+ * `lastActivityAt`, whose milliseconds would skip the rows after it in the
+ * same millisecond. A page sorted by opening falls back to the last row's
+ * position, as a binding from before `next` answers.
  */
 function nextPageCursor(page: ConversationPage, byActivity: boolean): string | undefined {
-  const last = page.data[page.data.length - 1];
   if (byActivity) {
-    const position =
-      page.nextByActivity ??
-      (last?.lastActivityAt !== undefined
-        ? { lastActivityAt: last.lastActivityAt as unknown as string, id: last.id }
-        : undefined);
-    return position === undefined
-      ? undefined
-      : encodeCursor({
-          createdAt: position.lastActivityAt,
-          id: position.id as unknown as string,
-          order: LAST_ACTIVITY,
-        });
+    const position = page.nextByActivity;
+    if (position === undefined) {
+      throw new Error(
+        'the conversations page, sorted by last activity, has more but no `nextByActivity`',
+      );
+    }
+    return encodeCursor({
+      createdAt: position.lastActivityAt,
+      id: position.id as unknown as string,
+      order: LAST_ACTIVITY,
+    });
   }
+  const last = page.data[page.data.length - 1];
   const position =
     page.next ?? (last !== undefined ? { openedAt: last.openedAt, id: last.id } : undefined);
   return position === undefined

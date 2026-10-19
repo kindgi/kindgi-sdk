@@ -183,8 +183,10 @@ export interface ConversationPage {
   readonly next?: ConversationPageCursor;
   /**
    * Where the next page starts, from a binding that sorts by last
-   * activity: the last row's `lastActivityAt` as stored, and `id`. Set
-   * when `hasMore`.
+   * activity: the last row's `lastActivityAt` as stored, and `id`. Always
+   * set when `hasMore` on such a page: the HTTP API answers `500` for a
+   * page that has more without it, since no cursor it could make from the
+   * rows keeps the microseconds.
    */
   readonly nextByActivity?: ConversationActivityCursor;
 }

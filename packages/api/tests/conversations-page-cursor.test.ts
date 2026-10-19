@@ -9,8 +9,10 @@
  * alone skipped the conversations opened earlier in the same millisecond.
  *
  * From a binding that sorts by last activity (its page's `order`), the
- * cursor is the row's `lastActivityAt` and says so, and one from the other
- * sort (handed out before an upgrade, or after a downgrade) is refused.
+ * cursor is the binding's position (`nextByActivity`) and says so, a page
+ * with more but no position is the binding's fault (a 500), and a cursor
+ * from the other sort (handed out before an upgrade, or after a downgrade)
+ * is refused.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -18,6 +20,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import type { ConversationBinding, ConversationId, ConversationPage } from '@kindgi/agents';
+import { type Logger, createLogger } from '@kindgi/log';
 import type { TenantId } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -43,6 +46,7 @@ const conversation = {
 function harness(
   page: Omit<ConversationPage, 'data'>,
   row: Record<string, unknown> = conversation,
+  logger?: Logger,
 ) {
   const seen: unknown[] = [];
   const stubs = createStubAppBindings();
@@ -58,6 +62,7 @@ function harness(
     conversationBinding,
     resolveToken,
     runHandler: {} as RunHandlerBinding,
+    ...(logger !== undefined && { logger }),
   });
   return async (query = '') => {
     const res = await app.request(`/v1/conversations?limit=1${query}`, {
@@ -143,13 +148,24 @@ describe('GET /v1/conversations sorted by last activity', () => {
     });
   });
 
-  test("the last row's lastActivityAt from a binding without `nextByActivity`", async () => {
-    const { body } = await harness({ ...byActivity, hasMore: true }, active)();
-    expect(decodeCursor(body.nextCursor)).toEqual({
-      createdAt: active.lastActivityAt,
-      id: conversation.id,
-      order: 'last-activity',
-    });
+  test('a page with more but no `nextByActivity`: 500, logged, no cursor from the row', async () => {
+    const lines: string[] = [];
+    const logger = createLogger({ write: (line) => lines.push(line) });
+    const { status, body } = await harness({ ...byActivity, hasMore: true }, active, logger)();
+    expect(status).toBe(500);
+    expect(body.error.code).toBe('internal-server-error');
+    expect(body).not.toHaveProperty('nextCursor');
+    const logged = lines
+      .map((line) => JSON.parse(line) as { message?: string; requestId?: string })
+      .find((r) => r.message === 'unhandled error' && r.requestId === body.error.requestId);
+    expect(logged).toBeDefined();
+    expect(lines.join('\n')).toContain('has more but no `nextByActivity`');
+  });
+
+  test('the last page needs no `nextByActivity`', async () => {
+    const { status, body } = await harness({ ...byActivity, hasMore: false }, active)();
+    expect(status).toBe(200);
+    expect(body).not.toHaveProperty('nextCursor');
   });
 
   test('a cursor of this sort reaches the binding as `beforeActivity`, as given', async () => {

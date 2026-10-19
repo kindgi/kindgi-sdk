@@ -10,7 +10,7 @@
 - **A cursor from the other sort is refused** with `400 bad-input` and a message that says to start again without it: one handed out before the runtime sorted by last activity, or one from a runtime that does, given to one that doesn't.
 - **An older runtime keeps sorting by opening** and answers no `lastActivityAt`.
 - **`@kindgi/agents`:**
-  - **`Conversation.lastActivityAt` and the `last_activity_at` column.** The column is nullable and isn't backfilled: a conversation nothing has touched since reads as its last message, else its opening.
+  - **`Conversation.lastActivityAt` and the `last_activity_at` column.** The column is nullable and isn't backfilled: a conversation nothing has happened in since the upgrade reads as its last message, else its opening.
   - **A binding that sorts by last activity says so** with its page's `order: 'last-activity'`, pages by `beforeActivity` / `nextByActivity` (`ConversationActivityCursor`), and ignores `before`.
   - **The rule is exported** as `lastActivityAt(conversation)`: `inactiveSince`, or later, by its approvals (`approvals.lastOpenedAt`, `lastDecidedAt`) and its close.
 - **`@kindgi/client`, the Python client and the CLI:** `Conversation.lastActivityAt`, and `kindgi conversations list` says "most recently active first".
