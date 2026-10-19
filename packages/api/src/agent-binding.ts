@@ -121,10 +121,19 @@ export type AgentVersionRecord = Agent & {
   readonly unregisteredAt?: string;
   /**
    * The agent's project, when the store records it: agents never move
-   * between projects, so every version reads the same one (a derived
-   * version is published there).
+   * between projects, so every version reads the same one. In a tenant
+   * with environment orders, a version may be made in another project of
+   * that project's order (`madeInProjectId`).
    */
   readonly projectId?: ProjectId;
+  /**
+   * The project this version was made in (deployed, published or derived
+   * there), when the store records it. The same as `projectId`, except in
+   * a tenant with environment orders, where a version is made in the
+   * order's first environment and reaches the later ones only with a
+   * promoted build.
+   */
+  readonly madeInProjectId?: ProjectId;
 };
 
 export interface AgentListInput {

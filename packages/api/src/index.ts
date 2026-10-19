@@ -17,7 +17,7 @@ export {
   MULTI_TENANT_LOOKUP,
 } from './middleware/auth.js';
 export type { SessionCookieOptions, TokenResolution, TokenResolver } from './middleware/auth.js';
-export type { SignInOptionsRateLimit } from './routes/sign-in-options.js';
+export type { SignInLegalLinks, SignInOptionsRateLimit } from './routes/sign-in-options.js';
 export type {
   LicensePreview,
   LicenseStatus,
@@ -26,6 +26,7 @@ export type {
 } from './routes/license.js';
 export { WRITE_AUDIT_KINDS } from './routes/write-audit.js';
 export type { ProductionGateOptions } from './routes/project-production.js';
+export type { EgressAddresses } from './routes/tenant.js';
 export { USAGE_CLASSES, USAGE_KINDS, type UsageClass, type UsageKind } from './usage.js';
 export type { WriteAuditKind } from './routes/write-audit.js';
 export {
@@ -66,22 +67,37 @@ export {
   type TenantLimitsInUse,
 } from './routes/system-tenant-settings.js';
 export { systemKeysMintedFrom } from './routes/system-keys.js';
-export {
-  PACK_ENDPOINT_AUTHS,
-  SYSTEM_DEPLOYMENT_RETIRE_REASONS,
-} from './routes/system-deployments.js';
+export { PACK_ENDPOINT_AUTHS } from './routes/system-deployments.js';
 export type {
   DeploymentRef,
   PackEndpointAuth,
+  PackEnvRecordInput,
   SetPackEndpointInput,
   SetPackEndpointOutcome,
   SystemDeploymentEntry,
   SystemDeploymentPage,
-  SystemDeploymentRetireReason,
   SystemDeploymentsBinding,
   SystemDeploymentsOptions,
   SystemDeploymentToRetire,
+  SystemPackEnvOptions,
+  SystemPackEnvServed,
 } from './routes/system-deployments.js';
+export {
+  PACK_ENV_HELD_CODES,
+  PACK_ENV_PROBLEM_CODES,
+  PACK_ENV_RETRY_MS,
+  packEnvCheck,
+} from './pack-env.js';
+export type {
+  PackEnvCheck,
+  PackEnvCheckInput,
+  PackEnvDeclaration,
+  PackEnvDeps,
+  PackEnvHeldCode,
+  PackEnvNameStatus,
+  PackEnvProblemCode,
+  PackEnvScopeRef,
+} from './pack-env.js';
 export { tenantStateGate } from './middleware/tenant-state.js';
 export type { TenantStateBinding } from './middleware/tenant-state.js';
 export { systemTenantsRouter, systemWhoamiRouter } from './routes/system-tenants.js';
@@ -130,6 +146,39 @@ export type {
   SignInOptionsInput,
 } from './identity-provider-binding.js';
 export type {
+  Site,
+  SiteBinding,
+  SiteChangeOutcome,
+  SiteEnrollInput,
+  SiteEnrollOutcome,
+  SiteEnrollmentCode,
+  SiteEnrollmentCodeOutcome,
+  SiteGetInput,
+  SiteInvalid,
+  SiteKey,
+  SiteListInput,
+  SitePage,
+  SiteRegisterInput,
+  SiteRegisterOutcome,
+  SiteRevokeKeyInput,
+  SiteRole,
+  SiteRoleGrant,
+  SiteSetPausedInput,
+  SiteSignInInput,
+  SiteSignInOutcome,
+  SiteSignInRefusal,
+  SiteUpdateInput,
+} from './site-binding.js';
+export {
+  SITE_DEFAULTS,
+  applySiteChange,
+  checkSiteSettings,
+  hasHiddenCharacters,
+  siteOrigin,
+  withoutHiddenCharacters,
+} from './routes/sites.js';
+export { SITE_REQUEST_MAX_BYTES, publicEd25519Key } from './routes/site-auth.js';
+export type {
   Session,
   SessionCreateInput,
   SessionCreateOutput,
@@ -142,6 +191,7 @@ export type {
   SessionRevokeAllForUserOutcome,
   SessionRevokeInput,
   SessionRevokeOutcome,
+  SessionSecondFactor,
   SessionStoreBinding,
   SessionTouchInput,
   SessionTouchOutcome,
@@ -154,14 +204,19 @@ export type {
   IdentityGetUserInput,
   IdentityListSessionsInput,
   IdentityListUsersInput,
+  IdentityResendInviteInput,
+  IdentityResendInviteResult,
   IdentityRevokeSessionsInput,
   IdentityUnregisterUserInput,
   IdentityUnregisterUserRefusal,
   IdentityUnregisterUserResult,
+  InviteEmail,
+  InviteEmailUnsent,
   RevokeSessionsResult,
   SessionSummary,
   SessionSummaryPage,
   UserCollectionPage,
+  UserInvite,
   UserRecord,
 } from './identity-directory-binding.js';
 export {
@@ -239,6 +294,18 @@ export type {
   PersonRef,
 } from './person-grants-binding.js';
 export type { PersonCapabilitiesBinding } from './person-capabilities-binding.js';
+export type {
+  SecondFactorBinding,
+  SecondFactorConfirmOutcome,
+  SecondFactorProof,
+  SecondFactorRecoveryCodesOutcome,
+  SecondFactorRef,
+  SecondFactorRefusal,
+  SecondFactorRemoveOutcome,
+  SecondFactorSettings,
+  SecondFactorStartOutcome,
+  SecondFactorStatus,
+} from './second-factor-binding.js';
 export type {
   AccessPrincipal,
   ProjectAccessBinding,
@@ -453,6 +520,29 @@ export type {
   ProviderUnregisterInput,
   ProviderUnregisterOutcome,
 } from './provider-binding.js';
+export { deploymentValues } from './deployment-values.js';
+export type {
+  DeploymentValue,
+  DeploymentValueProblem,
+  DeploymentValueScope,
+  DeploymentValuesDeps,
+  DeploymentValuesInput,
+  ModelKeyLocation,
+  ModelKeyLookup,
+} from './deployment-values.js';
+export { carriedVersions } from './carried-versions.js';
+export type {
+  CarriedVersion,
+  CarriedVersions,
+  CarriedVersionsDeps,
+  CarriedVersionsInput,
+  LeftBehindVersion,
+} from './carried-versions.js';
+export {
+  carriedFor,
+  servingProjectOf,
+  valuesDepsFor,
+} from './routes/deployment-promotions.js';
 export {
   isCredentialHeaderName,
   MCP_AUTH_HEADERS_MAX,
@@ -747,6 +837,7 @@ export { sealedCursors } from './middleware/sealed-cursors.js';
 export type {
   ToolGetInput,
   ToolGetVersionInput,
+  ToolKindMismatch,
   ToolListInput,
   ToolListVersionsInput,
   ToolPage,
@@ -891,7 +982,10 @@ export {
   hostNamesPackService,
   packServiceName,
 } from './pack-service-name.js';
-export { DEPLOYMENT_ENDPOINT_PROBLEM_CODES } from './deployment-binding.js';
+export {
+  DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
+  SYSTEM_DEPLOYMENT_RETIRE_REASONS,
+} from './deployment-binding.js';
 export type {
   Deployment,
   DeploymentBinding,
@@ -909,8 +1003,12 @@ export type {
   DeploymentEndpointProblemCode,
   DeploymentEndpointStatus,
   DeploymentPrimitiveCounts,
+  DeploymentPromoteInput,
+  DeploymentPromoteOutcome,
   DeploymentRegisterInput,
   DeploymentRegisterOutcome,
+  PromotedToolSecretScopes,
+  SystemDeploymentRetireReason,
 } from './deployment-binding.js';
 export type {
   ImageBlobDescriptor,
@@ -922,6 +1020,7 @@ export type {
   ImagePlatform,
   ImagePushInput,
   ImagePushOutcome,
+  ImageReadLimit,
   ImageRegistryBinding,
   ImageRegistryError,
 } from './image-registry-binding.js';
@@ -957,6 +1056,34 @@ export type {
   ResolveContext,
 } from './env-binding.js';
 export type {
+  EnvironmentOrder,
+  EnvironmentOrderBinding,
+  EnvironmentOrderCursor,
+  EnvironmentOrderEntry,
+  EnvironmentOrderGetInput,
+  EnvironmentOrderKey,
+  EnvironmentOrderListInput,
+  EnvironmentOrderListPage,
+  EnvironmentOrderLocation,
+  EnvironmentOrderOfInput,
+  EnvironmentOrderParent,
+  EnvironmentOrderSetInput,
+  EnvironmentOrderSetOutcome,
+  HasEnvironmentOrderInput,
+} from './environment-orders-binding.js';
+export type {
+  ItemProjectsBinding,
+  ItemProjectsInput,
+  ItemProjectsOfManyInput,
+  ItemServedElsewhere,
+  ItemServesIn,
+  NewestVisibleOfManyInput,
+  OrderItemKind,
+  ServesInInput,
+  VersionProjectsInput,
+  VersionProjectsOfManyInput,
+} from './item-projects-binding.js';
+export type {
   SecretBinding,
   SecretError,
   SecretGetInput,
@@ -977,7 +1104,12 @@ export type {
   SecretVersionPage,
   SecretVersionRecord,
 } from './secrets-binding.js';
-export { RESERVED_SECRET_NAME_PREFIX } from './secrets-binding.js';
+export {
+  RESERVED_SECRET_NAME_PREFIX,
+  SECRET_NAME_ALLOWED,
+  SECRET_NAME_MAX_LENGTH,
+  secretNameGrammarRefusal,
+} from './secrets-binding.js';
 export { resolveAtScope, scopeOfRecorded } from './secret-scope.js';
 // A model provider's key is used by its provider only.
 export {
@@ -1053,6 +1185,7 @@ export type { JsonSchema } from './openapi/schemas.js';
 
 export type {
   RetentionBinding,
+  RetentionLimits,
   RetentionPolicyConflict,
   RetentionScheduledInput,
   RetentionScheduledItem,

@@ -20,8 +20,11 @@ afterEach(async () => {
   await rm(cwd, { recursive: true, force: true });
 });
 
-/** `kindgi conversations list` with `flags` against a client that records the call. */
-async function list(flags: readonly string[]) {
+/** `kindgi conversations list` with `flags` against a client that records the call and answers `page`. */
+async function list(
+  flags: readonly string[],
+  page: Record<string, unknown> = { data: [], hasMore: false },
+) {
   const calls: unknown[] = [];
   const out = await runCli({
     argv: ['conversations', 'list', ...flags, '--url=https://x', '--token=t'],
@@ -33,7 +36,7 @@ async function list(flags: readonly string[]) {
         conversations: {
           list: async (filter: unknown) => {
             calls.push(filter);
-            return { data: [], hasMore: false };
+            return page;
           },
         },
       }) as never,
@@ -46,6 +49,26 @@ describe('kindgi conversations list', () => {
     const { out, calls } = await list([]);
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([{}]);
+  });
+
+  test('--opened-by=me: only the conversations you opened; nothing else is taken', async () => {
+    const { out, calls } = await list(['--opened-by=me'], {
+      data: [],
+      hasMore: false,
+      openedBy: 'me',
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([{ openedBy: 'me' }]);
+    expect(JSON.parse(out.stdout)).toEqual({ data: [], hasMore: false, openedBy: 'me' });
+    const refused = await list(['--opened-by=user:u-ada']);
+    expect(refused.out.exitCode).toBe(2);
+  });
+
+  test("--opened-by=me on a runtime that ignores it stops, and doesn't print everyone's", async () => {
+    const { out } = await list(['--opened-by=me'], { data: [{ id: 'c-1' }], hasMore: false });
+    expect(out.exitCode).toBe(1);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toBe('Error: --opened-by needs a runtime on Kindgi 0.1.9 or later.\n');
   });
 
   test('--status, --replays, --limit and --cursor map to one list call', async () => {

@@ -8,11 +8,11 @@ sidebar:
 This page shows how you sign in to the console, and what each message on its
 sign-in page means. Signing in starts with your email. The console then
 offers the ways in that this deployment has for it. Whoever runs the
-deployment chooses which ones ([Turn on sign-in](../../../deploy/sign-in/)).
+deployment chooses which ones ([Turn on sign-in](../../../deploy/self-hosted/sign-in/)).
 
 ## Your email first
 
-Enter your work email and **Continue**. The page then lists, under **Choose
+Enter your email and **Continue**. The page then lists, under **Choose
 how to sign in:**
 
 - **Sign in with** your workspace's own identity provider, first, when your

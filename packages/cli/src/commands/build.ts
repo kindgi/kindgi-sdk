@@ -49,7 +49,6 @@ import {
 } from '../build/host-install.js';
 import {
   BuildServiceRefusal,
-  HOSTED_BUILD,
   describeBuildRefusal,
   hostedBuildEndpoint,
   hostedUploadTooLarge,
@@ -105,12 +104,39 @@ export interface EnvironmentConfig {
   readonly signerKeyId?: string;
   readonly tenantId?: string;
   readonly buildTarget?: string;
+  /**
+   * The project this environment is, by id or slug — what `prod` means in
+   * `kindgi environments set prod …`, `kindgi promote`, and the deploy /
+   * secrets env resolution. Resolved to a project id the way
+   * `kindgi deploy --project` resolves one.
+   */
+  readonly project?: string;
 }
 
 export interface PackConfig {
   readonly pack?: { readonly id?: string; readonly version?: string };
   readonly environments?: Readonly<Record<string, EnvironmentConfig>>;
   readonly [k: string]: unknown;
+}
+
+/**
+ * The project (id or slug) a pack config names for an environment, or
+ * `undefined` when the environment — or its `project` — is unset. One place
+ * decides what "the prod project" is, so `kindgi environments set`,
+ * `kindgi promote` and the deploy / secrets env resolution agree. The caller
+ * resolves the returned id-or-slug to a project id the same way
+ * `kindgi deploy --project` does.
+ */
+export function projectOfEnv(
+  config: { readonly environments?: unknown } | undefined,
+  name: string,
+): string | undefined {
+  const environments = config?.environments;
+  if (environments === null || typeof environments !== 'object') return undefined;
+  const block = (environments as Record<string, unknown>)[name];
+  if (block === null || typeof block !== 'object') return undefined;
+  const project = (block as { readonly project?: unknown }).project;
+  return typeof project === 'string' && project !== '' ? project : undefined;
 }
 
 export const DEFAULT_OUT_DIR = '.kindgi/build';
@@ -121,7 +147,9 @@ export const buildCommand: LeafCommand = {
   description:
     'Bundle + build + sign a pack image. Emits deploy-envelope.json for `kindgi deploy`. ' +
     "`--local` builds the image with this machine's Docker instead: no build service, no signing; " +
-    'with `--push`, it pushes the image, signs it, and writes the envelope.',
+    'with `--push`, it pushes the image, signs it, and writes the envelope. ' +
+    "`--hosted` (or the env block's `build: 'hosted'`) builds on Kindgi hosted's build service, at the API's address under `/cloud`, with your API key; the image goes to your workspace's own repository.",
+  hostedRun: { defaultEnv: 'staging', buildServerOption: 'endpoint' },
   usage:
     'kindgi build [--local [--push [<repository>]] [--platform <os/arch>]] [--hosted [--project <id>]] [--target <t>] [--endpoint <url>] [--env <name>] [--out <dir>] ' +
     '[--artifact-version <v>] [--published-at <iso>] [--tenant <id>] [--signing-key <path>] ' +
@@ -142,11 +170,6 @@ export const buildCommand: LeafCommand = {
       type: 'string',
       description:
         "With `--local`: the image's platform. Default: `linux/amd64` when pushing, else this machine's.",
-    },
-    hosted: {
-      type: 'boolean',
-      description:
-        "Build on Kindgi hosted's build service, at the API's address under `/cloud`, with your API key; the image goes to your workspace's own repository. Same as the env block's `build: 'hosted'`.",
     },
     project: {
       type: 'string',
@@ -1282,14 +1305,13 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       ? targetFlag
       : (envBlock?.buildTarget ?? envName);
 
-  // --hosted, or the env block's `build: 'hosted'`: the hosted build
-  // service at the API's address, which takes the API key.
+  // --hosted, or the env block's `build: 'hosted'` without --endpoint
+  // (main.ts, `hostedRun`): the hosted build service at the API's
+  // address, which takes the API key.
   const endpointFlag = ctx.options.endpoint;
   const explicitEndpoint =
     typeof endpointFlag === 'string' && endpointFlag !== '' ? endpointFlag : undefined;
-  const hosted =
-    ctx.options.hosted === true ||
-    (explicitEndpoint === undefined && envBlock?.build === HOSTED_BUILD);
+  const hosted = ctx.hosted;
   const projectFlag = ctx.options.project;
   const projectId = typeof projectFlag === 'string' && projectFlag !== '' ? projectFlag : undefined;
   const credsFlag = ctx.options['registry-push-creds'];

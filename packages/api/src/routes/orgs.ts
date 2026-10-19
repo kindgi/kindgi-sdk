@@ -11,7 +11,11 @@ import type { Cursor, OrgId, TenantId, UserId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
-import { orgDeleteSlugConflictError, slugConflictError } from './hierarchy-errors.js';
+import {
+  orgDeleteSlugConflictError,
+  orgHasEnvironmentOrderError,
+  slugConflictError,
+} from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
 
 /**
@@ -266,8 +270,13 @@ export function orgsRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const orgId = c.req.param('orgId') as OrgId;
     const outcome = await binding.delete(tenantId, orgId);
-    if (outcome?.kind === 'slug-conflict') {
+    if (outcome.kind === 'slug-conflict') {
       const error = orgDeleteSlugConflictError(outcome.slugs);
+      c.status(statusFor(error.code) as never);
+      return c.json(toWireError(error, requestId));
+    }
+    if (outcome.kind === 'org-has-environment-order') {
+      const error = orgHasEnvironmentOrderError(outcome.orderId);
       c.status(statusFor(error.code) as never);
       return c.json(toWireError(error, requestId));
     }
