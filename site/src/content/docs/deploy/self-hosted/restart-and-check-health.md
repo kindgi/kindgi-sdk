@@ -57,6 +57,13 @@ kindgi-server
 On a stop, the runtime stops taking requests and gives the runs it's
 executing up to 7 seconds to finish. Then it exits with code 0.
 
+A stop that comes while it's still starting, before it serves, such as
+while it waits for its database, ends it within 3 seconds (runtime 0.1.8.2
+or later). Its log says `Stopped while starting (SIGTERM).`, and it exits
+with code 143, as a process that `SIGTERM` ends does. Stopped with Ctrl-C
+in a terminal, it says `(SIGINT)` and exits with code 130. A second Ctrl-C
+changes nothing: the first stop is already under way.
+
 :::caution[Runs in flight]
 A run that was executing when the runtime stopped, and didn't finish in
 time, can be left `running`: nothing resumes it. Cancel it, and start it
@@ -198,8 +205,8 @@ Each repair is a line in its log:
 - **A setting the runtime refuses,** such as a missing license key, or a log
   setting it can't use: it exits with code 2, and its log says what to fix.
 - **A database it can't reach while starting:** it exits with code 1, and
-  its log says which database and why, never the password. Here Postgres
-  wasn't running:
+  its log says which database and why, never the user or the password.
+  Here Postgres wasn't running:
 
   ```sh
   docker inspect --format '{{.State.ExitCode}}' kindgi-server
@@ -210,6 +217,16 @@ Each repair is a line in its log:
   1
   Can't connect to the database at kindgi-db:5432/kindgi: host not found (getaddrinfo ENOTFOUND kindgi-db). Check KINDGI_DATABASE_URL, and that Postgres is up and reachable from here.
   ```
+
+  **With several hosts in `KINDGI_DATABASE_URL`** (runtime 0.1.8.2 or
+  later), such as `postgres://…@db1:5432,db2:5432/kindgi`, the line names
+  each host. When none of them answers, the runtime waits the connect
+  timeout for each host, then exits with code 1. With two hosts and the
+  default timeout, the reason is `no host answered within 60 s`. The
+  connect timeout is the URL's `connect_timeout`, else `PGCONNECT_TIMEOUT`,
+  else 30 seconds. The `kindgi-runtime check` and `kindgi-runtime tenants`
+  commands say the same, with `(or --db)` after `KINDGI_DATABASE_URL`, and
+  exit with code 2.
 
 - **Another failure while starting:** it exits with code 1, and the log's
   first line starts with `kindgi-runtime: fatal:` and ends with the cause.
