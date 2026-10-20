@@ -814,8 +814,10 @@ A new grant can take a minute or two to apply.
 
 ## Tear it down
 
-Terraform won't delete Cloud SQL while `database_deletion_protection` is
-on (the default). Set it to `false` and apply first. The KMS key ring and
+Cloud SQL can't be deleted while `database_deletion_protection` is on (the
+default). It turns on Terraform's deletion protection and Google's, which
+refuses a delete from the console or gcloud as well. Set it to `false` and
+apply first: the apply turns both off. The KMS key ring and
 key outlive `terraform destroy`: Google Cloud never deletes them. Take them
 out of Terraform's state, destroy the rest, then schedule the key's versions
 for destruction:
