@@ -767,9 +767,10 @@ from the runtime's own environment only `HOME`, `LOGNAME`, `PATH`, `SHELL`,
 ### Not in `config.env`
 
 `config.env` is for plain variables: they're stored as given. A variable
-whose name says it holds a credential is refused (`invalid-mcp-endpoint`,
-reason `credential-in-env`). The refusal names the variable, never its
-value, and shows the `secretEnv` that gives it by reference:
+whose name says it holds a credential is refused (runtime 0.1.12 or later;
+`invalid-mcp-endpoint`, reason `credential-in-env`). The refusal names the
+variable, never its value, and shows the `secretEnv` that gives it by
+reference:
 
 ```json
 {"error":{"code":"invalid-mcp-endpoint","message":"endpoint \"inventory-local\" puts a credential in config.env (\"INVENTORY_TOKEN\"), where it's stored as given. Store each value as a secret and give it by reference: secretEnv: { INVENTORY_TOKEN: { envName, name } }.","details":{"reason":"credential-in-env"},…}}
@@ -784,31 +785,28 @@ as well as `-`: `GITHUB_TOKEN`, `OPENAI_API_KEY`, `AWS_SECRET_ACCESS_KEY`,
 catch every secret, such as `DATABASE_URL` with a password in it,
 `PGPASSWORD` or `MYSQL_PWD`: put those in `secretEnv` too.
 
-Every value in `config.env` reads back as `[redacted]`, its name kept, so a
-tenant's export holds the names, not the values:
+Every value in `config.env` reads back as `[redacted]` (runtime 0.1.12 or
+later), its name kept, so a tenant's export holds the names, not the values:
 
 ```json excerpt
 "config":{"transport":"stdio","command":"inventory-mcp","args":["--stdio"],"env":{"LOG_LEVEL":"[redacted]"}},"secretEnv":{"INVENTORY_TOKEN":{"envName":"local","name":"INVENTORY_TOKEN"}}
 ```
 
-A value of `[redacted]` is refused at registration (`invalid-stdio-env`),
-so a copy of what `GET` answers can't register it by mistake. So is what a
-process's environment can't carry: an empty name, `=` or a NUL in a name,
-or a NUL in a value.
+A value of `[redacted]` is refused at registration (runtime 0.1.12 or
+later; `invalid-stdio-env`), so a copy of what `GET` answers can't register
+it by mistake. So is what a process's environment can't carry: an empty
+name, `=` or a NUL in a name, or a NUL in a value.
 
 #### An endpoint registered with one by an earlier runtime
 
 It keeps working, and:
-- **reads back `[redacted]`** for every value in `config.env`;
-- **is named, never its value:** by the runtime at every start (`WARN`
-  `mcp-env-credential`), by its [`check mcp-env-credentials`](../../../deploy/self-hosted/operate/#checks-you-can-run-before-upgrading),
-  and by `kindgi doctor` against the runtime it points at:
-
-  ```text
-    ! MCP endpoint env: A stdio MCP endpoint keeps a credential in plaintext config.env, or a secretRef a stdio server isn't sent, from before that was refused. It still works, but a value in config.env is stored as given, not as a secret.
-        ✗ inventory-local: INVENTORY_TOKEN
-        Fix: Store each value as a secret (kindgi secrets set <NAME> --env=<name> --scope=tenant), then unregister the endpoint and register it again with the variable in secretEnv: { <NAME>: { envName, name } }, and without secretRef.
-  ```
+- **reads back `[redacted]`** for every value in `config.env` (runtime
+  0.1.12 or later);
+- **is named, never its value:** by the runtime at every start (runtime
+  0.1.12 or later; `WARN` `mcp-env-credential`), by its
+  [`check mcp-env-credentials`](../../../deploy/self-hosted/operate/#checks-you-can-run-before-upgrading)
+  (runtime 0.1.12 or later), and by `kindgi doctor` against the runtime it
+  points at (the check MCP endpoint env, `mcp-env`).
 
 A `stdio` endpoint registered with a `secretRef` is named the same way: a
 stdio server is never sent it, and the runtime (0.1.12 or later) doesn't read
