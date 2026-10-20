@@ -2582,8 +2582,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
 
 /**
  * What the runs router checks a turn against: a conversation's agent,
- * participant, project and opener (`turnRefusal`, `participantRefusal`), and
- * a target's own project.
+ * participant, project and opener (`turnRefusal`, `participantRefusal`),
+ * whether it's closed (`closedRefusal`), and a target's own project.
  */
 function participantLookups(
   input: Pick<CreateAppInput, 'conversationBinding' | 'agentRegistry' | 'flowRegistry'>,
@@ -2602,12 +2602,13 @@ function participantLookups(
           cause: got.error,
         });
       }
-      const { agentId, participantId, projectId, openedBy } = got.value;
+      const { agentId, participantId, projectId, openedBy, closedAt } = got.value;
       return {
         agentId: agentId as unknown as string,
         ...(participantId !== undefined && { participantId }),
         ...(projectId !== undefined && { projectId: projectId as unknown as string }),
         ...(openedBy !== undefined && { openedBy }),
+        ...(closedAt !== undefined && { closedAt: closedAt as unknown as string }),
       };
     },
     targetProject: async (tenantId, target) => {
