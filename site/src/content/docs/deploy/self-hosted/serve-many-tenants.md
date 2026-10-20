@@ -109,7 +109,7 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 
 ```sh
 curl -sS -X POST "$KINDGI_URL/v1/system/keys" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d '{"scopes": ["system:deployments"], "label": "pack services", "expiresAt": "2027-10-01T00:00:00Z"}'
@@ -134,7 +134,7 @@ curl -sS -X POST "$KINDGI_URL/v1/system/keys" \
 
 ```sh
 curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d '{
@@ -213,9 +213,9 @@ service is, and checks it. It never creates or deletes one.
 
    ```sh
    curl -sS -X PUT "$KINDGI_URL/v1/system/tenants/$TENANT_ID/deployments/$DEPLOYMENT_ID/endpoint" \
-     -H "Authorization: Bearer $KINDGI_SYSTEM_KEY" \
+     -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_SYSTEM_KEY") \
      -H 'Content-Type: application/json' \
-     -d "{\"url\": \"https://$SERVICE_HOST\", \"auth\": \"token\", \"token\": \"$PACK_TOKEN\"}"
+     -d @<(printf '{"url": "https://%s", "auth": "token", "token": "%s"}' "$SERVICE_HOST" "$PACK_TOKEN")
    ```
 
    `auth` is `token`, or `google-id-token` to add an ID token for the URL
