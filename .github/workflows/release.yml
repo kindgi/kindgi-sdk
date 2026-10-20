@@ -302,6 +302,10 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
+          # The zip and the notes are plain Node, with no dependencies: no
+          # install, so no package-manager cache (on by default when
+          # package.json names one, and it needs pnpm on the runner).
+          package-manager-cache: false
       - name: The WordPress plugin's zip and its checksum
         id: zip
         run: echo "zip=$(node scripts/wordpress-plugin-zip.mjs "$RUNNER_TEMP/wordpress-plugin")" >> "$GITHUB_OUTPUT"
