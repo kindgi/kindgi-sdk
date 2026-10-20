@@ -177,7 +177,7 @@ USER node${
 RUN corepack install -g pnpm@${install.hostPnpm}`
      : ''
  }
-COPY --chown=node:node host/ ./${env.length > 0 ? `\n# Build env: the build steps and the indexer stage only, never the final image.\n${env.join('\n')}` : ''}${
+COPY --chown=node:node host/ ./${env.length > 0 ? `\n# Build env: the install, the build steps and the indexer stage only, never the final image.\n${env.join('\n')}` : ''}${
    install.reduced === undefined
      ? ''
      : `\n# Only what the pack loads: ${install.reduced.kept} of the lockfile's ${install.reduced.total} packages, from the manifest and lockfile kindgi build cut down to them.`

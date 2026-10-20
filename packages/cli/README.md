@@ -540,10 +540,11 @@ export default {
   `prisma generate` after the install, before the prune. The app's own
   `postinstall` doesn't run in the image, because the install runs with
   scripts off.
-- `buildEnv` holds non-secret placeholders for the build steps, and for the
-  indexer, which imports the pack's modules. It's never in the final image.
-  The indexer imports them with `NODE_ENV=production`, as the deployed
-  service does, unless `buildEnv` sets `NODE_ENV`.
+- `buildEnv` holds non-secret placeholders for the install, the build steps,
+  and the indexer, which imports the pack's modules. It's never in the final
+  image. The indexer imports them with `NODE_ENV=production`, as the deployed
+  service does, unless `buildEnv` sets `NODE_ENV`. A `NODE_ENV` there doesn't
+  change which dependencies the install takes.
 - `defineBuildExtension()` makes an app's own extension from the same parts:
   `contextFiles`, `systemPackages`, `postInstall` steps (a package's bin, run
   through the app's package manager) and `buildEnv`.

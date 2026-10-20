@@ -194,7 +194,7 @@ describe('the Containerfile', () => {
     // With a build step: everything the project needs, then the same filtered install with --prod.
     const withSteps = render({ workspace: true, packRel: 'apps/support' }, false, PRISMA_IMAGE);
     expect(withSteps).toContain(
-      "pnpm install --frozen-lockfile --ignore-scripts --filter '{./apps/support}...' && pnpm --filter '{./apps/support}...' rebuild",
+      "pnpm install --frozen-lockfile --ignore-scripts --prod=false --filter '{./apps/support}...' && pnpm --filter '{./apps/support}...' rebuild",
     );
     expect(withSteps).toContain(
       "pnpm install --frozen-lockfile --ignore-scripts --prod --filter '{./apps/support}...'\n",
@@ -224,7 +224,9 @@ describe('the Containerfile', () => {
     expect(text).not.toContain('prune');
     expect(text).not.toContain('store_dir');
     const withSteps = render(npm, false, PRISMA_IMAGE);
-    expect(withSteps).toContain('npm ci --ignore-scripts --no-audit --no-fund && npm rebuild');
+    expect(withSteps).toContain(
+      'npm ci --include=dev --ignore-scripts --no-audit --no-fund && npm rebuild',
+    );
     expect(withSteps).toContain('npm prune --omit=dev --no-audit --no-fund');
   });
 
@@ -245,7 +247,7 @@ describe('the Containerfile', () => {
     // Classic with a build step: the full install, then production again.
     const classicSteps = render({ manager: 'yarn', yarnBerry: false }, false, PRISMA_IMAGE);
     expect(classicSteps).toContain(
-      'yarn install --frozen-lockfile --ignore-scripts --non-interactive && npm rebuild',
+      'yarn install --production=false --frozen-lockfile --ignore-scripts --non-interactive && npm rebuild',
     );
     expect(classicSteps).toContain('yarn install --production --frozen-lockfile');
   });
@@ -357,7 +359,7 @@ describe('the Containerfile with image extensions', () => {
       };
       const withSteps = await write(image);
       expect(withSteps).toContain(
-        'pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild',
+        'pnpm install --frozen-lockfile --ignore-scripts --prod=false && pnpm rebuild',
       );
       expect(withSteps).toContain('pnpm prune --prod');
       const without = await write(NO_IMAGE);
@@ -400,6 +402,33 @@ describe('the Containerfile with image extensions', () => {
       expect(text.slice(text.indexOf('FROM system AS final'))).toContain(
         '\nENV NODE_ENV=production\n',
       );
+    }
+  });
+
+  test("buildEnv's NODE_ENV=production comes before the install, which asks for dev dependencies for the steps all the same", () => {
+    const production = imageOf({
+      image: {
+        extensions: [prisma({ schema: 'prisma/schema.prisma' })],
+        buildEnv: { NODE_ENV: 'production' },
+      },
+    });
+    for (const [over, installs] of [
+      [{}, 'pnpm install --frozen-lockfile --ignore-scripts --prod=false && pnpm rebuild'],
+      [
+        { manager: 'npm' },
+        'npm ci --include=dev --ignore-scripts --no-audit --no-fund && npm rebuild',
+      ],
+      [
+        { manager: 'yarn', yarnBerry: false },
+        'yarn install --production=false --frozen-lockfile --ignore-scripts --non-interactive && npm rebuild',
+      ],
+    ] as const) {
+      const text = render(over, false, production);
+      const said = text.indexOf(
+        '\n# Build env: the install, the build steps and the indexer stage only, never the final image.\nENV NODE_ENV="production"\n',
+      );
+      expect(said).toBeGreaterThan(text.indexOf('FROM system AS deps'));
+      expect(text.indexOf(installs)).toBeGreaterThan(said);
     }
   });
 

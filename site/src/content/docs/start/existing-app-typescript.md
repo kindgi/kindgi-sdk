@@ -419,7 +419,8 @@ fetchRetries: 4
   `{ DATABASE_URL: 'postgresql://build-placeholder' }`. Never secrets: they're
   set while building only, and the final image doesn't have them. Your modules
   load with `NODE_ENV=production` while building, as in the deployed service,
-  unless `buildEnv` sets `NODE_ENV`.
+  unless `buildEnv` sets `NODE_ENV`. A `NODE_ENV` in `buildEnv` doesn't change
+  which dependencies the install takes.
 - **patch-package:** when a skipped script runs it, `kindgi build` prints the
   build step to add (`defineBuildExtension`, also from `@kindgi/sdk/build`).
   With pnpm, `pnpm patch` applies your patches in the install itself.

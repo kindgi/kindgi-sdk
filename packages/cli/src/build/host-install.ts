@@ -416,13 +416,16 @@ export function installCommands(
   steps: ResolvedImage['steps'],
 ): InstallCommands {
   const dev = whyDevDependencies(install, steps) !== undefined;
+  // With dev dependencies the install asks for them, as the production one
+  // asks for production only: buildEnv's ENV lines come before it, and
+  // NODE_ENV=production narrows npm's, yarn classic's and pnpm 9's install.
   switch (install.manager) {
     case 'pnpm': {
       // `rebuild` runs the build scripts the app allows (pnpm's allowBuilds).
       if (!install.workspace) {
         return dev
           ? {
-              install: 'pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild',
+              install: 'pnpm install --frozen-lockfile --ignore-scripts --prod=false && pnpm rebuild',
               prune: 'pnpm prune --prod',
             }
           : { install: 'pnpm install --frozen-lockfile --ignore-scripts --prod && pnpm rebuild' };
@@ -435,7 +438,7 @@ export function installCommands(
       const production = `pnpm install --frozen-lockfile --ignore-scripts --prod ${only}`;
       return dev
         ? {
-            install: `pnpm install --frozen-lockfile --ignore-scripts ${only} && pnpm ${only} rebuild`,
+            install: `pnpm install --frozen-lockfile --ignore-scripts --prod=false ${only} && pnpm ${only} rebuild`,
             prune: production,
           }
         : { install: `${production} && pnpm ${only} rebuild` };
@@ -443,7 +446,7 @@ export function installCommands(
     case 'npm':
       return dev
         ? {
-            install: 'npm ci --ignore-scripts --no-audit --no-fund && npm rebuild',
+            install: 'npm ci --include=dev --ignore-scripts --no-audit --no-fund && npm rebuild',
             prune: 'npm prune --omit=dev --no-audit --no-fund',
           }
         : { install: 'npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm rebuild' };
@@ -457,7 +460,7 @@ export function installCommands(
       return dev
         ? {
             install:
-              'yarn install --frozen-lockfile --ignore-scripts --non-interactive && npm rebuild',
+              'yarn install --production=false --frozen-lockfile --ignore-scripts --non-interactive && npm rebuild',
             prune: production,
           }
         : { install: production };
