@@ -141,7 +141,8 @@ export const ENV_DEFAULTS = {
   KINDGI_LOG_LEVELS: 'none: no per-subsystem levels; `KINDGI_LOG_LEVEL` applies everywhere',
   KINDGI_LOG_FORMAT:
     '`auto`: `pretty` when stdout is a terminal or `KINDGI_DEV` is on, else `json`',
-  KINDGI_SECRETS_BACKEND: '`none` (the secrets routes are not served)',
+  KINDGI_SECRETS_BACKEND:
+    "`none` (the secrets routes are not served, and a workspace's own identity providers can't be added or changed)",
   KINDGI_SECRETS_DOTENV_FILES: '`.env,.env.local`',
   KINDGI_SECRETS_AAD_KEY_PATH:
     'none (with `KINDGI_SECRETS_AAD_KEY` unset): no key; the postgres backend refuses to start without one of the two',

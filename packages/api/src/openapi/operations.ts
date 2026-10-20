@@ -1508,6 +1508,13 @@ const ProviderChangeRefused: ResponseSpec = ErrorResponse(
   "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
 );
 
+/** Adding or changing a provider: the usual conflicts, or a deployment without a secrets store. */
+function providerChangeConflict(text: string): ResponseSpec {
+  return ErrorResponse(
+    `Idempotency-Key was reused with a different body, or resource-state conflict${text}. Or this deployment has no secrets store (\`identity-providers-need-secrets-store\`, \`KINDGI_SECRETS_BACKEND\`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.`,
+  );
+}
+
 // ---------------- operation registry ----------------
 
 function usageQueryParams(groupBy: string): ParameterSpec[] {
@@ -6671,6 +6678,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '403': ProviderChangeRefused,
+      '409': providerChangeConflict(
+        ' (`identity-provider-already-registered`: a provider with this id is registered)',
+      ),
       '422': ErrorResponse(
         'The deployment could not use the configuration, or `kind` is `oauth2`, a plain OAuth 2.0 provider, which sign-in does not use (`identity-provider-invalid`).',
       ),
@@ -6761,6 +6771,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '403': ProviderChangeRefused,
       '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
+      '409': providerChangeConflict(''),
       '422': ErrorResponse(
         'The deployment could not use the configuration (`identity-provider-invalid`).',
       ),

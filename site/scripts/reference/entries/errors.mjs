@@ -2592,6 +2592,17 @@ export const ERROR_ENTRIES = {
       "The deployment's operator manages sign-in, so changing identity providers needs the deployment's own token; a tenant admin's key is refused.",
     details: [],
   },
+  'identity-providers-need-secrets-store': {
+    description:
+      "The deployment has no secrets store (`KINDGI_SECRETS_BACKEND` is `none`), and an identity provider's client secret and keys are references into one, so no provider is added or changed until the operator sets one up. Removing a provider still works. Continue with Google, Microsoft or GitHub and the emailed link don't need a store.",
+    details: [
+      {
+        key: 'providerId',
+        meaning: 'the provider that was being added or changed',
+      },
+    ],
+    seeAlso: ['deploy/self-hosted/sign-in', 'deploy/self-hosted/secret-manager'],
+  },
   'license-operator-only': {
     description:
       "`GET /v1/license` and `GET /v1/license/usage` are for the deployment's own token, or a system key holding `system:license`. Where the deployment is set up to serve one tenant (without `KINDGI_TENANCY=multi`) and its database holds only that one, that tenant's admins also read the license's countdown, never its use. Other callers are refused, and the refusal recorded.",

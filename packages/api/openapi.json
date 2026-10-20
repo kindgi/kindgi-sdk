@@ -469,6 +469,7 @@
           "identity-provider-already-registered": 409,
           "identity-provider-invalid": 422,
           "identity-providers-operator-managed": 403,
+          "identity-providers-need-secrets-store": 409,
           "license-operator-only": 403,
           "invalid-provider-config": 400,
           "auth-not-session-token": 400,
@@ -45655,7 +45656,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict (`identity-provider-already-registered`: a provider with this id is registered). Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.",
             "content": {
               "application/json": {
                 "schema": {
@@ -45962,7 +45963,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.",
             "content": {
               "application/json": {
                 "schema": {

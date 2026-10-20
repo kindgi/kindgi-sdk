@@ -1069,7 +1069,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SECRETS_BACKEND',
     description:
-      'Where secret bytes live. `none` (default; /v1/secrets/* unmounted) | `postgres` (envelope-encrypted, needs KMS) | `dotenv` (`.env` files in a directory; development only, needs `KINDGI_DEV=true`) | `secret-manager` (your own secret manager holds the bytes; pick it with `KINDGI_SECRETS_MANAGER`).',
+      'Where secret bytes live. `none` (default; /v1/secrets/* unmounted, and tenants register no identity providers) | `postgres` (envelope-encrypted, needs KMS) | `dotenv` (`.env` files in a directory; development only, needs `KINDGI_DEV=true`) | `secret-manager` (your own secret manager holds the bytes; pick it with `KINDGI_SECRETS_MANAGER`).',
     example: 'postgres',
     required: false,
     appliesTo: appliesToServer,

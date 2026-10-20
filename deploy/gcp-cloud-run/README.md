@@ -150,6 +150,7 @@ With `database_private_network` set, the URL is `postgres://kindgi:<password>@<p
 **Without a KMS key (`secrets_backend = "none"`).** By default (`"postgres"`), secrets set through Kindgi's API are envelope-encrypted in its database under a Cloud KMS key this module creates. With `"none"`:
 - **Not created:** the KMS key ring, the key and its grants, and the `<prefix>-secrets-aad-key` secret. `secrets_aad_key_version` isn't needed.
 - **The server stores no secrets of its own.** `/v1/secrets` isn't served (it answers 404 `route-not-found`), and nothing can be stored through Kindgi's API. The boot record has no KMS probe line.
+- **Sign-in:** Continue with Google, Microsoft or GitHub and the emailed link work (step 7). A workspace's own identity provider needs `"postgres"`: its client secret and keys are references into the store, so adding or changing one answers 409 `identity-providers-need-secrets-store`.
 - **Who it fits:** a deployment whose pack secrets all come by reference (`pack_secret_env`) and whose model uses the service's own identity, Gemini on Vertex AI (`vertex_ai = true`). A provider that needs an API key stored in Kindgi doesn't fit it.
 - **Changing an existing deployment from `"postgres"`:** the key's `prevent_destroy` stops the plan. That's on purpose: secrets stored under the key would become unreadable. Move them out first, then take the key out of state, as in "Taking it down".
 
