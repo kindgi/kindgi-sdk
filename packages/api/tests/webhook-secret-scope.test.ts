@@ -23,6 +23,7 @@ import type { EnvName, TenantId, UserId } from '@kindgi/types';
 import { createApp } from '../src/index.js';
 import type { RunHandlerBinding, SecretBinding, TokenResolver } from '../src/index.js';
 import { createInMemoryTriggerRegistry, createStubAppBindings } from '../src/testing/index.js';
+import { validateAgainst } from './support/openapi-schema.js';
 
 const TENANT = '00000000-0000-4000-8000-00000000000a' as TenantId;
 const P = '00000000-0000-4000-8000-0000000000a1';
@@ -548,12 +549,15 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
       });
       return { status: res.status, body: (await res.json()) as Record<string, any> };
     };
-    const get = async (path: string) => {
+    // A read, checked against the spec's schema for its answer.
+    const get = async (path: string, schema: string) => {
       const res = await app.request(path, {
         headers: { authorization: 'Bearer tenant-admin' },
       });
       expect(res.status, path).toBe(200);
-      return (await res.json()) as Record<string, any>;
+      const body = (await res.json()) as Record<string, any>;
+      expect(validateAgainst(schema, body), path).toEqual([]);
+      return body;
     };
     return { stored, endpoints, published, post, get };
   }
@@ -680,10 +684,13 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
     expect((await h.post('p-admin', '/v1/mcp/endpoints', own)).status).toBe(201);
     expect((await h.post('p-admin', '/v1/mcp/endpoints', endpoint('acme-plain'))).status).toBe(201);
     // The list `kindgi exports create` reads, and the one-endpoint read.
-    const listed = (await h.get('/v1/mcp/endpoints')).data as Record<string, unknown>[];
+    const listed = (await h.get('/v1/mcp/endpoints', 'MCPEndpointCollectionPage')).data as Record<
+      string,
+      unknown
+    >[];
     const answers = async (endpointId: string) => [
       listed.find((e) => e.endpointId === endpointId),
-      await h.get(`/v1/mcp/endpoints/${endpointId}`),
+      await h.get(`/v1/mcp/endpoints/${endpointId}`, 'MCPEndpoint'),
     ];
     for (const answer of await answers('acme-own')) {
       expect(answer?.endpointId).toBe('acme-own');
@@ -726,24 +733,29 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
     );
 
     // The routes and queries `kindgi exports create` reads, and the one-version reads.
-    const listed = (await h.get('/v1/tools?includeRetired=true')).data as Record<string, unknown>[];
+    const listed = (await h.get('/v1/tools?includeRetired=true', 'ToolCollectionPage'))
+      .data as Record<string, unknown>[];
     const versions = async (toolId: string) =>
-      (await h.get(`/v1/tools/${toolId}/versions?includeTombstoned=true`)).data as Record<
-        string,
-        unknown
-      >[];
+      (
+        await h.get(
+          `/v1/tools/${toolId}/versions?includeTombstoned=true`,
+          'ToolVersionCollectionPage',
+        )
+      ).data as Record<string, unknown>[];
     expect(listed.find((t) => t.id === 'acme.lookup')?.secretScopes).toEqual(none);
-    expect((await h.get('/v1/tools/acme.lookup')).secretScopes).toEqual(none);
+    expect((await h.get('/v1/tools/acme.lookup', 'Tool')).secretScopes).toEqual(none);
     expect((await versions('acme.lookup')).map((v) => [v.version, v.secretScopes])).toEqual([
       ['1.0.0', tenantWide],
       ['1.0.1', none],
     ]);
-    expect((await h.get('/v1/tools/acme.lookup/versions/1.0.0')).secretScopes).toEqual(tenantWide);
+    expect((await h.get('/v1/tools/acme.lookup/versions/1.0.0', 'Tool')).secretScopes).toEqual(
+      tenantWide,
+    );
     for (const answer of [
       listed.find((t) => t.id === 'acme.plain'),
-      await h.get('/v1/tools/acme.plain'),
+      await h.get('/v1/tools/acme.plain', 'Tool'),
       ...(await versions('acme.plain')),
-      await h.get('/v1/tools/acme.plain/versions/1.0.0'),
+      await h.get('/v1/tools/acme.plain/versions/1.0.0', 'Tool'),
     ]) {
       expect(answer?.id).toBe('acme.plain');
       expect(answer).not.toHaveProperty('secretScopes');
