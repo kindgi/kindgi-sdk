@@ -456,6 +456,11 @@ and a provider you register by hand is in that one only. A provider declared
 in the pack's config is registered by `kindgi dev` on every boot: in a new
 worktree, after `--reset`, and on a teammate's machine.
 
+Commit the declaration with the rest of the config. It holds a key's name,
+never the key, and it's how a teammate's `kindgi dev`, or another
+worktree's, gets the same providers. The key itself stays out of git: each
+teammate, and each worktree, sets it in its own env files.
+
 Ask your coding agent: "Declare my model providers in the pack's config." For
 reference, it adds them to `providers`, like this:
 
@@ -597,9 +602,17 @@ At each boot, `kindgi dev` says what it did:
   plain line.
 
 `kindgi dev` keeps track of the providers it registered in
-`.kindgi/dev/providers.json`. A runtime that `kindgi dev` doesn't run, such as
-your staging or production one, gets its providers with
-`kindgi providers register`.
+`.kindgi/dev/providers.json`. That's a local record, under the gitignored
+`.kindgi/`, not the place to declare a provider.
+
+A runtime that `kindgi dev` doesn't run, such as your staging or production
+one, doesn't read the declaration. Register its providers there by hand with
+`kindgi providers register`, once per runtime: a registration is shared by
+every environment the runtime serves. Register again when you add a provider.
+To change one, unregister it first, then register it again. The key isn't
+shared: set it first in each environment that runs the pack, with
+`kindgi secrets set <KEY> --env=<environment>`. `kindgi deploy` doesn't
+register providers, and `kindgi promote` stops while the target has none.
 
 :::note[On Kindgi Cloud]
 Register a preset with `--env=prod`: without `--env`, it reads `local`. A
