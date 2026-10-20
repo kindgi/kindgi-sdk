@@ -4646,7 +4646,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'proposals.improve',
     summary: 'Start an improvement pass',
     description:
-      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts for an agent whose project is suspended (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.",
     tags: ['proposals'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -4655,7 +4655,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '202': { description: 'The pass, running.', schema: ref('ImprovementPass') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed request body, or `validation-failed`. Or `reference-out-of-scope`: the test set isn't registered in the agent's project, its org or the tenant, or a project or segment scope doesn't reach the agent (`details.issues`).",
+        "Malformed request body, `validation-failed`, or a project or segment scope that isn't in `projectId`. Or `reference-out-of-scope`: a project or segment scope doesn't reach the agent, the version doesn't reach the pass's project (`/fromVersion`), or the test set isn't one that project reaches (`details.issues`).",
       ),
       '404': ErrorResponse(
         '`fromVersion` (or the version serving the scope) is not an active version.',
