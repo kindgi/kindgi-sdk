@@ -121,6 +121,6 @@ export const judgingQueueCommand: Command = {
   kind: 'group',
   name: 'judging-queue',
   description:
-    "A project's judging queue — the runs waiting for a person's judgment (list / dismiss / reopen).",
+    "A project's judging queue — the runs a rule puts up for a person's judgment, open or closed (list / dismiss / reopen).",
   subcommands: [list, dismiss, reopen],
 };

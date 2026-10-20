@@ -15,8 +15,8 @@ import {
 } from './helpers.js';
 import type { Command, LeafCommand, ParseArgsOption } from './types.js';
 
-/** How a queued run ended, the values `--status` takes. */
-const RUN_STATUSES = ['completed', 'failed', 'cancelled'] as const;
+/** The run outcome `--status` matches; a rule takes `completed` only. */
+const RUN_STATUSES = ['completed'] as const;
 
 const PROJECT_OPTION: Readonly<Record<string, ParseArgsOption>> = {
   project: {
@@ -39,7 +39,7 @@ const WHEN_OPTIONS: Readonly<Record<string, ParseArgsOption>> = {
     type: 'string',
     multiple: true,
     description:
-      'Match runs that ended this way: `completed` (today the only one a judgment accepts), `failed` or `cancelled` (repeatable).',
+      'Match runs by how they ended. Only `completed` is accepted — a judgment needs a completed run, so `failed` and `cancelled` are refused.',
   },
   'include-dry-runs': {
     type: 'boolean',
@@ -77,7 +77,9 @@ function whenFromFlags(ctx: CommandContext): JudgingRuleWhen {
   const status = listFlag(ctx, 'status');
   for (const s of status) {
     if (!(RUN_STATUSES as readonly string[]).includes(s)) {
-      throw new UsageError(`--status must be one of ${RUN_STATUSES.join(', ')}, got "${s}"`);
+      throw new UsageError(
+        `--status takes only 'completed' (a judgment needs a completed run), got "${s}"`,
+      );
     }
   }
   return {
@@ -314,7 +316,7 @@ const results: LeafCommand = {
     since: {
       type: 'string',
       description:
-        'Only runs finished at or after this time (an ISO 8601 time with a zone, or a date).',
+        'Only runs queued (or skipped by the cap) at or after this time (an ISO 8601 time with a zone, or a date).',
     },
   },
   run: (ctx) =>

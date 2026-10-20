@@ -98,6 +98,18 @@ describe('kindgi judging-rules', () => {
     expect(calls).toEqual([['create', 'p-1', { name: 'all', when: {} }]]);
   });
 
+  test('create --disabled makes the rule disabled', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      ['judging-rules', 'create', '--project=p-1', '--name=off', '--disabled'],
+      {
+        projects: { judgingRules: { create: rec('create', { ruleId: 'jr-off' }) } },
+      },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['create', 'p-1', { name: 'off', when: {}, enabled: false }]]);
+  });
+
   test('create also queues recent runs when asked, and returns both', async () => {
     const { calls, rec } = recorder();
     const out = await run(
@@ -145,7 +157,7 @@ describe('kindgi judging-rules', () => {
           client,
         )
       ).stderr,
-    ).toContain('--status must be one of');
+    ).toContain('--status takes only');
   });
 
   test('list, show, versions and results pass their arguments', async () => {

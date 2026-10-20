@@ -776,7 +776,7 @@ export const CLI_DEFAULTS = {
     agent: 'none (runs of any agent)',
     flow: 'none (runs of any flow)',
     'agent-version': 'none (any version)',
-    status: 'none (however the run ended)',
+    status: '`completed` (only completed runs match)',
     sample: '`1` (every matching run)',
     'max-open': 'none (no cap)',
     class: 'none (any judgment closes an item)',
@@ -820,7 +820,7 @@ export const CLI_DEFAULTS = {
     agent: 'none (runs of any agent)',
     flow: 'none (runs of any flow)',
     'agent-version': 'none (any version)',
-    status: 'none (however the run ended)',
+    status: '`completed` (only completed runs match)',
     sample: '`1` (every matching run)',
     last: '`100` (1 to 500)',
     rule: 'none (preview the given flags, not an existing rule)',
@@ -1747,7 +1747,7 @@ export const CLI_EXAMPLES = {
   'judging-rules create': [
     {
       purpose: "Queue a quarter of an agent's completed runs for judging.",
-      line: 'kindgi judging-rules create --name="refund tone" --agent=acme.refunds --status=completed --sample=0.25',
+      line: 'kindgi judging-rules create --name="refund tone" --agent=acme.refunds --sample=0.25',
     },
     {
       purpose: 'Create a rule and catch it up at once on the last 500 finished runs.',
@@ -1773,7 +1773,7 @@ export const CLI_EXAMPLES = {
     },
     {
       purpose: 'Replace what the rule matches and drop its cap.',
-      line: 'kindgi judging-rules update <rule-id> --agent=acme.refunds --status=completed --clear-max-open',
+      line: 'kindgi judging-rules update <rule-id> --agent=acme.refunds --clear-max-open',
     },
   ],
   'judging-rules remove': [
@@ -1790,14 +1790,15 @@ export const CLI_EXAMPLES = {
   ],
   'judging-rules results': [
     {
-      purpose: "A rule's results since a date, by the rule's version and the agent's.",
+      purpose:
+        "Show a rule's results for runs queued since a date, by the rule's version and the agent's.",
       line: 'kindgi judging-rules results <rule-id> --since=2026-10-01',
     },
   ],
   'judging-rules preview': [
     {
       purpose: 'See how many of the last 200 runs a rule would queue, changing nothing.',
-      line: 'kindgi judging-rules preview --agent=acme.refunds --status=completed --last=200',
+      line: 'kindgi judging-rules preview --agent=acme.refunds --last=200',
     },
     {
       purpose: 'Preview exactly what an existing rule would take.',
