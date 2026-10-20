@@ -57,7 +57,7 @@ variable "server_public" {
 }
 
 variable "server_min_instances" {
-  description = "Minimum server instances. At least 1: runs started with wait:false keep running after the response, and need an instance (and CPU) to finish on."
+  description = "Minimum server instances. At least 1: runs started with wait:false, improvement passes and eval runs keep running after the response, and need an instance (and CPU) to finish on."
   type        = number
   default     = 1
 
@@ -245,7 +245,7 @@ variable "database_deletion_protection" {
 }
 
 variable "database_idle_in_transaction_timeout_ms" {
-  description = "The instance's idle_in_transaction_session_timeout, in milliseconds: a backstop that ends any session left idle in a transaction this long, whoever opened it (a psql session left open, say). 0 turns it off. The server's own connections set a shorter one (KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS, 30 seconds by default), which wins over this. Only on the module's own instance, not on one database_instance names."
+  description = "The instance's idle_in_transaction_session_timeout, in milliseconds: a backstop that ends any session left idle in a transaction this long, whoever opened it (a psql session left open, say). 0 turns it off. The server's own connections set a shorter one (KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS, 30 seconds by default), which wins over this. Only on the module's own instance, not on one database_instance names. Ignored when database_host_instance is set: the module makes no instance, and the host's own flags apply."
   type        = number
   default     = 600000
 

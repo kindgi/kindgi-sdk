@@ -1180,11 +1180,11 @@ run "the_idle_backstop_is_ten_minutes_by_default" {
   command = plan
 
   assert {
-    condition     = contains([for f in google_sql_database_instance.kindgi.settings[0].database_flags : "${f.name}=${f.value}"], "idle_in_transaction_session_timeout=600000")
+    condition     = contains([for f in google_sql_database_instance.kindgi[0].settings[0].database_flags : "${f.name}=${f.value}"], "idle_in_transaction_session_timeout=600000")
     error_message = "The instance's idle_in_transaction_session_timeout should be 600000 ms by default."
   }
   assert {
-    condition     = contains([for f in google_sql_database_instance.kindgi.settings[0].database_flags : "${f.name}=${f.value}"], "cloudsql.iam_authentication=on")
+    condition     = contains([for f in google_sql_database_instance.kindgi[0].settings[0].database_flags : "${f.name}=${f.value}"], "cloudsql.iam_authentication=on")
     error_message = "IAM authentication should stay on beside it."
   }
 }
@@ -1197,7 +1197,7 @@ run "zero_turns_the_idle_backstop_off" {
   }
 
   assert {
-    condition     = contains([for f in google_sql_database_instance.kindgi.settings[0].database_flags : "${f.name}=${f.value}"], "idle_in_transaction_session_timeout=0")
+    condition     = contains([for f in google_sql_database_instance.kindgi[0].settings[0].database_flags : "${f.name}=${f.value}"], "idle_in_transaction_session_timeout=0")
     error_message = "0 should set the flag to 0, Postgres's off."
   }
 }
