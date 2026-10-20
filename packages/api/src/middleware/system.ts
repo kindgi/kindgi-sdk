@@ -406,8 +406,14 @@ export interface SystemTenantDirectory {
 export interface SystemTenantOptions {
   /** The scope the route takes, checked again here. */
   readonly scope: SystemScope;
-  /** States the route refuses, each with `409 tenant-<state>`; `purged` always. */
+  /** States the route refuses, each with `409 tenant-<state>`; `purged` always, unless `admitPurged`. */
   readonly refuse?: readonly Exclude<SystemTenantState, 'active' | 'purged'>[];
+  /**
+   * The purge's route only: a purged tenant is let through, so running the
+   * purge again deletes what was written after its mark. Every other route
+   * answers `404 tenant-not-found` for one.
+   */
+  readonly admitPurged?: boolean;
   /** Records a refusal of the caller, as every refusal the API decides itself is. */
   readonly authorizer?: Authorizer;
 }
@@ -417,7 +423,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /**
  * The one way a system route acts in a tenant the path names. It checks the
  * scope again, that the tenant exists and isn't purged (`404
- * tenant-not-found`) and isn't in a refused state (`409 tenant-closing`,
+ * tenant-not-found`; `admitPurged` lets a purged one through, for the
+ * purge's route) and isn't in a refused state (`409 tenant-closing`,
  * `409 tenant-suspended`), and marks the tenant on the access record. Then
  * `fn` runs with the tenant; the route passes that id to its bindings,
  * which act inside the tenant's own row-level security.
@@ -439,7 +446,7 @@ export async function withSystemTenantContext(
   c.set('systemScopeUsed', options.scope);
   c.set('systemTargetTenant', tenantId);
   const found = UUID_RE.test(tenantId) ? await directory.get(tenantId as TenantId) : null;
-  if (found === null || found.state === 'purged') {
+  if (found === null || (found.state === 'purged' && options.admitPurged !== true)) {
     return answer(c, 'tenant-not-found', `No tenant with id "${tenantId}".`, { tenantId });
   }
   if (options.refuse?.includes(found.state as Exclude<SystemTenantState, 'active' | 'purged'>)) {
