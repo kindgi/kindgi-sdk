@@ -272,6 +272,18 @@ own project first. Store the key under the same name in each environment,
 and each one calls the model with its own key
 ([Keys](../../guides/models/#keys)).
 
+In this release, a promotion's check finds a model provider's key only
+where it's stored for the whole tenant. Stored only in each environment's
+project, the key is listed under `Not ready in <environment>:`, and the
+promotion stops. Store it for the whole tenant too, under the same name,
+with `--env` left out:
+
+```sh
+pnpm exec kindgi secrets set ANTHROPIC_API_KEY --scope=tenant
+```
+
+Runs still read each environment's own key first.
+
 ## Deploy into the first environment
 
 Ask your coding agent: "Deploy the pack into `staging-1`." For reference, on
@@ -445,7 +457,9 @@ A refusal names the project it was checked on.
 - **A promotion stops at `Not ready in <environment>:`.** Through the API,
   it's refused with `409 promotion-values-not-ready`. Set each value it
   names in the environment you're promoting to, then promote again.
-  `--check` lists them without promoting.
+  `--check` lists them without promoting. Store a model provider's key
+  for the whole tenant too
+  ([Give each environment its values](#give-each-environment-its-values)).
 - **A promotion that skips an environment is refused
   (`promotion-not-next-environment`).** Promote to the next environment in
   the order. `kindgi environments list` shows it.
