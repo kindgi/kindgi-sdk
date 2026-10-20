@@ -269,7 +269,9 @@ def test_an_agent_that_sets_auto_close_is_refused(make_pack: Callable[..., Path]
             f" conversation_policy={policy})\n"
         )
 
-    report, index = index_of(full_pack(make_pack, **{"agents/desk.py": desk('{"historyLimit": 5}')}))
+    report, index = index_of(
+        full_pack(make_pack, **{"agents/desk.py": desk('{"historyLimit": 5}')})
+    )
     assert report["fileErrors"] == []
     (entry,) = [a for a in index["agents"] if a["id"] == "acme.desk"]
     assert entry["conversationPolicy"] == {"historyLimit": 5}
