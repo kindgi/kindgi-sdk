@@ -29,7 +29,7 @@ import {
 } from './errors.js';
 import { TOOL_CALL_GATE_SUBJECT, readGateDecision, withdrawnGateFailure } from './gate-decision.js';
 import type { ToolCallAuthorization } from './public-types.js';
-import { decideReplayTool } from './replay.js';
+import { type ReplayToolDecision, decideReplayTool, isReadOnlyTool } from './replay.js';
 import { requestedBy } from './requested-by.js';
 import {
   effectiveToolErrorPolicy,
@@ -216,285 +216,36 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
     ];
     let nextMessages: ModelMessage[] = [...partial.nextMessages, assistantMsg];
 
-    for (const call of assistantMsg.toolCalls ?? []) {
-      // Resumed after an approval further down this list: a call that
-      // already ran keeps the result it stored.
-      const stored = takeStoredBeforePark(
-        ctx,
-        (m) => m.role === 'tool' && m.toolCall?.invocationId === call.id,
-      );
-      if (stored !== undefined) {
-        iterationAppended.push(stored);
-        nextMessages = [...nextMessages, toolMessageOf(stored, call.id)];
+    const calls = assistantMsg.toolCalls ?? [];
+    const step: StepCalls = {
+      ctx,
+      kctx,
+      tools: ctx.tools,
+      step: partial.step,
+      iterationAppended,
+    };
+    // Batch by batch, in the order the model asked for them (`batchLength`).
+    // Each batch's calls are decided (authorized, gated, replay-decided)
+    // right before it runs, never before an earlier batch has run.
+    let at = 0;
+    while (at < calls.length) {
+      const batch = calls.slice(at, at + batchLength(step, calls, at));
+      const { decided, gated } = await planBatch(step, batch);
+      if (gated === undefined) {
+        nextMessages = await runTogether(step, decided, nextMessages);
+        at += batch.length;
         continue;
       }
-      // Look up the resolved binding before emitting `tool.started` so
-      // the event can carry `toolVersion` + `toolVersionRange` alongside
-      // the id. Model-requested tools the
-      // agent didn't declare emit a bare `tool.failed` with no version.
-      const binding = ctx.tools.byName.get(call.name);
-      if (binding === undefined) {
-        const unresolved: UnresolvedToolError = {
-          code: 'unresolved-tool',
-          message: `Model requested tool "${call.name}" not registered for agent "${ctx.input.agent.id}"`,
-          toolId: call.name,
-        };
-        await emitTurnEvent(ctx.bindings.onEvent, {
-          kind: 'tool.failed',
-          step: partial.step,
-          toolId: call.name,
-          invocationId: call.id,
-          error: { code: unresolved.code, message: unresolved.message },
-        });
-        nextMessages = await retryOrFail(ctx, call, unresolved, undefined, {
-          toolId: call.name,
-          nextMessages,
-          iterationAppended,
-        });
-        continue;
+      // A call waits for a review, and its park runs the step again: calls
+      // running alongside would be cut off, or outlive the step. From here
+      // the step runs one call at a time; the step run again takes back
+      // what ran before the park, stored.
+      for (const plan of decided) nextMessages = await runTogether(step, [plan], nextMessages);
+      nextMessages = await runTogether(step, [await passGate(step, gated)], nextMessages);
+      for (const call of calls.slice(at + decided.length + 1)) {
+        nextMessages = await runAlone(step, call, nextMessages);
       }
-      const { tool, resolvedVersion, requestedRange } = binding;
-
-      // The turn's principal may call this tool, or the call runs nothing
-      // and asks no reviewer (`authorizeToolCall`): its result tells the
-      // model. Recorded with the call, so a resumed turn keeps the answer.
-      const allowed = await authorizeCall(ctx, kctx, call.id, tool, 'call');
-      if (allowed !== undefined && !allowed.allowed) {
-        nextMessages = await appendDenied(ctx, partial.step, call, binding, allowed.reason, {
-          toolId: tool.id as unknown as string,
-          nextMessages,
-          iterationAppended,
-        });
-        continue;
-      }
-
-      // Tool-level HITL gate. Resolves the effective mode
-      // for this (agent, tool) pair via the effective-policy
-      // resolver (framework defaults → agent → tenant cap), then parks +
-      // enqueues an approval when required BEFORE dispatch. On reject,
-      // returns a synthetic negative tool result so the LLM can adapt
-      // without terminating the run. Same run, same conversation, same
-      // provenance record across the park-and-resume — the same
-      // framework guarantee as the session-level gate.
-      //
-      // Kernel replay: within one run, waitForToken with the same
-      // deterministic tokenId returns the resolved decision from the
-      // journal — no re-park. The gate itself is decided once
-      // (`decideToolGate`), so a policy changed during the park can't
-      // skip the reviewer's answer. Cross-turn `ask_on_first_use` caching
-      // (via conversation metadata) is not implemented.
-      const gate = await decideToolGate(ctx, kctx, call, tool);
-
-      // A replay turn decides the call first: a recorded or refused call
-      // runs nothing, so it asks for no approval either.
-      const replayed =
-        ctx.input.replay === undefined
-          ? undefined
-          : await decideReplayTool(ctx, kctx, {
-              step: partial.step,
-              callId: call.id,
-              tool,
-              version: resolvedVersion,
-              arguments: call.arguments,
-              gated: gate !== undefined,
-            });
-      if (replayed !== undefined && replayed.kind !== 'live' && replayed.kind !== 'recomputed') {
-        const replayStarted = Date.now();
-        await emitTurnEvent(ctx.bindings.onEvent, {
-          kind: 'tool.started',
-          step: partial.step,
-          toolId: call.name,
-          toolVersion: resolvedVersion,
-          toolVersionRange: requestedRange,
-          invocationId: call.id,
-          arguments: call.arguments,
-        });
-        nextMessages = await appendToolResult(ctx, call, replayed.result, {
-          toolId: tool.id as unknown as string,
-          nextMessages,
-          iterationAppended,
-        });
-        await emitTurnEvent(ctx.bindings.onEvent, {
-          kind: 'tool.completed',
-          step: partial.step,
-          toolId: call.name,
-          toolVersion: resolvedVersion,
-          toolVersionRange: requestedRange,
-          invocationId: call.id,
-          output: replayed.result as never,
-          durationMs: Date.now() - replayStarted,
-          replay: replayed.kind,
-        });
-        continue;
-      }
-
-      let toolRejectionPayload: { readonly rationale?: string } | null = null;
-      if (gate !== undefined) {
-        const { argsHash, waitTokenId, timeoutMs } = gate;
-        const asker = requestedBy(ctx.input.principal);
-        const expiresAt = new Date(Date.now() + timeoutMs).toISOString();
-
-        if (ctx.bindings.hitl?.enqueue !== undefined) {
-          try {
-            await ctx.bindings.hitl.enqueue({
-              tenantId: ctx.input.tenantId,
-              projectId: ctx.input.projectId,
-              subjectKind: TOOL_CALL_GATE_SUBJECT,
-              subjectRef: {
-                conversationId: ctx.input.conversationId,
-                agentId: ctx.input.agent.id,
-                agentVersion: ctx.input.agent.version,
-                toolId: tool.id,
-                toolVersion: resolvedVersion,
-                callId: call.id,
-                argsHash,
-                arguments: call.arguments as never,
-              },
-              requiredRole: gate.requiredRole,
-              // Who asked: the person the turn runs for, whoever resumes it.
-              ...(asker !== undefined && { requestedBy: asker }),
-              separateApprover: gate.separateApprover === true,
-              title: `HITL review: ${call.name}`,
-              description: `Tool call ${call.name} awaiting reviewer approval before dispatch.`,
-              waitTokenId,
-              provenanceRef: { runId: kctx.runId },
-              expiresAt: expiresAt as never,
-            });
-          } catch (cause) {
-            // Past the tenant's limit on approvals waiting, the step fails
-            // naming it: no approval was opened, so nobody would decide.
-            const limit = approvalsPendingLimitOf(cause);
-            if (limit !== undefined) throwAgentTurnFailure(limit);
-            // Any other enqueue failure is soft: waitForToken parks either way.
-          }
-        }
-
-        try {
-          // Fails closed: only an explicit approve runs the tool. A reject,
-          // or an answer that isn't a decision at all, gives the model a
-          // rejected result instead.
-          const decision = readGateDecision(
-            await kctx.waitForToken<unknown>(waitTokenId, { timeoutMs }),
-          );
-          if (!decision.approved) {
-            toolRejectionPayload =
-              decision.rationale !== undefined ? { rationale: decision.rationale } : {};
-          }
-        } catch (cause) {
-          if (cause instanceof WaitpointCancelledError) {
-            throwAgentTurnFailure(
-              (withdrawnGateFailure(cause.reason, `tool call ${call.name}`) ?? {
-                code: 'hitl-cancelled',
-                message: `Tool-call HITL cancelled for ${call.name}: ${cause.reason}`,
-                reason: cause.reason,
-              }) as never,
-            );
-          }
-          throw cause;
-        }
-      }
-
-      // Approved: asked again right before it runs, since access can change
-      // while a call waits for its reviewer (days, at times). A denial runs
-      // nothing; the reviewer's decision stays as it was decided.
-      if (gate !== undefined && toolRejectionPayload === null) {
-        const still = await authorizeCall(ctx, kctx, call.id, tool, 'approved');
-        if (still !== undefined && !still.allowed) {
-          nextMessages = await appendDenied(
-            ctx,
-            partial.step,
-            call,
-            binding,
-            `Access changed while this call waited for its approval. ${still.reason}`,
-            { toolId: tool.id as unknown as string, nextMessages, iterationAppended },
-          );
-          continue;
-        }
-      }
-
-      const toolStarted = Date.now();
-      await emitTurnEvent(ctx.bindings.onEvent, {
-        kind: 'tool.started',
-        step: partial.step,
-        toolId: call.name,
-        toolVersion: resolvedVersion,
-        toolVersionRange: requestedRange,
-        invocationId: call.id,
-        arguments: call.arguments,
-      });
-
-      // If the reviewer rejected, synthesize a tool-result message
-      // carrying the rationale — the LLM reads it in the next
-      // iteration and can adapt (retry with different args, ask the
-      // user, apologize). NOT a run failure — reject is feedback, not
-      // termination.
-      if (toolRejectionPayload !== null) {
-        const rejectResult = {
-          status: 'rejected' as const,
-          ...(toolRejectionPayload.rationale !== undefined && {
-            rationale: toolRejectionPayload.rationale,
-          }),
-        };
-        nextMessages = await appendToolResult(ctx, call, rejectResult, {
-          toolId: tool.id as unknown as string,
-          nextMessages,
-          iterationAppended,
-        });
-        await emitTurnEvent(ctx.bindings.onEvent, {
-          kind: 'tool.completed',
-          step: partial.step,
-          toolId: call.name,
-          toolVersion: resolvedVersion,
-          toolVersionRange: requestedRange,
-          invocationId: call.id,
-          output: rejectResult as never,
-          durationMs: Date.now() - toolStarted,
-        });
-        continue;
-      }
-
-      // A replay's live call reads the env the past run's call saw.
-      const replayEnv = replayed?.kind === 'live' ? replayed.env : undefined;
-      const dispatched = await dispatchOne(ctx, tool, call, kctx, replayEnv);
-      if (dispatched.kind === 'err') {
-        await emitTurnEvent(ctx.bindings.onEvent, {
-          kind: 'tool.failed',
-          step: partial.step,
-          toolId: call.name,
-          invocationId: call.id,
-          error: {
-            code: dispatched.error.code,
-            message: dispatched.error.message,
-          },
-        });
-        nextMessages = await retryOrFail(
-          ctx,
-          call,
-          dispatched.error,
-          dispatched.error.validationIssues,
-          { toolId: tool.id as unknown as string, nextMessages, iterationAppended },
-        );
-        continue;
-      }
-
-      ctx.appended.push(dispatched.value.persisted);
-      iterationAppended.push(dispatched.value.persisted);
-      nextMessages = [...nextMessages, dispatched.value.toolMessage];
-
-      await emitTurnEvent(ctx.bindings.onEvent, {
-        kind: 'tool.completed',
-        step: partial.step,
-        toolId: call.name,
-        toolVersion: resolvedVersion,
-        toolVersionRange: requestedRange,
-        invocationId: call.id,
-        output: dispatched.value.persisted.content,
-        durationMs: Date.now() - toolStarted,
-        // A recomputed call ran, as a live one does.
-        ...(replayed !== undefined && {
-          replay: replayed.kind === 'recomputed' ? ('live' as const) : replayed.kind,
-        }),
-      });
+      break;
     }
 
     // Every call's nodes, once the step has all its results: the ones it
@@ -690,66 +441,482 @@ function asksAuthorization(ctx: TurnContext, toolId: string): boolean {
   return true;
 }
 
-/** A denied call's result, `{ status: 'denied', reason }`, stored and told to the model like any other. */
-async function appendDenied(
-  ctx: TurnContext,
-  step: number,
+/** At most this many of a step's calls run at the same time. */
+const MAX_CALLS_TOGETHER = 8;
+
+/** What a step's calls share while they're dispatched. */
+interface StepCalls {
+  readonly ctx: TurnContext;
+  readonly kctx: NodeContext;
+  readonly tools: NonNullable<TurnContext['tools']>;
+  readonly step: number;
+  /** The step's stored messages, in call order. */
+  readonly iterationAppended: ConversationMessage[];
+}
+
+/** The agent's tool a call names, at the version the agent resolved. */
+interface ToolBinding {
+  readonly tool: Tool;
+  readonly resolvedVersion: string;
+  readonly requestedRange: string;
+}
+
+/** How a replay turn runs a call that runs: live, or recomputed. */
+type ReplayedRun = Extract<ReplayToolDecision, { readonly kind: 'live' | 'recomputed' }>;
+
+/** A call as it was decided, before its batch runs. */
+type DecidedCall =
+  /** It ran before a park in this step: its stored result. */
+  | { readonly kind: 'stored'; readonly call: ModelToolCall; readonly message: ConversationMessage }
+  /** The agent has no tool by the name the model used. */
+  | { readonly kind: 'unresolved'; readonly call: ModelToolCall }
+  | AnsweredCall
+  | RunCall;
+
+/**
+ * A call that runs nothing: the framework writes its result. Denied, rejected
+ * by its reviewer, or a replay's recorded or refused result (`replay`).
+ */
+interface AnsweredCall {
+  readonly kind: 'answered';
+  readonly call: ModelToolCall;
+  readonly binding: ToolBinding;
+  readonly output: unknown;
+  readonly replay?: 'recorded' | 'refused';
+}
+
+/** A call that runs its tool. */
+interface RunCall {
+  readonly kind: 'run';
+  readonly call: ModelToolCall;
+  readonly binding: ToolBinding;
+  readonly replayed?: ReplayedRun;
+}
+
+/** A call that waits for a review before it runs. */
+interface GatedCall {
+  readonly kind: 'gated';
+  readonly call: ModelToolCall;
+  readonly binding: ToolBinding;
+  readonly gate: ToolGateRecord;
+  readonly replayed?: ReplayedRun;
+}
+
+/** A call whose tool is running. */
+interface RunningCall extends Omit<RunCall, 'kind'> {
+  readonly kind: 'running';
+  readonly startedAt: number;
+  /** Never rejects: a throw is kept, and thrown when the call's turn comes. */
+  readonly settled: Promise<
+    { readonly at: number } & ({ readonly invoked: Invoked } | { readonly threw: unknown })
+  >;
+}
+
+/** A tool's own answer, before it's stored. */
+type Invoked =
+  | { readonly kind: 'ok'; readonly value: unknown }
+  | { readonly kind: 'err'; readonly error: ToolInvocationError };
+
+/**
+ * How many calls from `at` run together: the calls in a row to read-only
+ * tools (`isReadOnlyTool`), at most `MAX_CALLS_TOGETHER`, or any other call
+ * alone. With the agent's `parallelToolCalls: false`, every call alone.
+ */
+function batchLength(step: StepCalls, calls: readonly ModelToolCall[], at: number): number {
+  if (step.ctx.input.agent.parallelToolCalls === false) return 1;
+  let length = 0;
+  while (length < MAX_CALLS_TOGETHER && readsOnly(step, calls[at + length])) length += 1;
+  return Math.max(length, 1);
+}
+
+/** Whether `call` is to a tool of the agent's that declares it changes nothing. */
+function readsOnly(step: StepCalls, call: ModelToolCall | undefined): boolean {
+  const binding = call === undefined ? undefined : step.tools.byName.get(call.name);
+  return binding !== undefined && isReadOnlyTool(binding.tool);
+}
+
+/**
+ * A batch's calls, decided in call order up to the first that waits for a
+ * review: the calls after it are decided once it has its answer.
+ */
+async function planBatch(
+  step: StepCalls,
+  batch: readonly ModelToolCall[],
+): Promise<{ readonly decided: readonly DecidedCall[]; readonly gated?: GatedCall }> {
+  const decided: DecidedCall[] = [];
+  for (const call of batch) {
+    const plan = await planCall(step, call);
+    if (plan.kind === 'gated') return { decided, gated: plan };
+    decided.push(plan);
+  }
+  return { decided };
+}
+
+/** How `call` goes. What it decides is recorded with the call, so a resumed turn keeps it. */
+async function planCall(step: StepCalls, call: ModelToolCall): Promise<DecidedCall | GatedCall> {
+  const { ctx, kctx } = step;
+  // Resumed after an approval further down this list: a call that
+  // already ran keeps the result it stored.
+  const stored = takeStoredBeforePark(
+    ctx,
+    (m) => m.role === 'tool' && m.toolCall?.invocationId === call.id,
+  );
+  if (stored !== undefined) return { kind: 'stored', call, message: stored };
+  // The resolved binding gives the call's events `toolVersion` +
+  // `toolVersionRange` alongside the id. Model-requested tools the
+  // agent didn't declare emit a bare `tool.failed` with no version.
+  const binding = step.tools.byName.get(call.name);
+  if (binding === undefined) return { kind: 'unresolved', call };
+  const { tool, resolvedVersion } = binding;
+
+  // The turn's principal may call this tool, or the call runs nothing
+  // and asks no reviewer (`authorizeToolCall`): its result tells the
+  // model. Recorded with the call, so a resumed turn keeps the answer.
+  const allowed = await authorizeCall(ctx, kctx, call.id, tool, 'call');
+  if (allowed !== undefined && !allowed.allowed) {
+    return { kind: 'answered', call, binding, output: deniedResult(allowed.reason) };
+  }
+
+  // Tool-level HITL gate. Resolves the effective mode
+  // for this (agent, tool) pair via the effective-policy
+  // resolver (framework defaults → agent → tenant cap); a call it
+  // gates parks and enqueues an approval BEFORE dispatch (`passGate`).
+  // On reject, the call gets a synthetic negative tool result so the
+  // LLM can adapt without terminating the run. Same run, same
+  // conversation, same provenance record across the park-and-resume —
+  // the same framework guarantee as the session-level gate.
+  //
+  // Kernel replay: within one run, waitForToken with the same
+  // deterministic tokenId returns the resolved decision from the
+  // journal — no re-park. The gate itself is decided once
+  // (`decideToolGate`), so a policy changed during the park can't
+  // skip the reviewer's answer. Cross-turn `ask_on_first_use` caching
+  // (via conversation metadata) is not implemented.
+  const gate = await decideToolGate(ctx, kctx, call, tool);
+
+  // A replay turn decides the call first: a recorded or refused call
+  // runs nothing, so it asks for no approval either.
+  const replayed =
+    ctx.input.replay === undefined
+      ? undefined
+      : await decideReplayTool(ctx, kctx, {
+          step: step.step,
+          callId: call.id,
+          tool,
+          version: resolvedVersion,
+          arguments: call.arguments,
+          gated: gate !== undefined,
+        });
+  if (replayed?.kind === 'recorded' || replayed?.kind === 'refused') {
+    return { kind: 'answered', call, binding, output: replayed.result, replay: replayed.kind };
+  }
+  if (gate !== undefined) {
+    return { kind: 'gated', call, binding, gate, ...(replayed !== undefined && { replayed }) };
+  }
+  return { kind: 'run', call, binding, ...(replayed !== undefined && { replayed }) };
+}
+
+/** One call on its own, after its review when it waits for one. */
+async function runAlone(
+  step: StepCalls,
   call: ModelToolCall,
-  binding: { readonly resolvedVersion: string; readonly requestedRange: string },
-  reason: string,
-  target: ToolResultTarget,
+  nextMessages: readonly ModelMessage[],
 ): Promise<ModelMessage[]> {
-  const started = Date.now();
-  const denied = { status: 'denied' as const, reason };
-  await emitTurnEvent(ctx.bindings.onEvent, {
-    kind: 'tool.started',
+  const plan = await planCall(step, call);
+  return runTogether(
     step,
+    [plan.kind === 'gated' ? await passGate(step, plan) : plan],
+    nextMessages,
+  );
+}
+
+/**
+ * A call's review: the approval it asks for, and the park until the answer.
+ * Fails closed: only an explicit approve runs the call, and only while the
+ * turn's principal may still call the tool.
+ */
+async function passGate(step: StepCalls, gated: GatedCall): Promise<DecidedCall> {
+  const { ctx, kctx } = step;
+  const { call, binding, gate } = gated;
+  const { tool, resolvedVersion } = binding;
+  const { argsHash, waitTokenId, timeoutMs } = gate;
+  const asker = requestedBy(ctx.input.principal);
+  const expiresAt = new Date(Date.now() + timeoutMs).toISOString();
+
+  if (ctx.bindings.hitl?.enqueue !== undefined) {
+    try {
+      await ctx.bindings.hitl.enqueue({
+        tenantId: ctx.input.tenantId,
+        projectId: ctx.input.projectId,
+        subjectKind: TOOL_CALL_GATE_SUBJECT,
+        subjectRef: {
+          conversationId: ctx.input.conversationId,
+          agentId: ctx.input.agent.id,
+          agentVersion: ctx.input.agent.version,
+          toolId: tool.id,
+          toolVersion: resolvedVersion,
+          callId: call.id,
+          argsHash,
+          arguments: call.arguments as never,
+        },
+        requiredRole: gate.requiredRole,
+        // Who asked: the person the turn runs for, whoever resumes it.
+        ...(asker !== undefined && { requestedBy: asker }),
+        separateApprover: gate.separateApprover === true,
+        title: `HITL review: ${call.name}`,
+        description: `Tool call ${call.name} awaiting reviewer approval before dispatch.`,
+        waitTokenId,
+        provenanceRef: { runId: kctx.runId },
+        expiresAt: expiresAt as never,
+      });
+    } catch (cause) {
+      // Past the tenant's limit on approvals waiting, the step fails
+      // naming it: no approval was opened, so nobody would decide.
+      const limit = approvalsPendingLimitOf(cause);
+      if (limit !== undefined) throwAgentTurnFailure(limit);
+      // Any other enqueue failure is soft: waitForToken parks either way.
+    }
+  }
+
+  let answer: unknown;
+  try {
+    answer = await kctx.waitForToken<unknown>(waitTokenId, { timeoutMs });
+  } catch (cause) {
+    if (cause instanceof WaitpointCancelledError) {
+      throwAgentTurnFailure(
+        (withdrawnGateFailure(cause.reason, `tool call ${call.name}`) ?? {
+          code: 'hitl-cancelled',
+          message: `Tool-call HITL cancelled for ${call.name}: ${cause.reason}`,
+          reason: cause.reason,
+        }) as never,
+      );
+    }
+    throw cause;
+  }
+  // Fails closed: only an explicit approve runs the tool. A reject,
+  // or an answer that isn't a decision at all, gives the model a
+  // rejected result instead.
+  const decision = readGateDecision(answer);
+  if (!decision.approved) {
+    // The rejected result carries the rationale — the LLM reads it in
+    // the next iteration and can adapt (retry with different args, ask
+    // the user, apologize). NOT a run failure — reject is feedback,
+    // not termination.
+    const rejected = {
+      status: 'rejected' as const,
+      ...(decision.rationale !== undefined && { rationale: decision.rationale }),
+    };
+    return { kind: 'answered', call, binding, output: rejected };
+  }
+
+  // Approved: asked again right before it runs, since access can change
+  // while a call waits for its reviewer (days, at times). A denial runs
+  // nothing; the reviewer's decision stays as it was decided.
+  const still = await authorizeCall(ctx, kctx, call.id, tool, 'approved');
+  if (still !== undefined && !still.allowed) {
+    const reason = `Access changed while this call waited for its approval. ${still.reason}`;
+    return { kind: 'answered', call, binding, output: deniedResult(reason) };
+  }
+  return {
+    kind: 'run',
+    call,
+    binding,
+    ...(gated.replayed !== undefined && { replayed: gated.replayed }),
+  };
+}
+
+/**
+ * A batch's calls. Those that run start together, in call order; then each
+ * call's result is stored and told to the model in call order, once the
+ * calls before it are, so the conversation, the model and the retry count
+ * read them as they would one after another. A failure that fails the turn
+ * stops the calls still running, and is thrown once they've settled: no
+ * call outlives its step.
+ */
+async function runTogether(
+  step: StepCalls,
+  plans: readonly DecidedCall[],
+  nextMessages: readonly ModelMessage[],
+): Promise<ModelMessage[]> {
+  const stop = new AbortController();
+  const abortSignal = AbortSignal.any([step.ctx.turnAbort.signal, stop.signal]);
+  const started: (Exclude<DecidedCall, RunCall> | RunningCall)[] = [];
+  try {
+    for (const plan of plans) {
+      started.push(plan.kind === 'run' ? await startCall(step, plan, abortSignal) : plan);
+    }
+    let next = [...nextMessages];
+    for (const call of started) next = await finishCall(step, call, next);
+    return next;
+  } catch (cause) {
+    stop.abort(cause);
+    await Promise.all(started.map((call) => (call.kind === 'running' ? call.settled : undefined)));
+    throw cause;
+  }
+}
+
+/** Start `plan`'s tool. */
+async function startCall(
+  step: StepCalls,
+  plan: RunCall,
+  abortSignal: AbortSignal,
+): Promise<RunningCall> {
+  const { call, binding } = plan;
+  const startedAt = Date.now();
+  await emitTurnEvent(step.ctx.bindings.onEvent, {
+    kind: 'tool.started',
+    step: step.step,
     toolId: call.name,
     toolVersion: binding.resolvedVersion,
     toolVersionRange: binding.requestedRange,
     invocationId: call.id,
     arguments: call.arguments,
   });
-  const nextMessages = await appendToolResult(ctx, call, denied, target);
+  // A replay's live call reads the env the past run's call saw.
+  const replayEnv = plan.replayed?.kind === 'live' ? plan.replayed.env : undefined;
+  const settled = invokeOne(step, binding.tool, call, abortSignal, replayEnv).then(
+    (invoked) => ({ at: Date.now(), invoked }),
+    (threw: unknown) => ({ at: Date.now(), threw }),
+  );
+  return { ...plan, kind: 'running', startedAt, settled };
+}
+
+/** Store a call's result and tell the model, as its turn in call order comes. */
+async function finishCall(
+  step: StepCalls,
+  started: Exclude<DecidedCall, RunCall> | RunningCall,
+  nextMessages: readonly ModelMessage[],
+): Promise<ModelMessage[]> {
+  const { ctx, iterationAppended } = step;
+  const { call } = started;
+  switch (started.kind) {
+    case 'stored':
+      iterationAppended.push(started.message);
+      return [...nextMessages, toolMessageOf(started.message, call.id)];
+    case 'unresolved': {
+      const unresolved: UnresolvedToolError = {
+        code: 'unresolved-tool',
+        message: `Model requested tool "${call.name}" not registered for agent "${ctx.input.agent.id}"`,
+        toolId: call.name,
+      };
+      await emitTurnEvent(ctx.bindings.onEvent, {
+        kind: 'tool.failed',
+        step: step.step,
+        toolId: call.name,
+        invocationId: call.id,
+        error: { code: unresolved.code, message: unresolved.message },
+      });
+      return retryOrFail(ctx, call, unresolved, undefined, {
+        toolId: call.name,
+        nextMessages,
+        iterationAppended,
+      });
+    }
+    case 'answered':
+      return answerCall(step, started, nextMessages);
+    case 'running':
+      return finishRun(step, started, nextMessages);
+  }
+}
+
+/** A call that runs nothing: its result stored and told to the model like a tool's own. */
+async function answerCall(
+  step: StepCalls,
+  answered: AnsweredCall,
+  nextMessages: readonly ModelMessage[],
+): Promise<ModelMessage[]> {
+  const { ctx, iterationAppended } = step;
+  const { call, binding } = answered;
+  const started = Date.now();
   await emitTurnEvent(ctx.bindings.onEvent, {
-    kind: 'tool.completed',
-    step,
+    kind: 'tool.started',
+    step: step.step,
     toolId: call.name,
     toolVersion: binding.resolvedVersion,
     toolVersionRange: binding.requestedRange,
     invocationId: call.id,
-    output: denied as never,
-    durationMs: Date.now() - started,
+    arguments: call.arguments,
   });
-  return nextMessages;
+  const next = await appendToolResult(ctx, call, answered.output, {
+    toolId: binding.tool.id as unknown as string,
+    nextMessages,
+    iterationAppended,
+  });
+  await emitTurnEvent(ctx.bindings.onEvent, {
+    kind: 'tool.completed',
+    step: step.step,
+    toolId: call.name,
+    toolVersion: binding.resolvedVersion,
+    toolVersionRange: binding.requestedRange,
+    invocationId: call.id,
+    output: answered.output as never,
+    durationMs: Date.now() - started,
+    ...(answered.replay !== undefined && { replay: answered.replay }),
+  });
+  return next;
 }
 
-async function dispatchOne(
-  ctx: TurnContext,
+/** A call whose tool ran: its result stored, or its failure sent back or failing the turn. */
+async function finishRun(
+  step: StepCalls,
+  running: RunningCall,
+  nextMessages: readonly ModelMessage[],
+): Promise<ModelMessage[]> {
+  const { ctx, iterationAppended } = step;
+  const { call, binding } = running;
+  const settled = await running.settled;
+  if ('threw' in settled) throw settled.threw;
+  const result =
+    settled.invoked.kind === 'ok'
+      ? await persistResult(ctx, binding.tool, call, settled.invoked.value)
+      : settled.invoked;
+  if (result.kind === 'err') {
+    await emitTurnEvent(ctx.bindings.onEvent, {
+      kind: 'tool.failed',
+      step: step.step,
+      toolId: call.name,
+      invocationId: call.id,
+      error: { code: result.error.code, message: result.error.message },
+    });
+    return retryOrFail(ctx, call, result.error, result.error.validationIssues, {
+      toolId: binding.tool.id as unknown as string,
+      nextMessages,
+      iterationAppended,
+    });
+  }
+
+  ctx.appended.push(result.value.persisted);
+  iterationAppended.push(result.value.persisted);
+  await emitTurnEvent(ctx.bindings.onEvent, {
+    kind: 'tool.completed',
+    step: step.step,
+    toolId: call.name,
+    toolVersion: binding.resolvedVersion,
+    toolVersionRange: binding.requestedRange,
+    invocationId: call.id,
+    output: result.value.persisted.content,
+    // The tool's own time: from its start until it settled.
+    durationMs: settled.at - running.startedAt,
+    // A recomputed call ran, as a live one does.
+    ...(running.replayed !== undefined && { replay: 'live' as const }),
+  });
+  return [...nextMessages, result.value.toolMessage];
+}
+
+/** A denied call's result, `{ status: 'denied', reason }`, stored and told to the model like any other. */
+function deniedResult(reason: string): { readonly status: 'denied'; readonly reason: string } {
+  return { status: 'denied', reason };
+}
+
+/** Run `call`'s tool. */
+async function invokeOne(
+  step: StepCalls,
   tool: Tool,
   call: ModelToolCall,
-  kctx: NodeContext,
+  abortSignal: AbortSignal,
   replayEnv?: Readonly<Record<string, string>>,
-): Promise<
-  | {
-      readonly kind: 'ok';
-      readonly value: {
-        readonly persisted: ConversationMessage;
-        readonly toolMessage: ModelMessage;
-      };
-    }
-  | {
-      readonly kind: 'err';
-      readonly error: {
-        readonly code: 'tool-invocation-failed';
-        readonly message: string;
-        readonly toolId: string;
-        readonly cause: unknown;
-        readonly validationIssues?: readonly Readonly<Record<string, unknown>>[];
-        readonly receivedInput?: unknown;
-      };
-    }
-> {
+): Promise<Invoked> {
+  const { ctx, kctx } = step;
   const runId = kctx.runId as unknown as string;
   const toolId = tool.id as unknown as string;
   const toolCtx: ToolContext = {
@@ -770,7 +937,9 @@ async function dispatchOne(
         callId: call.id,
       }),
     }),
-    abortSignal: ctx.turnAbort.signal,
+    // The turn's, and its batch's: a call running alongside one that fails
+    // the turn is stopped.
+    abortSignal,
     // HTTP tools built via defineTool({spec: {kind: 'http'}}) resolve declared
     // secret_refs at invoke time. Present iff the caller wired
     // `bindings.resolveSecret` from a tenant-scoped `SecretBinding`.
@@ -785,46 +954,63 @@ async function dispatchOne(
     ...(replayEnv !== undefined && { env: replayEnv }),
   };
   const result = await invokeTool(tool, call.arguments, toolCtx);
-  if (result.kind === 'err') {
-    // Hoist AJV validation detail from the inner error so it survives
-    // `toWireError` (which filters `cause` to avoid Error-instance /
-    // cycle hazards). Two validation paths emit different field names
-    // for the AJV array:
-    //   - `packages/handler-runtime/src/handler-runner.ts` (pack code,
-    //     run by the pack service) → `issues`
-    //   - `packages/tools/src/invoke.ts` (in-process dispatch) → `errors`
-    // Accept either. If neither shape is present, no hoisting —
-    // the outer `tool-invocation-failed` stays minimal.
-    const inner = result.error as {
-      readonly code?: string;
-      readonly issues?: readonly Readonly<Record<string, unknown>>[];
-      readonly errors?: readonly Readonly<Record<string, unknown>>[];
-    };
-    const rawIssues = Array.isArray(inner.issues)
-      ? inner.issues
-      : Array.isArray(inner.errors)
-        ? inner.errors
-        : undefined;
-    const isValidationFailure = inner.code === 'input-validation-failed' && rawIssues !== undefined;
-    return {
-      kind: 'err',
-      error: {
-        code: 'tool-invocation-failed',
-        message: result.error.message,
-        toolId: call.name,
-        cause: result.error,
-        ...(isValidationFailure && {
-          validationIssues: rawIssues,
-          receivedInput: truncateForWire(call.arguments),
-        }),
-      },
-    };
-  }
+  if (result.kind === 'ok') return { kind: 'ok', value: result.value };
+  // Hoist AJV validation detail from the inner error so it survives
+  // `toWireError` (which filters `cause` to avoid Error-instance /
+  // cycle hazards). Two validation paths emit different field names
+  // for the AJV array:
+  //   - `packages/handler-runtime/src/handler-runner.ts` (pack code,
+  //     run by the pack service) → `issues`
+  //   - `packages/tools/src/invoke.ts` (in-process dispatch) → `errors`
+  // Accept either. If neither shape is present, no hoisting —
+  // the outer `tool-invocation-failed` stays minimal.
+  const inner = result.error as {
+    readonly code?: string;
+    readonly issues?: readonly Readonly<Record<string, unknown>>[];
+    readonly errors?: readonly Readonly<Record<string, unknown>>[];
+  };
+  const rawIssues = Array.isArray(inner.issues)
+    ? inner.issues
+    : Array.isArray(inner.errors)
+      ? inner.errors
+      : undefined;
+  const isValidationFailure = inner.code === 'input-validation-failed' && rawIssues !== undefined;
+  return {
+    kind: 'err',
+    error: {
+      code: 'tool-invocation-failed',
+      message: result.error.message,
+      toolId: call.name,
+      cause: result.error,
+      ...(isValidationFailure && {
+        validationIssues: rawIssues,
+        receivedInput: truncateForWire(call.arguments),
+      }),
+    },
+  };
+}
+
+/** Store a tool's result in the conversation, with the message the model reads for it. */
+async function persistResult(
+  ctx: TurnContext,
+  tool: Tool,
+  call: ModelToolCall,
+  value: unknown,
+): Promise<
+  | {
+      readonly kind: 'ok';
+      readonly value: {
+        readonly persisted: ConversationMessage;
+        readonly toolMessage: ModelMessage;
+      };
+    }
+  | { readonly kind: 'err'; readonly error: ToolInvocationError }
+> {
   const persist = await ctx.bindings.conversationBinding.appendMessage({
     tenantId: ctx.input.tenantId,
     conversationId: ctx.input.conversationId,
     role: 'tool',
-    content: (result.value as unknown as string | Record<string, unknown>) ?? '',
+    content: (value as string | Record<string, unknown>) ?? '',
     toolCall: { toolId: tool.id, invocationId: call.id },
   });
   if (persist.kind === 'err') {
@@ -846,7 +1032,7 @@ async function dispatchOne(
       persisted: persist.value,
       toolMessage: {
         role: 'tool',
-        content: typeof result.value === 'string' ? result.value : JSON.stringify(result.value),
+        content: typeof value === 'string' ? value : JSON.stringify(value),
         toolCallId: call.id,
       },
     },

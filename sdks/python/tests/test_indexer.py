@@ -260,6 +260,23 @@ def test_an_agent_declares_how_it_uses_memory(make_pack: Callable[..., Path]) ->
     assert entry["retrieval"] == [{"types": ["acme.note"], "scope": "same-user", "mode": "both"}]
 
 
+def test_an_agent_can_run_its_read_only_calls_one_at_a_time(
+    make_pack: Callable[..., Path],
+) -> None:
+    def desk(extra: str) -> str:
+        return (
+            "from kindgi import Agent\n"
+            f'desk = Agent(id="acme.desk", version="1.0.0", name="Desk", instructions="Help."{extra})\n'
+        )
+
+    for extra, expected in [(", parallel_tool_calls=False", False), ("", None)]:
+        report, index = index_of(full_pack(make_pack, **{"agents/desk.py": desk(extra)}))
+        assert report["fileErrors"] == []
+        (entry,) = [a for a in index["agents"] if a["id"] == "acme.desk"]
+        assert entry.get("parallelToolCalls", None) is expected
+        assert ("parallelToolCalls" in entry) is (expected is not None)
+
+
 def test_an_agent_that_sets_auto_close_is_refused(make_pack: Callable[..., Path]) -> None:
     # A conversation never closes by itself, so the setting isn't supported.
     def desk(policy: str) -> str:
