@@ -375,8 +375,8 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/purge" \
   place as the command's `--record`. Unset, every purge is refused with
   `409 purge-record-unset`: without a record, restoring a backup taken
   before the purge would bring the tenant back, with nothing to purge it
-  again (`kindgi-runtime tenants repurge` reads the records after a
-  restore).
+  again ([`kindgi-runtime tenants repurge`](#after-a-restore-tenants-repurge)
+  reads the records after a restore).
 - **It answers when it's done,** after its wait. The answer names each
   table's rows it deleted (`deleted`), the objects deleted from the
   artifacts' store (`objectsDeleted`), and whether its authorization store
@@ -457,16 +457,70 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
   that still holds rows, by table and count: rows only, not the bytes under
   its prefix.
 - **`--record`** (`local:<dir>` or `gcs:<bucket>[/<prefix>]`) keeps a record
-  of each purge. After a [restore](../back-up-and-restore/), and before the
-  runtime serves, `kindgi-runtime tenants repurge --from <where>` purges
-  again every tenant a record names. On one still marked purged, it deletes
-  what's of it, and leaves its mark and its record as they were.
+  of each purge, `purged/<tenant id>.json` under it. After a restore,
+  [`tenants repurge`](#after-a-restore-tenants-repurge) reads them.
 - **One purge of a tenant runs at a time** (runtime 0.1.10 or later): a
   second, here or through the system API, waits for the first to finish.
   Every 30 seconds of waiting it says
   `tenants purge: waiting for another purge of tenant <id> to finish (30 s so far)`
   on stderr. `tenants repurge` waits the same way, tenant by tenant:
   `tenant <id>: waiting for another purge of it to finish (30 s so far)`.
+
+### After a restore: tenants repurge
+
+A backup taken before a tenant's purge brings the tenant back with its data,
+and [replaying the erasure ledger](../back-up-and-restore/) doesn't purge it.
+After a restore, before the runtime serves anyone, purge every purged tenant
+again:
+
+```sh
+kindgi-runtime tenants repurge --from <where> --ledger <where>
+```
+
+- **Two sources name the tenants:** the purge records under `--from`
+  (`local:<dir>` or `gcs:<bucket>[/<prefix>]`, where `--record` and
+  `KINDGI_TENANT_PURGE_RECORD` write them), and the newest copy of the
+  erasure ledger under `--ledger` (runtime 0.1.10 or later), which names
+  every tenant purged before it was written, however long ago. A record can
+  be gone, deleted by a bucket's retention rule, say; the copy still names
+  its tenant. A tenant both name is purged once.
+- **`--ledger`** takes what `erasures replay --from` takes: a directory, a
+  bucket, or one file by its absolute path. Left out, it's
+  `KINDGI_ERASURE_LEDGER_EXPORT`, where the server writes its copies. With
+  neither, it goes by the records alone, and says so:
+  `No --ledger or KINDGI_ERASURE_LEDGER_EXPORT: the records alone, so a tenant whose record is gone isn't found.`
+  With no copy where it looks, it stops:
+  `tenants repurge: no copy of the erasure ledger in <where>.`
+- **One bucket can hold both,** for example the records under `purged/`
+  (`--from gcs:<bucket>`) and the server's copies under `runtime/`
+  (`--ledger gcs:<bucket>/runtime`). Reading a bucket, it lists and
+  downloads, so whatever runs it needs read access to it, as
+  [replay](../back-up-and-restore/) does.
+- **Run it with `--dry-run` first,** and nothing changes. Its first line
+  says what it read:
+  `tenants repurge --dry-run: <n> purge records, and the ledger's copy <file> (written <when>; <n> purged tenants). Nothing will be changed.`
+  A copy names purged tenants when runtime 0.1.10 or later wrote it. An
+  earlier one says `version 1, which names no purged tenant`, and only the
+  records name tenants then. A line for each tenant follows, by id and
+  slug, with what named it (`its record`, `the ledger's copy`, or both) and
+  what a run would do: `would be purged again`, with its state and what it
+  holds;
+  `already purged; what was written of it after its mark would be deleted`;
+  or `already purged, and nothing of it is left`.
+- **Each tenant is purged again,** whatever its restored row says: a restore
+  can bring it back active, or closing. On one still marked purged, it
+  deletes what's of it, and leaves its mark and its record as they were.
+- **Skipped or refused:** a tenant the database doesn't have is skipped
+  (`not in this database, skipped`). One whose record or entry in the copy
+  isn't its own is refused, and named. That's checked by when the tenant was
+  created, which a rename doesn't change
+  (`refused: its record's createdAt isn't this tenant's.`), and, for a
+  record without a creation time, by the tenant's slug.
+- **Exit `0`:** done. **`1`:** rows of a tenant are left, named
+  (`tenant <id>: left: <table>: <n> rows`): run it again. **`2`:** a tenant
+  was refused, as above or for a setting the run lacks (artifacts or an
+  OpenFGA store, and no `KINDGI_ARTIFACTS` or `KINDGI_OPENFGA_API_URL`), or
+  it couldn't run.
 
 ## After each upgrade: tenants repair
 

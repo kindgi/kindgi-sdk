@@ -287,7 +287,11 @@ can export them all:
 **What each copy is:**
 - one file, `erasure-ledger-<YYYYMMDD>-<digest>.json`, holding every tenant's
   ledger: keyed hashes only, never whom an erasure names;
-- a new one is written when the ledger changes, and at least one a day;
+- every tenant marked purged, by its id and when it was created (runtime
+  0.1.10 or later). A runtime that serves one tenant names only that tenant,
+  even on a database others share;
+- a new one is written when the ledger changes or a tenant is purged, and at
+  least one a day;
 - none is ever overwritten or deleted, so keep them longer than your
   backups (a bucket's lifecycle rule, say).
 
@@ -325,8 +329,24 @@ docker run --rm --network kindgi --env-file kindgi.env \
   hold (set the key it was made with, and replay again), or one isn't done by
   `--timeout` (seconds, default 600). Exit `2` when it can't run.
 
+**Then purge the purged tenants again** (runtime 0.1.10 or later). A backup
+from before a tenant's purge brings the tenant back with its data, and replay
+doesn't purge it. Before the runtime serves anyone, run
+[`kindgi-runtime tenants repurge`](../serve-many-tenants/#after-a-restore-tenants-repurge)
+with `--ledger` where the copies are (`KINDGI_ERASURE_LEDGER_EXPORT` by
+default). The newest copy names every
+tenant purged before it was written, even one whose purge record is gone.
+
 `erasures export --out <local:<dir> | gcs:<bucket>[/<prefix>]>` writes a copy
-now, before an upgrade say.
+now, before an upgrade say, and says what it holds (`already there:` in
+place of `wrote` when a copy holding the same is there):
+
+```text
+erasures export: wrote erasure-ledger-<YYYYMMDD>-<digest>.json (2 tenants, 3 erasures, 1 purged tenant)
+```
+
+The server logs each copy it writes the same way, as
+`erasure ledger exported: <file> to <where> (…)`.
 
 ### Look at a restored copy before it serves: `KINDGI_PASSIVE`
 
