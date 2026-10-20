@@ -7,7 +7,7 @@
  * and registry config only as a build secret.
  */
 
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -436,6 +436,66 @@ describe('installLine', () => {
       "    ✓ Install: dev dependencies too, since yarn berry's production install resolves what yarn.lock lacks instead of failing; pruned to production after, then trimmed to what the pack loads\n" +
         "      It downloads the app's whole install first, since yarn berry's lockfile can't be cut down by hand and still install immutably.",
     );
+  });
+});
+
+describe("the 'loaded' install lines the docs show are installLine's", () => {
+  /** The pages that show them, and how many each shows. */
+  const PAGES = [
+    ['packages/cli/README.md', 2],
+    ['site/src/content/docs/start/existing-app-typescript.md', 1],
+  ] as const;
+  const FIRST =
+    /^( *)✓ Install: (only what the pack loads, |.*, then trimmed to what the pack loads$)/;
+
+  /** Each captured line of a 'loaded' install, with every line under it up to the fence, at installLine's indent. */
+  function captures(text: string): string[] {
+    const lines = text.split('\n');
+    const found: string[] = [];
+    lines.forEach((line, i) => {
+      const indent = FIRST.exec(line)?.[1];
+      if (indent === undefined) return;
+      const fence = lines.findIndex((l, j) => j > i && l.trim().startsWith('```'));
+      expect(fence, `the code block of "${line.trim()}" ends`).toBeGreaterThan(i);
+      found.push(
+        lines
+          .slice(i, fence)
+          .map((l) => l.slice(indent.length - 4))
+          .join('\n'),
+      );
+    });
+    return found;
+  }
+
+  /** What installLine prints for the install the captured lines describe. */
+  function printed(capture: string): string {
+    const install = { manager: 'pnpm', yarnBerry: false } as const;
+    const cut = /only what the pack loads, (\d+) of the lockfile's (\d+) packages;/.exec(capture);
+    if (cut !== null) {
+      const names = /its tools don't import: (.+)$/m.exec(capture)?.[1];
+      const leftOut = names === undefined ? [] : names.split(', ');
+      const reduced = {
+        written: {},
+        copied: [],
+        kept: Number(cut[1]),
+        total: Number(cut[2]),
+        leftOut,
+      };
+      return installLine({ ...install, reduced }, []);
+    }
+    // The reducer's own reason for a local package (build-loaded-install.test.ts).
+    expect(capture).toMatch(
+      /^ +It downloads the app's whole install first, since \S+ is a local package \((link|file|workspace):[^)]+\)\.$/m,
+    );
+    const reason = /It downloads the app's whole install first, since (.+)\.$/m.exec(capture)?.[1];
+    return installLine(install, [], reason);
+  }
+
+  test.each(PAGES)('%s', async (page, count) => {
+    const text = await readFile(new URL(`../../../${page}`, import.meta.url), 'utf8');
+    const shown = captures(text);
+    expect(shown).toHaveLength(count);
+    for (const capture of shown) expect(capture).toBe(printed(capture));
   });
 });
 

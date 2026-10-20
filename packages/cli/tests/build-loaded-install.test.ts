@@ -87,11 +87,22 @@ function inputs(fixture: LockFixture, more: Partial<ReduceInputs> = {}): ReduceI
   return { ...fixture, roots: [], tools: [], ...more };
 }
 
+/**
+ * That `outcome` is of `kind`, by assertion: another kind fails the test
+ * on this line, showing the outcome (its reason or message), and isn't
+ * an error thrown later.
+ */
+function expectKind<O extends { readonly kind: string }, K extends O['kind']>(
+  outcome: O,
+  kind: K,
+): asserts outcome is Extract<O, { readonly kind: K }> {
+  expect(outcome, JSON.stringify(outcome)).toMatchObject({ kind });
+}
+
 /** Cut down, and checked against the app's lockfile: the written files, parsed. */
 function reduce(fixture: LockFixture, more: Partial<ReduceInputs> = {}) {
   const outcome = reduceInstall(inputs(fixture, more));
-  if (outcome.kind !== 'reduced')
-    throw new Error(`${outcome.kind}: ${'reason' in outcome ? outcome.reason : outcome.message}`);
+  expectKind(outcome, 'reduced');
   const { reduced } = outcome;
   const lockText = reduced.written[fixture.lockfile.name] ?? '';
   const manifestText = reduced.written['package.json'] ?? '';
@@ -111,8 +122,9 @@ function reduce(fixture: LockFixture, more: Partial<ReduceInputs> = {}) {
 /** A pnpm lockfile's project document (the last), parsed. */
 function pnpmLock(text: string): Json {
   const docs = parseAllDocuments(text);
-  if (!Array.isArray(docs)) throw new Error('not YAML');
-  return docs[docs.length - 1]?.toJS() as Json;
+  expect(Array.isArray(docs), 'a pnpm lockfile is YAML documents').toBe(true);
+  const list = Array.isArray(docs) ? docs : [];
+  return list[list.length - 1]?.toJS() as Json;
 }
 
 function yarnKeys(text: string): string[] {
@@ -881,7 +893,7 @@ describe('checkReducedLockfile', () => {
     change: (files: { lock: string; manifest: string }) => { lock: string; manifest: string },
   ) {
     const outcome = reduceInstall(inputs(fixture, more));
-    if (outcome.kind !== 'reduced') throw new Error(outcome.kind);
+    expectKind(outcome, 'reduced');
     const files = change({
       lock: outcome.reduced.written[fixture.lockfile.name] ?? '',
       manifest: outcome.reduced.written['package.json'] ?? '',
@@ -1217,7 +1229,7 @@ describe('loadedInstall', () => {
       bin: { tool: 'cli.js' },
     });
     const outcome = await resolveHostInstall(root);
-    if (outcome.kind !== 'ok') throw new Error(outcome.message);
+    expectKind(outcome, 'ok');
     return outcome.install;
   }
 
@@ -1239,7 +1251,7 @@ describe('loadedInstall', () => {
   test("what the pack loads, found as Node finds it, cut down and checked: one project, the cut-down files the context's", async () => {
     const install = await npmApp();
     const outcome = await loadedInstall(options(install));
-    if (outcome.kind !== 'reduced') throw new Error(JSON.stringify(outcome));
+    expectKind(outcome, 'reduced');
     expect(outcome.install.workspace).toBe(false);
     expect(outcome.install.files).toEqual(['package-lock.json', 'package.json']);
     expect(outcome.install.projectManifests).toEqual([]);
@@ -1260,7 +1272,7 @@ describe('loadedInstall', () => {
         image: { keep: ['a', '.prisma/client'], keepIfInstalled: ['c', 'not-installed'] },
       }),
     );
-    if (outcome.kind !== 'reduced') throw new Error(JSON.stringify(outcome));
+    expectKind(outcome, 'reduced');
     expect(JSON.parse(outcome.install.reduced?.written['package.json'] ?? '').dependencies).toEqual(
       { a: '1.0.0', c: '1.0.0' },
     );
@@ -1270,7 +1282,7 @@ describe('loadedInstall', () => {
     const install = await npmApp();
     const step = (bin: string) => ({ extension: 'acme', bin, args: [] });
     const outcome = await loadedInstall(options(install, { image: { steps: [step('tool')] } }));
-    if (outcome.kind !== 'reduced') throw new Error(JSON.stringify(outcome));
+    expectKind(outcome, 'reduced');
     expect(
       JSON.parse(outcome.install.reduced?.written['package.json'] ?? '').devDependencies,
     ).toEqual({ tool: '1.0.0' });
@@ -1341,9 +1353,9 @@ describe('loadedInstall', () => {
     });
     await put('node_modules/react/package.json', { name: 'react', version: '18.3.1' });
     const resolved = await resolveHostInstall(root);
-    if (resolved.kind !== 'ok') throw new Error(resolved.message);
+    expectKind(resolved, 'ok');
     const outcome = await loadedInstall(options(resolved.install, { externals: ['react-dom'] }));
-    if (outcome.kind !== 'reduced') throw new Error(JSON.stringify(outcome));
+    expectKind(outcome, 'reduced');
     expect(JSON.parse(outcome.install.reduced?.written['package.json'] ?? '').dependencies).toEqual(
       {
         react: '18.3.1',
