@@ -36,6 +36,30 @@ egress, not the VPC, so the pack service has to accept all traffic. IAM still
 admits only the runtime's service account. The module refuses connector mode
 without `vpc_connector` or without that ingress, and says which.
 
+### Cloud NAT ports
+
+With `direct`, the services' calls to the internet go out through the
+module's Cloud NAT, and so do Cloud Run's Cloud SQL connections to a
+database on a public IP. The NAT gives each instance ports, one per
+connection open at the same time to one destination (an address, port and
+protocol). A closed connection's port stays taken for
+`nat_tcp_time_wait_timeout_sec`, 30 seconds by default.
+
+Each instance starts with `nat_min_ports_per_vm` ports, 64 by default. When
+it nears that limit, the NAT doubles its ports, up to `nat_max_ports_per_vm`,
+4096 by default. While the NAT adds ports, a new connection can time out. The
+NAT's `router.googleapis.com/nat/dropped_sent_packets_count` metric counts
+such drops, with `reason = OUT_OF_RESOURCES`. If it shows any, raise
+`nat_min_ports_per_vm`. Each NAT address has 64,512 ports for all instances
+together, and with `nat_static_ip` its one address is the ceiling.
+
+Lowering `nat_max_ports_per_vm` later breaks the NAT's open connections
+([Google's list of NAT changes that drop connections](https://docs.cloud.google.com/nat/docs/tune-nat-configuration)).
+Upgrading from a module copy with fixed ports doesn't, as long as
+`nat_max_ports_per_vm` stays at 1024 or more. Cloud NAT bills by the
+instances using it, the data it processes and its addresses, not by port
+([Cloud NAT pricing](https://cloud.google.com/nat/pricing)).
+
 ## Without a KMS key
 
 By default, with `secrets_backend = "postgres"`, the secrets set through
