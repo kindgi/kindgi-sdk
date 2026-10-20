@@ -41,6 +41,8 @@ interface Setup {
   readonly replay?: boolean;
   /** Counts the tool's runs, readable when the step throws. */
   readonly runs?: { count: number };
+  /** The version the turn resolved for the tool (default 1.0.0). */
+  readonly version?: string;
 }
 
 /** One model tool call through dispatch-tools: whether the tool ran, what was appended, what was asked. */
@@ -55,7 +57,7 @@ async function dispatch(setup: Setup = {}) {
   const defined = defineTool<Record<string, unknown>, { ok: boolean }>({
     id: 'pack.refund' as ToolId,
     description: 'Refunds an order.',
-    version: '1.0.0',
+    version: setup.version ?? '1.0.0',
     input: { type: 'object', additionalProperties: true },
     output: {
       type: 'object',
@@ -118,7 +120,9 @@ async function dispatch(setup: Setup = {}) {
     },
     tools: {
       definitions: [],
-      byName: new Map([[tool.id, { tool, resolvedVersion: '1.0.0', requestedRange: '^1.0.0' }]]),
+      byName: new Map([
+        [tool.id, { tool, resolvedVersion: setup.version ?? '1.0.0', requestedRange: '^1.0.0' }],
+      ]),
     },
     turnAbort: new AbortController(),
     appended: [],
@@ -160,11 +164,27 @@ function lostAfterFirst(): (input: AuthorizeInput) => Promise<ToolCallAuthorizat
 }
 
 describe('authorizeToolCall', () => {
-  test("is asked with the turn's tenant, project, principal and the tool", async () => {
+  test("is asked with the turn's tenant, project, principal, the tool and the version it runs", async () => {
     const { asked } = await dispatch({ decide: async () => ({ allowed: true }) });
     expect(asked).toEqual([
-      { tenantId: 't-1', projectId: 'project-1', principal: PRINCIPAL, toolId: 'pack.refund' },
+      {
+        tenantId: 't-1',
+        projectId: 'project-1',
+        principal: PRINCIPAL,
+        toolId: 'pack.refund',
+        toolVersion: '1.0.0',
+      },
     ]);
+  });
+
+  test('the version is the one the turn resolved for the range, before the call and once approved', async () => {
+    const { asked, ran } = await dispatch({
+      version: '1.4.2',
+      gated: true,
+      decide: async () => ({ allowed: true }),
+    });
+    expect(asked.map((input) => input.toolVersion)).toEqual(['1.4.2', '1.4.2']);
+    expect(ran()).toBe(1);
   });
 
   test('a denied call runs nothing; its result tells the model why, and the turn goes on', async () => {
