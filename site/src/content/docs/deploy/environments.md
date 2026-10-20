@@ -102,7 +102,8 @@ environment: make it live there, then promote it.
   makes one ([Organize by org and project](../../guides/projects/organize-by-org-and-project/)).
   An order has two or more projects. They all sit directly in the tenant, or
   all in the same org. A project is in one order at most. While it's in
-  one, it can't be deleted, or moved into or out of an org.
+  one, it can't be deleted, or moved into or out of an org. An org that
+  holds an order can't be deleted until the order is cleared.
 - **On your own runtime, its values kept under one env.** Set `KINDGI_ENV`
   to the env it serves, and `KINDGI_REFUSE_OTHER_ENVS=true`
   ([`KINDGI_REFUSE_OTHER_ENVS`](../../reference/env-vars/#kindgi_refuse_other_envs)).
@@ -385,6 +386,30 @@ The other environments aren't, so their runs count as staging.
   **Roll back**. Those change what's live in that environment only. Each
   agent in a column links to it.
 
+## Who may do what in each environment
+
+With authorization on, each project that serves an item governs it there.
+The item can be an agent, a flow, a tool, a guardrail, a data block or a
+test set.
+
+- **Reading it** takes `read` on it, or on any project that serves it. You
+  see a version only when it can run in a project you read. To get the
+  version that runs in one project, name it: `?projectId=<id>` on the
+  `GET` of an agent, a flow, a tool, a data block or a test set, or
+  `get(id, { projectId })` in the TypeScript client (`project_id` in
+  Python).
+- **Making a version live, or rolling it back,** takes `admin` on that
+  environment's project.
+- **Making a new version,** such as a prompt or settings change, an
+  accepted proposal or an Improve pass, takes `write` on the first
+  environment's project, where new versions are made.
+- **Starting a run** takes `editor` on the project the run lands in, or a
+  grant to run the agent or flow there. A schedule or a webhook trigger is
+  checked in its own project.
+- **A key limited to one project** reaches only what that project serves.
+
+A refusal names the project it was checked on.
+
 ## If something goes wrong
 
 - **A command with `--env` is refused.**
@@ -440,6 +465,14 @@ The other environments aren't, so their runs count as staging.
   order. Set the order without it, or clear it, first. Renaming it isn't
   refused. If you change its slug, change the `project` that names it in
   `kindgi.config.ts` too.
+- **Deleting an org is refused (`org-has-environment-order`).** The org
+  holds an environment order, and nothing is changed. A tenant admin clears
+  the order first, with `kindgi environments clear --org=<org-id>`, then
+  deletes the org.
+- **Making a version live for the whole tenant or an org is refused
+  (`live-scope-spans-environments`).** An agent with a project in an order
+  is made live one project at a time. Make it live in one environment's
+  project, or promote with `--make-live`.
 - **A project outside the order can't take the pack.** Its ids already
   belong to a project in the order, so the deploy is refused with
   `409 tool-project-mismatch` (or `agent-…`, `flow-…`, `guardrail-…`), and
