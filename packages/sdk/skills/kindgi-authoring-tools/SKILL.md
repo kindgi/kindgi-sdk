@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.10"
+version: "0.4.11"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -293,7 +293,7 @@ const result = await invokeTool(lookupOrder, { orderId: 'ord_1001' }, toolContex
 
 ## Shared code
 
-Code several tools share (schemas, a client, helpers) goes outside `tools/`, for example in `lib/` beside it. Discovery loads every `.ts`, `.js` and `.mjs` file under `tools/` (tests aside) as a primitive, so a helper there fails the index. Don't put it in the app's own source either: import the app's functions from where they are, and keep what's Kindgi's in the pack's folder.
+Code several tools share (schemas, a client, helpers) goes outside `tools/`, for example in `lib/` beside it. Discovery loads every `.ts`, `.js` and `.mjs` file under `tools/` (tests aside) as a primitive, so a helper there fails the index. Don't put it in the app's own source either: import the app's functions from where they are (unless their module imports `server-only`: see mistake 12), and keep what's Kindgi's in the pack's folder.
 
 ## Wiring the tool onto an agent
 
@@ -382,6 +382,21 @@ run start via `semver.maxSatisfying`. No implicit `:latest`.
     needs a path names it in `kindgi.config.ts`: `dev: { sandbox: { allowRead: ['~/.aws'] } }`.
     Never set `KINDGI_DEV_SANDBOX=off` or `dev.sandbox: false` to get past it
     (https://docs.kindgi.com/v0.1/guides/secrets/dev-sandbox/).
+
+12. **Importing a Next.js module that has `import 'server-only'`.** Outside
+    Next.js that line stops the module from loading, so the tool fails
+    `kindgi test`, `kindgi dev` and `kindgi build`. When the app doesn't
+    install the package (Next.js doesn't need it), `kindgi test` fails with
+    `Cannot find package 'server-only'`, and `kindgi dev` and `kindgi build`
+    with `Could not resolve "server-only"`. When it does, all three fail
+    with the package's own "This module cannot be imported from a Client
+    Component module". Don't remove the line, and don't alias `server-only`
+    away in the vitest config: the build still fails. Move the code the tool
+    needs, as it is, to a module without the line (`lib/orders-core.ts`).
+    The guarded module keeps the line and re-exports it
+    (`import 'server-only'; export * from './orders-core';`), so the app's
+    own imports don't change, and the tool imports the new module. Nothing
+    guards it, so only the app's server code and the pack should import it.
 
 ## References
 

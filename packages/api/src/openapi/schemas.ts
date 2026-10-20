@@ -2186,7 +2186,7 @@ export const ApprovalCollectionPageSchema: JsonSchema = {
       type: 'string',
       enum: ['me'],
       description:
-        '`me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.',
+        '`me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.9, which ignores `decidedBy` and lists them all.',
     },
   },
 };
@@ -2438,6 +2438,17 @@ export const SiteEnrollmentCodeSchema: JsonSchema = {
   properties: {
     code: { type: 'string' },
     expiresAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const SitePersonRestoreResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['user'],
+  description:
+    "A site's person let back in after a removal made in Kindgi (`POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`).",
+  properties: {
+    user: { $ref: '#/components/schemas/UserRecord' },
   },
 };
 
@@ -3699,7 +3710,7 @@ export const ToolSpecSchema: JsonSchema = {
 
 export const RecordedSecretScopeSchema: JsonSchema = {
   description:
-    "Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.",
+    "Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.",
   oneOf: [
     {
       type: 'object',
@@ -4239,7 +4250,7 @@ export const ConversationCollectionPageSchema: JsonSchema = {
       type: 'string',
       enum: ['me'],
       description:
-        "`me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.",
+        "`me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.9, which ignores `openedBy` and lists everyone's.",
     },
   },
 };
@@ -9396,13 +9407,13 @@ const USER_PROPERTIES: Record<string, JsonSchema> = {
   invite: {
     $ref: '#/components/schemas/UserInvite',
     description:
-      "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).",
+      "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.9).",
   },
   firstSignedInAt: {
     type: 'string',
     format: 'date-time',
     description:
-      'Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).',
+      'Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).',
   },
   metadata: { type: 'object', additionalProperties: true },
 };
@@ -10935,12 +10946,12 @@ export const DeploymentCollectionPageSchema: JsonSchema = {
     projectId: {
       type: 'string',
       description:
-        "The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `projectId` and lists them all.",
+        "The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `projectId` and lists them all.",
     },
     packId: {
       type: 'string',
       description:
-        "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `packId` and lists them all.",
+        "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `packId` and lists them all.",
     },
   },
 };
@@ -14379,6 +14390,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateSiteBody', UpdateSiteBodySchema],
   ['SiteEnrollmentCode', SiteEnrollmentCodeSchema],
   ['RegisterSiteResult', RegisterSiteResultSchema],
+  ['SitePersonRestoreResult', SitePersonRestoreResultSchema],
   ['EnrollSiteBody', EnrollSiteBodySchema],
   ['EnrollSiteResult', EnrollSiteResultSchema],
   ['SiteSignInBody', SiteSignInBodySchema],

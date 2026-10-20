@@ -94,7 +94,7 @@ describe('kindgi approvals', () => {
     });
     expect(out.exitCode).toBe(1);
     expect(out.stdout).toBe('');
-    expect(out.stderr).toBe('Error: --decided-by needs a runtime on Kindgi 0.1.8.1 or later.\n');
+    expect(out.stderr).toBe('Error: --decided-by needs a runtime on Kindgi 0.1.9 or later.\n');
   });
 
   test('list refuses an unknown status', async () => {

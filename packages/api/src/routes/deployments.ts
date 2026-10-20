@@ -18,7 +18,7 @@ import {
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
 import { resolvePackEnv } from '@kindgi/handler-runtime/pack-env';
-import type { ProjectBinding, Scope } from '@kindgi/platform';
+import type { ProjectBinding } from '@kindgi/platform';
 import { SchemaCompileBudgetError, compileInlineSchema } from '@kindgi/schema';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
 import type {
@@ -42,7 +42,6 @@ import {
   type DeployedAgent,
   type DeployedFlow,
   type DeployedVersion,
-  type Deployment,
   type DeploymentBinding,
   type DeploymentPrimitiveCounts,
   type DeploymentRegisterOutcome,
@@ -76,7 +75,12 @@ import {
   reservedToolMetadataMessage,
 } from '../reference-scope.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
-import { callerAdministers, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
+import {
+  callerAdministers,
+  deploymentSecretScope,
+  secretScopesFor,
+  toolSecretRefs,
+} from '../secret-scope.js';
 import { type SecretBinding, secretNameGrammarRefusal } from '../secrets-binding.js';
 import { type ServedEnvRule, readReferencesOnce, refuseUnservedValue } from '../served-env.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
@@ -1008,6 +1012,7 @@ export function deploymentsRouter(
             const projectIdForTool = targetProjectId;
             // Where each secret it names is read: decided now, as the deployer
             // may read them, and kept with this version (`secret-scope.ts`).
+            // One set nowhere yet is read where this deployment's sync writes.
             const secretScopes = await secretScopesFor(
               c,
               {
@@ -1017,6 +1022,7 @@ export function deploymentsRouter(
               },
               { kind: 'project', tenantId, projectId: projectIdForTool },
               toolSecretRefs(tool, bindings.envName),
+              deploymentSecretScope(tenantId, wire.projectId),
             );
             const outcome = await bindings.toolRegistry.publish({
               tenantId,
@@ -1266,7 +1272,7 @@ export function deploymentsRouter(
   //
   // Scope is derived from the target deployment record, NOT accepted from
   // the wire (CRITICAL): the project the deploy named (`projectId`), else
-  // the tenant (`deriveScopeFromDeployment`).
+  // the tenant (`deploymentSecretScope`).
   //
   // Capability: `secrets:write` (fail-closed). Rights: the deployment's
   // read (one the caller doesn't read is a `404`), then `admin` on the
@@ -1312,7 +1318,7 @@ export function deploymentsRouter(
       );
     }
     const deployment = located.deployment;
-    const scope = deriveScopeFromDeployment(deployment);
+    const scope = deploymentSecretScope(deployment.tenantId, deployment.projectId);
     const refused = await deniedBy(authorizer, c, 'admin', scopeResourceRef(scope, tenantId));
     if (refused !== undefined) return refused;
 
@@ -1517,26 +1523,6 @@ export function deploymentsRouter(
   });
 
   return r;
-}
-
-// ------------------------------------------------------------
-// Scope derivation for deployment secret sync
-// ------------------------------------------------------------
-
-/**
- * Derive the write scope for a deployment secret-sync request from
- * the deployment record itself. Never accepts a caller-supplied scope
- * override on the wire (CRITICAL — scope MUST be inferred
- * server-side to prevent tenant/project confusion attacks).
- *
- * A deploy into a named project syncs its secrets into that project; a
- * tenant-wide one (no `projectId`) syncs them tenant-wide.
- */
-function deriveScopeFromDeployment(d: Deployment): Scope {
-  if (d.projectId !== undefined) {
-    return { kind: 'project', tenantId: d.tenantId, projectId: d.projectId } as Scope;
-  }
-  return { kind: 'tenant', tenantId: d.tenantId } as Scope;
 }
 
 type ParsedSyncEntry =

@@ -1588,7 +1588,7 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     expect(run.readIds).toHaveLength(0);
   });
 
-  test('a cleared pack service from a server that says neither (before 0.1.8.1) fails, naming the deployment', async () => {
+  test('a cleared pack service from a server that says neither (before 0.1.9) fails, naming the deployment', async () => {
     await writeAutoEnvelope();
     const run = hostedFixtures(pending(), [cleared]);
     const out = await deploy(run.fixtures, '--hosted');
