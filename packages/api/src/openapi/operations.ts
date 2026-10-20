@@ -4503,14 +4503,19 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'proposals.improveEstimate',
     summary: 'Estimate an improvement pass',
     description:
-      "What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`. The estimate is `min(budget.maxCostUsd, the replay count × the version's mean cost over its recent completed runs)`; `estimatedCostUsd` is absent when the version has no cost history. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+      "What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the agent's project doesn't reach answers `400 reference-out-of-scope`, exactly as `improve` would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count × the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
     tags: ['proposals'],
     security: 'bearer',
     requestBody: { required: true, schema: ref('ImproveBody') },
     responses: {
       '200': { description: 'The estimated cost.', schema: ref('ImprovementPassEstimate') },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Malformed request body (`bad-input`).'),
+      '400': ErrorResponse(
+        "Malformed request body (`bad-input`). Or `reference-out-of-scope`: the test set isn't registered in the agent's project, its org or the tenant, or a project or segment scope doesn't reach the agent (`details.issues`).",
+      ),
+      '404': ErrorResponse(
+        '`fromVersion` (or the version serving the scope) is not an active version (`agent-version-not-found`).',
+      ),
       '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
     },
   },

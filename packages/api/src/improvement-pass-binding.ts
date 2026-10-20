@@ -96,8 +96,13 @@ export interface StartImprovementPassInput {
 export interface EstimateImprovementPassInput {
   readonly tenantId: TenantId;
   readonly agentId: string;
-  /** The version whose cost history the estimate reads; default: the one serving `scope`. */
-  readonly fromVersion?: string;
+  /**
+   * The resolved version whose cost history the estimate reads. The route
+   * resolves it from the body (the one serving `scope` when the body names
+   * none) and 404s an unknown or inactive one, so the binding always gets a
+   * real version.
+   */
+  readonly fromVersion: string;
   readonly scope: LiveScope;
   readonly suiteId: string;
   readonly tiers: readonly ImprovementTier[];

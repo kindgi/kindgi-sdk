@@ -76,7 +76,7 @@ const resolveToken: TokenResolver = async (token) =>
   token === TOKEN ? { tenantId, userId: 'user-1' as UserId } : null;
 
 /** The agent registry in memory, recording each version's project. */
-function agentBinding(): AgentRegistryBinding {
+function agentBinding(unregistered: ReadonlySet<string> = new Set()): AgentRegistryBinding {
   const registry = createAgentRegistry();
   // Where a version was made, when it's not the agent's project (an environment order's first).
   const madeIn = new Map<string, ProjectId>();
@@ -96,6 +96,7 @@ function agentBinding(): AgentRegistryBinding {
         ...got.value,
         projectId,
         ...(made !== undefined && { madeInProjectId: made }),
+        ...(unregistered.has(version as unknown as string) && { unregisteredAt: NOW }),
       };
       return record;
     },
@@ -462,6 +463,8 @@ async function harness(
     grants?: readonly string[];
     readOnly?: boolean;
     tunable?: boolean;
+    /** Versions `getVersion` returns as unregistered (an inactive version). */
+    unregisteredVersions?: readonly string[];
     passes?: ImprovementPassBinding;
     /** Instructions inline, not from a pinned prompt block. */
     inlineInstructions?: boolean;
@@ -475,7 +478,7 @@ async function harness(
     items?: ItemRow[];
   } = {},
 ) {
-  const agents = agentBinding();
+  const agents = agentBinding(new Set(opts.unregisteredVersions ?? []));
   const blocks = inMemoryBlocks([projectId, ...(opts.orders ?? []).flat()], {}, opts.orders);
   await blocks.publish({
     tenantId,
@@ -1713,8 +1716,9 @@ describe('POST /v1/proposals/improve/estimate', () => {
       tiers: ['settings'],
     });
     expect(got.scope).toBeDefined();
-    // No fromVersion given, so none is forwarded (the basis resolves the serving version).
-    expect('fromVersion' in got).toBe(false);
+    // No fromVersion given: the route resolves the serving version (here the
+    // agent's latest, 1.0.0) and forwards it, so the basis always gets a real version.
+    expect(got.fromVersion).toBe('1.0.0');
   });
 
   test('clamps the estimate to the budget cap: it never exceeds maxCostUsd', async () => {
@@ -1777,6 +1781,68 @@ describe('POST /v1/proposals/improve/estimate', () => {
     const none = await harness({ tunable: true });
     expect((await none.call('POST', '/v1/proposals/improve/estimate', IMPROVE)).status).toBe(501);
   });
+
+  // `/improve` and `/improve/estimate` take the same body and resolve +
+  // reach-check it through the one shared helper (`resolveImproveTarget`), so
+  // a bad body is refused identically. One case per branch of that helper,
+  // each asserting the absolute (status, code) on both routes: a mutation in
+  // the shared check breaks both and is caught here.
+  const parity: {
+    readonly label: string;
+    readonly opts: Parameters<typeof harness>[0];
+    readonly body: Record<string, unknown>;
+    readonly status: number;
+    readonly code: string;
+  }[] = [
+    {
+      label: 'an unknown fromVersion',
+      opts: {},
+      body: { ...IMPROVE, fromVersion: '9.9.9' },
+      status: 404,
+      code: 'agent-version-not-found',
+    },
+    {
+      label: 'an inactive fromVersion',
+      opts: { unregisteredVersions: ['1.0.0'] },
+      body: { ...IMPROVE, fromVersion: '1.0.0' },
+      status: 404,
+      code: 'agent-version-not-found',
+    },
+    {
+      label: 'a missing suiteId',
+      opts: {},
+      body: { agentId: AGENT, scope: SEGMENT_WIRE },
+      status: 400,
+      code: 'bad-input',
+    },
+    {
+      label: 'a suite the project does not reach',
+      opts: { referenceScope: reach(new Set(['acme.scoring-judged'])) },
+      body: { ...IMPROVE, fromVersion: '1.0.0' },
+      status: 400,
+      code: 'reference-out-of-scope',
+    },
+    {
+      label: 'a scope in another project',
+      opts: { referenceScope: reach(new Set()) },
+      body: { ...IMPROVE, scope: OTHER_SEGMENT, fromVersion: '1.0.0' },
+      status: 400,
+      code: 'reference-out-of-scope',
+    },
+  ];
+
+  test.each(parity)(
+    'refuses $label identically on /improve and /improve/estimate ($status $code)',
+    async ({ opts, body, status, code }) => {
+      const binding = withEstimate({ replays: 1, meanRunCostUsd: '1' }).binding;
+      const h = await harness({ tunable: true, passes: binding, ...opts });
+      for (const path of ['/v1/proposals/improve', '/v1/proposals/improve/estimate'] as const) {
+        const res = await h.call('POST', path, body);
+        expect(res.status, `${path}: ${JSON.stringify(res.body)}`).toBe(status);
+        expect(res.body.error.code, path).toBe(code);
+      }
+    },
+  );
 });
 
 describe('an agent an order carries from its project to prod', () => {

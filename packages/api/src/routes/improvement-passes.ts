@@ -88,32 +88,9 @@ export function mountImproveRoute(
         message: deps.agents.readOnly.reason,
       });
     }
-    const fromVersion =
-      parsed.fromVersion ?? (await servingVersion(deps, tenantId, parsed.agentId, parsed.scope));
-    const from =
-      fromVersion === undefined
-        ? null
-        : await deps.agents.getVersion({
-            tenantId,
-            agentId: parsed.agentId as AgentId,
-            version: fromVersion as Semver,
-          });
-    if (from === null || from.unregisteredAt !== undefined) {
-      return fail(c, 'agent-version-not-found', {
-        code: 'agent-version-not-found',
-        message: `${parsed.agentId} has no active version ${fromVersion ?? '(none is registered)'}`,
-      });
-    }
-    // The suite must be the agent's project's to reach, and the scope must
-    // reach the agent (`reference-scope.ts`).
-    const outOfScope =
-      (from.projectId === undefined
-        ? undefined
-        : await referencesOutOfScope(deps.referenceScope, tenantId, from.projectId, [
-            { path: '/suiteId', kind: 'suite', id: parsed.suiteId },
-          ])) ??
-      (await liveScopeOutOfScope(deps.referenceScope, tenantId, parsed.agentId, parsed.scope));
-    if (outOfScope !== undefined) return outOfScopeResponse(c, c.get('requestId'), outOfScope);
+    const resolved = await resolveImproveTarget(c, deps, tenantId, parsed);
+    if (resolved instanceof Response) return resolved;
+    const from = resolved;
     if (
       from.projectId !== undefined &&
       deps.projectSuspended !== undefined &&
@@ -168,10 +145,15 @@ export function mountImproveRoute(
     if (denied !== undefined) return denied;
     const passes = deps.passes;
     if (passes === undefined || passes.estimateBasis === undefined) return unsupported(c);
+    // Resolve and reach-check the same body `/improve` would, so a bad body
+    // fails the same way here; the estimate is a read, so it stops there and
+    // doesn't take `/improve`'s run-gating refusals.
+    const resolved = await resolveImproveTarget(c, deps, tenantId, parsed);
+    if (resolved instanceof Response) return resolved;
     const basis = await passes.estimateBasis({
       tenantId,
       agentId: parsed.agentId,
-      ...(parsed.fromVersion !== undefined && { fromVersion: parsed.fromVersion }),
+      fromVersion: resolved.version as unknown as string,
       scope: parsed.scope,
       suiteId: parsed.suiteId,
       tiers: parsed.tiers,
@@ -298,6 +280,49 @@ export function improvementPassesRouter(
   });
 
   return r;
+}
+
+/**
+ * Resolve and reach-check an improve body the way `/improve` does before it
+ * runs — so `/improve` and `/improve/estimate`, which take the same body,
+ * fail it the same way. Resolves the from-version (given, or the one serving
+ * the scope), 404s an unknown or inactive one, then checks the suite's and
+ * the live scope's reach and 400s one out of scope. Returns the resolved
+ * version, or the response to send.
+ */
+async function resolveImproveTarget(
+  c: Ctx,
+  deps: ImproveDeps,
+  tenantId: TenantId,
+  parsed: ImproveBody,
+): Promise<AgentVersionRecord | Response> {
+  const fromVersion =
+    parsed.fromVersion ?? (await servingVersion(deps, tenantId, parsed.agentId, parsed.scope));
+  const from =
+    fromVersion === undefined
+      ? null
+      : await deps.agents.getVersion({
+          tenantId,
+          agentId: parsed.agentId as AgentId,
+          version: fromVersion as Semver,
+        });
+  if (from === null || from.unregisteredAt !== undefined) {
+    return fail(c, 'agent-version-not-found', {
+      code: 'agent-version-not-found',
+      message: `${parsed.agentId} has no active version ${fromVersion ?? '(none is registered)'}`,
+    });
+  }
+  // The suite must be the agent's project's to reach, and the scope must
+  // reach the agent (`reference-scope.ts`).
+  const outOfScope =
+    (from.projectId === undefined
+      ? undefined
+      : await referencesOutOfScope(deps.referenceScope, tenantId, from.projectId, [
+          { path: '/suiteId', kind: 'suite', id: parsed.suiteId },
+        ])) ??
+    (await liveScopeOutOfScope(deps.referenceScope, tenantId, parsed.agentId, parsed.scope));
+  if (outOfScope !== undefined) return outOfScopeResponse(c, c.get('requestId'), outOfScope);
+  return from;
 }
 
 /** What serves the scope now: its live version, else the agent's latest. */
