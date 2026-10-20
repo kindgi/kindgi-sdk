@@ -29,11 +29,14 @@
 import { stat } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 
+import { type DiscoveryConfig, readPackBlocks, resolveDiscovery } from '@kindgi/handler-runtime';
 import { LOCAL_ENV_NAME, type PackEnv, packValues, readPackEnv } from '@kindgi/secrets-dotenv';
 
 import { deployApiAddress, hostedApiAddress } from '../api-address.js';
+import { describeFiles } from '../build/pack-blocks.js';
 import type { CommandContext } from '../context.js';
 import { isEnvelopeSigned } from '../deploy/envelope-loader.js';
+import { packBlocksRefusal } from '../deploy/pack-blocks-gate.js';
 import { packServiceProblemText, packServiceRetiredText } from '../deploy/pack-service-text.js';
 import {
   buildPostBody,
@@ -70,6 +73,7 @@ import { PROJECT_ID_RE } from '../project-ref.js';
 import { type RateLimitRefusal, isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
 import { SLUG } from '../slug.js';
 import { type PackEnvironments, environmentsOf, resolveValueTarget } from '../value-target.js';
+import { CLI_VERSION } from '../version-info.js';
 import { runBuild } from './build.js';
 import type { EnvironmentConfig, PackConfig } from './build.js';
 import type { CommandResult, LeafCommand } from './types.js';
@@ -235,6 +239,8 @@ interface ResolvedDeployArgs {
   /** The pack service's process env in this environment (`env` + `environments.<env>.env`). */
   readonly packEnv: PackEnvPlan;
   readonly allowMissingEnv: boolean;
+  /** The pack's blocks discovery pattern (`discovery.blocks`, the same default in every language). */
+  readonly blocksPattern: string;
 }
 
 // ---------------------------------------------------------------------
@@ -318,6 +324,31 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   const hostedEnvRefusal = refuseHostedConfigEnv(args, project.id);
   if (hostedEnvRefusal !== undefined) return hostedEnvRefusal;
 
+  // A pack with blocks deploys only to a runtime that publishes them
+  // (`deploy/pack-blocks-gate.ts`): read before a build or an upload, from
+  // the pack's block files when the envelope is still to be built, and
+  // from the envelope's index (step 3) otherwise. Not on --dry-run, which
+  // sends nothing.
+  let blocksChecked = false;
+  const refuseBlocks = async (brought: string): Promise<string | undefined> => {
+    if (args.dryRun || blocksChecked) return undefined;
+    blocksChecked = true;
+    return packBlocksRefusal({
+      endpoint: args.endpoint,
+      fetchImpl: ctx.fetch,
+      ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+      brought,
+      release: CLI_VERSION,
+    });
+  };
+  if (!args.explicitEnvelope && !(await pathExists(args.envelopePath))) {
+    const read = await readPackBlocks(args.packDir, args.blocksPattern);
+    const found = new Set([...read.files, ...read.errors.map((e) => e.filePath)]).size;
+    const refused =
+      found > 0 ? await refuseBlocks(describeFiles(args.blocksPattern, found)) : undefined;
+    if (refused !== undefined) return failure(refused);
+  }
+
   // ---- 2. Ensure envelope on disk -------------------------------------
   const envelopeReady = await ensureEnvelopeExists(ctx, args, runners, line, project.id);
   if (envelopeReady.kind === 'error') return envelopeReady;
@@ -332,6 +363,13 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
     );
   }
   const envelope = loaded.envelope;
+  const indexBlocks = Array.isArray(envelope.index.blocks) ? envelope.index.blocks.length : 0;
+  if (indexBlocks > 0) {
+    const refused = await refuseBlocks(
+      `${indexBlocks} ${indexBlocks === 1 ? 'block' : 'blocks'} in its index`,
+    );
+    if (refused !== undefined) return failure(refused);
+  }
 
   // ---- 4. Signed-envelope gate ----------------------------------------
   if (!isEnvelopeSigned(envelope)) {
@@ -1289,6 +1327,7 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       environments: environmentsOf(cfg),
       packEnv: packEnv.plan,
       allowMissingEnv: ctx.options['allow-missing-env'] === true,
+      blocksPattern: resolveDiscovery(cfg.discovery as DiscoveryConfig | undefined).blocks,
     },
   };
 }
