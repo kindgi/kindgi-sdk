@@ -41,6 +41,12 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
   ([A new VNet, or yours](#a-new-vnet-or-yours)).
 - **Log Analytics** for both apps' logs.
 
+**One tenant:** the runtime serves the tenant it seeds (`seed_tenant_id`),
+and the plan refuses `KINDGI_TENANCY` or `KINDGI_PACK_ROUTING` other than
+`single`. [Serving many tenants](../serve-many-tenants/) needs a container
+app for each deployment's pack service, run by an orchestrator of your own,
+which this module doesn't make.
+
 Who calls whom:
 
 - your app calls the runtime, with its API token;
