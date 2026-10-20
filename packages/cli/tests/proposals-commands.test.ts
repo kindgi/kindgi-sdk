@@ -437,6 +437,40 @@ describe('kindgi proposals improve', () => {
     ]);
   });
 
+  test('--pass-project: the project a tenant-scoped pass works in; left out, the API decides', async () => {
+    const { calls, rec } = recorder();
+    const improve = rec('improve', PASS);
+    const named = await run(
+      [
+        'proposals',
+        'improve',
+        '--agent=acme.scorer',
+        '--tenant',
+        '--test-set=acme.prod-judged',
+        `--pass-project=${PROJECT}`,
+      ],
+      { proposals: { improve } },
+    );
+    expect(named.exitCode, named.stderr).toBe(0);
+    const left = await run(
+      ['proposals', 'improve', '--agent=acme.scorer', '--tenant', '--test-set=acme.judged'],
+      { proposals: { improve } },
+    );
+    expect(left.exitCode, left.stderr).toBe(0);
+    expect(calls).toEqual([
+      [
+        'improve',
+        {
+          agentId: 'acme.scorer',
+          scope: { kind: 'tenant' },
+          suiteId: 'acme.prod-judged',
+          projectId: PROJECT,
+        },
+      ],
+      ['improve', { agentId: 'acme.scorer', scope: { kind: 'tenant' }, suiteId: 'acme.judged' }],
+    ]);
+  });
+
   test('--wait reads the pass until it is no longer running', async () => {
     const reads = [
       { ...PASS, candidatesEvaluated: 3 },

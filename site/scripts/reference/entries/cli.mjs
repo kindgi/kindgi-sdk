@@ -496,6 +496,7 @@ export const CLI_DEFAULTS = {
     'max-cost': '`5` (US dollars)',
     objective: '`weightedYesShare`',
     org: 'none',
+    'pass-project': "the scope's project, else the agent version's",
     project: 'none',
     segment: 'none',
     'test-set': 'required',

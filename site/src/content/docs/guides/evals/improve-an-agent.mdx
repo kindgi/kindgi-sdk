@@ -26,7 +26,8 @@ lists:
   pass is refused with `proposal-needs-pin`;
 - **a deployed runtime,** with Kindgi 0.1's CLI. Under `kindgi dev`, it's
   refused with `registry-read-only`;
-- **`publish` on the agent,** to start one.
+- **`publish` on the agent,** to start one, and `write` on the project it
+  works in when that isn't the agent version's.
 
 ## Mark what a pass may tune
 
@@ -68,6 +69,13 @@ pnpm exec kindgi proposals improve --agent=acme.rank.scorer --tenant --test-set=
 - **The agent and scope:** `--agent` and `--tenant`, or another scope flag.
 - **The version** is the one serving the scope, unless `--from-version` names
   another.
+- **The project:** a pass works in one project and learns from its runs. Its
+  version and test set must be ones
+  [that project's runs can use](../../projects/organize-by-org-and-project/#what-a-projects-runs-can-use),
+  and its eval runs run there. With `--project`, it's that project. With
+  `--tenant` or `--org`, it's `--pass-project=<project-id>`, else the agent
+  version's. A project other than the version's needs `write` there. In the
+  API and the clients, it's `projectId`.
 - **The test set:** `--test-set`, a judged one.
 - **The budget:** `--max-cost` in US dollars, 5 by default and at most 100,
   and `--max-candidates`, 30 by default and at most 200. A pass stops at
