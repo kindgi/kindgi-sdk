@@ -2626,7 +2626,7 @@ export const ERROR_ENTRIES = {
       {
         key: 'cause',
         meaning:
-          "when a registry read failed, why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, or `image-registry-unauthorized`. Absent when the read succeeded and the check after it failed",
+          'when a registry read failed, why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, or `image-registry-unauthorized`. Absent when the read succeeded and the check after it failed',
       },
     ],
     seeAlso: ['POST /v1/deployments'],
