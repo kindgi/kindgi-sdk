@@ -240,7 +240,7 @@ Or register it with `curl`:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/mcp/endpoints" \
-  -H "authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{"endpointId":"inventory","name":"Inventory","transport":"streamable-http",
        "config":{"transport":"streamable-http","url":"http://localhost:8791/mcp"},
        "scopeKind":"tenant"}'
@@ -851,7 +851,7 @@ and registering again does. `inventory` in the path is the endpoint's id:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/mcp/endpoints/inventory/unregister" \
-  -H "authorization: Bearer $KINDGI_API_TOKEN"
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 ```json

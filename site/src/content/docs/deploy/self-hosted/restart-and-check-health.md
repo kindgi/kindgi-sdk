@@ -151,7 +151,7 @@ A route that reads the database answers `500` and names the cause. With
 Postgres unreachable, `GET /v1/deployments` answers:
 
 ```sh
-curl -s http://localhost:4000/v1/deployments -H "authorization: Bearer $KINDGI_API_TOKEN"
+curl -s http://localhost:4000/v1/deployments -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 ```text
