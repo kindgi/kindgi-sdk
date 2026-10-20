@@ -49,11 +49,13 @@ import { signInCommand } from './sign-in.js';
 import { sitesCommand } from './sites.js';
 import { skillsCommand } from './skills.js';
 import { ssoCommand } from './sso.js';
+import { tenantCommand } from './tenant.js';
 import { testCommand } from './test.js';
 import { tokensCommand } from './tokens.js';
 import { toolsCommand } from './tools.js';
 import type { Command } from './types.js';
 import { upgradeCommand } from './upgrade.js';
+import { usageCommand } from './usage.js';
 import { versionCommand } from './version.js';
 import { webhooksCommand } from './webhooks.js';
 
@@ -79,6 +81,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   mcpCommand,
   mcpLaunchCommand,
   projectsCommand,
+  tenantCommand,
   runsCommand,
   agentsCommand,
   conversationsCommand,
@@ -104,6 +107,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   tokensCommand,
   serviceAccountsCommand,
   peopleCommand,
+  usageCommand,
   capabilitiesCommand,
   providersCommand,
   adaptersCommand,

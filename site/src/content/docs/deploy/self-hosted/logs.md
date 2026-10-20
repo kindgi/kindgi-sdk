@@ -52,13 +52,14 @@ A subsystem no part of the runtime logs under only warns:
 ## The subsystems
 
 `boot`, `http`, `authz`, `runs`, `kernel`, `leases`, `approvals`,
-`retention`, `audit`, `compliance`, `webhooks`, `mcp`, `providers`,
+`retention`, `audit`, `webhooks`, `mcp`, `providers`,
 `promotions`, `tools`, `guardrails`, `pack`, `ready`, `shutdown`,
 `schedules`, `references`, `secrets`, `license`, `aws-identity`, `judging`,
-`migrations`, `openfga`, `sso`, `tenants`, `improvement-passes` and
+`db`, `migrations`, `openfga`, `sso`, `tenants`, `improvement-passes` and
 `api-keys`, with these nested ones: `kernel.waitpoints`, `kernel.sweeper`,
 `webhooks.worker`, `authz.outbox`, `approvals.notifier`, `audit.retention`,
-`mcp.headers`, `providers.keys`, `providers.prune` and `secrets.scopes`.
+`mcp.headers`, `providers.keys`, `providers.prune`, `secrets.scopes` and
+`tenants.purge` (runtime 0.1.10 or later).
 
 ## The two formats
 
@@ -121,7 +122,7 @@ runtime joins your trace: its records carry your `traceId`. Its answer has a
 
 ```sh
 curl -sS -D - -o /dev/null -X POST "$KINDGI_API_URL/v1/runs" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
   -H 'traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01' \
   -H 'content-type: application/json' -d '{"agent":"acme.desk","input":{"userMessage":"hi"}}'
 ```

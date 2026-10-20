@@ -45,8 +45,9 @@ a new key instead, or write to contact@kindgi.com.
 - **the license key** (`--key`), where the runtime reads it;
 - **the renewer's private key** (`--renewer`), which `enroll` makes. It
   never leaves where you keep it, and it's never printed;
-- **the runtime's own token** (`--runtime-token`), read only, when a renewal
-  carries counts (`--runtime`).
+- **a token for the runtime** (`--runtime-token`), read only, when a renewal
+  carries counts (`--runtime`): a [key for the counts](#a-key-for-the-counts),
+  or the runtime's own token.
 
 Give each flag where the value is kept, never the value itself. A flag that
 isn't a reference is refused without repeating it, in case it's the secret.
@@ -134,8 +135,10 @@ npx --yes @kindgi/cli@0.1 license renew --key gcp:projects/acme-prod/secrets/kin
 - With a `kindgi.env`, `--env-file kindgi.env` stands for
   `--key env-file:kindgi.env#KINDGI_LICENSE_KEY`.
 - `--runtime <url>` with `--runtime-token <ref>`: this deployment's runtime,
-  and where its own token (`KINDGI_API_TOKEN`) is kept, as a reference from
-  [Where the keys are kept](#where-the-keys-are-kept). The renewal then
+  and where a token for it is kept, as a reference from
+  [Where the keys are kept](#where-the-keys-are-kept): a
+  [key for the counts](#a-key-for-the-counts), or the runtime's own token
+  (`KINDGI_API_TOKEN`). The renewal then
   carries counts of the deployment's use since the current key was issued
   ([What renewing sends](#what-renewing-sends)).
   - `<url>` is the runtime's URL as `KINDGI_API_URL` gives it, path included,
@@ -168,6 +171,13 @@ With `--runtime`, a line says what the renewal carried:
 
 On a refusal, the line goes to stderr, before `refused (…)`.
 
+A renewal that goes without counts still exits `0`, whether it renews the
+key or answers `unchanged`, so your scheduler's alerting doesn't see it.
+To hear about it, match `counts: not sent (` in `renew`'s output, and
+leave out `counts: not sent (a production key's renewal carries no counts)`,
+which is expected. On Azure, with `license_usage_key_secret` set, the
+module raises this alert itself ([On a schedule](#on-a-schedule)).
+
 In the key's last 30 days, `renew` adds a line that starts
 `⚠ It expires in <N> days`. It says how to get a key if `renew` keeps
 answering `unchanged`.
@@ -194,6 +204,56 @@ A refusal from access.kindgi.com names its code, `refused (<code>): …`:
 | `key-revoked`, `denied` | Write to contact@kindgi.com. |
 | `held-for-review` | This renewal's counts are above what a non-production key covers, so it got no new key: write to contact@kindgi.com about a production license. Kindgi can release the deployment after a review, and its renewals then aren't held until a date. The key you have runs until its own date. A renewal before the key is due gets the same key back. |
 
+## A key for the counts
+
+`renew --runtime` reads the counts with any token that can read
+`GET /v1/license/usage`. The runtime's own token can do everything else too,
+so give a renewal that runs on its own a system key holding
+`system:license`. That key reads the license and its use, and every other
+route refuses it.
+
+Mint it with the runtime's own token. On a runtime serving one tenant
+(runtime 0.1.10 or later), only that token mints system keys, and only ones
+holding `system:license`. The token reaches `curl` as a header file, so it
+never shows in the list of processes:
+
+```sh
+curl -sS -X POST "$KINDGI_API_URL/v1/system/keys" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"scopes": ["system:license"], "label": "license renewal"}'
+```
+
+- **The key comes back once,** in the answer's `token`. Keep it where
+  `--runtime-token` can read it
+  ([Where the keys are kept](#where-the-keys-are-kept)), and give `renew`
+  that reference. On Azure, the module's README puts it in the vault without
+  printing it. A mint sent again with the same `Idempotency-Key` doesn't
+  return it: mint another.
+- **On a runtime serving many tenants,** the same call mints it, with the
+  runtime's own token or a system key holding `kindgi:system`.
+- **List the keys, and revoke one,** with the runtime's own token too. The
+  list never shows a key's token, and a revoked key is refused from its next
+  request:
+
+  ```sh
+  curl -sS "$KINDGI_API_URL/v1/system/keys" \
+    -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
+  curl -sS -X POST "$KINDGI_API_URL/v1/system/keys/<keyId>/revoke" \
+    -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
+    -H "Idempotency-Key: $(uuidgen)"
+  ```
+
+- **A system key holding any other scope** is refused on every route of a
+  runtime serving one tenant
+  ([`system-key-scope-not-served`](../../../reference/errors/#system-key-scope-not-served)):
+  one minted while it served many tenants, say. Revoke it, and mint one
+  holding `system:license`.
+- **A runtime serving one tenant that answers the mint with
+  `403 system-principal-required`** is older than 0.1.10, which has these
+  keys. Until you upgrade it, `--runtime-token` takes its own token.
+
 ## On a schedule
 
 Any scheduler that can run the CLI will do: cron, a CI schedule, or a
@@ -208,6 +268,11 @@ scheduled job. Once a day is plenty.
   license key and the renewer's key, and can only set the license key.
 - Two alerts come with it: a run that failed, and a key within 7 days of its
   end.
+- `license_usage_key_secret` names the vault secret holding a
+  [key for the counts](#a-key-for-the-counts), which you put there before
+  you apply. With it, the job reads that secret too, and its renewals carry
+  counts. A third alert comes with it: a run that sent none, other than a
+  production key's. Terraform never holds the key.
 - `license_renewer_secret` names the renewer's secret, `license-renewer` by
   default. The outputs `license_enroll_command` and `license_renew_command`
   print the two commands for this deployment.
@@ -223,7 +288,8 @@ deployment. Nothing is sent between runs of `renew`.
 With `--runtime`, the request also carries counts of the deployment's use
 since its current key was issued, signed with the rest. `renew` reads them
 from the runtime (`GET /v1/license/usage`, which only the deployment's own
-token, or a system key holding `system:license`, can read):
+token, or a [system key holding `system:license`](#a-key-for-the-counts),
+can read):
 
 - **runs:** the runs started, not counting dry runs, replays, evals or the
   runs another run starts;

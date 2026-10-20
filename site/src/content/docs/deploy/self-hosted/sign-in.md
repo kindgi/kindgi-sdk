@@ -144,6 +144,14 @@ could claim another company's domain and catch its people.
   Each replica reads its own list, as does any other runtime on the same
   database: give them all the same one.
 
+  An entry by id keeps working through a rename (runtime 0.1.10 or later).
+  While an entry names a workspace by its slug, that slug can't change, and
+  no workspace can be renamed to a slug an entry names
+  (`409 tenant-slug-in-config`). A rename is checked against the list of the
+  replica that takes it. To change a slug an entry names, name the workspace
+  by its id in the list, restart every replica and any other runtime on that
+  database, then rename it.
+
 The startup output lists what routes:
 
 ```text

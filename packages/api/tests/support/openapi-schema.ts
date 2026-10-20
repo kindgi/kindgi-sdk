@@ -15,6 +15,10 @@ const COMPONENTS = JSON.parse(
       }
     ).components.schemas,
   ).replaceAll('#/components/schemas/', '#/$defs/'),
+  // OpenAPI's `discriminator` only names the property that picks a `oneOf` branch, and the
+  // validator's strict mode refuses it; the `oneOf` next to it still checks the shape.
+  (key, value) =>
+    key === 'discriminator' && value?.propertyName !== undefined ? undefined : value,
 ) as Record<string, unknown>;
 
 /** The schema's errors for `data` (as it reaches the wire: JSON); none when it fits. */

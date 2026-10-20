@@ -12,6 +12,7 @@ import { createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto'
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { describe, expect, test } from 'vitest';
 
@@ -58,6 +59,65 @@ function workdir() {
 
 const cli = (cwd: string, argv: string[], extra: Record<string, unknown> = {}) =>
   runCli({ argv, env: { HOME: cwd }, home: cwd, cwd, ...extra });
+
+/**
+ * The Azure module's alerts on the renewal job's log, read from its KQL, so
+ * renew's wording and the queries can't drift apart with every test green.
+ * Container Apps logs each line of stdout and stderr as `Log_s`, and an alert
+ * fires on a run with a line its query keeps. A query line this doesn't read
+ * stops the test: teach it the new one.
+ */
+const AZURE_RENEWAL_TF = fileURLToPath(
+  new URL('../../../deploy/azure-container-apps/license-renewal.tf', import.meta.url),
+);
+
+// `| where Log_s <operator> <string>`, the string verbatim (@"…") or plain ("…").
+const WHERE_LOG_S =
+  /^\| where Log_s (matches regex|contains|!contains) (@"(?:[^"]|"")*"|"(?:[^"\\]|\\.)*")$/;
+
+function azureAlert(resource: string): (line: string) => boolean {
+  const tf = readFileSync(AZURE_RENEWAL_TF, 'utf8');
+  const at = tf.indexOf(`"azurerm_monitor_scheduled_query_rules_alert_v2" "${resource}"`);
+  const query = at < 0 ? undefined : /<<-KQL\n([\s\S]*?)\n\s*KQL\n/.exec(tf.slice(at))?.[1];
+  if (query === undefined) throw new Error(`no query for ${resource} in ${AZURE_RENEWAL_TF}`);
+  const [table, ...rest] = query.split('\n').map((line) => line.trim());
+  expect(table, resource).toBe('ContainerAppConsoleLogs_CL');
+  const keeps = rest
+    .filter(
+      (line) =>
+        line !==
+        '| where column_ifexists("ContainerJobName_s", "") == "${var.name_prefix}-license-renew"',
+    )
+    .map((line): ((log: string) => boolean) => {
+      const where = WHERE_LOG_S.exec(line);
+      if (where === null) {
+        throw new Error(`${resource}: a query line this test doesn't read: ${line}`);
+      }
+      const [, operator, literal = ''] = where;
+      // A verbatim string (@"…") doubles its quotes; a plain one escapes as JSON does.
+      const text = literal.startsWith('@')
+        ? literal.slice(2, -1).replaceAll('""', '"')
+        : (JSON.parse(literal) as string);
+      if (/[$%]\{/.test(text)) throw new Error(`${resource}: Terraform fills in ${text}`);
+      if (operator === 'matches regex') {
+        // KQL's regexes are RE2's, with no lookaround or backreference: one
+        // would pass here and fail in Log Analytics.
+        if (/\(\?<?[=!]|\\[1-9]|\\k</.test(text)) {
+          throw new Error(`${resource}: RE2 has no lookaround or backreference: ${text}`);
+        }
+        const regex = new RegExp(text);
+        return (log) => regex.test(log);
+      }
+      // KQL's contains ignores case.
+      const has = (log: string) => log.toLowerCase().includes(text.toLowerCase());
+      return operator === 'contains' ? has : (log) => !has(log);
+    });
+  if (keeps.length === 0) throw new Error(`${resource}: its query tests no Log_s`);
+  return (line) => keeps.every((keep) => keep(line));
+}
+
+const fires = (alert: (line: string) => boolean, out: { stdout: string; stderr: string }) =>
+  [...out.stdout.split('\n'), ...out.stderr.split('\n')].some(alert);
 
 describe('kindgi license enroll', () => {
   test('makes the renewer key at --renewer (0600, never printed) and prints the line to add', async () => {
@@ -269,13 +329,15 @@ describe('kindgi license renew', () => {
     expect(out.stdout).not.toContain(next === 'contact' ? 'sign in' : 'contact@kindgi.com');
   });
 
-  // The Cloud Run and Azure modules alert on this line from a scheduled job's
-  // log (`It expires in (-[0-9]+|[0-6]) days`): changing its wording breaks
-  // their alerts, so change them with it.
-  test("the 30-day line the deploy modules' alerts match: within a week, and past the key's date", async () => {
-    for (const [days, expected] of [
-      [6, 'It expires in 6 days.'],
-      [-3, 'It expires in -3 days.'],
+  // The Azure module's expiring alert, as its query reads this run's lines.
+  test("the Azure module's expiring alert, from its query: within a week and past the key's date, not at 7 days", async () => {
+    const expiring = azureAlert('license_key_expiring');
+    for (const [days, raised] of [
+      [6, true],
+      [0, true],
+      [-3, true],
+      [7, false],
+      [10, false],
     ] as const) {
       const key = licenseKey({ exp: NOW / 1000 + days * DAY });
       const { dir, renewer } = await enrolled(key);
@@ -284,8 +346,10 @@ describe('kindgi license renew', () => {
         ['license', 'renew', '--env-file', 'kindgi.env', '--renewer', 'file:renewer.key'],
         { ...deps, fetchImpl: service(renewer, () => Response.json({ licenseKey: key })) },
       );
-      expect(out.stdout).toContain(`⚠ ${expected}`);
-      expect(out.stdout).toMatch(/It expires in (-[0-9]+|[0-6]) days/);
+      expect(out.exitCode, `${days} days`).toBe(0);
+      // The 30-day warning is there either way: the alert reads its days.
+      expect(out.stdout, `${days} days`).toMatch(/^⚠ /m);
+      expect(fires(expiring, out), `${days} days`).toBe(raised);
     }
   });
 
@@ -640,6 +704,65 @@ describe('kindgi license renew', () => {
       'refused (held-for-review): Write to contact@kindgi.com.',
       '',
     ]);
+  });
+
+  // The Azure module's counts alert, as its query reads this run's lines.
+  test("the Azure module's counts alert, from its query: renewed, unchanged or refused without counts, never with them or a production key's", async () => {
+    const notSent = azureAlert('license_counts_not_sent');
+    const notFound = runtime(async () => {
+      throw new KindgiApiError({
+        code: 'not-found',
+        message: 'Not Found',
+        resource: { kind: 'route', id: '/v1/license/usage' },
+      });
+    });
+    const current = licenseKey();
+    const { dir, renewer } = await enrolled(current);
+    writeFileSync(join(dir, 'runtime.token'), 'kgi_bt_test\n');
+    const renew = (answer: () => Response, clientFactory = notFound.clientFactory) =>
+      cli(dir, RENEW_WITH_RUNTIME, {
+        ...deps,
+        fetchImpl: service(renewer, answer),
+        clientFactory,
+      });
+
+    const renewed = await renew(() => Response.json({ licenseKey: NEXT_KEY }));
+    expect(renewed.exitCode).toBe(0);
+    expect(renewed.stdout).toMatch(/^renewed: /);
+    expect(fires(notSent, renewed), 'renewed').toBe(true);
+    writeFileSync(join(dir, 'kindgi.env'), `KINDGI_API_PORT=8080\nKINDGI_LICENSE_KEY=${current}\n`);
+
+    const unchanged = await renew(() => Response.json({ licenseKey: current }));
+    expect(unchanged.exitCode).toBe(0);
+    expect(unchanged.stdout).toMatch(/^unchanged: /);
+    expect(fires(notSent, unchanged), 'unchanged').toBe(true);
+
+    const refused = await renew(() =>
+      Response.json(
+        { error: 'held-for-review', message: 'Write to contact@kindgi.com.' },
+        { status: 403 },
+      ),
+    );
+    expect(refused.exitCode).toBe(1);
+    expect(fires(notSent, refused), 'refused').toBe(true);
+
+    const sent = await renew(
+      () => Response.json({ licenseKey: current }),
+      runtime(async () => USAGE).clientFactory,
+    );
+    expect(sent.stdout).toMatch(/^counts: sent \(/m);
+    expect(fires(notSent, sent), 'sent').toBe(false);
+
+    const production = licenseKey({ use: 'production' });
+    writeFileSync(
+      join(dir, 'kindgi.env'),
+      `KINDGI_API_PORT=8080\nKINDGI_LICENSE_KEY=${production}\n`,
+    );
+    const productions = await renew(() => Response.json({ licenseKey: production }));
+    expect(productions.exitCode).toBe(0);
+    // Its counts line is there, and the alert leaves it out.
+    expect(productions.stdout).toMatch(/^counts: not sent \(/m);
+    expect(fires(notSent, productions), "a production key's").toBe(false);
   });
 
   test('--runtime and --runtime-token go together; --runtime is a URL', async () => {

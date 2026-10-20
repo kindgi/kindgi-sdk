@@ -6,6 +6,7 @@ import type {
   CreateSystemTenantResult,
   ProjectSuspension,
   SystemTenantList,
+  SystemTenantPurge,
   SystemTenant as SystemTenantWire,
   TenantAdminContacts,
   TenantLimitsResult,
@@ -13,12 +14,14 @@ import type {
   TenantProductionAllowed,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
+import type { RenameTenantInput } from './tenant.js';
 
 export type TenantLimitsShape = TenantLimitsWire;
 export type SystemTenant = SystemTenantWire;
 export type SystemTenantSpec = CreateSystemTenantBody;
 export type CreatedSystemTenant = CreateSystemTenantResult;
 export type TenantAdminContact = TenantAdminContacts['data'][number];
+export type TenantPurge = SystemTenantPurge;
 
 /**
  * What the control plane sets on a tenant, with a system key (`kgi_sy_…`)
@@ -53,6 +56,18 @@ export interface SystemTenantsClient {
    * @wire `GET /v1/system/tenants/{tenantId}`
    */
   get(tenantId: string): Promise<SystemTenant>;
+  /**
+   * Rename a tenant: its name, its slug, or both, as its own admins can
+   * with `tenant.update`. Its id stays. Takes `system:tenants`. Answers
+   * nothing: `get()` reads it.
+   *
+   * @wire `PATCH /v1/system/tenants/{tenantId}`
+   */
+  update(
+    tenantId: string,
+    input: RenameTenantInput,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<void>;
   /**
    * Close the tenant: readable and exportable for its window, nothing runs.
    * One-way. Takes `system:tenants`.
@@ -105,6 +120,30 @@ export interface SystemTenantsClient {
    * @wire `GET /v1/system/tenants/{tenantId}/admins`
    */
   admins(tenantId: string): Promise<readonly TenantAdminContact[]>;
+  /**
+   * Purge a closed tenant for good, once its export window has passed:
+   * every row of it, its artifacts' bytes and its authorization store.
+   * Irreversible. `confirm` is its slug, a second check on the id. It
+   * answers when done; when `complete` is `false`, or the call ended before
+   * its answer, run it again (a new request) to finish it. Takes its own
+   * scope, `system:tenants:purge`.
+   *
+   * @wire `POST /v1/system/tenants/{tenantId}/purge`
+   */
+  purge(
+    tenantId: string,
+    confirm: string,
+    options?: {
+      readonly idempotencyKey?: string;
+      /**
+       * How long to wait for the answer, in milliseconds: this call's
+       * `ClientOptions.timeoutMs`. The purge waits for every server to see
+       * its mark before it answers, so a large tenant can take longer than
+       * the client's default.
+       */
+      readonly timeoutMs?: number;
+    },
+  ): Promise<TenantPurge>;
   /**
    * Allow the tenant to put projects in production (`true`), or stop it
    * (`false`): the switch the production gate reads. Takes
@@ -167,6 +206,14 @@ export function makeSystemTenantsClient(transport: Transport): SystemTenantsClie
         path: `/v1/system/tenants/${encodeURIComponent(tenantId)}`,
       });
     },
+    async update(tenantId, input, options) {
+      return transport.request<void>({
+        method: 'PATCH',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}`,
+        body: input,
+        ...idem(options),
+      });
+    },
     async close(tenantId, options) {
       return transport.request<SystemTenant>({
         method: 'POST',
@@ -205,6 +252,15 @@ export function makeSystemTenantsClient(transport: Transport): SystemTenantsClie
         path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/admins`,
       });
       return page.data;
+    },
+    async purge(tenantId, confirm, options) {
+      return transport.request<TenantPurge>({
+        method: 'POST',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/purge`,
+        body: { confirm },
+        ...idem(options),
+        ...(options?.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }),
+      });
     },
     async setProductionAllowed(tenantId, allowed, options) {
       return transport.request<TenantProductionAllowed>({

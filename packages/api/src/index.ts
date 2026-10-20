@@ -27,7 +27,24 @@ export type {
 export { WRITE_AUDIT_KINDS } from './routes/write-audit.js';
 export type { ProductionGateOptions } from './routes/project-production.js';
 export type { EgressAddresses } from './routes/tenant.js';
-export { USAGE_CLASSES, USAGE_KINDS, type UsageClass, type UsageKind } from './usage.js';
+export {
+  TENANT_USAGE_GROUP_KEYS,
+  USAGE_CLASSES,
+  USAGE_GROUP_KEYS,
+  USAGE_KINDS,
+  USAGE_STATES,
+  USAGE_WINDOW_MAX_DAYS,
+  type SystemUsageQuery,
+  type UsageBinding,
+  type UsageClass,
+  type UsageGroup,
+  type UsageGroupKey,
+  type UsageKind,
+  type UsagePage,
+  type UsageQuery,
+  type UsageReadResult,
+  type UsageState,
+} from './usage.js';
 export type { WriteAuditKind } from './routes/write-audit.js';
 export {
   FULL_SYSTEM_CAPABILITY,
@@ -105,6 +122,9 @@ export type {
   SystemTenant,
   SystemTenantCreateInput,
   SystemTenantCreateOutcome,
+  SystemTenantPurged,
+  SystemTenantPurgeOutcome,
+  SystemTenantTableRows,
   SystemTenantsBinding,
 } from './routes/system-tenants.js';
 export { createInMemoryRateLimitStore } from './rate-limit-store.js';
@@ -158,6 +178,9 @@ export type {
   SiteKey,
   SiteListInput,
   SitePage,
+  SitePersonRestoreInput,
+  SitePersonRestoreOutcome,
+  SitePersonRestoreRefusal,
   SiteRegisterInput,
   SiteRegisterOutcome,
   SiteRevokeKeyInput,
