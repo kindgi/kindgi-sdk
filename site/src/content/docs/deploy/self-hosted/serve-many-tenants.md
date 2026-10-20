@@ -101,7 +101,7 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 | `system:tenants:production` | A tenant's production switch |
 | `system:tenants:limits` | A tenant's limits |
 | `system:tenants:contacts` | A tenant's admins' contact addresses, for service notices |
-| `system:tenants:purge` | [Purging a closed tenant](#close-and-purge-a-tenant), once its window has passed. No other scope includes it |
+| `system:tenants:purge` | [Purging a closed tenant](#close-and-purge-a-tenant), once its window has passed (runtime 0.1.10 or later). No other scope includes it |
 | `system:suspend` | Suspending and restoring a tenant, a project or a pack |
 | `system:deployments` | The deployments and their pack services' endpoints |
 | `system:pack-env` | The values each deployment's pack declares, for its pack service, and the revision it runs (runtime 0.1.9 or later). On a key of its own: the deployments key reads no value, and only a key holding this scope itself, not `kindgi:system`, reads a secret's |
@@ -357,7 +357,7 @@ where the runtime's database is reachable. Both run the same purge.
 
 ### Through the system API
 
-`POST /v1/system/tenants/{tenantId}/purge` (runtime 0.1.9 or later) takes a
+`POST /v1/system/tenants/{tenantId}/purge` (runtime 0.1.10 or later) takes a
 system key holding `system:tenants:purge`, or `kindgi:system`. No other scope
 includes it: give it to the tooling that ends accounts, and to nothing else.
 
@@ -381,6 +381,12 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/purge" \
   table's rows it deleted (`deleted`), the objects deleted from the
   artifacts' store (`objectsDeleted`), and whether its authorization store
   went (`authzStoreDeleted`).
+- **One purge of a tenant runs at a time,** through this route or with
+  `kindgi-runtime tenants purge`: a second waits for the first to finish,
+  then runs. Every 30 seconds of waiting, the server logs
+  `tenant purge: waiting for another purge of the tenant to finish`, with
+  `tenantId` and `waitedSeconds`, under the
+  [subsystem](../logs/#the-subsystems) `tenants.purge`.
 - **`complete: true`:** nothing of it is left, its record is written, and
   it's marked purged at `purgedAt`. **`complete: false`:** `left` and
   `objectsLeft` say what is, and `leftBecause` why, when it's a setting the
@@ -455,6 +461,12 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
   runtime serves, `kindgi-runtime tenants repurge --from <where>` purges
   again every tenant a record names. On one still marked purged, it deletes
   what's of it, and leaves its mark and its record as they were.
+- **One purge of a tenant runs at a time** (runtime 0.1.10 or later): a
+  second, here or through the system API, waits for the first to finish.
+  Every 30 seconds of waiting it says
+  `tenants purge: waiting for another purge of tenant <id> to finish (30 s so far)`
+  on stderr. `tenants repurge` waits the same way, tenant by tenant:
+  `tenant <id>: waiting for another purge of it to finish (30 s so far)`.
 
 ## After each upgrade: tenants repair
 
