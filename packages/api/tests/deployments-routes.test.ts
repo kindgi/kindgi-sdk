@@ -6055,6 +6055,7 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
   function setup(opts: { withBlocks?: boolean; agentFails?: boolean } = {}) {
     const blocks = inMemoryBlocks();
     const agents = makeInMemoryAgentRegistry();
+    const failing = { agent: opts.agentFails === true };
     const pinned: unknown[] = [];
     const written: string[] = [];
     const asked: string[] = [];
@@ -6064,7 +6065,7 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
         agentRegistry: {
           ...agents,
           publish: async (input) => {
-            if (opts.agentFails === true) throw new Error('agent store down');
+            if (failing.agent) throw new Error('agent store down');
             written.push(`agent ${input.agent.id as unknown as string}`);
             pinned.push(input.agent.pins);
             return agents.publish(input);
@@ -6098,7 +6099,7 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     };
     const held = (blockId: string, version: string) =>
       blocks.getVersion({ tenantId, blockId, version });
-    return { blocks, deploy, held, pinned, written, asked };
+    return { blocks, deploy, held, pinned, written, asked, failing };
   }
 
   test("its new blocks are published into the deploy's project first, and its agent pins them", async () => {
@@ -6183,8 +6184,8 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     const res = await deploy(pack([REPLY, STYLE]));
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('block-already-registered');
-    expect(res.body.error.message).toContain(
-      "version 1.0.0 is unregistered: reinstate it (`kindgi blocks reinstate acme.style --block-version=1.0.0`), or give the pack's block a new version",
+    expect(res.body.error.message).toBe(
+      "The block acme.style@1.0.0 wasn't published: version 1.0.0 is unregistered (by hand, or by a deploy that failed after publishing it): reinstate it (`kindgi blocks reinstate acme.style --block-version=1.0.0`), or give the pack's block a new version; nothing was deployed",
     );
     expect(written).toEqual([]);
   });
@@ -6249,6 +6250,44 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     expect(await held('acme.reply', '1.0.0')).toHaveProperty('unregisteredAt');
     // The one it kept was never the deploy's to roll back.
     expect(await held('acme.style', '1.0.0')).not.toHaveProperty('unregisteredAt');
+  });
+
+  test('its retry is refused, naming each block it rolled back and the command that reinstates it; reinstated, the pack deploys', async () => {
+    const { blocks, deploy, held, pinned, written, failing } = setup({ agentFails: true });
+    const f = pack([REPLY, STYLE]);
+    expect((await deploy(f)).status).toBe(500);
+    failing.agent = false;
+    written.length = 0;
+
+    // The registry doesn't record who unregistered a version: the deploy never reinstates one.
+    const retry = await deploy(f);
+    expect(retry.status).toBe(409);
+    expect(retry.body.error).toMatchObject({
+      code: 'block-already-registered',
+      details: { primitive: 'block', id: 'acme.reply@1.0.0' },
+    });
+    expect(retry.body.error.message).toBe(
+      "The block acme.reply@1.0.0 wasn't published: version 1.0.0 is unregistered, and so is acme.style@1.0.0 (by hand, or by a deploy that failed after publishing them): reinstate each (`kindgi blocks reinstate acme.reply --block-version=1.0.0`, `kindgi blocks reinstate acme.style --block-version=1.0.0`), or give the pack's blocks new versions; nothing was deployed",
+    );
+    expect(written).toEqual([]);
+
+    for (const blockId of ['acme.reply', 'acme.style']) {
+      await blocks.reinstateVersion({ tenantId, blockId, version: '1.0.0' });
+    }
+    const reinstated = await deploy(f);
+    expect(reinstated.status, JSON.stringify(reinstated.body)).toBe(201);
+    expect(written).toEqual([
+      'block acme.reply@1.0.0 already-registered',
+      'block acme.style@1.0.0 already-registered',
+      'agent acme.replier',
+    ]);
+    expect(pinned).toEqual([
+      expect.objectContaining({
+        prompts: { 'acme.reply': '1.0.0' },
+        settings: { 'acme.style': '1.0.0' },
+      }),
+    ]);
+    expect(await held('acme.reply', '1.0.0')).not.toHaveProperty('unregisteredAt');
   });
 
   test("an agent's range pins over the registry's versions and the pack's: the newest in range", async () => {

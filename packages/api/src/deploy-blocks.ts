@@ -9,8 +9,12 @@
  * - Before the first write, each is checked against the registry
  *   (`planPackBlocks`). A version the registry doesn't hold is new, and
  *   must follow the block's latest (`continuityIssues`). One it holds
- *   with the same content is kept. One it holds with other content, or
- *   unregistered, is refused: a version never changes.
+ *   with the same content is kept. One it holds with other content is
+ *   refused: a version never changes. One it holds unregistered is
+ *   refused too, naming the command that reinstates it: the registry
+ *   doesn't record who unregistered it, a person or a deploy that failed
+ *   after publishing it (which rolls back what it published), so the
+ *   deploy never reinstates one itself.
  * - An agent's block ranges pin over the registry's versions and the
  *   pack's new ones (`withPackVersions`): the newest in range, as before.
  * - In the write phase, each is published (`publishPackBlocks`) before
@@ -55,9 +59,14 @@ export async function planPackBlocks(
 ): Promise<PackBlocksPlan> {
   const planned: PlannedBlock[] = [];
   const issues: PackBlockIssue[] = [];
+  const unregistered: BlockDefinition[] = [];
   for (const [index, block] of pack.entries()) {
     const stored = await blocks.getVersion({ tenantId, blockId: block.id, version: block.version });
     if (stored !== null) {
+      if (stored.unregisteredAt !== undefined) {
+        unregistered.push(block);
+        continue;
+      }
       const reason = whyNotKept(stored, block);
       if (reason !== undefined) return { kind: 'refused', refusal: refusedVersion(block, reason) };
       planned.push({ block, isNew: false });
@@ -71,7 +80,11 @@ export async function planPackBlocks(
     }
     planned.push({ block: withCarriedSchema(latest, block), isNew: true });
   }
-  return issues.length > 0 ? { kind: 'invalid', issues } : { kind: 'ok', planned };
+  if (issues.length > 0) return { kind: 'invalid', issues };
+  const [first, ...more] = unregistered;
+  return first === undefined
+    ? { kind: 'ok', planned }
+    : { kind: 'refused', refusal: refusedVersion(first, whyUnregistered(first, more)) };
 }
 
 /**
@@ -144,12 +157,25 @@ export async function publishPackBlocks(input: {
 
 /** Why the pack's block can't keep the version the registry holds under its number; `undefined` when it can. */
 function whyNotKept(stored: BlockRecord, block: BlockDefinition): string | undefined {
-  if (stored.unregisteredAt !== undefined) {
-    return `version ${block.version} is unregistered: reinstate it (\`kindgi blocks reinstate ${block.id} --block-version=${block.version}\`), or give the pack's block a new version`;
-  }
+  if (stored.unregisteredAt !== undefined) return whyUnregistered(block, []);
   return sameDefinition(stored, block)
     ? undefined
     : `version ${block.version} is already published with other content; a version never changes, so give the pack's block a new version`;
+}
+
+/**
+ * The pack's blocks whose versions the registry holds unregistered, each
+ * with the command that reinstates it (`first`'s is the refusal's id).
+ */
+function whyUnregistered(first: BlockDefinition, more: readonly BlockDefinition[]): string {
+  const reinstate = [first, ...more]
+    .map((b) => `\`kindgi blocks reinstate ${b.id} --block-version=${b.version}\``)
+    .join(', ');
+  if (more.length === 0) {
+    return `version ${first.version} is unregistered (by hand, or by a deploy that failed after publishing it): reinstate it (${reinstate}), or give the pack's block a new version`;
+  }
+  const others = more.map((b) => `${b.id}@${b.version}`).join(', ');
+  return `version ${first.version} is unregistered, and so ${more.length === 1 ? 'is' : 'are'} ${others} (by hand, or by a deploy that failed after publishing them): reinstate each (${reinstate}), or give the pack's blocks new versions`;
 }
 
 /**
