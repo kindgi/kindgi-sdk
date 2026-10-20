@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.12"
+version: "0.4.13"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -426,6 +426,10 @@ run start via `semver.maxSatisfying`. No implicit `:latest`.
 
     const OrdersClient = defaultOf(OrdersClientExport);
     ```
+
+    A dynamic import is the same: `(await import('@acme/orders-client')).default`
+    is the class under Vitest and the whole `module.exports` under Node, so
+    take it with `defaultOf((await import('@acme/orders-client')).default)`.
 
 ## References
 
