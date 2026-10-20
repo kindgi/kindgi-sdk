@@ -11,14 +11,30 @@
 # offline, and adds it to `license-key` only when it changed. The server
 # picks it up when it next starts. The job has an identity of its own: it
 # reads the two secrets, and may set only the license key, never delete it.
+#
+# With `license_usage_key_secret` too, the request carries counts of the
+# deployment's use, which the job reads from the server with the system key
+# in that secret (it holds `system:license` alone). You mint the key and put
+# it in the vault; Terraform names the secret and lets the job read it.
 
 locals {
   license_renewal        = var.license_renewal_schedule != ""
   license_renewer_secret = coalesce(var.license_renewer_secret, "license-renewer")
+  license_usage_counts   = var.license_usage_key_secret != ""
 
   # Where the key and the renewer key live, as `kindgi license` names them.
   license_key_ref     = "azure:${azurerm_key_vault.kindgi.vault_uri}secrets/${local.server_secrets.license_key}"
   license_renewer_ref = "azure:${azurerm_key_vault.kindgi.vault_uri}secrets/${local.license_renewer_secret}"
+
+  # `kindgi license renew`'s arguments: with the usage key, the server and
+  # where the key is, for the counts.
+  license_renew_args = concat(
+    ["license", "renew", "--key", local.license_key_ref, "--renewer", local.license_renewer_ref],
+    local.license_usage_counts ? [
+      "--runtime", "https://${azurerm_container_app.server.ingress[0].fqdn}",
+      "--runtime-token", "azure:${azurerm_key_vault.kindgi.vault_uri}secrets/${var.license_usage_key_secret}",
+    ] : [],
+  )
 }
 
 resource "azurerm_user_assigned_identity" "license_renewer" {
@@ -37,16 +53,17 @@ resource "azurerm_role_assignment" "license_renewer_pulls" {
   principal_type       = "ServicePrincipal"
 }
 
-# Reading: the renewer key (to sign its request) and the license key (to
-# check a new one is for the same holder and expires no earlier). The
-# grants are on the two secrets, in the services apply: the renewer key
-# exists once `kindgi license enroll` has run (README, "Renewing the
-# license key").
+# Reading: the renewer key (to sign its request), the license key (to
+# check a new one is for the same holder and expires no earlier) and, with
+# `license_usage_key_secret`, the usage key (to read the counts). The
+# grants are on those secrets, in the services apply: the renewer key
+# exists once `kindgi license enroll` has run, and the usage key once you
+# put it in the vault (README, "Renewing the license key").
 resource "azurerm_role_assignment" "license_renewer_reads" {
-  for_each = local.license_renewal ? {
+  for_each = local.license_renewal ? merge({
     license_key = local.server_secrets.license_key
     renewer     = local.license_renewer_secret
-  } : {}
+  }, local.license_usage_counts ? { usage_key = var.license_usage_key_secret } : {}) : {}
   scope                = "${azurerm_key_vault.kindgi.id}/secrets/${each.value}"
   role_definition_name = "Key Vault Secrets User"
   principal_id         = azurerm_user_assigned_identity.license_renewer[0].principal_id
@@ -123,7 +140,7 @@ resource "azurerm_container_app_job" "license_renewal" {
       cpu     = 0.25
       memory  = "0.5Gi"
       command = ["kindgi"]
-      args    = ["license", "renew", "--key", local.license_key_ref, "--renewer", local.license_renewer_ref]
+      args    = local.license_renew_args
 
       # The job's own identity, for Key Vault.
       env {

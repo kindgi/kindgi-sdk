@@ -10,6 +10,10 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **`system_keys.mint`, `list`, `revoke` and `whoami` say what a
+  runtime serving one tenant answers.** Its own token mints, lists and revokes
+  keys holding `system:license` alone, for the license renewal, and such a key
+  reads the license and its use and nothing else.
 - `kindgi`: **an agent's `conversation_policy` can't set
   `autoCloseAfterInactiveSeconds`.** It was accepted and never acted on: a
   conversation never closes by itself, only when someone closes it. The
