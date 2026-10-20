@@ -311,9 +311,14 @@ resource "azurerm_container_app" "server" {
       condition     = var.erasure_ledger_key_version != ""
       error_message = "erasure_ledger_key_version is needed for the services: the version `az keyvault secret set` printed for erasure-ledger-key (README, step 3)."
     }
+    # Key Vault compares a secret's name without its case: API-Token is api-token.
     precondition {
-      condition     = !contains(values(merge(local.server_secrets, local.export_signing_secrets, local.shared_secrets)), local.license_renewer_secret)
-      error_message = "license_renewer_secret: ${local.license_renewer_secret} is one of the module's own secrets. The renewer key needs a secret of its own (the default, license-renewer)."
+      condition     = !contains([for name in values(merge(local.server_secrets, local.export_signing_secrets, local.shared_secrets)) : lower(name)], lower(local.license_renewer_secret))
+      error_message = "license_renewer_secret: ${local.license_renewer_secret} is one of the module's own secrets (Key Vault ignores case in a name). The renewer key needs a secret of its own (the default, license-renewer)."
+    }
+    precondition {
+      condition     = !contains([for name in concat(values(merge(local.server_secrets, local.export_signing_secrets, local.shared_secrets)), [local.license_renewer_secret], [for ref in values(var.pack_secret_env) : ref.secret]) : lower(name)], lower(var.license_usage_key_secret))
+      error_message = "license_usage_key_secret: ${var.license_usage_key_secret} is a secret the module or the pack uses already (Key Vault ignores case in a name), which the renewal job would then read. The usage key needs a secret of its own, such as license-usage-key."
     }
     precondition {
       condition     = length(setintersection(local.server_module_env, local.server_extra_env)) == 0

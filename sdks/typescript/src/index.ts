@@ -412,6 +412,7 @@ export type {
   SystemTenantsClient,
   TenantAdminContact,
   TenantLimitsShape,
+  TenantPurge,
 } from './resources/system-tenants.js';
 export type {
   SystemUsageClient,

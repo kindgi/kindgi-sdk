@@ -549,7 +549,10 @@ to finish, with the output `{"greeting":"Hello, Azure!"}`.
   scheduler. Or set `license_renewal_schedule`, a cron in UTC, and the
   module runs it as a job of its own. It comes with an alert for a failed run,
   and one for a key within 7 days of its end
-  ([Renew the license key](../renew-the-license-key/#on-a-schedule)).
+  ([Renew the license key](../renew-the-license-key/#on-a-schedule)). With
+  `license_usage_key_secret` too, its renewals carry counts of the
+  deployment's use
+  ([A key for the counts](../renew-the-license-key/#a-key-for-the-counts)).
 - **A key the runtime can't use:** a new replica exits with code 2 and says
   why, and what to check:
 
