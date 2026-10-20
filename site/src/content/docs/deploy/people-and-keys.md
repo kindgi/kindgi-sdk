@@ -97,7 +97,7 @@ project, adds them by email or by id:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/memberships" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{"email":"sam@acme.example","role":"editor"}'
 ```
 
@@ -503,7 +503,9 @@ request with Sam's key:
 
 That's a `401`. Their record stays, so runs, approvals and the audit trail still
 say who they were. Adding their email again makes a new person, with nothing
-granted.
+granted. A person a site signs in can be let back in instead, the same
+person (runtime 0.1.10 or later):
+[`kindgi sites restore-person`](../../sites/wordpress/#pause-re-key-or-remove).
 
 Schedules and webhook triggers they own stop running as them (runtime
 0.1.9 or later). Each fire is `refused` and counts toward pausing it:

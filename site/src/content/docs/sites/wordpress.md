@@ -329,9 +329,18 @@ another reviewer decides." instead of **Approve**.
   every session the site opened. `kindgi sites get <site-id>` lists the
   site's keys, with thumbprints to compare with the plugin's key id under
   **Kindgi → Settings**.
-- **Remove one person** (`kindgi people remove <user-id>`). It's for good:
-  their next sign-in is refused, "This person was removed: their site can't
-  sign them in again".
+- **Remove one person** (`kindgi people remove <user-id>`). Their next
+  sign-in is refused, "This person was removed: their site can't sign them
+  in again", until a tenant admin lets them back in.
+- **Let them back in**
+  (`kindgi sites restore-person <site-id> <user-id>`; runtime 0.1.10 or
+  later). They're the same person, with their history, and their next
+  sign-in gives them what their roles give then.
+  `kindgi people list --include-removed` finds their id. It's for someone
+  removed in Kindgi: someone who left the store stays gone (below). It's
+  refused when they also sign in another way (through another site, or the
+  tenant's own sign-in), since that would let them in there too: add them
+  again instead, as a new person.
 
 ## When someone leaves the store
 
@@ -343,7 +352,8 @@ someone who can't open the page any more doesn't keep what they had:
   personal-data tools. Kindgi ends their grants, their reviewer role (and
   its emails) and every session they hold, so a page they still have open
   can't approve anything. Then it refuses them: "This person was removed:
-  their site can't sign them in again".
+  their site can't sign them in again". The plugin forgets them too, so if
+  they come back, they're a new person in Kindgi, without the history.
 - **Taking away their roles** ends the same, but not for good. Give them a
   role that may sign in again, and they're the same person in Kindgi, with
   their history.
@@ -388,7 +398,7 @@ Kindgi answers 401 `site-sign-in-refused` with a reason in
 | `too-long-lived` | A statement lives at most 60 s | Something other than the plugin signs the site's statements: use the plugin. |
 | `replayed` | This statement was already used | The plugin never sends one twice. A copied statement is refused. |
 | `role-not-allowed` | None of these roles may sign in through this site | Add the role: `kindgi sites update <site-id>`, with an `--allowed-role` for it and for each role the site keeps. A person who had signed in before loses what their roles gave them. |
-| `person-removed` | This person was removed: their site can't sign them in again | Nothing, through the site: removing a person is for good. |
+| `person-removed` | This person was removed: their site can't sign them in again | If they were removed in Kindgi, a tenant admin lets them back in (runtime 0.1.10 or later): `kindgi sites restore-person <site-id> <user-id>`. Someone who left the store comes back as a new person. |
 | `people-cap` | This site has as many people as it may: a tenant admin can raise its cap | Raise `--people-cap` or `--new-people-per-day` (`kindgi sites update <site-id>`). |
 
 Too many sign-ins at once get 429, with `Retry-After`.

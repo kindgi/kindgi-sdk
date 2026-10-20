@@ -7,4 +7,5 @@
 *.tfvars
 !example.tfvars
 !example-connector.tfvars
+!example-dev.tfvars
 *.auto.tfvars.json

@@ -63,7 +63,7 @@ Over HTTP it's `GET /v1/provenance/<run-id>`:
 
 ```sh
 curl "$KINDGI_API_URL/v1/provenance/a64ce71c-9cfc-4263-87b1-b5562f09079c" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN"
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 Both answer the record:
@@ -418,7 +418,7 @@ Over HTTP it's `GET /v1/provenance`, filtered by `runId`, `agentId` or
 
 ```sh
 curl "$KINDGI_API_URL/v1/provenance?createdAfter=2026-10-05T16:25:00Z&limit=3" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN"
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 ```json
