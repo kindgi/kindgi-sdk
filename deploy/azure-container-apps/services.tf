@@ -331,7 +331,7 @@ resource "azurerm_container_app" "server" {
     # pack service of each deployment's own, never this module's shared one.
     precondition {
       condition     = contains(["", "single"], lookup(var.server_env, "KINDGI_TENANCY", "")) && !contains(keys(var.server_secret_env), "KINDGI_TENANCY")
-      error_message = "This module runs one tenant: server_env's KINDGI_TENANCY, if set, is \"single\", and server_secret_env doesn't set it. A server serving many tenants wouldn't start here: it refuses the KINDGI_TENANT_ID this module sets (seed_tenant_id), and calls a pack service of each deployment's own, never the one this module makes. Serving many tenants needs a container app for each deployment, run by an orchestrator of your own."
+      error_message = "This module runs one tenant: server_env's KINDGI_TENANCY, if set, is \"single\", and server_secret_env doesn't set it. A server serving many tenants wouldn't start here: it refuses the KINDGI_TENANT_ID this module sets (seed_tenant_id), and calls a pack service of each deployment's own, never the one this module makes. Serving many tenants needs a container app for each deployment's pack service, run by an orchestrator of your own."
     }
     precondition {
       condition     = contains(["", "single"], trimspace(lookup(var.server_env, "KINDGI_PACK_ROUTING", ""))) && !contains(keys(var.server_secret_env), "KINDGI_PACK_ROUTING")
