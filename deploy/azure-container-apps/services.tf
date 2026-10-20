@@ -327,6 +327,12 @@ resource "azurerm_container_app" "server" {
       condition     = length(setintersection(local.server_extra_env, toset(["KINDGI_AUTH_SECRET", "KINDGI_AUTH_SECRET_PATH"]))) == 0 || var.public_url != ""
       error_message = "Sign-in with identity providers (KINDGI_AUTH_SECRET) needs public_url: the URL people open the console at, where identity providers send them back. The server won't start without it."
     }
+    # One tenant: the one the server seeds. A runtime serving many calls a
+    # pack service of each deployment's own, never this module's shared one.
+    precondition {
+      condition     = contains(["", "single"], lookup(var.server_env, "KINDGI_TENANCY", "")) && !contains(keys(var.server_secret_env), "KINDGI_TENANCY")
+      error_message = "This module runs one tenant: server_env's KINDGI_TENANCY, if set, is \"single\" (and it's never a secret). Serving many tenants needs a container app for each deployment, run by an orchestrator of your own, which this module doesn't make."
+    }
   }
 
   depends_on = [
