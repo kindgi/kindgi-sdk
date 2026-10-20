@@ -60,6 +60,9 @@ OPERATIONS: dict[str, Operation] = {
     "systemTenants.get": Operation(
         "systemTenants.get", "GET", "/v1/system/tenants/{tenantId}", "json", False
     ),
+    "systemTenants.update": Operation(
+        "systemTenants.update", "PATCH", "/v1/system/tenants/{tenantId}", "empty", True
+    ),
     "systemTenants.close": Operation(
         "systemTenants.close", "POST", "/v1/system/tenants/{tenantId}/close", "json", True
     ),
@@ -965,6 +968,7 @@ OPERATIONS: dict[str, Operation] = {
         True,
     ),
     "tenant.get": Operation("tenant.get", "GET", "/v1/tenant", "json", False),
+    "tenant.update": Operation("tenant.update", "PATCH", "/v1/tenant", "empty", True),
     "tenant.config.list": Operation(
         "tenant.config.list", "GET", "/v1/tenant/config", "json", False
     ),
@@ -1150,6 +1154,13 @@ OPERATIONS: dict[str, Operation] = {
         "projects.sites.revokeKey",
         "POST",
         "/v1/projects/{projectId}/sites/{siteId}/keys/{kid}/revoke",
+        "json",
+        True,
+    ),
+    "projects.sites.restorePerson": Operation(
+        "projects.sites.restorePerson",
+        "POST",
+        "/v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore",
         "json",
         True,
     ),
@@ -1855,6 +1866,29 @@ class SystemTenantsResource:
             query={},
             headers={},
             response=_models.SystemTenant,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        tenant_id: str | UUID,
+        body: _models.TenantPatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Rename a tenant. `PATCH /v1/system/tenants/{tenantId}`
+
+        Changes its name, its slug, or both, as the tenant's own admins can (`PATCH /v1/tenant`); a field left out stays as it is. Its id stays. The same values again change nothing. Takes `system:tenants`. A closing tenant is refused (`409 tenant-closing`). A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.update"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPatch, body, fields),
             timeout=timeout,
         )
 
@@ -8545,6 +8579,29 @@ class ProjectsSitesResource:
             timeout=timeout,
         )
 
+    def restore_person(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SitePersonRestoreResult:
+        """Let a person removed in Kindgi back in, through their site. `POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`
+
+        For one of the site's people removed in Kindgi (`POST /v1/identity/users/{userId}/unregister`) while the site still knows them: they're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` for someone in the tenant whose site still knows them; `left` when their site said they left it, removed in Kindgi too or not: a site forgets a person who leaves, and signs them in as a new person if they come back; `linked-elsewhere` when they also sign in another way (through another site, or the tenant's own sign-in), which letting them back in would open too: add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.restorePerson"],
+            path={"projectId": project_id, "siteId": site_id, "userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SitePersonRestoreResult,
+            timeout=timeout,
+        )
+
 
 class ProjectsResource:
     """`client.projects` — the `projects` operations."""
@@ -8747,6 +8804,28 @@ class TenantResource:
             query={},
             headers={},
             response=_models.Tenant,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        body: _models.TenantPatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Rename the caller's tenant. `PATCH /v1/tenant`
+
+        Changes its name, its slug, or both; a field left out stays as it is. Its id stays, so whatever names it by its id keeps working. The console's addresses carry the slug: after a new one, links with the old one stop opening the tenant, and another tenant may take the old one. The same values again change nothing. Takes `admin` on the tenant. A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.
+        """
+        return self._client._request(
+            _OPERATIONS["tenant.update"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPatch, body, fields),
             timeout=timeout,
         )
 
@@ -10539,6 +10618,29 @@ class AsyncSystemTenantsResource:
             query={},
             headers={},
             response=_models.SystemTenant,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        tenant_id: str | UUID,
+        body: _models.TenantPatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Rename a tenant. `PATCH /v1/system/tenants/{tenantId}`
+
+        Changes its name, its slug, or both, as the tenant's own admins can (`PATCH /v1/tenant`); a field left out stays as it is. Its id stays. The same values again change nothing. Takes `system:tenants`. A closing tenant is refused (`409 tenant-closing`). A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.update"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPatch, body, fields),
             timeout=timeout,
         )
 
@@ -17249,6 +17351,29 @@ class AsyncProjectsSitesResource:
             timeout=timeout,
         )
 
+    async def restore_person(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SitePersonRestoreResult:
+        """Let a person removed in Kindgi back in, through their site. `POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`
+
+        For one of the site's people removed in Kindgi (`POST /v1/identity/users/{userId}/unregister`) while the site still knows them: they're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` for someone in the tenant whose site still knows them; `left` when their site said they left it, removed in Kindgi too or not: a site forgets a person who leaves, and signs them in as a new person if they come back; `linked-elsewhere` when they also sign in another way (through another site, or the tenant's own sign-in), which letting them back in would open too: add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.restorePerson"],
+            path={"projectId": project_id, "siteId": site_id, "userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SitePersonRestoreResult,
+            timeout=timeout,
+        )
+
 
 class AsyncProjectsResource:
     """`client.projects` — the `projects` operations."""
@@ -17453,6 +17578,28 @@ class AsyncTenantResource:
             query={},
             headers={},
             response=_models.Tenant,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        body: _models.TenantPatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Rename the caller's tenant. `PATCH /v1/tenant`
+
+        Changes its name, its slug, or both; a field left out stays as it is. Its id stays, so whatever names it by its id keeps working. The console's addresses carry the slug: after a new one, links with the old one stop opening the tenant, and another tenant may take the old one. The same values again change nothing. Takes `admin` on the tenant. A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.
+        """
+        return await self._client._request(
+            _OPERATIONS["tenant.update"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPatch, body, fields),
             timeout=timeout,
         )
 

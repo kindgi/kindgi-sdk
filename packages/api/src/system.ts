@@ -40,7 +40,7 @@ export const FULL_SYSTEM_CAPABILITY = 'kindgi:system';
  * one holding `kindgi:system`.
  */
 export const SYSTEM_SCOPES = [
-  /** Create, list, read and close tenants. */
+  /** Create, list, read, rename and close tenants. */
   'system:tenants',
   /**
    * Create tenants only, each with a first admin, production blocked, no

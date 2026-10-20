@@ -274,6 +274,10 @@ export const CLI_DEFAULTS = {
     name: 'unchanged',
     slug: 'unchanged',
   },
+  'tenant rename': {
+    name: 'unchanged',
+    slug: 'unchanged',
+  },
   'runs list': {
     agent: 'none',
     cursor: 'none',
@@ -687,6 +691,9 @@ export const CLI_DEFAULTS = {
     project: "the tenant's Default project",
   },
   'sites revoke-key': {
+    project: "the tenant's Default project",
+  },
+  'sites restore-person': {
     project: "the tenant's Default project",
   },
   'sites unregister': {
@@ -1283,6 +1290,22 @@ export const CLI_EXAMPLES = {
       line: 'kindgi projects rename <project-id> --name=Storefront --slug=storefront',
     },
   ],
+  'tenant get': [
+    {
+      purpose: 'Print your workspace: its id, name and slug.',
+      line: 'kindgi tenant get',
+    },
+  ],
+  'tenant rename': [
+    {
+      purpose: "Change your workspace's name; its slug, and the console's addresses, stay.",
+      line: 'kindgi tenant rename --name="Acme Store"',
+    },
+    {
+      purpose: 'Change its slug too. Links to the console with the old slug stop opening it.',
+      line: 'kindgi tenant rename --name="Acme Store" --slug=acme-store',
+    },
+  ],
   'agents list': [
     {
       purpose: 'List the registered agents.',
@@ -1621,6 +1644,13 @@ export const CLI_EXAMPLES = {
     {
       purpose: "Refuse what a site's key signs from now on.",
       line: 'kindgi sites revoke-key <site-id> <kid>',
+    },
+  ],
+  'sites restore-person': [
+    {
+      purpose:
+        'Let a person removed in Kindgi back in through their site: the same person, with their history.',
+      line: 'kindgi sites restore-person <site-id> <user-id>',
     },
   ],
   'sites unregister': [
@@ -2043,6 +2073,7 @@ export const CLI_GROUP_SEE_ALSO = {
   'mcp-launch': ['guides/tools/mcp-servers'],
   deployments: ['hosted/deploy-your-agent', 'guides/secrets/pack-env'],
   projects: ['guides/projects/organize-by-org-and-project'],
+  tenant: ['guides/projects/organize-by-org-and-project'],
   environments: ['guides/projects/organize-by-org-and-project'],
   promote: ['guides/projects/organize-by-org-and-project'],
   flows: ['guides/flows/write-a-flow', 'guides/flows/index'],

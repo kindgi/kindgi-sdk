@@ -95,7 +95,7 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 
 | Scope | What it reaches |
 |---|---|
-| `system:tenants` | Creating, listing, reading and closing tenants |
+| `system:tenants` | Creating, listing, reading, renaming and closing tenants |
 | `system:tenants:create` | Creating tenants only: each with a first admin, production blocked, no image repository, not a test tenant |
 | `system:tenants:image-prefix` | Setting a tenant's image repository |
 | `system:tenants:production` | A tenant's production switch |
@@ -179,6 +179,15 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   all) and says to retry the same create, or to run
   `kindgi-runtime tenants repair --tenant <id>` if its create named a first
   admin.
+
+**Rename a tenant** (runtime 0.1.10 or later) with
+`PATCH /v1/system/tenants/<tenant id>` and `{ "name": …, "slug": … }`,
+either or both, under `system:tenants`. It answers `204`, and its id stays. Its own admins can do the same with
+`PATCH /v1/tenant`. The slug follows the create's rules, and a taken one is
+refused with `tenant-slug-taken`. A closing tenant, or one whose setup is
+pending, can't be renamed (`409 tenant-closing`, `409 tenant-setup-pending`).
+Neither can a slug that `KINDGI_AUTH_VERIFIED_DOMAINS` names
+(`409 tenant-slug-in-config`): see [Turn on sign-in](../sign-in/).
 
 ## A pack service for each deployment
 

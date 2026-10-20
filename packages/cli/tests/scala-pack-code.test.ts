@@ -501,7 +501,7 @@ describe.skipIf(!jdkOk || !sbtOnPath || !published || process.platform === 'win3
       await writeFile(join(packDir, 'project', 'build.properties'), 'sbt.version=1.12.15\n');
       await writeFile(
         join(packDir, 'build.sbt'),
-        `scalaVersion := "3.3.8"\nresolvers += Resolver.mavenLocal\nlibraryDependencies += "com.kindgi" %% "kindgi-pack-scala" % "${layerVersion}"\n`,
+        `scalaVersion := "3.3.8"\nexternalResolvers := Resolver.mavenLocal +: externalResolvers.value\nlibraryDependencies += "com.kindgi" %% "kindgi-pack-scala" % "${layerVersion}"\n`,
       );
       await writeFile(
         join(packDir, 'kindgi.config.json'),

@@ -1875,6 +1875,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         tenants: input.systemTenants,
         directory: input.systemTenantDirectory,
         ...(authorizer !== undefined && { authorizer }),
+        ...(tenantHierarchyBinding.renameTenant !== undefined && {
+          renameTenant: tenantHierarchyBinding.renameTenant.bind(tenantHierarchyBinding),
+        }),
       }),
     );
   }

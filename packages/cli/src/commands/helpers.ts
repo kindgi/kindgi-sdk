@@ -137,6 +137,19 @@ export function stringFlag(ctx: CommandContext, name: string): string | undefine
   return typeof raw === 'string' && raw !== '' ? raw : undefined;
 }
 
+/**
+ * A flag's value, trimmed, or `undefined` when it isn't given. Given empty
+ * (`--org=$ORG` with `ORG` unset) is a usage error, never the same as not
+ * given: a project in no org, or a slug nobody chose, would be made.
+ */
+export function givenFlag(ctx: CommandContext, name: string): string | undefined {
+  const raw = ctx.options[name];
+  if (raw === undefined) return undefined;
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  if (value === '') throw new UsageError(`--${name} takes a value`);
+  return value;
+}
+
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
 const ZONED_TIME =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
