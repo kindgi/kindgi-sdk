@@ -352,6 +352,7 @@ export async function lookupTool(input: { id: string }): Promise<string> {
         install: hostInstall.install,
         image: { systemPackages: [], buildEnv: {}, contextFiles: [], steps: [], extensions: [] },
         hasIncludes: false,
+        hasBlocks: false,
       });
       const contextDir = join(workDir, 'context');
       await writeContextReal({
@@ -362,6 +363,7 @@ export async function lookupTool(input: { id: string }): Promise<string> {
         containerfilePath,
         includes: [],
         extensionFiles: [],
+        blockFiles: [],
       });
       const tarPath = join(workDir, 'pack.tgz');
       await tarPackReal({ contextDir, outputPath: tarPath });

@@ -25,6 +25,9 @@
  *   ext/           what the extensions' steps read (a Prisma schema), at the install root's paths
  *   dist/          the bundles
  *   include/       `bundle.include` files, at their pack-relative paths
+ *   blocks/        the pack's data blocks and their templates, at their pack-relative
+ *                  paths: the indexer reads them into the index, and the image keeps
+ *                  only the index
  *   Containerfile
  * Registry config that can hold credentials (`.npmrc`, `.yarnrc*`) is
  * never in the context: the install reads it as a BuildKit secret.
@@ -59,6 +62,8 @@ export interface RenderContainerfileInputs {
   readonly image: ResolvedImage;
   /** Whether the context has `include/` (files `bundle.include` lists). */
   readonly hasIncludes: boolean;
+  /** Whether the context has `blocks/`: the pack's data blocks, which only the indexer stage reads. */
+  readonly hasBlocks: boolean;
 }
 
 /**
@@ -176,7 +181,13 @@ ENV KINDGI_BUILD_TARGET=\${KINDGI_BUILD_TARGET}
 ENV KINDGI_ARTIFACT_VERSION=\${KINDGI_ARTIFACT_VERSION}
 ENV KINDGI_PUBLISHED_AT=\${KINDGI_PUBLISHED_AT}
 COPY --from=code --chown=node:node /dist ${packDir}/dist
-WORKDIR ${packDir}
+WORKDIR ${packDir}${
+   inputs.hasBlocks
+     ? `
+# The pack's data blocks, read into the index: this stage's only.
+COPY --chown=node:node blocks/ ./`
+     : ''
+ }
 RUN node --enable-source-maps ./dist/kindgi-index.mjs \\
       --pack-dir . \\
       --config ./dist/kindgi.config.mjs \\

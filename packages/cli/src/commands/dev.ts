@@ -43,9 +43,13 @@ import {
   type DiscoveryConfig,
   type KindgiConfig,
   type PackLanguage,
+  blocksFolder,
+  codePatterns,
+  createGlobMatcher,
   discoveryRoots,
   findKindgiConfig,
   packLanguage,
+  readPackBlocks,
   resolveDiscovery,
 } from '@kindgi/handler-runtime';
 import {
@@ -67,6 +71,7 @@ import {
   parseCorsOrigins,
 } from '@kindgi/env-schema';
 
+import { indexerPredatesBlocks, packIndexerName } from '../build/pack-blocks.js';
 import type { CommandContext } from '../context.js';
 import { ALREADY_RUNNING_EXIT_CODE, alreadyRunning } from '../dev/already-running.js';
 import {
@@ -132,6 +137,7 @@ import { type RegistrationReport, registerFromIndex } from '../dev/register.js';
 import type {
   DevRunners,
   IndexResult,
+  IndexedCounts,
   PackBuild,
   PackBuilder,
   RunningApiServer,
@@ -902,6 +908,16 @@ async function runDevForPack(
         })
       : emptyReport();
   emitBootIndex(bootIndex, bootReport, discoveryRoots(projectEnv.discoveryPatterns));
+  if (bootIndex.kind === 'ok') {
+    const predates = await indexerPredatesBlocks({
+      packDir: args.packDir,
+      pattern: projectEnv.blocksPattern,
+      blocksCounted: bootIndex.counts.blocks !== undefined,
+      indexer: packIndexerName(code.value.language),
+      release: CLI_VERSION,
+    });
+    if (predates !== undefined) emitProblem(`  ⚠ ${predates}`);
+  }
 
   // Hints run the project's own kindgi through its package manager — or,
   // for a Python pack (no npm project), the kindgi on PATH.
@@ -1175,6 +1191,18 @@ async function runDevForPack(
         },
       ),
     );
+    // The pack's blocks: their files and their templates, read into the index again.
+    watchHandles.push(
+      await dev.watchPack(
+        args.packDir,
+        untilStopped(ctx.stopSignal, () => onRefresh()),
+        {
+          debounceMs: DEFAULT_WATCH_DEBOUNCE_MS,
+          ...(await blocksWatch(args.packDir, projectEnv.blocksPattern)),
+          onWatchFailed,
+        },
+      ),
+    );
     // The env files: the same code, restarted with the new environment.
     watchHandles.push(
       await dev.watchPack(
@@ -1298,8 +1326,13 @@ type ProjectEnvOutcome =
       readonly localEnvFiles: readonly string[] | undefined;
       /** `KINDGI_*` names from the env files. */
       readonly runtime: Readonly<Record<string, string>>;
-      /** The pack's discovery patterns (defaults filled in) — what the watcher follows. */
+      /**
+       * The pack's code discovery patterns (defaults filled in) — what the
+       * builder bundles and the entry watcher follows.
+       */
       readonly discoveryPatterns: readonly string[];
+      /** The blocks discovery pattern (defaults filled in): the blocks watcher's. */
+      readonly blocksPattern: string;
       /** The language of the pack's code. */
       readonly language: PackLanguage;
       /** The loaded config (`undefined` in tests that inject none). */
@@ -1353,18 +1386,18 @@ async function loadDevProjectEnv(ctx: CommandContext, packDir: string): Promise<
   const discovery = settings.config?.discovery;
   const language =
     settings.config !== undefined ? packLanguage(settings.config as KindgiConfig) : 'node';
+  const resolved = resolveDiscovery(
+    typeof discovery === 'object' && discovery !== null
+      ? (discovery as DiscoveryConfig)
+      : undefined,
+    language,
+  );
   return {
     kind: 'ok',
     localEnvFiles: settings.localEnvFiles,
     runtime: runtimeValues(env.values),
-    discoveryPatterns: Object.values(
-      resolveDiscovery(
-        typeof discovery === 'object' && discovery !== null
-          ? (discovery as DiscoveryConfig)
-          : undefined,
-        language,
-      ),
-    ),
+    discoveryPatterns: codePatterns(resolved),
+    blocksPattern: resolved.blocks,
     language,
     config: settings.config,
     secretNames: new Set(Object.keys(packValues(env.values))),
@@ -1701,7 +1734,7 @@ function emitBootIndex(
   }
   const c = bootIndex.counts;
   emitProgress(
-    `✓ loaded: ${c.tools} tools, ${c.guardrails} guardrails, ${c.agents} agents, ${c.flows} flows`,
+    `✓ loaded: ${c.tools} tools, ${c.guardrails} guardrails, ${c.agents} agents, ${c.flows} flows${blocksTotal(c)}`,
   );
   for (const e of bootIndex.fileErrors) {
     emitProblem(`  ⚠ indexer: ${e.filePath ?? '?'} [${e.code}] ${e.message}`);
@@ -1824,12 +1857,7 @@ async function runEach(
  */
 function emitWatchTick(input: {
   readonly elapsedMs: number;
-  readonly counts: {
-    readonly tools: number;
-    readonly guardrails: number;
-    readonly agents: number;
-    readonly flows: number;
-  };
+  readonly counts: IndexedCounts;
   readonly fileErrors: readonly {
     readonly code: string;
     readonly message: string;
@@ -1845,7 +1873,7 @@ function emitWatchTick(input: {
   }[];
 }): void {
   const { counts, fileErrors, failed, elapsedMs, registered, warnings } = input;
-  const totals = `${counts.tools} tools, ${counts.guardrails} guardrails, ${counts.agents} agents, ${counts.flows} flows`;
+  const totals = `${counts.tools} tools, ${counts.guardrails} guardrails, ${counts.agents} agents, ${counts.flows} flows${blocksTotal(counts)}`;
   if (fileErrors.length === 0 && failed.length === 0) {
     emitProgress(`  ✓ loaded ${registered} primitives (${totals}) in ${elapsedMs}ms`);
     emitWarningsSince(warnings);
@@ -1861,6 +1889,28 @@ function emitWatchTick(input: {
     emitProblem(`    ✗ ${f.kind}: ${f.id} — ${f.message ?? 'unknown reason'}`);
   }
   emitWarningsSince(warnings);
+}
+
+/** `, 2 blocks` after the other counts, when the pack has any. */
+function blocksTotal(counts: IndexedCounts): string {
+  return counts.blocks !== undefined && counts.blocks > 0 ? `, ${counts.blocks} blocks` : '';
+}
+
+/**
+ * What the blocks watcher follows: the blocks folder, templates and all.
+ * A pattern at the pack root has no folder of its own, so it follows the
+ * block files and, by name, the templates they name now.
+ */
+async function blocksWatch(
+  packDir: string,
+  pattern: string,
+): Promise<{ readonly patterns: readonly string[]; readonly files?: readonly string[] }> {
+  const folder = blocksFolder(pattern);
+  if (folder !== '') return { patterns: [`${folder}/**`] };
+  const matches = createGlobMatcher([pattern]);
+  const read = await readPackBlocks(packDir, pattern);
+  const templates = read.files.filter((rel) => !matches(rel)).map((rel) => join(packDir, rel));
+  return { patterns: [pattern], ...(templates.length > 0 && { files: templates }) };
 }
 
 /** A load's warnings, by message (an indexer that reports none, or a failed load, has none). */
@@ -2182,7 +2232,7 @@ function renderIndexSection(
     const c = index.counts;
     const lines = [
       `  Discovering pack (${index.packId}@${index.packVersion})`,
-      `    ✓ ${c.tools} tools    ✓ ${c.guardrails} guardrails    ✓ ${c.agents} agents    ✓ ${c.flows} flows`,
+      `    ✓ ${c.tools} tools    ✓ ${c.guardrails} guardrails    ✓ ${c.agents} agents    ✓ ${c.flows} flows${c.blocks !== undefined && c.blocks > 0 ? `    ✓ ${c.blocks} blocks` : ''}`,
     ];
     if (inputs.bootReport.failed.length > 0) {
       lines.push('', '  Registration failures:');
