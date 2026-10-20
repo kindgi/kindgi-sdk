@@ -32,3 +32,11 @@ Pack: id `conformance`, version `1.0.0`. Every tool is version `1.0.0`.
 
 - `conformance.echo-agent` (version `1.0.0`): calls `conformance.echo` (`{ id, version: "1.0.0" }`), guarded by `conformance.min-length`.
 - `conformance.echo-flow` (version `1.0.0`): one tool node `echo` → `conformance.echo`; edges `$start → echo → $end`.
+
+## Data blocks
+
+Three files under `blocks/`, the same bytes in every implementation:
+
+- `blocks/greeting.json`: `conformance.greeting` (version `1.0.0`), a prompt block described as `Greets the person by name`, with one parameter, `name` (a string), whose template is in its own file: `"templateFile": "greeting.liquid"`.
+- `blocks/greeting.liquid`: `Say hello to {{ name }}.` and a newline. The index carries it as the block's `template`.
+- `blocks/limits.json`: `conformance.limits` (version `1.0.0`), a settings block with the values `{ "maxSentences": 3 }` and a schema that takes `maxSentences`, an integer of at least 1, as required.

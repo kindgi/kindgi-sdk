@@ -276,7 +276,7 @@ describe('readPackBlocks', () => {
     await write({
       'blocks/.drafts/a.json': json(prompt()),
       'blocks/node_modules/a.json': json(prompt()),
-      'blocks/notes.md': '# notes',
+      'blocks/notes.txt': 'notes',
       'blocks/real/style.json': json(settings()),
       'outside/linked.json': json(prompt()),
     });
