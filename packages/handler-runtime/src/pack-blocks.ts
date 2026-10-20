@@ -23,6 +23,15 @@ import * as path from 'node:path';
 
 import { globStaticPrefix, globToRegex } from './discovery.js';
 
+/**
+ * The capability a runtime's `/v1/openapi.json` lists in
+ * `info["x-kindgi-capabilities"]` when its deploy publishes the data
+ * blocks a pack brings (the index's `blocks`). A runtime without it reads
+ * no `blocks`: it would pin an agent's blocks to what it already holds,
+ * so the CLI refuses to deploy a pack with blocks to it.
+ */
+export const DEPLOY_PUBLISHES_PACK_BLOCKS = 'deploy-publishes-pack-blocks';
+
 /** A data block as the index carries it (`pack-index.schema.json` `$defs/block`). */
 export interface IndexedBlock {
   readonly id: string;

@@ -11136,7 +11136,7 @@ export const DeploymentValidationDetailsSchema: JsonSchema = {
   additionalProperties: false,
   required: ['primitive', 'index', 'path', 'message'],
   properties: {
-    primitive: { type: 'string', enum: ['tool', 'guardrail', 'agent', 'flow'] },
+    primitive: { type: 'string', enum: ['tool', 'guardrail', 'agent', 'flow', 'block'] },
     index: { type: 'integer', minimum: 0 },
     id: { type: 'string' },
     path: { type: 'string' },

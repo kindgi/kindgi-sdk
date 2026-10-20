@@ -22,6 +22,9 @@ export interface Ref {
   readonly role: 'prompt' | 'settings' | 'model-settings';
 }
 
+/** The registry reads pinning needs: a deploy adds its pack's new versions (`withPackVersions`). */
+export type BlockVersionReads = Pick<BlockRegistryBinding, 'listVersions' | 'getVersion'>;
+
 /** Page size for reading a block's versions. */
 const VERSIONS_PAGE = 200;
 
@@ -36,7 +39,7 @@ const VERSIONS_PAGE = 200;
  * block registry.
  */
 export async function resolveBlockPins(
-  blocks: BlockRegistryBinding | undefined,
+  blocks: BlockVersionReads | undefined,
   tenantId: TenantId,
   agent: Agent,
 ): Promise<BlockPins> {
@@ -129,7 +132,7 @@ function describe(ref: Ref): string {
 
 /** Every active version of a block, newest published first. */
 async function activeBlockVersions(
-  blocks: BlockRegistryBinding,
+  blocks: BlockVersionReads,
   tenantId: TenantId,
   blockId: string,
 ): Promise<readonly string[]> {

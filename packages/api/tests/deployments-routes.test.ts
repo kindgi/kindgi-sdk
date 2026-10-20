@@ -6002,3 +6002,313 @@ describe('POST /v1/deployments into a project, then its secrets sync: a call rea
 });
 
 type ToolPublishScopes = Parameters<ToolRegistryBinding['publish']>[0]['secretScopes'];
+
+// ---------------- the pack's data blocks ----------------
+
+describe("POST /v1/deployments — the pack's data blocks are published with it", () => {
+  const REPLY = {
+    id: 'acme.reply',
+    version: '1.0.0',
+    kind: 'prompt',
+    content: { template: 'Reply to {{ name }}.' },
+    modulePath: 'blocks/reply.json',
+  };
+  const STYLE = {
+    id: 'acme.style',
+    version: '1.0.0',
+    kind: 'settings',
+    content: { values: { tone: 'warm' } },
+    modulePath: 'blocks/style.json',
+  };
+
+  /** A pack whose agent takes its prompt and settings from blocks; `blocks` absent when not given. */
+  function pack(blocks?: readonly Record<string, unknown>[], artifactVersion = '20261020.1') {
+    const publishedAt = '2026-10-20T21:00:00.000Z';
+    return buildSignedDeploy({
+      artifactVersion,
+      publishedAt,
+      index: {
+        v: 1,
+        packId: 'acme.support',
+        packVersion: '1.0.0',
+        artifactVersion,
+        publishedAt,
+        tools: [],
+        guardrails: [],
+        agents: [
+          {
+            id: 'acme.replier',
+            version: '1.0.0',
+            name: 'Replier',
+            instructions: { prompt: 'acme.reply', version: '^1.0.0' },
+            capabilities: [{ feature: 'model.text.chat' }],
+            tools: [],
+            settings: [{ id: 'acme.style', version: '^1.0.0' }],
+          },
+        ],
+        flows: [],
+        ...(blocks !== undefined && { blocks }),
+      },
+    });
+  }
+
+  function setup(opts: { withBlocks?: boolean; agentFails?: boolean } = {}) {
+    const blocks = inMemoryBlocks();
+    const agents = makeInMemoryAgentRegistry();
+    const pinned: unknown[] = [];
+    const written: string[] = [];
+    const asked: string[] = [];
+    const deploy = async (f: SignedDeploy) => {
+      const { app } = makeApp({
+        fixture: f,
+        agentRegistry: {
+          ...agents,
+          publish: async (input) => {
+            if (opts.agentFails === true) throw new Error('agent store down');
+            written.push(`agent ${input.agent.id as unknown as string}`);
+            pinned.push(input.agent.pins);
+            return agents.publish(input);
+          },
+        },
+        extra: {
+          ...(opts.withBlocks !== false && {
+            blockRegistry: {
+              ...blocks,
+              publish: async (input) => {
+                const outcome = await blocks.publish(input);
+                written.push(`block ${input.block.id}@${input.block.version} ${outcome.kind}`);
+                return outcome;
+              },
+            },
+          }),
+          referenceScope: {
+            reachable: async ({ ref }) => {
+              asked.push(`${ref.kind}:${ref.id}`);
+              return true;
+            },
+          },
+        },
+      });
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(f.wire),
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, any> };
+    };
+    const held = (blockId: string, version: string) =>
+      blocks.getVersion({ tenantId, blockId, version });
+    return { blocks, deploy, held, pinned, written, asked };
+  }
+
+  test("its new blocks are published into the deploy's project first, and its agent pins them", async () => {
+    const { deploy, held, pinned, written, asked } = setup();
+    const res = await deploy(pack([REPLY, STYLE]));
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(written).toEqual([
+      'block acme.reply@1.0.0 ok',
+      'block acme.style@1.0.0 ok',
+      'agent acme.replier',
+    ]);
+    expect(await held('acme.reply', '1.0.0')).toMatchObject({
+      kind: 'prompt',
+      content: { template: 'Reply to {{ name }}.' },
+      projectId: DEFAULT_PROJECT_ID,
+    });
+    // Its file in the pack isn't part of the block.
+    expect(await held('acme.reply', '1.0.0')).not.toHaveProperty('modulePath');
+    expect(pinned).toEqual([
+      expect.objectContaining({
+        prompts: { 'acme.reply': '1.0.0' },
+        settings: { 'acme.style': '1.0.0' },
+      }),
+    ]);
+    // What the deploy brings needn't be reachable from elsewhere.
+    expect(asked.filter((a) => a.startsWith('block:'))).toEqual([]);
+  });
+
+  test('a version it holds with the same content is kept, a settings version keeping its schema included', async () => {
+    const { blocks, deploy, held, written } = setup();
+    await blocks.publish({
+      tenantId,
+      projectId: DEFAULT_PROJECT_ID,
+      block: {
+        id: 'acme.style',
+        version: '0.9.0',
+        kind: 'settings',
+        content: { values: { tone: 'brief' }, schema: { type: 'object' } },
+      },
+    });
+    expect((await deploy(pack([REPLY, STYLE]))).status).toBe(201);
+    // Stored with the schema it keeps from 0.9.0; the pack's file gives none.
+    expect(await held('acme.style', '1.0.0')).toMatchObject({
+      content: { values: { tone: 'warm' }, schema: { type: 'object' } },
+    });
+    written.length = 0;
+    const again = await deploy(pack([REPLY, STYLE], '20261020.2'));
+    expect(again.status, JSON.stringify(again.body)).toBe(201);
+    expect(written.filter((w) => w.startsWith('block '))).toEqual([
+      'block acme.reply@1.0.0 already-registered',
+      'block acme.style@1.0.0 already-registered',
+    ]);
+  });
+
+  test('a version it holds with other content is refused before anything is written: give it a new version', async () => {
+    const { blocks, deploy, written } = setup();
+    await blocks.publish({
+      tenantId,
+      projectId: DEFAULT_PROJECT_ID,
+      block: { id: 'acme.reply', version: '1.0.0', kind: 'prompt', content: { template: 'Hi.' } },
+    });
+    const res = await deploy(pack([REPLY, STYLE]));
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'block-already-registered',
+      details: { primitive: 'block', id: 'acme.reply@1.0.0' },
+    });
+    expect(res.body.error.message).toBe(
+      "The block acme.reply@1.0.0 wasn't published: version 1.0.0 is already published with other content; a version never changes, so give the pack's block a new version; nothing was deployed",
+    );
+    expect(written).toEqual([]);
+  });
+
+  test('an unregistered version is refused, naming how to reinstate it', async () => {
+    const { blocks, deploy, written } = setup();
+    await blocks.publish({
+      tenantId,
+      projectId: DEFAULT_PROJECT_ID,
+      block: { id: 'acme.style', version: '1.0.0', kind: 'settings', content: STYLE.content },
+    });
+    await blocks.unregister({ tenantId, blockId: 'acme.style', version: '1.0.0' });
+    const res = await deploy(pack([REPLY, STYLE]));
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('block-already-registered');
+    expect(res.body.error.message).toContain(
+      "version 1.0.0 is unregistered: reinstate it (`kindgi blocks reinstate acme.style --block-version=1.0.0`), or give the pack's block a new version",
+    );
+    expect(written).toEqual([]);
+  });
+
+  test("a block that doesn't hold up, or a version of another kind: deployment-validation-failed, at its place in blocks", async () => {
+    const { blocks, deploy, written } = setup();
+    await blocks.publish({
+      tenantId,
+      projectId: DEFAULT_PROJECT_ID,
+      block: { id: 'acme.style', version: '0.9.0', kind: 'prompt', content: { template: 'x' } },
+    });
+    const broken = { ...REPLY, content: { template: 'Reply to {{ name ' } };
+    const invalid = await deploy(pack([broken, STYLE]));
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.error.code).toBe('deployment-validation-failed');
+    expect(invalid.body.error.details.issues).toEqual([
+      expect.objectContaining({
+        primitive: 'block',
+        index: 0,
+        id: 'acme.reply',
+        path: '/content/template',
+      }),
+    ]);
+
+    const otherKind = await deploy(pack([REPLY, STYLE], '20261020.2'));
+    expect(otherKind.status).toBe(400);
+    expect(otherKind.body.error.details.issues).toEqual([
+      expect.objectContaining({ primitive: 'block', index: 1, id: 'acme.style', path: '/kind' }),
+    ]);
+    expect(written).toEqual([]);
+  });
+
+  test('a block whose versions live in another project is refused, even unchanged; nothing stays published', async () => {
+    const { blocks, deploy, written } = setup();
+    await blocks.publish({
+      tenantId,
+      projectId: ELSEWHERE_PROJECT_ID,
+      block: { id: 'acme.style', version: '1.0.0', kind: 'settings', content: STYLE.content },
+    });
+    const res = await deploy(pack([REPLY, STYLE]));
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'block-project-mismatch',
+      details: { primitive: 'block', id: 'acme.style@1.0.0' },
+    });
+    expect(written).toEqual([
+      'block acme.reply@1.0.0 ok',
+      'block acme.style@1.0.0 project-mismatch',
+    ]);
+    // The one it published is rolled back.
+    expect(await blocks.get({ tenantId, blockId: 'acme.reply' })).toBeNull();
+  });
+
+  test('a write that fails after them rolls its new blocks back', async () => {
+    const { blocks, deploy, held } = setup({ agentFails: true });
+    await blocks.publish({
+      tenantId,
+      projectId: DEFAULT_PROJECT_ID,
+      block: { id: 'acme.style', version: '1.0.0', kind: 'settings', content: STYLE.content },
+    });
+    expect((await deploy(pack([REPLY, STYLE]))).status).toBe(500);
+    expect(await held('acme.reply', '1.0.0')).toHaveProperty('unregisteredAt');
+    // The one it kept was never the deploy's to roll back.
+    expect(await held('acme.style', '1.0.0')).not.toHaveProperty('unregisteredAt');
+  });
+
+  test("an agent's range pins over the registry's versions and the pack's: the newest in range", async () => {
+    const { blocks, deploy, held, pinned } = setup();
+    await blocks.publish({
+      tenantId,
+      projectId: DEFAULT_PROJECT_ID,
+      block: {
+        id: 'acme.reply',
+        version: '1.5.0',
+        kind: 'prompt',
+        content: { template: 'Hello.' },
+      },
+    });
+    expect((await deploy(pack([{ ...REPLY, version: '1.2.0' }, STYLE]))).status).toBe(201);
+    expect(await held('acme.reply', '1.2.0')).not.toBeNull();
+    expect(pinned).toEqual([expect.objectContaining({ prompts: { 'acme.reply': '1.5.0' } })]);
+  });
+
+  test("an index without blocks (a CLI from before them) pins what's published, and refuses what isn't", async () => {
+    const { deploy, written } = setup();
+    const res = await deploy(pack());
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('validation-failed');
+    expect(JSON.stringify(res.body.error.details)).toContain(
+      'prompt block \\"acme.reply\\" has no published version; publish the block first',
+    );
+    expect(written).toEqual([]);
+  });
+
+  test('a runtime with no block registry takes no blocks', async () => {
+    const { deploy, written } = setup({ withBlocks: false });
+    const res = await deploy(pack([REPLY, STYLE]));
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('deployment-validation-failed');
+    expect(res.body.error.details.issues).toEqual([
+      {
+        primitive: 'block',
+        index: 0,
+        id: 'acme.reply',
+        path: '',
+        message: 'this runtime serves no data blocks',
+      },
+      {
+        primitive: 'block',
+        index: 1,
+        id: 'acme.style',
+        path: '',
+        message: 'this runtime serves no data blocks',
+      },
+    ]);
+    expect(written).toEqual([]);
+  });
+
+  test('the runtime says so in /v1/openapi.json: info["x-kindgi-capabilities"] lists deploy-publishes-pack-blocks', async () => {
+    const { app } = makeApp({});
+    const doc = (await (await app.request('/v1/openapi.json')).json()) as {
+      info: Record<string, unknown>;
+    };
+    expect(doc.info['x-kindgi-capabilities']).toContain('deploy-publishes-pack-blocks');
+    expect(doc.info.version).toBe('0.1.0');
+  });
+});
