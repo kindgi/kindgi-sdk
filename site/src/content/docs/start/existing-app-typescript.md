@@ -157,6 +157,9 @@ deployed pack installs production dependencies only, so a dev-only import
 works under `kindgi dev` and fails once deployed. `kindgi dev` warns when a
 tool imports one, and `kindgi build` refuses the pack until it moves.
 Build-time tools (the `prisma` CLI, `typescript`) stay in `devDependencies`.
+A default import of a package that ships only CommonJS can give a tool
+something other than what your app gets:
+see [A CommonJS package in TypeScript](../../guides/tools/write-a-tool/#a-commonjs-package-in-typescript).
 
 ### Code that imports `server-only`
 
