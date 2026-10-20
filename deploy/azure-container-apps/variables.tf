@@ -423,7 +423,7 @@ variable "license_usage_key_secret" {
 }
 
 variable "alert_action_groups" {
-  description = "Azure Monitor action groups (resource ids) the license renewal's alerts go to: a failed renewal, and a key within 7 days of expiring. Empty: they fire in Azure Monitor only. Only with license_renewal_schedule set."
+  description = "Azure Monitor action groups (resource ids) the license renewal's alerts go to: a failed renewal, a key within 7 days of expiring, and, with license_usage_key_secret, a renewal that sent no counts. Empty: they fire in Azure Monitor only. Only with license_renewal_schedule set."
   type        = list(string)
   default     = []
 

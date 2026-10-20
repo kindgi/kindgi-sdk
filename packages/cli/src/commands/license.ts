@@ -161,7 +161,11 @@ function usageProblem(runtime: string, cause: unknown): string {
   return `${runtime} couldn't be asked (${cause instanceof Error ? cause.message : String(cause)})`;
 }
 
-/** The counts line, when a runtime was asked. */
+/**
+ * The counts line, when a runtime was asked. The Azure module's counts alert
+ * reads it, leaving out the production key's reason: the tests run renew
+ * against that query (deploy/azure-container-apps/license-renewal.tf).
+ */
 function countsLine(counts: CountsSent | undefined): string[] {
   if (counts === undefined) return [];
   if (!counts.sent) {
@@ -344,8 +348,8 @@ const renew: LeafCommand = {
             ]
           : []),
         ...(daysLeft <= LICENSE_WARN_DAYS
-          ? // The deploy modules' alerts match "It expires in <days> days" on this
-            // line (deploy/gcp-cloud-run, deploy/azure-container-apps): keep it.
+          ? // The Azure module's expiring alert reads this line's days: the tests
+            // run renew against its query (deploy/azure-container-apps).
             [`⚠ It expires in ${daysLeft} days. If renew keeps answering unchanged, ${nextKey}.`]
           : []),
       ];
