@@ -82,11 +82,12 @@ npx --yes @kindgi/cli@0.1 doctor --json
 
 Run it like that here and in every later step: nothing before or after it,
 such as `cd … &&`, `;`, a pipe, `sleep` or `echo $?`. To run it in another
-folder, `cd` there first, as a command of its own. Coding tools' permission
-rules match plain commands, so an "always allow" for doctor covers every
-later run. It prints one JSON object, whose `ok` is `false` when a check
-fails; it also exits `1` then (`0` when nothing fails, `2` on a usage
-error). Here, in a project with `kindgi dev` running and no model key yet:
+folder, `cd` there first, as a command of its own. If your tool asks the
+person before it runs a command, a plain command is one they can allow for
+good, and the next run of the same command needn't ask. It prints one JSON
+object, whose `ok` is `false` when a check fails; it also exits `1` then
+(`0` when nothing fails, `2` on a usage error). Here, in a project with
+`kindgi dev` running and no model key yet:
 
 ```json
 {
