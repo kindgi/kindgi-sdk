@@ -48,6 +48,13 @@ resource "google_sql_database_instance" "kindgi" {
       name  = "cloudsql.iam_authentication"
       value = "on"
     }
+
+    # A backstop for every session on the instance; the server's own
+    # connections set a shorter one of their own.
+    database_flags {
+      name  = "idle_in_transaction_session_timeout"
+      value = tostring(var.database_idle_in_transaction_timeout_ms)
+    }
   }
 }
 

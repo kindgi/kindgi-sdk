@@ -984,7 +984,6 @@ run "database_instance_refuses_a_secret_path" {
   expect_failures = [var.database_instance]
 }
 
-
 # ---- database_host_instance: Kindgi's database on the app's instance ---------
 
 run "host_puts_kindgis_database_on_the_app_instance" {
@@ -1175,4 +1174,60 @@ run "connector_plans_with_a_static_nat_ip" {
     condition     = length(google_compute_address.nat) == 0
     error_message = "connector mode creates no Cloud NAT, so nat_static_ip reserves nothing and the plan does not refuse it."
   }
+}
+
+run "the_idle_backstop_is_ten_minutes_by_default" {
+  command = plan
+
+  assert {
+    condition     = contains([for f in google_sql_database_instance.kindgi.settings[0].database_flags : "${f.name}=${f.value}"], "idle_in_transaction_session_timeout=600000")
+    error_message = "The instance's idle_in_transaction_session_timeout should be 600000 ms by default."
+  }
+  assert {
+    condition     = contains([for f in google_sql_database_instance.kindgi.settings[0].database_flags : "${f.name}=${f.value}"], "cloudsql.iam_authentication=on")
+    error_message = "IAM authentication should stay on beside it."
+  }
+}
+
+run "zero_turns_the_idle_backstop_off" {
+  command = plan
+
+  variables {
+    database_idle_in_transaction_timeout_ms = 0
+  }
+
+  assert {
+    condition     = contains([for f in google_sql_database_instance.kindgi.settings[0].database_flags : "${f.name}=${f.value}"], "idle_in_transaction_session_timeout=0")
+    error_message = "0 should set the flag to 0, Postgres's off."
+  }
+}
+
+run "an_idle_backstop_below_zero_is_refused" {
+  command = plan
+
+  variables {
+    database_idle_in_transaction_timeout_ms = -1
+  }
+
+  expect_failures = [var.database_idle_in_transaction_timeout_ms]
+}
+
+run "an_idle_backstop_past_cloud_sqls_range_is_refused" {
+  command = plan
+
+  variables {
+    database_idle_in_transaction_timeout_ms = 2147483648
+  }
+
+  expect_failures = [var.database_idle_in_transaction_timeout_ms]
+}
+
+run "an_idle_backstop_in_part_milliseconds_is_refused" {
+  command = plan
+
+  variables {
+    database_idle_in_transaction_timeout_ms = 1.5
+  }
+
+  expect_failures = [var.database_idle_in_transaction_timeout_ms]
 }

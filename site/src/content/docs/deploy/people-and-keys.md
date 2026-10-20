@@ -97,7 +97,7 @@ project, adds them by email or by id:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/memberships" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{"email":"sam@acme.example","role":"editor"}'
 ```
 
@@ -492,7 +492,7 @@ Removed Sam Rivera: 1 key(s) and 0 session(s) revoked, 5 role(s) and membership(
 In one step, before it answers, their API keys are revoked, their sessions
 end, and every grant, membership and capability is taken away, with what
 their creates gave them: `owner` on each agent, flow, tool, guardrail and
-eval suite they made, and `admin` on an org they made (runtime 0.1.8.1 or
+eval suite they made, and `admin` on an org they made (runtime 0.1.9 or
 later). What they made stays. The tenant's admins still manage all of it,
 and an org's admins what's in their org; no one becomes its owner. The next
 request with Sam's key:
@@ -503,10 +503,12 @@ request with Sam's key:
 
 That's a `401`. Their record stays, so runs, approvals and the audit trail still
 say who they were. Adding their email again makes a new person, with nothing
-granted.
+granted. A person a site signs in can be let back in instead, the same
+person (runtime 0.1.10 or later):
+[`kindgi sites restore-person`](../../sites/wordpress/#pause-re-key-or-remove).
 
 Schedules and webhook triggers they own stop running as them (runtime
-0.1.8.1 or later). Each fire is `refused` and counts toward pausing it:
+0.1.9 or later). Each fire is `refused` and counts toward pausing it:
 after 5 in a row that were refused or failed, it
 [pauses itself](../../guides/runs/run-on-a-schedule/#each-time-it-fires).
 The fire's `detail`, in `kindgi schedules fires` or `kindgi webhooks fires`,

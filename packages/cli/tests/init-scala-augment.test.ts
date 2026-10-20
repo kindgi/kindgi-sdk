@@ -67,7 +67,9 @@ describe('kindgi init in an sbt app', () => {
     // build.sbt isn't edited: the dependency is printed.
     expect(await readFile(join(app, 'build.sbt'), 'utf8')).toBe(BUILD);
     expect(out.stderr).toContain(kindgiPackScalaDependency(CLI_VERSION));
-    expect(out.stderr).toContain('resolvers += Resolver.mavenLocal');
+    expect(out.stderr).toContain(
+      'externalResolvers := Resolver.mavenLocal +: externalResolvers.value',
+    );
     expect(out.stderr).toContain('com.acme.app.kindgi.tools');
     expect(await readFile(join(app, 'kindgiw'), 'utf8')).toMatch(/^#!\/bin\/sh/);
     expect(out.stderr).toContain('./kindgiw dev');
@@ -145,7 +147,7 @@ describe('kindgi init in an sbt app', () => {
     );
     expect(stderr).toContain('(cd /k/sdks/scala && sbt +publishLocal)');
     expect(stderr).toContain(
-      `${kindgiPackScalaDependency('0.1.5')}\n      resolvers += Resolver.mavenLocal`,
+      `${kindgiPackScalaDependency('0.1.5')}\n      externalResolvers := Resolver.mavenLocal +: externalResolvers.value`,
     );
   });
 });
