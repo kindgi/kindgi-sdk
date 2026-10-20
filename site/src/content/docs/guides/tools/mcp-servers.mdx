@@ -757,8 +757,13 @@ from the runtime's own environment only `HOME`, `LOGNAME`, `PATH`, `SHELL`,
   (`provider-key-refused`).
 - **A secret that isn't set** fails the endpoint's sync with
   `mcp-auth-unresolved`, naming the variable and the secret, and the server
-  isn't started. Store it, then unregister the endpoint and register it
-  again.
+  isn't started:
+
+  ```text
+  12:34:22.054 WARN  [mcp] MCP endpoint "inventory-eu" sync failed: mcp-auth-unresolved: MCP endpoint "inventory-eu": its secretEnv INVENTORY_TOKEN local/INVENTORY_EU_TOKEN at the tenant did not resolve: … endpointId=inventory-eu
+  ```
+
+  Store it, then unregister the endpoint and register it again.
 - **A new value** reaches the server the next time the runtime starts it.
 - **If you roll back** to a runtime older than 0.1.12, an endpoint
   registered with `secretEnv` before the rollback starts without those
@@ -791,7 +796,7 @@ Every value in `config.env` reads back as `[redacted]` (runtime 0.1.12 or
 later), its name kept, so a tenant's export holds the names, not the values:
 
 ```json excerpt
-"config":{"transport":"stdio","command":"inventory-mcp","args":["--stdio"],"env":{"LOG_LEVEL":"[redacted]"}},"secretEnv":{"INVENTORY_TOKEN":{"envName":"local","name":"INVENTORY_TOKEN"}}
+"config":{"env":{"LOG_LEVEL":"[redacted]"},"args":["--stdio"],"command":"inventory-mcp","transport":"stdio"},"secretEnv":{"INVENTORY_TOKEN":{"name":"INVENTORY_TOKEN","envName":"local"}}
 ```
 
 A value of `[redacted]` is refused at registration (runtime 0.1.12 or
@@ -803,12 +808,23 @@ name, `=` or a NUL in a name, or a NUL in a value.
 
 It keeps working, and:
 - **reads back `[redacted]`** for every value in `config.env` (runtime
-  0.1.12 or later);
+  0.1.12 or later):
+
+  ```json excerpt
+  "config":{"env":{"LOG_LEVEL":"[redacted]","INVENTORY_TOKEN":"[redacted]"},"args":["--stdio"],"command":"inventory-mcp","transport":"stdio"}
+  ```
 - **is named, never its value:** by the runtime at every start (runtime
   0.1.12 or later; `WARN` `mcp-env-credential`), by its
   [`check mcp-env-credentials`](../../../deploy/self-hosted/operate/#checks-you-can-run-before-upgrading)
   (runtime 0.1.12 or later), and by `kindgi doctor` against the runtime it
-  points at (the check MCP endpoint env, `mcp-env`).
+  points at (the check MCP endpoint env, `mcp-env`):
+
+  ```text
+    ! MCP endpoint env: 2 stdio MCP endpoints keep a credential in plaintext config.env, or a secretRef a stdio server isn't sent, from before that was refused. They still work, but a value in config.env is stored as given, not as a secret.
+        ✗ files-legacy: secretRef (never sent)
+        ✗ inventory-legacy: INVENTORY_TOKEN
+        Fix: Store each value as a secret (kindgi secrets set <NAME> --env=<name> --scope=tenant), then unregister the endpoint and register it again with the variable in secretEnv: { <NAME>: { envName, name } }, and without secretRef.
+  ```
 
 A `stdio` endpoint registered with a `secretRef` is named the same way: a
 stdio server is never sent it, and the runtime (0.1.12 or later) doesn't read

@@ -107,6 +107,21 @@ At every start, the runtime logs one `WARN` per such endpoint:
 {"time":"2026-10-10T23:54:31.368Z","level":"warn","severity":"WARNING","subsystem":"mcp.headers","message":"mcp-header-credential tenant=… mcp-endpoint=inventory-legacy headers=X-Api-Key,X-Api-Secret: this endpoint keeps a credential in plaintext config.headers, from before that was refused. It still works, and its requests never follow a redirect. Store each value as a secret, then unregister the endpoint and register it again with auth: { scheme: \"header\", headers: [{ name: \"X-Api-Key\", secretRef: { envName, name } }, { name: \"X-Api-Secret\", secretRef: { envName, name } }] } in place of the header","tenantId":"…","endpointId":"inventory-legacy","headerNames":["X-Api-Key","X-Api-Secret"]}
 ```
 
+Here `check mcp-env-credentials` (runtime 0.1.12 or later) runs on a database with two stdio endpoints registered by an earlier runtime, one with a token in `config.env` and one with a `secretRef` (exit `1`). Each line ends with the `secretEnv` that replaces it:
+
+```text
+mcp-env-credentials: 2 stdio MCP endpoints keep a credential in plaintext config.env, or a secretRef (1 tenant checked):
+  tenant=… mcp-endpoint=files-legacy secretRef=never-sent → secretEnv: { <NAME>: { envName, name } }, and without secretRef
+  tenant=… mcp-endpoint=inventory-legacy env=INVENTORY_TOKEN → secretEnv: { INVENTORY_TOKEN: { envName, name } }
+They still work, but each value in config.env is stored as given, and a stdio server is never sent its secretRef. For each, store each variable's value as a secret (kindgi secrets set <NAME> --env=<env> --scope=tenant), then unregister the endpoint and register it again with that secretEnv in place of the variable.
+```
+
+At every start, the runtime logs one `WARN` per such endpoint:
+
+```json
+{"time":"2026-10-20T12:35:16.428Z","level":"warn","severity":"WARNING","subsystem":"mcp.env","message":"mcp-env-credential tenant=… mcp-endpoint=inventory-legacy env=INVENTORY_TOKEN: this stdio endpoint keeps a credential in plaintext config.env, from before that was refused. It still works. Store each value as a secret, then unregister the endpoint and register it again with secretEnv: { INVENTORY_TOKEN: { envName, name } }","tenantId":"…","endpointId":"inventory-legacy","envNames":["INVENTORY_TOKEN"],"secretRef":false}
+```
+
 ### From 0.1.6 to 0.1.7
 
 The database migrates when 0.1.7 starts. One step adds a check to the table
