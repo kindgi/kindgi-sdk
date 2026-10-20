@@ -7,6 +7,7 @@
  * and registry config only as a build secret.
  */
 
+import { execFileSync, execSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -329,28 +330,28 @@ describe('installCommands', () => {
       'pnpm, a build step',
       { manager: 'pnpm' },
       PRISMA_STEPS,
-      'pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild',
+      'pnpm install --frozen-lockfile --ignore-scripts --prod=false && pnpm rebuild',
       'pnpm prune --prod',
     ],
     [
       'a pnpm workspace, a build step',
       { manager: 'pnpm', workspace: true, packRel: 'apps/support' },
       PRISMA_STEPS,
-      `pnpm install --frozen-lockfile --ignore-scripts ${member} && pnpm ${member} rebuild`,
-      `pnpm install --frozen-lockfile --ignore-scripts --prod ${member}`,
+      `pnpm install --frozen-lockfile --ignore-scripts --prod=false ${member} && pnpm ${member} rebuild`,
+      `pnpm install --frozen-lockfile --ignore-scripts --prod --config.confirm-modules-purge=false ${member}`,
     ],
     [
       'npm, a build step',
       { manager: 'npm' },
       PRISMA_STEPS,
-      'npm ci --ignore-scripts --no-audit --no-fund && npm rebuild',
+      'npm ci --include=dev --ignore-scripts --no-audit --no-fund && npm rebuild',
       'npm prune --omit=dev --no-audit --no-fund',
     ],
     [
       'yarn classic, a build step',
       { manager: 'yarn' },
       PRISMA_STEPS,
-      'yarn install --frozen-lockfile --ignore-scripts --non-interactive && npm rebuild',
+      'yarn install --production=false --frozen-lockfile --ignore-scripts --non-interactive && npm rebuild',
       'yarn install --production --frozen-lockfile --ignore-scripts --non-interactive && npm rebuild',
     ],
     [
@@ -370,6 +371,117 @@ describe('installCommands', () => {
   ] as const)('%s: dev dependencies too, then the prune', (_, over, steps, install, prune) => {
     expect(installCommands({ ...base, ...over }, steps)).toStrictEqual({ install, prune });
   });
+
+  // buildEnv's ENV lines come before the install, and NODE_ENV=production
+  // narrows npm's, yarn classic's and pnpm 9's install to production. With
+  // build steps the install asks for dev dependencies, as the production one
+  // asks for production only. Each: the manager, its production flag, its dev one.
+  const asked = [
+    ['pnpm', { manager: 'pnpm' }, '--prod', '--prod=false'],
+    [
+      'a pnpm workspace',
+      { manager: 'pnpm', workspace: true, packRel: 'apps/support' },
+      '--prod',
+      '--prod=false',
+    ],
+    ['npm', { manager: 'npm' }, '--omit=dev', '--include=dev'],
+    ['yarn classic', { manager: 'yarn' }, '--production', '--production=false'],
+  ] as const;
+  const words = (command: string | undefined): string[] => command?.split(' ') ?? [];
+
+  test.each(asked)(
+    '%s, a build step: the install asks for dev dependencies, scripts still off',
+    (_, over, production, dev) => {
+      const [fetch] = installCommands({ ...base, ...over }, PRISMA_STEPS).install.split(' && ');
+      expect(words(fetch)).toContain(dev);
+      expect(words(fetch)).toContain('--ignore-scripts');
+      expect(words(fetch)).not.toContain(production);
+    },
+  );
+
+  test.each(asked)(
+    '%s, a build step: the production install with the dev flag for its own, so the same scripts and rebuild',
+    (_, over, production, dev) => {
+      const without = installCommands({ ...base, ...over }, []).install;
+      expect(words(without).filter((word) => word === production)).toHaveLength(1);
+      expect(installCommands({ ...base, ...over }, PRISMA_STEPS).install).toBe(
+        without.replace(` ${production} `, ` ${dev} `),
+      );
+    },
+  );
+
+  test.each(asked)(
+    '%s: the production install and the prune never take the dev flag',
+    (_, over, production, dev) => {
+      const without = installCommands({ ...base, ...over }, []);
+      expect(words(without.install)).toContain(production);
+      expect(words(without.install)).not.toContain(dev);
+      expect(words(installCommands({ ...base, ...over }, PRISMA_STEPS).prune)).not.toContain(dev);
+    },
+  );
+
+  // A pnpm workspace's prune changes what's installed, so pnpm purges the
+  // modules directories first and asks; a build has no terminal to answer
+  // (pnpm 10 and 11 stop the build, pnpm 9 skips the prune). Whichever pnpm.
+  test.each(['pnpm@9.15.9', 'pnpm@10.28.0', 'pnpm@11.28.6', 'pnpm@12.4.2'])(
+    'a pnpm workspace on %s, a build step: the prune purges without asking, scripts still off',
+    (managerSpec) => {
+      const { prune } = installCommands(
+        { ...base, manager: 'pnpm', workspace: true, packRel: 'apps/support', managerSpec },
+        PRISMA_STEPS,
+      );
+      expect(prune).toBe(
+        `pnpm install --frozen-lockfile --ignore-scripts --prod --config.confirm-modules-purge=false ${member}`,
+      );
+    },
+  );
+
+  // As the image runs it, after buildEnv's NODE_ENV=production: a real npm,
+  // offline, from local tarballs, its own config and cache in the test folder.
+  test('npm, a build step, NODE_ENV=production: the dev dependency is installed, and the rebuild runs its install script', async () => {
+    const env = {
+      PATH: process.env.PATH ?? '',
+      HOME: root,
+      npm_config_cache: join(root, '.npm'),
+      npm_config_offline: 'true',
+      npm_config_update_notifier: 'false',
+    };
+    const marker = "node -e \"require('fs').writeFileSync('built', '')\"";
+    for (const name of ['dep-a', 'dev-b']) {
+      await put(
+        `src/${name}/package.json`,
+        json({ name, version: '1.0.0', scripts: { install: marker } }),
+      );
+      execFileSync('npm', ['pack', '--pack-destination', root, '--silent'], {
+        cwd: join(root, 'src', name),
+        env,
+      });
+    }
+    await put(
+      'app/package.json',
+      json({
+        name: 'app',
+        version: '1.0.0',
+        private: true,
+        dependencies: { 'dep-a': 'file:../dep-a-1.0.0.tgz' },
+        devDependencies: { 'dev-b': 'file:../dev-b-1.0.0.tgz' },
+      }),
+    );
+    const app = join(root, 'app');
+    execFileSync('npm', ['install', '--package-lock-only', '--ignore-scripts', '--silent'], {
+      cwd: app,
+      env,
+    });
+    const lock = await readFile(join(app, 'package-lock.json'), 'utf8');
+
+    const { install } = installCommands({ ...base, manager: 'npm' }, PRISMA_STEPS);
+    execSync(install, { cwd: app, env: { ...env, NODE_ENV: 'production' }, stdio: 'pipe' });
+
+    for (const name of ['dep-a', 'dev-b']) {
+      expect(await readFile(join(app, 'node_modules', name, 'built'), 'utf8')).toBe('');
+    }
+    expect(await readFile(join(app, 'package-lock.json'), 'utf8')).toBe(lock);
+  }, 120_000);
 });
 
 describe('whyDevDependencies', () => {
