@@ -59,7 +59,7 @@ Remove `database_host_instance` from your copy of `example-dev.tfvars` — it
 sets that for the shared-instance path below — and set `database_tier` to a
 shared-core tier, such as `db-g1-small`. The module makes the instance (about
 six minutes on the first apply). You do not need to touch `database_edition`:
-its default, `ENTERPRISE`, is the [Cloud SQL edition](https://cloud.google.com/sql/docs/postgres/editions-intro)
+its default, `ENTERPRISE`, is the [Cloud SQL edition](https://docs.cloud.google.com/sql/docs/postgres/editions-intro)
 that runs a shared-core tier. A Postgres 16 instance otherwise defaults to
 `ENTERPRISE_PLUS`, which takes only `db-perf-optimized-N-*` tiers and would
 reject `db-g1-small`.
