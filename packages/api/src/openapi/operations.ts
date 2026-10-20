@@ -1510,6 +1510,71 @@ const ProviderChangeRefused: ResponseSpec = ErrorResponse(
 
 // ---------------- operation registry ----------------
 
+function usageQueryParams(groupBy: string): ParameterSpec[] {
+  return [
+    {
+      name: 'from',
+      in: 'query',
+      required: true,
+      description:
+        'Records at or after this time: a time with a zone, such as `2026-11-01T00:00:00Z`.',
+      schema: { type: 'string', format: 'date-time' },
+    },
+    {
+      name: 'to',
+      in: 'query',
+      required: true,
+      description: 'Records before this time. At most 92 days after `from`.',
+      schema: { type: 'string', format: 'date-time' },
+    },
+    {
+      name: 'groupBy',
+      in: 'query',
+      required: false,
+      description: groupBy,
+      schema: { type: 'string' },
+    },
+    {
+      name: 'kind',
+      in: 'query',
+      required: false,
+      description:
+        'Only these kinds, comma-separated (`run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`).',
+      schema: { type: 'string' },
+    },
+    {
+      name: 'class',
+      in: 'query',
+      required: false,
+      description:
+        'Only these run classes, comma-separated (`production`, `staging`, `dry-run`, `replay`, `eval`, `child`).',
+      schema: { type: 'string' },
+    },
+    {
+      name: 'state',
+      in: 'query',
+      required: false,
+      description:
+        "Only these states, comma-separated: `on`, `off` (`project.production`); `completed`, `failed`, `cancelled` (`run.ended`); `escalation` (`approval.requested`, an escalation's next tier); `approved`, `rejected`, `withdrawn`, `escalated`, `expired` (`approval.decided`).",
+      schema: { type: 'string' },
+    },
+    {
+      name: 'limit',
+      in: 'query',
+      required: false,
+      description: 'Groups a page: 1 to 10000, default 1000.',
+      schema: { type: 'integer', minimum: 1, maximum: 10000 },
+    },
+    {
+      name: 'cursor',
+      in: 'query',
+      required: false,
+      description: "The previous page's `nextCursor`.",
+      schema: { type: 'string' },
+    },
+  ];
+}
+
 export const OPERATIONS: readonly OperationSpec[] = [
   // ---------- health ----------
   {
@@ -2501,6 +2566,72 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
       '409': ErrorResponse(
         'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/system/usage',
+    openapiPath: '/v1/system/usage',
+    operationId: 'systemUsage.read',
+    summary: 'Read usage across tenants',
+    description:
+      "Usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Records are counted when the counted thing happens, exactly once (the kinds `kind` lists, each run with its class). `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A test tenant's usage, and one whose setup is pending, are never in the answer, even when `tenantId` names one. Takes `system:usage:read`; the access record marks a read across every tenant, or of the one named. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404.",
+    tags: ['system-usage'],
+    security: 'bearer',
+    parameters: [
+      ...usageQueryParams(
+        'Comma-separated, each once: `tenant`, `project`, `agent`, `kind`, `class`, `state`, `day` (the UTC date). Default `tenant,kind`.',
+      ),
+      {
+        name: 'tenantId',
+        in: 'query',
+        required: false,
+        description: 'Only this tenant.',
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
+    responses: {
+      '200': { description: 'A page of groups.', schema: ref('UsagePage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "A window, filter, `limit` or `cursor` this route can't read (`bad-input`), naming which.",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:usage:read` (`system-scope-missing`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/usage',
+    openapiPath: '/v1/usage',
+    operationId: 'usage.read',
+    summary: "Read your workspace's usage",
+    description:
+      "Your workspace's usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Over the projects you may read: a tenant admin's covers every project and the records with none; anyone else's, only the projects they may read, and one they can't read is absent rather than an error. `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404. Model-call cost is on `/v1/cost`.",
+    tags: ['usage'],
+    security: 'bearer',
+    parameters: [
+      ...usageQueryParams(
+        'Comma-separated, each once: `project`, `agent`, `kind`, `class`, `state`, `day` (the UTC date). Default `project,kind`.',
+      ),
+      {
+        name: 'projectId',
+        in: 'query',
+        required: false,
+        description: "Only this project. One you can't read gives an empty answer.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
+    responses: {
+      '200': { description: 'A page of groups.', schema: ref('UsagePage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "A window, filter, `limit` or `cursor` this route can't read (`bad-input`), naming which.",
+      ),
+      '403': ErrorResponse(
+        "The projects you may read can't be listed on this deployment, so usage across projects can't be limited to them (`permission-denied`): ask for one with `projectId`.",
       ),
     },
   },

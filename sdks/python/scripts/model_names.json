@@ -802,6 +802,8 @@
   "UploadArtifactBody": ["UploadArtifactBody"],
   "UpsertTenantConfigBody": ["UpsertTenantConfigBody"],
   "UpsertTenantConfigResult": ["UpsertTenantConfigResult"],
+  "UsageGroup": ["UsageGroup"],
+  "UsagePage": ["UsagePage"],
   "UserCollectionPage": ["UserCollectionPage"],
   "UserCreated": ["UserCreated"],
   "UserInvite": ["UserInvite"],

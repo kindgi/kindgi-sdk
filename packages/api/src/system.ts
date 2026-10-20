@@ -67,6 +67,8 @@ export const SYSTEM_SCOPES = [
    * deployments key can't read a value.
    */
   'system:pack-env',
+  /** Usage across tenants: counts and sums only. */
+  'system:usage:read',
   /** The deployment's license: reading it, for its renewal. */
   'system:license',
 ] as const;

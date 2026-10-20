@@ -55,6 +55,7 @@ import { tokensCommand } from './tokens.js';
 import { toolsCommand } from './tools.js';
 import type { Command } from './types.js';
 import { upgradeCommand } from './upgrade.js';
+import { usageCommand } from './usage.js';
 import { versionCommand } from './version.js';
 import { webhooksCommand } from './webhooks.js';
 
@@ -106,6 +107,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   tokensCommand,
   serviceAccountsCommand,
   peopleCommand,
+  usageCommand,
   capabilitiesCommand,
   providersCommand,
   adaptersCommand,
