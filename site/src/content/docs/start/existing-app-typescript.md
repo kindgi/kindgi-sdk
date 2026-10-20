@@ -383,7 +383,8 @@ A build step's tool is often a dev dependency (the `prisma` CLI), so with
 build steps the install takes your dev dependencies too, and drops them after
 the steps; without any, it installs production dependencies only. Yarn 2 or
 later always takes them and drops them after, as its production install
-doesn't check `yarn.lock`. The build says which:
+resolves what `yarn.lock` lacks instead of failing, even with
+`enableImmutableInstalls` on. The build says which:
 
 ```text
     ✓ Install: dev dependencies too, for the build steps (prisma), whose tools can be dev dependencies; pruned to production after

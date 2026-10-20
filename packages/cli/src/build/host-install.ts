@@ -364,8 +364,8 @@ export function withoutInstallScripts(text: string): string {
  * dependency is downloaded. Build steps run tools that can be dev
  * dependencies (`prisma generate` runs the `prisma` CLI). Yarn berry's
  * production install (`yarn workspaces focus --production`) resolves what
- * yarn.lock lacks instead of failing, even with immutable installs on, so
- * its frozen install is the full `yarn install --immutable`.
+ * yarn.lock lacks instead of failing, even with `enableImmutableInstalls`
+ * on, so its frozen install is the full `yarn install --immutable`.
  */
 export function whyDevDependencies(
   install: Pick<HostInstall, 'manager' | 'yarnBerry'>,
@@ -376,7 +376,7 @@ export function whyDevDependencies(
     return `for the build steps (${extensions.join(', ')}), whose tools can be dev dependencies`;
   }
   if (install.manager === 'yarn' && install.yarnBerry) {
-    return "since yarn berry's production install doesn't check yarn.lock";
+    return "since yarn berry's production install resolves what yarn.lock lacks instead of failing";
   }
   return undefined;
 }

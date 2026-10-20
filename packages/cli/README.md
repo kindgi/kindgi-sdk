@@ -504,8 +504,9 @@ Builds a signed pack image with a Kindgi build server, and writes
   are installed, unless `image` has build steps (`prisma()`'s `prisma
   generate`), whose tools can be dev dependencies: then dev dependencies are
   installed too, and pruned after the steps. Yarn 2 or later always installs
-  them and prunes after, as its production install doesn't check
-  `yarn.lock`. The build says which (`✓ Install: …`).
+  them and prunes after, as its production install resolves what
+  `yarn.lock` lacks instead of failing, even with `enableImmutableInstalls`
+  on. The build says which (`✓ Install: …`).
 - **A workspace:** with pnpm, only the pack's project and what it depends on
   are installed, not the rest of the workspace. npm and yarn install the
   whole workspace.

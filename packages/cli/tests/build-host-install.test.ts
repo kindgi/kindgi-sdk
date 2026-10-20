@@ -323,7 +323,7 @@ describe('installCommands', () => {
   });
 
   // Build steps: dev dependencies too, for the steps' tools, then the prune.
-  // Yarn berry the same without any: its production install doesn't check yarn.lock.
+  // Yarn berry the same without any: its production install resolves what yarn.lock lacks.
   test.each([
     [
       'pnpm, a build step',
@@ -386,9 +386,9 @@ describe('whyDevDependencies', () => {
     }
   });
 
-  test("yarn berry, with no build steps: its production install doesn't check yarn.lock", () => {
+  test('yarn berry, with no build steps: its production install resolves what yarn.lock lacks', () => {
     expect(whyDevDependencies({ manager: 'yarn', yarnBerry: true }, [])).toBe(
-      "since yarn berry's production install doesn't check yarn.lock",
+      "since yarn berry's production install resolves what yarn.lock lacks instead of failing",
     );
   });
 

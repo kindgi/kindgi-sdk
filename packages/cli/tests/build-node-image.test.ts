@@ -228,7 +228,7 @@ describe('the Containerfile', () => {
     expect(withSteps).toContain('npm prune --omit=dev --no-audit --no-fund');
   });
 
-  test("yarn: classic installs production; berry installs immutably and focuses production, as its production install doesn't check yarn.lock", () => {
+  test('yarn: classic installs production; berry installs immutably and focuses production, as its production install resolves what yarn.lock lacks', () => {
     const classic = render({ manager: 'yarn', yarnBerry: false });
     expect(classic).toContain(
       'yarn install --production --frozen-lockfile --ignore-scripts --non-interactive && npm rebuild',
@@ -236,7 +236,7 @@ describe('the Containerfile', () => {
     expect(classic).not.toContain('yarn install --frozen-lockfile');
     const berry = render({ manager: 'yarn', yarnBerry: true });
     expect(berry).toContain(
-      "# Dev dependencies too, since yarn berry's production install doesn't check yarn.lock; pruned to production after.",
+      "# Dev dependencies too, since yarn berry's production install resolves what yarn.lock lacks instead of failing; pruned to production after.",
     );
     expect(berry.indexOf('yarn workspaces focus --all --production')).toBeGreaterThan(
       berry.indexOf('yarn install --immutable'),
