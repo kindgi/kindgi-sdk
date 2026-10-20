@@ -1,5 +1,13 @@
 # @kindgi/adapter-model-azure-openai
 
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/adapter-model-shared@0.1.9-rc.1
+  - @kindgi/capabilities@0.1.9-rc.1
+  - @kindgi/types@0.1.9-rc.1
+
 ## 0.1.9-rc.0
 
 ### Patch Changes

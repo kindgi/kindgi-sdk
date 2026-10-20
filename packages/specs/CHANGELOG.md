@@ -1,5 +1,9 @@
 # @kindgi/specs
 
+## 0.1.9-rc.1
+
+No changes in this release.
+
 ## 0.1.9-rc.0
 
 ### Patch Changes

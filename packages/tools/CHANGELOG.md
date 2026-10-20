@@ -1,5 +1,13 @@
 # @kindgi/tools
 
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/log@0.1.9-rc.1
+  - @kindgi/schema@0.1.9-rc.1
+  - @kindgi/types@0.1.9-rc.1
+
 ## 0.1.9-rc.0
 
 ### Patch Changes
