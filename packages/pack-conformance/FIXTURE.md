@@ -39,4 +39,4 @@ Three files under `blocks/`, the same bytes in every implementation:
 
 - `blocks/greeting.json`: `conformance.greeting` (version `1.0.0`), a prompt block described as `Greets the person by name`, with one parameter, `name` (a string), whose template is in its own file: `"templateFile": "greeting.liquid"`.
 - `blocks/greeting.liquid`: `Say hello to {{ name }}.` and a newline. The index carries it as the block's `template`.
-- `blocks/limits.json`: `conformance.limits` (version `1.0.0`), a settings block with the values `{ "maxSentences": 3 }` and a schema that takes `maxSentences`, an integer of at least 1, as required.
+- `blocks/limits.json`: `conformance.limits` (version `1.0.0`), a settings block with the values `{ "maxSentences": 3, "temperature": 1.0, "minScore": 1e-7 }` and a schema that takes `maxSentences`, an integer of at least 1, as required, and `temperature` and `minScore`, numbers of at least 0. Each language writes those two by default in its own way (`1.0` is `1` in JavaScript; `1e-7` is `1e-07` in Python and `1.0E-7` in Java), and the index writes numbers as JavaScript does, so they check each implementation's number formatting.

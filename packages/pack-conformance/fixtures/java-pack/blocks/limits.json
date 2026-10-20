@@ -4,7 +4,9 @@
   "kind": "settings",
   "content": {
     "values": {
-      "maxSentences": 3
+      "maxSentences": 3,
+      "temperature": 1.0,
+      "minScore": 1e-7
     },
     "schema": {
       "type": "object",
@@ -12,6 +14,14 @@
         "maxSentences": {
           "type": "integer",
           "minimum": 1
+        },
+        "temperature": {
+          "type": "number",
+          "minimum": 0
+        },
+        "minScore": {
+          "type": "number",
+          "minimum": 0
         }
       },
       "required": ["maxSentences"]

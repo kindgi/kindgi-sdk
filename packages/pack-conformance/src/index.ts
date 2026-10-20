@@ -532,10 +532,14 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
             version: '1.0.0',
             kind: 'settings',
             content: {
-              values: { maxSentences: 3 },
+              values: { maxSentences: 3, temperature: 1, minScore: 1e-7 },
               schema: {
                 type: 'object',
-                properties: { maxSentences: { type: 'integer', minimum: 1 } },
+                properties: {
+                  maxSentences: { type: 'integer', minimum: 1 },
+                  temperature: { type: 'number', minimum: 0 },
+                  minScore: { type: 'number', minimum: 0 },
+                },
                 required: ['maxSentences'],
               },
             },
