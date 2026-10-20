@@ -10,7 +10,10 @@ as two Cloud Run services in one Google Cloud project, with everything
 around them, from Kindgi's Terraform module. You then deploy your pack, run
 a flow, and turn on sign-in. The
 [Cloud Run module reference](../cloud-run-reference/) has what the module
-grants, the settings that change its shape, and its limits.
+grants, the settings that change its shape, and its limits. For a smaller dev
+deployment beside an app — no VPC, the pack service asleep when idle, and a
+small or shared database — see
+[A small dev instance on Cloud Run](../cloud-run-dev/) instead.
 
 In the verification run, the first apply took about ten minutes, most of it
 Cloud SQL. A tool call from the runtime to your pack took 42 ms at the
