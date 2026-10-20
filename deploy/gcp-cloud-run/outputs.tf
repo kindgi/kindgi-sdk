@@ -7,18 +7,18 @@ output "server_url" {
 }
 
 output "pack_service_url" {
-  description = "The pack service's internal URL (the server's KINDGI_PACK_SERVICE_URL); null without pack_image."
+  description = "The pack service's URL (the server's KINDGI_PACK_SERVICE_URL), internal in direct mode and otherwise public but IAM-guarded; null without pack_image."
   value       = local.pack ? google_cloud_run_v2_service.pack[0].uri : null
 }
 
 output "database_private_ip" {
   description = "Private-IP mode: the address in KINDGI_DATABASE_URL (postgres://<user>:<password>@<this>:5432/<db>?sslmode=require); null otherwise."
-  value       = local.database_private ? google_sql_database_instance.kindgi.private_ip_address : null
+  value       = local.database_private && length(google_sql_database_instance.kindgi) > 0 ? google_sql_database_instance.kindgi[0].private_ip_address : null
 }
 
 output "sql_connection_name" {
-  description = "For the database URL: postgres://<user>:<password>@/<db>?host=/cloudsql/<this>."
-  value       = google_sql_database_instance.kindgi.connection_name
+  description = "For the database URL: postgres://<user>:<password>@/<db>?host=/cloudsql/<this>. With database_host_instance set, the host instance's connection name."
+  value       = var.database_host_instance != null ? data.google_sql_database_instance.host[0].connection_name : google_sql_database_instance.kindgi[0].connection_name
 }
 
 output "image_repository" {

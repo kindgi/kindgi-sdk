@@ -528,6 +528,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/system/whoami': "the server's operator routes",
   '/v1/system/deployments': "the server's operator routes",
   '/v1/system/pack-env': "the server's operator routes",
+  '/v1/system/usage': "the server's operator routes",
   '/v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env':
     "the server's operator routes",
   // The caller, not the workspace.
@@ -545,6 +546,8 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   // Computed from records that are exported, not stored.
   '/v1/runs/failures': 'computed from runs',
   '/v1/cost/aggregate': 'computed from cost-records',
+  '/v1/usage':
+    'computed from runs, approvals, cost-records and projects (the metering ledger counts them)',
   '/v1/agents/{agentId}/live': 'computed from agent-live-versions',
   '/v1/agents/{agentId}/gate-policy': 'computed from gate-policies',
   '/v1/guardrails/{guardrailId}/outcomes': 'computed from runs',

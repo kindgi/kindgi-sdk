@@ -300,7 +300,7 @@ Adding, changing or removing a membership changes OpenFGA too:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/memberships" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{"userId":"<user-id>","role":"editor"}'
 ```
 
@@ -375,7 +375,7 @@ team never owns a project: `owner` is a person's role.
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/team-grants" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{"teamId":"<team-id>","role":"editor"}'
 ```
 

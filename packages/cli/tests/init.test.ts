@@ -770,8 +770,10 @@ describe('kindgi init — scala template', () => {
     expect(out.stderr).toMatch(/\(cd .*sdks\/scala && sbt \+publishLocal\)/);
     expect(out.stderr).toContain('sbt test');
     expect(out.stderr).toContain('./kindgiw dev');
-    // ... and the build reads the local Maven repository, where kindgi-pack went.
-    expect(build).toContain('    resolvers += Resolver.mavenLocal,\n');
+    // ... and the build reads the local Maven repository, where kindgi-pack went, before Central.
+    expect(build).toContain(
+      '    externalResolvers := Resolver.mavenLocal +: externalResolvers.value,\n',
+    );
     expect(out.stderr).toContain(
       `✓ Scala pack scaffolded at ${join(cwd, 'type')}/ (preview)\n  ${JVM_PREVIEW}`,
     );

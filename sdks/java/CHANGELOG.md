@@ -7,6 +7,7 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-pack`, `kindgi-pack-scala`: **an agent's `conversationPolicy` can't set `autoCloseAfterInactiveSeconds`.** It was accepted and never acted on: a conversation never closes by itself, only when someone closes it. The indexer refuses an agent that sets it, as a file error at `/conversationPolicy/autoCloseAfterInactiveSeconds`; the rest of the pack still indexes, and `kindgi build` stops on it.
 - `kindgi-models`: **a server's retention limit.** `RetentionScheduledItem`'s `policyId` and `policyVersion` can be `null`: a record that a server's limit decides, in a domain no policy covers, has neither. `limitApplied`, on `RetentionScheduledItem` and `RetentionSweepResult.PerDomainItem`, is `true` when the limit decides; `null` otherwise.
 - `kindgi-pack`, `kindgi-pack-scala`: **a tool can say `needsApprovalWhenUnattended`.** `Tool.define(...).needsApprovalWhenUnattended(true)` (Scala: `.needsApprovalWhenUnattended(true)`) makes each call wait for a person's approval in a run no person started (a webhook, a schedule, an event, or a service account's key). A flow's tool step that calls it is refused there. A run a person starts is unaffected. The pack's index carries it; left out, nothing changes.
 

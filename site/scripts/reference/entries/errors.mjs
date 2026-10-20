@@ -2063,7 +2063,7 @@ export const ERROR_ENTRIES = {
       },
       {
         key: 'tenantId',
-        meaning: 'the tenant; from a system route only',
+        meaning: 'the tenant; from a system route, or from renaming one',
       },
     ],
   },
@@ -2082,11 +2082,38 @@ export const ERROR_ENTRIES = {
     ],
   },
   'tenant-slug-taken': {
-    description: 'Another tenant has that slug. Choose another.',
+    description:
+      'Another tenant has that slug, creating a tenant or renaming one. A purged tenant keeps its slug. Choose another.',
     details: [
       {
         key: 'slug',
         meaning: 'the slug that is taken',
+      },
+    ],
+  },
+  'tenant-slug-in-config': {
+    description:
+      "A tenant's slug can't change while the server's `KINDGI_AUTH_VERIFIED_DOMAINS` names a tenant by it. When it names this tenant by its current slug, the server would find no tenant by it when it next starts: the server's operator names the tenant there by its id instead and restarts the server, and then it can be renamed. When it names the new slug, the server's next start would give those domains to this tenant: choose another slug.",
+    details: [
+      {
+        key: 'slug',
+        meaning: 'the slug the setting names: the current one, or the new one',
+      },
+      {
+        key: 'domains',
+        meaning:
+          'the domains that name this tenant by its current slug; absent when the setting names the new one',
+      },
+    ],
+    seeAlso: ['PATCH /v1/tenant'],
+  },
+  'tenant-setup-pending': {
+    description:
+      "The tenant's setup hasn't finished, so it can't be renamed yet. Sending the request that created it again finishes it.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
       },
     ],
   },

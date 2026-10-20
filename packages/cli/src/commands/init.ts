@@ -682,12 +682,12 @@ function runInitLanguageTemplate(
   }
 }
 
-/** build.sbt's resolver line for kindgi-pack from a checkout (the local Maven repository); none from Maven Central. */
+/** build.sbt's resolver line for kindgi-pack from a checkout (the local Maven repository, first); none from Maven Central. */
 function scalaTemplateResolver(source: KindgiJavaSource): string {
   const resolver = sbtLocalResolver(source);
   return resolver === undefined
     ? ''
-    : `\n    // kindgi-pack from the Kindgi checkout this pack was made from (./mvnw install).\n    ${resolver},`;
+    : `\n    // kindgi-pack from the Kindgi checkout this pack was made from (./mvnw install), before\n    // Maven Central: the checkout's version can be one already released there.\n    ${resolver},`;
 }
 
 /**

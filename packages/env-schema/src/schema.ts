@@ -360,7 +360,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_USAGE_METERING',
     description:
-      "Used from runtime 0.1.8; earlier runtimes ignore it. Whether the server counts usage. `on`: it records each run when it's created (with its class: `production`, `staging`, `dry-run`, `replay`, `eval` or `child`) and when it ends, each approval asked for and decided, each model call, and each project put in production or taken out. Each is counted exactly once, in the same transaction as what it counts. `/v1/cost/*` reads a tenant's own counts. Unset or `off`: model calls are counted as before, and nothing else. `KINDGI_TENANCY=multi` starts only with `on`.",
+      "Used from runtime 0.1.8; earlier runtimes ignore it. Whether the server counts usage. `on`: it records each run when it's created (with its class: `production`, `staging`, `dry-run`, `replay`, `eval` or `child`) and when it ends, each approval asked for and decided, each model call, and each project put in production or taken out. Each is counted exactly once, in the same transaction as what it counts. `/v1/cost/*` reads a tenant's own counts, and from runtime 0.1.10 `on` also answers `GET /v1/usage` and `GET /v1/system/usage`. Unset or `off`: model calls are counted as before, nothing else is, and those usage reads answer 404. `KINDGI_TENANCY=multi` starts only with `on`.",
     example: 'on',
     required: false,
     appliesTo: appliesToServer,

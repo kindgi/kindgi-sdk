@@ -9,8 +9,9 @@
  * opener, or `write` on the conversation's project (on its agent, for a
  * conversation from before projects). A caller who can't read the
  * conversation gets the answer for a conversation that doesn't exist, byte
- * for byte. None of it depends on an environment order: the app here has
- * none, and the rule holds the same.
+ * for byte. A closed conversation takes no new turns: once the caller may
+ * add the turn, it's refused before a run is made. None of it depends on an
+ * environment order: the app here has none, and the rule holds the same.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -43,6 +44,10 @@ const CAROLS = randomUUID();
 const OLD_ALICES = randomUUID();
 /** From before projects and before openers were recorded. */
 const OLD = randomUUID();
+/** Opened by Alice, in B, with no participant, and closed. */
+const CLOSED_ALICES = randomUUID();
+/** Carol's, as `CAROLS` is, and closed. */
+const CLOSED_CAROLS = randomUUID();
 /** No conversation has this id. */
 const MISSING = randomUUID();
 
@@ -50,6 +55,7 @@ interface Stored {
   readonly projectId?: string;
   readonly openedBy?: string;
   readonly participantId?: string;
+  readonly closedAt?: string;
 }
 
 const STORED: ReadonlyMap<string, Stored> = new Map<string, Stored>([
@@ -58,6 +64,16 @@ const STORED: ReadonlyMap<string, Stored> = new Map<string, Stored>([
   [CAROLS, { projectId: B, openedBy: 'service_account:sa-site', participantId: CAROL }],
   [OLD_ALICES, { openedBy: `user:${ALICE}` }],
   [OLD, {}],
+  [CLOSED_ALICES, { projectId: B, openedBy: `user:${ALICE}`, closedAt: '2026-10-17T10:05:07Z' }],
+  [
+    CLOSED_CAROLS,
+    {
+      projectId: B,
+      openedBy: 'service_account:sa-site',
+      participantId: CAROL,
+      closedAt: '2026-10-17T10:05:07Z',
+    },
+  ],
 ]);
 
 /** Every key may run the desk agent; the rest is each key's own. */
@@ -252,6 +268,9 @@ function makeApp({
             ...(participantId !== undefined && { participantId }),
           },
         }),
+      /** A flow run whose input names `conversationId`. */
+      flowRun: (conversationId: string) =>
+        post('/v1/runs', { flow: 'acme.triage', input: { conversationId } }),
       open: (projectId?: string) =>
         post('/v1/conversations', {
           agentId: 'acme.desk',
@@ -268,6 +287,7 @@ type Answer = Awaited<ReturnType<ReturnType<ReturnType<typeof makeApp>['as']>['t
 const continued = (r: Answer) => r.status === 400 && r.code === 'bad-input';
 const notFound = (r: Answer) => r.status === 404 && r.code === 'conversation-not-found';
 const forbidden = (r: Answer) => r.status === 403 && r.code === 'permission-denied';
+const closed = (r: Answer) => r.status === 409 && r.code === 'conversation-closed';
 
 /** `id` as it answers when no conversation has it: the same caller, the same turn. */
 async function asIfMissing(
@@ -457,6 +477,63 @@ describe('a conversation from before projects', () => {
 
   test('write on a project is no help', async () => {
     expect(notFound(await makeApp().as('bWriter').turn(OLD))).toBe(true);
+  });
+});
+
+describe('a turn into a closed conversation', () => {
+  test('its opener is refused 409 before a run is made, whether or not the caller waits', async () => {
+    for (const wait of [true, false, undefined]) {
+      const { as, reached } = makeApp();
+      const r = await as('alice').turn(CLOSED_ALICES, wait === undefined ? {} : { wait });
+      expect(closed(r)).toBe(true);
+      // The message a turn failed with at its setup, when a run was made for it.
+      expect(r.message).toBe(`Conversation "${CLOSED_ALICES}" is closed`);
+      expect(r.details).toEqual({ conversationId: CLOSED_ALICES });
+      expect(reached()).toBe(0);
+    }
+  });
+
+  test("write on its project is refused the same: it's closed for everyone", async () => {
+    const { as, reached } = makeApp();
+    expect(closed(await as('bWriter').turn(CLOSED_ALICES))).toBe(true);
+    expect(reached()).toBe(0);
+  });
+
+  test('a caller who may not add a turn is answered as before: who may add one comes first', async () => {
+    const { as, reached } = makeApp();
+    // Reads B, and may not act in it.
+    expect(forbidden(await as('viewer').turn(CLOSED_ALICES))).toBe(true);
+    for (const wait of [true, false]) {
+      const hidden = await as('stranger').turn(CLOSED_ALICES, { wait });
+      expect(notFound(hidden)).toBe(true);
+      expect(hidden.bytes).toBe((await asIfMissing('stranger', CLOSED_ALICES, { wait })).bytes);
+    }
+    // Naming another project.
+    const elsewhere = await as('aWriterReadsB').turn(CLOSED_ALICES, { projectId: A });
+    expect(elsewhere.code).toBe('conversation-project-mismatch');
+    expect(reached()).toBe(0);
+  });
+
+  test("with a participant: the participant is told it's closed; anyone else, the participant rule", async () => {
+    const { as, reached } = makeApp();
+    expect(closed(await as('carol').turn(CLOSED_CAROLS))).toBe(true);
+    const r = await as('viewer').turn(CLOSED_CAROLS);
+    expect([r.status, r.code]).toEqual([403, 'participant-not-allowed']);
+    expect(reached()).toBe(0);
+  });
+
+  test('without authorization, it is refused too', async () => {
+    const { as, reached } = makeApp({ withAuthz: false });
+    expect(closed(await as('stranger').turn(CLOSED_ALICES, { wait: false }))).toBe(true);
+    expect(reached()).toBe(0);
+  });
+
+  test('a flow run naming it in `input.conversationId` is refused too; an open one goes through', async () => {
+    const { as, reached } = makeApp({ withAuthz: false });
+    expect(closed(await as('alice').flowRun(CLOSED_ALICES))).toBe(true);
+    expect(reached()).toBe(0);
+    expect(continued(await as('alice').flowRun(ALICES))).toBe(true);
+    expect(reached()).toBe(1);
   });
 });
 

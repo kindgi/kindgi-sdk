@@ -63,7 +63,7 @@ import {
   readingOf,
   toRunProgressEvent,
 } from './sse.js';
-import { type TurnConversation, turnRefusal } from './turn-access.js';
+import { type TurnConversation, closedRefusal, turnRefusal } from './turn-access.js';
 import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
 
 const KERNEL_RUN_CHANNEL_PREFIX = 'kernel:run:';
@@ -107,7 +107,8 @@ export interface RunsRouterOptions {
   readonly referenceScope?: ReferenceScopeBinding;
   /**
    * What a turn posted into a conversation is checked against
-   * (`turnRefusal`, `participantRefusal`). `null`: no such conversation.
+   * (`turnRefusal`, `participantRefusal`, `closedRefusal`). `null`: no such
+   * conversation.
    * Any other failure throws, so the turn never runs unchecked. Required,
    * as `targetProject` is: a router without it would check no conversation.
    */
@@ -307,6 +308,10 @@ export function runsRouter(
         if (refusal !== undefined) return refusal;
       }
     }
+    // A closed conversation takes no new turns: refused before a run is
+    // made, once the rules above let the caller add the turn.
+    const closed = closedRefusal(c, conversationId, opened);
+    if (closed !== undefined) return closed;
 
     const trace = c.get('trace');
     const invocation = await invokeFromBody(

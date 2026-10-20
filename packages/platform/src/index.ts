@@ -76,6 +76,8 @@ export type {
   RemoveProjectMemberParams,
   RemoveTeamMemberParams,
   RemoveTeamProjectGrantParams,
+  RenameTenantOutcome,
+  RenameTenantParams,
   TeamProjectGrantParams,
   TeamProjectGrantUpdateRoleOutcome,
   TenantHierarchyBinding,

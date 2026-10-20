@@ -121,7 +121,7 @@ runtime joins your trace: its records carry your `traceId`. Its answer has a
 
 ```sh
 curl -sS -D - -o /dev/null -X POST "$KINDGI_API_URL/v1/runs" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
   -H 'traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01' \
   -H 'content-type: application/json' -d '{"agent":"acme.desk","input":{"userMessage":"hi"}}'
 ```
