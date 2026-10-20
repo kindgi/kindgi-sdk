@@ -179,8 +179,8 @@ environment, nothing changes.
 
 Storing a value under a `--env` that is neither the env the runtime serves
 nor one of the pack's environments with a project is refused
-(`env-not-served`): it would never be read. The refusal lists the
-environments that have a project.
+(`env-not-served`): it would never be read. The refusal names the env the
+runtime serves, where a value is read.
 
 :::note[On Kindgi Cloud]
 Every environment names its project.
@@ -201,8 +201,9 @@ Outside a pack, `--projects` names the projects instead, by id or slug.
 For an order of an org's projects, add `--org=<org-id>`. Setting an order
 replaces the one before.
 
-`kindgi environments list` shows the order: each environment's position,
-its name in the pack's config, and its project.
+`kindgi environments list --table` shows the order: each environment's
+position, its name in the pack's config, and its project's id. Without
+`--table`, it prints the order as JSON, each position with its project's id.
 `kindgi deployments list --project=<slug> --table` lists one environment's
 deployments, by the slug its `project` names. The Default project's include
 the deployments that name no project. Add `--pack=<pack-id>` for one pack's
@@ -306,8 +307,8 @@ For reference:
 pnpm exec kindgi promote --from=staging-1 --to=staging-2 --reason="Tried in staging-1"
 ```
 
-It prints what moves before it moves anything: the pack, its build, and
-each agent, flow, tool and guardrail with its version. A version made in
+It prints what moves before it moves anything: the pack, its build, each
+agent, flow and tool with its version, and each guardrail. A version made in
 `staging-1` since the build is marked as carried, and an edit that stays in
 `staging-1` says why. Test sets don't move: `staging-2` reads the ones made
 in `staging-1`. Then it lists any value the build needs that isn't set in
@@ -441,10 +442,10 @@ A refusal names the project it was checked on.
 - **A promotion is refused for a key limited to one project
   (`key-project-mismatch`).** Promote with a key that isn't limited to a
   project.
-- **A promotion is refused because values aren't ready
-  (`promotion-values-not-ready`).** Set each value it names in the
-  environment you're promoting to, then promote again. `--check` lists them
-  without promoting.
+- **A promotion stops at `Not ready in <environment>:`.** Through the API,
+  it's refused with `409 promotion-values-not-ready`. Set each value it
+  names in the environment you're promoting to, then promote again.
+  `--check` lists them without promoting.
 - **A promotion that skips an environment is refused
   (`promotion-not-next-environment`).** Promote to the next environment in
   the order. `kindgi environments list` shows it.
