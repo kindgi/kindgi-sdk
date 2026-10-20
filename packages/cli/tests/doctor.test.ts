@@ -1599,6 +1599,19 @@ describe('MCP endpoint env: a credential kept in plaintext config.env, or a secr
     });
   });
 
+  test('an earlier runtime answers the values: each variable is named, never its value', async () => {
+    const value = 'ghp_doctor_canary_0123456789';
+    const earlier = stdio('acme.files', [], {
+      config: { transport: 'stdio', command: 'acme-mcp', env: { GITHUB_TOKEN: value } },
+    });
+    for (const json of [true, false]) {
+      const { out, check } = await doctor({ env, json, fetchImpl: healthy, mcpPages: [[earlier]] });
+      if (json) expect(check('mcp-env')?.details).toEqual(['acme.files: GITHUB_TOKEN']);
+      else expect(out.stdout).toContain('      ✗ acme.files: GITHUB_TOKEN');
+      expect(`${out.stdout}${out.stderr}`).not.toContain(value);
+    }
+  });
+
   test('the text output: the warning, each endpoint and the fix', async () => {
     const { out } = await doctor({
       env,

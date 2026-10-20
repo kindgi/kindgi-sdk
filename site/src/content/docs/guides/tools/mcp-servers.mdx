@@ -761,8 +761,10 @@ from the runtime's own environment only `HOME`, `LOGNAME`, `PATH`, `SHELL`,
   again.
 - **A new value** reaches the server the next time the runtime starts it.
 - **If you roll back** to a runtime older than 0.1.12, an endpoint
-  registered with `secretEnv` starts without those variables. The server
-  fails its own calls, and no value is exposed.
+  registered with `secretEnv` before the rollback starts without those
+  variables. The server fails its own calls, and no value is exposed.
+  Registering one with `secretEnv` there is refused (`invalid-mcp-endpoint`,
+  reason `unknown-field`): that runtime doesn't know the field.
 
 ### Not in `config.env`
 
