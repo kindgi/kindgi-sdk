@@ -3649,7 +3649,7 @@ export const OUTSIDE_THE_MAP = [
     code: 'sign-in-unavailable',
     status: 500,
     description:
-      "Signing in failed on the server, for example because its database didn't answer. Nothing about the cause is sent to the browser; a sign-in page shows the code instead of JSON. The runtime's log says why, as an `sso` warning: `sign-in request failed: <reason>`. Try again.",
+      "Signing in failed on the server: its database didn't answer, say, or an identity provider's settings can't start a sign-in, or a SAML response the provider's page posted was refused. Nothing about the cause is sent to the browser; a sign-in page shows the code instead of JSON. The runtime's log says why, as an `sso` warning: `sign-in request failed: <reason>`, `sign-in with provider <id> didn't start: <reason>`, or `a SAML response for provider <id> was refused: <status> <code>: <message>`. Try again; when it keeps failing, the warning says what to fix.",
     seeAlso: ['deploy/self-hosted/sign-in'],
   },
 ];
