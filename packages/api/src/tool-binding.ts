@@ -272,9 +272,19 @@ export interface ToolPage {
 export type ToolRecord = ToolManifest & {
   /**
    * The tool's project, when the store records it: tools never move
-   * between projects, so every version reads the same one.
+   * between projects, so every version reads the same one. In a tenant
+   * with environment orders, a version may be made in another project of
+   * that project's order (`madeInProjectId`).
    */
   readonly projectId?: ProjectId;
+  /**
+   * The project this version was published in, when the store records it.
+   * The same as `projectId`, except in a tenant with environment orders:
+   * there, this version's secret scopes (`secretScopes`) were decided in
+   * this project, and a call from another project of the order reads the
+   * scopes a deploy into that project recorded.
+   */
+  readonly madeInProjectId?: ProjectId;
   /** Where each secret this version names is read (`ToolPublishInput.secretScopes`), when recorded. */
   readonly secretScopes?: Readonly<Record<string, RecordedSecretScope | null>>;
 };

@@ -17,7 +17,7 @@ description: >
   `kindgi secrets set` flow.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.3"
+version: "0.3.4"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 ---
@@ -113,6 +113,15 @@ kindgi secrets set MY_DB_URL --env=local --scope=tenant
 
 For pipelines/CI: `pbpaste | kindgi secrets set … --from-stdin`, or
 `--from-file=<path>` on a mode-0600 file. Never pass the value on argv.
+
+**When the CLI is signed in to a hosted runtime:** the launcher reads only
+the pack's env files, and `--env=local` is the env of the `kindgi dev`
+runtime that writes them. Run the command in the pack while `kindgi dev`
+runs there: the CLI talks to that runtime, unless `--url` or
+`KINDGI_API_URL` names another. Or the user adds the line to `.env.local`
+by hand. With no `kindgi dev`, the value would go to the hosted runtime,
+where the launcher never reads it; a runtime that keeps its values under
+one env refuses it (`env-not-served`).
 
 **Step 2 — wire the MCP server:**
 

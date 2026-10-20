@@ -33,8 +33,9 @@ a new key instead, or write to contact@kindgi.com.
 - **A non-production key from access.kindgi.com,** and the GitHub login you
   sign in there with.
 - **The `kindgi` CLI, 0.1.7 or later,** on a machine that can read and write
-  where your keys are kept. Outside a project, run it as
-  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)).
+  where your keys are kept. It runs from any folder as
+  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+  pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 - **A place for each key,** from [Where the keys are kept](#where-the-keys-are-kept).
 
 ## Where the keys are kept
@@ -85,7 +86,7 @@ Whatever runs `renew` needs to read these, and to write the license key's.
 access.kindgi.com trusts.
 
 ```sh
-pnpm exec kindgi license enroll --for <your GitHub login> --renewer gcp:projects/acme-prod/secrets/kindgi-license-renewer
+npx --yes @kindgi/cli@0.1 license enroll --for <your GitHub login> --renewer gcp:projects/acme-prod/secrets/kindgi-license-renewer
 ```
 
 - `--for` is the GitHub login you sign in to access.kindgi.com with. The
@@ -125,7 +126,7 @@ access.kindgi.com keeps only the renewer's public key.
 where the runtime reads the key:
 
 ```sh
-pnpm exec kindgi license renew --key gcp:projects/acme-prod/secrets/kindgi-license-key \
+npx --yes @kindgi/cli@0.1 license renew --key gcp:projects/acme-prod/secrets/kindgi-license-key \
   --renewer gcp:projects/acme-prod/secrets/kindgi-license-renewer
 ```
 
@@ -212,7 +213,7 @@ so give a renewal that runs on its own a system key holding
 route refuses it.
 
 Mint it with the runtime's own token. On a runtime serving one tenant
-(runtime 0.1.8.2 or later), only that token mints system keys, and only ones
+(runtime 0.1.10 or later), only that token mints system keys, and only ones
 holding `system:license`. The token reaches `curl` as a header file, so it
 never shows in the list of processes:
 
@@ -250,7 +251,7 @@ curl -sS -X POST "$KINDGI_API_URL/v1/system/keys" \
   one minted while it served many tenants, say. Revoke it, and mint one
   holding `system:license`.
 - **A runtime serving one tenant that answers the mint with
-  `403 system-principal-required`** is older than 0.1.8.2, which has these
+  `403 system-principal-required`** is older than 0.1.10, which has these
   keys. Until you upgrade it, `--runtime-token` takes its own token.
 
 ## On a schedule

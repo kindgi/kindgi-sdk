@@ -17,6 +17,7 @@ import { devCommand } from './dev.js';
 import { doctorCommand } from './doctor.js';
 import { egressCommand } from './egress.js';
 import { envCommand } from './env.js';
+import { environmentsCommand } from './environments.js';
 import { evalRunsCommand } from './eval-runs.js';
 import { evalSuitesCommand } from './eval-suites.js';
 import { exportsCommand } from './exports.js';
@@ -35,6 +36,7 @@ import { memoryCommand } from './memory.js';
 import { observationsCommand } from './observations.js';
 import { peopleCommand } from './people.js';
 import { projectsCommand } from './projects.js';
+import { promoteCommand } from './promote.js';
 import { proposalsCommand } from './proposals.js';
 import { provenanceCommand } from './provenance.js';
 import { providersCommand } from './providers.js';
@@ -47,11 +49,13 @@ import { signInCommand } from './sign-in.js';
 import { sitesCommand } from './sites.js';
 import { skillsCommand } from './skills.js';
 import { ssoCommand } from './sso.js';
+import { tenantCommand } from './tenant.js';
 import { testCommand } from './test.js';
 import { tokensCommand } from './tokens.js';
 import { toolsCommand } from './tools.js';
 import type { Command } from './types.js';
 import { upgradeCommand } from './upgrade.js';
+import { usageCommand } from './usage.js';
 import { versionCommand } from './version.js';
 import { webhooksCommand } from './webhooks.js';
 
@@ -64,8 +68,10 @@ export const ROOT_COMMANDS: readonly Command[] = [
   buildCommand,
   deployCommand,
   deploymentsCommand,
+  promoteCommand,
   testCommand,
   envCommand,
+  environmentsCommand,
   secretsCommand,
   ssoCommand,
   signInCommand,
@@ -75,6 +81,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   mcpCommand,
   mcpLaunchCommand,
   projectsCommand,
+  tenantCommand,
   runsCommand,
   agentsCommand,
   conversationsCommand,
@@ -100,6 +107,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   tokensCommand,
   serviceAccountsCommand,
   peopleCommand,
+  usageCommand,
   capabilitiesCommand,
   providersCommand,
   adaptersCommand,

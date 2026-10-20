@@ -277,7 +277,7 @@ $(terraform output -raw license_enroll_command)   # fill in --for first
   unset KEY KINDGI_API_TOKEN
   ```
 
-  Then `license_usage_key_secret = "license-usage-key"`. The key is never printed, and the token reaches `curl` as a header file, never in the list of processes. A refused mint prints its error instead, and nothing goes in the vault. To list the keys or revoke one, see "A key for the counts" on that page. A server serving one tenant that refuses the mint with `system-principal-required` is older than runtime 0.1.8.2, which has these keys: until you upgrade it, the job renews without counts.
+  Then `license_usage_key_secret = "license-usage-key"`. The key is never printed, and the token reaches `curl` as a header file, never in the list of processes. A refused mint prints its error instead, and nothing goes in the vault. To list the keys or revoke one, see "A key for the counts" on that page. A server serving one tenant that refuses the mint with `system-principal-required` is older than runtime 0.1.10, which has these keys: until you upgrade it, the job renews without counts.
 
   **Check the first run.** A renewal that can't send its counts still renews, with `counts: not sent (<why>)` in its log. The alert `<name_prefix>-license-counts-not-sent` raises it within a day. To know now, start a run after the apply, wait for it to finish, and read its counts line. The log reaches Log Analytics a few minutes after the run ends, so an empty answer right after it means ask again a little later:
 

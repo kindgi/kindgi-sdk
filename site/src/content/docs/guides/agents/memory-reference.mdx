@@ -96,7 +96,7 @@ the fact [Write and read facts](../give-an-agent-memory/#write-and-read-facts)
 writes, for the query `appliance parts`:
 
 ```sh
-curl -X POST $KINDGI_API_URL/v1/memory/retrieve -H 'authorization: Bearer …' -H 'content-type: application/json' -d '{"mode":"both","query":"appliance parts"}'
+curl -X POST $KINDGI_API_URL/v1/memory/retrieve -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' -d '{"mode":"both","query":"appliance parts"}'
 ```
 
 - `$KINDGI_API_URL` is your runtime's URL, and `…` stands for your API
@@ -133,7 +133,7 @@ Without embeddings, search by meaning is never skipped silently:
 The API answers the same:
 
 ```sh
-curl -X POST $KINDGI_API_URL/v1/memory/retrieve -H 'authorization: Bearer …' -d '{"mode":"semantic","query":"how should we contact the customer"}'   # no KINDGI_MEMORY_EMBEDDINGS
+curl -X POST $KINDGI_API_URL/v1/memory/retrieve -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -d '{"mode":"semantic","query":"how should we contact the customer"}'   # no KINDGI_MEMORY_EMBEDDINGS
 ```
 
 ```text

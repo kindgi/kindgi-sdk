@@ -8,6 +8,7 @@
  * exercising the full runCli path.
  */
 
+import { type PromotionStop, promotionHint } from './promotion-path.js';
 import type { DeployedVersionRecord, DeploymentRecord, PostDeploymentResult } from './runners.js';
 
 /**
@@ -67,6 +68,13 @@ const IMAGE_LIMIT_HINTS: Readonly<Record<string, string>> = {
     "The pack's index, /app/index.json, is past the size the server reads. Every tool, " +
     'agent, flow and guardrail in the pack is in it with its schemas: make the largest ' +
     'schemas smaller, or split the pack into two.',
+};
+
+/**
+ * `rate-limit-exceeded`'s hint by its `details.limit`, for a wait longer
+ * than the command waits out.
+ */
+const RATE_LIMIT_HINTS: Readonly<Record<string, string>> = {
   'tenant-unpack-hour':
     "This tenant's image reads unpacked as much as the server allows in an hour. " +
     'Deploy again after the wait the message names; an image `kindgi build` made unpacks ' +
@@ -77,12 +85,19 @@ const IMAGE_LIMIT_HINTS: Readonly<Record<string, string>> = {
 const own = (table: Readonly<Record<string, string>>, key: string | undefined) =>
   key !== undefined && Object.hasOwn(table, key) ? table[key] : undefined;
 
-/** The hint for a refusal: by its code, or for `image-unverifiable` by its cause. */
+/**
+ * The hint for a refusal: by its code, for `image-unverifiable` by its
+ * cause, or for `rate-limit-exceeded` by its limit.
+ */
 function hintFor(error: {
   readonly code: string;
   readonly cause?: string;
   readonly limit?: string;
 }): string | undefined {
+  if (error.code === 'rate-limit-exceeded') {
+    const byLimit = own(RATE_LIMIT_HINTS, error.limit);
+    if (byLimit !== undefined) return byLimit;
+  }
   if (error.code === 'image-unverifiable') {
     const byLimit =
       error.cause === 'image-limit-exceeded' ? own(IMAGE_LIMIT_HINTS, error.limit) : undefined;
@@ -130,6 +145,8 @@ export function renderResponse(
     readonly signerKeyId: string;
     readonly envelopePath: string;
     readonly idempotencyKey: string;
+    /** On a `409 environment-takes-promotions`: each environment on the way there, when they could be read. */
+    readonly promotionPath?: readonly PromotionStop[] | undefined;
   },
 ): RenderedResponse {
   if (result.kind === 'created' || result.kind === 'replayed') {
@@ -183,18 +200,7 @@ export function renderResponse(
     banner.push(`      code:    ${result.error.code}`);
     banner.push(`      message: ${result.error.message}`);
     if (result.error.cause !== undefined) banner.push(`      cause:   ${result.error.cause}`);
-    const fill = (text: string): string =>
-      text.replaceAll('{signerKeyId}', ctx.signerKeyId).replaceAll('{endpoint}', ctx.endpoint);
-    const hint = hintFor(result.error);
-    if (hint !== undefined) {
-      banner.push('');
-      banner.push('  Hint:');
-      for (const line of wrapForBanner(fill(hint), 74, '    ')) {
-        banner.push(line);
-      }
-      const command = WIRE_ERROR_COMMANDS[result.error.code];
-      if (command !== undefined) banner.push(`      ${fill(command)}`);
-    }
+    banner.push(...hintLines(result.error, ctx));
     if (result.error.details !== undefined && result.error.details.length > 0) {
       banner.push('');
       banner.push('  Details:');
@@ -236,6 +242,35 @@ export function renderResponse(
   );
   banner.push('');
   return { banner, summary: null, exitCode: 1 };
+}
+
+/**
+ * The hint for a refusal (by its code, or for `image-unverifiable` by its
+ * cause), then the commands it names, each on a line of its own; none for a
+ * refusal without one.
+ */
+function hintLines(
+  error: { readonly code: string; readonly cause?: string; readonly limit?: string },
+  ctx: {
+    readonly signerKeyId: string;
+    readonly endpoint: string;
+    readonly promotionPath?: readonly PromotionStop[] | undefined;
+  },
+): string[] {
+  const fill = (text: string): string =>
+    text.replaceAll('{signerKeyId}', ctx.signerKeyId).replaceAll('{endpoint}', ctx.endpoint);
+  let text: string;
+  let commands: readonly string[];
+  if (error.code === 'environment-takes-promotions') {
+    ({ text, commands } = promotionHint(ctx.promotionPath));
+  } else {
+    const hint = hintFor(error);
+    if (hint === undefined) return [];
+    const command = WIRE_ERROR_COMMANDS[error.code];
+    text = fill(hint);
+    commands = command === undefined ? [] : [fill(command)];
+  }
+  return ['', '  Hint:', ...wrapForBanner(text, 74, '    '), ...commands.map((c) => `      ${c}`)];
 }
 
 /**

@@ -67,6 +67,26 @@ export type WebhookEndpointId = Brand<string, 'WebhookEndpointId'>;
 export type InstallationId = Brand<string, 'InstallationId'>;
 
 /**
+ * Which version a single read answers: `agents.get`, `flows.get`,
+ * `tools.get`, `evalSuites.get` and `blocks.get`. An item more than one
+ * project serves (an environment order carries it to later environments)
+ * answers its newest active version that can run in a project the caller
+ * reads.
+ */
+export interface GetLatestOptions {
+  /**
+   * The newest active version that can run in this project, a project
+   * the caller reads; `404` when there's none, or when the caller doesn't
+   * read it. An item with one project answers its latest version for its
+   * own project and `404` for any other; one that names no project (under
+   * `kindgi dev`, a pack's agents, flows and tools) answers it for any.
+   * With authorization off, the caller reads every project. An older
+   * runtime ignores it.
+   */
+  readonly projectId?: string;
+}
+
+/**
  * @unwired SDK-defined schedule shape, keyed by agent. The API's
  * schedule routes (`/v1/schedules`) take a cron trigger config instead
  * — see `client.schedules` and its `RegisterScheduleInput`.
@@ -2785,6 +2805,12 @@ export interface BlobMeta {
   /** Who uploaded it: `user:<id>` or `service_account:<id>`. */
   readonly createdBy?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
+  /**
+   * The blob's S3-compatible address (`/s3/{bucket}/{key}`), both or
+   * neither: present when the server's storage gives the blob one.
+   */
+  readonly bucket?: string;
+  readonly key?: string;
 }
 
 /** Input for `artifacts.upload` (`POST /v1/artifacts`, multipart). */
