@@ -74,7 +74,7 @@ A run uses four kinds of values, each kept in its own place.
 - **Model keys.** A model provider is the tenant's (on Kindgi Cloud, your
   workspace's), and runs in every project can use it. Its key is a secret
   of an env, read on each model call where the call's run is (runtime
-  0.1.8.1 or later): the run's project's key, else its org's, else the
+  0.1.9 or later): the run's project's key, else its org's, else the
   tenant's. So a project or an org can have a key of its own, set with
   `kindgi secrets set <KEY_NAME> --env=<env> --scope=project:<project-id>`,
   or `--scope=org:<org-id>`. Unlike a tool's secrets, where it's read isn't
@@ -88,7 +88,7 @@ A run uses four kinds of values, each kept in its own place.
   it. Kindgi looks in the tool's project, then that project's org, then the
   tenant, and records the first that holds the secret. With authorization
   on, only the scopes whoever registers it administers count. If none holds
-  the secret yet, a deploy (runtime 0.1.8.1 or later) records where its
+  the secret yet, a deploy (runtime 0.1.9 or later) records where its
   `--sync-secrets` writes: the project the deploy named, or the tenant for
   a deploy without `--project`. A promotion records where the promoted
   deployment's `--sync-secrets` writes: the project it promotes into, or
@@ -113,7 +113,7 @@ A run uses four kinds of values, each kept in its own place.
 `kindgi deploy --sync-secrets` stores the values in the pack's
 `.env.<env>` file as secrets, after the deploy lands: in the project the
 deploy named, or the tenant's for a deploy without `--project`. A secret
-set nowhere when the deploy ran is read there (runtime 0.1.8.1 or later),
+set nowhere when the deploy ran is read there (runtime 0.1.9 or later),
 so set it later in that same place: after
 `kindgi deploy --project=<project-id>`, that's
 `kindgi secrets set <name> --env=<env> --scope=project:<project-id>`.

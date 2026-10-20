@@ -135,8 +135,22 @@ could claim another company's domain and catch its people.
 
   Each entry is a domain and the workspace it belongs to, by the
   workspace's id or its slug. The runtime checks the list when it starts.
-  An entry it can't read, a domain listed twice, or a workspace it doesn't
-  serve stops it, naming the entry.
+  An entry it can't read, or a domain listed twice, stops it, naming the
+  entry. An entry for a workspace it doesn't serve (no workspace has that
+  id or slug, it was purged, or its setup hasn't finished) doesn't: the
+  runtime warns, naming the domain and the workspace, and treats that
+  domain as one not listed until it next starts with the workspace set up.
+
+  Each replica reads its own list, as does any other runtime on the same
+  database: give them all the same one.
+
+  An entry by id keeps working through a rename (runtime 0.1.10 or later).
+  While an entry names a workspace by its slug, that slug can't change, and
+  no workspace can be renamed to a slug an entry names
+  (`409 tenant-slug-in-config`). A rename is checked against the list of the
+  replica that takes it. To change a slug an entry names, name the workspace
+  by its id in the list, restart every replica and any other runtime on that
+  database, then rename it.
 
 The startup output lists what routes:
 
@@ -392,7 +406,7 @@ machine:
 
 ## A second factor
 
-A person can add a second factor to signing in (runtime 0.1.8.1 or later):
+A person can add a second factor to signing in (runtime 0.1.9 or later):
 the codes an authenticator app shows (TOTP, as in Google Authenticator,
 1Password or Authy), and 10 recovery codes for when the phone is lost. They set it up in
 the console, which shows the key as a QR code, once. From then on, signing
@@ -447,7 +461,7 @@ admin removes it.
 ## Terms and privacy links
 
 The console's sign-in page can link your terms and privacy policy
-(runtime 0.1.8.1 or later):
+(runtime 0.1.9 or later):
 
 ```sh
 # kindgi.env

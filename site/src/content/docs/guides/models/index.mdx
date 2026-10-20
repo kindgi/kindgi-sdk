@@ -655,7 +655,7 @@ uv run kindgi secrets set <KEY_NAME> --env=local --scope=tenant
   (`org:<orgId>`) or project (`project:<projectId>`). Under `kindgi dev`, the
   files hold one value for every scope. On a runtime, a run reads a
   provider's key at its project, else its org, else the tenant (runtime
-  0.1.8.1 or later; an older runtime reads the tenant's only), so the
+  0.1.9 or later; an older runtime reads the tenant's only), so the
   tenant's key serves every project without one of its own.
 
 It prompts for the value and writes it to `.kindgi/secrets.env`, which your

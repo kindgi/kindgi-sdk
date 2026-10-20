@@ -40,7 +40,7 @@ export const FULL_SYSTEM_CAPABILITY = 'kindgi:system';
  * one holding `kindgi:system`.
  */
 export const SYSTEM_SCOPES = [
-  /** Create, list, read and close tenants. */
+  /** Create, list, read, rename and close tenants. */
   'system:tenants',
   /**
    * Create tenants only, each with a first admin, production blocked, no
@@ -67,6 +67,8 @@ export const SYSTEM_SCOPES = [
    * deployments key can't read a value.
    */
   'system:pack-env',
+  /** Usage across tenants: counts and sums only. */
+  'system:usage:read',
   /** The deployment's license: reading it, for its renewal. */
   'system:license',
 ] as const;
