@@ -52188,7 +52188,7 @@
             "in": "query",
             "schema": {
               "type": "integer",
-              "minimum": 1,
+              "minimum": 0,
               "maximum": 100,
               "default": 25
             },

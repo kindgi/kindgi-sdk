@@ -8681,7 +8681,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
         description: 'Closed from this time on.',
         schema: { type: 'string', format: 'date-time' },
       },
-      { ...LimitQueryParam, description: 'Page size; `0` for the `total` alone.' },
+      {
+        ...LimitQueryParam,
+        description: 'Page size; `0` for the `total` alone.',
+        schema: { ...LimitQueryParam.schema, minimum: 0 },
+      },
       CursorQueryParam,
     ],
     responses: {
