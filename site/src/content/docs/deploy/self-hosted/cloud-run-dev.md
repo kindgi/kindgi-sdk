@@ -5,7 +5,7 @@ sidebar:
   order: 2.1
 ---
 
-For a dev environment beside an app, with no project of its own, you run the
+For a dev environment beside an app, in the app's own Google Cloud project, you run the
 same Terraform module as [Deploy on Google Cloud Run](../cloud-run/) with a
 few settings changed: no VPC, the pack service asleep when idle, and either a
 small Cloud SQL instance of Kindgi's own or the app's existing one.
@@ -21,20 +21,27 @@ instead of `example.tfvars` at [the foundation step](../cloud-run/#1-the-foundat
 
 ## No VPC
 
-Set `network_mode = "none"`. The module creates no VPC, subnet, Cloud NAT or
-connector. Both services reach the internet through Cloud Run's own egress,
-so the pack service takes all ingress (`pack_ingress = "INGRESS_TRAFFIC_ALL"`),
-closed by IAM to the runtime's service account — the runtime still calls it
-with a Google ID token on every call, so a public URL stays shut to everyone
-else.
+Set `network_mode = "none"` **and** `pack_ingress = "INGRESS_TRAFFIC_ALL"`.
+The module creates no VPC, subnet, Cloud NAT or connector; both services reach
+the internet through Cloud Run's own egress. Without a VPC the runtime reaches
+the pack service over its public URL, so the plan refuses `none` unless you
+open the pack's ingress — it is not set for you. The pack stays closed by IAM
+to the runtime's service account, which still calls it with a Google ID token
+on every call, so the public URL stays shut to everyone else.
 
 Two things follow:
 
 - **There is no static egress IP.** The pack's tools reach only public
-  addresses and the instances in `pack_cloud_sql_instances` — not a
-  private-IP database. If your tools need a fixed outbound address or a
-  private VPC, use the `direct` or `connector` shape instead
+  addresses and the instances in `pack_cloud_sql_instances`. With `none` the
+  module refuses `nat_static_ip` — there is no Cloud NAT to pin an address to.
+  If your tools need a fixed outbound address or a private VPC, use the
+  `direct` or `connector` shape instead
   ([A new VPC, or yours](../cloud-run-reference/#a-new-vpc-or-yours)).
+- **The database must have a public IP.** With `none` the module refuses
+  `database_private_network`, so a private-IP Cloud SQL instance is out. An
+  organization policy that forbids public IPs on Cloud SQL
+  (`sql.restrictPublicIp`) rules this shape out — use `direct` or `connector`
+  with `database_private_network` instead.
 
 If your organization forbids public access to Cloud Run
 (`iam.allowedPolicyMemberDomains` refuses `allUsers`), set
@@ -48,20 +55,30 @@ and restore, not an in-place change.
 
 ### A small instance of Kindgi's own
 
-Leave `database_host_instance` unset and set `database_tier` to a shared-core
-tier, such as `db-g1-small`. The module makes the instance (about six minutes
-on the first apply). You do not need to touch `database_edition`: its default,
-`ENTERPRISE`, is what lets a shared-core tier run. A Postgres 16 instance
-otherwise defaults to `ENTERPRISE_PLUS`, which takes only `db-perf-optimized-N-*`
-tiers and would reject `db-g1-small`.
+Remove `database_host_instance` from your copy of `example-dev.tfvars` — it
+sets that for the shared-instance path below — and set `database_tier` to a
+shared-core tier, such as `db-g1-small`. The module makes the instance (about
+six minutes on the first apply). You do not need to touch `database_edition`:
+its default, `ENTERPRISE`, is the [Cloud SQL edition](https://cloud.google.com/sql/docs/postgres/editions-intro)
+that runs a shared-core tier. A Postgres 16 instance otherwise defaults to
+`ENTERPRISE_PLUS`, which takes only `db-perf-optimized-N-*` tiers and would
+reject `db-g1-small`.
 
 ### The app's existing instance
 
-Set `database_host_instance` to the app's Cloud SQL instance. The module then
-makes no instance of its own: it creates Kindgi's `database_name` database on
-the named instance, and you create Kindgi's user on that instance at
-[the secrets step](../cloud-run/#3-the-secrets) — run it against the host, with
-the host instance's name in place of your `name_prefix` in the users path.
+Set `database_host_instance` to the name of the app's Cloud SQL instance **in
+this same Google Cloud project** — the module looks it up there, makes no
+instance of its own, and creates Kindgi's `database_name` database on it.
+(`database_tier` and `database_edition` are ignored in this case; the host
+instance's own tier and edition apply.)
+
+You still create Kindgi's user at [the secrets step](../cloud-run/#3-the-secrets),
+with one line changed: the Cloud SQL Admin API's users URL must name the host
+instance, so use it in place of `$N` — `instances/<host-instance>/users` rather
+than `instances/$N/users`. Nothing else at that step changes: `CONN` (from
+`terraform output -raw sql_connection_name`) already resolves to the host
+instance, so the connection string is right, and the `$N-database-url` secret
+keeps your `name_prefix`.
 
 - The instance must have a public IP and run **Postgres 16 or later**. Before
   16, a `CREATEROLE` user — which Kindgi's needs — could grant itself any
