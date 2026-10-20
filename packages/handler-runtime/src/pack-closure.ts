@@ -167,7 +167,7 @@ async function keepDependencies(
   for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
     for (const dependency of await dependencyNames(next.dir)) {
       // Not installed: an optional dependency or peer this platform or
-      // app skipped, or a dev dependency the prune removed. Node only
+      // app skipped, or a dev dependency the image doesn't have. Node only
       // fails if something loads it, and the image's gates load them.
       const resolved = await resolvePackage(dependency, next.dir, root);
       if (resolved !== undefined) add(resolved, dependency, `a dependency of ${next.name}`);
