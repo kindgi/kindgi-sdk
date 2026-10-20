@@ -13,8 +13,15 @@
  *            generate`); then pruned to production
  *   code     the bundles (`dist/`): the pack's, the framework's, the
  *            config, the bundle map
- *   indexer  `index.json`, indexed from the bundles
- *   final    deps + code + index.json, as the `node` user
+ *   closure  (`image.dependencies: 'loaded'`) the install trimmed to the
+ *            packages the bundles import, their own dependencies and
+ *            `image.keep` (`kindgi-closure trim`)
+ *   trimmed  (the same) the trimmed install, on the system stage
+ *   indexer  `index.json`, indexed from the bundles: on `deps`, or with
+ *            `'loaded'` on `trimmed`, after `kindgi-closure check` loads
+ *            every package the bundles import there, so a miss fails the
+ *            build
+ *   final    deps (or trimmed) + code + index.json, as the `node` user
  *
  * Image layout: the install root at `/app`, the pack at
  * `/app/<packRel>` (the working directory) with its bundles in `dist/`,
@@ -110,6 +117,8 @@ export function renderContainerfile(inputs: RenderContainerfileInputs): string {
   const env = Object.entries(inputs.image.buildEnv)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([name, value]) => `ENV ${name}=${dockerfileString(value)}`);
+  const loaded = inputs.image.dependencies === 'loaded';
+  const installed = loaded ? 'trimmed' : 'deps';
   const steps = inputs.image.steps.map((step) => {
     const { command, args } = binCommand(install.manager, step.bin, step.args ?? []);
     return `# ${step.extension}\n${run(`cd ${packDir} && ${[command, ...args].map(shellWord).join(' ')}`)}`;
@@ -164,9 +173,9 @@ ${run(commands.prune)}
 # --- stage: code ---
 FROM scratch AS code
 COPY dist/ /dist/
-
+${loaded ? closureStages(packDir, inputs.image) : ''}
 # --- stage: indexer ---
-FROM deps AS indexer
+FROM ${installed} AS indexer${loaded ? indexerPreamble(env) : ''}
 ARG SOURCE_DATE_EPOCH=0
 ARG KINDGI_BUILD_TARGET=${buildTarget}
 ARG KINDGI_ARTIFACT_VERSION=${artifactVersion}
@@ -176,7 +185,13 @@ ENV KINDGI_BUILD_TARGET=\${KINDGI_BUILD_TARGET}
 ENV KINDGI_ARTIFACT_VERSION=\${KINDGI_ARTIFACT_VERSION}
 ENV KINDGI_PUBLISHED_AT=\${KINDGI_PUBLISHED_AT}
 COPY --from=code --chown=node:node /dist ${packDir}/dist
-WORKDIR ${packDir}
+WORKDIR ${packDir}${
+   loaded
+     ? `
+# Every package the bundles import loads from the trimmed install.
+RUN node ./dist/kindgi-closure.mjs check --bundle-dir ${packDir}/dist --externals ./dist/externals.json`
+     : ''
+ }
 RUN node --enable-source-maps ./dist/kindgi-index.mjs \\
       --pack-dir . \\
       --config ./dist/kindgi.config.mjs \\
@@ -193,11 +208,17 @@ ARG KINDGI_ARTIFACT_VERSION=${artifactVersion}
 ARG KINDGI_PUBLISHED_AT=${publishedAt}
 ENV KINDGI_ARTIFACT_VERSION=\${KINDGI_ARTIFACT_VERSION}
 ENV KINDGI_PUBLISHED_AT=\${KINDGI_PUBLISHED_AT}
-ENV NODE_ENV=production
+ENV NODE_ENV=production${
+   loaded
+     ? `
+# The pack service names a package the trimmed install doesn't have.
+ENV KINDGI_IMAGE_DEPENDENCIES=loaded`
+     : ''
+ }
 ENV PORT=8080
 USER node
 WORKDIR ${packDir}
-COPY --from=deps --chown=node:node /app /app
+COPY --from=${installed} --chown=node:node /app /app
 COPY --from=code --chown=node:node /dist ./dist${
    inputs.hasIncludes
      ? `
@@ -212,6 +233,47 @@ HEALTHCHECK --interval=30s --timeout=3s CMD ${healthcheck}
 ENTRYPOINT ${entrypoint}
 CMD []
 `;
+}
+
+/**
+ * The closure and trimmed stages (`image.dependencies: 'loaded'`): the
+ * install trimmed to what the bundles load, with no network and no
+ * secrets, then laid on the system stage.
+ */
+function closureStages(packDir: string, image: ResolvedImage): string {
+  const keep = [
+    ...image.keep.map((name) => `--keep ${shellWord(name)}`),
+    ...image.keepIfInstalled.map((name) => `--keep-if-installed ${shellWord(name)}`),
+  ];
+  const args = [
+    '--root /app',
+    `--bundle-dir ${packDir}/dist`,
+    '--externals /home/node/closure-in/externals.json',
+    ...keep,
+    '--out /home/node/closure',
+  ];
+  return `
+# --- stage: closure (image.dependencies: 'loaded') ---
+# Only what the pack loads: the packages its bundles import, their own
+# dependencies, and image.keep.
+FROM deps AS closure
+COPY --from=code --chown=node:node /dist/kindgi-closure.mjs /dist/externals.json /home/node/closure-in/
+RUN node /home/node/closure-in/kindgi-closure.mjs trim \\
+      ${args.join(' \\\n      ')}
+
+# --- stage: trimmed ---
+FROM system AS trimmed
+COPY --from=closure --chown=node:node /home/node/closure /app
+`;
+}
+
+/** The indexer on the trimmed install: as the deps stage leaves it, the `node` user and the build env. */
+function indexerPreamble(env: readonly string[]): string {
+  const buildEnv =
+    env.length > 0
+      ? `\n# Build env: the indexer stage only, never the final image.\n${env.join('\n')}`
+      : '';
+  return `\nUSER node${buildEnv}`;
 }
 
 /** The secret mounts for registry config, and the package manager's download cache. */

@@ -11,10 +11,12 @@ mock_provider "google" {
       number = "123456789012"
     }
   }
-  # database_instance's instance: one a restore made, with a public IP.
+  # Stands in for a restore instance (database_instance) and a host instance
+  # (database_host_instance): a public IP, Postgres 16.
   mock_data "google_sql_database_instance" {
     defaults = {
-      connection_name = "acme-app-dev:northamerica-northeast2:kindgi-dev-restored"
+      connection_name  = "acme-app-dev:northamerica-northeast2:kindgi-dev-restored"
+      database_version = "POSTGRES_16"
       settings = [{
         ip_configuration = [{ ipv4_enabled = true }]
       }]
@@ -895,7 +897,7 @@ run "database_instance_moves_the_server_and_keeps_its_own_instance" {
     error_message = "The grant on the module's own instance stays, for the revision that still serves from it."
   }
   assert {
-    condition     = google_sql_database_instance.kindgi.name == "kindgi-dev" && contains(keys(google_secret_manager_secret.server), "database_url")
+    condition     = google_sql_database_instance.kindgi[0].name == "kindgi-dev" && contains(keys(google_secret_manager_secret.server), "database_url")
     error_message = "The module's own instance and its URL secret stay."
   }
   assert {
@@ -980,4 +982,332 @@ run "database_instance_refuses_a_secret_path" {
     }
   }
   expect_failures = [var.database_instance]
+}
+
+# ---- database_host_instance: Kindgi's database on the app's instance ---------
+
+run "host_puts_kindgis_database_on_the_app_instance" {
+  command = plan
+  variables {
+    database_host_instance = "acme-app-db"
+  }
+  override_data {
+    target = data.google_sql_database_instance.host
+    values = {
+      connection_name  = "acme-app-dev:northamerica-northeast2:acme-app-db"
+      database_version = "POSTGRES_16"
+      settings         = [{ ip_configuration = [{ ipv4_enabled = true }] }]
+    }
+  }
+
+  assert {
+    condition     = length(google_sql_database_instance.kindgi) == 0 && length(data.google_sql_database_instance.host) == 1
+    error_message = "database_host_instance makes no instance of our own and reads the host."
+  }
+  assert {
+    condition     = google_sql_database.kindgi.instance == "acme-app-db"
+    error_message = "Kindgi's database is created on the host instance."
+  }
+  assert {
+    condition     = google_sql_database.kindgi.deletion_policy == "ABANDON"
+    error_message = "On a host, with deletion protection on, the database object is abandoned, not dropped."
+  }
+  assert {
+    condition     = google_cloud_run_v2_service.server.template[0].volumes[0].cloud_sql_instance[0].instances == toset(["acme-app-dev:northamerica-northeast2:acme-app-db"])
+    error_message = "The /cloudsql volume names the host instance's connection name."
+  }
+  assert {
+    condition     = output.sql_connection_name == "acme-app-dev:northamerica-northeast2:acme-app-db"
+    error_message = "sql_connection_name is the host instance's connection name."
+  }
+  assert {
+    condition     = google_project_iam_member.server_sql_client[0].condition[0].expression == "resource.name == \"projects/acme-app-dev/instances/acme-app-db\""
+    error_message = "The server's account may connect to the host instance."
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value_source[0].secret_key_ref[0].secret
+      if e.name == "KINDGI_DATABASE_URL"
+    ]) == "kindgi-dev-database-url"
+    error_message = "KINDGI_DATABASE_URL reuses the module's own database-url secret; the operator points it at the host."
+  }
+}
+
+run "host_deletes_the_database_when_protection_is_off" {
+  command = plan
+  variables {
+    database_host_instance       = "acme-app-db"
+    database_deletion_protection = false
+  }
+  assert {
+    condition     = google_sql_database.kindgi.deletion_policy == "DELETE"
+    error_message = "With deletion protection off, the database object is deleted on a host too."
+  }
+}
+
+run "host_refuses_a_pre_16_instance" {
+  command = plan
+  variables {
+    database_host_instance = "acme-app-db"
+  }
+  override_data {
+    target = data.google_sql_database_instance.host
+    values = {
+      database_version = "POSTGRES_15"
+      settings         = [{ ip_configuration = [{ ipv4_enabled = true }] }]
+    }
+  }
+  expect_failures = [data.google_sql_database_instance.host]
+}
+
+run "host_refuses_an_instance_without_a_public_ip" {
+  command = plan
+  variables {
+    database_host_instance = "acme-app-db"
+  }
+  override_data {
+    target = data.google_sql_database_instance.host
+    values = {
+      database_version = "POSTGRES_16"
+      settings         = [{ ip_configuration = [{ ipv4_enabled = false }] }]
+    }
+  }
+  expect_failures = [data.google_sql_database_instance.host]
+}
+
+run "host_refuses_private_ip_mode" {
+  command = plan
+  variables {
+    database_host_instance   = "acme-app-db"
+    database_private_network = "projects/acme-app-dev/global/networks/acme"
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "host_refuses_the_module_instance_name" {
+  command = plan
+  variables {
+    database_host_instance = "kindgi-dev"
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "host_refuses_serving_from_itself" {
+  command = plan
+  variables {
+    database_host_instance = "acme-app-db"
+    database_instance = {
+      name       = "acme-app-db"
+      url_secret = "acme-app-db-url"
+    }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "host_refuses_a_connection_name" {
+  command = plan
+  variables {
+    database_host_instance = "acme-app-dev:northamerica-northeast2:db"
+  }
+  expect_failures = [var.database_host_instance]
+}
+
+# ---- network_mode = "none": no VPC ------------------------------------------
+
+run "none_creates_no_vpc" {
+  command = plan
+  variables {
+    network_mode = "none"
+    pack_ingress = "INGRESS_TRAFFIC_ALL"
+  }
+  assert {
+    condition     = length(google_compute_network.kindgi) == 0 && length(google_compute_router_nat.nat) == 0
+    error_message = "network_mode = \"none\" creates no VPC and no NAT."
+  }
+  assert {
+    condition     = length(google_cloud_run_v2_service.pack[0].template[0].vpc_access) == 0
+    error_message = "The pack service gets no connector under \"none\"."
+  }
+  assert {
+    condition     = length(google_cloud_run_v2_service.server.template[0].vpc_access) == 0
+    error_message = "The server gets no VPC egress under \"none\"."
+  }
+}
+
+run "none_needs_all_pack_ingress" {
+  command = plan
+  variables {
+    network_mode = "none"
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "none_refuses_private_ip_mode" {
+  command = plan
+  variables {
+    network_mode             = "none"
+    pack_ingress             = "INGRESS_TRAFFIC_ALL"
+    database_private_network = "projects/acme-app-dev/global/networks/acme"
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "none_refuses_a_static_nat_ip" {
+  command = plan
+  variables {
+    network_mode  = "none"
+    pack_ingress  = "INGRESS_TRAFFIC_ALL"
+    nat_static_ip = true
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "connector_plans_with_a_static_nat_ip" {
+  command = plan
+  variables {
+    network_mode  = "connector"
+    vpc_connector = "projects/acme-app-dev/locations/northamerica-northeast2/connectors/acme"
+    pack_ingress  = "INGRESS_TRAFFIC_ALL"
+    nat_static_ip = true
+  }
+  assert {
+    condition     = length(google_compute_address.nat) == 0
+    error_message = "connector mode creates no Cloud NAT, so nat_static_ip reserves nothing and the plan does not refuse it."
+  }
+}
+
+# ---- Cloud NAT ports ---------------------------------------------------------
+
+run "nat_ports_grow_on_demand_by_default" {
+  command = plan
+
+  assert {
+    condition     = google_compute_router_nat.nat[0].enable_dynamic_port_allocation && !google_compute_router_nat.nat[0].enable_endpoint_independent_mapping
+    error_message = "The NAT allocates ports dynamically, with endpoint-independent mapping off (dynamic allocation needs it off)."
+  }
+  assert {
+    condition     = google_compute_router_nat.nat[0].min_ports_per_vm == 64 && google_compute_router_nat.nat[0].max_ports_per_vm == 4096
+    error_message = "Each instance should start with 64 NAT ports and grow to at most 4096 by default."
+  }
+  assert {
+    condition     = google_compute_router_nat.nat[0].tcp_time_wait_timeout_sec == 30
+    error_message = "A closed TCP connection's NAT port should come free after 30 s by default, not the provider's 120."
+  }
+}
+
+run "nat_ports_follow_the_variables" {
+  command = plan
+  variables {
+    nat_min_ports_per_vm          = 1024
+    nat_max_ports_per_vm          = 65536
+    nat_tcp_time_wait_timeout_sec = 120
+  }
+  assert {
+    condition     = google_compute_router_nat.nat[0].min_ports_per_vm == 1024 && google_compute_router_nat.nat[0].max_ports_per_vm == 65536 && google_compute_router_nat.nat[0].tcp_time_wait_timeout_sec == 120
+    error_message = "The NAT should take its ports and TIME_WAIT from nat_min_ports_per_vm, nat_max_ports_per_vm and nat_tcp_time_wait_timeout_sec."
+  }
+}
+
+run "nat_min_ports_must_be_a_power_of_two" {
+  command = plan
+  variables {
+    nat_min_ports_per_vm = 100
+  }
+  expect_failures = [var.nat_min_ports_per_vm]
+}
+
+run "nat_max_ports_must_be_a_power_of_two" {
+  command = plan
+  variables {
+    nat_max_ports_per_vm = 5000
+  }
+  expect_failures = [var.nat_max_ports_per_vm]
+}
+
+run "nat_max_ports_must_be_above_the_minimum" {
+  command = plan
+  variables {
+    nat_min_ports_per_vm = 4096
+    nat_max_ports_per_vm = 4096
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "nat_ports_are_not_checked_without_a_nat" {
+  command = plan
+  variables {
+    network_mode         = "connector"
+    vpc_connector        = "projects/acme-app-dev/locations/northamerica-northeast2/connectors/acme"
+    pack_ingress         = "INGRESS_TRAFFIC_ALL"
+    nat_min_ports_per_vm = 4096
+    nat_max_ports_per_vm = 4096
+  }
+  assert {
+    condition     = length(google_compute_router_nat.nat) == 0
+    error_message = "connector mode creates no Cloud NAT, so the plan does not check its ports."
+  }
+}
+
+run "nat_time_wait_must_be_whole_seconds" {
+  command = plan
+  variables {
+    nat_tcp_time_wait_timeout_sec = 0.5
+  }
+  expect_failures = [var.nat_tcp_time_wait_timeout_sec]
+}
+
+run "the_idle_backstop_is_ten_minutes_by_default" {
+  command = plan
+
+  assert {
+    condition     = contains([for f in google_sql_database_instance.kindgi[0].settings[0].database_flags : "${f.name}=${f.value}"], "idle_in_transaction_session_timeout=600000")
+    error_message = "The instance's idle_in_transaction_session_timeout should be 600000 ms by default."
+  }
+  assert {
+    condition     = contains([for f in google_sql_database_instance.kindgi[0].settings[0].database_flags : "${f.name}=${f.value}"], "cloudsql.iam_authentication=on")
+    error_message = "IAM authentication should stay on beside it."
+  }
+}
+
+run "zero_turns_the_idle_backstop_off" {
+  command = plan
+
+  variables {
+    database_idle_in_transaction_timeout_ms = 0
+  }
+
+  assert {
+    condition     = contains([for f in google_sql_database_instance.kindgi[0].settings[0].database_flags : "${f.name}=${f.value}"], "idle_in_transaction_session_timeout=0")
+    error_message = "0 should set the flag to 0, Postgres's off."
+  }
+}
+
+run "an_idle_backstop_below_zero_is_refused" {
+  command = plan
+
+  variables {
+    database_idle_in_transaction_timeout_ms = -1
+  }
+
+  expect_failures = [var.database_idle_in_transaction_timeout_ms]
+}
+
+run "an_idle_backstop_past_cloud_sqls_range_is_refused" {
+  command = plan
+
+  variables {
+    database_idle_in_transaction_timeout_ms = 2147483648
+  }
+
+  expect_failures = [var.database_idle_in_transaction_timeout_ms]
+}
+
+run "an_idle_backstop_in_part_milliseconds_is_refused" {
+  command = plan
+
+  variables {
+    database_idle_in_transaction_timeout_ms = 1.5
+  }
+
+  expect_failures = [var.database_idle_in_transaction_timeout_ms]
 }

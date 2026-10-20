@@ -221,7 +221,7 @@
       "type": "object",
       "required": ["id", "version", "name", "instructions", "capabilities", "tools", "modulePath"],
       "additionalProperties": false,
-      "description": "An agent as declared (`agent.schema.json`); the runtime validates it in full when it registers the pack.",
+      "description": "An agent as declared (`agent.schema.json`). A TypeScript pack's `defineAgent` checks it in full at build; a deploy checks only its shape, its instructions' template and its output schema.",
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "version": { "type": "string", "minLength": 1 },
@@ -261,7 +261,11 @@
         "preferredModel": { "type": "string" },
         "description": { "type": "string" },
         "tags": { "type": "array", "items": { "type": "string" } },
-        "conversationPolicy": { "$ref": "#/$defs/openObject" },
+        "conversationPolicy": {
+          "type": "object",
+          "description": "As declared (`agent.schema.json` `ConversationPolicy`), except `autoCloseAfterInactiveSeconds`, which is refused: a conversation never closes by itself, only when someone closes it.",
+          "properties": { "autoCloseAfterInactiveSeconds": { "not": {} } }
+        },
         "output": {
           "$ref": "#/$defs/openObject",
           "description": "Typed output (`{ schema, name?, maxRepairs? }`), its schema already JSON Schema."

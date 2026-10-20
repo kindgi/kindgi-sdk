@@ -201,18 +201,20 @@ export function devRuntimeHint(command: string, config: ResolvedConfig): string 
  * A deploy's API: the first of `named` that's given, else the CLI's own
  * address; `undefined` when there's none. A stored key goes only to the
  * address stored with it; a key given for the command goes where the
- * command says.
+ * command says. `command` names the command in the refusal (`kindgi
+ * promote` goes where a deploy does).
  */
 export function deployApiAddress(
   config: ResolvedConfig,
   named: readonly NamedAddress[],
+  command = 'kindgi deploy',
 ): ApiAddress | undefined {
   const chosen = named.find((n) => given(n.url));
   const url = chosen?.url ?? config.apiUrl;
   if (url === undefined || url === '') return undefined;
   const keyed = keyedFor(config, url);
   const keyElsewhere = storedKeyRefusal(
-    'kindgi deploy',
+    command,
     keyed,
     url,
     chosen?.where ?? ownWhere(config),

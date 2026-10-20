@@ -111,6 +111,11 @@ function makeApp(withAuthz = true, referenceScope?: ReferenceScopeBinding) {
         version: '1.0.0',
         ...(agentId === 'acme.desk' && { projectId: P1 }),
       }),
+      getVersion: async ({ agentId }: { agentId: string }) => ({
+        agentId,
+        version: '1.0.0',
+        ...(agentId === 'acme.desk' && { projectId: P1 }),
+      }),
     } as never,
     flowRegistry: {
       get: async ({ flowId }: { flowId: string }) =>
@@ -207,11 +212,11 @@ function makeApp(withAuthz = true, referenceScope?: ReferenceScopeBinding) {
           projectId,
           input: { userMessage: 'hello', ...input },
         }),
+      /** Opens one in the agent's own project, P1. */
       open: (participantId?: string) =>
         post('/v1/conversations', {
           agentId: 'acme.desk',
           agentVersion: '1.0.0',
-          projectId: P1,
           ...(participantId !== undefined && { participantId }),
         }),
     };
@@ -363,9 +368,16 @@ describe("a project that doesn't reach the agent, and a participant the caller m
     const { as, opened } = makeApp(true, reachable);
     expect(refusedForParticipant(await as('caller').open('cus_bob'))).toBe(true);
     expect(opened()).toBe(0);
-    expect(
-      refusedForParticipant(await as('p2Writer').runIn(P2, { conversationId: BOBS_CONVERSATION })),
-    ).toBe(true);
+  });
+
+  test("a run naming P2 into a conversation in P1 is refused as P1's conversation, not by the participant rule", async () => {
+    // A conversation belongs to one project (`conversation-turn-rights.test.ts`).
+    const reachable: ReferenceScopeBinding = { reachable: async () => true };
+    const r = await makeApp(true, reachable)
+      .as('p2Writer')
+      .runIn(P2, { conversationId: BOBS_CONVERSATION });
+    expect(r.status).toBe(404);
+    expect(r.code).toBe('conversation-not-found');
   });
 });
 

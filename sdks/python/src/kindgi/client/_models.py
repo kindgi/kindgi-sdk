@@ -736,6 +736,7 @@ class SystemKey(BaseModel):
             "system:suspend",
             "system:deployments",
             "system:pack-env",
+            "system:usage:read",
             "system:license",
             "kindgi:system",
         ]
@@ -767,6 +768,7 @@ class MintSystemKeyBody(BaseModel):
                 "system:suspend",
                 "system:deployments",
                 "system:pack-env",
+                "system:usage:read",
                 "system:license",
                 "kindgi:system",
             ]
@@ -813,6 +815,7 @@ class MintSystemKeyResult(BaseModel):
                 "system:suspend",
                 "system:deployments",
                 "system:pack-env",
+                "system:usage:read",
                 "system:license",
                 "kindgi:system",
             ]
@@ -863,6 +866,7 @@ class Datum2(BaseModel):
                 "system:suspend",
                 "system:deployments",
                 "system:pack-env",
+                "system:usage:read",
                 "system:license",
                 "kindgi:system",
             ]
@@ -917,6 +921,7 @@ class RevokeSystemKeyResult(BaseModel):
                 "system:suspend",
                 "system:deployments",
                 "system:pack-env",
+                "system:usage:read",
                 "system:license",
                 "kindgi:system",
             ]
@@ -954,7 +959,7 @@ class SystemDeploymentEntry(BaseModel):
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    The project the deploy was scoped to. Absent for a tenant-wide deploy.
+    The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project.
     """
     image_ref: Annotated[str, Field(alias="imageRef")]
     """
@@ -1417,6 +1422,74 @@ class TenantAdminContacts(BaseModel):
     data: Annotated[list[Datum3], Field(max_length=100)]
 
 
+class PurgeTenantBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    confirm: Annotated[str, Field(min_length=1)]
+    """
+    The tenant's slug, a second check on the id.
+    """
+
+
+class TenantTableRows(BaseModel):
+    """
+    A tenant's rows in one table: the table's name and a count.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    table: str
+    rows: Annotated[int, Field(ge=1)]
+
+
+class SystemTenantPurge(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    complete: bool
+    """
+    `true`: nothing of the tenant is left, its purge record is written, and it's marked purged. `false`: `left` and `objectsLeft` say what is; run it again.
+    """
+    already_purged: Annotated[bool, Field(alias="alreadyPurged")]
+    """
+    It was marked purged before this run: what this run deleted was written after its mark. Its mark and its record stay as they were.
+    """
+    purged_at: Annotated[AwareDatetime | None, Field(alias="purgedAt")] = None
+    """
+    When it was marked purged. Absent while something of it from before the mark is left.
+    """
+    deleted: list[TenantTableRows]
+    """
+    Rows this run deleted, per table with any: table names and counts, never the rows' content.
+    """
+    objects_deleted: Annotated[int, Field(alias="objectsDeleted", ge=0)]
+    """
+    Objects this run deleted from the artifacts' store.
+    """
+    authz_store_deleted: Annotated[bool, Field(alias="authzStoreDeleted")]
+    """
+    Whether this run deleted its authorization store.
+    """
+    left: list[TenantTableRows]
+    """
+    Rows of it still there afterwards, per table; empty when none are. A table the purge doesn't delete from is named too: report it.
+    """
+    objects_left: Annotated[int, Field(alias="objectsLeft", ge=0)]
+    """
+    Objects still under its prefix in the artifacts' store.
+    """
+    left_because: Annotated[str | None, Field(alias="leftBecause")] = None
+    """
+    Why what's left wasn't deleted, when it's a setting the runtime lacks.
+    """
+
+
 class SystemWhoami(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -1849,6 +1922,71 @@ class ExportSigningKeyList(BaseModel):
     data: list[ExportSigningKey]
     """
     Active first. Empty when the deployment doesn't sign exports.
+    """
+
+
+class UsageGroup(BaseModel):
+    """
+    One group: the dimensions it's grouped by (only those), then its count, the sum of its quantities, and its first and last times.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID | None, Field(alias="tenantId")] = None
+    """
+    The tenant, on the operator's read across tenants.
+    """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    Absent for a record with no project; a tenant admin's read includes those, and the CLI shows them as `(none)`.
+    """
+    agent_id: Annotated[str | None, Field(alias="agentId")] = None
+    """
+    Absent for a record with no agent; the CLI shows those as `(none)`.
+    """
+    kind: str | None = None
+    """
+    What was counted: `run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`. A runtime may count more kinds later: show one you don't know as it is.
+    """
+    class_: Annotated[str | None, Field(alias="class")] = None
+    """
+    The class of the run a record counts or belongs to, fixed when the run was created: `production`, `staging`, `dry-run`, `replay`, `eval`, `child`. A record with no counted run has none. A runtime may add classes later: show one you don't know as it is.
+    """
+    state: str | None = None
+    """
+    The record's state, by kind: `on`, `off` (`project.production`); `completed`, `failed`, `cancelled` (`run.ended`); `escalation` (`approval.requested`, an escalation's next tier); `approved`, `rejected`, `withdrawn`, `escalated`, `expired` (`approval.decided`). Other kinds have none.
+    """
+    day: Annotated[str | None, Field(pattern="^\\d{4}-\\d{2}-\\d{2}$")] = None
+    """
+    The UTC date, `YYYY-MM-DD`.
+    """
+    count: Annotated[int, Field(ge=0)]
+    """
+    Records in the group.
+    """
+    quantity: float
+    """
+    The sum of their quantities: milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count.
+    """
+    first_at: Annotated[AwareDatetime, Field(alias="firstAt")]
+    last_at: Annotated[AwareDatetime, Field(alias="lastAt")]
+
+
+class UsagePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[UsageGroup]
+    watermark: AwareDatetime
+    """
+    Every record at or before this time is in the answer; a later one may not be yet. Re-read a window until its watermark is past the window's end. Every page of one read carries the same watermark.
+    """
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    More groups: pass it as `cursor`. Absent on the last page.
     """
 
 
@@ -2496,9 +2634,6 @@ class ConversationPolicy(BaseModel):
         populate_by_name=True,
     )
     history_limit: Annotated[int | None, Field(alias="historyLimit", ge=1)] = None
-    auto_close_after_inactive_seconds: Annotated[
-        int | None, Field(alias="autoCloseAfterInactiveSeconds", ge=1)
-    ] = None
     hitl_after_turns: Annotated[int | None, Field(alias="hitlAfterTurns", ge=1)] = None
 
 
@@ -3527,7 +3662,7 @@ class ConversationCollectionPage(BaseModel):
         Annotated[Literal["me"] | str, _open.OPEN] | None, Field(alias="openedBy")
     ] = None
     """
-    `me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.
+    `me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.9, which ignores `openedBy` and lists everyone's.
     """
 
 
@@ -4880,6 +5015,14 @@ class BlobMeta(BaseModel):
     Who uploaded it: `user:<id>` or `service_account:<id>`.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    bucket: str | None = None
+    """
+    The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.
+    """
+    key: str | None = None
+    """
+    The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one.
+    """
 
 
 class Datum5(BaseModel):
@@ -4925,6 +5068,14 @@ class Datum5(BaseModel):
     Who uploaded it: `user:<id>` or `service_account:<id>`.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    bucket: str | None = None
+    """
+    The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.
+    """
+    key: str | None = None
+    """
+    The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one.
+    """
 
 
 class ArtifactCollectionPage(BaseModel):
@@ -7165,6 +7316,25 @@ class Methods(BaseModel):
     """
 
 
+class Legal(BaseModel):
+    """
+    The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    terms_url: Annotated[AnyUrl | None, Field(alias="termsUrl")] = None
+    """
+    Its terms.
+    """
+    privacy_url: Annotated[AnyUrl | None, Field(alias="privacyUrl")] = None
+    """
+    Its privacy policy.
+    """
+
+
 class SignInOptions(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -7174,6 +7344,10 @@ class SignInOptions(BaseModel):
     methods: Methods | None = None
     """
     The ways in this deployment allows, for a sign-in page to show. Absent from older servers.
+    """
+    legal: Legal | None = None
+    """
+    The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.
     """
 
 
@@ -7359,6 +7533,25 @@ class LogoutResult(BaseModel):
     revoked: bool
 
 
+class ServedEnv(BaseModel):
+    """
+    The env this runtime serves (`KINDGI_ENV`): where the values its tools read are kept. With `refusesOtherEnvs`, it's the only one: a secret, env value or secret reference under another env is refused (`409 env-not-served`), so a client defaults to `envName`. Absent when the runtime serves no env, and from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    env_name: Annotated[str, Field(alias="envName")]
+    """
+    The env name.
+    """
+    refuses_other_envs: Annotated[bool, Field(alias="refusesOtherEnvs")]
+    """
+    Whether values under any other env are refused.
+    """
+
+
 class UserInvite(BaseModel):
     """
     An open invitation. `pending` signs in. `expired` (past `expiresAt`, 7 days after it was made or last renewed) is refused at every way of signing in until a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`).
@@ -7416,11 +7609,11 @@ class UserCreated(BaseModel):
     """
     invite: UserInvite | None = None
     """
-    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).
+    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.9).
     """
     first_signed_in_at: Annotated[AwareDatetime | None, Field(alias="firstSignedInAt")] = None
     """
-    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).
+    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).
     """
     metadata: dict[str, Any] | None = None
     invite_email: Annotated[InviteEmail | None, Field(alias="inviteEmail")] = None
@@ -8267,6 +8460,165 @@ class DeploymentEndpoint(BaseModel):
     """
 
 
+class DeploymentValueNeededBy(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    type: str
+    """
+    `tool`, `agent`, `provider` or `pack`; a later runtime may add kinds, so treat an unknown one as a need not yet named.
+    """
+    id: str
+    version: str | None = None
+
+
+class DeploymentValue(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: str
+    """
+    The secret's or env value's name; for a model key, the key's secret name, or `any provider` when none is registered.
+    """
+    kind: str
+    """
+    `secret`, `env`, `model-key` or `pack-env`; a later runtime may add kinds, so treat an unknown one as a value not yet named.
+    """
+    needed_by: Annotated[DeploymentValueNeededBy, Field(alias="neededBy")]
+    found_at: Annotated[
+        Annotated[Literal["project", "org", "tenant"] | str, _open.OPEN] | None,
+        Field(alias="foundAt"),
+    ] = None
+    """
+    Where a run finds it, when it is set: the project, else its org, else the tenant.
+    """
+    problem: str | None = None
+    """
+    Why it isn't ready; absent when it is. One of a fixed list; a later runtime may add problems, so treat an unknown one as a reason not yet named. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set both as a secret and as a plain value. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one). `no-provider`: an agent that runs on any provider (it names none, or names one that isn't registered), with no provider registered in the tenant, so a run has none to call.
+    """
+
+
+class DeploymentValueList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[DeploymentValue]
+    """
+    Every value the deployment needs in the project: each tool's secrets and env values (in the deployment's order), then each model key by provider, then the pack service's env.
+    """
+
+
+class DeploymentPromotionBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    to_project_id: Annotated[str, Field(alias="toProjectId", min_length=1)]
+    """
+    The next environment of the deployment's order.
+    """
+    reason: Annotated[str | None, Field(max_length=1000)] = None
+    """
+    Why, kept in the `deployment-promoted` audit record.
+    """
+    make_live: Annotated[bool | None, Field(alias="makeLive")] = None
+    """
+    Make every agent version the promotion carries live in the target project, each through its scope's gate. The answer's `live` reports each. An error answered after some carried agents were already pinned lists those in `error.details.live`, in `live`'s shape.
+    """
+
+
+class DeploymentPromotionCheckBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    to_project_id: Annotated[str, Field(alias="toProjectId", min_length=1)]
+    """
+    The next environment of the deployment's order.
+    """
+
+
+class PromotionMovedVersion(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str | None = None
+    carried: Literal[True] | None = None
+    """
+    Carried with the build: an edit of a version it ships. Absent for one it ships.
+    """
+
+
+class LeftBehindVersion(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    `agent` or `flow`; a later runtime may add kinds, so treat an unknown one as an item not yet named.
+    """
+    id: str
+    version: str
+    from_: Annotated[str, Field(alias="from")]
+    """
+    The version its chain of edits starts from.
+    """
+
+
+class DeploymentLivePinGate(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    status: Annotated[
+        Literal["promoted", "pending-approval", "refused", "superseded", "rejected", "expired"]
+        | str,
+        _open.OPEN,
+    ]
+    promotion_id: Annotated[UUID, Field(alias="promotionId")]
+    policy: GatePolicyRef | None = None
+    """
+    The gate policy that applied; null when none did.
+    """
+    approval_id: Annotated[str | None, Field(alias="approvalId")] = None
+    """
+    The approval a `pending-approval` pin waits on.
+    """
+    checks: list[GateCheck] | None = None
+
+
+class DeploymentLivePin(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str
+    pinned: bool
+    """
+    Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).
+    """
+    gate: DeploymentLivePinGate | None = None
+
+
+class PromotionNextEnvironment(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str, Field(alias="projectId")]
+    position: Annotated[int, Field(ge=1)]
+    """
+    Its place in the order, from 0 (the first, which takes builds).
+    """
+
+
 class DeploymentRegistrationBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -8409,6 +8761,8 @@ class EvidenceKind(RootModel[str]):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "environment-order-set",
+                "deployment-promoted",
             ],
             min_length=1,
         ),
@@ -8573,6 +8927,8 @@ class ComplianceEvidence(BaseModel):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "environment-order-set",
+                "deployment-promoted",
             ],
             min_length=1,
         ),
@@ -8665,6 +9021,8 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "environment-order-set",
+                "deployment-promoted",
             ],
             min_length=1,
         ),
@@ -8734,6 +9092,8 @@ class Filter(BaseModel):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "environment-order-set",
+                "deployment-promoted",
             ],
             min_length=1,
         ),
@@ -9261,6 +9621,22 @@ class AddProjectMembershipResult(BaseModel):
     """
 
 
+class TenantPatch(BaseModel):
+    """
+    A new name, a new slug, or both; a field left out stays as it is. The id stays, so whatever names the tenant by its id keeps working.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: Annotated[str | None, Field(max_length=100, min_length=1)] = None
+    slug: Annotated[str | None, Field(max_length=63, pattern="^[a-z0-9](?:-?[a-z0-9])*$")] = None
+    """
+    Lowercase letters, digits and single hyphens, unique across tenants. The console's addresses carry it, so links with the old one stop opening the tenant; nothing else is keyed by it.
+    """
+
+
 class TenantLimits(BaseModel):
     """
     The tenant's limits that are set. A limit that isn't set is absent, and isn't enforced.
@@ -9434,6 +9810,23 @@ class EnvironmentPage(BaseModel):
     data: list[Environment]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class EnvironmentOrderEntry(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    position: Annotated[int, Field(ge=0)]
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+
+
+class EnvironmentOrderSetRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_ids: Annotated[list[str], Field(alias="projectIds")]
 
 
 class SecretRevokeOutcome(BaseModel):
@@ -10492,7 +10885,7 @@ class CodeArtifactRefFilesystem(BaseModel):
 
 class RecordedSecretScopeTenant(BaseModel):
     """
-    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
     """
 
     model_config = ConfigDict(
@@ -10504,7 +10897,7 @@ class RecordedSecretScopeTenant(BaseModel):
 
 class RecordedSecretScopeOrg(BaseModel):
     """
-    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
     """
 
     model_config = ConfigDict(
@@ -10517,7 +10910,7 @@ class RecordedSecretScopeOrg(BaseModel):
 
 class RecordedSecretScopeProject(BaseModel):
     """
-    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
     """
 
     model_config = ConfigDict(
@@ -10617,6 +11010,23 @@ class ScopeProject(BaseModel):
     kind: Literal["project"]
     tenant_id: Annotated[str, Field(alias="tenantId")]
     project_id: Annotated[str, Field(alias="projectId")]
+
+
+class EnvironmentOrderParentTenant(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["tenant"]
+
+
+class EnvironmentOrderParentOrg(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["org"]
+    org_id: Annotated[str, Field(alias="orgId")]
 
 
 class EnvSetOutcomeRevisionConflict(BaseModel):
@@ -10907,6 +11317,30 @@ class DeploymentContentsFlow(BaseModel):
     """
 
 
+class PromotionMovesTool(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str | None = None
+    """
+    Absent for guardrails, which have no version.
+    """
+
+
+class PromotionMovesGuardrail(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str | None = None
+    """
+    Absent for guardrails, which have no version.
+    """
+
+
 class AccessPathUnrecognized(BaseModel):
     """
     A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
@@ -10938,6 +11372,21 @@ class CodeArtifactRefUnrecognized(BaseModel):
 
 
 class CompleteApprovalResultResumeUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class EnvironmentOrderParentUnrecognized(BaseModel):
     """
     A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
     """
@@ -11638,7 +12087,7 @@ class SystemPackEnvEntry(BaseModel):
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    The project the deploy was scoped to. Absent for a tenant-wide deploy.
+    The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project.
     """
     image_ref: Annotated[str, Field(alias="imageRef")]
     """
@@ -11973,7 +12422,7 @@ class ApprovalCollectionPage(BaseModel):
         Annotated[Literal["me"] | str, _open.OPEN] | None, Field(alias="decidedBy")
     ] = None
     """
-    `me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.
+    `me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.9, which ignores `decidedBy` and lists them all.
     """
 
 
@@ -13374,9 +13823,74 @@ class DeploymentRecord(BaseModel):
     The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's Default project).
     """
     pack_env: Annotated[PackEnvDeclaration | None, Field(alias="packEnv")] = None
+    promoted_from_deployment_id: Annotated[
+        str | None, Field(alias="promotedFromDeploymentId", min_length=1)
+    ] = None
+    """
+    When this deployment was made by promoting another into the next environment of its order: the deployment it was promoted from. Absent for one deployed directly.
+    """
+    pack_id: Annotated[str | None, Field(alias="packId")] = None
+    """
+    The pack's id, from the image's index. Absent from a runtime that doesn't keep it.
+    """
     endpoint: DeploymentEndpoint | None = None
     primitives: DeploymentPrimitiveCounts
     contents: DeploymentContents
+
+
+class PromotionMoves(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    pack_id: Annotated[str | None, Field(alias="packId")] = None
+    image_digest: Annotated[str, Field(alias="imageDigest", pattern="^sha256:[0-9a-f]{64}$")]
+    agents: list[PromotionMovedVersion]
+    flows: list[PromotionMovedVersion]
+    tools: list[PromotionMovesTool]
+    guardrails: list[PromotionMovesGuardrail]
+
+
+class DeploymentPromotion(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    deployment: DeploymentRecord
+    created: bool
+    """
+    `true`: the promotion made this deployment (`201`). `false`: the target had this build already (`200`), and only the versions it lacked were carried.
+    """
+    moved: PromotionMoves
+    left_behind: Annotated[list[LeftBehindVersion] | None, Field(alias="leftBehind")] = None
+    """
+    Edits of the build's agents and flows that stay behind; absent when none.
+    """
+    live: list[DeploymentLivePin] | None = None
+    """
+    Each carried agent pinned live in the target; present only when `makeLive` was asked.
+    """
+
+
+class DeploymentPromotionCheck(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    moves: PromotionMoves
+    values: list[DeploymentValue]
+    """
+    Each value with a problem in the target; empty when every one is ready.
+    """
+    next_environment: Annotated[PromotionNextEnvironment, Field(alias="nextEnvironment")]
+    env_name: Annotated[str | None, Field(alias="envName")] = None
+    """
+    The env this runtime serves, which a run in the target reads its values under: a value is set there (`--env=<envName>` with `--scope=project:<id>`). Absent when the runtime names none, and each value is then listed unread.
+    """
+    left_behind: Annotated[list[LeftBehindVersion] | None, Field(alias="leftBehind")] = None
+    """
+    Edits of the build's agents and flows that would stay behind; absent when none.
+    """
 
 
 class DeploymentCollectionPage(BaseModel):
@@ -13387,6 +13901,14 @@ class DeploymentCollectionPage(BaseModel):
     data: list[DeploymentRecord]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `projectId` and lists them all.
+    """
+    pack_id: Annotated[str | None, Field(alias="packId")] = None
+    """
+    The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `packId` and lists them all.
+    """
 
 
 class DeploymentSecretsSyncRequest(BaseModel):
@@ -13520,6 +14042,30 @@ class EnvListPage(BaseModel):
         populate_by_name=True,
     )
     data: list[EnvRecord]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class EnvironmentOrder(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    parent: Annotated[
+        EnvironmentOrderParentTenant
+        | EnvironmentOrderParentOrg
+        | EnvironmentOrderParentUnrecognized,
+        _open.OpenUnion("kind", EnvironmentOrderParentUnrecognized),
+    ]
+    entries: list[EnvironmentOrderEntry]
+
+
+class EnvironmentOrderPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[EnvironmentOrder]
+    has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
@@ -15041,11 +15587,11 @@ class UserRecord(BaseModel):
     """
     invite: UserInvite | None = None
     """
-    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).
+    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.9).
     """
     first_signed_in_at: Annotated[AwareDatetime | None, Field(alias="firstSignedInAt")] = None
     """
-    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).
+    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).
     """
     metadata: dict[str, Any] | None = None
     grants: PersonGrants | None = None
@@ -15092,6 +15638,18 @@ class UserCollectionPage(BaseModel):
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
+class SitePersonRestoreResult(BaseModel):
+    """
+    A site's person let back in after a removal made in Kindgi (`POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user: UserRecord
+
+
 class WhoamiResult(BaseModel):
     """
     Introspection of the caller's current authentication context. Always carries `tenantId` and `scopes` (empty for static bearer tokens), plus `userId` when the token carries one; `principal` says whom the caller acts as, and an API key adds `tokenId`, its `role` and the `projectId` it is limited to; session-token callers additionally see `sessionId`, `providerId`, and `expiresAt`. `user` is the caller's directory record, present when the deployment wires an identity directory and it knows the `userId`. `reviewerRole` is set when the caller is a reviewer — its token carries a reviewer role, or its user is a registered reviewer — so clients can gate reviewer-only UI (the approvals surface) without a second round trip.
@@ -15135,4 +15693,8 @@ class WhoamiResult(BaseModel):
     tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
     """
     Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.
+    """
+    served_env: Annotated[ServedEnv | None, Field(alias="servedEnv")] = None
+    """
+    The env this runtime serves (`KINDGI_ENV`): where the values its tools read are kept. With `refusesOtherEnvs`, it's the only one: a secret, env value or secret reference under another env is refused (`409 env-not-served`), so a client defaults to `envName`. Absent when the runtime serves no env, and from older servers.
     """

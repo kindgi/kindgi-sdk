@@ -5,6 +5,7 @@ import type { PinChange } from '@kindgi/agents';
 import type {
   Cursor,
   ProjectId,
+  RecordedSecretScope,
   SigningKeyId,
   TenantId,
   VersionDerivationReason,
@@ -57,12 +58,17 @@ export interface DeploymentBinding {
    * (`ImageRegistryBinding.head`), and validates every primitive in the
    * index before calling — the binding receives a well-formed input.
    *
-   * Idempotent per `imageDigest`: when the same digest is re-registered
-   * under the same tenant the binding MUST return
-   * `{ kind: 'already-registered', deployment }` with the existing row
-   * (existing `artifactVersion` — the issuer-supplied value the row
-   * originally pinned). Different digest → new row with the caller's
-   * newly-supplied `artifactVersion` persisted verbatim.
+   * Idempotent per `(projectId, imageDigest)`: when the same digest is
+   * re-registered in the same project of the same tenant the binding MUST
+   * return `{ kind: 'already-registered', deployment }` with the existing
+   * row (existing `artifactVersion` — the issuer-supplied value the row
+   * originally pinned). A registration with no `projectId` and one naming
+   * the tenant's Default project by its id are the SAME project for this
+   * check: either finds the other, so a digest is registered once per
+   * project however the Default is named (a tenant with no Default keeps a
+   * project-less registration tenant-wide). A different project, or a
+   * different digest → a new row, with the caller's newly-supplied
+   * `artifactVersion` persisted verbatim.
    */
   register(input: DeploymentRegisterInput): Promise<DeploymentRegisterOutcome>;
   /**
@@ -72,10 +78,14 @@ export interface DeploymentBinding {
    */
   get(input: DeploymentGetInput): Promise<Deployment | null>;
   /**
-   * Fetch a deployment by its `imageDigest` (the sha256 of the pinned
-   * OCI image). Used for the idempotency check on `register` and for
-   * cross-referencing image identity from the sandbox layer at
-   * dispatch. `null` when no record exists.
+   * Fetch a deployment by its `imageDigest` (the sha256 of the pinned OCI
+   * image), within `projectId` — or, absent, among the tenant-wide
+   * deployments (the tenant's Default project). A digest registered with no
+   * project and one registered under the tenant's Default by its id resolve
+   * to each other here too (the Default named either way is one project).
+   * Used for the idempotency check on `register` and for cross-referencing
+   * image identity from the sandbox layer at dispatch. `null` when no
+   * record exists.
    */
   getByImageDigest(input: DeploymentGetByImageDigestInput): Promise<Deployment | null>;
   /**
@@ -84,9 +94,63 @@ export interface DeploymentBinding {
    * compose as AND.
    */
   list(input: DeploymentListInput): Promise<DeploymentPage>;
+  /**
+   * Promote a deployment into the next environment of its order, in one
+   * transaction: a deployment in the target project with the source's
+   * signed fields, contents, pack and pack checks (as `register` writes
+   * one, with its routes and pending endpoint) and
+   * `promotedFromDeploymentId`; the versions carried with it; and where
+   * each tool's secrets are read in the target. Registries aren't touched,
+   * and nothing is built: the image is the one the source runs.
+   *
+   * The route checks everything first (the order, the source served, the
+   * signer, the values at the target): the binding receives a promotion
+   * it may write.
+   *
+   * Idempotent per `imageDigest` in the target, as `register` is: when the
+   * target has that digest already, the binding returns
+   * `{ kind: 'already-registered', deployment }` with that row, and adds
+   * the carried versions it doesn't record yet.
+   *
+   * Absent: the runtime can't promote (`501 promotions-unsupported`).
+   */
+  promote?(input: DeploymentPromoteInput): Promise<DeploymentPromoteOutcome>;
 }
 
 // -------------------- record --------------------
+
+/** A deployment as the routes answer it: named fields only. */
+export function serializeDeployment(d: Deployment): Record<string, unknown> {
+  return {
+    deploymentId: d.deploymentId,
+    tenantId: d.tenantId as unknown as string,
+    imageRef: d.imageRef,
+    imageDigest: d.imageDigest,
+    artifactVersion: d.artifactVersion,
+    indexHash: d.indexHash,
+    signerKeyId: d.signerKeyId as unknown as string,
+    signerPublicKey: d.signerPublicKey,
+    signature: d.signature,
+    publishedAt: d.publishedAt,
+    activatedAt: d.activatedAt,
+    ...(d.projectId !== undefined && { projectId: d.projectId as unknown as string }),
+    ...(d.promotedFromDeploymentId !== undefined && {
+      promotedFromDeploymentId: d.promotedFromDeploymentId,
+    }),
+    ...(d.packId !== undefined && { packId: d.packId }),
+    ...(d.endpoint !== undefined && { endpoint: endpointToWire(d.endpoint) }),
+    ...(d.packEnv !== undefined && {
+      packEnv: { required: [...d.packEnv.required], optional: [...d.packEnv.optional] },
+    }),
+    primitives: {
+      tools: d.primitives.tools,
+      guardrails: d.primitives.guardrails,
+      agents: d.primitives.agents,
+      flows: d.primitives.flows,
+    },
+    contents: d.contents,
+  };
+}
 
 /**
  * Wire shape for a deployment record. Immutable once written — every
@@ -208,7 +272,7 @@ export interface DeploymentEndpoint {
    * suspension that took its service down is lifted, and it lists as
    * needing one.
    * A `cleared` one carries this or `retired`, never both (from runtime
-   * 0.1.8.1; an older server sends neither).
+   * 0.1.9; an older server sends neither).
    */
   readonly waiting?: true;
   /**
@@ -224,7 +288,7 @@ export interface DeploymentEndpoint {
    * `ready` only: the pack service runs on the values it was last given,
    * since the newest ones can't be given to it (a required one was removed,
    * say), or didn't start (`pack-env-update-failed`). It's gone once they
-   * can, or do (from runtime 0.1.8.1).
+   * can, or do (from runtime 0.1.9).
    */
   readonly packEnvProblem?: {
     readonly code: PackEnvHeldCode;
@@ -297,9 +361,17 @@ export interface Deployment {
   /**
    * The names its pack service reads from its process environment, as the
    * image's index declares them (`env`). Absent when it declares none, and
-   * from a binding that doesn't keep them (from runtime 0.1.8.1).
+   * from a binding that doesn't keep them (from runtime 0.1.9).
    */
   readonly packEnv?: PackEnvDeclaration;
+  /**
+   * When this deployment was created by promoting another into a later
+   * environment of its order, the source deployment it was promoted from.
+   * Absent for a deployment registered directly.
+   */
+  readonly promotedFromDeploymentId?: string;
+  /** The pack's id, from the image's index (`packId`), when the binding keeps it. */
+  readonly packId?: string;
   /**
    * Its pack service's status, when the server routes pack calls per
    * deployment. Absent otherwise (one pack service for every deployment),
@@ -447,6 +519,13 @@ export interface DeploymentGetInput {
 export interface DeploymentGetByImageDigestInput {
   readonly tenantId: TenantId;
   readonly imageDigest: string;
+  /**
+   * Which project to look up within: a digest deploys once per project, so
+   * the same image can be registered in more than one (a later environment
+   * of its order takes it by promotion). Absent = the tenant's Default (a
+   * tenant-wide deploy, stored with no project).
+   */
+  readonly projectId?: ProjectId;
 }
 
 // -------------------- list --------------------
@@ -466,9 +545,75 @@ export interface DeploymentListInput {
    * "which deploys did the compromised key sign?"
    */
   readonly signerKeyId?: SigningKeyId;
+  /**
+   * Only the deployments in this project. The tenant's Default project
+   * also finds the deployments that name no project (they serve there).
+   */
+  readonly projectId?: ProjectId;
+  /** Only the deployments of this pack (`packId`). */
+  readonly packId?: string;
 }
 
 export interface DeploymentPage {
   readonly data: readonly Deployment[];
   readonly nextCursor?: Cursor;
 }
+
+// -------------------- promote --------------------
+
+/**
+ * A version that moves with a deployment to the next environment: an edit
+ * of a version it ships (`carriedVersions`). No deployment lists it, so
+ * the promotion records it with the deployment it moved with.
+ */
+export interface CarriedVersion {
+  readonly kind: 'agent' | 'flow';
+  readonly id: string;
+  readonly version: string;
+}
+
+/** Where each secret a tool version names is read in the project a promotion targets. */
+export interface PromotedToolSecretScopes {
+  readonly toolId: string;
+  readonly version: string;
+  /** By secret name, as a deploy records them (`secret-scope.ts`); `null`: no scope found. */
+  readonly secretScopes: Readonly<Record<string, RecordedSecretScope | null>>;
+}
+
+export interface DeploymentPromoteInput {
+  readonly tenantId: TenantId;
+  /** The deployment promoted. */
+  readonly sourceDeploymentId: string;
+  /**
+   * The project it's promoted into; absent for the tenant's Default
+   * project, stored with no project as a deploy naming none is.
+   */
+  readonly projectId?: ProjectId;
+  /** The versions carried with it, recorded with the target's deployment. */
+  readonly carried: readonly CarriedVersion[];
+  /** Each tool version it ships, with where its secrets are read in the target. */
+  readonly toolSecretScopes: readonly PromotedToolSecretScopes[];
+}
+
+export type DeploymentPromoteOutcome =
+  | {
+      /** A new deployment in the target. `carried`: the versions recorded with it. */
+      readonly kind: 'ok';
+      readonly deployment: Deployment;
+      readonly carried: readonly CarriedVersion[];
+    }
+  | {
+      /**
+       * The target has this digest already: that row, unchanged.
+       * `carried`: the versions it didn't record yet, now recorded.
+       */
+      readonly kind: 'already-registered';
+      readonly deployment: Deployment;
+      readonly carried: readonly CarriedVersion[];
+    }
+  | {
+      /** Any other write failure — persistence error, invalid input. */
+      readonly kind: 'error';
+      readonly code: string;
+      readonly message: string;
+    };

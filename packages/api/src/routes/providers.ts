@@ -25,6 +25,7 @@ import type {
   ProviderSecretRef,
 } from '../provider-binding.js';
 import type { SecretUse } from '../provider-keys.js';
+import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { tenantResourceAccess } from './tenant-access.js';
@@ -70,6 +71,12 @@ export function providersRouter(
   options: {
     /** What in the tenant uses a secret: a provider's key can't be one of them. */
     readonly secretUsers?: (tenantId: TenantId, name: string) => Promise<readonly SecretUse[]>;
+    /**
+     * On a runtime that refuses other envs: a registration whose
+     * `secret_ref` names another env answers `409 env-not-served`
+     * (`refuseUnservedReference`). Absent: any env.
+     */
+    readonly servedEnv?: ServedEnvRule;
   } = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
@@ -265,6 +272,15 @@ export function providersRouter(
           requestId,
         ),
       );
+    }
+
+    const unserved =
+      secretRefResult.value === undefined
+        ? undefined
+        : refuseUnservedReference(options.servedEnv, secretRefResult.value, '`secret_ref`');
+    if (unserved !== undefined) {
+      c.status(statusFor(unserved.code) as never);
+      return c.json(toWireError(unserved, requestId));
     }
 
     // A model provider's key is used by its provider only: a key a tool, an

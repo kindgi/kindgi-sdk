@@ -86,6 +86,8 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     'image-ref-prefix': 'none',
     limit: '`25` (at most `100`)',
+    pack: 'none: every pack',
+    project: 'none: every project',
     'signer-key-id': 'none',
   },
   test: {
@@ -123,6 +125,25 @@ export const CLI_DEFAULTS = {
   'env plan': {
     env: '`staging`',
     format: '`terraform`',
+    path: 'the current directory',
+  },
+  'environments list': {
+    org: "none (the tenant's order)",
+    path: 'the current directory',
+  },
+  'environments set': {
+    org: "none (the tenant's order)",
+    path: 'the current directory',
+    projects: 'none (the environment names are used, resolved through the pack config)',
+  },
+  'environments clear': {
+    org: "none (the tenant's order)",
+  },
+  promote: {
+    from: 'required',
+    to: 'required',
+    deployment: 'none (the one deployment serving in `--from`; in a pack, of this pack)',
+    reason: 'none',
     path: 'the current directory',
   },
   'secrets list': {
@@ -250,6 +271,10 @@ export const CLI_DEFAULTS = {
     slug: 'the name as a slug: lowercase letters and digits, accents dropped, each run of anything else `-`, at most 63 characters (`Support bot` is `support-bot`, `Café` is `cafe`)',
   },
   'projects rename': {
+    name: 'unchanged',
+    slug: 'unchanged',
+  },
+  'tenant rename': {
     name: 'unchanged',
     slug: 'unchanged',
   },
@@ -668,6 +693,9 @@ export const CLI_DEFAULTS = {
   'sites revoke-key': {
     project: "the tenant's Default project",
   },
+  'sites restore-person': {
+    project: "the tenant's Default project",
+  },
   'sites unregister': {
     project: "the tenant's Default project",
   },
@@ -935,6 +963,18 @@ export const CLI_DEFAULTS = {
   doctor: {
     path: 'the current directory',
   },
+  usage: {
+    month: 'the current calendar month, in UTC',
+    from: 'none; with `--to` it sets a window instead of a month',
+    to: 'none; the window ends here (exclusive), at most 92 days after `--from`',
+    project: 'none: every project you can read',
+    'group-by': '`project,kind`',
+    kind: 'none: every kind',
+    class: 'none: every run class',
+    state: 'none: every state',
+    limit: '`1000` (`1` to `10000`)',
+    cursor: 'none: the first page',
+  },
 };
 
 /** The global flags' defaults, as `CLI_DEFAULTS`. */
@@ -955,8 +995,9 @@ export const GLOBAL_FLAG_DEFAULTS = {
 export const CLI_EXAMPLES = {
   'auth login': [
     {
-      purpose: 'Save the API URL and token to ~/.kindgi/config.json.',
-      line: 'kindgi auth login --url=https://kindgi.acme.example --token=<api-token>',
+      purpose:
+        'Save the API URL, and the API token exported as `KINDGI_API_TOKEN`, to ~/.kindgi/config.json.',
+      line: 'kindgi auth login --url=https://kindgi.acme.example',
     },
   ],
   'auth whoami': [
@@ -1017,6 +1058,11 @@ export const CLI_EXAMPLES = {
         "Find a deployment's id, with each one's pack service: ready, held on its last values (with the code), pending or cleared.",
       line: 'kindgi deployments list --table',
     },
+    {
+      purpose:
+        "One environment's deployments, by its project's slug or id. The Default project's include the deployments that name no project.",
+      line: 'kindgi deployments list --project=staging --table',
+    },
   ],
   'env unset': [
     {
@@ -1046,6 +1092,51 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Scaffold it for a cloud secret manager, writing to a chosen file.',
       line: 'kindgi env init --secrets-backend=secret-manager --secrets-manager=gcp --out=.env.production.example',
+    },
+  ],
+  'environments list': [
+    {
+      purpose: 'Show the order projects go live through, as a table.',
+      line: 'kindgi environments list --table',
+    },
+    {
+      purpose: "List an org's own order instead of the tenant's.",
+      line: 'kindgi environments list --org=<org-id>',
+    },
+  ],
+  'environments set': [
+    {
+      purpose: 'Put staging before prod, naming the environments from the pack config.',
+      line: 'kindgi environments set staging prod',
+    },
+    {
+      purpose: 'Set the order by project id or slug, outside a pack.',
+      line: 'kindgi environments set --projects=staging,default',
+    },
+  ],
+  'environments clear': [
+    {
+      purpose: 'Clear the order; projects then take builds directly again.',
+      line: 'kindgi environments clear',
+    },
+  ],
+  promote: [
+    {
+      purpose: 'Promote the build serving in staging to prod, saying why.',
+      line: 'kindgi promote --from=staging --to=prod --reason="release 12"',
+    },
+    {
+      purpose:
+        'Promote to prod and make each agent the build carries live there, each through its gate.',
+      line: 'kindgi promote --from=staging --to=prod --make-live --reason="release 12"',
+    },
+    {
+      purpose: 'See what would move to prod and which values it lacks, changing nothing.',
+      line: 'kindgi promote --from=staging --to=prod --check',
+    },
+    {
+      purpose: 'Outside a pack, name the two environments by project slug or id.',
+      line: 'kindgi promote --from=acme-staging --to=acme-prod',
     },
   ],
   'secrets list': [
@@ -1197,6 +1288,22 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Change its name and its slug.',
       line: 'kindgi projects rename <project-id> --name=Storefront --slug=storefront',
+    },
+  ],
+  'tenant get': [
+    {
+      purpose: 'Print your workspace: its id, name and slug.',
+      line: 'kindgi tenant get',
+    },
+  ],
+  'tenant rename': [
+    {
+      purpose: "Change your workspace's name; its slug, and the console's addresses, stay.",
+      line: 'kindgi tenant rename --name="Acme Store"',
+    },
+    {
+      purpose: 'Change its slug too. Links to the console with the old slug stop opening it.',
+      line: 'kindgi tenant rename --name="Acme Store" --slug=acme-store',
     },
   ],
   'agents list': [
@@ -1537,6 +1644,13 @@ export const CLI_EXAMPLES = {
     {
       purpose: "Refuse what a site's key signs from now on.",
       line: 'kindgi sites revoke-key <site-id> <kid>',
+    },
+  ],
+  'sites restore-person': [
+    {
+      purpose:
+        'Let a person removed in Kindgi back in through their site: the same person, with their history.',
+      line: 'kindgi sites restore-person <site-id> <user-id>',
     },
   ],
   'sites unregister': [
@@ -1937,6 +2051,16 @@ export const CLI_EXAMPLES = {
       line: 'kindgi version',
     },
   ],
+  usage: [
+    {
+      purpose: "This month's usage so far, grouped by project and kind (the default).",
+      line: 'kindgi usage',
+    },
+    {
+      purpose: 'A past month, broken down by agent and kind, as a table.',
+      line: 'kindgi usage --month=2026-09 --group-by=agent,kind --table',
+    },
+  ],
 };
 
 /** "See also" for a command group that no guide runs: page slugs. */
@@ -1949,6 +2073,9 @@ export const CLI_GROUP_SEE_ALSO = {
   'mcp-launch': ['guides/tools/mcp-servers'],
   deployments: ['hosted/deploy-your-agent', 'guides/secrets/pack-env'],
   projects: ['guides/projects/organize-by-org-and-project'],
+  tenant: ['guides/projects/organize-by-org-and-project'],
+  environments: ['guides/projects/organize-by-org-and-project'],
+  promote: ['guides/projects/organize-by-org-and-project'],
   flows: ['guides/flows/write-a-flow', 'guides/flows/index'],
   capabilities: ['guides/agents/choose-a-model'],
   adapters: ['guides/models/index', 'guides/models/serve-your-own-model'],
@@ -1956,4 +2083,5 @@ export const CLI_GROUP_SEE_ALSO = {
   egress: ['deploy/self-hosted/egress-addresses'],
   health: ['deploy/self-hosted/operate'],
   version: ['start/install'],
+  usage: ['guides/observability/cost-per-run', 'guides/projects/organize-by-org-and-project'],
 };

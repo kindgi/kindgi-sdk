@@ -165,6 +165,7 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
 
   // Settings.
   { name: 'environments', route: '/v1/environments', paging: cursor, admin: true },
+  { name: 'environment-orders', route: '/v1/environment-orders', paging: cursor, admin: true },
   {
     name: 'env',
     route: '/v1/env',
@@ -527,6 +528,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/system/whoami': "the server's operator routes",
   '/v1/system/deployments': "the server's operator routes",
   '/v1/system/pack-env': "the server's operator routes",
+  '/v1/system/usage': "the server's operator routes",
   '/v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env':
     "the server's operator routes",
   // The caller, not the workspace.
@@ -544,6 +546,8 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   // Computed from records that are exported, not stored.
   '/v1/runs/failures': 'computed from runs',
   '/v1/cost/aggregate': 'computed from cost-records',
+  '/v1/usage':
+    'computed from runs, approvals, cost-records and projects (the metering ledger counts them)',
   '/v1/agents/{agentId}/live': 'computed from agent-live-versions',
   '/v1/agents/{agentId}/gate-policy': 'computed from gate-policies',
   '/v1/guardrails/{guardrailId}/outcomes': 'computed from runs',
@@ -553,7 +557,11 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
     'computed from project-memberships, team-project-grants, orgs and users',
   '/v1/projects/default': 'one of projects',
   '/v1/projects/{projectId}/team-grants': 'the same records as team-project-grants',
+  '/v1/environment-orders/tenant': 'the same records as environment-orders',
+  '/v1/environment-orders/orgs/{orgId}': 'the same records as environment-orders',
   '/v1/providers/{providerId}/check': "a live check of a provider's settings",
+  '/v1/deployments/{deploymentId}/values':
+    'computed from deployments, tools, agents, providers, secrets and env values',
   '/v1/retention/scheduled': 'computed from the retention policies and the records',
   '/v1/deployments/{deploymentId}/pack-env': 'computed from deployments, env and secrets',
   // Not listed by any route.

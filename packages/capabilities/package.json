@@ -26,6 +26,11 @@
       "import": "./dist/attempts.js",
       "default": "./dist/attempts.js"
     },
+    "./clients-by-key": {
+      "types": "./dist/clients-by-key.d.ts",
+      "import": "./dist/clients-by-key.js",
+      "default": "./dist/clients-by-key.js"
+    },
     "./tool-names": {
       "types": "./dist/tool-names.d.ts",
       "import": "./dist/tool-names.js",
