@@ -498,7 +498,7 @@ kindgi-runtime tenants repurge --from <where> --ledger <where>
   [replay](../back-up-and-restore/) does.
 - **Run it with `--dry-run` first,** and nothing changes. Its first line
   says what it read:
-  `<n> purge records, and the ledger's copy <file> (written <when>; <n> purged tenants)`.
+  `tenants repurge --dry-run: <n> purge records, and the ledger's copy <file> (written <when>; <n> purged tenants). Nothing will be changed.`
   A copy names purged tenants when runtime 0.1.10 or later wrote it. An
   earlier one says `version 1, which names no purged tenant`, and only the
   records name tenants then. A line for each tenant follows, by id and
