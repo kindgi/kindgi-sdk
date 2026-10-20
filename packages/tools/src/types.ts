@@ -418,6 +418,10 @@ export interface ToolManifest {
    * agent's `conversationPolicy.hitl.tools` sets neither an override
    * nor a `default` for the tool — a read-only tool passes straight
    * through, a mutating tool asks on first use.
+   *
+   * It also decides what runs together: the calls a model step asks for
+   * together to read-only tools run at the same time, unless the agent sets
+   * `parallelToolCalls: false`; a call to a mutating tool runs on its own.
    */
   readonly mutating?: boolean;
   /**

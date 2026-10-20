@@ -10,6 +10,15 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **`Agent(parallel_tool_calls=False)` runs every tool call a
+  model step asks for on its own.** By default an agent now runs the calls a
+  step asks for together to read-only tools (`mutating=False`) at the same
+  time, and any other call on its own, in the order the model asked; the
+  results reach the conversation in that order either way. The indexer
+  writes it as the agent's `parallelToolCalls`, and `Agent` refuses a value
+  that isn't `True` or `False`. The client's `Agent` and `PublishAgentBody`
+  models gain `parallel_tool_calls`. `mutating`'s description says it
+  decides what runs together.
 - `kindgi`: **an agent's `conversation_policy` can't set
   `autoCloseAfterInactiveSeconds`.** It was accepted and never acted on: a
   conversation never closes by itself, only when someone closes it. The
