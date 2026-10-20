@@ -11,9 +11,10 @@ same version, and the CLI's own changes are in
 ## Unreleased
 
 - `kindgi`: **`Agent(parallel_tool_calls=False)` runs every tool call a
-  model step asks for on its own.** By default an agent now runs the calls a
-  step asks for together to read-only tools (`mutating=False`) at the same
-  time, and any other call on its own, in the order the model asked; the
+  model step asks for on its own.** By default an agent now runs a step's
+  calls to read-only tools (`mutating=False`, no changing effect) that come
+  one after another at the same time, up to 8 at once, and any other call
+  on its own, in the order the model asked; the
   results reach the conversation in that order either way. The indexer
   writes it as the agent's `parallelToolCalls`, and `Agent` refuses a value
   that isn't `True` or `False`. The client's `Agent` and `PublishAgentBody`

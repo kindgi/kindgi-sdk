@@ -236,8 +236,9 @@ writes, sends, charges or deletes: such a tool stops a dry run. It's also
 the tool's approval default: an agent that turns approval gates on
 (`conversationPolicy.hitl`) asks before any tool that isn't read-only on its
 first use. And it decides what runs together: when a model step asks for
-several calls at once, an agent runs the calls to read-only tools at the same
-time, and any other call on its own, in the order the model asked (an agent
+several calls at once, an agent runs calls to read-only tools (no changing
+effect either) that come one after another at the same time, up to 8 of them,
+and any other call on its own, in the order the model asked (an agent
 with `set("parallelToolCalls", false)` runs every call on its own).
 
 `effect(kind, resource)` declares a side effect, such as

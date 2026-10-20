@@ -155,8 +155,9 @@ def tool(
 
     `version` defaults to the pack's version; `description` to the docstring.
     `mutating=False` declares it read-only: it runs in a dry run, an agent's approval
-    gates don't ask before it by default, and an agent runs the calls a step asks for
-    together to read-only tools at the same time. `needs_approval_when_unattended=True`
+    gates don't ask before it by default, and an agent runs a step's calls to read-only
+    tools that come one after another at the same time, up to 8 at once.
+    `needs_approval_when_unattended=True`
     makes each call wait for a person's approval in a run no person started (a webhook, a
     schedule, an event, or a service account's key).
     """
@@ -534,9 +535,10 @@ class Agent:
     tool_errors: Mapping[str, Any] | None = None
     """How turns retry failed tool calls: `{"maxRetries": 2, "retryOn": [...]}`."""
     parallel_tool_calls: bool | None = None
-    """Whether the calls a model step asks for together to read-only tools (`mutating=False`,
-    no changing effect) run at the same time. Default: on. `False`: every call runs on its
-    own, in the order the model asked for them. Either way, a step's results reach the
+    """Whether calls to read-only tools (`mutating=False`, no changing effect) that a model
+    step asks for one after another run at the same time, up to 8 at once. Default: on.
+    `False`: every call runs on its own, in the order the model asked for them. Either way,
+    a step's results reach the
     conversation and the model in that order, and once a call needs a review, the step's
     calls that haven't started run one at a time. It doesn't change what the model may ask
     for."""

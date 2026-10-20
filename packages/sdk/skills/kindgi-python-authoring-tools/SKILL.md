@@ -230,8 +230,9 @@ and has neither an override for the tool nor a `default` doesn't ask
 before a read-only tool, and asks before any other on first use.
 
 And it decides what runs together: when a model step asks for several
-calls at once, an agent runs the calls to read-only tools at the same
-time, and any other call on its own, in the order the model asked. The
+calls at once, an agent runs calls to read-only tools (no changing effect
+either) that come one after another at the same time, up to 8 of them, and
+any other call on its own, in the order the model asked. The
 results reach the conversation and the model in that order either way.
 `Agent(..., parallel_tool_calls=False)` runs every call on its own.
 

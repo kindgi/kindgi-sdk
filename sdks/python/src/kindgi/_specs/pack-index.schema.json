@@ -276,7 +276,7 @@
         },
         "parallelToolCalls": {
           "type": "boolean",
-          "description": "Whether the read-only tool calls a step asks for together run at the same time (`agent.schema.json` `parallelToolCalls`). Default true."
+          "description": "Whether read-only tool calls that a step asks for one after another run at the same time, up to 8 at once (`agent.schema.json` `parallelToolCalls`). Default true."
         },
         "modulePath": { "$ref": "#/$defs/modulePath" }
       }

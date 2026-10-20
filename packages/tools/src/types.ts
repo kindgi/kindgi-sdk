@@ -419,9 +419,10 @@ export interface ToolManifest {
    * nor a `default` for the tool — a read-only tool passes straight
    * through, a mutating tool asks on first use.
    *
-   * It also decides what runs together: the calls a model step asks for
-   * together to read-only tools run at the same time, unless the agent sets
-   * `parallelToolCalls: false`; a call to a mutating tool runs on its own.
+   * It also decides what runs together: calls to read-only tools that a
+   * model step asks for one after another run at the same time, up to 8 at
+   * once, unless the agent sets `parallelToolCalls: false`; a call to a
+   * mutating tool runs on its own.
    */
   readonly mutating?: boolean;
   /**

@@ -161,9 +161,9 @@ brief_writer = Agent(
   (nothing ran); add `tool-error` only when retrying the tool is safe.
   Each retry costs a step.
 - **`parallel_tool_calls`** — default on: when a model step asks for
-  several calls at once, the calls to read-only tools (`mutating=False`)
-  run at the same time, and any other call on its own, in the order the
-  model asked; the results reach the conversation in that order either
+  several calls at once, calls to read-only tools (`mutating=False`, no
+  changing effect) that come one after another run at the same time, up to
+  8 of them, and any other call on its own, in the order the model asked; the results reach the conversation in that order either
   way. `False` runs every call on its own, for read-only tools that
   mustn't overlap (a rate-limited API, say).
 - **`retrieval`** — what the agent reads from memory before each turn;

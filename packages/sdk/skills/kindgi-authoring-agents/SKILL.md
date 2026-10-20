@@ -163,9 +163,10 @@ export default defined.value;
   tenant's `tool-errors` policy can lower these (fewer retries, fewer
   kinds), never raise them.
 - **`parallelToolCalls`** — optional, default on. When a model step asks
-  for several calls at once, the calls to read-only tools (`mutating:
-  false`) run at the same time, and a call to any other tool runs on its
-  own, in the order the model asked. Once a call needs an approval, the
+  for several calls at once, calls to read-only tools (`mutating: false`,
+  no changing effect) that come one after another run at the same time, up
+  to 8 of them, and a call to any other tool runs on its own, in the order
+  the model asked. Once a call needs an approval, the
   step's calls that haven't started run one at a time. The results reach the
   conversation and the model in the model's order either way. `false`
   runs every call on its own, for read-only tools that mustn't overlap
