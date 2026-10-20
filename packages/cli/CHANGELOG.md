@@ -1,5 +1,24 @@
 # @kindgi/cli
 
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- 5dba1e1: `kindgi dev` runs runtime 0.1.9-rc.1.
+- 397e2f5: A TypeScript pack in a pnpm workspace prunes its image to production dependencies without pnpm's question. That prune is a second, filtered install, and pnpm asks before it removes the modules folders for it, which a build has no terminal to answer: pnpm 10 and 11 stopped the build there, and pnpm 9 skipped the prune and left the dev dependencies in the image. The prune passes `--config.confirm-modules-purge=false`; the build scripts' output survives it.
+- @kindgi/agents@0.1.9-rc.1
+  - @kindgi/crypto@0.1.9-rc.1
+  - @kindgi/dotenv-file@0.1.9-rc.1
+  - @kindgi/env-schema@0.1.9-rc.1
+  - @kindgi/flow@0.1.9-rc.1
+  - @kindgi/handler-runtime@0.1.9-rc.1
+  - @kindgi/log@0.1.9-rc.1
+  - @kindgi/platform@0.1.9-rc.1
+  - @kindgi/sdk@0.1.9-rc.1
+  - @kindgi/secrets-dotenv@0.1.9-rc.1
+  - @kindgi/types@0.1.9-rc.1
+  - @kindgi/client@0.1.9-rc.1
+
 ## 0.1.9-rc.0
 
 ### Patch Changes

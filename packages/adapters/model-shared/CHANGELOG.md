@@ -1,5 +1,11 @@
 # @kindgi/adapter-model-shared
 
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/capabilities@0.1.9-rc.1
+
 ## 0.1.9-rc.0
 
 ### Patch Changes
