@@ -2051,6 +2051,37 @@ describe('POST /v1/deployments — manifest validation', () => {
     expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(1);
   });
 
+  test('a pack built before autoCloseAfterInactiveSeconds was taken out still deploys, and its agent answers without it', async () => {
+    const policy = { historyLimit: 5, autoCloseAfterInactiveSeconds: 600 };
+    const index = indexWith(undefined);
+    const fixture = buildSignedDeploy({
+      index: { ...index, agents: index.agents.map((a) => ({ ...a, conversationPolicy: policy })) },
+    });
+    const agents = makeInMemoryAgentRegistry();
+    const written: Agent[] = [];
+    const { app } = makeApp({
+      fixture,
+      agentRegistry: {
+        ...agents,
+        publish: async (input) => {
+          written.push(input.agent);
+          return agents.publish(input);
+        },
+        get: async () => written[0] ?? null,
+      },
+    });
+    const res = await post(app, fixture.wire);
+    expect(res.status, await res.clone().text()).toBe(201);
+    expect(written.map((a) => a.conversationPolicy)).toEqual([policy]);
+    const answered = await app.request('/v1/agents/acme.summary', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(answered.status, await answered.clone().text()).toBe(200);
+    expect(
+      ((await answered.json()) as { conversationPolicy?: unknown }).conversationPolicy,
+    ).toEqual({ historyLimit: 5 });
+  });
+
   test("its agents' and flows' schema compiles count against the tenant's budget: refused, nothing is deployed", async () => {
     const compiles = { type: 'object' };
     const fixture = buildSignedDeploy({
