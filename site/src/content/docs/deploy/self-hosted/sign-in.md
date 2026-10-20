@@ -27,9 +27,9 @@ stay Kindgi's.
 - **A secrets store for the runtime,** set by `KINDGI_SECRETS_BACKEND`, for
   a workspace's own identity providers: their client secret and keys are
   references into it ([Keep secrets in your own secret manager](../secret-manager/),
-  or the default Postgres one). Continue with Google, Microsoft or GitHub
-  and the emailed link work without one. Without one, adding or changing a
-  provider answers `409 identity-providers-need-secrets-store`.
+  or the Postgres one). Without one, Continue with Google, Microsoft or
+  GitHub and the emailed link still work, and adding or changing a
+  workspace's own provider answers `409 identity-providers-need-secrets-store`.
 - **`openssl`,** to make sign-in's own secret.
 - **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
   `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
@@ -209,6 +209,12 @@ output says so instead:
 ```text
   Identity providers: a tenant's own are off: their client secret and keys go in a secrets store, and this server has none (KINDGI_SECRETS_BACKEND)
 ```
+
+A provider added while the deployment had a store signs nobody in once the
+store is gone. People are sent back to the sign-in page with
+`sign-in-unavailable`, and the runtime's log says why. On a domain verified
+to its workspace, GitHub and the emailed link still don't sign people in
+([Who gets in](#who-gets-in)). Remove the provider, or set up a store again.
 
 ## Continue with Google, Microsoft or GitHub
 
