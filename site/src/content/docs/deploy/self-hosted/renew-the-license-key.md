@@ -206,7 +206,7 @@ so give a renewal that runs on its own a system key holding
 route refuses it.
 
 Mint it with the runtime's own token. On a runtime serving one tenant
-(runtime 0.1.8.2 or later), only that token mints system keys, and only ones
+(runtime 0.1.10 or later), only that token mints system keys, and only ones
 holding `system:license`. The token reaches `curl` as a header file, so it
 never shows in the list of processes:
 
@@ -244,7 +244,7 @@ curl -sS -X POST "$KINDGI_API_URL/v1/system/keys" \
   one minted while it served many tenants, say. Revoke it, and mint one
   holding `system:license`.
 - **A runtime serving one tenant that answers the mint with
-  `403 system-principal-required`** is older than 0.1.8.2, which has these
+  `403 system-principal-required`** is older than 0.1.10, which has these
   keys. Until you upgrade it, `--runtime-token` takes its own token.
 
 ## On a schedule
