@@ -30,6 +30,22 @@ export type {
 export { newBuilder } from './build.js';
 export type { BuilderOptions, ProvenanceBuilder } from './build.js';
 
+// ============ Flow run records ============
+export {
+  FLOW_PROVENANCE_LIMITS,
+  FLOW_PROVENANCE_NAMESPACE,
+  FLOW_PROVENANCE_VERSION,
+  flowProvenanceBuilder,
+  flowProvenanceId,
+} from './flow-build.js';
+export type {
+  FlowJournalGap,
+  FlowProvenanceBuilder,
+  FlowProvenanceChild,
+  FlowProvenanceRun,
+  FlowReusedSource,
+} from './flow-build.js';
+
 // ============ Sign + verify ============
 export { signProvenance, verifyExported, verifyProvenance } from './sign.js';
 

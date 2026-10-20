@@ -68,7 +68,7 @@ export function formatThrown(
     // unless --verbose asks otherwise.
     const detail = options.verbose
       ? `\n${JSON.stringify(wire, null, 2)}`
-      : formatValidationDetail(wire);
+      : formatValidationDetail(wire) + formatRecordState(wire);
     return cliError(`Error [${errorTag(wire)}]: ${wire.message}${detail}`, 1);
   }
   if (thrown instanceof Error) {
@@ -144,6 +144,18 @@ function formatValidationDetail(wire: KindgiError): string {
     return lines.join('\n');
   }
   return '';
+}
+
+/**
+ * A run whose record isn't written yet says so (`provenance-not-found`
+ * with a `recordState`): `being-written`, or `failed` and its `reason`.
+ */
+function formatRecordState(wire: KindgiError): string {
+  if (wire.code !== 'not-found' || wire.serverCode !== 'provenance-not-found') return '';
+  const state = wire.fields?.recordState;
+  if (typeof state !== 'string') return '';
+  const reason = wire.fields?.reason;
+  return `\nRecord state: ${state}${typeof reason === 'string' ? ` (${reason})` : ''}`;
 }
 
 /**
