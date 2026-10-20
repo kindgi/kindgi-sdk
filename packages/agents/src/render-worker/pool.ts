@@ -41,6 +41,15 @@ import type { RenderInit, RenderReply, RenderRequest, WorkerMessage } from './me
  */
 export const STOP_MARGIN_MS = 100;
 
+/**
+ * How long a worker has to stop on SIGTERM before `close()` escalates to
+ * SIGKILL. A worker is only stopped once its render has finished (`close()`
+ * lets running renders end first) and it installs no SIGTERM handler, so a
+ * healthy one exits at once; this bounds only a worker wedged past stopping,
+ * and so bounds `close()` itself, which can then never hang on one.
+ */
+export const STOP_SIGKILL_MS = 1_000;
+
 /** How much of a worker's stderr the pool keeps, to read why it stopped. */
 const STDERR_TAIL = 4096;
 
@@ -188,12 +197,29 @@ export class WorkerPool implements WorkerTemplateRenderer {
         this.drained = resolve;
       });
     }
-    await Promise.all(
-      this.slots.map((slot, index) => {
-        this.slots[index] = undefined;
-        return slot === undefined ? undefined : stop(slot.child);
-      }),
-    );
+    // Idle workers are unref'd, and a dying child's own handles — its process
+    // handle, its IPC channel and its stderr — can drop their refs on the same
+    // loop turn that would deliver 'exit', so re-reffing the child doesn't
+    // reliably hold the loop: a plain `await close()` can let the loop drain,
+    // the process exit, and this promise never settle. A ref'd timer, which no
+    // child's exit can retract, holds the loop across the stop phase instead.
+    // It is bounded by stop()'s own kill deadline (SIGTERM, then SIGKILL after
+    // STOP_SIGKILL_MS) so a worker that won't stop can't hold close() open, and
+    // it's cleared the moment the stops settle — so where a worker exits at
+    // once, as a healthy one does, it never fires.
+    const keepAlive = setTimeout(() => {
+      /* nothing: a ref'd timer whose only job is to hold the loop until the stops settle. */
+    }, STOP_SIGKILL_MS + STOP_MARGIN_MS);
+    try {
+      await Promise.all(
+        this.slots.map((slot, index) => {
+          this.slots[index] = undefined;
+          return slot === undefined ? undefined : stop(slot.child);
+        }),
+      );
+    } finally {
+      clearTimeout(keepAlive);
+    }
   }
 
   /**
@@ -409,16 +435,30 @@ export class WorkerPool implements WorkerTemplateRenderer {
   }
 }
 
-/** Stops a worker and waits for it to go: a kill it has already answered resolves at once. */
+/**
+ * Stops a worker and waits for it to go. A worker that has already exited
+ * settles at once; one that doesn't answer SIGTERM within `STOP_SIGKILL_MS`
+ * is SIGKILL'd, so a wedged worker can't hold close() open. The event loop is
+ * held across the wait by shutdown()'s keep-alive, not by re-reffing the
+ * child, whose handles can drop their refs before 'exit' fires.
+ */
 function stop(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
   return new Promise<void>((resolve) => {
-    // An idle worker was unref'd so it wouldn't hold the process up. Re-ref it
-    // now: without this, when nothing else keeps the loop running (a plain
-    // `await pool.close()` at the end of a shutdown), the process can exit
-    // before 'exit' fires and close() never settles.
-    refWorker(child);
-    child.once('exit', () => resolve());
+    // A worker already gone won't emit 'exit' again — its exitCode or
+    // signalCode is set — so settle at once. Nothing can exit between this
+    // check and the listener below: both run in this one synchronous frame,
+    // and Node delivers 'exit' only on a later turn.
+    if (child.exitCode !== null || child.signalCode !== null) {
+      resolve();
+      return;
+    }
+    // SIGTERM, then SIGKILL if it won't stop within the grace, so a wedged
+    // worker can't hold close() open.
+    const sigkill = setTimeout(() => child.kill('SIGKILL'), STOP_SIGKILL_MS);
+    child.once('exit', () => {
+      clearTimeout(sigkill);
+      resolve();
+    });
     child.kill();
   });
 }
