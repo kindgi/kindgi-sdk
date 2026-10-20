@@ -393,11 +393,29 @@ resolves what `yarn.lock` lacks instead of failing, even with
     ✓ Install: dev dependencies too, for the build steps (prisma), whose tools can be dev dependencies; pruned to production after
 ```
 
+The install reads your registry config (`.npmrc`, and Yarn's `.yarnrc` or
+`.yarnrc.yml`) while it runs, and the image never holds it. When a slow
+registry makes the install time out, give each download longer, in
+milliseconds. With pnpm 10, in `.npmrc`:
+
+```ini excerpt
+fetch-timeout=180000
+fetch-retries=4
+```
+
+pnpm 11 and later don't read these from `.npmrc`: set them in
+`pnpm-workspace.yaml`, which the install takes too:
+
+```yaml excerpt
+fetchTimeout: 180000
+fetchRetries: 4
+```
+
 **Also under `image`:**
 - `systemPackages`: Debian packages the image needs, such as
   `['tesseract-ocr']`.
-- `buildEnv`: placeholder variables for the build steps and for loading your
-  modules while building, such as
+- `buildEnv`: placeholder variables for the install, the build steps and
+  loading your modules while building, such as
   `{ DATABASE_URL: 'postgresql://build-placeholder' }`. Never secrets: they're
   set while building only, and the final image doesn't have them. Your modules
   load with `NODE_ENV=production` while building, as in the deployed service,
