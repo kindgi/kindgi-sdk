@@ -607,11 +607,12 @@ At each boot, `kindgi dev` says what it did:
 
 A runtime that `kindgi dev` doesn't run, such as your staging or production
 one, doesn't read the declaration. Register its providers there by hand with
-`kindgi providers register`: once per environment, and again when you add a
-provider or change one. Set the key there first, with
-`kindgi secrets set <KEY> --env=<env> --scope=tenant`. `kindgi deploy`
-doesn't register providers, and `kindgi promote` stops while the target has
-none.
+`kindgi providers register`, once per runtime: a registration is shared by
+every environment the runtime serves. Register again when you add a provider.
+To change one, unregister it first, then register it again. The key isn't
+shared: set it first in each environment that runs the pack, with
+`kindgi secrets set <KEY> --env=<environment>`. `kindgi deploy` doesn't
+register providers, and `kindgi promote` stops while the target has none.
 
 :::note[On Kindgi Cloud]
 Register a preset with `--env=prod`: without `--env`, it reads `local`. A

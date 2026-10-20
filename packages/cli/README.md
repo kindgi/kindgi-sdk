@@ -321,7 +321,8 @@ On each boot, `kindgi dev`:
   settings or its key's name, so a difference only there gets the plain line.
 
 It records which providers it registered in `.kindgi/dev/providers.json`, per
-database and tenant.
+database and tenant. That file is `kindgi dev`'s local record, under the
+gitignored `.kindgi/`; a provider is declared in the config, which you commit.
 
 **Any OpenAI-compatible endpoint** — an open-source model you serve yourself
 (vLLM, llama.cpp's `llama-server`, Ollama, LM Studio), OpenRouter, a LiteLLM

@@ -247,26 +247,32 @@ when their prices were checked); an entry's `maxOutputTokens` sets another cap. 
 all for Anthropic; go to step 4. The rest of this path is a spec of your
 own, by hand.
 
-**Staging and production: register by hand, once per environment.** The
+**Staging and production: register by hand, once per runtime.** The
 declaration drives `kindgi dev` only. A runtime `kindgi dev` doesn't run
 (staging, production, Kindgi Cloud) gets its providers from
 `kindgi providers register` against that runtime, once, and again when you
-add a provider or change one. Set the key there first
-(`kindgi secrets set ANTHROPIC_API_KEY --env=<env> --scope=tenant`), then:
+add a provider or change one. A registration is the runtime's, shared by
+every environment it serves: register once in all when one runtime serves
+both staging and prod, and once on each when they're separate runtimes. The
+key isn't shared: set it first in each environment that runs the pack
+(`kindgi secrets set ANTHROPIC_API_KEY --env=<environment>`), then:
 ```sh
 kindgi providers register --preset=anthropic --env=<env>                          # the preset's models
 kindgi providers register --preset=anthropic --models=claude-sonnet-5-5 --env=<env>  # just one
 ```
-- `--env` is the environment the key was set in (on Kindgi Cloud, `prod`:
-  On Kindgi Cloud, above; mistake 1). `--max-output-tokens=<n>` sets
-  another output cap.
+- `--env` names one of the pack's environments, and the key goes in its
+  project. `register` with it prints the `kindgi secrets set` line to run
+  for each other environment. On a runtime with none of the pack's
+  environments, `kindgi secrets set` asks for a `--scope`. On Kindgi Cloud,
+  it's `prod` (On Kindgi Cloud, above; mistake 1). `--max-output-tokens=<n>`
+  sets another output cap.
 - To change a provider there, unregister it first (mistake 5), then
   register it again.
 - `kindgi deploy` doesn't register providers. `kindgi promote` checks the
   target first and stops (exit 1) while it has no provider, naming
   `kindgi providers register --preset=<name>`.
-- Nothing in git records what an environment has registered:
-  `kindgi providers list` against its runtime shows it.
+- Nothing in git records what a runtime has registered:
+  `kindgi providers list` against it shows it.
 - Under `kindgi dev`, `kindgi providers register` puts a provider in this
   worktree's dev database only, and leaves nothing to commit. Use it to try a
   provider, then declare it.
