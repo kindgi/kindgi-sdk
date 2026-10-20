@@ -192,7 +192,7 @@ build too, without your app's files or services. Open files, databases and
 connections lazily, inside the handler. A module that opens a database file
 at import fails the build with `unable to open database file`.
 
-The image is for `linux/amd64` by default. On Apple silicon it runs under emulation. `--platform` picks another.
+With `--push`, as here, the image is for `linux/amd64`, and on Apple silicon it runs under emulation. Without `--push`, it's for your machine's platform. `--platform` picks another.
 
 ## 4. Run your pack's service
 
