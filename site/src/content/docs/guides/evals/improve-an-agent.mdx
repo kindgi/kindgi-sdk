@@ -86,8 +86,9 @@ Before you start, you can ask what a pass would cost: `POST
 answers `estimatedCostUsd` — the replay count times the version's mean cost
 over its recent completed runs, capped at `--max-cost` — and starts nothing.
 Treat it as an approximation: a candidate can cost more or less per run than
-that mean, a prompt pass also pays to draft its templates, and the figure is
-clamped to the budget, so a pass can cost a little more than it estimates.
+that mean, and a prompt pass also pays to draft its templates, so a pass can
+cost more than it estimates; what stops it is the budget above. An estimate
+equal to `--max-cost` means the pass is expected to spend its whole budget.
 
 It answers at once with the pass. `--wait` waits for its outcome, at most 30
 minutes, and prints it:
