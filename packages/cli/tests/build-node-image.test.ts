@@ -197,7 +197,7 @@ describe('the Containerfile', () => {
       "pnpm install --frozen-lockfile --ignore-scripts --prod=false --filter '{./apps/support}...' && pnpm --filter '{./apps/support}...' rebuild",
     );
     expect(withSteps).toContain(
-      "pnpm install --frozen-lockfile --ignore-scripts --prod --filter '{./apps/support}...'\n",
+      "pnpm install --frozen-lockfile --ignore-scripts --prod --config.confirm-modules-purge=false --filter '{./apps/support}...'\n",
     );
     expect(withSteps).not.toContain('pnpm prune');
     expect(render({ workspace: true })).toContain("--filter '{.}...'");

@@ -338,7 +338,7 @@ describe('installCommands', () => {
       { manager: 'pnpm', workspace: true, packRel: 'apps/support' },
       PRISMA_STEPS,
       `pnpm install --frozen-lockfile --ignore-scripts --prod=false ${member} && pnpm ${member} rebuild`,
-      `pnpm install --frozen-lockfile --ignore-scripts --prod ${member}`,
+      `pnpm install --frozen-lockfile --ignore-scripts --prod --config.confirm-modules-purge=false ${member}`,
     ],
     [
       'npm, a build step',
@@ -417,6 +417,22 @@ describe('installCommands', () => {
       expect(words(without.install)).toContain(production);
       expect(words(without.install)).not.toContain(dev);
       expect(words(installCommands({ ...base, ...over }, PRISMA_STEPS).prune)).not.toContain(dev);
+    },
+  );
+
+  // A pnpm workspace's prune changes what's installed, so pnpm purges the
+  // modules directories first and asks; a build has no terminal to answer
+  // (pnpm 10 and 11 stop the build, pnpm 9 skips the prune). Whichever pnpm.
+  test.each(['pnpm@9.15.9', 'pnpm@10.28.0', 'pnpm@11.28.6', 'pnpm@12.4.2'])(
+    'a pnpm workspace on %s, a build step: the prune purges without asking, scripts still off',
+    (managerSpec) => {
+      const { prune } = installCommands(
+        { ...base, manager: 'pnpm', workspace: true, packRel: 'apps/support', managerSpec },
+        PRISMA_STEPS,
+      );
+      expect(prune).toBe(
+        `pnpm install --frozen-lockfile --ignore-scripts --prod --config.confirm-modules-purge=false ${member}`,
+      );
     },
   );
 

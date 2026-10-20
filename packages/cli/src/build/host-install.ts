@@ -433,13 +433,16 @@ export function installCommands(
       // A workspace: the pack's project and what it depends on, not the
       // rest of the workspace. The prune is the same filtered install with
       // --prod (`pnpm prune` ignores a filter and installs the whole
-      // workspace).
+      // workspace). It changes what's installed, so pnpm purges the modules
+      // directories first, and asks: a build has no terminal to answer, and
+      // pnpm 10 and 11 stop there, pnpm 9 skips the prune. The build
+      // scripts' output survives it (pnpm 9 to 12).
       const only = `--filter '{${install.packRel === '' ? '.' : `./${install.packRel}`}}...'`;
       const production = `pnpm install --frozen-lockfile --ignore-scripts --prod ${only}`;
       return dev
         ? {
             install: `pnpm install --frozen-lockfile --ignore-scripts --prod=false ${only} && pnpm ${only} rebuild`,
-            prune: production,
+            prune: `pnpm install --frozen-lockfile --ignore-scripts --prod --config.confirm-modules-purge=false ${only}`,
           }
         : { install: `${production} && pnpm ${only} rebuild` };
     }
