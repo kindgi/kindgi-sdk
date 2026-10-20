@@ -79,6 +79,39 @@ variable "nat_static_ip" {
   default     = false
 }
 
+variable "nat_min_ports_per_vm" {
+  description = "Cloud NAT ports each server instance starts with. One port per connection open at once to one destination (address, port and protocol), such as a public-IP database through Cloud Run's Cloud SQL connection or a model API. Near the limit, the NAT doubles the instance's ports, up to nat_max_ports_per_vm, and a new connection can time out while it does: raise this if the NAT's dropped_sent_packets_count shows reason OUT_OF_RESOURCES. A power of two from 32 to 32768. Applies in network_mode = \"direct\", the only mode with a Cloud NAT."
+  type        = number
+  default     = 64
+
+  validation {
+    condition     = contains([32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768], var.nat_min_ports_per_vm)
+    error_message = "nat_min_ports_per_vm must be a power of two from 32 to 32768."
+  }
+}
+
+variable "nat_max_ports_per_vm" {
+  description = "The most Cloud NAT ports one server instance grows to. A power of two above nat_min_ports_per_vm, up to 65536. Each NAT address has 64,512 TCP ports for all instances together; with nat_static_ip, its one address is the ceiling. Lowering it on a running NAT breaks the NAT's open connections, and so does a value under 1024 when an older module copy's fixed ports switch to these. Applies in network_mode = \"direct\"."
+  type        = number
+  default     = 4096
+
+  validation {
+    condition     = contains([64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536], var.nat_max_ports_per_vm)
+    error_message = "nat_max_ports_per_vm must be a power of two from 64 to 65536."
+  }
+}
+
+variable "nat_tcp_time_wait_timeout_sec" {
+  description = "Seconds Cloud NAT keeps a closed TCP connection's port before another connection can use it. 30 is Google's default for gateways created after September 30, 2026; the Google provider sets 120 when it's unset. Shorter frees ports sooner, at the cost of possibly receiving packets retransmitted from a closed connection. Applies in network_mode = \"direct\"."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.nat_tcp_time_wait_timeout_sec >= 1 && floor(var.nat_tcp_time_wait_timeout_sec) == var.nat_tcp_time_wait_timeout_sec
+    error_message = "nat_tcp_time_wait_timeout_sec must be a whole number of seconds, 1 or more."
+  }
+}
+
 variable "cors_origins" {
   description = "KINDGI_CORS_ORIGINS: exact browser origins allowed to follow runs with public run tokens. Empty: none."
   type        = list(string)
