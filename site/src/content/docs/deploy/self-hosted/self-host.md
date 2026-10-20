@@ -259,7 +259,7 @@ KINDGI_CONSOLE_TOKEN_SIGN_IN=on
 It holds the API token and the license key, so keep it to yourself:
 `chmod 600 kindgi.env`.
 
-Every setting is in the [environment variable reference](../../../reference/env-vars/). These are worth knowing now:
+Every setting but the four database ones below is in the [environment variable reference](../../../reference/env-vars/). These are worth knowing now:
 
 - **`KINDGI_DATABASE_URL`** connects to Postgres directly, or through a pooler in session mode. The runtime holds session locks on its connection while it migrates. A pooler in transaction mode, such as PgBouncer's `pool_mode = transaction`, doesn't keep them, as [PgBouncer's pooling modes](https://www.pgbouncer.org/features.html) describes.
   - **The database timeouts** (runtime 0.1.9 or later): the runtime sets three Postgres timeouts on its own connections, in milliseconds, and `0` turns one off. `KINDGI_DB_STATEMENT_TIMEOUT_MS`, `60000` (60 seconds), is how long one statement may run before Postgres ends it (`statement_timeout`). `KINDGI_DB_LOCK_TIMEOUT_MS`, `30000`, is how long a statement may wait for a lock (`lock_timeout`); with both on, it must be shorter than the statement timeout. `KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS`, `30000`, is how long a transaction may sit idle between statements before Postgres ends its session (`idle_in_transaction_session_timeout`). A value that isn't a whole number up to 2147483647 stops the boot, naming the variable. The runtime's admin commands (`kindgi-runtime tenants …`, `check …` and `erasures …`) run with no statement timeout.
