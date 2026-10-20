@@ -262,12 +262,29 @@ describe('the Containerfile', () => {
     expect(text).toContain('COPY --from=indexer --chown=node:node /app/index.json /app/index.json');
   });
 
+  test('the indexer loads the modules with NODE_ENV=production, as the service does; the install has none', () => {
+    const text = render();
+    const indexer = text.slice(
+      text.indexOf('FROM deps AS indexer'),
+      text.indexOf('FROM system AS final'),
+    );
+    expect(indexer).toContain('\nENV NODE_ENV=production\n');
+    expect(indexer.indexOf('ENV NODE_ENV=production')).toBeLessThan(
+      indexer.indexOf('kindgi-index.mjs'),
+    );
+    // With it, the install would leave out the dev dependencies a build step needs.
+    expect(
+      text.slice(text.indexOf('FROM system AS deps'), text.indexOf('FROM scratch AS code')),
+    ).not.toContain('NODE_ENV');
+  });
+
   test('the final stage runs the pack service over the bundles, under tini, as node', () => {
     const text = render();
-    expect(text).toContain(
+    const final = text.slice(text.indexOf('FROM system AS final'));
+    expect(final).toContain(
       'ENTRYPOINT ["/usr/bin/tini","--","node","--enable-source-maps","./dist/kindgi-pack-service.mjs","--index","/app/index.json","--module-root","./dist","--bundle-map","./dist/bundle-map.json"]',
     );
-    expect(text).toContain('ENV NODE_ENV=production');
+    expect(final).toContain('ENV NODE_ENV=production');
     expect(text).toContain('ENV PORT=8080');
     expect(text).toContain('EXPOSE 8080');
     expect(text).toContain('HEALTHCHECK');
@@ -361,6 +378,31 @@ describe('the Containerfile with image extensions', () => {
     expect(text.slice(text.indexOf('FROM system AS final'))).not.toContain('DATABASE_URL');
   });
 
+  test("buildEnv's NODE_ENV is the indexer's, with either dependencies setting; the service's stays production", () => {
+    for (const dependencies of ['all', 'loaded'] as const) {
+      const text = render(
+        {},
+        false,
+        imageOf({ image: { dependencies, buildEnv: { NODE_ENV: 'development' } } }),
+      );
+      const at = text.indexOf(' AS indexer');
+      const indexer = text.slice(at, text.indexOf('FROM system AS final'));
+      expect(indexer).not.toContain('NODE_ENV=production');
+      if (dependencies === 'all') {
+        // The indexer is on deps, where the build env is set.
+        expect(text).toContain('FROM deps AS indexer');
+        const set = text.indexOf('ENV NODE_ENV="development"');
+        expect(set).toBeGreaterThan(text.indexOf('FROM system AS deps'));
+        expect(set).toBeLessThan(text.indexOf('FROM scratch AS code'));
+      } else {
+        expect(indexer).toContain('ENV NODE_ENV="development"');
+      }
+      expect(text.slice(text.indexOf('FROM system AS final'))).toContain(
+        '\nENV NODE_ENV=production\n',
+      );
+    }
+  });
+
   test('without extensions, nothing extra is rendered', () => {
     const text = render();
     expect(text).not.toContain('ext/');
@@ -413,6 +455,7 @@ describe("the Containerfile with image.dependencies: 'loaded'", () => {
     );
     expect(indexer).toContain('USER node');
     expect(indexer).toContain('ENV DATABASE_URL="postgresql://build-placeholder"');
+    expect(indexer).toContain('\nENV NODE_ENV=production\n');
     const check = indexer.indexOf(
       'RUN node ./dist/kindgi-closure.mjs check --bundle-dir /app/dist --externals ./dist/externals.json',
     );

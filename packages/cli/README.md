@@ -540,6 +540,8 @@ export default {
   scripts off.
 - `buildEnv` holds non-secret placeholders for the build steps, and for the
   indexer, which imports the pack's modules. It's never in the final image.
+  The indexer imports them with `NODE_ENV=production`, as the deployed
+  service does, unless `buildEnv` sets `NODE_ENV`.
 - `defineBuildExtension()` makes an app's own extension from the same parts:
   `contextFiles`, `systemPackages`, `postInstall` steps (a package's bin, run
   through the app's package manager) and `buildEnv`.

@@ -22,7 +22,8 @@
  *   indexer  `index.json`, indexed from the bundles: on `deps`, or with
  *            `'loaded'` on `trimmed`, after `kindgi-closure check` loads
  *            every package the bundles import there, so a miss fails the
- *            build
+ *            build. With `NODE_ENV=production`, as the service loads
+ *            them, unless `buildEnv` sets `NODE_ENV`
  *   final    deps (or trimmed) + code + index.json, as the `node` user
  *
  * Image layout: the install root at `/app`, the pack at
@@ -122,6 +123,11 @@ export function renderContainerfile(inputs: RenderContainerfileInputs): string {
   const loaded = inputs.image.dependencies === 'loaded';
   const installed = loaded ? 'trimmed' : 'deps';
   const devDependencies = whyDevDependencies(install, inputs.image.steps);
+  // The indexer loads the modules as the service will; a `NODE_ENV` in buildEnv is
+  // already set there (from deps, or the preamble), so it stands.
+  const indexerNodeEnv = Object.hasOwn(inputs.image.buildEnv, 'NODE_ENV')
+    ? ''
+    : '\n# The modules load as in the service: NODE_ENV=production (buildEnv can set it).\nENV NODE_ENV=production';
   const steps = inputs.image.steps.map((step) => {
     const { command, args } = binCommand(install.manager, step.bin, step.args ?? []);
     return `# ${step.extension}\n${run(`cd ${packDir} && ${[command, ...args].map(shellWord).join(' ')}`)}`;
@@ -178,7 +184,7 @@ FROM scratch AS code
 COPY dist/ /dist/
 ${loaded ? closureStages(packDir, inputs.image) : ''}
 # --- stage: indexer ---
-FROM ${installed} AS indexer${loaded ? indexerPreamble(env) : ''}
+FROM ${installed} AS indexer${loaded ? indexerPreamble(env) : ''}${indexerNodeEnv}
 ARG SOURCE_DATE_EPOCH=0
 ARG KINDGI_BUILD_TARGET=${buildTarget}
 ARG KINDGI_ARTIFACT_VERSION=${artifactVersion}
