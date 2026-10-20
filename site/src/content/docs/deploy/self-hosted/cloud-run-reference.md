@@ -96,6 +96,10 @@ webhook's secret. With `secrets_backend = "none"`:
 - **The runtime stores no secrets of its own.** `/v1/secrets` isn't served:
   it answers `404 route-not-found`, and the runtime checks no KMS key at
   start.
+- **Sign-in:** Continue with Google, Microsoft or GitHub and the emailed
+  link work. A workspace's own identity provider needs `"postgres"`: its
+  client secret and keys are references into the store, so adding or
+  changing one answers `409 identity-providers-need-secrets-store`.
 - **Who it fits:** a deployment whose pack's secrets all come by reference,
   in `pack_secret_env`, and whose model uses the service's own identity
   ([Gemini on Vertex AI](../cloud-run/#use-gemini)). A provider whose API key

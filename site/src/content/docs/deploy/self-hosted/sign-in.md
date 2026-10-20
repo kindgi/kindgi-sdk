@@ -24,10 +24,12 @@ stay Kindgi's.
   ([Self-host with Docker](../self-host/)).
 - **The address people reach it at,** over `https`, such as
   `https://kindgi.acme.com`.
-- **A secrets store for the runtime,** set by `KINDGI_SECRETS_BACKEND`. An
-  identity provider's client secret and keys are references into it
-  ([Keep secrets in your own secret manager](../secret-manager/), or the
-  default Postgres one).
+- **A secrets store for the runtime,** set by `KINDGI_SECRETS_BACKEND`, for
+  a workspace's own identity providers: their client secret and keys are
+  references into it ([Keep secrets in your own secret manager](../secret-manager/),
+  or the default Postgres one). Continue with Google, Microsoft or GitHub
+  and the emailed link work without one. Without one, adding or changing a
+  provider answers `409 identity-providers-need-secrets-store`.
 - **`openssl`,** to make sign-in's own secret.
 - **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
   `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a

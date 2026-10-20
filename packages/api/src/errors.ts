@@ -422,6 +422,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // The operator manages sign-in (KINDGI_AUTH_TENANT_PROVIDERS=off): a
   // change to a provider takes the deployment's own token.
   'identity-providers-operator-managed': 403,
+  // The deployment has no secrets store (KINDGI_SECRETS_BACKEND), which a
+  // provider's client secret and keys are references into: adding or
+  // changing a provider waits until it has one.
+  'identity-providers-need-secrets-store': 409,
   // `GET /v1/license` or `GET /v1/license/usage` by anyone but the
   // deployment's own token or a system key holding `system:license`, save a
   // sole tenant's admins reading the license's countdown.
