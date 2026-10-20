@@ -80,9 +80,9 @@ resource "google_compute_router_nat" "nat" {
   nat_ips                            = google_compute_address.nat[*].self_link
   source_subnetwork_ip_ranges_to_nat = "LIST_OF_SUBNETWORKS"
 
-  # Ports per instance grow on demand: Google's fixed 64 caps an instance at 64
-  # connections open at once to one destination, such as a public-IP database
-  # through Cloud Run's Cloud SQL connection. Dynamic allocation needs
+  # Ports per server instance grow on demand: Google's fixed 64 caps an instance
+  # at 64 connections open at once to one destination, such as a public-IP
+  # database through Cloud Run's Cloud SQL connection. Dynamic allocation needs
   # endpoint-independent mapping off. The provider defaults TIME_WAIT to 120 s.
   enable_dynamic_port_allocation      = true
   enable_endpoint_independent_mapping = false

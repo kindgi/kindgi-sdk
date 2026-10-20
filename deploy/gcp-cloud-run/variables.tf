@@ -80,7 +80,7 @@ variable "nat_static_ip" {
 }
 
 variable "nat_min_ports_per_vm" {
-  description = "Cloud NAT ports each instance starts with. One port per connection open at once to one destination (address, port and protocol), such as a public-IP database through Cloud Run's Cloud SQL connection or a model API. Near the limit, the NAT doubles the instance's ports, up to nat_max_ports_per_vm, and a new connection can time out while it does: raise this if the NAT's dropped_sent_packets_count shows reason OUT_OF_RESOURCES. A power of two from 32 to 32768. Applies in network_mode = \"direct\", the only mode with a Cloud NAT."
+  description = "Cloud NAT ports each server instance starts with. One port per connection open at once to one destination (address, port and protocol), such as a public-IP database through Cloud Run's Cloud SQL connection or a model API. Near the limit, the NAT doubles the instance's ports, up to nat_max_ports_per_vm, and a new connection can time out while it does: raise this if the NAT's dropped_sent_packets_count shows reason OUT_OF_RESOURCES. A power of two from 32 to 32768. Applies in network_mode = \"direct\", the only mode with a Cloud NAT."
   type        = number
   default     = 64
 
@@ -91,7 +91,7 @@ variable "nat_min_ports_per_vm" {
 }
 
 variable "nat_max_ports_per_vm" {
-  description = "The most Cloud NAT ports one instance grows to. A power of two above nat_min_ports_per_vm, up to 65536. Each NAT address has 64,512 ports for all instances together; with nat_static_ip, its one address is the ceiling. Lowering it on a running NAT breaks the NAT's open connections, and so does a value under 1024 when an older module copy's fixed ports switch to these. Applies in network_mode = \"direct\"."
+  description = "The most Cloud NAT ports one server instance grows to. A power of two above nat_min_ports_per_vm, up to 65536. Each NAT address has 64,512 TCP ports for all instances together; with nat_static_ip, its one address is the ceiling. Lowering it on a running NAT breaks the NAT's open connections, and so does a value under 1024 when an older module copy's fixed ports switch to these. Applies in network_mode = \"direct\"."
   type        = number
   default     = 4096
 

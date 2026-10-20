@@ -1233,6 +1233,21 @@ run "nat_max_ports_must_be_above_the_minimum" {
   expect_failures = [google_cloud_run_v2_service.server]
 }
 
+run "nat_ports_are_not_checked_without_a_nat" {
+  command = plan
+  variables {
+    network_mode         = "connector"
+    vpc_connector        = "projects/acme-app-dev/locations/northamerica-northeast2/connectors/acme"
+    pack_ingress         = "INGRESS_TRAFFIC_ALL"
+    nat_min_ports_per_vm = 4096
+    nat_max_ports_per_vm = 4096
+  }
+  assert {
+    condition     = length(google_compute_router_nat.nat) == 0
+    error_message = "connector mode creates no Cloud NAT, so the plan does not check its ports."
+  }
+}
+
 run "nat_time_wait_must_be_whole_seconds" {
   command = plan
   variables {
