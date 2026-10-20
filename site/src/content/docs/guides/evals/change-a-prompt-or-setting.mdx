@@ -164,8 +164,13 @@ blocks/
 - **`kindgi build` checks each block,** its template and its values against
   its schema, and refuses a pack whose blocks don't hold up, naming each file.
   `kindgi dev` shows the same problems as you edit; its runtime reads the
-  blocks published to it, as above.
-- **The folder** is the pack config's `discovery.blocks` pattern,
+  blocks published to it, as above. When a Python, Java or Scala pack's
+  `kindgi` package or `com.kindgi:kindgi-pack` is from before blocks in a
+  pack, and so reads none, `kindgi build` refuses the pack and `kindgi dev`
+  says so, each naming the release to upgrade to.
+- **The folder** is the `discovery.blocks` pattern in `kindgi.config.ts`
+  (`kindgi.config.json` in a Java or Scala pack; `blocks` under
+  `[tool.kindgi.discovery]` in a Python pack's `pyproject.toml`),
   `blocks/**/*.json` unless you change it.
 
 A version never changes. When a deploy brings a version the runtime already
