@@ -5017,7 +5017,7 @@ class BlobMeta(BaseModel):
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     bucket: str | None = None
     """
-    The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload here conventionally has bucket `artifacts` and its `blobId` as the key.
+    The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.
     """
     key: str | None = None
     """
@@ -5070,7 +5070,7 @@ class Datum5(BaseModel):
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     bucket: str | None = None
     """
-    The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload here conventionally has bucket `artifacts` and its `blobId` as the key.
+    The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.
     """
     key: str | None = None
     """
