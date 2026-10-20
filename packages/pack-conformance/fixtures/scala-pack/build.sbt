@@ -15,6 +15,9 @@ lazy val root = (project in file("."))
   .settings(
     name := "conformance-scala-pack",
     scalaVersion := "3.3.8",
+    // kindgi-pack (kindgi-pack-scala's dependency) from the local Maven repository before Maven
+    // Central, as sdks/scala's build: main's version can be one already released there.
+    externalResolvers := Resolver.mavenLocal +: externalResolvers.value,
     libraryDependencies += "jakarta.validation" % "jakarta.validation-api" % "3.0.2",
     publish / skip := true,
     writeClasspath := {
