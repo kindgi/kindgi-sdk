@@ -434,7 +434,7 @@ const improve: LeafCommand = {
     'pass-project': {
       type: 'string',
       description:
-        "The project the pass works in, by id, for a tenant or org scope (default: the agent version's). With `--project`, it's that project.",
+        "The project the pass works in, by id, for a tenant or org scope (default: the agent version's). With `--project`, it's that project, and another is refused.",
     },
     'from-version': {
       type: 'string',
