@@ -509,7 +509,8 @@ Builds a signed pack image with a Kindgi build server, and writes
   on. The build says which (`✓ Install: …`).
 - **A workspace:** with pnpm, only the pack's project and what it depends on
   are installed, not the rest of the workspace. npm and yarn install the
-  whole workspace.
+  whole workspace. With `image.dependencies: 'loaded'`, the install is one
+  project, cut down to what the pack loads (below).
 - **Layout:** the lockfile's folder is `/app`, and a pack inside a workspace
   member sits at its own path.
 - **Runs:** the pack service, under tini, as `node`, on `$PORT` (8080).
@@ -561,9 +562,18 @@ image: {
 },
 ```
 
-- **How it's chosen:** each package is resolved as Node resolves it at run
-  time, from the bundles' folder and then from each kept package's own
-  folder, over the layout the package manager made from the lockfile (pnpm's
+- **What the image downloads:** only those. `kindgi build` finds each
+  package as Node finds it from the pack folder, and cuts the app's
+  `package.json` and lockfile down to them and what they depend on, by the
+  lockfile: dependencies, optional ones for every platform, and peers as
+  installed. Each lockfile entry is copied as the app has it (version,
+  resolution, integrity), and the result is checked against the app's
+  lockfile before the image installs it, frozen, with the usual command.
+  pnpm (lockfile `9.0`, with its catalogs, overrides and patches), npm
+  (lockfile 2 and 3) and Yarn 1.
+- **How it's chosen in the image:** each package is resolved again as Node
+  resolves it at run time, from the bundles' folder and then from each kept
+  package's own folder, over the layout the package manager made (pnpm's
   links, npm's and Yarn's hoisting). Packages are kept whole.
 - **Most misses fail the build, naming the package:**
   - an import that isn't installed fails the image's closure step, by name;
@@ -572,8 +582,30 @@ image: {
   - a `require(x)` / `import(x)` with a computed name in the pack's own code
     fails `kindgi build`, by file and line (esbuild reports each one), until
     `image.keep` names what it loads (or `dependencies` is `'all'`).
-- **The build says what it kept,** and which of the pack's own dependencies its
-  tools don't import. A Next.js app whose tools import `@kindgi/sdk` and `zod`:
+- **The build says what it installs,** and which of the pack's own
+  dependencies its tools don't import. A Next.js app whose tools import
+  `@kindgi/sdk` and `zod`:
+
+  ```text
+      ✓ Install: only what the pack loads, 39 of the lockfile's 96 packages; production dependencies only
+        Left out 3 of the pack's own dependencies its tools don't import: next, react, react-dom
+  ```
+- **A `node_modules` out of date with the lockfile fails the build:** the
+  bundles were built against a version the lockfile doesn't pin. The message
+  names the package, its folder and the command that brings it back in line
+  (`pnpm install`, `npm ci`, `yarn install`).
+- **Where the install isn't cut down:** Yarn 2 or later (its lockfile can't
+  be cut down by hand and still install immutably), another lockfile version,
+  or a local package (`link:`, `file:`, `workspace:`) among what the pack
+  loads. The image downloads the app's whole install and trims it after, and
+  the build says why:
+
+  ```text
+      ✓ Install: production dependencies only, then trimmed to what the pack loads
+        It downloads the app's whole install first, since @acme/ui is a local package (link:../../packages/ui).
+  ```
+
+  The image's closure step then says what it kept:
 
   ```text
   … kindgi-closure: kept 36 of 59 packages (27.5 MB of 354 MB)

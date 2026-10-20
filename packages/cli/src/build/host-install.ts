@@ -83,6 +83,25 @@ export interface HostInstall {
   readonly skippedScripts: readonly SkippedScript[];
   readonly packDependencies: PackDependencies;
   readonly secrets: readonly HostSecret[];
+  /**
+   * `image.dependencies: 'loaded'`: the install cut down to what the pack
+   * loads (`loaded-install.ts`). `files` then lists its files, those in
+   * `written` `kindgi build`'s own.
+   */
+  readonly reduced?: ReducedInstall;
+}
+
+/** The files a cut-down install reads. */
+export interface ReducedInstall {
+  /** Written by `kindgi build`, relative to the install root: the manifest, the lockfile, pnpm's workspace file. */
+  readonly written: Readonly<Record<string, string>>;
+  /** Of the app's install files, the ones still read (patches for kept packages, `.pnpmfile.cjs`, the pack's manifest), sorted. */
+  readonly copied: readonly string[];
+  /** The lockfile's packages the install keeps, and how many it has. */
+  readonly kept: number;
+  readonly total: number;
+  /** The pack's own dependencies the install leaves out: nothing it loads needs them. Sorted. */
+  readonly leftOut: readonly string[];
 }
 
 /**

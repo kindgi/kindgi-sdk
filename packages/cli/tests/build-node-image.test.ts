@@ -447,6 +447,26 @@ describe("the Containerfile with image.dependencies: 'loaded'", () => {
     );
   });
 
+  test('an install cut down to what the pack loads: one project, the same frozen install, and said', () => {
+    const reduced = {
+      written: {},
+      copied: ['apps/support/package.json'],
+      kept: 15,
+      total: 17,
+      leftOut: [],
+    };
+    const cut = render({ packRel: 'apps/support', workspace: false, reduced }, false, image);
+    const deps = cut.slice(cut.indexOf('AS deps'), cut.indexOf('FROM deps AS closure'));
+    expect(deps).toContain(
+      "# Only what the pack loads: 15 of the lockfile's 17 packages, from the manifest and lockfile kindgi build cut down to them.",
+    );
+    expect(deps).toContain('pnpm install --frozen-lockfile');
+    expect(deps).not.toContain('--filter');
+    const full = render({ packRel: 'apps/support', workspace: true }, false, image);
+    expect(full).not.toContain("of the lockfile's");
+    expect(full).toContain('--filter');
+  });
+
   test('the indexer runs on the trimmed install, after the load check, with the build env', () => {
     const text = render({}, false, image);
     const indexer = text.slice(

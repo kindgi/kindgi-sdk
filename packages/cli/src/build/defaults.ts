@@ -35,6 +35,7 @@ import { renderContainerfile } from './containerfile.js';
 import { BuildServiceRefusal, retryAfterSeconds } from './hosted.js';
 import { installCommands, withoutInstallScripts } from './host-install.js';
 import { renderJavaContainerfile } from './java-image.js';
+import { loadedInstall } from './loaded-install.js';
 import { renderScalaContainerfile } from './scala-image.js';
 import { renderPythonContainerfile } from './python-image.js';
 import type {
@@ -285,6 +286,7 @@ export async function writeContainerfileReal(opts: WriteContainerfileOptions): P
 /**
  * Write the image's build context into `contextDir` (emptied first):
  *   host/          the files the install reads, at their paths under the install root
+ *                  (with `'loaded'`, the manifest and lockfile cut down to what the pack loads)
  *   ext/           the files the build extensions read, at their paths under the install root
  *   dist/          the bundles
  *   include/       `bundle.include` files, at their pack-relative paths
@@ -296,10 +298,14 @@ export async function writeContextReal(opts: WriteContextOptions): Promise<void>
   await rm(opts.contextDir, { recursive: true, force: true });
   await mkdir(opts.contextDir, { recursive: true });
   const projectManifests = new Set(opts.install.projectManifests);
+  const written = opts.install.reduced?.written ?? {};
   for (const rel of opts.install.files) {
     const dest = join(opts.contextDir, 'host', rel);
     await mkdir(dirname(dest), { recursive: true });
-    if (projectManifests.has(rel)) {
+    const text = written[rel];
+    if (text !== undefined) {
+      await writeFile(dest, text, 'utf8');
+    } else if (projectManifests.has(rel)) {
       // The app's own install scripts never run in the image.
       const text = await readFile(join(opts.install.root, rel), 'utf8');
       await writeFile(dest, withoutInstallScripts(text), 'utf8');
@@ -888,6 +894,7 @@ export const REAL_BUILD_RUNNERS: BuildRunners = {
   python: PYTHON_BUILD_RUNNERS,
   jvm: JVM_BUILD_RUNNERS,
   hostPnpmVersion: readPnpmVersion,
+  loadedInstall,
 };
 
 // Re-export utility for callers that want a portable tmp workdir for

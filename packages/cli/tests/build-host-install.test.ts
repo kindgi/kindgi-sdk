@@ -408,6 +408,35 @@ describe('installLine', () => {
       '    ✓ Install: dev dependencies too, for the build steps (prisma), whose tools can be dev dependencies; pruned to production after',
     );
   });
+
+  test("'loaded': the cut-down install and how much of the lockfile it keeps, or the full one trimmed after and why", () => {
+    const reduced = { written: {}, copied: [], kept: 15, total: 17, leftOut: [] };
+    expect(installLine({ manager: 'pnpm', yarnBerry: false, reduced }, [])).toBe(
+      "    ✓ Install: only what the pack loads, 15 of the lockfile's 17 packages; production dependencies only",
+    );
+    expect(
+      installLine(
+        { manager: 'npm', yarnBerry: false, reduced: { ...reduced, leftOut: ['next', 'react'] } },
+        [],
+      ),
+    ).toBe(
+      "    ✓ Install: only what the pack loads, 15 of the lockfile's 17 packages; production dependencies only\n" +
+        "      Left out 2 of the pack's own dependencies its tools don't import: next, react",
+    );
+    expect(installLine({ manager: 'pnpm', yarnBerry: false, reduced }, PRISMA_STEPS)).toBe(
+      "    ✓ Install: only what the pack loads, 15 of the lockfile's 17 packages; dev dependencies too, for the build steps (prisma), whose tools can be dev dependencies; pruned to production after",
+    );
+    expect(
+      installLine(
+        { manager: 'yarn', yarnBerry: true },
+        [],
+        "yarn berry's lockfile can't be cut down by hand and still install immutably",
+      ),
+    ).toBe(
+      "    ✓ Install: dev dependencies too, since yarn berry's production install resolves what yarn.lock lacks instead of failing; pruned to production after, then trimmed to what the pack loads\n" +
+        "      It downloads the app's whole install first, since yarn berry's lockfile can't be cut down by hand and still install immutably.",
+    );
+  });
 });
 
 test("the app's own install scripts are listed: every project manifest's, not a local dependency's", async () => {
