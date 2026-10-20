@@ -230,6 +230,20 @@ schedule stays paused:
 
 ![The weekly report's page after Take over: Paused, with Resume, Run now and Unregister, "Starts the flow acme.refunds 1.0.0. Paused.", "It doesn’t fire while paused.", "Runs as you, with your access.", and "It hasn’t fired yet. Its runs →".](../../../../assets/schedules/schedule-page.png)
 
+A tenant admin gets **Change owner…** instead (runtime 0.1.9 or later),
+whenever the tenant has a registered service account the schedule doesn't
+already run as. Its **Runs
+as** list has "You — with your access", the take-over above, and each
+registered service account, such as "nightly-bot — a service account, with
+its own access". The account it runs as now isn't listed, and on a schedule
+that runs as you the list starts at "Pick a service account". Under the
+list, the dialog says what changes before anything does, such as "Its next
+runs act as nightly-bot, with its access, not yours: it needs its own access
+to what this schedule starts." After **Change owner**, the page reads:
+"Runs as the service account nightly-bot." Naming an account needs what
+[`--run-as`](#run-as-a-service-account) needs, and a refusal shows in the
+runtime's words.
+
 A run a schedule started says so at the top of its page: "Started by the
 schedule “nightly digest” (0 2 * * *).", with **Its other runs →**, the runs
 list filtered to that schedule.
