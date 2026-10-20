@@ -6465,6 +6465,16 @@ export const BlobMetaSchema: JsonSchema = {
       description: 'Who uploaded it: `user:<id>` or `service_account:<id>`.',
     },
     createdAt: { type: 'string', format: 'date-time' },
+    bucket: {
+      type: 'string',
+      description:
+        "The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload here conventionally has bucket `artifacts` and its `blobId` as the key.",
+    },
+    key: {
+      type: 'string',
+      description:
+        "The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one.",
+    },
   },
 };
 
