@@ -105,8 +105,9 @@ resource "google_service_account" "pack" {
 # The server reaches Kindgi's database; the pack service reaches the
 # databases its own code uses.
 # Only for the /cloudsql socket (a private-IP database is reached over
-# TCP, with no IAM check), and only on Kindgi's own instance: the project
-# may hold other instances (an app's, production's).
+# TCP, with no IAM check), and only on Kindgi's instance — the module's own,
+# or database_host_instance's shared one: the project may hold other
+# instances (an app's, production's).
 resource "google_project_iam_member" "server_sql_client" {
   count   = var.database_private_network == "" ? 1 : 0
   project = var.project_id
@@ -115,8 +116,8 @@ resource "google_project_iam_member" "server_sql_client" {
 
   condition {
     title       = "kindgi-instance-only"
-    description = "Kindgi's own Cloud SQL instance only."
-    expression  = "resource.name == \"projects/${var.project_id}/instances/${var.name_prefix}\""
+    description = "Kindgi's Cloud SQL instance only (the module's own, or database_host_instance's)."
+    expression  = "resource.name == \"projects/${var.project_id}/instances/${var.database_host_instance != null ? var.database_host_instance : var.name_prefix}\""
   }
 }
 

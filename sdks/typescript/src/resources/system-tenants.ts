@@ -14,6 +14,7 @@ import type {
   TenantProductionAllowed,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
+import type { RenameTenantInput } from './tenant.js';
 
 export type TenantLimitsShape = TenantLimitsWire;
 export type SystemTenant = SystemTenantWire;
@@ -55,6 +56,18 @@ export interface SystemTenantsClient {
    * @wire `GET /v1/system/tenants/{tenantId}`
    */
   get(tenantId: string): Promise<SystemTenant>;
+  /**
+   * Rename a tenant: its name, its slug, or both, as its own admins can
+   * with `tenant.update`. Its id stays. Takes `system:tenants`. Answers
+   * nothing: `get()` reads it.
+   *
+   * @wire `PATCH /v1/system/tenants/{tenantId}`
+   */
+  update(
+    tenantId: string,
+    input: RenameTenantInput,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<void>;
   /**
    * Close the tenant: readable and exportable for its window, nothing runs.
    * One-way. Takes `system:tenants`.
@@ -191,6 +204,14 @@ export function makeSystemTenantsClient(transport: Transport): SystemTenantsClie
       return transport.request<SystemTenant>({
         method: 'GET',
         path: `/v1/system/tenants/${encodeURIComponent(tenantId)}`,
+      });
+    },
+    async update(tenantId, input, options) {
+      return transport.request<void>({
+        method: 'PATCH',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}`,
+        body: input,
+        ...idem(options),
       });
     },
     async close(tenantId, options) {

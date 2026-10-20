@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createClient } from '../../src/index.js';
-import { hangingFetch, jsonFetch } from '../support/recording-fetch.js';
+import { hangingFetch, jsonFetch, noContentFetch } from '../support/recording-fetch.js';
 
 const AUTH = { kind: 'apiToken' as const, token: 't' };
 const API = 'https://api.example.com';
@@ -24,6 +24,18 @@ describe('systemTenants — wire round-trip', () => {
     );
     expect(JSON.parse(call.body ?? '{}')).toEqual({ allowed: false });
     expect(call.headers['idempotency-key']).toBe('k-1');
+  });
+
+  it('update: PATCH /v1/system/tenants/{id} with the fields given; a 204 resolves to nothing', async () => {
+    const stub = noContentFetch();
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(
+      await client.systemTenants.update(TENANT, { slug: 'acme-store' }, { idempotencyKey: 'k-2' }),
+    ).toBeUndefined();
+    const call = stub.calls[0]!;
+    expect(`${call.method} ${call.url}`).toBe(`PATCH ${API}/v1/system/tenants/${TENANT}`);
+    expect(JSON.parse(call.body ?? '{}')).toEqual({ slug: 'acme-store' });
+    expect(call.headers['idempotency-key']).toBe('k-2');
   });
 
   it('limits: GET …/limits, the shape setLimits takes', async () => {

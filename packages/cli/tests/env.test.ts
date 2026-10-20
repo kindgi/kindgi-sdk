@@ -583,7 +583,37 @@ describe("kindgi env set/list/unset --scope — the runtime's env values (ctx.en
     });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(api.calls.map((c) => c.method)).toEqual(['get']);
-    expect(out.stderr).toContain('no change');
+    expect(out.stderr).toContain('no change. Re-run with --force to set it again');
+  });
+
+  test('--force sets the value already there again, as a new revision, at the revision it read', async () => {
+    const api = fakeEnvApi([
+      {
+        scope: { kind: 'tenant' },
+        envName: 'local',
+        name: 'ACME_REGION',
+        value: 'eu',
+        revision: 4,
+      },
+    ]);
+    const out = await runCli({
+      ...baseInputs(makeFixtures(), [
+        'env',
+        'set',
+        'ACME_REGION',
+        'eu',
+        '--scope=tenant',
+        '--env=local',
+        '--force',
+        ...API,
+      ]),
+      clientFactory: api.clientFactory,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(api.calls.map((c) => c.method)).toEqual(['get', 'set']);
+    expect(api.calls[1]?.input).toMatchObject({ value: 'eu', ifRevision: 4 });
+    expect(api.rows.get('tenant:|local|ACME_REGION')?.revision).toBe(5);
+    expect(out.stderr).toContain('Set ACME_REGION again at tenant in env local, to the same value');
   });
 
   test('a name that looks like a credential is set, with a warning pointing at kindgi secrets', async () => {
@@ -654,7 +684,7 @@ describe("kindgi env set/list/unset --scope — the runtime's env values (ctx.en
       ['ACME_REGION', 'eu'],
       ['ZED', 'z'],
     ]);
-    expect(out.stderr).toContain('Scope:       tenant');
+    expect(out.stderr).toContain('Scope:     tenant');
   });
 
   test('unset removes the value at the scope and says what a call gets now', async () => {

@@ -47,7 +47,8 @@
         "guides/models/gemini-on-vertex-ai",
         "guides/models/index",
         "guides/models/openai-compatible",
-        "guides/models/serve-your-own-model"
+        "guides/models/serve-your-own-model",
+        "hosted/deploy-your-agent"
       ],
       "samples": "fragments"
     },

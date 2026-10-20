@@ -26,6 +26,11 @@
       "import": "./dist/protocol.js",
       "default": "./dist/protocol.js"
     },
+    "./pack-env": {
+      "types": "./dist/pack-env.d.ts",
+      "import": "./dist/pack-env.js",
+      "default": "./dist/pack-env.js"
+    },
     "./pack-service": {
       "types": "./dist/pack-service/index.d.ts",
       "import": "./dist/pack-service/index.js",
@@ -43,6 +48,10 @@
     "./kindgi-index-main": {
       "types": "./dist/kindgi-index-main.d.ts",
       "import": "./dist/kindgi-index-main.js"
+    },
+    "./kindgi-closure-main": {
+      "types": "./dist/kindgi-closure-main.d.ts",
+      "import": "./dist/kindgi-closure-main.js"
     },
     "./build-extensions": {
       "types": "./dist/build-extensions.d.ts",

@@ -540,6 +540,47 @@ export default {
   `contextFiles`, `systemPackages`, `postInstall` steps (a package's bin, run
   through the app's package manager) and `buildEnv`.
 
+**Only what the pack loads (`image.dependencies: 'loaded'`).** By default
+(`'all'`) the image carries every production dependency of the app: a Next.js
+app's `next`, `react` and their tooling ride along, though the tools only
+import a few packages. With `'loaded'`, it carries the packages the pack's
+bundles import by name, with their own dependencies (declared, optional and
+peer, as installed), and what `image.keep` names:
+
+```ts
+image: {
+  dependencies: 'loaded',
+  keep: ['pino-pretty'], // loaded by a name in a config string, which no import shows
+},
+```
+
+- **How it's chosen:** each package is resolved as Node resolves it at run
+  time, from the bundles' folder and then from each kept package's own
+  folder, over the layout the package manager made from the lockfile (pnpm's
+  links, npm's and Yarn's hoisting). Packages are kept whole.
+- **Most misses fail the build, naming the package:**
+  - an import that isn't installed fails the image's closure step, by name;
+  - every package the bundles import, lazily loaded ones included, is loaded
+    on the trimmed install before indexing, which also runs there;
+  - a `require(x)` / `import(x)` with a computed name in the pack's own code
+    fails `kindgi build`, by file and line (esbuild reports each one), until
+    `image.keep` names what it loads (or `dependencies` is `'all'`).
+- **The build says what it kept,** and which of the pack's own dependencies its
+  tools don't import. A Next.js app whose tools import `@kindgi/sdk` and `zod`:
+
+  ```text
+  … kindgi-closure: kept 36 of 59 packages (27.5 MB of 354 MB)
+  … kindgi-closure: dropped 3 of the pack's own dependencies its tools don't import: next, react, react-dom
+  ```
+- **What no check can see reaches a run:** a package loaded by a name in a
+  string (a plugin named in a config), through a `createRequire` alias or
+  `module.require`, or a dependency's own undeclared one. That call fails,
+  saying what to add to `image.keep`.
+- Extensions keep what they need: `prisma()` keeps Prisma 6's generated
+  `.prisma/client` when it's there.
+- Python packs keep every dependency for now: `dependencies = "loaded"` in
+  `[tool.kindgi.image]` is refused.
+
 **`--local`:** builds the image of a TypeScript or Python pack with this
 machine's Docker (`docker buildx build --load`) into its image store, as
 `kindgi-pack/<packId>:<artifactVersion>`, with the same integrity gate. There
@@ -838,6 +879,31 @@ The API URL and token come from, in order:
 pair once with `kindgi auth login --url=<url> --token=<token>`, and check it
 with `kindgi auth whoami`.
 
+**In a folder where `kindgi dev` ran, `--hosted` reaches the other API.**
+There, `.kindgirc.json` points every command at the dev runtime, ahead of
+your `kindgi auth login`. With `--hosted`, a command goes to the CLI's own
+address (`--url`, `KINDGI_API_URL` or the one `kindgi auth login` stored),
+with that address's key, and doesn't read the dev runtime's
+`.kindgirc.json`: `kindgi auth whoami --hosted` checks your sign-in. An env
+with `build: 'hosted'` in `kindgi.config.ts` does the same for a command
+that acts in it (`--env <name>`, or `staging` for `kindgi build` and
+`kindgi deploy`). With no address of its own, a hosted command is refused
+before it sends anything, and the refusal says the file isn't read.
+`kindgi dev --hosted` is refused (exit 2): a dev runtime is never hosted.
+
+A command that goes to the dev runtime while another address is in reach
+says so first, on stderr:
+
+```text
+kindgi auth whoami goes to the kindgi dev runtime at http://127.0.0.1:4000 (…/.kindgirc.json says so). For https://platform.kindgi.com, pass --hosted.
+```
+
+When the key was given with `--token` or `KINDGI_API_TOKEN` and nothing
+else is signed in, the line ends `To send it to the address your key is
+for, pass --url <that address> or export KINDGI_API_URL.` in place of the
+`--hosted` sentence. There's no line when `--url` or `KINDGI_API_URL` named
+the address, or when the dev runtime is the only one in reach.
+
 **A stored key goes only to the address stored with it.** A key in
 `.kindgirc.json` or `~/.kindgi/config.json` is for the `apiUrl` beside it.
 When the two files hold keys for different addresses, the key used is the
@@ -883,6 +949,7 @@ to a mirror instead and checks for the same image there.
 | `--table` | A table for list responses (`runs list`, `tools list`, `providers list`; JSON where a list has no columns). |
 | `--quiet` | Nothing on stdout; the exit code only. |
 | `--url=<url>`, `--token=<token>` | The API and its token (see above). |
+| `--hosted` | Go to the CLI's own address, never a `kindgi dev` runtime's `.kindgirc.json` (see above). `kindgi build` and `kindgi deploy` then use the hosted build service. `kindgi dev` refuses it. |
 | `--verbose`, `-v` | Full errors: stack traces and the API's error bodies. |
 | `--version` | The CLI's version. |
 | `--help`, `-h` | Help for the CLI or a command. |

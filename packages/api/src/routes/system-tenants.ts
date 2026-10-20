@@ -3,6 +3,7 @@
 
 import { type Context, Hono } from 'hono';
 
+import type { TenantHierarchyBinding } from '@kindgi/platform';
 import type { TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
@@ -18,6 +19,7 @@ import {
 } from '../middleware/system.js';
 import { FULL_SYSTEM_CAPABILITY, type SystemScope } from '../system.js';
 import type { AppEnv } from '../types.js';
+import { TENANT_NAME_MAX, readTenantPatch, renameAnswer, tenantSlugOf } from './tenant-rename.js';
 import { refuseMalformedUuidParam } from './uuid-param.js';
 
 /** A tenant, as the operator sees it. Never its content. */
@@ -211,10 +213,7 @@ export interface SystemTenantsBinding {
   ): Promise<SystemTenantPurgeOutcome>;
 }
 
-const MAX_NAME = 100;
 const MAX_REASON = 500;
-const SLUG_RE = /^[a-z0-9](?:-?[a-z0-9])*$/;
-const MAX_SLUG = 63;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
@@ -222,8 +221,8 @@ const MAX_LIMIT = 100;
 type Problem = string;
 
 /**
- * `/v1/system/tenants`, P1's routes: create, list and read tenants, close
- * and suspend them, set their image prefix, read their admins' contact
+ * `/v1/system/tenants`: create, list, read and rename tenants, close and
+ * suspend them, set their image prefix, read their admins' contact
  * addresses for service notices, and purge a closed one. Each takes its
  * system scope, and acts in one tenant through `withSystemTenantContext`.
  */
@@ -232,8 +231,10 @@ export function systemTenantsRouter(options: {
   /** The same directory the other `/v1/system/tenants` routes use (`createApp`'s `systemTenantDirectory`). */
   readonly directory: SystemTenantDirectory;
   readonly authorizer?: Authorizer;
+  /** The tenant-hierarchy binding's `renameTenant`: `PATCH /:tenantId` mounts only with it. */
+  readonly renameTenant?: TenantHierarchyBinding['renameTenant'];
 }): Hono<AppEnv> {
-  const { tenants, directory, authorizer } = options;
+  const { tenants, directory, authorizer, renameTenant } = options;
   const r = new Hono<AppEnv>();
   const ctx = (scope: SystemScope) => ({
     scope,
@@ -291,6 +292,23 @@ export function systemTenantsRouter(options: {
       },
     ),
   );
+
+  // ---------- PATCH /:tenantId (rename) ----------
+  if (renameTenant !== undefined) {
+    r.patch('/:tenantId', (c) =>
+      withSystemTenantContext(
+        c,
+        directory,
+        c.req.param('tenantId'),
+        { ...ctx('system:tenants'), refuse: ['closing'] },
+        async (t) => {
+          const patch = await readTenantPatch(c);
+          if (patch instanceof Response) return patch;
+          return renameAnswer(c, await renameTenant({ tenantId: t.id, ...patch }), t.id, patch);
+        },
+      ),
+    );
+  }
 
   // ---------- POST /:tenantId/close ----------
   r.post('/:tenantId/close', (c) =>
@@ -461,7 +479,7 @@ const CREATE_FIELDS = new Set([
 function parseCreateBody(b: Readonly<Record<string, unknown>>): ParsedCreate | Problem {
   const unknown = Object.keys(b).filter((k) => !CREATE_FIELDS.has(k));
   if (unknown.length > 0) return `Unknown field ${unknown.map((k) => `\`${k}\``).join(', ')}`;
-  const name = textOf(b.name, 'name', MAX_NAME);
+  const name = textOf(b.name, 'name', TENANT_NAME_MAX);
   if (name === undefined || name.problem !== undefined) {
     return name?.problem ?? '`name` is required';
   }
@@ -490,7 +508,7 @@ function flagsOf(
 function referencesOf(
   b: Readonly<Record<string, unknown>>,
 ): Pick<ParsedCreate, 'slug' | 'imagePrefix' | 'firstAdmin'> | Problem {
-  const slug = slugOf(b.slug);
+  const slug = tenantSlugOf(b.slug);
   if (typeof slug === 'object') return slug.problem;
   const imagePrefix = b.imagePrefix === undefined ? undefined : prefixOf(b.imagePrefix);
   if (typeof imagePrefix === 'string') return imagePrefix;
@@ -518,16 +536,6 @@ function textOf(
   return { value: raw };
 }
 
-function slugOf(raw: unknown): string | undefined | { readonly problem: string } {
-  if (raw === undefined) return undefined;
-  if (typeof raw !== 'string' || raw.length > MAX_SLUG || !SLUG_RE.test(raw)) {
-    return {
-      problem: `\`slug\` must be lowercase letters, digits and single hyphens, at most ${MAX_SLUG} characters`,
-    };
-  }
-  return raw;
-}
-
 function prefixOf(raw: unknown): ImagePrefix | Problem {
   if (typeof raw !== 'string') return '`prefix` must be a string, `<host>/<path>`';
   const parsed = parseImagePrefix(raw);
@@ -544,7 +552,7 @@ function adminOf(raw: unknown): { readonly email: string; readonly name: string 
   if (typeof a.email !== 'string' || a.email.length > 254 || !EMAIL_RE.test(a.email)) {
     return '`firstAdmin.email` must be an email address';
   }
-  const name = textOf(a.name, 'firstAdmin.name', MAX_NAME);
+  const name = textOf(a.name, 'firstAdmin.name', TENANT_NAME_MAX);
   if (name === undefined || name.problem !== undefined) {
     return name?.problem ?? '`firstAdmin.name` is required';
   }

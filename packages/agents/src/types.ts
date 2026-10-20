@@ -65,6 +65,14 @@ export interface ConversationMessage {
    * messages while the reviewer sees who was actually authoring.
    */
   readonly actor?: string;
+  /**
+   * The message came from outside: a turn's message in a run a webhook or
+   * an event started. Kept as it came, and read back as data in every
+   * later turn's history (an `<event>` block), whoever started that turn.
+   * A message from before the mark was kept has none, and reads as it
+   * came.
+   */
+  readonly fromEvent?: true;
   readonly createdAt: Timestamp;
 }
 
@@ -238,16 +246,12 @@ export interface BlockRef {
 /**
  * Per-agent behavior for multi-turn conversations. The agent chooses:
  *   - How many prior messages to load (`historyLimit`; unset = all).
- *   - Whether to auto-close a conversation after a period of inactivity
- *     (`autoCloseAfterInactiveSeconds` — checked at read time; unset =
- *     never auto-close).
  *   - A turn count after which each new turn waits for HITL approval
  *     before it runs (`hitlAfterTurns`; `hitl.afterTurns` takes
  *     precedence when both are set).
  */
 export interface ConversationPolicy {
   readonly historyLimit?: number;
-  readonly autoCloseAfterInactiveSeconds?: number;
   readonly hitlAfterTurns?: number;
   /**
    * HITL policy: the session gate (`afterTurns`) and the tool-level

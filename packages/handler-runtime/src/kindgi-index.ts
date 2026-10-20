@@ -315,6 +315,11 @@ export interface IndexedTool {
    * default. Absent means it may change something.
    */
   readonly mutating?: boolean;
+  /**
+   * The tool's declared `needsApprovalWhenUnattended`: in a run no person
+   * started, each of its calls waits for a person's yes. Absent means `false`.
+   */
+  readonly needsApprovalWhenUnattended?: boolean;
   readonly modulePath: string;
 }
 
@@ -1563,6 +1568,9 @@ function buildTool(
     }),
     ...(isObject(rec.spec) && { spec: rec.spec as Readonly<Record<string, unknown>> }),
     ...(typeof rec.mutating === 'boolean' && { mutating: rec.mutating }),
+    ...(typeof rec.needsApprovalWhenUnattended === 'boolean' && {
+      needsApprovalWhenUnattended: rec.needsApprovalWhenUnattended,
+    }),
     modulePath: normalizeModulePath(relPath),
   };
   return { kind: 'ok', value: tool };

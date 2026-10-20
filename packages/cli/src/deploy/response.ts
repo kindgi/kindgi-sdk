@@ -8,6 +8,7 @@
  * exercising the full runCli path.
  */
 
+import { type PromotionStop, promotionHint } from './promotion-path.js';
 import type { DeployedVersionRecord, DeploymentRecord, PostDeploymentResult } from './runners.js';
 
 /**
@@ -42,6 +43,69 @@ const WIRE_ERROR_HINTS: Readonly<Record<string, string>> = {
     'guardrail in the pack travels in it with its schemas and instructions: make the largest ' +
     'schemas smaller, or split the pack into two.',
 };
+
+/** `image-unverifiable`'s hint by its `details.cause`, when the server names one. */
+const IMAGE_CAUSE_HINTS: Readonly<Record<string, string>> = {
+  'image-registry-unreachable':
+    "The server couldn't reach the image's registry. Check that the registry is up " +
+    'and that the runtime can reach it, then deploy again.',
+  'image-registry-unauthorized':
+    "The image's registry refused the runtime's credentials. Give the runtime pull " +
+    "access to the image's repository, then deploy again.",
+  'image-unreadable':
+    "A layer of the image isn't an archive the server can read: not a tar, or compressed " +
+    'twice. Build the image again with `kindgi build`, push it, and deploy the new digest.',
+  'image-limit-exceeded':
+    "The image is past one of the server's bounds on reading an image; the message names " +
+    'it. The same image is refused again. An image `kindgi build` made keeps ' +
+    '/app/index.json in its top layer, the only layer read: build with it, or make the ' +
+    'image smaller.',
+};
+
+/** `image-limit-exceeded`'s hint by its `details.limit`, where the cause's doesn't fit. */
+const IMAGE_LIMIT_HINTS: Readonly<Record<string, string>> = {
+  file:
+    "The pack's index, /app/index.json, is past the size the server reads. Every tool, " +
+    'agent, flow and guardrail in the pack is in it with its schemas: make the largest ' +
+    'schemas smaller, or split the pack into two.',
+};
+
+/**
+ * `rate-limit-exceeded`'s hint by its `details.limit`, for a wait longer
+ * than the command waits out.
+ */
+const RATE_LIMIT_HINTS: Readonly<Record<string, string>> = {
+  'tenant-unpack-hour':
+    "This tenant's image reads unpacked as much as the server allows in an hour. " +
+    'Deploy again after the wait the message names; an image `kindgi build` made unpacks ' +
+    'only its small top layer.',
+};
+
+/** A table's own entry: a key like `constructor` isn't one. */
+const own = (table: Readonly<Record<string, string>>, key: string | undefined) =>
+  key !== undefined && Object.hasOwn(table, key) ? table[key] : undefined;
+
+/**
+ * The hint for a refusal: by its code, for `image-unverifiable` by its
+ * cause, or for `rate-limit-exceeded` by its limit.
+ */
+function hintFor(error: {
+  readonly code: string;
+  readonly cause?: string;
+  readonly limit?: string;
+}): string | undefined {
+  if (error.code === 'rate-limit-exceeded') {
+    const byLimit = own(RATE_LIMIT_HINTS, error.limit);
+    if (byLimit !== undefined) return byLimit;
+  }
+  if (error.code === 'image-unverifiable') {
+    const byLimit =
+      error.cause === 'image-limit-exceeded' ? own(IMAGE_LIMIT_HINTS, error.limit) : undefined;
+    const byCause = byLimit ?? own(IMAGE_CAUSE_HINTS, error.cause);
+    if (byCause !== undefined) return byCause;
+  }
+  return own(WIRE_ERROR_HINTS, error.code);
+}
 
 /**
  * The command a hint names, on a line of its own so it copies whole.
@@ -81,6 +145,8 @@ export function renderResponse(
     readonly signerKeyId: string;
     readonly envelopePath: string;
     readonly idempotencyKey: string;
+    /** On a `409 environment-takes-promotions`: each environment on the way there, when they could be read. */
+    readonly promotionPath?: readonly PromotionStop[] | undefined;
   },
 ): RenderedResponse {
   if (result.kind === 'created' || result.kind === 'replayed') {
@@ -133,18 +199,8 @@ export function renderResponse(
     banner.push(`    ✗ POST /v1/deployments  →  HTTP ${result.status}`);
     banner.push(`      code:    ${result.error.code}`);
     banner.push(`      message: ${result.error.message}`);
-    const fill = (text: string): string =>
-      text.replaceAll('{signerKeyId}', ctx.signerKeyId).replaceAll('{endpoint}', ctx.endpoint);
-    const hint = WIRE_ERROR_HINTS[result.error.code];
-    if (hint !== undefined) {
-      banner.push('');
-      banner.push('  Hint:');
-      for (const line of wrapForBanner(fill(hint), 74, '    ')) {
-        banner.push(line);
-      }
-      const command = WIRE_ERROR_COMMANDS[result.error.code];
-      if (command !== undefined) banner.push(`      ${fill(command)}`);
-    }
+    if (result.error.cause !== undefined) banner.push(`      cause:   ${result.error.cause}`);
+    banner.push(...hintLines(result.error, ctx));
     if (result.error.details !== undefined && result.error.details.length > 0) {
       banner.push('');
       banner.push('  Details:');
@@ -186,6 +242,35 @@ export function renderResponse(
   );
   banner.push('');
   return { banner, summary: null, exitCode: 1 };
+}
+
+/**
+ * The hint for a refusal (by its code, or for `image-unverifiable` by its
+ * cause), then the commands it names, each on a line of its own; none for a
+ * refusal without one.
+ */
+function hintLines(
+  error: { readonly code: string; readonly cause?: string; readonly limit?: string },
+  ctx: {
+    readonly signerKeyId: string;
+    readonly endpoint: string;
+    readonly promotionPath?: readonly PromotionStop[] | undefined;
+  },
+): string[] {
+  const fill = (text: string): string =>
+    text.replaceAll('{signerKeyId}', ctx.signerKeyId).replaceAll('{endpoint}', ctx.endpoint);
+  let text: string;
+  let commands: readonly string[];
+  if (error.code === 'environment-takes-promotions') {
+    ({ text, commands } = promotionHint(ctx.promotionPath));
+  } else {
+    const hint = hintFor(error);
+    if (hint === undefined) return [];
+    const command = WIRE_ERROR_COMMANDS[error.code];
+    text = fill(hint);
+    commands = command === undefined ? [] : [fill(command)];
+  }
+  return ['', '  Hint:', ...wrapForBanner(text, 74, '    '), ...commands.map((c) => `      ${c}`)];
 }
 
 /**
