@@ -52,7 +52,7 @@ A subsystem no part of the runtime logs under only warns:
 ## The subsystems
 
 `boot`, `http`, `authz`, `runs`, `kernel`, `leases`, `approvals`,
-`retention`, `audit`, `compliance`, `webhooks`, `mcp`, `providers`,
+`retention`, `audit`, `webhooks`, `mcp`, `providers`,
 `promotions`, `tools`, `guardrails`, `pack`, `ready`, `shutdown`,
 `schedules`, `references`, `secrets`, `license`, `aws-identity`, `judging`,
 `db`, `migrations`, `openfga`, `sso`, `tenants`, `improvement-passes` and

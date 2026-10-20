@@ -581,7 +581,7 @@ a secret in two headers, or `Authorization` with a prefix other than
 MCP server wants an API key and a secret, each in a header of its own." For
 reference, it adds this to the registration:
 
-```json
+```json excerpt
 "auth": {
   "scheme": "header",
   "headers": [
@@ -595,7 +595,7 @@ Kindgi sends each header as `<name>: <prefix><secret>` on every request, the
 secrets resolved from the tenant's secrets when it connects. Reading the
 endpoint back shows the references only:
 
-```json
+```json excerpt
 "auth":{"scheme":"header","headers":[{"name":"X-Api-Key","secretRef":{"name":"INVENTORY_KEY","envName":"local"}},{"name":"X-Api-Secret","prefix":"Secret ","secretRef":{"name":"INVENTORY_SECRET","envName":"local"}}]}
 ```
 
@@ -693,7 +693,7 @@ use `auth` with `scheme: "header"`.
 It keeps working, and:
 - **reads back `[redacted]`** for each such header, its name kept:
 
-  ```json
+  ```json excerpt
   "config":{"url":"http://127.0.0.1:18766/mcp","headers":{"X-Region":"eu","X-Api-Key":"[redacted]","X-Api-Secret":"[redacted]"},"transport":"streamable-http"}
   ```
 - **never follows a redirect**, as an endpoint with `auth` or `secretRef`
