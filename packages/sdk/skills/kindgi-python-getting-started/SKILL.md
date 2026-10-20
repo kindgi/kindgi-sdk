@@ -14,7 +14,7 @@ description: >
   kindgi-python-authoring-agents; models by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.8"
+version: "0.1.9"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -151,6 +151,10 @@ worktree and after `--reset`, declare it in `pyproject.toml` instead:
 [[tool.kindgi.providers]]
 preset = "anthropic"   # its key, ANTHROPIC_API_KEY, from the env files
 ```
+
+Commit it: it holds the key's name, never the key, and it's how a
+teammate's `kindgi dev`, or another worktree's, gets the same provider.
+Restart `kindgi dev` after adding it: the config isn't watched.
 
 Details and other providers: `kindgi-authoring-providers`.
 

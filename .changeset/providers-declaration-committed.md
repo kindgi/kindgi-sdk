@@ -1,0 +1,5 @@
+---
+'@kindgi/sdk': patch
+---
+
+**The `kindgi-authoring-providers` skill leads with the pack's config: declare the provider there and commit it.** Its step 2 used to be `kindgi providers register --preset=…`, which puts the provider in one worktree's dev database and leaves nothing to commit, so another worktree, a `--reset` or a teammate's `kindgi dev` had none. Step 2 is now the declaration (`providers` in `kindgi.config.ts`, `[[tool.kindgi.providers]]` in `pyproject.toml`, `providers` in `kindgi.config.json`), which holds a key's name, never the key, and is committed. Registering by hand comes second, for a runtime `kindgi dev` doesn't run (staging, production, Kindgi Cloud): once per environment, with the key set there, since `kindgi deploy` doesn't register providers and `kindgi promote` stops while the target has none. A hand-written `provider.json` is committed too. A new mistake says `.kindgi/dev/providers.json` is `kindgi dev`'s local record, not the file to commit, and the end-to-end check declares the provider. The getting-started skills (TypeScript, Python, Java, Scala) say to commit the declaration where they show it.
