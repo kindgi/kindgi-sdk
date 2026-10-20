@@ -11,6 +11,7 @@ import {
   nearestForwardedClient,
 } from '../rate-limit-store.js';
 import type { AppEnv } from '../types.js';
+import { hasHiddenCharacters } from './sites.js';
 
 /**
  * `GET /v1/auth/sign-in-options?email=`: how a person can sign in, before
@@ -50,6 +51,8 @@ export interface SignInOptionsRouteOptions {
   };
   /** The deployment's terms and privacy policy, for a sign-in page to link. */
   readonly legal?: SignInLegalLinks;
+  /** The deployment's own links, for the console to show on every page, in this order. */
+  readonly links?: readonly ConsoleLink[];
   readonly rateLimit?: SignInOptionsRateLimit;
 }
 
@@ -83,6 +86,54 @@ export function checkSignInLegal(legal: SignInLegalLinks | undefined): void {
       );
     }
   }
+}
+
+/**
+ * One of the deployment's own links (its help desk, status page, data
+ * processing terms), which the console shows on every page, the sign-in
+ * page too: `label` is the text shown, `url` an absolute https URL with no
+ * username or password.
+ */
+export interface ConsoleLink {
+  readonly label: string;
+  readonly url: string;
+}
+
+/** The most links a deployment can show, and the longest label. */
+const MAX_CONSOLE_LINKS = 8;
+const MAX_CONSOLE_LINK_LABEL = 40;
+
+/**
+ * createApp's `consoleLinks`: throws unless there are at most 8, each label
+ * is 1 to 40 characters once trimmed with none that can disguise it (as a
+ * site's display name, `hasHiddenCharacters`), and each URL is an absolute
+ * https URL with no username or password.
+ */
+export function checkConsoleLinks(links: readonly ConsoleLink[] | undefined): void {
+  if (links === undefined) return;
+  if (links.length > MAX_CONSOLE_LINKS) {
+    throw new Error(
+      `createApp: consoleLinks has ${links.length} links; at most ${MAX_CONSOLE_LINKS}.`,
+    );
+  }
+  links.forEach(({ label, url }, i) => {
+    const shown = label.trim();
+    if (shown === '' || shown.length > MAX_CONSOLE_LINK_LABEL || hasHiddenCharacters(shown)) {
+      throw new Error(
+        `createApp: consoleLinks[${i}].label must be 1 to ${MAX_CONSOLE_LINK_LABEL} characters, with no control or format character.`,
+      );
+    }
+    const parsed = URL.canParse(url) ? new URL(url) : undefined;
+    // The console shows the link to anyone, so the value isn't quoted back.
+    if (parsed !== undefined && (parsed.username !== '' || parsed.password !== '')) {
+      throw new Error(`createApp: consoleLinks[${i}].url must not carry a username or password.`);
+    }
+    if (parsed?.protocol !== 'https:') {
+      throw new Error(
+        `createApp: consoleLinks[${i}].url must be an absolute https URL (got ${url}).`,
+      );
+    }
+  });
 }
 
 /**
@@ -143,6 +194,13 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
             ...(privacyUrl !== undefined && { privacyUrl }),
           },
         };
+  // The answer's `links`: in the deployment's order, trimmed and as a
+  // browser reads them, and no key at all when there are none.
+  const links = (options.links ?? []).map((l) => ({
+    label: l.label.trim(),
+    url: new URL(l.url).href,
+  }));
+  const linksPart = links.length === 0 ? {} : { links };
   let lastWarnedAt: number | undefined;
   let uncounted = 0;
 
@@ -224,6 +282,7 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
         }),
       },
       ...legalPart,
+      ...linksPart,
     });
   });
   return router;

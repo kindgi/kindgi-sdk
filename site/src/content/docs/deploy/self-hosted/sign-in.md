@@ -473,6 +473,31 @@ Set either one, or both. Each is an absolute `https` URL, with no username
 or password in it: with anything else, the runtime doesn't start. Unset,
 the page links neither. The links
 show beside kindgi.com and Docs, or under the form on a narrow screen.
+These two are for the sign-in page alone; links for every page are
+[your own links](#your-own-links-in-the-console).
+
+## Your own links in the console
+
+The console can show links of your own, such as your help desk, status
+page or data processing terms (runtime 0.1.12 or later):
+
+```sh
+# kindgi.env
+KINDGI_CONSOLE_LINKS={"Help":"https://help.acme-live.example","Status":"https://status.acme-live.example"}
+```
+
+Each name is the label shown, and each value is where it goes, in the
+order you write them. They show in the menu under your name, below Docs,
+and in a line at the foot of every page, the sign-in page too. Write the
+JSON on one line with no quotes around it: an env file passes the value
+as it is.
+
+At most 8 links. A label is 1 to 40 characters once trimmed, and isn't
+only digits. It can't hold a control or format character, such as a
+bidirectional override or a zero-width space, since those can disguise
+what a label says. Each URL is an absolute `https` URL with no username or
+password in it. With anything else, the runtime doesn't start, and says
+why. Unset, the console shows none.
 
 ## Behind a load balancer
 

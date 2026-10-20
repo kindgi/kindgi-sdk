@@ -12,6 +12,7 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp, createInMemoryRateLimitStore } from '../src/index.js';
 import type {
+  ConsoleLink,
   IdentityProviderBinding,
   RateLimitStore,
   RunHandlerBinding,
@@ -43,6 +44,7 @@ function makeApp(
       allowedFor?: (emailDomain: string) => Promise<boolean>;
     };
     legal?: SignInLegalLinks;
+    links?: readonly ConsoleLink[];
     logLines?: string[];
   } = {},
 ) {
@@ -78,6 +80,7 @@ function makeApp(
     ...(opts.rateLimit !== undefined && { signInOptionsRateLimit: opts.rateLimit }),
     ...(opts.emailLink !== undefined && { signInEmailLink: opts.emailLink }),
     ...(opts.legal !== undefined && { signInLegal: opts.legal }),
+    ...(opts.links !== undefined && { consoleLinks: opts.links }),
     ...(opts.logLines !== undefined && {
       logger: createLogger({ write: (line) => opts.logLines?.push(line) }),
     }),
@@ -277,6 +280,98 @@ describe("sign-in options: the deployment's terms and privacy policy", () => {
     expect(() => makeApp({ legal })).toThrow(
       new Error(`createApp: signInLegal.${field} must not carry a username or password.`),
     );
+  });
+});
+
+describe("sign-in options: the deployment's own links, for the console", () => {
+  const HELP = { label: 'Help', url: 'https://help.acme.example/' };
+  const STATUS = { label: 'Status', url: 'https://status.acme.example/now' };
+  const labelRule = 'label must be 1 to 40 characters, with no control or format character.';
+
+  test.each([
+    ['unset', undefined],
+    ['none', []],
+  ])('%s: the answer has no `links` key', async (_, links) => {
+    const { app } = makeApp(links === undefined ? {} : { links });
+    for (const email of [undefined, 'a@acme.com']) {
+      const body = (await (await lookup(app, email)).json()) as Record<string, unknown>;
+      expect(Object.keys(body)).not.toContain('links');
+    }
+  });
+
+  test('`links` keeps the order given, the same with or without an email, beside `legal`', async () => {
+    const legal = { termsUrl: 'https://acme.example/terms' };
+    const { app } = makeApp({ links: [STATUS, HELP], legal });
+    for (const email of [undefined, 'a@acme.com', 'guest@gmail.com']) {
+      const body = (await (await lookup(app, email)).json()) as Record<string, unknown>;
+      expect(body.links).toStrictEqual([STATUS, HELP]);
+      expect(body.legal).toStrictEqual(legal);
+    }
+  });
+
+  test('each label trimmed, each URL as a browser reads it', async () => {
+    const { app } = makeApp({
+      links: [
+        { label: '  Help ', url: 'https:help.acme.example' },
+        { label: 'Status', url: 'HTTPS://status.acme.example/now' },
+      ],
+    });
+    const body = (await (await lookup(app)).json()) as { links?: unknown };
+    expect(body.links).toStrictEqual([HELP, STATUS]);
+  });
+
+  test('createApp takes 8 links, and refuses 9', () => {
+    const links = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        label: `Link ${i}`,
+        url: `https://acme.example/${i}`,
+      }));
+    expect(() => makeApp({ links: links(8) })).not.toThrow();
+    expect(() => makeApp({ links: links(9) })).toThrow(
+      new Error('createApp: consoleLinks has 9 links; at most 8.'),
+    );
+  });
+
+  test.each([
+    ['empty', ''],
+    ['only spaces', '   '],
+    ['41 characters', 'x'.repeat(41)],
+    ['a newline', 'Help\ndesk'],
+    ['a control character', 'Help\u0007'],
+    ['a bidirectional override', '\u202eKCOL'],
+    ['a zero-width space', 'He\u200blp'],
+    ['a line separator', 'Help\u2028desk'],
+  ])('createApp refuses a label that is %s', (_, label) => {
+    expect(() => makeApp({ links: [HELP, { label, url: STATUS.url }] })).toThrow(
+      new Error(`createApp: consoleLinks[1].${labelRule}`),
+    );
+  });
+
+  // Only digits is the env setting's rule (a JavaScript object puts such
+  // keys first); a list keeps its order, so createApp takes it.
+  test.each([
+    ['40 characters', 'x'.repeat(40)],
+    ['only digits', '24'],
+    ['with spaces and punctuation', 'Hilfe & Kontakt'],
+  ])('createApp takes a label of %s', async (_, label) => {
+    const { app } = makeApp({ links: [{ label, url: HELP.url }] });
+    const body = (await (await lookup(app)).json()) as { links?: unknown };
+    expect(body.links).toStrictEqual([{ label, url: HELP.url }]);
+  });
+
+  test.each([['http://help.acme.example'], ['/help'], ['javascript:alert(1)'], ['https://']])(
+    'createApp refuses the URL %s',
+    (url) => {
+      expect(() => makeApp({ links: [{ label: 'Help', url }] })).toThrow(
+        new Error(`createApp: consoleLinks[0].url must be an absolute https URL (got ${url}).`),
+      );
+    },
+  );
+
+  test('createApp refuses a URL with a username or password, without quoting it', () => {
+    expect(() =>
+      makeApp({ links: [{ label: 'Help', url: 'https://reader:hunter2@help.acme.example' }] }),
+    ).toThrow(new Error('createApp: consoleLinks[0].url must not carry a username or password.'));
   });
 });
 
