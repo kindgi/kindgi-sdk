@@ -332,8 +332,9 @@ docker run --rm --network kindgi --env-file kindgi.env \
 **Then purge the purged tenants again** (runtime 0.1.10 or later). A backup
 from before a tenant's purge brings the tenant back with its data, and replay
 doesn't purge it. Before the runtime serves anyone, run
-`kindgi-runtime tenants repurge` with `--ledger` where the copies are
-(`KINDGI_ERASURE_LEDGER_EXPORT` by default). The newest copy names every
+[`kindgi-runtime tenants repurge`](../serve-many-tenants/#after-a-restore-tenants-repurge)
+with `--ledger` where the copies are (`KINDGI_ERASURE_LEDGER_EXPORT` by
+default). The newest copy names every
 tenant purged before it was written, even one whose purge record is gone.
 
 `erasures export --out <local:<dir> | gcs:<bucket>[/<prefix>]>` writes a copy
