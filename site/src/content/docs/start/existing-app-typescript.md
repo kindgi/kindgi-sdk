@@ -417,9 +417,9 @@ resolves what `yarn.lock` lacks instead of failing, even with
   naming the package. What no check can see, such as a package loaded by a
   name in a string, fails that call at run time, saying what to add to `keep`.
   A `node_modules` out of date with your lockfile fails the build, saying what
-  to run. With Yarn 2 or later, or a local workspace package among what your
-  tools import, the image downloads everything and trims it after; the build
-  says why. `'all'` is the default.
+  to run. In a few cases, such as Yarn 2 or later or a local package (`link:`,
+  `file:`, `workspace:`) among what your tools import, the image downloads
+  everything and trims it after; the build says why. `'all'` is the default.
 
 The build ends with the image and a check of what's in it:
 

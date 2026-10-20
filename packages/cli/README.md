@@ -569,8 +569,8 @@ image: {
   installed. Each lockfile entry is copied as the app has it (version,
   resolution, integrity), and the result is checked against the app's
   lockfile before the image installs it, frozen, with the usual command.
-  pnpm (lockfile `9.0`, with its catalogs, overrides and patches), npm
-  (lockfile 2 and 3) and Yarn 1.
+  pnpm (lockfile `9.0`, with its env document, catalogs, overrides and
+  patches), npm (lockfile 2 and 3) and Yarn 1.
 - **How it's chosen in the image:** each package is resolved again as Node
   resolves it at run time, from the bundles' folder and then from each kept
   package's own folder, over the layout the package manager made (pnpm's
@@ -594,18 +594,30 @@ image: {
   bundles were built against a version the lockfile doesn't pin. The message
   names the package, its folder and the command that brings it back in line
   (`pnpm install`, `npm ci`, `yarn install`).
-- **Where the install isn't cut down:** Yarn 2 or later (its lockfile can't
-  be cut down by hand and still install immutably), another lockfile version,
-  or a local package (`link:`, `file:`, `workspace:`) among what the pack
-  loads. The image downloads the app's whole install and trims it after, and
-  the build says why:
+- **Where the install isn't cut down:** the image downloads the app's whole
+  install and trims it after, and the build says why. That happens with:
+  - Yarn 2 or later (its lockfile can't be cut down by hand and still install
+    immutably);
+  - another lockfile version (pnpm's other than `9.0`, npm's other than 2
+    and 3);
+  - a local package (`link:`, `file:`, `workspace:`) among what the pack
+    loads;
+  - a package the pack loads that's installed outside the project, above the
+    lockfile's folder;
+  - a build step (`defineBuildExtension`) whose program no dependency of the
+    pack has;
+  - a lockfile entry it can't follow, such as one version installed twice
+    under different peers, where its folder doesn't say which.
+
+  An app whose tools import its own `@acme/ui` by `link:`:
 
   ```text
       ✓ Install: production dependencies only, then trimmed to what the pack loads
         It downloads the app's whole install first, since @acme/ui is a local package (link:../../packages/ui).
   ```
 
-  The image's closure step then says what it kept:
+  The image's closure step then says what it kept. The Next.js app above,
+  installed in full and trimmed:
 
   ```text
   … kindgi-closure: kept 36 of 59 packages (27.5 MB of 354 MB)
