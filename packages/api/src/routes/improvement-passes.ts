@@ -153,7 +153,7 @@ export function mountImproveRoute(
     const basis = await passes.estimateBasis({
       tenantId,
       agentId: parsed.agentId,
-      fromVersion: resolved.version as unknown as string,
+      fromVersion: resolved.version as string,
       scope: parsed.scope,
       suiteId: parsed.suiteId,
       tiers: parsed.tiers,
