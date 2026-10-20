@@ -96,7 +96,7 @@ def test_a_pack_indexes_to_the_spec(make_pack: Callable[..., Path]) -> None:
     root = full_pack(make_pack)
     report, index = index_of(root)
     assert report["fileErrors"] == []
-    assert report["counts"] == {"tools": 2, "guardrails": 1, "agents": 1, "flows": 1}
+    assert report["counts"] == {"tools": 2, "guardrails": 1, "agents": 1, "flows": 1, "blocks": 0}
     assert _spec("pack-index").issues(index) == []
     assert [t["id"] for t in index["tools"]] == ["acme.shout", "acme.whisper"]
     shout, whisper = index["tools"]

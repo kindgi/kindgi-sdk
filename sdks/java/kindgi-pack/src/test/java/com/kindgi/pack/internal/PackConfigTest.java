@@ -43,7 +43,8 @@ class PackConfigTest {
         Map.entry("tools", "src/main/scala/**/tools/**/*.scala"),
         Map.entry("guardrails", "src/main/scala/**/guardrails/**/*.scala"),
         Map.entry("agents", "src/main/scala/**/agents/**/*.scala"),
-        Map.entry("flows", "src/main/scala/**/flows/**/*.scala"));
+        Map.entry("flows", "src/main/scala/**/flows/**/*.scala"),
+        Map.entry("blocks", "blocks/**/*.json"));
   }
 
   @Test

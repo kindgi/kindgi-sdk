@@ -28,7 +28,10 @@
  *      `check.configZod`) calls `@kindgi/schema.toJSONSchemaSync` to
  *      derive the JSON Schema wire form. When JSON Schema is authored
  *      directly, it is emitted verbatim.
- *   6. Assembles a `v: 1` `index.json` envelope and writes it
+ *   6. Reads the pack's data blocks, one JSON file each under
+ *      `blocks/` (or the config's `discovery.blocks`), from the pack
+ *      folder whether or not a bundle map is given (`pack-blocks.ts`).
+ *   7. Assembles a `v: 1` `index.json` envelope and writes it
  *      atomically (write-to-tmp, then rename) to the configured output
  *      path.
  *
@@ -61,6 +64,7 @@ import { parse as parseToml } from 'smol-toml';
 
 import { TEST_FILE_REGEX, globStaticPrefix, globToRegex } from './discovery.js';
 import { compileSchema } from './handler-runner.js';
+import { type IndexedBlock, readPackBlocks } from './pack-blocks.js';
 import { type PackEnvConfig, type PackEnvDeclaration, resolvePackEnv } from './pack-env.js';
 
 // -----------------------------------------------------------------------
@@ -78,12 +82,18 @@ export type IndexEnvelopeVersion = typeof INDEX_ENVELOPE_VERSION;
 
 export type PrimitiveKind = 'tool' | 'guardrail' | 'agent' | 'flow';
 
-/** Discovery glob patterns keyed by primitive kind. */
+/** Discovery glob patterns keyed by primitive kind, and the pack's data blocks. */
 export interface DiscoveryConfig {
   readonly tools?: string;
   readonly guardrails?: string;
   readonly agents?: string;
   readonly flows?: string;
+  /**
+   * The pack's data blocks: JSON files, one block each (`pack-blocks.ts`).
+   * Default `blocks/**\/*.json` in every language. A prompt's template file
+   * stays inside the folder this pattern starts at.
+   */
+  readonly blocks?: string;
 }
 
 /**
@@ -215,6 +225,9 @@ export function packLanguage(config: KindgiConfig): PackLanguage {
   return config.language ?? 'node';
 }
 
+/** Where a pack's data blocks are found, whatever its language: JSON is the same in all of them. */
+export const DEFAULT_BLOCKS = 'blocks/**/*.json';
+
 /**
  * Default discovery patterns. Extensions
  * `.ts` / `.js` / `.mjs` are all accepted — a pack build may transpile
@@ -227,6 +240,7 @@ export const DEFAULT_DISCOVERY: Required<DiscoveryConfig> = {
   guardrails: 'guardrails/**/*.{ts,js,mjs}',
   agents: 'agents/**/*.{ts,js,mjs}',
   flows: 'flows/**/*.{ts,js,mjs}',
+  blocks: DEFAULT_BLOCKS,
 };
 
 /**
@@ -238,6 +252,7 @@ export const DEFAULT_PYTHON_DISCOVERY: Required<DiscoveryConfig> = {
   guardrails: 'guardrails/**/*.py',
   agents: 'agents/**/*.py',
   flows: 'flows/**/*.py',
+  blocks: DEFAULT_BLOCKS,
 };
 
 /**
@@ -250,6 +265,7 @@ export const DEFAULT_JAVA_DISCOVERY: Required<DiscoveryConfig> = {
   guardrails: 'src/main/java/**/guardrails/**/*.java',
   agents: 'src/main/java/**/agents/**/*.java',
   flows: 'src/main/java/**/flows/**/*.java',
+  blocks: DEFAULT_BLOCKS,
 };
 
 /**
@@ -262,6 +278,7 @@ export const DEFAULT_SCALA_DISCOVERY: Required<DiscoveryConfig> = {
   guardrails: 'src/main/scala/**/guardrails/**/*.scala',
   agents: 'src/main/scala/**/agents/**/*.scala',
   flows: 'src/main/scala/**/flows/**/*.scala',
+  blocks: DEFAULT_BLOCKS,
 };
 
 /** A config's discovery patterns with the language's defaults filled in. */
@@ -278,6 +295,11 @@ export function resolveDiscovery(
           ? DEFAULT_SCALA_DISCOVERY
           : DEFAULT_DISCOVERY;
   return { ...defaults, ...(discovery ?? {}) };
+}
+
+/** The patterns that find a pack's code (tools, guardrails, agents, flows), without its blocks. */
+export function codePatterns(discovery: Required<DiscoveryConfig>): readonly string[] {
+  return [discovery.tools, discovery.guardrails, discovery.agents, discovery.flows];
 }
 
 /** The command that indexes a pack of each language other than Node. */
@@ -416,6 +438,8 @@ export interface Index {
   readonly flows: readonly IndexedFlow[];
   /** The pack's declared process environment (schema-version 1.4.0+); absent when it declares none. */
   readonly env?: PackEnvDeclaration;
+  /** The pack's data blocks (schema-version 1.5.0+), sorted by id; absent when it has none. */
+  readonly blocks?: readonly IndexedBlock[];
 }
 
 // -----------------------------------------------------------------------
@@ -472,6 +496,7 @@ export interface IndexerReport {
     readonly guardrails: number;
     readonly agents: number;
     readonly flows: number;
+    readonly blocks: number;
   };
   readonly outputPath: string;
   /**
@@ -575,7 +600,10 @@ export async function runIndexer(
     bundleMap !== undefined
       ? discoverInBundleMap(bundleMap, discovery)
       : await discoverFiles(packDir, discovery);
-  if (discovered.length === 0) {
+  // The blocks are files in the pack whatever indexes it: an image's
+  // indexer stage is given them beside its bundles.
+  const packBlocks = await readPackBlocks(packDir, discovery.blocks);
+  if (discovered.length === 0 && packBlocks.files.length === 0 && packBlocks.errors.length === 0) {
     return {
       kind: 'err',
       error: {
@@ -629,7 +657,11 @@ export async function runIndexer(
     defined.set(version, relPath);
     return undefined;
   };
-  const fileErrors: IndexerError[] = [];
+  const fileErrors: IndexerError[] = packBlocks.errors.map((e) => ({
+    code: 'manifest-validation-failed',
+    message: e.message,
+    filePath: e.filePath,
+  }));
   const warnings: IndexerWarning[] = [];
 
   for (const { relPath, expectedKind } of discovered) {
@@ -777,6 +809,7 @@ export async function runIndexer(
     agents: sortById(agents),
     flows: sortById(flows),
     ...(env.value !== undefined && { env: env.value }),
+    ...(packBlocks.blocks.length > 0 && { blocks: packBlocks.blocks }),
   };
 
   const written = await atomicWriteJson(outputPath, index);
@@ -794,6 +827,7 @@ export async function runIndexer(
         guardrails: guardrails.length,
         agents: agents.length,
         flows: flows.length,
+        blocks: packBlocks.blocks.length,
       },
       outputPath,
       fileErrors,
