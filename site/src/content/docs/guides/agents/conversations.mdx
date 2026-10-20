@@ -431,13 +431,15 @@ one project's or org's.
   you can't read the conversation's project, you get that same `404` in place
   of the `409 conversation-project-mismatch` (below), the
   `403 permission-denied`, or the `403 participant-not-allowed` for its
-  participant.
+  participant (runtime 0.1.10 or later).
 - **With [authorization](../../../deploy/authorization/) on,** reading a
   conversation or its messages takes `read` on its project. Closing one
-  takes running its agent, not reading it. A conversation you can't read
-  answers `404 conversation-not-found`, as if it weren't there, when you read
-  it or its messages, or are refused closing it, unregistering it or adding
-  a turn (runtime 0.1.10 or later). If you can read it, a refusal is a `403`.
+  takes `execute` on its agent, or, for an agent more than one project
+  serves, `call` on the conversation's project; reading it isn't needed. A
+  conversation you can't read answers `404 conversation-not-found`, as if it
+  weren't there, when you read it or its messages, or are refused closing
+  it, unregistering it or adding a turn (runtime 0.1.10 or later). If you can
+  read it, a refusal is a `403`.
 - A turn into a closed conversation is refused with
   `409 conversation-closed`: start a new conversation instead. It's
   refused before a run is made, with `wait: false` too (runtime 0.1.10

@@ -656,12 +656,11 @@ describe('conversations with an agent an order carries', () => {
     expect(staging.status, staging.text).toBe(404);
     expect(staging.body.error.message).toBe(`No conversation with id "${IN_PROD}"`);
     expect(conversations).toEqual([]);
-    // Closing one doesn't take reading it.
+    // Closing one doesn't take reading it: each close reaches the store.
     const caller = await call('prod-caller', 'POST', `/v1/conversations/${IN_PROD}/close`);
-    expect(caller.status, caller.text).not.toBe(403);
+    expect(conversations, caller.text).toEqual([`close ${IN_PROD}`]);
     const prod = await call('prod', 'POST', `/v1/conversations/${IN_PROD}/close`);
-    expect(prod.status, prod.text).not.toBe(403);
-    expect(conversations).toEqual([`close ${IN_PROD}`, `close ${IN_PROD}`]);
+    expect(conversations, prod.text).toEqual([`close ${IN_PROD}`, `close ${IN_PROD}`]);
   });
 
   test('an agent with one project: execute on it, as before', async () => {
