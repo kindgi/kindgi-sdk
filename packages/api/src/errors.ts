@@ -447,6 +447,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // A grant, membership or reviewer role given to a person a site signs in:
   // they hold only what their site's sign-in writes.
   'site-person-grants-managed': 403,
+  // `POST …/sites/:siteId/people/:userId/restore`: the site has no link to
+  // that person, live or retired.
+  'site-person-not-found': 404,
+  // The restore refused, with nothing changed; `details.reason` says why.
+  'site-person-restore-refused': 409,
   // `POST /v1/auth/token-sign-in` signed in by a session (a cookie or a
   // session token) rather than an API token: there's nothing to exchange.
   'token-sign-in-needs-an-api-token': 400,

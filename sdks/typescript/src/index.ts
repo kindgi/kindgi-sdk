@@ -264,6 +264,7 @@ export type {
   SiteCollectionPage,
   SiteEnrollmentCode,
   SiteKey,
+  SitePersonRestoreResult,
   SiteRoleGrant,
   SiteSignInBody,
   SiteSignInResult,

@@ -701,6 +701,7 @@
   "SiteCollectionPage": ["SiteCollectionPage"],
   "SiteEnrollmentCode": ["SiteEnrollmentCode"],
   "SiteKey": ["SiteKey"],
+  "SitePersonRestoreResult": ["SitePersonRestoreResult"],
   "SiteRoleGrant": ["SiteRoleGrant"],
   "SiteSignInBody": ["SiteSignInBody"],
   "SiteSignInResult": ["SiteSignInResult"],

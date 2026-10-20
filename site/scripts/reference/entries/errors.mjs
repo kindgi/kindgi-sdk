@@ -1087,12 +1087,12 @@ export const ERROR_ENTRIES = {
   },
   'rate-limit-exceeded': {
     description:
-      "You sent too many requests, or a tenant reached one of its limits: a webhook trigger got more deliveries than its per-minute limit, a client sent too many refused webhook requests, too many sign-in lookups came from one source, or the tenant reached its limit on API requests or webhook deliveries a minute, or on runs waiting to start. A tenant's API requests to `/v1` and `/s3` count together; on `/s3`, its limit answers as S3 does, with `503 SlowDown` and `Retry-After`, not with this code. On a server with budgets kept per tenant (Kindgi Cloud), it's also the answer when the tenant's schemas took their budget compiling, or its instructions templates rendering, in the last 60 seconds; an agent's turn refused this way fails its run with this code. Retry after the `Retry-After` header; a refusal by the limit on runs waiting to start has none: retry once some have started.",
+      "You sent too many requests, or a tenant reached one of its limits: a webhook trigger got more deliveries than its per-minute limit, a client sent too many refused webhook requests, too many sign-in lookups came from one source, or the tenant reached its limit on API requests or webhook deliveries a minute, or on runs waiting to start. A tenant's API requests to `/v1` and `/s3` count together; on `/s3`, its limit answers as S3 does, with `503 SlowDown` and `Retry-After`, not with this code. On a server with budgets kept per tenant (Kindgi Cloud), it's also the answer when the tenant's schemas took their budget compiling, or its instructions templates rendering, in the last 60 seconds; an agent's turn refused this way fails its run with this code. A deploy is refused with it too when the tenant's image reads unpacked as much as they may in an hour. Retry after the `Retry-After` header; a refusal by the limit on runs waiting to start has none: retry once some have started.",
     details: [
       {
         key: 'limit',
         meaning:
-          "the tenant's limit that was reached: `api-requests`, `webhook-receives`, `runs-pending`, or a budget, `schema-compile-time` or `template-render-time`. Absent when the limit isn't the tenant's",
+          "the tenant's limit that was reached: `api-requests`, `webhook-receives`, `runs-pending`, a budget, `schema-compile-time` or `template-render-time`, or `tenant-unpack-hour`, its image reads in the last hour. Absent when the limit isn't the tenant's",
       },
       {
         key: 'runsPending',
@@ -1164,7 +1164,7 @@ export const ERROR_ENTRIES = {
     description:
       "The database was too busy to answer the read in time: a lock held by other work or a query past the database's time limit ended it, or no database connection came free within the server's wait. Only a `GET` or `HEAD` answers it. Retry after the `Retry-After` header. A request with any other method that the database was too busy for answers a 500 (`internal-server-error`, or the code of what failed, such as `persistence-error`), since it may have saved part of its work: check what it changed before you send it again.",
     details: [],
-    seeAlso: ['GET /v1/runs'],
+    seeAlso: ['GET /v1/runs', 'reference/env-vars'],
   },
   'journal-error': {
     description:
@@ -2585,6 +2585,30 @@ export const ERROR_ENTRIES = {
       "The request would change what a person a site signs in may do: give them or take away a grant, a tenant role, a project or team membership or its role, or a reviewer role, or mint them a key. Such a person holds only what their site's sign-in writes: their next sign-in would undo a change, and a key would outlive a paused or unregistered site. Change their role on the site, remove the person, or pause the site instead.",
     details: [],
   },
+  'site-person-not-found': {
+    description:
+      'The site has no link to that person: they never signed in through it. Only the people a site signs in are let back in through it. Find their id with `kindgi people list --include-removed`.',
+    details: [
+      {
+        key: 'userId',
+        meaning: 'the person who was to be let back in',
+      },
+    ],
+  },
+  'site-person-restore-refused': {
+    description:
+      "The site's person wasn't let back in, and nothing changed. `not-removed`: they're in the tenant and their site still knows them, so there's nothing to undo. `left`: their site said they left it. A site forgets a person who leaves, so if they come back, it signs them in as a new person. `linked-elsewhere`: they also sign in another way (through another site, or the tenant's own sign-in), and letting them back in would let them in there too: add them again instead, as a new person.",
+    details: [
+      {
+        key: 'reason',
+        meaning: "why it was refused: 'not-removed', 'left' or 'linked-elsewhere'",
+      },
+      {
+        key: 'userId',
+        meaning: 'the person who was to be let back in',
+      },
+    ],
+  },
   'token-sign-in-needs-an-api-token': {
     description:
       "`POST /v1/auth/token-sign-in` was called while signed in by a session. It takes an API token in the Authorization header, so there's nothing to exchange.",
@@ -2658,7 +2682,7 @@ export const ERROR_ENTRIES = {
       {
         key: 'limit',
         meaning:
-          "with `image-limit-exceeded`, the bound: `manifest`, `file`, `layer`, `read` or `unpack` are the image's own, so the same image is refused again; `tenant-unpack-hour` is the tenant's image reads in the last hour, and passes: deploy again after the wait the message names",
+          "with `image-limit-exceeded`, the bound: `manifest`, `file`, `layer`, `read` or `unpack`, the image's own, so the same image is refused again. The tenant's hour of image reads is never this code: reaching it answers `rate-limit-exceeded` with `limit` `tenant-unpack-hour` and `Retry-After`",
       },
     ],
     seeAlso: ['POST /v1/deployments'],

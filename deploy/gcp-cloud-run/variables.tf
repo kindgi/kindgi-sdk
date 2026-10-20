@@ -244,6 +244,17 @@ variable "database_deletion_protection" {
   default     = true
 }
 
+variable "database_idle_in_transaction_timeout_ms" {
+  description = "The instance's idle_in_transaction_session_timeout, in milliseconds: a backstop that ends any session left idle in a transaction this long, whoever opened it (a psql session left open, say). 0 turns it off. The server's own connections set a shorter one (KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS, 30 seconds by default), which wins over this. Only on the module's own instance, not on one database_instance names."
+  type        = number
+  default     = 600000
+
+  validation {
+    condition     = var.database_idle_in_transaction_timeout_ms >= 0 && var.database_idle_in_transaction_timeout_ms <= 2147483647 && floor(var.database_idle_in_transaction_timeout_ms) == var.database_idle_in_transaction_timeout_ms
+    error_message = "A whole number of milliseconds from 0 (off) to 2147483647, Cloud SQL's range for idle_in_transaction_session_timeout."
+  }
+}
+
 variable "database_instance" {
   description = <<-EOT
     Null: the server uses the module's own Cloud SQL instance and its <prefix>-database-url secret.

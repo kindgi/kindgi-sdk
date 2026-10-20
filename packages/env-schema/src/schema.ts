@@ -201,6 +201,42 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_DB_STATEMENT_TIMEOUT_MS',
+    description:
+      "Used from runtime 0.1.9; earlier runtimes ignore it. How long one statement on the server's database connections may run before Postgres ends it (`statement_timeout`), in milliseconds. Default 60000 (60 s); 0 turns it off. A whole number up to 2147483647, longer than `KINDGI_DB_LOCK_TIMEOUT_MS` when both are on; anything else stops the boot, naming the variable. The migrations at boot, an index built `CONCURRENTLY` and the admin commands (`kindgi-runtime tenants …`, `check …`, `erasures …`) run with none. A GET or HEAD it ends answers 503 `database-busy` with `Retry-After: 5` (under `/auth/`, a browser signing in is sent back to the sign-in page instead), any other request the usual 500, and the server's log has a `db` warning naming the setting, its value and this variable.",
+    example: '60000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_DB_LOCK_TIMEOUT_MS',
+    description:
+      "Used from runtime 0.1.9; earlier runtimes ignore it. How long a statement on the server's database connections may wait for a lock before Postgres ends it (`lock_timeout`), in milliseconds. Default 30000 (30 s); 0 turns it off. A whole number up to 2147483647, shorter than `KINDGI_DB_STATEMENT_TIMEOUT_MS` when both are on (a lock wait is part of a statement's time); anything else stops the boot, naming the variable. The admin commands keep it; an index built `CONCURRENTLY` waits with none. The migrations wait 5 s a try, tried 6 times, then the boot fails naming the table and the sessions holding it. A GET or HEAD it ends answers 503 `database-busy` with `Retry-After: 5` (under `/auth/`, a browser signing in is sent back to the sign-in page instead), any other request the usual 500, and the server's log has a `db` warning naming the setting, its value and this variable.",
+    example: '30000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS',
+    description:
+      "Used from runtime 0.1.9; earlier runtimes ignore it. How long a transaction on the server's database connections may sit idle between statements before Postgres ends its session (`idle_in_transaction_session_timeout`), in milliseconds. Default 30000 (30 s); 0 turns it off. A whole number up to 2147483647; anything else stops the boot, naming the variable. The admin commands keep it.",
+    example: '30000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_DB_POOL_WAIT_TIMEOUT_MS',
+    description:
+      "Used from runtime 0.1.9; earlier runtimes ignore it. How long a query waits for one of the server's pooled database connections while every one is taken, in milliseconds. Default 10000 (10 s); 0 turns it off, and a query waits as long as it takes. A whole number up to 2147483647; anything else stops the boot, naming the variable. Past it the query fails before it runs: a GET or HEAD answers 503 `database-busy` with `Retry-After: 5` (under `/auth/`, a browser signing in is sent back to the sign-in page instead), any other request 500, and the server's log has a `db` warning naming the setting, its value and this variable. It bounds the server's own pool only: the admin commands (`kindgi-runtime tenants …`, `check …`, `erasures …`) wait as long as it takes.",
+    example: '10000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_OPENFGA_API_URL',
     description:
       'OpenFGA HTTP API URL. Set → per-tenant FGA stores are bootstrapped and authorization is enforced; unset → routes mount without enforcement (dev only; production MUST set it).',
