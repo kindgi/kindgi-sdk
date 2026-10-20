@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityProviderBinding, SignInOption } from '../identity-provider-binding.js';
@@ -19,8 +19,9 @@ import { hasHiddenCharacters } from './sites.js';
  *
  * It answers by the email's DOMAIN only, so the answer for two people at
  * the same domain is the same byte for byte, whether or not either of
- * them has an account: it can't be used to find out who does. Requests
- * are rate-limited per client, as a speed bump against scraping.
+ * them has an account: it can't be used to find out who does. Lookups
+ * with an email are rate-limited per client, as a speed bump against
+ * scraping; a read without one (the same for everyone) isn't counted.
  *
  * Email first: without an email, nothing is offered (an empty list), and
  * the binding isn't asked. `methods` tells a sign-in page which ways in
@@ -106,8 +107,8 @@ const MAX_CONSOLE_LINK_LABEL = 40;
 /**
  * createApp's `consoleLinks`: throws unless there are at most 8, each label
  * is 1 to 40 characters once trimmed with none that can disguise it (as a
- * site's display name, `hasHiddenCharacters`), and each URL is an absolute
- * https URL with no username or password.
+ * site's display name, `hasHiddenCharacters`) and no other link's once
+ * trimmed, and each URL is an absolute https URL with no username or password.
  */
 export function checkConsoleLinks(links: readonly ConsoleLink[] | undefined): void {
   if (links === undefined) return;
@@ -116,6 +117,7 @@ export function checkConsoleLinks(links: readonly ConsoleLink[] | undefined): vo
       `createApp: consoleLinks has ${links.length} links; at most ${MAX_CONSOLE_LINKS}.`,
     );
   }
+  const placeOf = new Map<string, number>();
   links.forEach(({ label, url }, i) => {
     const shown = label.trim();
     if (shown === '' || shown.length > MAX_CONSOLE_LINK_LABEL || hasHiddenCharacters(shown)) {
@@ -123,6 +125,13 @@ export function checkConsoleLinks(links: readonly ConsoleLink[] | undefined): vo
         `createApp: consoleLinks[${i}].label must be 1 to ${MAX_CONSOLE_LINK_LABEL} characters, with no control or format character.`,
       );
     }
+    const first = placeOf.get(shown);
+    if (first !== undefined) {
+      throw new Error(
+        `createApp: consoleLinks[${i}].label is consoleLinks[${first}]'s once trimmed; each label once.`,
+      );
+    }
+    placeOf.set(shown, i);
     const parsed = URL.canParse(url) ? new URL(url) : undefined;
     // The console shows the link to anyone, so the value isn't quoted back.
     if (parsed !== undefined && (parsed.username !== '' || parsed.password !== '')) {
@@ -146,7 +155,7 @@ function asBrowserReads(url: string | undefined): string | undefined {
 }
 
 export interface SignInOptionsRateLimit {
-  /** Requests per client per window. Default 30. */
+  /** Lookups with an email per client per window. Default 30. */
   readonly limit?: number;
   /** Default 60 000 ms. */
   readonly windowMs?: number;
@@ -204,10 +213,8 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
   let lastWarnedAt: number | undefined;
   let uncounted = 0;
 
-  const router = new Hono<AppEnv>();
-  router.get('/', async (c) => {
-    const requestId = c.get('requestId');
-
+  /** Counts a lookup with an email against its client's limit: a 429 once over it, else undefined. */
+  async function overLimit(c: Context<AppEnv>): Promise<Response | undefined> {
     const key = `sign-in-options:${clientKey(c.req.raw)}`;
     let taken: Awaited<ReturnType<RateLimitStore['take']>>;
     try {
@@ -224,18 +231,30 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
       }
       taken = { allowed: true };
     }
-    if (!taken.allowed) {
-      c.header('Retry-After', String(Math.max(Math.ceil(taken.retryAfterMs / 1000), 1)));
-      c.status(statusFor('rate-limit-exceeded') as never);
-      return c.json(
-        toWireError(
-          { code: 'rate-limit-exceeded', message: 'Too many sign-in lookups: try again shortly' },
-          requestId,
-        ),
-      );
-    }
+    if (taken.allowed) return undefined;
+    c.header('Retry-After', String(Math.max(Math.ceil(taken.retryAfterMs / 1000), 1)));
+    c.status(statusFor('rate-limit-exceeded') as never);
+    return c.json(
+      toWireError(
+        { code: 'rate-limit-exceeded', message: 'Too many sign-in lookups: try again shortly' },
+        c.get('requestId'),
+      ),
+    );
+  }
 
+  const router = new Hono<AppEnv>();
+  router.get('/', async (c) => {
+    const requestId = c.get('requestId');
+
+    // Only a lookup with an email is counted. Without one, the answer is the
+    // deployment's configuration, the same for everyone, and the count would
+    // be its only work: counting it would guard nothing, and would spend the
+    // client's budget on the console's read for the deployment's links.
     const email = c.req.query('email');
+    if (email !== undefined) {
+      const refused = await overLimit(c);
+      if (refused !== undefined) return refused;
+    }
     let emailDomain: string | undefined;
     if (email !== undefined) {
       const match = EMAIL_RE.exec(email.trim());

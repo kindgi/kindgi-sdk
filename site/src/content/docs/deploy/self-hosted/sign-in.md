@@ -492,12 +492,16 @@ and in a line at the foot of every page, the sign-in page too. Write the
 JSON on one line with no quotes around it: an env file passes the value
 as it is.
 
-At most 8 links. A label is 1 to 40 characters once trimmed, and isn't
-only digits. It can't hold a control or format character, such as a
+At most 8 links. A label is 1 to 40 characters once trimmed, isn't only
+digits, and isn't another link's label once trimmed. It can't hold a control or format character, such as a
 bidirectional override or a zero-width space, since those can disguise
 what a label says. Each URL is an absolute `https` URL with no username or
 password in it. With anything else, the runtime doesn't start, and says
 why. Unset, the console shows none.
+
+The console reads the links once on each page load, from the sign-in
+options, without an email. Sign-in's limit of 30 lookups a minute per
+client counts only lookups with an email, so these reads don't spend it.
 
 ## Behind a load balancer
 

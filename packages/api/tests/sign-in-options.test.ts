@@ -172,6 +172,23 @@ describe('sign-in options', () => {
     expect((await lookup(app, 'a@acme.com', '198.51.100.9')).status).toBe(200);
   });
 
+  // Without an email the answer is the deployment's configuration, the same
+  // for everyone: the console reads it on every page load for its links.
+  test('only lookups with an email are counted: reads without one pass the limit, and spend none of it', async () => {
+    const { app } = makeApp({ rateLimit: { limit: 2, windowMs: 60_000 } });
+    for (let i = 0; i < 5; i += 1) expect((await lookup(app)).status).toBe(200);
+    expect((await lookup(app, 'a@acme.com')).status).toBe(200);
+    expect((await lookup(app, 'b@acme.com')).status).toBe(200);
+    expect((await lookup(app, 'c@acme.com')).status).toBe(429);
+    expect((await lookup(app)).status).toBe(200);
+  });
+
+  test('an email that is no email is still counted', async () => {
+    const { app } = makeApp({ rateLimit: { limit: 1, windowMs: 60_000 } });
+    expect((await lookup(app, 'not-an-email')).status).toBe(400);
+    expect((await lookup(app, 'a@acme.com')).status).toBe(429);
+  });
+
   test("the deployment's own ways in come after a workspace's; the emailed link is a method", async () => {
     const { app } = makeApp({
       signInOptions: async () => [
@@ -347,6 +364,22 @@ describe("sign-in options: the deployment's own links, for the console", () => {
     );
   });
 
+  test("createApp refuses a label that is an earlier link's once trimmed", () => {
+    expect(() =>
+      makeApp({
+        links: [
+          { label: ' Help', url: HELP.url },
+          STATUS,
+          { label: 'Help ', url: 'https://www.acme.example' },
+        ],
+      }),
+    ).toThrow(
+      new Error(
+        "createApp: consoleLinks[2].label is consoleLinks[0]'s once trimmed; each label once.",
+      ),
+    );
+  });
+
   // Only digits is the env setting's rule (a JavaScript object puts such
   // keys first); a list keeps its order, so createApp takes it.
   test.each([
@@ -399,6 +432,9 @@ describe('the rate limit with a shared store', () => {
     const { app } = makeApp({ rateLimit: { limit: 7, windowMs: 5_000, store } });
     expect((await lookup(app, 'a@acme.com', '10.0.0.1, 203.0.113.50')).status).toBe(200);
     expect(asked).toEqual([{ key: 'sign-in-options:203.0.113.50', limit: 7, windowMs: 5_000 }]);
+    // A read without an email isn't asked about.
+    expect((await lookup(app, undefined, '10.0.0.1, 203.0.113.50')).status).toBe(200);
+    expect(asked).toHaveLength(1);
   });
 
   test('a refusal from the store: 429 with its Retry-After, rounded up', async () => {

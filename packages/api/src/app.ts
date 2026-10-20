@@ -1051,7 +1051,8 @@ export interface CreateAppInput {
   };
   /**
    * The rate limit on `GET /v1/auth/sign-in-options` (unauthenticated):
-   * requests per client per window, and how to tell clients apart.
+   * lookups with an email per client per window, and how to tell clients
+   * apart. A read without an email (the same for everyone) isn't counted.
    * Default: 30 a minute, per nearest (rightmost) `X-Forwarded-For` hop.
    */
   readonly signInOptionsRateLimit?: SignInOptionsRateLimit;
@@ -1077,7 +1078,7 @@ export interface CreateAppInput {
    * processing terms), which the console shows on every page, the sign-in
    * page too (sign-in options' `links`), in this order. At most 8; each
    * label 1 to 40 characters once trimmed, with no control or format
-   * character; each URL an absolute https URL with no username or
+   * character, and no other link's once trimmed; each URL an absolute https URL with no username or
    * password. Anything else, and createApp throws. Absent or empty: the
    * answer has no `links`.
    */
