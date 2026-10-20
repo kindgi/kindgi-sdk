@@ -202,6 +202,14 @@ KINDGI_AUTH_TENANT_PROVIDERS=off
 
 `on` is the default. Like the other settings here, it needs sign-in on.
 
+Without a secrets store (`KINDGI_SECRETS_BACKEND=none`), nobody adds or
+changes a workspace's own provider, whichever the setting. The startup
+output says so instead:
+
+```text
+  Identity providers: a tenant's own are off: their client secret and keys go in a secrets store, and this server has none (KINDGI_SECRETS_BACKEND)
+```
+
 ## Continue with Google, Microsoft or GitHub
 
 The deployment's own apps let people sign in with their Google, Microsoft or
