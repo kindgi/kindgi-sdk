@@ -58,7 +58,7 @@ export function refuseOtherProjectForKey(
 }
 
 /** What a refusal names as limited: the caller's session, or its API key. */
-function limitedCaller(c: { get(key: 'sessionId'): unknown }): string {
+export function limitedCaller(c: { get(key: 'sessionId'): unknown }): string {
   return c.get('sessionId') !== undefined ? 'This session' : 'This API key';
 }
 

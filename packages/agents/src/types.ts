@@ -65,6 +65,14 @@ export interface ConversationMessage {
    * messages while the reviewer sees who was actually authoring.
    */
   readonly actor?: string;
+  /**
+   * The message came from outside: a turn's message in a run a webhook or
+   * an event started. Kept as it came, and read back as data in every
+   * later turn's history (an `<event>` block), whoever started that turn.
+   * A message from before the mark was kept has none, and reads as it
+   * came.
+   */
+  readonly fromEvent?: true;
   readonly createdAt: Timestamp;
 }
 

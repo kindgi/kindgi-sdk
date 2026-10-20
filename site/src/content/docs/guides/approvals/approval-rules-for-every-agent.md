@@ -60,7 +60,7 @@ An agent that calls `acme-ops.post-update` and has no approval settings now
 waits. `--agent` is the agent, and `--input` its input:
 
 ```sh
-kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+pnpm exec kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
 ```
 
 ```json
@@ -79,7 +79,7 @@ register yourself as `standard` first, with
 pending approvals. `--status=pending` lists only the ones still `pending`:
 
 ```sh
-kindgi approvals list --status=pending
+pnpm exec kindgi approvals list --status=pending
 ```
 
 ```json

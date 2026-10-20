@@ -17,6 +17,8 @@ import type {
   SecretSetOutcome,
   SecretVersionRecord,
 } from '../secrets-binding.js';
+import { secretNameGrammarRefusal } from '../secrets-binding.js';
+import { type ServedEnvRule, refuseUnservedValue } from '../served-env.js';
 import type { AppEnv } from '../types.js';
 import { capabilityRefusal } from './denied.js';
 import { requireEnvName, requireScope, scopesEqual } from './env.js';
@@ -79,10 +81,16 @@ export interface SecretsRouterOptions {
    * request and the backend's answer, never a value. Absent: none.
    */
   readonly auditEvents?: AuditEventBinding;
+  /**
+   * On a runtime that refuses other envs: a set or rotation under another
+   * env answers `409 env-not-served`, unless a reference reads it there
+   * (`refuseUnservedValue`). Reads and revokes pass. Absent: any env.
+   */
+  readonly servedEnv?: ServedEnvRule;
 }
 
 export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
-  const { secretsBinding, rotationStatusStore, authorizer, auditEvents } = options;
+  const { secretsBinding, rotationStatusStore, authorizer, auditEvents, servedEnv } = options;
   const heartbeatMs = options.sseHeartbeatMs ?? 15_000;
   const r = new Hono<AppEnv>();
 
@@ -439,6 +447,43 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
     }
 
     const setScope = bodyScope.scope;
+
+    const unserved = await refuseUnservedValue(servedEnv, {
+      tenantId,
+      scope: setScope,
+      envName: envNameResult.envName,
+      name: b.name,
+      kind: 'secret',
+    });
+    if (unserved !== undefined) {
+      c.status(statusFor(unserved.code) as never);
+      return c.json(toWireError(unserved, requestId));
+    }
+
+    // A secret's name is held to the shared grammar whenever the write would
+    // CREATE it. A name that passes the grammar needs no store read. A name
+    // that fails it is refused — unless this is an `add-version` to a name the
+    // store already has (left as the store holds it, so a name stored before
+    // this release stays usable). `create-new` of such a name is always
+    // refused. A store may still refuse more of its own names when it writes
+    // (`SecretBinding.nameRefusal`).
+    const nameRefusal = secretNameGrammarRefusal(b.name);
+    if (nameRefusal !== undefined) {
+      const alreadyStored =
+        b.writeMode === 'add-version' &&
+        (await secretsBinding.get({
+          scope: setScope,
+          envName: envNameResult.envName,
+          name: b.name,
+        })) !== null;
+      if (!alreadyStored) {
+        c.status(statusFor(nameRefusal.code) as never);
+        return c.json(
+          toWireError({ code: nameRefusal.code, message: nameRefusal.message }, requestId),
+        );
+      }
+    }
+
     const outcome: SecretSetOutcome = await secretsBinding.set({
       scope: setScope,
       envName: envNameResult.envName,
@@ -580,6 +625,18 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
       );
     }
     const scope: Scope = scopeResult.scope;
+
+    const unserved = await refuseUnservedValue(servedEnv, {
+      tenantId,
+      scope,
+      envName: envNameResult.envName,
+      name,
+      kind: 'secret',
+    });
+    if (unserved !== undefined) {
+      c.status(statusFor(unserved.code) as never);
+      return c.json(toWireError(unserved, requestId));
+    }
 
     if (b.newValue !== undefined && typeof b.newValue !== 'string') {
       c.status(statusFor('bad-input') as never);

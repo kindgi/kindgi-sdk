@@ -17,7 +17,7 @@ export {
   MULTI_TENANT_LOOKUP,
 } from './middleware/auth.js';
 export type { SessionCookieOptions, TokenResolution, TokenResolver } from './middleware/auth.js';
-export type { SignInOptionsRateLimit } from './routes/sign-in-options.js';
+export type { SignInLegalLinks, SignInOptionsRateLimit } from './routes/sign-in-options.js';
 export type {
   LicensePreview,
   LicenseStatus,
@@ -71,6 +71,7 @@ export { PACK_ENDPOINT_AUTHS } from './routes/system-deployments.js';
 export type {
   DeploymentRef,
   PackEndpointAuth,
+  PackEnvRecordInput,
   SetPackEndpointInput,
   SetPackEndpointOutcome,
   SystemDeploymentEntry,
@@ -78,7 +79,25 @@ export type {
   SystemDeploymentsBinding,
   SystemDeploymentsOptions,
   SystemDeploymentToRetire,
+  SystemPackEnvOptions,
+  SystemPackEnvServed,
 } from './routes/system-deployments.js';
+export {
+  PACK_ENV_HELD_CODES,
+  PACK_ENV_PROBLEM_CODES,
+  PACK_ENV_RETRY_MS,
+  packEnvCheck,
+} from './pack-env.js';
+export type {
+  PackEnvCheck,
+  PackEnvCheckInput,
+  PackEnvDeclaration,
+  PackEnvDeps,
+  PackEnvHeldCode,
+  PackEnvNameStatus,
+  PackEnvProblemCode,
+  PackEnvScopeRef,
+} from './pack-env.js';
 export { tenantStateGate } from './middleware/tenant-state.js';
 export type { TenantStateBinding } from './middleware/tenant-state.js';
 export { systemTenantsRouter, systemWhoamiRouter } from './routes/system-tenants.js';
@@ -139,6 +158,9 @@ export type {
   SiteKey,
   SiteListInput,
   SitePage,
+  SitePersonRestoreInput,
+  SitePersonRestoreOutcome,
+  SitePersonRestoreRefusal,
   SiteRegisterInput,
   SiteRegisterOutcome,
   SiteRevokeKeyInput,
@@ -501,6 +523,29 @@ export type {
   ProviderUnregisterInput,
   ProviderUnregisterOutcome,
 } from './provider-binding.js';
+export { deploymentValues } from './deployment-values.js';
+export type {
+  DeploymentValue,
+  DeploymentValueProblem,
+  DeploymentValueScope,
+  DeploymentValuesDeps,
+  DeploymentValuesInput,
+  ModelKeyLocation,
+  ModelKeyLookup,
+} from './deployment-values.js';
+export { carriedVersions } from './carried-versions.js';
+export type {
+  CarriedVersion,
+  CarriedVersions,
+  CarriedVersionsDeps,
+  CarriedVersionsInput,
+  LeftBehindVersion,
+} from './carried-versions.js';
+export {
+  carriedFor,
+  servingProjectOf,
+  valuesDepsFor,
+} from './routes/deployment-promotions.js';
 export {
   isCredentialHeaderName,
   MCP_AUTH_HEADERS_MAX,
@@ -795,6 +840,7 @@ export { sealedCursors } from './middleware/sealed-cursors.js';
 export type {
   ToolGetInput,
   ToolGetVersionInput,
+  ToolKindMismatch,
   ToolListInput,
   ToolListVersionsInput,
   ToolPage,
@@ -960,8 +1006,11 @@ export type {
   DeploymentEndpointProblemCode,
   DeploymentEndpointStatus,
   DeploymentPrimitiveCounts,
+  DeploymentPromoteInput,
+  DeploymentPromoteOutcome,
   DeploymentRegisterInput,
   DeploymentRegisterOutcome,
+  PromotedToolSecretScopes,
   SystemDeploymentRetireReason,
 } from './deployment-binding.js';
 export type {
@@ -974,6 +1023,7 @@ export type {
   ImagePlatform,
   ImagePushInput,
   ImagePushOutcome,
+  ImageReadLimit,
   ImageRegistryBinding,
   ImageRegistryError,
 } from './image-registry-binding.js';
@@ -1009,6 +1059,34 @@ export type {
   ResolveContext,
 } from './env-binding.js';
 export type {
+  EnvironmentOrder,
+  EnvironmentOrderBinding,
+  EnvironmentOrderCursor,
+  EnvironmentOrderEntry,
+  EnvironmentOrderGetInput,
+  EnvironmentOrderKey,
+  EnvironmentOrderListInput,
+  EnvironmentOrderListPage,
+  EnvironmentOrderLocation,
+  EnvironmentOrderOfInput,
+  EnvironmentOrderParent,
+  EnvironmentOrderSetInput,
+  EnvironmentOrderSetOutcome,
+  HasEnvironmentOrderInput,
+} from './environment-orders-binding.js';
+export type {
+  ItemProjectsBinding,
+  ItemProjectsInput,
+  ItemProjectsOfManyInput,
+  ItemServedElsewhere,
+  ItemServesIn,
+  NewestVisibleOfManyInput,
+  OrderItemKind,
+  ServesInInput,
+  VersionProjectsInput,
+  VersionProjectsOfManyInput,
+} from './item-projects-binding.js';
+export type {
   SecretBinding,
   SecretError,
   SecretGetInput,
@@ -1029,7 +1107,12 @@ export type {
   SecretVersionPage,
   SecretVersionRecord,
 } from './secrets-binding.js';
-export { RESERVED_SECRET_NAME_PREFIX } from './secrets-binding.js';
+export {
+  RESERVED_SECRET_NAME_PREFIX,
+  SECRET_NAME_ALLOWED,
+  SECRET_NAME_MAX_LENGTH,
+  secretNameGrammarRefusal,
+} from './secrets-binding.js';
 export { resolveAtScope, scopeOfRecorded } from './secret-scope.js';
 // A model provider's key is used by its provider only.
 export {
