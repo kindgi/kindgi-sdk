@@ -36,6 +36,12 @@ Tokens are compared in constant time. A wrong or missing token gets `401`:
 {"error":{"code":"auth-missing","message":"Bearer token is not recognized","requestId":"req-88fd4597-bed6-4936-9906-83fafe44712d"}}
 ```
 
+The `curl` examples in these docs pass the header as
+`-H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")`. In bash or
+zsh it reaches curl through a pipe, so the token stays out of the process
+list (`ps`), where `-H "Authorization: Bearer $KINDGI_API_TOKEN"` would show
+it.
+
 To rotate the token, restart the runtime with a new value.
 
 A request's body is at most 10 MiB. A bigger one is refused with
@@ -114,7 +120,7 @@ A public run token is:
 With it, a browser can follow the run. The same request with `curl`:
 
 ```sh
-curl -H "Authorization: Bearer $PUBLIC_TOKEN" "$KINDGI_API_URL/v1/runs/$RUN_ID/progress"
+curl -H @<(printf 'Authorization: Bearer %s\n' "$PUBLIC_TOKEN") "$KINDGI_API_URL/v1/runs/$RUN_ID/progress"
 ```
 
 - `$PUBLIC_TOKEN` is the public run token, such as the run's

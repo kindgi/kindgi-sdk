@@ -2626,12 +2626,7 @@ export const ERROR_ENTRIES = {
       {
         key: 'cause',
         meaning:
-          "when a registry read failed, why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't an archive the runtime can read), or `image-limit-exceeded` (the image is past one of the runtime's bounds on reading an image). Absent when the read succeeded and the check after it failed",
-      },
-      {
-        key: 'limit',
-        meaning:
-          "with `image-limit-exceeded`, the bound: `manifest`, `file`, `layer`, `read` or `unpack` are the image's own, so the same image is refused again; `tenant-unpack-hour` is the tenant's image reads in the last hour, and passes: deploy again after the wait the message names",
+          'when a registry read failed, why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, or `image-registry-unauthorized`. Absent when the read succeeded and the check after it failed',
       },
     ],
     seeAlso: ['POST /v1/deployments'],
