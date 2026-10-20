@@ -49,6 +49,7 @@ import { signInCommand } from './sign-in.js';
 import { sitesCommand } from './sites.js';
 import { skillsCommand } from './skills.js';
 import { ssoCommand } from './sso.js';
+import { tenantCommand } from './tenant.js';
 import { testCommand } from './test.js';
 import { tokensCommand } from './tokens.js';
 import { toolsCommand } from './tools.js';
@@ -79,6 +80,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   mcpCommand,
   mcpLaunchCommand,
   projectsCommand,
+  tenantCommand,
   runsCommand,
   agentsCommand,
   conversationsCommand,

@@ -274,6 +274,10 @@ export const CLI_DEFAULTS = {
     name: 'unchanged',
     slug: 'unchanged',
   },
+  'tenant rename': {
+    name: 'unchanged',
+    slug: 'unchanged',
+  },
   'runs list': {
     agent: 'none',
     cursor: 'none',
@@ -1274,6 +1278,22 @@ export const CLI_EXAMPLES = {
       line: 'kindgi projects rename <project-id> --name=Storefront --slug=storefront',
     },
   ],
+  'tenant get': [
+    {
+      purpose: 'Print your workspace: its id, name and slug.',
+      line: 'kindgi tenant get',
+    },
+  ],
+  'tenant rename': [
+    {
+      purpose: "Change your workspace's name; its slug, and the console's addresses, stay.",
+      line: 'kindgi tenant rename --name="Acme Store"',
+    },
+    {
+      purpose: 'Change its slug too. Links to the console with the old slug stop opening it.',
+      line: 'kindgi tenant rename --name="Acme Store" --slug=acme-store',
+    },
+  ],
   'agents list': [
     {
       purpose: 'List the registered agents.',
@@ -2031,6 +2051,7 @@ export const CLI_GROUP_SEE_ALSO = {
   'mcp-launch': ['guides/tools/mcp-servers'],
   deployments: ['hosted/deploy-your-agent', 'guides/secrets/pack-env'],
   projects: ['guides/projects/organize-by-org-and-project'],
+  tenant: ['guides/projects/organize-by-org-and-project'],
   environments: ['guides/projects/organize-by-org-and-project'],
   promote: ['guides/projects/organize-by-org-and-project'],
   flows: ['guides/flows/write-a-flow', 'guides/flows/index'],
