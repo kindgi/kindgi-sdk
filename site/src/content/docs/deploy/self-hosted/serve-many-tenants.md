@@ -95,7 +95,7 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 
 | Scope | What it reaches |
 |---|---|
-| `system:tenants` | Creating, listing, reading and closing tenants |
+| `system:tenants` | Creating, listing, reading, renaming and closing tenants |
 | `system:tenants:create` | Creating tenants only: each with a first admin, production blocked, no image repository, not a test tenant |
 | `system:tenants:image-prefix` | Setting a tenant's image repository |
 | `system:tenants:production` | A tenant's production switch |
@@ -109,7 +109,7 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 
 ```sh
 curl -sS -X POST "$KINDGI_URL/v1/system/keys" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d '{"scopes": ["system:deployments"], "label": "pack services", "expiresAt": "2027-10-01T00:00:00Z"}'
@@ -134,7 +134,7 @@ curl -sS -X POST "$KINDGI_URL/v1/system/keys" \
 
 ```sh
 curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d '{
@@ -180,6 +180,15 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   `kindgi-runtime tenants repair --tenant <id>` if its create named a first
   admin.
 
+**Rename a tenant** (runtime 0.1.10 or later) with
+`PATCH /v1/system/tenants/<tenant id>` and `{ "name": …, "slug": … }`,
+either or both, under `system:tenants`. It answers `204`, and its id stays. Its own admins can do the same with
+`PATCH /v1/tenant`. The slug follows the create's rules, and a taken one is
+refused with `tenant-slug-taken`. A closing tenant, or one whose setup is
+pending, can't be renamed (`409 tenant-closing`, `409 tenant-setup-pending`).
+Neither can a slug that `KINDGI_AUTH_VERIFIED_DOMAINS` names
+(`409 tenant-slug-in-config`): see [Turn on sign-in](../sign-in/).
+
 ## A pack service for each deployment
 
 Each deployment runs in its own pack service, which you run: an orchestrator,
@@ -213,9 +222,9 @@ service is, and checks it. It never creates or deletes one.
 
    ```sh
    curl -sS -X PUT "$KINDGI_URL/v1/system/tenants/$TENANT_ID/deployments/$DEPLOYMENT_ID/endpoint" \
-     -H "Authorization: Bearer $KINDGI_SYSTEM_KEY" \
+     -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_SYSTEM_KEY") \
      -H 'Content-Type: application/json' \
-     -d "{\"url\": \"https://$SERVICE_HOST\", \"auth\": \"token\", \"token\": \"$PACK_TOKEN\"}"
+     -d @<(printf '{"url": "https://%s", "auth": "token", "token": "%s"}' "$SERVICE_HOST" "$PACK_TOKEN")
    ```
 
    `auth` is `token`, or `google-id-token` to add an ID token for the URL

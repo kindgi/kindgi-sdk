@@ -60,6 +60,9 @@ OPERATIONS: dict[str, Operation] = {
     "systemTenants.get": Operation(
         "systemTenants.get", "GET", "/v1/system/tenants/{tenantId}", "json", False
     ),
+    "systemTenants.update": Operation(
+        "systemTenants.update", "PATCH", "/v1/system/tenants/{tenantId}", "empty", True
+    ),
     "systemTenants.close": Operation(
         "systemTenants.close", "POST", "/v1/system/tenants/{tenantId}/close", "json", True
     ),
@@ -97,6 +100,8 @@ OPERATIONS: dict[str, Operation] = {
     "systemTenants.setLimits": Operation(
         "systemTenants.setLimits", "PUT", "/v1/system/tenants/{tenantId}/limits", "json", True
     ),
+    "systemUsage.read": Operation("systemUsage.read", "GET", "/v1/system/usage", "json", False),
+    "usage.read": Operation("usage.read", "GET", "/v1/usage", "json", False),
     "systemDeployments.list": Operation(
         "systemDeployments.list", "GET", "/v1/system/deployments", "json", False
     ),
@@ -963,6 +968,7 @@ OPERATIONS: dict[str, Operation] = {
         True,
     ),
     "tenant.get": Operation("tenant.get", "GET", "/v1/tenant", "json", False),
+    "tenant.update": Operation("tenant.update", "PATCH", "/v1/tenant", "empty", True),
     "tenant.config.list": Operation(
         "tenant.config.list", "GET", "/v1/tenant/config", "json", False
     ),
@@ -1148,6 +1154,13 @@ OPERATIONS: dict[str, Operation] = {
         "projects.sites.revokeKey",
         "POST",
         "/v1/projects/{projectId}/sites/{siteId}/keys/{kid}/revoke",
+        "json",
+        True,
+    ),
+    "projects.sites.restorePerson": Operation(
+        "projects.sites.restorePerson",
+        "POST",
+        "/v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore",
         "json",
         True,
     ),
@@ -1856,6 +1869,29 @@ class SystemTenantsResource:
             timeout=timeout,
         )
 
+    def update(
+        self,
+        tenant_id: str | UUID,
+        body: _models.TenantPatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Rename a tenant. `PATCH /v1/system/tenants/{tenantId}`
+
+        Changes its name, its slug, or both, as the tenant's own admins can (`PATCH /v1/tenant`); a field left out stays as it is. Its id stays. The same values again change nothing. Takes `system:tenants`. A closing tenant is refused (`409 tenant-closing`). A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.update"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPatch, body, fields),
+            timeout=timeout,
+        )
+
     def close(
         self,
         tenant_id: str | UUID,
@@ -2027,6 +2063,96 @@ class SystemTenantsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.TenantLimits, body, fields),
             response=_models.TenantLimitsResult,
+            timeout=timeout,
+        )
+
+
+class SystemUsageResource:
+    """`client.system_usage` — the `systemUsage` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def read(
+        self,
+        /,
+        *,
+        from_: str,
+        to: str,
+        group_by: str | None = None,
+        kind: str | None = None,
+        class_: str | None = None,
+        state: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        tenant_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.UsagePage:
+        """Read usage across tenants. `GET /v1/system/usage`
+
+        Usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Records are counted when the counted thing happens, exactly once (the kinds `kind` lists, each run with its class). `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A test tenant's usage, and one whose setup is pending, are never in the answer, even when `tenantId` names one. Takes `system:usage:read`; the access record marks a read across every tenant, or of the one named. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404.
+        """
+        return self._client._request(
+            _OPERATIONS["systemUsage.read"],
+            path={},
+            query={
+                "from": from_,
+                "to": to,
+                "groupBy": group_by,
+                "kind": kind,
+                "class": class_,
+                "state": state,
+                "limit": limit,
+                "cursor": cursor,
+                "tenantId": tenant_id,
+            },
+            headers={},
+            response=_models.UsagePage,
+            timeout=timeout,
+        )
+
+
+class UsageResource:
+    """`client.usage` — the `usage` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def read(
+        self,
+        /,
+        *,
+        from_: str,
+        to: str,
+        group_by: str | None = None,
+        kind: str | None = None,
+        class_: str | None = None,
+        state: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.UsagePage:
+        """Read your workspace's usage. `GET /v1/usage`
+
+        Your workspace's usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Over the projects you may read: a tenant admin's covers every project and the records with none; anyone else's, only the projects they may read, and one they can't read is absent rather than an error. `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404. Model-call cost is on `/v1/cost`.
+        """
+        return self._client._request(
+            _OPERATIONS["usage.read"],
+            path={},
+            query={
+                "from": from_,
+                "to": to,
+                "groupBy": group_by,
+                "kind": kind,
+                "class": class_,
+                "state": state,
+                "limit": limit,
+                "cursor": cursor,
+                "projectId": project_id,
+            },
+            headers={},
+            response=_models.UsagePage,
             timeout=timeout,
         )
 
@@ -8455,6 +8581,29 @@ class ProjectsSitesResource:
             timeout=timeout,
         )
 
+    def restore_person(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SitePersonRestoreResult:
+        """Let a person removed in Kindgi back in, through their site. `POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`
+
+        For one of the site's people removed in Kindgi (`POST /v1/identity/users/{userId}/unregister`) while the site still knows them: they're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` for someone in the tenant whose site still knows them; `left` when their site said they left it, removed in Kindgi too or not: a site forgets a person who leaves, and signs them in as a new person if they come back; `linked-elsewhere` when they also sign in another way (through another site, or the tenant's own sign-in), which letting them back in would open too: add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.restorePerson"],
+            path={"projectId": project_id, "siteId": site_id, "userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SitePersonRestoreResult,
+            timeout=timeout,
+        )
+
 
 class ProjectsResource:
     """`client.projects` — the `projects` operations."""
@@ -8657,6 +8806,28 @@ class TenantResource:
             query={},
             headers={},
             response=_models.Tenant,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        body: _models.TenantPatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Rename the caller's tenant. `PATCH /v1/tenant`
+
+        Changes its name, its slug, or both; a field left out stays as it is. Its id stays, so whatever names it by its id keeps working. The console's addresses carry the slug: after a new one, links with the old one stop opening the tenant, and another tenant may take the old one. The same values again change nothing. Takes `admin` on the tenant. A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.
+        """
+        return self._client._request(
+            _OPERATIONS["tenant.update"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPatch, body, fields),
             timeout=timeout,
         )
 
@@ -10452,6 +10623,29 @@ class AsyncSystemTenantsResource:
             timeout=timeout,
         )
 
+    async def update(
+        self,
+        tenant_id: str | UUID,
+        body: _models.TenantPatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Rename a tenant. `PATCH /v1/system/tenants/{tenantId}`
+
+        Changes its name, its slug, or both, as the tenant's own admins can (`PATCH /v1/tenant`); a field left out stays as it is. Its id stays. The same values again change nothing. Takes `system:tenants`. A closing tenant is refused (`409 tenant-closing`). A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.update"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPatch, body, fields),
+            timeout=timeout,
+        )
+
     async def close(
         self,
         tenant_id: str | UUID,
@@ -10623,6 +10817,96 @@ class AsyncSystemTenantsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.TenantLimits, body, fields),
             response=_models.TenantLimitsResult,
+            timeout=timeout,
+        )
+
+
+class AsyncSystemUsageResource:
+    """`client.system_usage` — the `systemUsage` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def read(
+        self,
+        /,
+        *,
+        from_: str,
+        to: str,
+        group_by: str | None = None,
+        kind: str | None = None,
+        class_: str | None = None,
+        state: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        tenant_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.UsagePage:
+        """Read usage across tenants. `GET /v1/system/usage`
+
+        Usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Records are counted when the counted thing happens, exactly once (the kinds `kind` lists, each run with its class). `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A test tenant's usage, and one whose setup is pending, are never in the answer, even when `tenantId` names one. Takes `system:usage:read`; the access record marks a read across every tenant, or of the one named. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemUsage.read"],
+            path={},
+            query={
+                "from": from_,
+                "to": to,
+                "groupBy": group_by,
+                "kind": kind,
+                "class": class_,
+                "state": state,
+                "limit": limit,
+                "cursor": cursor,
+                "tenantId": tenant_id,
+            },
+            headers={},
+            response=_models.UsagePage,
+            timeout=timeout,
+        )
+
+
+class AsyncUsageResource:
+    """`client.usage` — the `usage` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def read(
+        self,
+        /,
+        *,
+        from_: str,
+        to: str,
+        group_by: str | None = None,
+        kind: str | None = None,
+        class_: str | None = None,
+        state: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.UsagePage:
+        """Read your workspace's usage. `GET /v1/usage`
+
+        Your workspace's usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Over the projects you may read: a tenant admin's covers every project and the records with none; anyone else's, only the projects they may read, and one they can't read is absent rather than an error. `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404. Model-call cost is on `/v1/cost`.
+        """
+        return await self._client._request(
+            _OPERATIONS["usage.read"],
+            path={},
+            query={
+                "from": from_,
+                "to": to,
+                "groupBy": group_by,
+                "kind": kind,
+                "class": class_,
+                "state": state,
+                "limit": limit,
+                "cursor": cursor,
+                "projectId": project_id,
+            },
+            headers={},
+            response=_models.UsagePage,
             timeout=timeout,
         )
 
@@ -17071,6 +17355,29 @@ class AsyncProjectsSitesResource:
             timeout=timeout,
         )
 
+    async def restore_person(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SitePersonRestoreResult:
+        """Let a person removed in Kindgi back in, through their site. `POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`
+
+        For one of the site's people removed in Kindgi (`POST /v1/identity/users/{userId}/unregister`) while the site still knows them: they're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` for someone in the tenant whose site still knows them; `left` when their site said they left it, removed in Kindgi too or not: a site forgets a person who leaves, and signs them in as a new person if they come back; `linked-elsewhere` when they also sign in another way (through another site, or the tenant's own sign-in), which letting them back in would open too: add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.restorePerson"],
+            path={"projectId": project_id, "siteId": site_id, "userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SitePersonRestoreResult,
+            timeout=timeout,
+        )
+
 
 class AsyncProjectsResource:
     """`client.projects` — the `projects` operations."""
@@ -17275,6 +17582,28 @@ class AsyncTenantResource:
             query={},
             headers={},
             response=_models.Tenant,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        body: _models.TenantPatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Rename the caller's tenant. `PATCH /v1/tenant`
+
+        Changes its name, its slug, or both; a field left out stays as it is. Its id stays, so whatever names it by its id keeps working. The console's addresses carry the slug: after a new one, links with the old one stop opening the tenant, and another tenant may take the old one. The same values again change nothing. Takes `admin` on the tenant. A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.
+        """
+        return await self._client._request(
+            _OPERATIONS["tenant.update"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPatch, body, fields),
             timeout=timeout,
         )
 
@@ -18393,6 +18722,8 @@ class Resources:
     tokens: TokensResource
     system_keys: SystemKeysResource
     system_tenants: SystemTenantsResource
+    system_usage: SystemUsageResource
+    usage: UsageResource
     system_deployments: SystemDeploymentsResource
     service_accounts: ServiceAccountsResource
     approvals: ApprovalsResource
@@ -18447,6 +18778,8 @@ class Resources:
         self.tokens = TokensResource(client)
         self.system_keys = SystemKeysResource(client)
         self.system_tenants = SystemTenantsResource(client)
+        self.system_usage = SystemUsageResource(client)
+        self.usage = UsageResource(client)
         self.system_deployments = SystemDeploymentsResource(client)
         self.service_accounts = ServiceAccountsResource(client)
         self.approvals = ApprovalsResource(client)
@@ -18503,6 +18836,8 @@ class AsyncResources:
     tokens: AsyncTokensResource
     system_keys: AsyncSystemKeysResource
     system_tenants: AsyncSystemTenantsResource
+    system_usage: AsyncSystemUsageResource
+    usage: AsyncUsageResource
     system_deployments: AsyncSystemDeploymentsResource
     service_accounts: AsyncServiceAccountsResource
     approvals: AsyncApprovalsResource
@@ -18557,6 +18892,8 @@ class AsyncResources:
         self.tokens = AsyncTokensResource(client)
         self.system_keys = AsyncSystemKeysResource(client)
         self.system_tenants = AsyncSystemTenantsResource(client)
+        self.system_usage = AsyncSystemUsageResource(client)
+        self.usage = AsyncUsageResource(client)
         self.system_deployments = AsyncSystemDeploymentsResource(client)
         self.service_accounts = AsyncServiceAccountsResource(client)
         self.approvals = AsyncApprovalsResource(client)

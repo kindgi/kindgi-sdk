@@ -67,6 +67,12 @@ import { type TeamsClient, makeTeamsClient } from './resources/teams.js';
 import { type TenantClient, makeTenantClient } from './resources/tenant.js';
 import { type TokensClient, makeTokensClient } from './resources/tokens.js';
 import { type ToolsClient, makeToolsClient } from './resources/tools.js';
+import {
+  type SystemUsageClient,
+  type TenantUsageClient,
+  makeSystemUsageClient,
+  makeTenantUsageClient,
+} from './resources/usage.js';
 import { type UsersClient, makeUsersClient } from './resources/users.js';
 import {
   type WebhookEndpointsClient,
@@ -107,6 +113,8 @@ export interface KindgiClient {
   // Platform & configuration
   readonly tenant: TenantClient;
   readonly cost: CostClient;
+  /** Your workspace's usage, aggregated, over the projects you may read. */
+  readonly usage: TenantUsageClient;
   readonly capabilities: CapabilitiesClient;
   readonly adapters: AdaptersClient;
   readonly providers: ProvidersClient;
@@ -150,6 +158,8 @@ export interface KindgiClient {
   readonly systemDeployments: SystemDeploymentsClient;
   /** What the control plane sets on a tenant: production allowed, and limits. System keys only. */
   readonly systemTenants: SystemTenantsClient;
+  /** Usage across tenants, aggregated. System keys only. */
+  readonly systemUsage: SystemUsageClient;
   readonly tokens: TokensClient;
   /** Non-human principals with their own grants; they act through API keys. */
   readonly serviceAccounts: ServiceAccountsClient;
@@ -197,6 +207,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     approvals: makeApprovalsClient(transport),
     tenant: makeTenantClient(transport),
     cost: makeCostClient(transport),
+    usage: makeTenantUsageClient(transport),
     capabilities: makeCapabilitiesClient(transport),
     adapters: makeAdaptersClient(transport),
     providers: makeProvidersClient(transport),
@@ -227,6 +238,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     systemKeys: makeSystemKeysClient(transport),
     systemDeployments: makeSystemDeploymentsClient(transport),
     systemTenants: makeSystemTenantsClient(transport),
+    systemUsage: makeSystemUsageClient(transport),
     tokens: makeTokensClient(transport),
     serviceAccounts: makeServiceAccountsClient(transport),
     mcp: makeMcpClient(transport),

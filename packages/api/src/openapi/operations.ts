@@ -1449,9 +1449,9 @@ const ErrorResponse = (description: string): ResponseSpec => ({
  * A request that publishes schemas, refused by its tenant's compile
  * budget before it stored anything.
  */
-const SCHEMA_COMPILE_BUDGET = ErrorResponse(
-  '`rate-limit-exceeded` with `details.limit: "schema-compile-time"`, on a server with a compile budget (Kindgi Cloud): this tenant\'s schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.',
-);
+const SCHEMA_COMPILE_BUDGET_TEXT =
+  '`rate-limit-exceeded` with `details.limit: "schema-compile-time"`, on a server with a compile budget (Kindgi Cloud): this tenant\'s schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.';
+const SCHEMA_COMPILE_BUDGET = ErrorResponse(SCHEMA_COMPILE_BUDGET_TEXT);
 
 /**
  * A publish through the API into a later environment of an environment
@@ -1519,6 +1519,71 @@ const ProviderChangeRefused: ResponseSpec = ErrorResponse(
 
 // ---------------- operation registry ----------------
 
+function usageQueryParams(groupBy: string): ParameterSpec[] {
+  return [
+    {
+      name: 'from',
+      in: 'query',
+      required: true,
+      description:
+        'Records at or after this time: a time with a zone, such as `2026-11-01T00:00:00Z`.',
+      schema: { type: 'string', format: 'date-time' },
+    },
+    {
+      name: 'to',
+      in: 'query',
+      required: true,
+      description: 'Records before this time. At most 92 days after `from`.',
+      schema: { type: 'string', format: 'date-time' },
+    },
+    {
+      name: 'groupBy',
+      in: 'query',
+      required: false,
+      description: groupBy,
+      schema: { type: 'string' },
+    },
+    {
+      name: 'kind',
+      in: 'query',
+      required: false,
+      description:
+        'Only these kinds, comma-separated (`run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`).',
+      schema: { type: 'string' },
+    },
+    {
+      name: 'class',
+      in: 'query',
+      required: false,
+      description:
+        'Only these run classes, comma-separated (`production`, `staging`, `dry-run`, `replay`, `eval`, `child`).',
+      schema: { type: 'string' },
+    },
+    {
+      name: 'state',
+      in: 'query',
+      required: false,
+      description:
+        "Only these states, comma-separated: `on`, `off` (`project.production`); `completed`, `failed`, `cancelled` (`run.ended`); `escalation` (`approval.requested`, an escalation's next tier); `approved`, `rejected`, `withdrawn`, `escalated`, `expired` (`approval.decided`).",
+      schema: { type: 'string' },
+    },
+    {
+      name: 'limit',
+      in: 'query',
+      required: false,
+      description: 'Groups a page: 1 to 10000, default 1000.',
+      schema: { type: 'integer', minimum: 1, maximum: 10000 },
+    },
+    {
+      name: 'cursor',
+      in: 'query',
+      required: false,
+      description: "The previous page's `nextCursor`.",
+      schema: { type: 'string' },
+    },
+  ];
+}
+
 export const OPERATIONS: readonly OperationSpec[] = [
   // ---------- health ----------
   {
@@ -1575,14 +1640,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '404': ErrorResponse(
-        "Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`); or `input.conversationId` names no conversation of this tenant (`conversation-not-found`), answered before any turn starts, with `options.wait: false` too. A caller who can't read the conversation gets the same answer, byte for byte, in place of the 409 for a turn naming another project, or of the 403 for a conversation with no participant.",
+        "Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`); or `input.conversationId` names no conversation of this tenant (`conversation-not-found`), answered before any turn starts, with `options.wait: false` too. A caller who can't read the conversation gets the same answer, byte for byte, in place of the 409 for a turn naming another project, of the 403 for a conversation with no participant, or of the 409 for a closed conversation with no participant.",
       ),
       '403': ErrorResponse(
         "No `execute` on the agent or flow; or, for one more than one project serves run in one of its projects (the one named, else the conversation's, else a project-scoped key's when it is one of them, else its first), no `call` there for an agent (`caller` or `editor`) or `execute` there for a flow (`executor` or `editor`), asked in place of its own `execute` and of `write` on a named project; otherwise, naming a `projectId` without `write` on it; or a turn run as a participant whose memory the caller may not read (`participant-not-allowed`). A turn runs with its participant's memory (the conversation's stored participant, else `input.participantId`), so running as one takes being them (a person, by their user id) or `write` on the turn's project, as reading their memory does. A turn into a conversation with no participant takes having opened it (the caller `?openedBy=me` names) or `write` on its project (on its agent, for a conversation from before projects): `permission-denied`, with `details.resource` the conversation.",
       ),
       '422': ErrorResponse('Guardrail violation or budget exceeded.'),
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body; or `projectId` names a project other than `input.conversationId`'s (`conversation-project-mismatch`, with `details.projectId` and `details.conversationProjectId`): a conversation belongs to one project, so name its own or omit `projectId`; or an erasure of the turn's person (its conversation or its `participantId`) is in progress (`erasure-in-progress`): no new turn starts for them until it completes; or the run's project is suspended (`project-suspended`): no run starts in it until it's restored.",
+        "Idempotency-Key was reused with a different body; or `projectId` names a project other than `input.conversationId`'s (`conversation-project-mismatch`, with `details.projectId` and `details.conversationProjectId`): a conversation belongs to one project, so name its own or omit `projectId`; or an erasure of the turn's person (its conversation or its `participantId`) is in progress (`erasure-in-progress`): no new turn starts for them until it completes; or the run's project is suspended (`project-suspended`): no run starts in it until it's restored; or `input.conversationId` names a closed conversation (`conversation-closed`, with `details.conversationId`): it takes no new turns, so start a new one. It's answered before a run is made, with `options.wait: false` too, and only once the caller may add the turn: the 404 and 403 rules come first.",
       ),
       '400': ErrorResponse(
         "Malformed request body, or the body's `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the agent or flow isn't registered in the named `projectId`'s project, its org or the tenant (`details.issues`).",
@@ -2185,6 +2250,45 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'patch',
+    honoPath: '/v1/system/tenants/:tenantId',
+    openapiPath: '/v1/system/tenants/{tenantId}',
+    operationId: 'systemTenants.update',
+    summary: 'Rename a tenant',
+    description:
+      "Changes its name, its slug, or both, as the tenant's own admins can (`PATCH /v1/tenant`); a field left out stays as it is. Its id stays. The same values again change nothing. Takes `system:tenants`. A closing tenant is refused (`409 tenant-closing`). A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('TenantPatch') },
+    responses: {
+      '204': { description: 'Renamed, or already so. No body.' },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'A malformed body or a field out of its rules (`bad-input`), or a field other than `name` and `slug` (`unknown-field`).',
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse(
+        "Another tenant has the slug (`tenant-slug-taken`); the server's verified sign-in domains name the tenant by its current slug, or name the new one (`tenant-slug-in-config`); the tenant is closing (`tenant-closing`); its setup hasn't finished (`tenant-setup-pending`); or an Idempotency-Key reused with another body.",
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+      ),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/system/tenants/:tenantId/close',
     openapiPath: '/v1/system/tenants/{tenantId}/close',
@@ -2471,6 +2575,72 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
       '409': ErrorResponse(
         'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/system/usage',
+    openapiPath: '/v1/system/usage',
+    operationId: 'systemUsage.read',
+    summary: 'Read usage across tenants',
+    description:
+      "Usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Records are counted when the counted thing happens, exactly once (the kinds `kind` lists, each run with its class). `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A test tenant's usage, and one whose setup is pending, are never in the answer, even when `tenantId` names one. Takes `system:usage:read`; the access record marks a read across every tenant, or of the one named. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404.",
+    tags: ['system-usage'],
+    security: 'bearer',
+    parameters: [
+      ...usageQueryParams(
+        'Comma-separated, each once: `tenant`, `project`, `agent`, `kind`, `class`, `state`, `day` (the UTC date). Default `tenant,kind`.',
+      ),
+      {
+        name: 'tenantId',
+        in: 'query',
+        required: false,
+        description: 'Only this tenant.',
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
+    responses: {
+      '200': { description: 'A page of groups.', schema: ref('UsagePage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "A window, filter, `limit` or `cursor` this route can't read (`bad-input`), naming which.",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:usage:read` (`system-scope-missing`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/usage',
+    openapiPath: '/v1/usage',
+    operationId: 'usage.read',
+    summary: "Read your workspace's usage",
+    description:
+      "Your workspace's usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Over the projects you may read: a tenant admin's covers every project and the records with none; anyone else's, only the projects they may read, and one they can't read is absent rather than an error. `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404. Model-call cost is on `/v1/cost`.",
+    tags: ['usage'],
+    security: 'bearer',
+    parameters: [
+      ...usageQueryParams(
+        'Comma-separated, each once: `project`, `agent`, `kind`, `class`, `state`, `day` (the UTC date). Default `project,kind`.',
+      ),
+      {
+        name: 'projectId',
+        in: 'query',
+        required: false,
+        description: "Only this project. One you can't read gives an empty answer.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
+    responses: {
+      '200': { description: 'A page of groups.', schema: ref('UsagePage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "A window, filter, `limit` or `cursor` this route can't read (`bad-input`), naming which.",
+      ),
+      '403': ErrorResponse(
+        "The projects you may read can't be listed on this deployment, so usage across projects can't be limited to them (`permission-denied`): ask for one with `projectId`.",
       ),
     },
   },
@@ -7157,7 +7327,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many tenants (`KINDGI_TENANCY=multi`), where each tenant deploys only its own images: `image-not-allowed`, the image is outside the tenant's repository (`details.imagePrefix`, its own), or `image-prefix-unset`, the tenant has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or `tool-project-mismatch`, `agent-project-mismatch` or `flow-project-mismatch`: one of the image's tools, agents or flows belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `tool-kind-mismatch`: one of the image's tools has the id of an MCP endpoint's tool (`details.endpointId`; `details.primitive`, `details.id`), whose active versions are all the endpoint's; nothing was deployed. Or `project-suspended`: the project the deploy goes into (the named one, or the Default for a tenant-wide deploy) is suspended, and nothing deploys into it until it's restored. Or `environment-takes-promotions`: the project the deploy goes into is a later environment of an environment order, which takes builds only by promotion from the one before it; deploy into the order's first environment and promote the build from there (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '400': ErrorResponse(
-        "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. When `image-unverifiable` comes from a failed registry read, `details.cause` names why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't a readable archive), or `image-limit-exceeded`, with the bound in `details.limit` (`manifest`, `file`, `layer`, `read` or `unpack`: the image's own, so the same image is refused again; `tenant-unpack-hour`: the tenant's, which passes). A tool that declares or sends a model provider's key is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered.",
+        "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. When `image-unverifiable` comes from a failed registry read, `details.cause` names why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't a readable archive), or `image-limit-exceeded`, with the bound in `details.limit` (`manifest`, `file`, `layer`, `read` or `unpack`: the image's own, so the same image is refused again). The tenant's hour of image reads passes, so it answers `429`. A tool that declares or sends a model provider's key is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered.",
       ),
       '403': ErrorResponse(
         "Signer key not on the tenant's trust list. Or, with `projectId`, no admin on that project (`forbidden`), or a key limited to another project (`key-project-mismatch`); without it, no admin on the tenant.",
@@ -7165,7 +7335,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
-      '429': SCHEMA_COMPILE_BUDGET,
+      '429': ErrorResponse(
+        `${SCHEMA_COMPILE_BUDGET_TEXT} Or \`details.limit: "tenant-unpack-hour"\`, on a server that bounds each tenant's image reads (Kindgi Cloud): this tenant's image reads unpacked as much as they may in an hour. Nothing was deployed; \`Retry-After\` says when there's room again.`,
+      ),
     },
   },
   {
@@ -9039,6 +9211,31 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'patch',
+    honoPath: '/v1/tenant',
+    openapiPath: '/v1/tenant',
+    operationId: 'tenant.update',
+    summary: "Rename the caller's tenant",
+    description:
+      "Changes its name, its slug, or both; a field left out stays as it is. Its id stays, so whatever names it by its id keeps working. The console's addresses carry the slug: after a new one, links with the old one stop opening the tenant, and another tenant may take the old one. The same values again change nothing. Takes `admin` on the tenant. A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.",
+    tags: ['tenant'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('TenantPatch') },
+    responses: {
+      '204': { description: 'Renamed, or already so. No body.' },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'A malformed body or a field out of its rules (`bad-input`), or a field other than `name` and `slug` (`unknown-field`).',
+      ),
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('The tenant id on the token does not resolve to a stored row.'),
+      '409': ErrorResponse(
+        "Another tenant has the slug (`tenant-slug-taken`); the server's verified sign-in domains name the tenant by its current slug, or name the new one (`tenant-slug-in-config`); the tenant is closing (`tenant-closing`); its setup hasn't finished (`tenant-setup-pending`); or an Idempotency-Key reused with another body.",
+      ),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/tenant/config',
     openapiPath: '/v1/tenant/config',
@@ -10536,6 +10733,43 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse('Not a tenant admin.'),
       '404': ErrorResponse(
         'No site with that id in this project, or no key with that id (`site-not-found`).',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/sites/:siteId/people/:userId/restore',
+    openapiPath: '/v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore',
+    operationId: 'projects.sites.restorePerson',
+    summary: 'Let a person removed in Kindgi back in, through their site',
+    description:
+      "For one of the site's people removed in Kindgi (`POST /v1/identity/users/{userId}/unregister`) while the site still knows them: they're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` for someone in the tenant whose site still knows them; `left` when their site said they left it, removed in Kindgi too or not: a site forgets a person who leaves, and signs them in as a new person if they come back; `linked-elsewhere` when they also sign in another way (through another site, or the tenant's own sign-in), which letting them back in would open too: add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.",
+    tags: ['sites'],
+    security: 'bearer',
+    parameters: [
+      ProjectIdPathParam,
+      SiteIdPathParam,
+      {
+        name: 'userId',
+        in: 'path',
+        required: true,
+        description: "The person's id.",
+        schema: { type: 'string', minLength: 1 },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': {
+        description: 'The person, in the tenant again.',
+        schema: ref('SitePersonRestoreResult'),
+      },
+      ...CommonMutationErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse(
+        'No site with that id in this project (`site-not-found`), or the site has no link to that person (`site-person-not-found`).',
+      ),
+      '409': ErrorResponse(
+        'Refused, with nothing changed (`site-person-restore-refused`, `details.reason`: `not-removed`, `left` or `linked-elsewhere`), or an idempotency conflict.',
       ),
     },
   },

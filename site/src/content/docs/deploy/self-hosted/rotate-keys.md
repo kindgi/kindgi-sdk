@@ -278,7 +278,7 @@ signed keeps running, through restarts too. The revoked key stays listed for
 audit:
 
 ```sh
-curl -s "http://localhost:4000/v1/signing-keys?includeRevoked=true" -H "authorization: Bearer $KINDGI_API_TOKEN"
+curl -s "http://localhost:4000/v1/signing-keys?includeRevoked=true" -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 It answers with the keys as JSON. Each key in the list has its `revokedAt`

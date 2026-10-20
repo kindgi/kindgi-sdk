@@ -736,6 +736,7 @@ class SystemKey(BaseModel):
             "system:suspend",
             "system:deployments",
             "system:pack-env",
+            "system:usage:read",
             "system:license",
             "kindgi:system",
         ]
@@ -767,6 +768,7 @@ class MintSystemKeyBody(BaseModel):
                 "system:suspend",
                 "system:deployments",
                 "system:pack-env",
+                "system:usage:read",
                 "system:license",
                 "kindgi:system",
             ]
@@ -813,6 +815,7 @@ class MintSystemKeyResult(BaseModel):
                 "system:suspend",
                 "system:deployments",
                 "system:pack-env",
+                "system:usage:read",
                 "system:license",
                 "kindgi:system",
             ]
@@ -863,6 +866,7 @@ class Datum2(BaseModel):
                 "system:suspend",
                 "system:deployments",
                 "system:pack-env",
+                "system:usage:read",
                 "system:license",
                 "kindgi:system",
             ]
@@ -917,6 +921,7 @@ class RevokeSystemKeyResult(BaseModel):
                 "system:suspend",
                 "system:deployments",
                 "system:pack-env",
+                "system:usage:read",
                 "system:license",
                 "kindgi:system",
             ]
@@ -1852,6 +1857,71 @@ class ExportSigningKeyList(BaseModel):
     """
 
 
+class UsageGroup(BaseModel):
+    """
+    One group: the dimensions it's grouped by (only those), then its count, the sum of its quantities, and its first and last times.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID | None, Field(alias="tenantId")] = None
+    """
+    The tenant, on the operator's read across tenants.
+    """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    Absent for a record with no project; a tenant admin's read includes those, and the CLI shows them as `(none)`.
+    """
+    agent_id: Annotated[str | None, Field(alias="agentId")] = None
+    """
+    Absent for a record with no agent; the CLI shows those as `(none)`.
+    """
+    kind: str | None = None
+    """
+    What was counted: `run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`. A runtime may count more kinds later: show one you don't know as it is.
+    """
+    class_: Annotated[str | None, Field(alias="class")] = None
+    """
+    The class of the run a record counts or belongs to, fixed when the run was created: `production`, `staging`, `dry-run`, `replay`, `eval`, `child`. A record with no counted run has none. A runtime may add classes later: show one you don't know as it is.
+    """
+    state: str | None = None
+    """
+    The record's state, by kind: `on`, `off` (`project.production`); `completed`, `failed`, `cancelled` (`run.ended`); `escalation` (`approval.requested`, an escalation's next tier); `approved`, `rejected`, `withdrawn`, `escalated`, `expired` (`approval.decided`). Other kinds have none.
+    """
+    day: Annotated[str | None, Field(pattern="^\\d{4}-\\d{2}-\\d{2}$")] = None
+    """
+    The UTC date, `YYYY-MM-DD`.
+    """
+    count: Annotated[int, Field(ge=0)]
+    """
+    Records in the group.
+    """
+    quantity: float
+    """
+    The sum of their quantities: milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count.
+    """
+    first_at: Annotated[AwareDatetime, Field(alias="firstAt")]
+    last_at: Annotated[AwareDatetime, Field(alias="lastAt")]
+
+
+class UsagePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[UsageGroup]
+    watermark: AwareDatetime
+    """
+    Every record at or before this time is in the answer; a later one may not be yet. Re-read a window until its watermark is past the window's end. Every page of one read carries the same watermark.
+    """
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    More groups: pass it as `cursor`. Absent on the last page.
+    """
+
+
 class LicenseUsage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -2496,9 +2566,6 @@ class ConversationPolicy(BaseModel):
         populate_by_name=True,
     )
     history_limit: Annotated[int | None, Field(alias="historyLimit", ge=1)] = None
-    auto_close_after_inactive_seconds: Annotated[
-        int | None, Field(alias="autoCloseAfterInactiveSeconds", ge=1)
-    ] = None
     hitl_after_turns: Annotated[int | None, Field(alias="hitlAfterTurns", ge=1)] = None
 
 
@@ -9478,6 +9545,22 @@ class AddProjectMembershipResult(BaseModel):
     """
 
 
+class TenantPatch(BaseModel):
+    """
+    A new name, a new slug, or both; a field left out stays as it is. The id stays, so whatever names the tenant by its id keeps working.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: Annotated[str | None, Field(max_length=100, min_length=1)] = None
+    slug: Annotated[str | None, Field(max_length=63, pattern="^[a-z0-9](?:-?[a-z0-9])*$")] = None
+    """
+    Lowercase letters, digits and single hyphens, unique across tenants. The console's addresses carry it, so links with the old one stop opening the tenant; nothing else is keyed by it.
+    """
+
+
 class TenantLimits(BaseModel):
     """
     The tenant's limits that are set. A limit that isn't set is absent, and isn't enforced.
@@ -15491,6 +15574,18 @@ class UserCollectionPage(BaseModel):
     data: list[UserRecord]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class SitePersonRestoreResult(BaseModel):
+    """
+    A site's person let back in after a removal made in Kindgi (`POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user: UserRecord
 
 
 class WhoamiResult(BaseModel):
