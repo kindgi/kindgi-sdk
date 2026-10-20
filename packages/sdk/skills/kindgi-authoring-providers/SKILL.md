@@ -260,12 +260,14 @@ key isn't shared: set it first in each environment that runs the pack
 kindgi providers register --preset=anthropic --env=<env>                          # the preset's models
 kindgi providers register --preset=anthropic --models=claude-sonnet-5-5 --env=<env>  # just one
 ```
-- `--env` names one of the pack's environments, and the key goes in its
-  project. `register` with it prints the `kindgi secrets set` line to run
-  for each other environment. On a runtime with none of the pack's
-  environments, `kindgi secrets set` asks for a `--scope`. On Kindgi Cloud,
-  it's `prod` (On Kindgi Cloud, above; mistake 1). `--max-output-tokens=<n>`
-  sets another output cap.
+- `--env` names one of the pack's environments. On a runtime that keeps
+  its values under one env, the key goes in that environment's project, and
+  `register` with it prints the `kindgi secrets set` line, to run again with
+  each other environment's name. On a runtime that serves several
+  environments, or with an `--env` that isn't one of the pack's,
+  `kindgi secrets set` asks for a `--scope`. On Kindgi Cloud, it's `prod`
+  (On Kindgi Cloud, above; mistake 1). `--max-output-tokens=<n>` sets
+  another output cap.
 - To change a provider there, unregister it first (mistake 5), then
   register it again.
 - `kindgi deploy` doesn't register providers. `kindgi promote` checks the
