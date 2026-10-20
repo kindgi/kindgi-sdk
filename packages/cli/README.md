@@ -500,8 +500,12 @@ Builds a signed pack image with a Kindgi build server, and writes
   and the `packageManager` field. A pnpm app with no `packageManager` gets the
   host's pnpm version (`pnpm --version`), the one that wrote the lockfile,
   never the newest. Build scripts are off during the install;
-  then `rebuild` runs the ones the app allows, and the install is pruned to
-  production dependencies.
+  then `rebuild` runs the ones the app allows. Only production dependencies
+  are installed, unless `image` has build steps (`prisma()`'s `prisma
+  generate`), whose tools can be dev dependencies: then dev dependencies are
+  installed too, and pruned after the steps. Yarn 2 or later always installs
+  them and prunes after, as its production install doesn't check
+  `yarn.lock`. The build says which (`✓ Install: …`).
 - **A workspace:** with pnpm, only the pack's project and what it depends on
   are installed, not the rest of the workspace. npm and yarn install the
   whole workspace.

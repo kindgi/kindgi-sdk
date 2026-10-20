@@ -154,8 +154,8 @@ export async function runLocalIndexerReal(
  *     `node_modules` (imported by name);
  *   - the framework's process entries, `kindgi-index.mjs` and
  *     `kindgi-pack-service.mjs`: self-contained, from the CLI's own
- *     `@kindgi/handler-runtime` (the pack's install has none once
- *     pruned);
+ *     `@kindgi/handler-runtime` (the image's install has none: it has
+ *     production dependencies only);
  *   - `bundle-map.json`: each primitive's source path → its bundle.
  */
 export async function esbuildBundleReal(
@@ -270,7 +270,7 @@ export async function writeContainerfileReal(opts: WriteContainerfileOptions): P
     publishedAt: opts.publishedAt,
     buildTarget: opts.buildTarget,
     install: opts.install,
-    commands: installCommands(opts.install),
+    commands: installCommands(opts.install, opts.image.steps),
     image: opts.image,
     hasIncludes: opts.hasIncludes,
   });

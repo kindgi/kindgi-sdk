@@ -9,8 +9,10 @@
  *            packages `image` asks for (corepack on)
  *   deps     the app's dependencies, with its own package manager from
  *            its own lockfile, frozen and scripts off; then the build
- *            scripts it allows; then the extensions' steps (`prisma
- *            generate`); then pruned to production
+ *            scripts it allows. Production dependencies only, unless the
+ *            extensions have steps (`prisma generate`) or the manager is
+ *            yarn berry (`whyDevDependencies`): then dev dependencies
+ *            too, the steps, and a prune to production
  *   code     the bundles (`dist/`): the pack's, the framework's, the
  *            config, the bundle map
  *   closure  (`image.dependencies: 'loaded'`) the install trimmed to the
@@ -49,7 +51,7 @@
 
 import { binCommand } from '../package-manager.js';
 import { renderAptGetStep } from './apt.js';
-import type { HostInstall, InstallCommands } from './host-install.js';
+import { type HostInstall, type InstallCommands, whyDevDependencies } from './host-install.js';
 import type { ResolvedImage } from './image-config.js';
 
 export interface RenderContainerfileInputs {
@@ -119,6 +121,7 @@ export function renderContainerfile(inputs: RenderContainerfileInputs): string {
     .map(([name, value]) => `ENV ${name}=${dockerfileString(value)}`);
   const loaded = inputs.image.dependencies === 'loaded';
   const installed = loaded ? 'trimmed' : 'deps';
+  const devDependencies = whyDevDependencies(install, inputs.image.steps);
   const steps = inputs.image.steps.map((step) => {
     const { command, args } = binCommand(install.manager, step.bin, step.args ?? []);
     return `# ${step.extension}\n${run(`cd ${packDir} && ${[command, ...args].map(shellWord).join(' ')}`)}`;
@@ -167,8 +170,8 @@ RUN corepack install -g pnpm@${install.hostPnpm}`
      : ''
  }
 COPY --chown=node:node host/ ./${env.length > 0 ? `\n# Build env: the build steps and the indexer stage only, never the final image.\n${env.join('\n')}` : ''}
-${run(commands.install)}${inputs.image.contextFiles.length > 0 ? '\nCOPY --chown=node:node ext/ ./' : ''}${steps.length > 0 ? `\n${steps.join('\n')}` : ''}
-${run(commands.prune)}
+# ${devDependencies === undefined ? 'Production dependencies only, as there are no build steps.' : `Dev dependencies too, ${devDependencies}; pruned to production after.`}
+${run(commands.install)}${inputs.image.contextFiles.length > 0 ? '\nCOPY --chown=node:node ext/ ./' : ''}${steps.length > 0 ? `\n${steps.join('\n')}` : ''}${commands.prune === undefined ? '' : `\n${run(commands.prune)}`}
 
 # --- stage: code ---
 FROM scratch AS code

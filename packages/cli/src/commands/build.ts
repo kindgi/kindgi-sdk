@@ -47,6 +47,7 @@ import {
   type SkippedScript,
   devOnlyImports,
   resolveHostInstall,
+  whyDevDependencies,
 } from '../build/host-install.js';
 import {
   BuildServiceRefusal,
@@ -973,6 +974,7 @@ async function prepareNodeContext(
       `    ✓ ${install.secrets.map((s) => s.file).join(', ')}: read by the install as a build secret, never in the image`,
     );
   }
+  lines(installLine(install, image.steps));
   for (const line of skippedScriptLines(install.skippedScripts)) lines(line);
   const secrets = install.secrets.map((secret) => ({
     id: secret.id,
@@ -980,6 +982,17 @@ async function prepareNodeContext(
     file: secret.file,
   }));
   return { kind: 'ok', contextDir, counts: localIndex.counts, secrets };
+}
+
+/** The image's install: production dependencies only, or dev ones too, and why. */
+export function installLine(
+  install: Pick<HostInstall, 'manager' | 'yarnBerry'>,
+  steps: ResolvedImage['steps'],
+): string {
+  const why = whyDevDependencies(install, steps);
+  return why === undefined
+    ? '    ✓ Install: production dependencies only'
+    : `    ✓ Install: dev dependencies too, ${why}; pruned to production after`;
 }
 
 /**

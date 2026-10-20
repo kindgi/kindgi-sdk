@@ -379,6 +379,16 @@ const config = {
 With a `prisma.config.ts`, name it too:
 `prisma({ schema: 'prisma/schema.prisma', config: 'prisma.config.ts' })`.
 
+A build step's tool is often a dev dependency (the `prisma` CLI), so with
+build steps the install takes your dev dependencies too, and drops them after
+the steps; without any, it installs production dependencies only. Yarn 2 or
+later always takes them and drops them after, as its production install
+doesn't check `yarn.lock`. The build says which:
+
+```text
+    ✓ Install: dev dependencies too, for the build steps (prisma), whose tools can be dev dependencies; pruned to production after
+```
+
 **Also under `image`:**
 - `systemPackages`: Debian packages the image needs, such as
   `['tesseract-ocr']`.
