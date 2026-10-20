@@ -86,6 +86,9 @@ OPERATIONS: dict[str, Operation] = {
     "systemTenants.admins": Operation(
         "systemTenants.admins", "GET", "/v1/system/tenants/{tenantId}/admins", "json", False
     ),
+    "systemTenants.purge": Operation(
+        "systemTenants.purge", "POST", "/v1/system/tenants/{tenantId}/purge", "json", True
+    ),
     "systemKeys.whoami": Operation("systemKeys.whoami", "GET", "/v1/system/whoami", "json", False),
     "systemTenants.setProductionAllowed": Operation(
         "systemTenants.setProductionAllowed",
@@ -1999,6 +2002,30 @@ class SystemTenantsResource:
             query={},
             headers={},
             response=_models.TenantAdminContacts,
+            timeout=timeout,
+        )
+
+    def purge(
+        self,
+        tenant_id: str | UUID,
+        body: _models.PurgeTenantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SystemTenantPurge:
+        """Purge a closed tenant, for good. `POST /v1/system/tenants/{tenantId}/purge`
+
+        Deletes a `closing` tenant whose 30-day export window has passed: every row of it, its artifacts' bytes and its authorization store. Once nothing of it is left, its purge record is written, so a restore from an older backup purges it again, and it's marked purged: its tenants row stays, and nothing of it signs in or is served. Then, once each server has seen the mark, it deletes again what work under way at the mark wrote meanwhile. Irreversible. `confirm` is the tenant's slug, a second check on the id. It answers when done. Safe to run again: a run that stopped part-way (`complete: false`, or a request that ended before its answer) is finished by the next, and on a tenant already purged it deletes what was written after its mark, leaving its mark and its record as they were. A run again is a new request: a new Idempotency-Key, or none. Takes its own scope, `system:tenants:purge`, which no other scope includes, or `kindgi:system`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.purge"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PurgeTenantBody, body, fields),
+            response=_models.SystemTenantPurge,
             timeout=timeout,
         )
 
@@ -10751,6 +10778,30 @@ class AsyncSystemTenantsResource:
             query={},
             headers={},
             response=_models.TenantAdminContacts,
+            timeout=timeout,
+        )
+
+    async def purge(
+        self,
+        tenant_id: str | UUID,
+        body: _models.PurgeTenantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SystemTenantPurge:
+        """Purge a closed tenant, for good. `POST /v1/system/tenants/{tenantId}/purge`
+
+        Deletes a `closing` tenant whose 30-day export window has passed: every row of it, its artifacts' bytes and its authorization store. Once nothing of it is left, its purge record is written, so a restore from an older backup purges it again, and it's marked purged: its tenants row stays, and nothing of it signs in or is served. Then, once each server has seen the mark, it deletes again what work under way at the mark wrote meanwhile. Irreversible. `confirm` is the tenant's slug, a second check on the id. It answers when done. Safe to run again: a run that stopped part-way (`complete: false`, or a request that ended before its answer) is finished by the next, and on a tenant already purged it deletes what was written after its mark, leaving its mark and its record as they were. A run again is a new request: a new Idempotency-Key, or none. Takes its own scope, `system:tenants:purge`, which no other scope includes, or `kindgi:system`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.purge"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PurgeTenantBody, body, fields),
+            response=_models.SystemTenantPurge,
             timeout=timeout,
         )
 

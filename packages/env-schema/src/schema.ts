@@ -918,6 +918,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_TENANT_PURGE_RECORD',
+    description:
+      "Where the server writes a purged tenant's record, off the database, so a restore from an older backup purges it again: `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs). Each record is `purged/<tenant id>.json` there, as `kindgi-runtime tenants purge --record` writes it, and `kindgi-runtime tenants repurge --from` purges again every tenant one names, after a restore. It never overwrites or deletes one; keep them longer than your backups. On a runtime serving many tenants, `POST /v1/system/tenants/{tenantId}/purge` needs it: unset (the default), that route refuses every purge with `409 purge-record-unset`. A value that is neither form stops the server from starting.",
+    example: 'gcs:acme-purge-records/runtime',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_PASSIVE',
     description:
       "`on` boots a server that does nothing on its own, for looking at a restored backup before anyone uses it: none of its background work starts (runs, schedules and event triggers, webhook deliveries, sending permission changes to OpenFGA, the sweeps, erasures and the erasure ledger export), and it sends no email. Requests are served as usual, and a run started through the API still runs (in the server that took the request), so keep a passive server where only you can reach it. The startup output and `/ready` say it's passive. Off by default.",

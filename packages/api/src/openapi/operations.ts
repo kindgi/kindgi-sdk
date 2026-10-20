@@ -2459,6 +2459,54 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/system/tenants/:tenantId/purge',
+    openapiPath: '/v1/system/tenants/{tenantId}/purge',
+    operationId: 'systemTenants.purge',
+    summary: 'Purge a closed tenant, for good',
+    description:
+      "Deletes a `closing` tenant whose 30-day export window has passed: every row of it, its artifacts' bytes and its authorization store. Once nothing of it is left, its purge record is written, so a restore from an older backup purges it again, and it's marked purged: its tenants row stays, and nothing of it signs in or is served. Then, once each server has seen the mark, it deletes again what work under way at the mark wrote meanwhile. Irreversible. `confirm` is the tenant's slug, a second check on the id. It answers when done. Safe to run again: a run that stopped part-way (`complete: false`, or a request that ended before its answer) is finished by the next, and on a tenant already purged it deletes what was written after its mark, leaving its mark and its record as they were. A run again is a new request: a new Idempotency-Key, or none. Takes its own scope, `system:tenants:purge`, which no other scope includes, or `kindgi:system`.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('PurgeTenantBody') },
+    responses: {
+      '200': {
+        description: 'What it deleted, and what of it is left.',
+        schema: ref('SystemTenantPurge'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "No `confirm`, or one that isn't the tenant's slug (`tenant-slug-mismatch`). Nothing was changed.",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:purge` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse(
+        'No tenant with that id (`tenant-not-found`). A purged one is found, for a run again.',
+      ),
+      '409': ErrorResponse(
+        "Nothing was changed: the tenant isn't closing (`tenant-not-closing`), or its export window is still open (`tenant-export-window-open`); the runtime has nowhere set to keep purge records (`purge-record-unset`), or lacks the setting that reaches what the tenant holds (`purge-setting-missing`); or an Idempotency-Key reused with another body.",
+      ),
+      '501': ErrorResponse("This runtime doesn't purge tenants (`tenant-purge-unsupported`)."),
+      '502': ErrorResponse(
+        "Deleting the tenant's authorization store failed (`authz-store-delete-failed`): the message says what that left. Run it again.",
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+      ),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/system/whoami',
     openapiPath: '/v1/system/whoami',

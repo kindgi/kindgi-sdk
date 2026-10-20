@@ -403,6 +403,13 @@
           "pack-env-unavailable": 503,
           "tenant-closing": 409,
           "tenant-suspended": 409,
+          "tenant-slug-mismatch": 400,
+          "tenant-not-closing": 409,
+          "tenant-export-window-open": 409,
+          "purge-record-unset": 409,
+          "purge-setting-missing": 409,
+          "authz-store-delete-failed": 502,
+          "tenant-purge-unsupported": 501,
           "project-suspended": 409,
           "pack-suspended": 409,
           "endpoint-url-invalid": 400,
@@ -3619,6 +3626,103 @@
                 }
               }
             }
+          }
+        }
+      },
+      "PurgeTenantBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "confirm"
+        ],
+        "properties": {
+          "confirm": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The tenant's slug, a second check on the id."
+          }
+        }
+      },
+      "TenantTableRows": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A tenant's rows in one table: the table's name and a count.",
+        "required": [
+          "table",
+          "rows"
+        ],
+        "properties": {
+          "table": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "SystemTenantPurge": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenantId",
+          "complete",
+          "alreadyPurged",
+          "deleted",
+          "objectsDeleted",
+          "authzStoreDeleted",
+          "left",
+          "objectsLeft"
+        ],
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "complete": {
+            "type": "boolean",
+            "description": "`true`: nothing of the tenant is left, its purge record is written, and it's marked purged. `false`: `left` and `objectsLeft` say what is; run it again."
+          },
+          "alreadyPurged": {
+            "type": "boolean",
+            "description": "It was marked purged before this run: what this run deleted was written after its mark. Its mark and its record stay as they were."
+          },
+          "purgedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was marked purged. Absent while something of it from before the mark is left."
+          },
+          "deleted": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenantTableRows"
+            },
+            "description": "Rows this run deleted, per table with any: table names and counts, never the rows' content."
+          },
+          "objectsDeleted": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Objects this run deleted from the artifacts' store."
+          },
+          "authzStoreDeleted": {
+            "type": "boolean",
+            "description": "Whether this run deleted its authorization store."
+          },
+          "left": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenantTableRows"
+            },
+            "description": "Rows of it still there afterwards, per table; empty when none are. A table the purge doesn't delete from is named too: report it."
+          },
+          "objectsLeft": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Objects still under its prefix in the artifacts' store."
+          },
+          "leftBecause": {
+            "type": "string",
+            "description": "Why what's left wasn't deleted, when it's a setting the runtime lacks."
           }
         }
       },
@@ -27117,6 +27221,165 @@
             "description": "The tenant's id."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/purge": {
+      "post": {
+        "operationId": "systemTenants.purge",
+        "summary": "Purge a closed tenant, for good",
+        "tags": [
+          "system-tenants"
+        ],
+        "responses": {
+          "200": {
+            "description": "What it deleted, and what of it is left.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemTenantPurge"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No `confirm`, or one that isn't the tenant's slug (`tenant-slug-mismatch`). Nothing was changed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:purge` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No tenant with that id (`tenant-not-found`). A purged one is found, for a run again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Nothing was changed: the tenant isn't closing (`tenant-not-closing`), or its export window is still open (`tenant-export-window-open`); the runtime has nowhere set to keep purge records (`purge-record-unset`), or lacks the setting that reaches what the tenant holds (`purge-setting-missing`); or an Idempotency-Key reused with another body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "This runtime doesn't purge tenants (`tenant-purge-unsupported`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Deleting the tenant's authorization store failed (`authz-store-delete-failed`): the message says what that left. Run it again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Deletes a `closing` tenant whose 30-day export window has passed: every row of it, its artifacts' bytes and its authorization store. Once nothing of it is left, its purge record is written, so a restore from an older backup purges it again, and it's marked purged: its tenants row stays, and nothing of it signs in or is served. Then, once each server has seen the mark, it deletes again what work under way at the mark wrote meanwhile. Irreversible. `confirm` is the tenant's slug, a second check on the id. It answers when done. Safe to run again: a run that stopped part-way (`complete: false`, or a request that ended before its answer) is finished by the next, and on a tenant already purged it deletes what was written after its mark, leaving its mark and its record as they were. A run again is a new request: a new Idempotency-Key, or none. Takes its own scope, `system:tenants:purge`, which no other scope includes, or `kindgi:system`.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurgeTenantBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []
