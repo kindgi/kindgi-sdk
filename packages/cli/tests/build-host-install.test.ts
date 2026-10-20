@@ -18,9 +18,10 @@ import {
   installCommands,
   readPackDependencies,
   resolveHostInstall,
+  whyDevDependencies,
   withoutInstallScripts,
 } from '../src/build/host-install.js';
-import { skippedScriptLines } from '../src/commands/build.js';
+import { installLine, skippedScriptLines } from '../src/commands/build.js';
 
 let root: string;
 const put = async (rel: string, body = '{}\n'): Promise<void> => {
@@ -81,7 +82,7 @@ describe('resolveHostInstall', () => {
     });
   });
 
-  test("the pack project's own dependencies: what the image keeps, and what its prune drops", async () => {
+  test("the pack project's own dependencies: what the image keeps, and what it leaves out", async () => {
     await put(
       'package.json',
       json({ name: 'mono', workspaces: ['apps/*'], dependencies: { 'left-pad': '1.3.0' } }),
@@ -277,6 +278,9 @@ describe('resolveHostInstall', () => {
   });
 });
 
+/** `prisma()`'s build step. */
+const PRISMA_STEPS = [{ extension: 'prisma', bin: 'prisma', args: ['generate'] }] as const;
+
 describe('installCommands', () => {
   const base = {
     root: '/repo',
@@ -289,23 +293,120 @@ describe('installCommands', () => {
     packDependencies: { runtime: [], dev: [] },
     secrets: [],
   } as const;
+  const member = "--filter '{./apps/support}...'";
 
+  // No build steps: production dependencies only, so no dev dependency is
+  // downloaded, and nothing to prune.
   test.each([
     [
       'pnpm',
-      false,
+      { manager: 'pnpm' },
+      'pnpm install --frozen-lockfile --ignore-scripts --prod && pnpm rebuild',
+    ],
+    [
+      'a pnpm workspace',
+      { manager: 'pnpm', workspace: true, packRel: 'apps/support' },
+      `pnpm install --frozen-lockfile --ignore-scripts --prod ${member} && pnpm ${member} rebuild`,
+    ],
+    [
+      'npm',
+      { manager: 'npm' },
+      'npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm rebuild',
+    ],
+    [
+      'yarn classic',
+      { manager: 'yarn' },
+      'yarn install --production --frozen-lockfile --ignore-scripts --non-interactive && npm rebuild',
+    ],
+  ] as const)('%s, no build steps: production dependencies only, no prune', (_, over, install) => {
+    expect(installCommands({ ...base, ...over }, [])).toStrictEqual({ install });
+  });
+
+  // Build steps: dev dependencies too, for the steps' tools, then the prune.
+  // Yarn berry the same without any: its production install resolves what yarn.lock lacks.
+  test.each([
+    [
+      'pnpm, a build step',
+      { manager: 'pnpm' },
+      PRISMA_STEPS,
       'pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild',
       'pnpm prune --prod',
     ],
     [
-      'npm',
-      false,
+      'a pnpm workspace, a build step',
+      { manager: 'pnpm', workspace: true, packRel: 'apps/support' },
+      PRISMA_STEPS,
+      `pnpm install --frozen-lockfile --ignore-scripts ${member} && pnpm ${member} rebuild`,
+      `pnpm install --frozen-lockfile --ignore-scripts --prod ${member}`,
+    ],
+    [
+      'npm, a build step',
+      { manager: 'npm' },
+      PRISMA_STEPS,
       'npm ci --ignore-scripts --no-audit --no-fund && npm rebuild',
       'npm prune --omit=dev --no-audit --no-fund',
     ],
-    ['yarn', true, 'yarn install --immutable', 'yarn workspaces focus --all --production'],
-  ] as const)('%s (berry: %s)', (manager, yarnBerry, install, prune) => {
-    expect(installCommands({ ...base, manager, yarnBerry })).toEqual({ install, prune });
+    [
+      'yarn classic, a build step',
+      { manager: 'yarn' },
+      PRISMA_STEPS,
+      'yarn install --frozen-lockfile --ignore-scripts --non-interactive && npm rebuild',
+      'yarn install --production --frozen-lockfile --ignore-scripts --non-interactive && npm rebuild',
+    ],
+    [
+      'yarn berry, a build step',
+      { manager: 'yarn', yarnBerry: true },
+      PRISMA_STEPS,
+      'yarn install --immutable',
+      'yarn workspaces focus --all --production',
+    ],
+    [
+      'yarn berry, no build steps',
+      { manager: 'yarn', yarnBerry: true },
+      [],
+      'yarn install --immutable',
+      'yarn workspaces focus --all --production',
+    ],
+  ] as const)('%s: dev dependencies too, then the prune', (_, over, steps, install, prune) => {
+    expect(installCommands({ ...base, ...over }, steps)).toStrictEqual({ install, prune });
+  });
+});
+
+describe('whyDevDependencies', () => {
+  test('build steps: their extensions, each named once', () => {
+    const steps = [
+      ...PRISMA_STEPS,
+      { extension: 'patch-package', bin: 'patch-package' },
+      { extension: 'prisma', bin: 'prisma', args: ['validate'] },
+    ];
+    for (const manager of ['pnpm', 'npm', 'yarn'] as const) {
+      expect(whyDevDependencies({ manager, yarnBerry: manager === 'yarn' }, steps)).toBe(
+        'for the build steps (prisma, patch-package), whose tools can be dev dependencies',
+      );
+    }
+  });
+
+  test('yarn berry, with no build steps: its production install resolves what yarn.lock lacks', () => {
+    expect(whyDevDependencies({ manager: 'yarn', yarnBerry: true }, [])).toBe(
+      "since yarn berry's production install resolves what yarn.lock lacks instead of failing",
+    );
+  });
+
+  test('none: no build steps, and not yarn berry', () => {
+    for (const manager of ['pnpm', 'npm', 'yarn'] as const) {
+      expect(whyDevDependencies({ manager, yarnBerry: false }, [])).toBeUndefined();
+    }
+  });
+});
+
+describe('installLine', () => {
+  test('production dependencies only, or dev ones too and why', () => {
+    expect(installLine({ manager: 'npm', yarnBerry: false }, [])).toBe(
+      '    ✓ Install: production dependencies only',
+    );
+    expect(installLine({ manager: 'npm', yarnBerry: false }, PRISMA_STEPS)).toBe(
+      '    ✓ Install: dev dependencies too, for the build steps (prisma), whose tools can be dev dependencies; pruned to production after',
+    );
   });
 });
 

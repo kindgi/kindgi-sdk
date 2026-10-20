@@ -33,6 +33,7 @@ import { createGlobMatcher } from '@kindgi/handler-runtime';
 import { parse as parseYaml } from 'yaml';
 
 import { forbiddenReason } from './context-files.js';
+import type { ResolvedImage } from './image-config.js';
 
 export type ImagePackageManager = 'pnpm' | 'npm' | 'yarn';
 
@@ -87,7 +88,7 @@ export interface HostInstall {
 /**
  * The pack project's own dependency names, sorted: what the image keeps
  * (`dependencies`, `optionalDependencies`, `peerDependencies`), and what
- * its prune to production drops (`devDependencies`).
+ * it leaves out (`devDependencies`).
  */
 export interface PackDependencies {
   readonly runtime: readonly string[];
@@ -308,7 +309,7 @@ export async function readPackDependencies(packDir: string): Promise<PackDepende
 
 /**
  * The packages the pack's bundles import that its project lists only in
- * devDependencies: the image's prune to production drops them, so they'd
+ * devDependencies: the image has production dependencies only, so they'd
  * be missing there although they load locally. A package in both
  * sections stays.
  */
@@ -357,48 +358,91 @@ export function withoutInstallScripts(text: string): string {
   return `${JSON.stringify({ ...manifest, scripts: kept }, null, 2)}\n`;
 }
 
-/** The install, and the prune once build steps that need dev dependencies are done. */
-export interface InstallCommands {
-  /** Full install, frozen, scripts off; then the allowed build scripts. */
-  readonly install: string;
-  /** Down to production dependencies. */
-  readonly prune: string;
+/**
+ * Why the image's install takes dev dependencies too, then prunes them;
+ * `undefined` when it installs production dependencies only, so no dev
+ * dependency is downloaded. Build steps run tools that can be dev
+ * dependencies (`prisma generate` runs the `prisma` CLI). Yarn berry's
+ * production install (`yarn workspaces focus --production`) resolves what
+ * yarn.lock lacks instead of failing, even with `enableImmutableInstalls`
+ * on, so its frozen install is the full `yarn install --immutable`.
+ */
+export function whyDevDependencies(
+  install: Pick<HostInstall, 'manager' | 'yarnBerry'>,
+  steps: ResolvedImage['steps'],
+): string | undefined {
+  if (steps.length > 0) {
+    const extensions = [...new Set(steps.map((step) => step.extension))];
+    return `for the build steps (${extensions.join(', ')}), whose tools can be dev dependencies`;
+  }
+  if (install.manager === 'yarn' && install.yarnBerry) {
+    return "since yarn berry's production install resolves what yarn.lock lacks instead of failing";
+  }
+  return undefined;
 }
 
-export function installCommands(install: HostInstall): InstallCommands {
+/**
+ * The install: production dependencies only, or, when `whyDevDependencies`
+ * says why, dev dependencies too and the prune once the build steps are done.
+ */
+export interface InstallCommands {
+  /** Frozen, scripts off; then the allowed build scripts. */
+  readonly install: string;
+  /** Down to production dependencies; none when `install` installs only those. */
+  readonly prune?: string;
+}
+
+export function installCommands(
+  install: HostInstall,
+  steps: ResolvedImage['steps'],
+): InstallCommands {
+  const dev = whyDevDependencies(install, steps) !== undefined;
   switch (install.manager) {
     case 'pnpm': {
       // `rebuild` runs the build scripts the app allows (pnpm's allowBuilds).
       if (!install.workspace) {
-        return {
-          install: 'pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild',
-          prune: 'pnpm prune --prod',
-        };
+        return dev
+          ? {
+              install: 'pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild',
+              prune: 'pnpm prune --prod',
+            }
+          : { install: 'pnpm install --frozen-lockfile --ignore-scripts --prod && pnpm rebuild' };
       }
       // A workspace: the pack's project and what it depends on, not the
       // rest of the workspace. The prune is the same filtered install with
       // --prod (`pnpm prune` ignores a filter and installs the whole
       // workspace).
       const only = `--filter '{${install.packRel === '' ? '.' : `./${install.packRel}`}}...'`;
-      return {
-        install: `pnpm install --frozen-lockfile --ignore-scripts ${only} && pnpm ${only} rebuild`,
-        prune: `pnpm install --frozen-lockfile --ignore-scripts --prod ${only}`,
-      };
+      const production = `pnpm install --frozen-lockfile --ignore-scripts --prod ${only}`;
+      return dev
+        ? {
+            install: `pnpm install --frozen-lockfile --ignore-scripts ${only} && pnpm ${only} rebuild`,
+            prune: production,
+          }
+        : { install: `${production} && pnpm ${only} rebuild` };
     }
     case 'npm':
-      return {
-        install: 'npm ci --ignore-scripts --no-audit --no-fund && npm rebuild',
-        prune: 'npm prune --omit=dev --no-audit --no-fund',
-      };
-    case 'yarn':
-      return install.yarnBerry
-        ? { install: 'yarn install --immutable', prune: 'yarn workspaces focus --all --production' }
-        : {
+      return dev
+        ? {
+            install: 'npm ci --ignore-scripts --no-audit --no-fund && npm rebuild',
+            prune: 'npm prune --omit=dev --no-audit --no-fund',
+          }
+        : { install: 'npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm rebuild' };
+    case 'yarn': {
+      // Berry always takes dev dependencies too (`whyDevDependencies`).
+      if (install.yarnBerry) {
+        return { install: 'yarn install --immutable', prune: 'yarn workspaces focus --all --production' };
+      }
+      const production =
+        'yarn install --production --frozen-lockfile --ignore-scripts --non-interactive && npm rebuild';
+      return dev
+        ? {
             install:
               'yarn install --frozen-lockfile --ignore-scripts --non-interactive && npm rebuild',
-            prune:
-              'yarn install --production --frozen-lockfile --ignore-scripts --non-interactive && npm rebuild',
-          };
+            prune: production,
+          }
+        : { install: production };
+    }
   }
 }
 

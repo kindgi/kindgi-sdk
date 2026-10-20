@@ -893,6 +893,8 @@ describe('kindgi build — pipeline stages fire in order', () => {
     expect(fixtures.state.streamCalls).toBe(1);
     expect(fixtures.state.signCalls).toBe(1);
     expect(fixtures.state.dockerBuilds).toEqual([]);
+    // No build steps: the image installs production dependencies only.
+    expect(out.stderr).toContain('    ✓ Install: production dependencies only\n');
     // Pull runner fires once because integrity gate is on + docker is
     // available (fake).
     expect(fixtures.state.pullCalls).toBe(1);

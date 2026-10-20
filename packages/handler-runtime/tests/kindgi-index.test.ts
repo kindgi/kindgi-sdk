@@ -1424,7 +1424,7 @@ describe('runIndexer — a build (bundleMap)', () => {
           content: "export default { pack: { id: 'acme.pack', version: '1.0.0' } };\n",
         },
         'tools/ok.mjs': { module: undefined, content: tool('acme.ok') },
-        // A package the image doesn't have (a devDependency its prune dropped).
+        // A package the image doesn't have (a devDependency: production ones only).
         'tools/broken.mjs': {
           module: undefined,
           content: tool('acme.broken', "import 'acme-package-not-installed';\n"),

@@ -382,13 +382,26 @@ const config = {
 With a `prisma.config.ts`, name it too:
 `prisma({ schema: 'prisma/schema.prisma', config: 'prisma.config.ts' })`.
 
+A build step's tool is often a dev dependency (the `prisma` CLI), so with
+build steps the install takes your dev dependencies too, and drops them after
+the steps; without any, it installs production dependencies only. Yarn 2 or
+later always takes them and drops them after, as its production install
+resolves what `yarn.lock` lacks instead of failing, even with
+`enableImmutableInstalls` on. The build says which:
+
+```text
+    ✓ Install: dev dependencies too, for the build steps (prisma), whose tools can be dev dependencies; pruned to production after
+```
+
 **Also under `image`:**
 - `systemPackages`: Debian packages the image needs, such as
   `['tesseract-ocr']`.
 - `buildEnv`: placeholder variables for the build steps and for loading your
   modules while building, such as
   `{ DATABASE_URL: 'postgresql://build-placeholder' }`. Never secrets: they're
-  set while building only, and the final image doesn't have them.
+  set while building only, and the final image doesn't have them. Your modules
+  load with `NODE_ENV=production` while building, as in the deployed service,
+  unless `buildEnv` sets `NODE_ENV`.
 - **patch-package:** when a skipped script runs it, `kindgi build` prints the
   build step to add (`defineBuildExtension`, also from `@kindgi/sdk/build`).
   With pnpm, `pnpm patch` applies your patches in the install itself.
