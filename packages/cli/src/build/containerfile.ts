@@ -9,7 +9,9 @@
  *            packages `image` asks for (corepack on)
  *   deps     the app's dependencies, with its own package manager from
  *            its own lockfile, frozen and scripts off; then the build
- *            scripts it allows. Production dependencies only, unless the
+ *            scripts it allows. With `image.dependencies: 'loaded'`, only
+ *            what the pack loads, from a manifest and lockfile cut down
+ *            to it (`loaded-install.ts`), when the lockfile allows. Production dependencies only, unless the
  *            extensions have steps (`prisma generate`) or the manager is
  *            yarn berry (`whyDevDependencies`): then dev dependencies
  *            too, the steps, and a prune to production
@@ -62,7 +64,7 @@ export interface RenderContainerfileInputs {
   readonly buildTarget: string;
   readonly install: Pick<
     HostInstall,
-    'manager' | 'managerSpec' | 'hostPnpm' | 'packRel' | 'secrets' | 'yarnBerry'
+    'manager' | 'managerSpec' | 'hostPnpm' | 'packRel' | 'secrets' | 'yarnBerry' | 'reduced'
   >;
   readonly commands: InstallCommands;
   /** What `image` in `kindgi.config` adds (`image-config.ts`). */
@@ -175,7 +177,11 @@ USER node${
 RUN corepack install -g pnpm@${install.hostPnpm}`
      : ''
  }
-COPY --chown=node:node host/ ./${env.length > 0 ? `\n# Build env: the build steps and the indexer stage only, never the final image.\n${env.join('\n')}` : ''}
+COPY --chown=node:node host/ ./${env.length > 0 ? `\n# Build env: the build steps and the indexer stage only, never the final image.\n${env.join('\n')}` : ''}${
+   install.reduced === undefined
+     ? ''
+     : `\n# Only what the pack loads: ${install.reduced.kept} of the lockfile's ${install.reduced.total} packages, from the manifest and lockfile kindgi build cut down to them.`
+ }
 # ${devDependencies === undefined ? 'Production dependencies only, as there are no build steps.' : `Dev dependencies too, ${devDependencies}; pruned to production after.`}
 ${run(commands.install)}${inputs.image.contextFiles.length > 0 ? '\nCOPY --chown=node:node ext/ ./' : ''}${steps.length > 0 ? `\n${steps.join('\n')}` : ''}${commands.prune === undefined ? '' : `\n${run(commands.prune)}`}
 
