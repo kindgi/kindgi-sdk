@@ -35,6 +35,7 @@ import type {
   AgentRegistryBinding,
   AgentReleaseBindings,
   AgentVersionRecord,
+  EstimateImprovementPassInput,
   EvalRun,
   EvalRunBinding,
   EvalRunStartInput,
@@ -42,6 +43,7 @@ import type {
   GatePolicySpec,
   ImprovementPass,
   ImprovementPassBinding,
+  ImprovementPassEstimateBasis,
   JudgedComparisonSummary,
   LivePin,
   Promotion,
@@ -1669,6 +1671,111 @@ describe('improvement passes', () => {
     });
     expect((await h.call('GET', `/v1/improvement-passes/${pass.id}`)).status).toBe(404);
     expect((await h.call('GET', '/v1/improvement-passes')).body.data).toEqual([]);
+  });
+});
+
+describe('POST /v1/proposals/improve/estimate', () => {
+  const IMPROVE = { agentId: AGENT, scope: SEGMENT_WIRE, suiteId: 'acme.scoring-judged' };
+
+  /** The in-memory passes binding plus an `estimateBasis` stub, and the inputs it saw. */
+  function withEstimate(basis: ImprovementPassEstimateBasis) {
+    const passes = inMemoryPasses();
+    const seen: EstimateImprovementPassInput[] = [];
+    const binding: ImprovementPassBinding = {
+      ...passes.binding,
+      async estimateBasis(input) {
+        seen.push(input);
+        return basis;
+      },
+    };
+    return { binding, seen };
+  }
+
+  test('estimates min(cap, replays × the version mean) and reports the basis', async () => {
+    const { binding, seen } = withEstimate({ replays: 10, meanRunCostUsd: '0.2' });
+    const h = await harness({ tunable: true, passes: binding });
+    // No tenant-wide pin: a cost preview is lighter than a start.
+    const res = await h.call('POST', '/v1/proposals/improve/estimate', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    // 10 × $0.20 = $2.00, under the default $5 cap.
+    expect(res.body).toEqual({
+      estimatedCostUsd: '2',
+      maxCostUsd: '5',
+      basis: { replays: 10, meanRunCostUsd: '0.2' },
+    });
+    expect(seen).toHaveLength(1);
+    const got = seen[0];
+    if (got === undefined) throw new Error('no estimate input captured');
+    expect(got).toMatchObject({
+      tenantId,
+      agentId: AGENT,
+      suiteId: 'acme.scoring-judged',
+      tiers: ['settings'],
+    });
+    expect(got.scope).toBeDefined();
+    // No fromVersion given, so none is forwarded (the basis resolves the serving version).
+    expect('fromVersion' in got).toBe(false);
+  });
+
+  test('clamps the estimate to the budget cap: it never exceeds maxCostUsd', async () => {
+    const { binding } = withEstimate({ replays: 1000, meanRunCostUsd: '1' });
+    const h = await harness({ tunable: true, passes: binding });
+    const res = await h.call('POST', '/v1/proposals/improve/estimate', {
+      ...IMPROVE,
+      budget: { maxCostUsd: 20 },
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    // 1000 × $1 = $1000, clamped to the $20 cap.
+    expect(res.body.estimatedCostUsd).toBe('20');
+    expect(res.body.maxCostUsd).toBe('20');
+  });
+
+  test('leaves estimatedCostUsd absent when the version has no cost history', async () => {
+    const { binding } = withEstimate({ replays: 10 });
+    const h = await harness({ tunable: true, passes: binding });
+    const res = await h.call('POST', '/v1/proposals/improve/estimate', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toEqual({ maxCostUsd: '5', basis: { replays: 10 } });
+    expect('estimatedCostUsd' in res.body).toBe(false);
+  });
+
+  test('forwards the prompt options (model, candidates) to the basis', async () => {
+    const { binding, seen } = withEstimate({ replays: 4, meanRunCostUsd: '0.5' });
+    const h = await harness({ passes: binding });
+    const model = { providerId: 'acme-llm', model: 'm-1' };
+    const res = await h.call('POST', '/v1/proposals/improve/estimate', {
+      ...IMPROVE,
+      tiers: ['prompt'],
+      model,
+      candidates: 4,
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(seen[0]).toMatchObject({ tiers: ['prompt'], model, candidates: 4 });
+  });
+
+  test('a malformed body is bad input (400) and asks the basis for nothing', async () => {
+    const { binding, seen } = withEstimate({ replays: 1, meanRunCostUsd: '1' });
+    const h = await harness({ tunable: true, passes: binding });
+    const res = await h.call('POST', '/v1/proposals/improve/estimate', { ...IMPROVE, extra: 1 });
+    expect(res.status).toBe(400);
+    expect(seen).toEqual([]);
+  });
+
+  test('needs publish on the agent: a read-only caller is 403', async () => {
+    const { binding } = withEstimate({ replays: 1, meanRunCostUsd: '1' });
+    const h = await harness({ tunable: true, passes: binding, grants: [`read agent:${AGENT}`] });
+    expect((await h.call('POST', '/v1/proposals/improve/estimate', IMPROVE)).status).toBe(403);
+  });
+
+  test('without an estimate basis in the runtime: 501 improve-unsupported', async () => {
+    // The passes binding has no `estimateBasis`.
+    const withPasses = await harness({ tunable: true, passes: inMemoryPasses().binding });
+    const res = await withPasses.call('POST', '/v1/proposals/improve/estimate', IMPROVE);
+    expect(res.status).toBe(501);
+    expect(res.body.error.code).toBe('improve-unsupported');
+    // And with no improvement-passes binding at all.
+    const none = await harness({ tunable: true });
+    expect((await none.call('POST', '/v1/proposals/improve/estimate', IMPROVE)).status).toBe(501);
   });
 });
 

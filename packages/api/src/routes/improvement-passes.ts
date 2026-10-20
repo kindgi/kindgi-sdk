@@ -157,6 +157,40 @@ export function mountImproveRoute(
     c.status(202);
     return c.json(serializePass(pass));
   });
+
+  r.post('/improve/estimate', async (c) => {
+    const tenantId = c.get('tenantId') as TenantId;
+    const body = await readBody(c);
+    if (body === undefined) return badInput(c, 'Request body must be a JSON object');
+    const parsed = parseImproveBody(body);
+    if (typeof parsed === 'string') return badInput(c, parsed);
+    const denied = await deny(c, authorizer, 'publish', parsed.agentId, itemRights);
+    if (denied !== undefined) return denied;
+    const passes = deps.passes;
+    if (passes === undefined || passes.estimateBasis === undefined) return unsupported(c);
+    const basis = await passes.estimateBasis({
+      tenantId,
+      agentId: parsed.agentId,
+      ...(parsed.fromVersion !== undefined && { fromVersion: parsed.fromVersion }),
+      scope: parsed.scope,
+      suiteId: parsed.suiteId,
+      tiers: parsed.tiers,
+      ...(parsed.model !== undefined && { model: parsed.model }),
+      ...(parsed.candidates !== undefined && { candidates: parsed.candidates }),
+    });
+    const estimatedCostUsd =
+      basis.meanRunCostUsd === undefined
+        ? undefined
+        : usd(Math.min(parsed.budget.maxCostUsd, basis.replays * Number(basis.meanRunCostUsd)));
+    return c.json({
+      ...(estimatedCostUsd !== undefined && { estimatedCostUsd }),
+      maxCostUsd: usd(parsed.budget.maxCostUsd),
+      basis: {
+        replays: basis.replays,
+        ...(basis.meanRunCostUsd !== undefined && { meanRunCostUsd: basis.meanRunCostUsd }),
+      },
+    });
+  });
 }
 
 /**
@@ -613,4 +647,9 @@ function fail(
 
 function badInput(c: Ctx, message: string) {
   return fail(c, 'bad-input', { code: 'bad-input', message });
+}
+
+/** A US-dollar amount as a decimal string: rounded to the millionth, trailing zeros dropped. */
+function usd(n: number): string {
+  return String(Math.round(n * 1e6) / 1e6);
 }

@@ -404,6 +404,9 @@ OPERATIONS: dict[str, Operation] = {
     "proposals.improve": Operation(
         "proposals.improve", "POST", "/v1/proposals/improve", "json", True
     ),
+    "proposals.improveEstimate": Operation(
+        "proposals.improveEstimate", "POST", "/v1/proposals/improve/estimate", "json", False
+    ),
     "proposals.get": Operation("proposals.get", "GET", "/v1/proposals/{proposalId}", "json", False),
     "proposals.evaluate": Operation(
         "proposals.evaluate", "POST", "/v1/proposals/{proposalId}/evaluate", "json", True
@@ -4148,6 +4151,28 @@ class ProposalsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ImproveBody, body, fields),
             response=_models.ImprovementPass,
+            timeout=timeout,
+        )
+
+    def improve_estimate(
+        self,
+        body: _models.ImproveBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ImprovementPassEstimate:
+        """Estimate an improvement pass. `POST /v1/proposals/improve/estimate`
+
+        What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`. The estimate is `min(budget.maxCostUsd, the replay count × the version's mean cost over its recent completed runs)`; `estimatedCostUsd` is absent when the version has no cost history. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.
+        """
+        return self._client._request(
+            _OPERATIONS["proposals.improveEstimate"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.ImproveBody, body, fields),
+            response=_models.ImprovementPassEstimate,
             timeout=timeout,
         )
 
@@ -12775,6 +12800,28 @@ class AsyncProposalsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ImproveBody, body, fields),
             response=_models.ImprovementPass,
+            timeout=timeout,
+        )
+
+    async def improve_estimate(
+        self,
+        body: _models.ImproveBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ImprovementPassEstimate:
+        """Estimate an improvement pass. `POST /v1/proposals/improve/estimate`
+
+        What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`. The estimate is `min(budget.maxCostUsd, the replay count × the version's mean cost over its recent completed runs)`; `estimatedCostUsd` is absent when the version has no cost history. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.
+        """
+        return await self._client._request(
+            _OPERATIONS["proposals.improveEstimate"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.ImproveBody, body, fields),
+            response=_models.ImprovementPassEstimate,
             timeout=timeout,
         )
 

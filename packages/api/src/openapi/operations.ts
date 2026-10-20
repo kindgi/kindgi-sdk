@@ -4497,6 +4497,24 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/proposals/improve/estimate',
+    openapiPath: '/v1/proposals/improve/estimate',
+    operationId: 'proposals.improveEstimate',
+    summary: 'Estimate an improvement pass',
+    description:
+      "What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`. The estimate is `min(budget.maxCostUsd, the replay count × the version's mean cost over its recent completed runs)`; `estimatedCostUsd` is absent when the version has no cost history. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+    tags: ['proposals'],
+    security: 'bearer',
+    requestBody: { required: true, schema: ref('ImproveBody') },
+    responses: {
+      '200': { description: 'The estimated cost.', schema: ref('ImprovementPassEstimate') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Malformed request body (`bad-input`).'),
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/proposals/:proposalId',
     openapiPath: '/v1/proposals/{proposalId}',
