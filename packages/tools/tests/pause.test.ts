@@ -148,6 +148,21 @@ describe('a call that waits', () => {
     expect(() => pauseOutcome(pause)).toThrow(RangeError);
   });
 
+  test('a name of 200 characters is kept, counted in code points', async () => {
+    // 200 of these are 400 UTF-16 units: a length in units would refuse it.
+    const pause = { tokenId: 'wt-1', timeoutMs: 60_000, name: '\u{1F4E6}'.repeat(200) };
+    const forged = Object.freeze({ [Symbol.for('kindgi.tool-pause')]: true, pause });
+    expect(pauseOf(pauseOutcome(pause))).toEqual(pause);
+    expect(pauseOf(forged)).toEqual(pause);
+    expect(
+      await invokeToolOrPause(
+        wrapped(() => forged),
+        {},
+        ctx(),
+      ),
+    ).toEqual({ kind: 'pause', pause });
+  });
+
   test("a pause from a tool that doesn't declare pauses is tool-pause-unsupported", async () => {
     const tool = wrapped(() => pauseOutcome({ tokenId: 'wt-1', timeoutMs: 60_000 }), false);
     expect(await invokeToolOrPause(tool, {}, ctx())).toMatchObject({
