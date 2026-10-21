@@ -122,7 +122,7 @@ flags go with it:
 - **`--secret=<NAME>`** names the secret that holds the API key, in place of
   the preset's own key name.
 - **`--env=<name>`** is the environment of that secret. It's `local` unless
-  you say otherwise.
+  you say otherwise. On Kindgi Cloud, it's `prod`, and another is refused.
 - **`--project=<gcp-project>`**, for `gemini`, is the Google Cloud project
   Vertex AI runs and bills in. In `kindgi dev`, also set
   `KINDGI_DEV_GOOGLE_CREDENTIALS=adc`.
@@ -615,8 +615,9 @@ shared: set it first in each environment that runs the pack, with
 register providers, and `kindgi promote` stops while the target has none.
 
 :::note[On Kindgi Cloud]
-Register a preset with `--env=prod`: without `--env`, it reads `local`. A
-spec's key names `"envName": "prod"`. A model key is the workspace's: runs
+Register a preset with `--env=prod`, or leave `--env` out: there it's `prod`.
+A spec's key names `"envName": "prod"`. A key under another environment is
+refused with `env-not-served`. A model key is the workspace's: runs
 in every project use it. To try a change before it's live, see
 [Change your agent once it's live](../../hosted/deploy-your-agent/#change-your-agent-once-its-live).
 :::
