@@ -7,6 +7,7 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-client`: **a comparison eval run's result, typed.** `Comparisons.comparisonOf(run)` reads a `judged` `EvalRun`'s open `result` as the OpenAPI `JudgedComparisonResult` — its summary and each case — and is empty for another kind of run, a dry run, or one that hasn't finished. The same reading as the TypeScript `comparisonOf` and Python `comparison_of`.
 - `kindgi-client`: **verify the webhooks Kindgi sends, or sign them.** `Webhooks.verify(secret, headers, body)` checks a Standard Webhooks `v1` signature — HMAC-SHA256, a constant-time compare, a 300-second timestamp tolerance, and a message signed by several secrets during a rotation (any signature that matches yours passes) — and returns the `VerifiedWebhook`, or throws `WebhookVerificationException` naming which check failed. `Webhooks.parseEvent(body)` reads the typed `WebhookEvent`, keeping a type the client doesn't know yet as `WebhookEvent.Unrecognized`. `sign`, `signedHeaders`, `generateSecret` and `isStrongSecret` round out the helper, matching the TypeScript `@kindgi/crypto` and Python `kindgi.webhooks`.
 - `kindgi-pack`, `kindgi-pack-scala`: **an agent's `conversationPolicy` can't set `autoCloseAfterInactiveSeconds`.** It was accepted and never acted on: a conversation never closes by itself, only when someone closes it. The indexer refuses an agent that sets it, as a file error at `/conversationPolicy/autoCloseAfterInactiveSeconds`; the rest of the pack still indexes, and `kindgi build` stops on it.
 
