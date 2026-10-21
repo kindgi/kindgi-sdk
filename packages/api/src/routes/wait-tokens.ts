@@ -27,7 +27,11 @@
  *     told apart; also on a runtime that can't pause runs;
  *   - `409 wait-token-closed` (`details.state`): the wait is over;
  *   - `413 request-too-large` (`details.maxBytes`): past 1 MiB;
- *   - `415 unsupported-media-type`: a body that isn't JSON. An empty body is `{}`.
+ *   - `415 unsupported-media-type`: a body that isn't JSON. An empty body is `{}`;
+ *   - `429 rate-limit-exceeded` (`Retry-After`): past
+ *     {@link WAIT_TOKEN_LINK_REQUESTS_PER_CLIENT_PER_MINUTE} requests from
+ *     this client in a minute, counted before the body is read or the token
+ *     looked up. Nothing was taken: send the answer again then.
  *
  * The access line writes the route's pattern, never the token
  * (`request-log.ts`).
@@ -41,6 +45,12 @@ import { tenantInputBounds } from '@kindgi/bounds';
 import { statusFor, toWireError } from '../errors.js';
 import type { RunHandlerBinding } from '../handler-binding.js';
 import { deepJsonRefusal, nestsDeeperThan } from '../middleware/request-body.js';
+import {
+  type RateLimitStore,
+  type RateLimitTake,
+  createInMemoryRateLimitStore,
+  nearestForwardedClient,
+} from '../rate-limit-store.js';
 import { readCapped } from '../read-capped.js';
 import { resumeInline } from '../resume-inline.js';
 import { WEBHOOK_BODY_LIMITS } from '../trigger-binding.js';
@@ -54,17 +64,81 @@ import type {
 /** The most an answer may be: 1 MiB, as a webhook delivery before its trigger is found. */
 export const WAIT_TOKEN_ANSWER_MAX_BYTES = WEBHOOK_BODY_LIMITS.maxBytes;
 
+/**
+ * Requests a client may make to wait token links in a minute, counted
+ * before the body is read or the token looked up; past them, `429`. Far
+ * above what one system answering its own runs sends, and a guard on the
+ * work only: the token's secret is what keeps a link from being guessed.
+ */
+export const WAIT_TOKEN_LINK_REQUESTS_PER_CLIENT_PER_MINUTE = 600;
+
+const MINUTE_MS = 60_000;
+
 export interface WaitTokensRouterOptions {
   /** Absent: every token is `404 wait-token-not-found` (this runtime can't pause runs). */
   readonly binding?: WaitTokenBinding;
   /** Resumes a run whose wait the answer resolved, behind the answer. */
   readonly runHandler: RunHandlerBinding;
+  /**
+   * Who the client is, the key of the per-client limit; `undefined` when
+   * clients can't be told apart, which turns the limit off. Default: the
+   * nearest `X-Forwarded-For` hop, else one shared bucket.
+   */
+  readonly clientAddress?: (request: Request) => string | undefined;
+  /**
+   * Where the counts live. Default: this process's memory, so each
+   * instance counts on its own. If it fails, the request is let through
+   * (the limit is a speed bump, not a lock) and the failure logged, at
+   * most once a minute.
+   */
+  readonly rateLimitStore?: RateLimitStore;
 }
 
 export function waitTokensRouter(options: WaitTokensRouterOptions): Hono<AppEnv> {
+  const clientAddress = options.clientAddress ?? nearestForwardedClient;
+  const store = options.rateLimitStore ?? createInMemoryRateLimitStore();
+  let lastWarnedAt: number | undefined;
+
+  /** A take from the store; `allowed` when the store fails (logged, at most once a minute). */
+  async function take(c: Context<AppEnv>, client: string): Promise<RateLimitTake> {
+    try {
+      return await store.take({
+        key: `wait-token-link:${client}`,
+        limit: WAIT_TOKEN_LINK_REQUESTS_PER_CLIENT_PER_MINUTE,
+        windowMs: MINUTE_MS,
+      });
+    } catch (cause) {
+      const at = Date.now();
+      if (lastWarnedAt === undefined || at - lastWarnedAt >= MINUTE_MS) {
+        c.get('log').warn(
+          `wait token link: the rate-limit store failed, so requests aren't counted: ${cause instanceof Error ? cause.message : String(cause)}`,
+        );
+        lastWarnedAt = at;
+      }
+      return { allowed: true };
+    }
+  }
+
   const r = new Hono<AppEnv>();
 
   r.post('/:token/complete', async (c) => {
+    const client = clientAddress(c.req.raw);
+    if (client !== undefined) {
+      const taken = await take(c, client);
+      if (!taken.allowed) {
+        c.header('Retry-After', String(Math.max(Math.ceil(taken.retryAfterMs / 1000), 1)));
+        c.status(statusFor('rate-limit-exceeded') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'rate-limit-exceeded',
+              message: 'Too many requests from this client: send the answer again shortly',
+            },
+            c.get('requestId'),
+          ),
+        );
+      }
+    }
     const answer = await readAnswer(c);
     if (answer.kind === 'refused') return answer.response;
     if (options.binding === undefined) return refusal(c, { code: 'wait-token-not-found' });

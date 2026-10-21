@@ -458,7 +458,9 @@ export interface CreateAppInput {
    * no bearer), `POST /v1/runs/{runId}/resume` with a `pause:` waitpoint
    * id, and a suspended run's `waitingFor.tokens`. Absent: the link
    * answers `404 wait-token-not-found`, and the resume route `422
-   * run-resume-not-supported`. The Kindgi runtime supplies one.
+   * run-resume-not-supported`. The Kindgi runtime supplies one. The link
+   * limits requests per client, telling clients apart and counting where
+   * `webhookReceiver` says (its defaults when it's absent).
    */
   readonly waitTokens?: WaitTokenBinding;
   /**
@@ -1035,11 +1037,12 @@ export interface CreateAppInput {
     readonly envName: import('@kindgi/types').EnvName;
     /**
      * Who the client is (for the per-client refusal limit and the audit
-     * record); `undefined` when clients can't be told apart, which turns
-     * the per-client limit off.
+     * record, and the wait token link's per-client limit); `undefined`
+     * when clients can't be told apart, which turns the per-client limits
+     * off.
      */
     readonly clientAddress?: (request: Request) => string | undefined;
-    /** Where the counts live; default this process's memory. */
+    /** Where the counts live, the wait token link's too; default this process's memory. */
     readonly rateLimitStore?: RateLimitStore;
   };
   /**
@@ -2509,6 +2512,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     waitTokensRouter({
       ...(input.waitTokens !== undefined && { binding: input.waitTokens }),
       runHandler: input.runHandler,
+      ...(input.webhookReceiver?.clientAddress !== undefined && {
+        clientAddress: input.webhookReceiver.clientAddress,
+      }),
+      ...(input.webhookReceiver?.rateLimitStore !== undefined && {
+        rateLimitStore: input.webhookReceiver.rateLimitStore,
+      }),
     }),
   );
   // A site enrolls its key, and signs its people in: outside the bearer

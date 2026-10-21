@@ -10497,6 +10497,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '415': ErrorResponse(
         '`unsupported-media-type`: a body sent without a JSON content type (`application/json`).',
       ),
+      '429': ErrorResponse(
+        '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was taken. `Retry-After` says when to send the answer again.',
+      ),
     },
   },
 

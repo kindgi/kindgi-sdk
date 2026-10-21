@@ -17,12 +17,14 @@ import { describe, expect, test, vi } from 'vitest';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import { createLogger } from '@kindgi/log';
 import type { JournalEntry, KernelRunRecord, RunBinding } from '@kindgi/runtime';
-import type { ProjectId, Result, RunId, TenantId, Timestamp, UserId } from '@kindgi/types';
+import type { EnvName, ProjectId, Result, RunId, TenantId, Timestamp, UserId } from '@kindgi/types';
 
-import { createApp } from '../src/index.js';
+import { createApp, createInMemoryRateLimitStore } from '../src/index.js';
 import type {
   CompleteWaitTokenInput,
   FlowRegistryBinding,
+  RateLimitStore,
+  RateLimitTakeInput,
   RunHandlerBinding,
   TokenResolver,
   WaitTokenAccepted,
@@ -31,6 +33,7 @@ import type {
   WaitingToken,
 } from '../src/index.js';
 import { loggablePath } from '../src/middleware/request-log.js';
+import { WAIT_TOKEN_LINK_REQUESTS_PER_CLIENT_PER_MINUTE } from '../src/routes/wait-tokens.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -64,6 +67,11 @@ interface Options {
   readonly resumeThrows?: boolean;
   /** The resume runs on and never settles, as a long stretch of the run would. */
   readonly resumeHangs?: boolean;
+  /** How the deployment tells clients apart and where it counts them (`webhookReceiver`'s). */
+  readonly clients?: {
+    readonly clientAddress?: (request: Request) => string | undefined;
+    readonly rateLimitStore?: RateLimitStore;
+  };
 }
 
 function harness(options: Options = {}) {
@@ -136,6 +144,9 @@ function harness(options: Options = {}) {
     runHandler,
     logger: createLogger({ level: 'debug', write: (l) => lines.push(l) }),
     ...(options.waitTokens !== false && { waitTokens }),
+    ...(options.clients !== undefined && {
+      webhookReceiver: { envName: 'production' as EnvName, ...options.clients },
+    }),
     ...(options.grants !== undefined && {
       flowRegistry: { get: async () => ({ id: FLOW }) } as unknown as FlowRegistryBinding,
       authz: {
@@ -188,7 +199,7 @@ describe('the link', () => {
     expect(h.resumed).toEqual([]);
   });
 
-  test("a resume that fails doesn't fail the answer: it's logged, and the runtime resumes the run later", async () => {
+  test("a resume that fails doesn't fail the answer: it's logged", async () => {
     const h = harness({ resumeThrows: true });
     const res = await h.answer(JSON.stringify(ANSWER));
     expect(res.status).toBe(200);
@@ -300,6 +311,67 @@ describe('the link', () => {
     );
     expect(loggablePath(`/v1/wait-tokens/${LINK_TOKEN}`)).toBe('/v1/wait-tokens/:token');
     expect(loggablePath('/v1/runs/abc')).toBe('/v1/runs/abc');
+  });
+});
+
+describe("the link's limit per client", () => {
+  /** The in-memory store at a limit of `limit`, keeping what each take asked for. */
+  function storeAt(limit: number) {
+    const real = createInMemoryRateLimitStore();
+    const asked: RateLimitTakeInput[] = [];
+    const store: RateLimitStore = {
+      take: (input) => {
+        asked.push(input);
+        return real.take({ ...input, limit });
+      },
+    };
+    return { store, asked };
+  }
+  const from = (address: string) => ({
+    'content-type': 'application/json',
+    'x-forwarded-for': address,
+  });
+
+  test('a client past its requests is answered 429, before its answer is read or its token looked up', async () => {
+    const { store, asked } = storeAt(1);
+    const h = harness({ clients: { rateLimitStore: store } });
+    expect((await h.answer(JSON.stringify(ANSWER), from('203.0.113.7'))).status).toBe(200);
+    const res = await h.answer(JSON.stringify(ANSWER), from('203.0.113.7'));
+    expect(res.status).toBe(429);
+    expect(Number(res.headers.get('retry-after'))).toBeGreaterThanOrEqual(1);
+    expect((await errorOf(res)).code).toBe('rate-limit-exceeded');
+    expect(h.completed).toHaveLength(1);
+    // Another client has its own count.
+    expect((await h.answer(JSON.stringify(ANSWER), from('203.0.113.8'))).status).toBe(200);
+    expect(asked[0]).toEqual({
+      key: 'wait-token-link:203.0.113.7',
+      limit: WAIT_TOKEN_LINK_REQUESTS_PER_CLIENT_PER_MINUTE,
+      windowMs: 60_000,
+    });
+    expect(asked.every((a) => !a.key.includes(LINK_TOKEN))).toBe(true);
+  });
+
+  test('a store that fails lets the answer through, and is logged once a minute', async () => {
+    const h = harness({
+      clients: {
+        rateLimitStore: {
+          take: async () => {
+            throw new Error('the counts are down');
+          },
+        },
+      },
+    });
+    expect((await h.answer(JSON.stringify(ANSWER))).status).toBe(200);
+    expect((await h.answer(JSON.stringify(ANSWER))).status).toBe(200);
+    expect(h.completed).toHaveLength(2);
+    expect(h.lines.filter((l) => l.includes('the rate-limit store failed'))).toHaveLength(1);
+  });
+
+  test("a deployment that can't tell clients apart counts nothing", async () => {
+    const { store, asked } = storeAt(0);
+    const h = harness({ clients: { clientAddress: () => undefined, rateLimitStore: store } });
+    expect((await h.answer(JSON.stringify(ANSWER))).status).toBe(200);
+    expect(asked).toEqual([]);
   });
 });
 
