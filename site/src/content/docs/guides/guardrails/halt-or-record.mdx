@@ -239,7 +239,7 @@ a guardrail's pack check runs from a pack deployed into the run's project,
 which is the guardrail's own, never from one in another project. So a
 guardrail that names a check deployed into another project can't run it,
 and the message ends:
-`A guardrail's pack check runs from a pack deployed into the guardrail's own project.`
+`A guardrail's pack check runs from a pack deployed into the run's project.`
 
 Either way, the error is recorded in two places. The run's provenance has
 the guardrail's node, with `evaluated: false`. The run journal's
