@@ -15,6 +15,12 @@ export const ENV_DEFAULTS = {
   KINDGI_PUBLIC_URL:
     'none: the address the server binds (shown as `http://localhost:<port>` when it binds all interfaces)',
   KINDGI_DATABASE_URL: '`postgres://localhost:5432/kindgi`',
+  KINDGI_DB_STATEMENT_TIMEOUT_MS:
+    '`60000` (60 seconds); `0` turns it off; longer than the lock timeout when both are on',
+  KINDGI_DB_LOCK_TIMEOUT_MS:
+    '`30000` (30 seconds); `0` turns it off; shorter than the statement timeout when both are on',
+  KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: '`30000` (30 seconds); `0` turns it off',
+  KINDGI_DB_POOL_WAIT_TIMEOUT_MS: '`10000` (10 seconds); `0` turns it off',
   KINDGI_OPENFGA_API_URL: 'none: authorization is not enforced',
   KINDGI_OPENFGA_PRESHARED_KEY: 'none: calls to OpenFGA carry no key',
   KINDGI_OPENFGA_AUTH: '`none`',
@@ -115,6 +121,8 @@ export const ENV_DEFAULTS = {
   KINDGI_ERASURE_LEDGER_KEY: 'none: same as `KINDGI_ERASURE_LEDGER_KEY_PATH`',
   KINDGI_ERASURE_LEDGER_EXPORT: 'none: the ledger stays in the database only',
   KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS: '`3600000` (an hour); at least `60000`',
+  KINDGI_TENANT_PURGE_RECORD:
+    'none: `POST /v1/system/tenants/{tenantId}/purge` refuses every purge (`purge-record-unset`)',
   KINDGI_PASSIVE: '`off`',
   KINDGI_PAGINATION_KEY_PATH:
     'none (with `KINDGI_PAGINATION_KEY` unset): a random key made at start and kept nowhere',
@@ -133,7 +141,8 @@ export const ENV_DEFAULTS = {
   KINDGI_LOG_LEVELS: 'none: no per-subsystem levels; `KINDGI_LOG_LEVEL` applies everywhere',
   KINDGI_LOG_FORMAT:
     '`auto`: `pretty` when stdout is a terminal or `KINDGI_DEV` is on, else `json`',
-  KINDGI_SECRETS_BACKEND: '`none` (the secrets routes are not served)',
+  KINDGI_SECRETS_BACKEND:
+    "`none` (the secrets routes are not served, and a workspace's own identity providers can't be added or changed)",
   KINDGI_SECRETS_DOTENV_FILES: '`.env,.env.local`',
   KINDGI_SECRETS_AAD_KEY_PATH:
     'none (with `KINDGI_SECRETS_AAD_KEY` unset): no key; the postgres backend refuses to start without one of the two',

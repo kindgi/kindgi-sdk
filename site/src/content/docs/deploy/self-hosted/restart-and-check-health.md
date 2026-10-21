@@ -33,7 +33,7 @@ docker rm kindgi-server
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.8
+  quay.io/kindgi/runtime:0.1.9
 ```
 
 - `-t 30` gives the runtime 30 seconds to stop before Docker kills it.
@@ -56,6 +56,13 @@ kindgi-server
 
 On a stop, the runtime stops taking requests and gives the runs it's
 executing up to 7 seconds to finish. Then it exits with code 0.
+
+A stop that comes while it's still starting, before it serves, such as
+while it waits for its database, ends it within 3 seconds (runtime 0.1.10
+or later). Its log says `Stopped while starting (SIGTERM).`, and it exits
+with code 143, as a process that `SIGTERM` ends does. Stopped with Ctrl-C
+in a terminal, it says `(SIGINT)` and exits with code 130. A second Ctrl-C
+changes nothing: the first stop is already under way.
 
 :::caution[Runs in flight]
 A run that was executing when the runtime stopped, and didn't finish in
@@ -144,7 +151,7 @@ A route that reads the database answers `500` and names the cause. With
 Postgres unreachable, `GET /v1/deployments` answers:
 
 ```sh
-curl -s http://localhost:4000/v1/deployments -H "authorization: Bearer $KINDGI_API_TOKEN"
+curl -s http://localhost:4000/v1/deployments -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 ```text
@@ -198,8 +205,8 @@ Each repair is a line in its log:
 - **A setting the runtime refuses,** such as a missing license key, or a log
   setting it can't use: it exits with code 2, and its log says what to fix.
 - **A database it can't reach while starting:** it exits with code 1, and
-  its log says which database and why, never the password. Here Postgres
-  wasn't running:
+  its log says which database and why, never the user or the password.
+  Here Postgres wasn't running:
 
   ```sh
   docker inspect --format '{{.State.ExitCode}}' kindgi-server
@@ -210,6 +217,35 @@ Each repair is a line in its log:
   1
   Can't connect to the database at kindgi-db:5432/kindgi: host not found (getaddrinfo ENOTFOUND kindgi-db). Check KINDGI_DATABASE_URL, and that Postgres is up and reachable from here.
   ```
+
+  **A database that never answers** (runtime 0.1.10 or later), such as
+  one behind a firewall that drops its packets: the runtime waits its
+  connect timeout and asks again, 3 times in all. Before each new try, it
+  logs a warning on the `boot` subsystem that ends
+  `try 1 of 3; asking again.`, then `try 2 of 3`. After the third, it exits
+  with code 1, and the reason is `no host answered within 30 s (3 tries)`,
+  about 90 seconds after it started. The reason can also read
+  `CONNECT_TIMEOUT`, the Postgres client's word for the same wait. The
+  connect timeout is the URL's `connect_timeout`, else `PGCONNECT_TIMEOUT`,
+  else 30 seconds.
+
+  With several hosts in `KINDGI_DATABASE_URL`, such as
+  `postgres://…@db1:5432,db2:5432/kindgi`, the runtime tries once, with no
+  warning, and the line names each host. Hosts that refuse the connection or
+  aren't found are tried in turn for the connect timeout times the number of
+  hosts: `no host answered within 60 s` for two. A first host that answers
+  nothing ends the try at its connect timeout, with the reason
+  `CONNECT_TIMEOUT`, and the hosts after it aren't tried.
+
+  The `kindgi-runtime check` and `kindgi-runtime tenants` commands try once.
+  They say the same, without `(3 tries)` and with `(or --db)` after
+  `KINDGI_DATABASE_URL`, and exit with code 2.
+
+  **A password with a raw `/`, `?` or `#`** has to be percent-encoded in
+  `KINDGI_DATABASE_URL`: `%2F`, `%3F` and `%23`. Otherwise the runtime
+  misreads the URL. Most often it refuses it as not a valid `postgres://`
+  URL and exits with code 2. For some passwords it can't connect instead,
+  and its log names `KINDGI_DATABASE_URL` where the host would be.
 
 - **Another failure while starting:** it exits with code 1, and the log's
   first line starts with `kindgi-runtime: fatal:` and ends with the cause.

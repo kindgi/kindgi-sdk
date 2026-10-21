@@ -1678,20 +1678,6 @@ describe('POST /v1/deployments — image verification', () => {
         message: 'Extract /app/index.json failed: unpacks past 4 GiB',
         details: { imageRef: fixture.imageRef, cause: 'image-limit-exceeded', limit: 'unpack' },
       },
-      {
-        step: 'extractFile',
-        error: {
-          code: 'image-limit-exceeded',
-          message: 'try again in 12 min',
-          limit: 'tenant-unpack-hour',
-        },
-        message: 'Extract /app/index.json failed: try again in 12 min',
-        details: {
-          imageRef: fixture.imageRef,
-          cause: 'image-limit-exceeded',
-          limit: 'tenant-unpack-hour',
-        },
-      },
       // A binding's own `cause` (an Error here) never reaches the wire.
       {
         step: 'extractFile',
@@ -1728,6 +1714,80 @@ describe('POST /v1/deployments — image verification', () => {
       expect(body.error.details).toEqual(details);
       expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(0);
     }
+  });
+
+  test("the tenant's hour of image reads passes: 429 rate-limit-exceeded with details.limit and Retry-After, the binding's wait rounded up, else the hour", async () => {
+    const fixture = buildSignedDeploy();
+    const served = makeMockImageRegistry([
+      { imageRef: fixture.imageRef, digest: fixture.digest, indexBytes: fixture.indexBytes },
+    ]);
+    const cases: readonly { readonly retryAfterMs?: number; readonly retryAfter: string }[] = [
+      { retryAfterMs: 12 * 60_000 + 1, retryAfter: '721' },
+      { retryAfterMs: 0, retryAfter: '1' },
+      { retryAfter: '3600' },
+      { retryAfterMs: Number.NaN, retryAfter: '3600' },
+    ];
+    for (const { retryAfterMs, retryAfter } of cases) {
+      const error: ImageRegistryError = {
+        code: 'image-limit-exceeded',
+        message: 'try again in 13 min',
+        limit: 'tenant-unpack-hour',
+        ...(retryAfterMs !== undefined && { retryAfterMs }),
+      };
+      const imageRegistry: ImageRegistryBinding = {
+        ...served,
+        extractFile: async () => ({ kind: 'err' as const, error }),
+      };
+      const { app, deploymentRegistry } = makeApp({ fixture, imageRegistry });
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(fixture.wire),
+      });
+      expect(res.status).toBe(429);
+      expect(res.headers.get('retry-after')).toBe(retryAfter);
+      const body = (await res.json()) as {
+        error: { code: string; message: string; details?: Record<string, unknown> };
+      };
+      expect(body.error).toEqual({
+        code: 'rate-limit-exceeded',
+        message: 'Extract /app/index.json failed: try again in 13 min',
+        details: { limit: 'tenant-unpack-hour' },
+        requestId: expect.any(String),
+      });
+      expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(0);
+    }
+  });
+
+  test("an image's own bound with a wait is still the image's: 400 image-unverifiable, no Retry-After", async () => {
+    const fixture = buildSignedDeploy();
+    const served = makeMockImageRegistry([
+      { imageRef: fixture.imageRef, digest: fixture.digest, indexBytes: fixture.indexBytes },
+    ]);
+    const error: ImageRegistryError = {
+      code: 'image-limit-exceeded',
+      message: 'unpacks past 4 GiB',
+      limit: 'unpack',
+      retryAfterMs: 60_000,
+    };
+    const { app } = makeApp({
+      fixture,
+      imageRegistry: { ...served, extractFile: async () => ({ kind: 'err' as const, error }) },
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(400);
+    expect(res.headers.get('retry-after')).toBeNull();
+    const body = (await res.json()) as { error: { code: string; details?: unknown } };
+    expect(body.error.code).toBe('image-unverifiable');
+    expect(body.error.details).toEqual({
+      imageRef: fixture.imageRef,
+      cause: 'image-limit-exceeded',
+      limit: 'unpack',
+    });
   });
 
   test('a check after a read that succeeded names no cause', async () => {
@@ -1989,6 +2049,37 @@ describe('POST /v1/deployments — manifest validation', () => {
     const body = (await res.json()) as { contents: { agents: unknown[] } };
     expect(body.contents.agents).toEqual([{ id: 'acme.summary', version: '1.0.0' }]);
     expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(1);
+  });
+
+  test('a pack built before autoCloseAfterInactiveSeconds was taken out still deploys, and its agent answers without it', async () => {
+    const policy = { historyLimit: 5, autoCloseAfterInactiveSeconds: 600 };
+    const index = indexWith(undefined);
+    const fixture = buildSignedDeploy({
+      index: { ...index, agents: index.agents.map((a) => ({ ...a, conversationPolicy: policy })) },
+    });
+    const agents = makeInMemoryAgentRegistry();
+    const written: Agent[] = [];
+    const { app } = makeApp({
+      fixture,
+      agentRegistry: {
+        ...agents,
+        publish: async (input) => {
+          written.push(input.agent);
+          return agents.publish(input);
+        },
+        get: async () => written[0] ?? null,
+      },
+    });
+    const res = await post(app, fixture.wire);
+    expect(res.status, await res.clone().text()).toBe(201);
+    expect(written.map((a) => a.conversationPolicy)).toEqual([policy]);
+    const answered = await app.request('/v1/agents/acme.summary', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(answered.status, await answered.clone().text()).toBe(200);
+    expect(
+      ((await answered.json()) as { conversationPolicy?: unknown }).conversationPolicy,
+    ).toEqual({ historyLimit: 5 });
   });
 
   test("its agents' and flows' schema compiles count against the tenant's budget: refused, nothing is deployed", async () => {

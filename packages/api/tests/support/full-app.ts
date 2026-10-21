@@ -758,5 +758,14 @@ export function fullAppInput(): CreateAppInput {
         throw new Error('not used: no system principal in the sweeps');
       },
     },
+    usage: {
+      acrossTenants: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
+      ofTenant: async () => ({
+        kind: 'ok',
+        page: { data: [], watermark: '2026-10-01T00:00:00.000Z' },
+      }),
+    },
   };
 }

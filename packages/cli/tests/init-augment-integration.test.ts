@@ -350,7 +350,16 @@ export async function lookupTool(input: { id: string }): Promise<string> {
         publishedAt: '1970-01-01T00:00:00.000Z',
         buildTarget: 'staging',
         install: hostInstall.install,
-        image: { systemPackages: [], buildEnv: {}, contextFiles: [], steps: [], extensions: [] },
+        image: {
+          systemPackages: [],
+          buildEnv: {},
+          contextFiles: [],
+          steps: [],
+          extensions: [],
+          dependencies: 'all',
+          keep: [],
+          keepIfInstalled: [],
+        },
         hasIncludes: false,
         hasBlocks: false,
       });

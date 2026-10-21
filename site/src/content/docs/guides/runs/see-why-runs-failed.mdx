@@ -210,8 +210,9 @@ public final class Failures {
 }
 ```
 
-On a project where two turns of `acme.echo-agent` were refused in a closed
-conversation and two runs of `acme.review-order` failed, it prints:
+On a project where two turns of `acme.echo-agent` failed because their
+conversation was closed, and two runs of `acme.review-order` failed, it
+prints:
 
 ```text
 conversation-closed acme.echo-agent 0.1.0 2
@@ -252,8 +253,9 @@ object Failures {
 }
 ```
 
-On a project where two turns of `acme.echo-agent` were refused in a closed
-conversation and two runs of `acme.review-order` failed, it prints:
+On a project where two turns of `acme.echo-agent` failed because their
+conversation was closed, and two runs of `acme.review-order` failed, it
+prints:
 
 ```text
 conversation-closed acme.echo-agent 0.1.0 2

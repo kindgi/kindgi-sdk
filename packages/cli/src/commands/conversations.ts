@@ -62,7 +62,7 @@ const list: LeafCommand = {
         ...(cursor !== undefined && { cursor: cursor as never }),
       });
       if (openedBy !== undefined && page.openedBy !== 'me') {
-        throw filterIgnored('opened-by', '0.1.8.1');
+        throw filterIgnored('opened-by', '0.1.9');
       }
       return page;
     }),
