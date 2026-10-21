@@ -7,6 +7,7 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-client`: **`SignedExports.verify` checks a signed export** (an approval's audit bundle, a run's provenance, compliance evidence) — its `ed25519` or `ecdsa-p256-sha256` signature over the exact bytes shipped, and, when you pass the keys you trust, that the signing key is one of them. It returns a `SignedExportVerification`, with the signed body when it checks out, and never throws for an export that doesn't verify. The Java counterpart of `verifySignedExport` in the TypeScript client and `verify_signed_export` in Python; it checks with the JDK's own crypto, so there's nothing extra to install.
 - `kindgi-pack`, `kindgi-pack-scala`: **an agent's `conversationPolicy` can't set `autoCloseAfterInactiveSeconds`.** It was accepted and never acted on: a conversation never closes by itself, only when someone closes it. The indexer refuses an agent that sets it, as a file error at `/conversationPolicy/autoCloseAfterInactiveSeconds`; the rest of the pack still indexes, and `kindgi build` stops on it.
 
 ## 0.1.9
