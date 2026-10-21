@@ -256,11 +256,17 @@ weightedPrecisionAtK: 0.3333333333333333 → 1.0
 ```
 
 </TabItem>
+<TabItem label="Scala">
+
+Scala apps use the Java helper: call `Comparisons.comparisonOf` from `com.kindgi.client` as the Java tab shows. It takes the `EvalRun` and returns a `java.util.Optional` of the `JudgedComparisonResult`: its `summary()`, and each case in `perCase()`.
+
+</TabItem>
 </Tabs>
 
-`comparisonOf`, or `comparison_of` in Python, reads a finished comparison's
-result, typed: its `summary` and each case. It returns `undefined`, or
-`None`, for a comparison that hasn't finished, or a dry run.
+`comparisonOf` reads a finished comparison's result, typed: its `summary`
+and each case. It's `comparison_of` in Python, and `Comparisons.comparisonOf`
+in Java and Scala. For a comparison that hasn't finished, or a dry run, it
+returns `undefined`: `None` in Python, an empty `Optional` in Java and Scala.
 
 A model doesn't answer the same way every time: run the same comparison
 again, and the scores may differ. `--repetitions=<n>` runs each case several
