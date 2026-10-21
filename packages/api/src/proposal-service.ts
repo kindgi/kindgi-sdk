@@ -3,7 +3,7 @@
 
 import { createHash } from 'node:crypto';
 
-import { type AgentId, modelSettingsIssues } from '@kindgi/agents';
+import { type AgentId, modelNamedTwice, modelSettingsIssues } from '@kindgi/agents';
 import { tuplesForCreate } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
 import { canonicalize } from '@kindgi/schema';
@@ -23,7 +23,12 @@ import { type BlockEdit, blockEditDefinition, publishBlockEdit } from './block-p
 import { deriveAgentVersion } from './derive-agent-version.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import { rescoreRefusal, rescoreStart } from './eval-rescore.js';
-import type { EvalComparison, EvalRunBinding, EvalRunStartOutcome } from './eval-run-binding.js';
+import type {
+  EvalComparison,
+  EvalRun,
+  EvalRunBinding,
+  EvalRunStartOutcome,
+} from './eval-run-binding.js';
 import type { GateApproval } from './gate.js';
 import type {
   AgentReleaseBindings,
@@ -49,8 +54,10 @@ import { type PromotionRequestOutcome, requestPromotion } from './routes/agent-r
 import { liveScopeToWire } from './routes/live-scope-wire.js';
 import type {
   ProposalDrafter,
+  ProposalEvaluationRef,
   ProposalEvidence,
   ProposalObjective,
+  ProposalRule,
   ProposalStep,
   ProposalTier,
   ProposedChange,
@@ -124,6 +131,16 @@ export interface EvaluateProposalInput {
   readonly suiteId: string;
   readonly objective: ProposalObjective;
   readonly comparison?: EvalComparison;
+  /**
+   * The current version replayed on the same cases (an improvement pass's
+   * model-settings change): no correction it passes may fail on the
+   * candidate, and under `rule: 'cheaper'` the candidate is kept for
+   * being no worse and costing less. Absent: beat the recorded outputs.
+   */
+  readonly against?: {
+    readonly rule: ProposalRule;
+    readonly reference: { readonly evalRunId: string };
+  };
   /** Who it's done for: what the derived version records as `by`. */
   readonly actor: PromotionActor;
 }
@@ -163,10 +180,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
           ? undefined
           : await deps.releases.promotions.get(tenantId, p.promotionId);
       let evaluation: ProposalEvaluationOutcome | null | undefined;
-      if (p.evaluation !== undefined) {
-        const run = await deps.evalRuns.get({ tenantId, runId: p.evaluation.evalRunId as RunId });
-        evaluation = run === null ? null : evaluationOutcome(p.evaluation.objective, run);
-      }
+      if (p.evaluation !== undefined) evaluation = await evaluationOf(tenantId, p.evaluation);
       const status = proposalStatus(p, promotion, evaluation);
       let liveNow: boolean | undefined;
       if (status === 'promoted' && promotion !== undefined && promotion !== null) {
@@ -180,6 +194,78 @@ export function createProposalService(deps: ProposalServiceDeps) {
         ...(liveNow !== undefined && { liveNow }),
       };
     };
+  }
+
+  /**
+   * A proposal's evaluation, read off its eval run (and its reference's,
+   * when it has one); `null` when either can't be read.
+   */
+  async function evaluationOf(
+    tenantId: TenantId,
+    stored: ProposalEvaluationRef,
+  ): Promise<ProposalEvaluationOutcome | null> {
+    const run = await deps.evalRuns.get({ tenantId, runId: stored.evalRunId as RunId });
+    if (run === null) return null;
+    if (stored.reference === undefined) return evaluationOutcome(stored.objective, run);
+    const reference = await deps.evalRuns.get({
+      tenantId,
+      runId: stored.reference.evalRunId as RunId,
+    });
+    if (reference === null) return null;
+    return evaluationOutcome(stored.objective, run, {
+      rule: stored.rule ?? 'better',
+      reference,
+    });
+  }
+
+  /**
+   * The eval runs a rescore scores again, each a completed comparison of a
+   * test set: the latest evaluation's, then the current version's replays
+   * it's held to, if any, so both sides count the same judgments.
+   */
+  async function rescorable(
+    tenantId: TenantId,
+    latest: ProposalEvaluationRef,
+  ): Promise<ProposalOutcome<EvalRun[]>> {
+    const runs: EvalRun[] = [];
+    for (const runId of [latest.evalRunId, latest.reference?.evalRunId]) {
+      if (runId === undefined) continue;
+      const run = await deps.evalRuns.get({ tenantId, runId: runId as RunId });
+      if (run === null) {
+        return err({ code: 'eval-run-not-found', message: `No eval run with id ${runId}`, runId });
+      }
+      const notRescorable = rescoreRefusal(run);
+      if (notRescorable !== undefined) {
+        return err({ code: 'eval-run-not-rescorable', message: notRescorable, runId });
+      }
+      runs.push(run);
+    }
+    return { kind: 'ok', value: runs };
+  }
+
+  /**
+   * Start a rescore of each run, in order: their ids. Not half a rescore:
+   * when one can't start, the ones started are cancelled.
+   */
+  async function startRescores(
+    tenantId: TenantId,
+    runs: readonly EvalRun[],
+    projectId: ProjectId,
+    correlationId: string,
+  ): Promise<ProposalOutcome<string[]>> {
+    const started: RunId[] = [];
+    for (const run of runs) {
+      // A runtime that doesn't record the run's project: the candidate's, as evaluate starts it.
+      const again = await deps.evalRuns.start(
+        rescoreStart(run, run.projectId ?? projectId, correlationId),
+      );
+      if (again.kind !== 'ok') {
+        for (const runId of started) await deps.evalRuns.cancel({ tenantId, runId });
+        return err(startError(again));
+      }
+      started.push(again.runId);
+    }
+    return { kind: 'ok', value: started.map((id) => id as unknown as string) };
   }
 
   /** The 409 when the proposal's status doesn't allow `action`. */
@@ -272,15 +358,11 @@ export function createProposalService(deps: ProposalServiceDeps) {
         agentId: proposal.agentId,
         version: proposal.fromVersion as Semver,
       });
-      const issues = agent?.modelSettings?.id === blockId ? modelSettingsIssues(edit.values) : [];
-      if (issues.length > 0) {
-        return err(
-          validationFailed(
-            `The proposal's content isn't model settings, which block "${blockId}" is`,
-            issues,
-          ),
-        );
-      }
+      const refused =
+        agent !== null && agent.modelSettings?.id === blockId
+          ? modelSettingsRefusal(agent, blockId, edit.values)
+          : undefined;
+      if (refused !== undefined) return err(refused);
     }
     const published = await publishBlockEdit({
       blocks: deps.blocks,
@@ -491,6 +573,10 @@ export function createProposalService(deps: ProposalServiceDeps) {
           suiteId: input.suiteId,
           objective: input.objective,
           startedAt: new Date().toISOString() as Timestamp,
+          ...(input.against !== undefined && {
+            rule: input.against.rule,
+            reference: { evalRunId: input.against.reference.evalRunId },
+          }),
         },
       });
     },
@@ -506,15 +592,8 @@ export function createProposalService(deps: ProposalServiceDeps) {
       if (refused !== undefined) return err(refused);
       const latest = proposal.evaluation;
       if (latest === undefined) throw new Error('an evaluated proposal has an evaluation');
-      const runId = latest.evalRunId;
-      const run = await deps.evalRuns.get({ tenantId, runId: runId as RunId });
-      if (run === null) {
-        return err({ code: 'eval-run-not-found', message: `No eval run with id ${runId}`, runId });
-      }
-      const notRescorable = rescoreRefusal(run);
-      if (notRescorable !== undefined) {
-        return err({ code: 'eval-run-not-rescorable', message: notRescorable, runId });
-      }
+      const runs = await rescorable(tenantId, latest);
+      if (runs.kind === 'err') return runs;
       // As evaluate: not for a candidate unregistered since.
       const candidateIn = await candidateProject(proposal);
       if (candidateIn === undefined) {
@@ -523,22 +602,23 @@ export function createProposalService(deps: ProposalServiceDeps) {
           message: `The candidate ${proposal.agentId as unknown as string} ${proposal.candidate?.agentVersion} is unregistered: withdraw this proposal and draft it again`,
         });
       }
-      // A runtime that doesn't record the run's project: the candidate's, as evaluate starts it.
-      const started = await deps.evalRuns.start(
-        rescoreStart(
-          run,
-          run.projectId ?? candidateIn,
-          `proposal:${proposal.id as unknown as string}`,
-        ),
+      const started = await startRescores(
+        tenantId,
+        runs.value,
+        candidateIn,
+        `proposal:${proposal.id as unknown as string}`,
       );
-      if (started.kind !== 'ok') return err(startError(started));
+      if (started.kind === 'err') return started;
+      const [evalRunId, referenceId] = started.value;
       return record(proposal, {
         kind: 'evaluation',
         evaluation: {
-          evalRunId: started.runId as unknown as string,
+          evalRunId: evalRunId as string,
           suiteId: latest.suiteId,
           objective: latest.objective,
           startedAt: new Date().toISOString() as Timestamp,
+          ...(latest.rule !== undefined && { rule: latest.rule }),
+          ...(referenceId !== undefined && { reference: { evalRunId: referenceId } }),
         },
       });
     },
@@ -689,6 +769,30 @@ function validationFailed(
     message,
     issues: issues as unknown as Record<string, unknown>[],
   };
+}
+
+/**
+ * Why new values for the agent version's model-settings block are refused:
+ * they aren't model settings, or they name the model the version names too.
+ */
+function modelSettingsRefusal(
+  agent: AgentVersionRecord,
+  blockId: string,
+  values: unknown,
+): ProposalServiceError | undefined {
+  const issues = modelSettingsIssues(values);
+  if (issues.length > 0) {
+    return validationFailed(
+      `The proposal's content isn't model settings, which block "${blockId}" is`,
+      issues,
+    );
+  }
+  const twice = modelNamedTwice(agent, values);
+  return twice === undefined
+    ? undefined
+    : validationFailed(`The proposal's model settings name the model twice`, [
+        { path: '/content/values', message: `model-settings block "${blockId}": ${twice}` },
+      ]);
 }
 
 function startError(outcome: Exclude<EvalRunStartOutcome, { kind: 'ok' }>): ProposalServiceError {

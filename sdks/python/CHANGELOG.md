@@ -10,6 +10,13 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **a proposal says how it was kept, what the replays cost and
+  which decisions held.** A proposal's `evaluation` gains `rule` (`better` or
+  `cheaper`), `cost_usd` (`ProposalCost`) and `decisions`
+  (`ProposalDecisions`). A proposal kept as `cheaper` is `evaluated` with
+  `better` false. A judged comparison's summary gains `cost_usd`
+  (`JudgedComparisonCost`) and `corrections.judgments`, and each case result
+  gains `cost_usd`, one per repetition.
 - `kindgi`: **`deployments.pack_env` shows where each name a deployment's
   pack declares is set** (`project`, `org` or `tenant`) and why it can't be
   given to its pack service, if it can't, on a server that runs a pack

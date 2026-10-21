@@ -192,7 +192,11 @@ export interface ImprovementPass {
 export interface ImprovementPassComparison {
   /** Absent until it started. */
   readonly evalRunId?: string;
-  /** `reference`: the version as it is; `candidate`: other values; `proof`: the proposal, on the hold-out part. */
+  /**
+   * `reference`: the version as it is (on the hold-out part too for a
+   * model-settings change: what its proof is held to); `candidate`: other
+   * values; `proof`: the proposal, on the hold-out part.
+   */
   readonly role: 'reference' | 'candidate' | 'proof';
   readonly part: 'search' | 'hold-out';
   /** For a candidate: its block, and the values it changed. */
