@@ -31,7 +31,8 @@
  *     isn't taken, and once a suspended tenant or project is restored the
  *     same answer lands. Not a `202` as a webhook delivery to one gets: the
  *     run still waits for this answer, and a sender told it was taken
- *     wouldn't send it again;
+ *     wouldn't send it again. `503 tenant-state-unavailable`
+ *     (`Retry-After`) when the tenant's state can't be read;
  *   - `413 request-too-large` (`details.maxBytes`): past 1 MiB;
  *   - `415 unsupported-media-type`: a body that isn't JSON. An empty body is `{}`;
  *   - `429 rate-limit-exceeded` (`Retry-After`): past
@@ -246,19 +247,15 @@ function isJsonContentType(header: string | undefined): boolean {
 export function refusal(c: Context<AppEnv>, refused: WaitTokenRefusal): Response {
   switch (refused.code) {
     // As every write of a frozen tenant is refused (`tenantStateGate`).
-    case 'tenant-closing':
-      return frozenTenantRefusal(c, 'closing');
-    case 'tenant-suspended':
-      return frozenTenantRefusal(c, 'suspended');
+    case 'tenant-frozen':
+      return frozenTenantRefusal(c, refused.state);
     default:
       c.status(statusFor(refused.code) as never);
       return c.json(toWireError(refusalBody(refused), c.get('requestId')));
   }
 }
 
-function refusalBody(
-  refused: Exclude<WaitTokenRefusal, { code: 'tenant-closing' | 'tenant-suspended' }>,
-) {
+function refusalBody(refused: Exclude<WaitTokenRefusal, { code: 'tenant-frozen' }>) {
   switch (refused.code) {
     case 'wait-token-not-found':
       return { code: refused.code, message: 'No wait token matches this link' };

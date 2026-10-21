@@ -275,9 +275,6 @@ describe('the link', () => {
       400,
       { issues: [{ path: '/confirmedAt' }] },
     ],
-    // As every write of a frozen tenant is refused, with the same details.
-    [{ code: 'tenant-closing' } as const, 409, { state: 'closing' }],
-    [{ code: 'tenant-suspended' } as const, 409, { state: 'suspended' }],
     [{ code: 'project-suspended' } as const, 409, undefined],
   ])('the binding refuses %o: %i', async (refusal, status, details) => {
     const h = harness({ complete: () => ({ kind: 'err', error: refusal }) });
@@ -289,6 +286,26 @@ describe('the link', () => {
     expect(error.message).not.toContain(LINK_TOKEN);
     expect(h.resumed).toEqual([]);
   });
+
+  test.each([
+    ['closing', 409, 'tenant-closing', { state: 'closing' }],
+    ['suspended', 409, 'tenant-suspended', { state: 'suspended' }],
+    ['unreadable', 503, 'tenant-state-unavailable', undefined],
+  ] as const)(
+    'a tenant %s is answered as the gate answers its writes: %i %s',
+    async (state, status, code, details) => {
+      const h = harness({
+        complete: () => ({ kind: 'err', error: { code: 'tenant-frozen', state } }),
+      });
+      const res = await h.answer(JSON.stringify(ANSWER));
+      expect(res.status).toBe(status);
+      expect(res.headers.get('retry-after')).toBe(state === 'unreadable' ? '5' : null);
+      const error = await errorOf(res);
+      expect(error.code).toBe(code);
+      expect(error.details).toEqual(details);
+      expect(h.resumed).toEqual([]);
+    },
+  );
 
   test('on a runtime that pauses no run, every link is 404 wait-token-not-found', async () => {
     const h = harness({ waitTokens: false });

@@ -10500,6 +10500,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '429': ErrorResponse(
         '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was taken. `Retry-After` says when to send the answer again.',
       ),
+      '503': ErrorResponse(
+        "`tenant-state-unavailable`: the run's tenant's state couldn't be read, so the answer wasn't taken. `Retry-After` says when to send it again.",
+      ),
     },
   },
 

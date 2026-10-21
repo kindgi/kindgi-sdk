@@ -87,13 +87,13 @@ export type WaitTokenRefusal =
   /** The answer doesn't fit the tool's output schema; the wait stays open. */
   | { readonly code: 'wait-token-output-invalid'; readonly issues: readonly unknown[] }
   /**
-   * Nothing runs where the run is: its tenant is closing or suspended, or
-   * its project is suspended. Nothing is taken or held, and the wait stays
-   * open, so the same answer lands once a suspended tenant or project is
-   * restored.
+   * The run's tenant is closing or suspended, or its state can't be read
+   * (`unreadable`, which fails closed). Nothing is taken or held, and the
+   * wait stays open, so the same answer lands once a suspended tenant is
+   * restored. Answered as every write of a frozen tenant is.
    */
-  | { readonly code: 'tenant-closing' }
-  | { readonly code: 'tenant-suspended' }
+  | { readonly code: 'tenant-frozen'; readonly state: 'closing' | 'suspended' | 'unreadable' }
+  /** The run's project is suspended: nothing is taken, and the wait stays open. */
   | { readonly code: 'project-suspended' };
 
 /** A run's open wait for another system's answer, as a run reader sees it. */
@@ -120,10 +120,11 @@ export interface WaitTokenBinding {
    * entry.
    *
    * Once the token matches, before anything else, it refuses an answer to a
-   * run whose tenant is closing or suspended, or whose project is
-   * suspended (as `createApp`'s `tenantStates` and `projectSuspended` would
-   * say), and takes nothing: nothing runs there. Only to a caller whose
-   * token matched, as the webhook receiver tells a sender that proved itself.
+   * run whose tenant is closing or suspended or whose state can't be read
+   * (`tenant-frozen`), or whose project is suspended (`project-suspended`),
+   * as `createApp`'s `tenantStates` and `projectSuspended` would say, and
+   * takes nothing: nothing runs there. Only to a caller whose token
+   * matched, as the webhook receiver tells only a sender that proved itself.
    */
   complete(input: CompleteWaitTokenInput): Promise<Result<WaitTokenAccepted, WaitTokenRefusal>>;
   /** The run's open waits for another system's answer. */
