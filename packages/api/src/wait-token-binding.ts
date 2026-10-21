@@ -89,8 +89,8 @@ export type WaitTokenRefusal =
   /**
    * The run's tenant is closing or suspended, or its state can't be read
    * (`unreadable`, which fails closed). Nothing is taken or held. Closing or
-   * suspending cancels the tenant's runs, paused ones included, so this
-   * answers an answer that comes before the cancel reaches its run; an
+   * suspending cancels the tenant's runs, paused ones included, so the
+   * refusal is for an answer that comes before the cancel reaches its run; an
    * `unreadable` one leaves the wait open for the same answer again.
    * Answered as every write of a frozen tenant is.
    */
