@@ -67,6 +67,8 @@ const PEOPLE: Record<string, readonly Grant[]> = {
   prod: on(PROD, 'read', 'call', 'execute'),
   /** Calls agents and executes flows in staging. */
   staging: on(STAGING, 'read', 'call', 'execute'),
+  /** Calls agents in prod, and doesn't read it: an app's backend. */
+  'prod-caller': on(PROD, 'call'),
   /** Calls in both. */
   both: [...on(STAGING, 'read', 'call', 'execute'), ...on(PROD, 'read', 'call', 'execute')],
   /** Today's rights on `acme.desk` and no project's: no longer enough in its projects. */
@@ -643,14 +645,22 @@ describe('conversations with an agent an order carries', () => {
 
   test('closing one is call where it is', async () => {
     const { call, conversations } = harness();
-    const staging = await call('staging', 'POST', `/v1/conversations/${IN_PROD}/close`);
-    expect(staging.status, staging.text).toBe(403);
-    expect(staging.body.error.message).toContain(
+    // Reads prod, and doesn't call there.
+    const reader = await call('event-prod', 'POST', `/v1/conversations/${IN_PROD}/close`);
+    expect(reader.status, reader.text).toBe(403);
+    expect(reader.body.error.message).toContain(
       `closing a conversation with agent "${SERVED}" in project ${PROD}`,
     );
+    // Can't read prod: as if there were no such conversation.
+    const staging = await call('staging', 'POST', `/v1/conversations/${IN_PROD}/close`);
+    expect(staging.status, staging.text).toBe(404);
+    expect(staging.body.error.message).toBe(`No conversation with id "${IN_PROD}"`);
+    expect(conversations).toEqual([]);
+    // Closing one doesn't take reading it: each close reaches the store.
+    const caller = await call('prod-caller', 'POST', `/v1/conversations/${IN_PROD}/close`);
+    expect(conversations, caller.text).toEqual([`close ${IN_PROD}`]);
     const prod = await call('prod', 'POST', `/v1/conversations/${IN_PROD}/close`);
-    expect(prod.status, prod.text).not.toBe(403);
-    expect(conversations).toEqual([`close ${IN_PROD}`]);
+    expect(conversations, prod.text).toEqual([`close ${IN_PROD}`, `close ${IN_PROD}`]);
   });
 
   test('an agent with one project: execute on it, as before', async () => {
