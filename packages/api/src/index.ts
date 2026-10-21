@@ -428,7 +428,7 @@ export type {
 } from './public-run-token.js';
 export { runFailure } from './run-failure.js';
 export type { RunFailure } from './run-failure.js';
-export { PAUSE_TOKEN_PREFIX, WAIT_TOKEN_STATES } from './wait-token-binding.js';
+export { WAIT_TOKEN_STATES } from './wait-token-binding.js';
 export type {
   CompleteWaitTokenInput,
   WaitTokenAccepted,

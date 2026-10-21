@@ -117,6 +117,3 @@ export interface WaitTokenBinding {
     readonly runId: RunId;
   }): Promise<readonly WaitingToken[]>;
 }
-
-/** The waitpoint ids of pauses: minted by the runtime only, never by a handler. */
-export const PAUSE_TOKEN_PREFIX = 'pause:';

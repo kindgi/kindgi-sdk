@@ -24,6 +24,7 @@ import type {
 } from '@kindgi/types';
 
 import { type Principal, denyPayload, ref } from '@kindgi/authz';
+import { PAUSE_TOKEN_PREFIX } from '@kindgi/tools';
 
 import { type WireErrorBody, retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type { EventBusBinding, EventPayload, Subscription } from '../event-bus-binding.js';
@@ -47,11 +48,7 @@ import { resumeInline } from '../resume-inline.js';
 import { type RunFailure, runFailure } from '../run-failure.js';
 import { runWaitingFor } from '../run-waiting-for.js';
 import type { AppEnv } from '../types.js';
-import {
-  type CompleteWaitTokenInput,
-  PAUSE_TOKEN_PREFIX,
-  type WaitTokenBinding,
-} from '../wait-token-binding.js';
+import type { CompleteWaitTokenInput, WaitTokenBinding } from '../wait-token-binding.js';
 import { deniedBy } from './denied.js';
 import { liveScopeToWire } from './live-scope-wire.js';
 import type { DecodedCursor } from './pagination.js';
