@@ -1,5 +1,12 @@
 # @kindgi/provenance
 
+## 0.1.9
+
+### Patch Changes
+
+- @kindgi/schema@0.1.9
+  - @kindgi/types@0.1.9
+
 ## 0.1.9-rc.1
 
 ### Patch Changes

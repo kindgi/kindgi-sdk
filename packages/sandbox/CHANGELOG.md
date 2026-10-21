@@ -1,5 +1,11 @@
 # @kindgi/sandbox
 
+## 0.1.9
+
+### Patch Changes
+
+- @kindgi/types@0.1.9
+
 ## 0.1.9-rc.1
 
 ### Patch Changes
