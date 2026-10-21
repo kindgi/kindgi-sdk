@@ -7,6 +7,7 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-client`: **a comparison eval run's result, typed.** `Comparisons.comparisonOf(run)` reads a `judged` `EvalRun`'s open `result` as the OpenAPI `JudgedComparisonResult` — its summary and each case — and is empty for another kind of run, a dry run, or one that hasn't finished. The same reading as the TypeScript `comparisonOf` and Python `comparison_of`.
 - `kindgi-pack`, `kindgi-pack-scala`: **an agent's `conversationPolicy` can't set `autoCloseAfterInactiveSeconds`.** It was accepted and never acted on: a conversation never closes by itself, only when someone closes it. The indexer refuses an agent that sets it, as a file error at `/conversationPolicy/autoCloseAfterInactiveSeconds`; the rest of the pack still indexes, and `kindgi build` stops on it.
 
 ## 0.1.9
