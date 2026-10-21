@@ -2,7 +2,7 @@
 "@kindgi/cli": patch
 ---
 
-**`--allow-unattended=<tool-id>` names a tool whose calls in a webhook trigger's or a schedule's runs needn't wait for a person's yes.** It works on `kindgi webhooks register` and `update`, and `kindgi schedules create` and `update`.
+**`--allow-unattended=<tool-id>` names a tool whose calls in a webhook trigger's or a schedule's runs needn't wait for a person's yes just because no person started them.** It works on `kindgi webhooks register` and `update`, and `kindgi schedules create` and `update`.
 - **Repeat it** for each tool.
 - **On update,** it replaces the list, and `--allow-unattended=none` clears it. Left out, the list is kept.
 - **It takes `admin`** on the project.
