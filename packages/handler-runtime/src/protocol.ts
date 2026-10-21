@@ -260,9 +260,10 @@ function parseToolPause(m: Record<string, unknown>): ParseOutcome<ToolPauseMessa
   ) {
     return malformed(`\`timeoutMs\` must be a whole number from 1 to ${MAX_PAUSE_TIMEOUT_MS}`);
   }
+  // In code points, as the schema's `maxLength` and a Python pack count it.
   if (
     name !== undefined &&
-    (typeof name !== 'string' || name.length === 0 || name.length > MAX_PAUSE_NAME_LENGTH)
+    (typeof name !== 'string' || name.length === 0 || [...name].length > MAX_PAUSE_NAME_LENGTH)
   ) {
     return malformed(`\`name\` must be a string of 1 to ${MAX_PAUSE_NAME_LENGTH} characters`);
   }

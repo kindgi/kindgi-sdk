@@ -144,7 +144,8 @@ export interface PreconditionFailedError {
 /**
  * invokeTool: the tool's call waits for another system's answer (its
  * handler returned a pause), but `invokeTool` can't make its caller wait.
- * A caller that can park on a wait token calls `invokeToolOrPause`.
+ * A caller that can park on a wait token calls `invokeToolOrPause`, which
+ * answers this too when the tool doesn't declare `pauses`.
  */
 export interface ToolPauseUnsupportedError {
   readonly code: 'tool-pause-unsupported';

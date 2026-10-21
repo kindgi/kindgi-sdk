@@ -101,9 +101,12 @@ class WaitToken:
     """A call's wait token: its id, and the link the other system posts its answer to."""
 
     id: str
+    """The same every time this attempt of the call runs (a retry of its step gets a new token)."""
     url: str
     """`POST` the answer here, as a JSON body, with no `Authorization` header: the link is the
-    credential. Hand it only to the system that answers."""
+    credential. Hand it only to the system that answers. A re-run after a crash gets a new link
+    to the same wait, and either link completes it. Hand on the new one only if the old one never
+    went out, and dedupe on `idempotency_key`."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,7 +189,9 @@ class ToolContext:
         """The call's wait token, for a tool that declares `pauses=True`: hand its `url` to the
         system that will answer, then return `ctx.pause()`. The run waits until that system posts
         its answer to the link, or until the pause's time passes; the answer, valid against the
-        tool's output schema, becomes the call's result.
+        tool's output schema, becomes the call's result. A re-run after a crash gets a new link to
+        the same wait, and either link completes it: hand on the new one only if the old one never
+        went out, and dedupe on `idempotency_key`.
 
         Raises `PauseNotAvailable` when the call has none: the tool doesn't declare
         `pauses=True`, or the runtime that called it can't pause (before pack protocol 2.8.0).

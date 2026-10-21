@@ -74,12 +74,12 @@
             "id": {
               "type": "string",
               "minLength": 1,
-              "description": "The token's id. The same every time this call runs, so a re-run hands on the same link."
+              "description": "The token's id. The same every time this attempt of the call runs (a retry of its step gets a new token)."
             },
             "url": {
               "type": "string",
               "format": "uri",
-              "description": "Where the other system posts its answer: `POST` with the output as a JSON body, no `Authorization` header. The link is the credential: hand it only to the system that answers."
+              "description": "Where the other system posts its answer: `POST` with the output as a JSON body, no `Authorization` header. The link is the credential: hand it only to the system that answers. A re-run after a crash gets a new link to the same wait, and either link completes it. Hand on the new one only if the old one never went out, and dedupe on `idempotencyKey`."
             }
           }
         }

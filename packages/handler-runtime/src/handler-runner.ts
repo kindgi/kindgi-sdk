@@ -71,7 +71,10 @@ export interface HandlerContext {
    * The call's wait token (protocol 2.8.0), only for a tool that declares
    * `pauses`: hand `url` to the system that will answer, then return
    * `ctx.pause()`. Reading it when the runtime sent none (one from before
-   * 2.8.0) throws, and the call fails with `pause-not-available`.
+   * 2.8.0) throws, and the call fails with `pause-not-available`. A
+   * re-run after a crash gets a new link to the same wait, and either
+   * link completes it. Hand on the new one only if the old one never went
+   * out, and dedupe on the call's `idempotencyKey`.
    */
   readonly waitToken?: WaitTokenRef;
   /**
@@ -377,7 +380,7 @@ export async function runHandlerOrPause(options: RunHandlerOptions): Promise<Han
 
   const called = await callHandler(handler, prepared, ctx, tool);
   if (called.kind === 'err') return called;
-  if (isPauseAnswer(called.value)) return pauseOf(tool, called.value);
+  if (isPauseAnswer(called.value)) return pauseOf(tool, ctx, called.value);
   return checkedOutput(tool, called.value);
 }
 
@@ -518,14 +521,24 @@ function callContext(ctx: HandlerContext, tool: ToolInvocationSpec): HandlerCont
   return out;
 }
 
-/** A handler's pause, checked: within the limits the protocol states, from a tool that may pause. */
-function pauseOf(tool: ToolInvocationSpec, answer: PauseAnswer): HandlerOutcome {
-  if (tool.pauses !== true) {
+/**
+ * A handler's pause, checked: from a tool that may pause, on a call that
+ * carried a wait token, within the limits the protocol states.
+ */
+function pauseOf(
+  tool: ToolInvocationSpec,
+  ctx: HandlerContext,
+  answer: PauseAnswer,
+): HandlerOutcome {
+  if (tool.pauses !== true || ctx.waitToken === undefined) {
     return {
       kind: 'err',
       error: {
         code: 'pause-not-available',
-        message: `Tool "${tool.id}" answered with a pause, but doesn't declare \`pauses: true\``,
+        message:
+          tool.pauses !== true
+            ? `Tool "${tool.id}" answered with a pause, but doesn't declare \`pauses: true\``
+            : noWaitToken(tool.id).message,
         toolId: tool.id,
       },
     };
@@ -543,9 +556,10 @@ function pauseOf(tool: ToolInvocationSpec, answer: PauseAnswer): HandlerOutcome 
       `Tool "${tool.id}" paused with timeoutMs ${String(timeoutMs)}: it must be a whole number of milliseconds from 1 to ${MAX_PAUSE_TIMEOUT_MS} (24 days)`,
     );
   }
+  // In code points, as the schema's `maxLength` and a Python pack count it.
   if (
     name !== undefined &&
-    (typeof name !== 'string' || name.length === 0 || name.length > MAX_PAUSE_NAME_LENGTH)
+    (typeof name !== 'string' || name.length === 0 || [...name].length > MAX_PAUSE_NAME_LENGTH)
   ) {
     return shapeInvalid(
       tool.id,
