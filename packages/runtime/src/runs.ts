@@ -21,7 +21,7 @@ import type {
   TriggerId,
 } from '@kindgi/types';
 
-import type { RunAgentRef, RunStartedBy, RunTriggerRef } from './inputs.js';
+import type { RunActsFor, RunAgentRef, RunStartedBy, RunTriggerRef } from './inputs.js';
 import type { RunStatus } from './types.js';
 
 /**
@@ -75,6 +75,12 @@ export interface KernelRunRecord {
    * as unattended.
    */
   readonly startedBy?: RunStartedBy;
+  /**
+   * Whom the run acts for (`RunActsFor`). Absent on a run that acts for no
+   * one (a system job, an agent on its own, a replay run), runs from
+   * before runs recorded it included.
+   */
+  readonly actsFor?: RunActsFor;
   /**
    * When an erasure cleared the run's content (its input, output, failure
    * message and journal payloads). Absent on every other run.

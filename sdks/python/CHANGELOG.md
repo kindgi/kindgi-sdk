@@ -10,6 +10,11 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **a run says whom it acts for.** The client's `Run` gains
+  `acts_for`: `user:<id>` (a person) or `service_account:<id>` (a service
+  account), whose access the run has. A trigger's run acts for the trigger's
+  owner, and a child run for its parent's. It is an id, never a name, and it is
+  `None` on a run that acts for no one and on older runs.
 - `kindgi`: **`system_keys.mint`, `list`, `revoke` and `whoami` say what a
   runtime serving one tenant answers.** Its own token mints, lists and revokes
   keys holding `system:license` alone, for the license renewal, and such a key

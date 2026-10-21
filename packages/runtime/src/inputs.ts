@@ -111,6 +111,16 @@ export function runIsAttended(startedBy: RunStartedBy | undefined): boolean {
 }
 
 /**
+ * Whom a run acts for, whose access it has: a person (`user:<id>`) or a
+ * service account (`service_account:<id>`), named as an approval's
+ * `requestedBy` and a conversation's `openedBy` name them. Recorded with
+ * the run and never changed: a run a trigger fired acts for the trigger's
+ * owner, a child run for its parent's, an agent acting for someone for
+ * that someone. An id, never a name.
+ */
+export type RunActsFor = `user:${string}` | `service_account:${string}`;
+
+/**
  * The idempotency key of a run start: a start with a key a run of the
  * tenant already has starts nothing and answers that run (`existing`), so
  * a retried or re-driven start never runs twice. A trigger's fire uses

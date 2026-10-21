@@ -1091,6 +1091,7 @@ function serializeRun(
       },
     }),
     ...(row.startedBy !== undefined && { startedBy: row.startedBy }),
+    ...(row.actsFor !== undefined && { actsFor: row.actsFor }),
     ...(row.versions != null && { versions: row.versions }),
     ...(row.contentErasedAt !== undefined && {
       contentErasedAt: row.contentErasedAt as unknown as string,
