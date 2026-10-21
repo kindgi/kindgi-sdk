@@ -429,9 +429,9 @@ one project's or org's.
 - A turn into a conversation that doesn't exist is refused with
   `404 conversation-not-found` before it starts, with `wait: false` too. If
   you can't read the conversation's project, you get that same `404` in place
-  of the `409 conversation-project-mismatch` (below), the
-  `403 permission-denied`, or the `403 participant-not-allowed` for its
-  participant (runtime 0.1.11 or later).
+  of the `409 conversation-project-mismatch` (below) or the
+  `403 permission-denied`, and in place of the `403 participant-not-allowed`
+  for its participant (runtime 0.1.11 or later).
 - **With [authorization](../../../deploy/authorization/) on,** reading a
   conversation or its messages takes `read` on its project. Closing one
   takes `execute` on its agent, or, for an agent more than one project
