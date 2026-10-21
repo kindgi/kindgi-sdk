@@ -65,6 +65,10 @@ public final class Tool<I, O> {
   private final Class<?> definedIn;
 
   private Tool(Builder<I, O> b, ToolHandler<I, O> handler) {
+    this(b, b.extra, handler);
+  }
+
+  private Tool(Builder<I, O> b, Map<String, Object> extra, ToolHandler<I, O> handler) {
     this.id = b.id;
     this.description = b.description;
     this.version = b.version;
@@ -75,7 +79,7 @@ public final class Tool<I, O> {
     this.mutating = b.mutating;
     this.needsApprovalWhenUnattended = b.needsApprovalWhenUnattended;
     this.effects = List.copyOf(b.effects);
-    this.extra = Map.copyOf(b.extra);
+    this.extra = Map.copyOf(extra);
     this.handler = Objects.requireNonNull(handler, "handler");
     this.definedIn = b.definedIn;
   }
@@ -411,9 +415,13 @@ public final class Tool<I, O> {
                 + " not a field of the input, which fills placeholders");
       }
 
-      extra.put("spec", specMap);
+      // A terminal, not a setter: carry the spec on this tool only, without touching the shared
+      // builder, so a later tool built from the same builder doesn't inherit a stray `spec`.
+      Map<String, Object> httpExtra = new LinkedHashMap<>(extra);
+      httpExtra.put("spec", specMap);
       return new Tool<>(
           this,
+          httpExtra,
           (input, ctx) -> {
             throw new UnsupportedOperationException(
                 "Tool \""

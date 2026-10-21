@@ -20,6 +20,7 @@ Pack: id `conformance`, version `1.0.0`. Every tool is version `1.0.0`.
 | `conformance.defaults` | `{ name: string, greeting: string = "Hello", options: { loud: boolean = false } = {} }`, `name` required | any object | Returns its input as the handler received it — JSON Schema `default`s filled in, nested ones included. |
 | `conformance.noisy` | any object | `{ ok: boolean }`, required | Prints `noisy: a line on stdout` and a JSON-looking line to stdout, a line to stderr, then returns `{ ok: true }`. |
 | `conformance.process-env` | any object | any object | Returns `{ names }`: the names of the variables in its process environment that start with `KINDGI_`, sorted. The service token is never among them. |
+| `conformance.http` | `{ path: string }`, required | `{ url: string }`, required | No handler: a declarative HTTP spec — `GET https://api.example.com/{path}`, an `Accept: application/json` header, bearer secret `local/API_TOKEN`, success `200`–`299`. The runtime makes the request; the SDK only indexes the spec, which must be the same bytes in every language. |
 
 ## Guardrails
 

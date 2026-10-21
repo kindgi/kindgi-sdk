@@ -184,9 +184,21 @@ public final class HttpToolSpec {
       return this;
     }
 
-    /** Adds a header the runtime sends, in order. */
+    /**
+     * Adds a header the runtime sends, in order. HTTP header names are case-insensitive, so a name
+     * already added (ignoring case) is refused rather than sent twice.
+     *
+     * @throws IllegalArgumentException when a header with this name (ignoring case) was already added
+     */
     public Builder header(String name, String value) {
-      this.headers.add(new HttpHeaderSpec(name, value));
+      HttpHeaderSpec header = new HttpHeaderSpec(name, value);
+      for (HttpHeaderSpec existing : headers) {
+        if (existing.name().equalsIgnoreCase(header.name())) {
+          throw new IllegalArgumentException(
+              "header \"" + name + "\" was already set (header names are case-insensitive)");
+        }
+      }
+      this.headers.add(header);
       return this;
     }
 

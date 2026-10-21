@@ -288,4 +288,32 @@ final class HttpToolTest {
     assertFalse(specOf(tool).isEmpty());
     assertEquals("http", specOf(tool).get("kind"));
   }
+
+  @Test
+  void aRepeatedHeaderNameIsRefusedIgnoringCase() {
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                HttpToolSpec.builder()
+                    .method(HttpMethod.GET)
+                    .urlTemplate("https://cases.example.com/{court}/{docket}")
+                    .header("Accept", "application/json")
+                    .header("accept", "text/plain"));
+    assertTrue(e.getMessage().contains("was already set"), e.getMessage());
+  }
+
+  @Test
+  void theSpecDoesNotLeakToALaterToolBuiltFromTheSameBuilder() {
+    Tool.Builder<CaseLookup, Found> builder = lookup();
+    builder.http(
+        HttpToolSpec.builder()
+            .method(HttpMethod.GET)
+            .urlTemplate("https://cases.example.com/{court}/{docket}")
+            .build());
+
+    // The same builder, now given a handler: it must not carry the HTTP tool's `spec`.
+    Tool<CaseLookup, Found> handled = builder.handler((input, ctx) -> new Found(input.docket()));
+    assertFalse(handled.extra().containsKey("spec"));
+  }
 }
