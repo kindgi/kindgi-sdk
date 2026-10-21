@@ -96,6 +96,23 @@ project's last 100 runs it would have queued, with its `sample` but not its
 `ruleId` to sample as it does. Without one, the count is an estimate. A run
 that doesn't record how its version was chosen never matches `live`.
 
+To catch a rule up on runs that ended before it was made,
+`judgingRules.queueRecent` queues its matches among the project's recent
+runs: the `last` of them (up to 1,000, newest first), those completed at or
+after `since`, or, with both, the `last` of those completed at or after
+`since`. It samples as the rule samples, so it picks the runs the rule
+itself would have. It doesn't apply `maxOpen`: a catch-up can leave more
+than `maxOpen` of the rule's runs waiting, and the rule then adds nothing at
+run end until fewer wait. The answer counts the matches three ways, which
+together are all of them:
+
+- **`queued`**: queued for the rule by this call, as a new item or added to one that's already waiting for another rule.
+- **`alreadyQueued`**: the rule had queued them already, and they're still waiting.
+- **`alreadyReviewed`**: their run was already judged or dismissed, so
+  they're left as they are.
+
+An erased run isn't a match, so it's in none of the three.
+
 A rule only lists runs: it never runs a model or spends anything.
 
 ### Change a rule
@@ -131,8 +148,8 @@ A rule only lists runs: it never runs a model or spends anything.
   `erased` and shows nothing of the run.
 
 Reading the rules and the queue takes read access to the project. Changing a
-rule, and dismissing or reopening an item, take write access, as judging a
-run does.
+rule, queueing its recent matches, and dismissing or reopening an item, take
+write access, as judging a run does.
 
 ## A rule's results
 

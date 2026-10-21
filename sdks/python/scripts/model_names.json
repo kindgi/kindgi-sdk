@@ -354,6 +354,8 @@
   "JudgingProgress": ["JudgingProgress"],
   "JudgingQueueItem": ["JudgingQueueItem"],
   "JudgingQueuePage": ["JudgingQueuePage"],
+  "JudgingQueueRecentInput": ["JudgingQueueRecentInput"],
+  "JudgingRecentQueued": ["JudgingRecentQueued"],
   "JudgingResultGroup": ["JudgingResultGroup"],
   "JudgingRule": ["JudgingRule"],
   "JudgingRulePage": ["JudgingRulePage"],
