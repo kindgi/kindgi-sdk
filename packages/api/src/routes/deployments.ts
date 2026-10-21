@@ -2719,6 +2719,7 @@ export function sha256HexPrefixed(bytes: Uint8Array): string {
 /** The first read-only registry a deployment would publish into, if any. */
 function readOnlyTarget(
   validated: {
+    readonly blocks: readonly unknown[];
     readonly tools: readonly unknown[];
     readonly agents: readonly unknown[];
     readonly flows: readonly unknown[];
@@ -2727,6 +2728,7 @@ function readOnlyTarget(
   bindings: DeploymentsRouterBindings,
 ): RegistryReadOnly | undefined {
   const targets = [
+    [validated.blocks, bindings.blockRegistry?.readOnly],
     [validated.tools, bindings.toolRegistry?.readOnly],
     [validated.agents, bindings.agentRegistry?.readOnly],
     [validated.flows, bindings.flowRegistry?.readOnly],

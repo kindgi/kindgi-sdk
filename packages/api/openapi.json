@@ -43930,7 +43930,7 @@
             }
           },
           "409": {
-            "description": "`block-already-registered` or `block-project-mismatch`. Or `environment-takes-promotions`: the project is a later environment of an environment order, which takes builds only by promotion from the one before it; publish in the order's first environment instead (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written.",
+            "description": "`block-already-registered` or `block-project-mismatch`. Or `environment-takes-promotions`: the project is a later environment of an environment order, which takes builds only by promotion from the one before it; publish in the order's first environment instead (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -44307,7 +44307,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -44426,7 +44426,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {

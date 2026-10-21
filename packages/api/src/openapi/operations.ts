@@ -6185,7 +6185,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '403': ErrorResponse('`permission-denied`: no `write` on the project.'),
       '409': ErrorResponse(
-        `\`block-already-registered\` or \`block-project-mismatch\`. ${TAKES_PROMOTIONS}`,
+        `\`block-already-registered\` or \`block-project-mismatch\`. ${TAKES_PROMOTIONS} Or \`registry-read-only\`: this registry takes no writes (under \`kindgi dev\`, the pack's files are the source); the message says what to do instead.`,
       ),
       '404': ErrorResponse(
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
@@ -6207,6 +6207,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterBlockResult') },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
       '403': ErrorResponse('`permission-denied`: no `write` on the project.'),
       '404': ErrorResponse('`block-not-found`, or already unregistered.'),
     },
@@ -6224,6 +6227,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstateBlockResult') },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+      ),
       '403': ErrorResponse('`permission-denied`: no `write` on the project.'),
       '404': ErrorResponse('`block-not-found`.'),
     },

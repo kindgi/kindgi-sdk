@@ -248,6 +248,13 @@ export interface ModelSettings {
  * every block of the tenant.
  */
 export interface BlockReader {
+  /**
+   * Said after a range no version satisfies: where this runtime's blocks
+   * come from, and what to do (under `kindgi dev`, the pack's files: add
+   * the block under its blocks folder). Absent: the miss says only what
+   * is published.
+   */
+  readonly missNote?: string;
   getVersion(input: {
     readonly tenantId: TenantId;
     readonly blockId: string;
