@@ -10,6 +10,15 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **a tool can pause its run until another system answers.**
+  `@tool(pauses=True)`: the handler hands `ctx.wait_token.url` to that system
+  and returns `ctx.pause(timeout_ms=..., name=...)`, 24 hours by default and
+  at most 24 days. Annotate it `-> Answer | PauseAnswer`: the output schema is
+  `Answer`'s. A call from a runtime that sends no wait token fails with
+  `pause-not-available`: reading `ctx.wait_token` raises `PauseNotAvailable`
+  first, so the tool hands nothing on. `ToolContext.for_test(wait_token=...)`
+  tests one. New: `PauseAnswer`, `PauseNotAvailable` and `WaitToken`. The
+  client's `Tool` model carries `pauses`.
 - `kindgi`: **`system_keys.mint`, `list`, `revoke` and `whoami` say what a
   runtime serving one tenant answers.** Its own token mints, lists and revokes
   keys holding `system:license` alone, for the license renewal, and such a key

@@ -48,7 +48,24 @@ export interface PackCallContext {
   readonly config?: Readonly<Record<string, unknown>>;
   /** The calling agent version's settings blocks' values, by block id (protocol 2.4.0). */
   readonly settings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  /**
+   * The wait token a tool that declares `pauses` may answer with
+   * (protocol 2.8.0): sent only for such a tool. A pack service from
+   * before 2.8.0 ignores it.
+   */
+  readonly waitToken?: WaitTokenRef;
 }
+
+/** A wait token: its id, and the link the other system posts its answer to. */
+export interface WaitTokenRef {
+  readonly id: string;
+  readonly url: string;
+}
+
+/** The longest a pause may wait: 24 days, in milliseconds (protocol 2.8.0). */
+export const MAX_PAUSE_TIMEOUT_MS = 24 * 24 * 60 * 60 * 1000;
+/** The longest a pause's `name` may be (protocol 2.8.0). */
+export const MAX_PAUSE_NAME_LENGTH = 200;
 
 export interface ToolRef {
   readonly id: string;
@@ -83,6 +100,18 @@ export interface ToolResultMessage {
   readonly output: unknown;
 }
 
+/**
+ * A `pauses` tool's answer that its call waits for another system
+ * (protocol 2.8.0). Valid only as the answer to an `invoke` whose context
+ * carried `waitToken`. Without `timeoutMs`, the runtime's default applies.
+ */
+export interface ToolPauseMessage {
+  readonly v: PackProtocolVersion;
+  readonly kind: 'pause';
+  readonly timeoutMs?: number;
+  readonly name?: string;
+}
+
 export interface CheckResultMessage {
   readonly v: PackProtocolVersion;
   readonly kind: 'check-result';
@@ -103,7 +132,8 @@ export type PackErrorCode =
   | 'check-not-in-pack'
   | 'tool-version-mismatch'
   | 'deadline-exceeded'
-  | 'cancelled';
+  | 'cancelled'
+  | 'pause-not-available';
 
 export interface PackErrorMessage {
   readonly v: PackProtocolVersion;
@@ -118,7 +148,11 @@ export interface PackErrorMessage {
 }
 
 export type PackRequest = ToolInvokeMessage | CheckInvokeMessage;
-export type PackResponse = ToolResultMessage | CheckResultMessage | PackErrorMessage;
+export type PackResponse =
+  | ToolResultMessage
+  | ToolPauseMessage
+  | CheckResultMessage
+  | PackErrorMessage;
 
 export type ParseOutcome<T> =
   | { readonly kind: 'ok'; readonly value: T }
@@ -205,6 +239,7 @@ export function parsePackResponse(value: unknown): ParseOutcome<PackResponse> {
   if (m.kind === 'result' || m.kind === 'check-result') {
     return { kind: 'ok', value: m as unknown as PackResponse };
   }
+  if (m.kind === 'pause') return parseToolPause(m);
   if (m.kind === 'error' && typeof m.code === 'string' && typeof m.message === 'string') {
     return { kind: 'ok', value: m as unknown as PackErrorMessage };
   }
@@ -212,6 +247,26 @@ export function parsePackResponse(value: unknown): ParseOutcome<PackResponse> {
     kind: 'err',
     error: packError('unexpected-message-kind', `Unknown response kind ${JSON.stringify(m.kind)}`),
   };
+}
+
+function parseToolPause(m: Record<string, unknown>): ParseOutcome<ToolPauseMessage> {
+  const { timeoutMs, name } = m;
+  if (
+    timeoutMs !== undefined &&
+    (typeof timeoutMs !== 'number' ||
+      !Number.isInteger(timeoutMs) ||
+      timeoutMs < 1 ||
+      timeoutMs > MAX_PAUSE_TIMEOUT_MS)
+  ) {
+    return malformed(`\`timeoutMs\` must be a whole number from 1 to ${MAX_PAUSE_TIMEOUT_MS}`);
+  }
+  if (
+    name !== undefined &&
+    (typeof name !== 'string' || name.length === 0 || name.length > MAX_PAUSE_NAME_LENGTH)
+  ) {
+    return malformed(`\`name\` must be a string of 1 to ${MAX_PAUSE_NAME_LENGTH} characters`);
+  }
+  return { kind: 'ok', value: m as unknown as ToolPauseMessage };
 }
 
 /**

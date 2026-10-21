@@ -20,7 +20,10 @@ export type ToolError =
   | InputValidationError
   | OutputValidationError
   | HandlerError
-  | PreconditionFailedError;
+  | PreconditionFailedError
+  | ToolPauseUnsupportedError
+  | WaitTokenTimedOutError
+  | WaitTokenRerunsExhaustedError;
 
 /** `defineTool` was called with something the schema loader rejects. */
 export interface InvalidToolDefinitionError {
@@ -136,4 +139,44 @@ export interface PreconditionFailedError {
   /** The runtime's code for what was missing (`secret-unavailable`, …). */
   readonly reason: string;
   readonly cause: unknown;
+}
+
+/**
+ * invokeTool: the tool's call waits for another system's answer (its
+ * handler returned a pause), but `invokeTool` can't make its caller wait.
+ * A caller that can park on a wait token calls `invokeToolOrPause`.
+ */
+export interface ToolPauseUnsupportedError {
+  readonly code: 'tool-pause-unsupported';
+  readonly message: string;
+  readonly toolId: ToolId;
+  /** The wait token the call would have waited on. */
+  readonly tokenId: string;
+}
+
+/**
+ * A paused call's time passed before the other system answered: the
+ * caller that parked on the wait token reports it as the call's error.
+ */
+export interface WaitTokenTimedOutError {
+  readonly code: 'wait-token-timed-out';
+  readonly message: string;
+  readonly toolId: ToolId;
+  readonly tokenId: string;
+  /** How long the call waited, in milliseconds. */
+  readonly timeoutMs: number;
+}
+
+/**
+ * invokeTool: the runtime refused to run a pausing tool's call again — it
+ * ran the most times a crash before its wait may make it run (a
+ * `ToolRerunsExhaustedError` from the runtime's handler wrapper).
+ */
+export interface WaitTokenRerunsExhaustedError {
+  readonly code: 'wait-token-reruns-exhausted';
+  readonly message: string;
+  readonly toolId: ToolId;
+  readonly tokenId: string;
+  /** How many times the call ran. */
+  readonly runs: number;
 }

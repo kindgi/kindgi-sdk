@@ -67,8 +67,11 @@ export interface PackServiceTarget {
  * - `env-filter`: only the names the pack declares (and Kindgi's and the
  *   platform's) reach its code, unless `KINDGI_PACK_ENV_FILTER=off`; the
  *   service names the ones it dropped (`env-dropped`).
+ * - `pause`: a tool that declares `pauses` gets the call's wait token and
+ *   may answer with a pause (pack protocol 2.8.0); the fixture pack has
+ *   `conformance.pause`.
  */
-export type ConformanceFeature = 'pack-env' | 'log-records' | 'env-filter';
+export type ConformanceFeature = 'pack-env' | 'log-records' | 'env-filter' | 'pause';
 
 /** Root of a fixture pack shipped with this package (`node-pack`, `python-pack`). */
 export function fixturePackDir(name: string): string {
@@ -87,6 +90,8 @@ export const FIXTURE_TOOL_IDS = [
   'conformance.sleep',
   'conformance.throws',
 ] as const;
+/** The fixture pack's pausing tool, for a target that supports `pause`. */
+export const FIXTURE_PAUSE_TOOL_ID = 'conformance.pause';
 export const FIXTURE_CHECK_IDS = [
   'conformance.checks.min-length',
   'conformance.checks.throws',
@@ -498,7 +503,9 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         expect(index.packVersion).toBe('1.0.0');
         expect(index.artifactVersion).toBe(PINS.artifactVersion);
         expect(index.publishedAt).toBe(PINS.publishedAt);
-        expect(index.tools.map((t) => t.id)).toEqual([...FIXTURE_TOOL_IDS]);
+        const toolIds: string[] = [...FIXTURE_TOOL_IDS];
+        if (target.unsupported?.includes('pause') !== true) toolIds.push(FIXTURE_PAUSE_TOOL_ID);
+        expect(index.tools.map((t) => t.id)).toEqual(toolIds.sort());
         expect(index.tools.every((t) => t.version === '1.0.0')).toBe(true);
         expect(index.guardrails.map((g) => g.checkId ?? g.id).sort()).toEqual([
           ...FIXTURE_CHECK_IDS,
@@ -1177,6 +1184,71 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         } finally {
           await writeFile(release, '');
         }
+      });
+    });
+
+    describe.skipIf(target.unsupported?.includes('pause') === true)('pauses', () => {
+      // Pack protocol 2.8.0: the call's wait token, as the runtime sends it to a tool that pauses.
+      const waitToken = {
+        id: 'wt-conformance',
+        url: 'https://kindgi.example/v1/wait-tokens/wt-conformance/answer?sig=conformance',
+      };
+      const pauseCall = (input: Record<string, unknown>, ctx: object = { ...CTX, waitToken }) =>
+        toolCall(FIXTURE_PAUSE_TOOL_ID, input, { ctx });
+
+      test('the index says which tool pauses', () => {
+        const pausing = index.tools.filter((t) => t.pauses !== undefined).map((t) => t.id);
+        expect(pausing).toEqual([FIXTURE_PAUSE_TOOL_ID]);
+        expect(index.tools.find((t) => t.id === FIXTURE_PAUSE_TOOL_ID)?.pauses).toBe(true);
+      });
+
+      test('a tool that pauses answers with a pause', async () => {
+        const name = "the carrier's pickup confirmation";
+        const answer = await invoke(service, pauseCall({ timeoutMs: 7_200_000, name }));
+        expect(response(answer)).toEqual({ v: 2, kind: 'pause', timeoutMs: 7_200_000, name });
+        expect(response(await invoke(service, pauseCall({})))).toEqual({ v: 2, kind: 'pause' });
+      });
+
+      test('a pause is logged as one', async () => {
+        await invoke(service, pauseCall({}));
+        await waitFor(
+          () =>
+            service.events.find(
+              (e) => e.kind === 'call' && e.id === FIXTURE_PAUSE_TOOL_ID && e.outcome === 'pause',
+            ),
+          3_000,
+          'the pause line',
+        );
+      });
+
+      test('the handler receives the wait token, and may answer at once', async () => {
+        const answer = response(await invoke(service, pauseCall({ answer: true })));
+        expect(answer).toEqual({ v: 2, kind: 'result', output: { tokenId: waitToken.id } });
+      });
+
+      test('a call from a runtime that sends no wait token: pause-not-available', async () => {
+        const answer = response(await invoke(service, pauseCall({}, CTX)));
+        expect(answer).toMatchObject({
+          v: 2,
+          kind: 'error',
+          code: 'pause-not-available',
+          toolId: FIXTURE_PAUSE_TOOL_ID,
+        });
+      });
+
+      test.each([
+        ['no time', { timeoutMs: 0 }],
+        ['more than 24 days', { timeoutMs: 24 * 24 * 60 * 60 * 1000 + 1 }],
+        ['part of a millisecond', { timeoutMs: 1.5 }],
+        ['an empty name', { name: '' }],
+        ['a name over 200 characters', { name: 'x'.repeat(201) }],
+      ])('a pause for %s: handler-shape-invalid', async (_case, input) => {
+        const answer = response(await invoke(service, pauseCall(input)));
+        expect(answer).toMatchObject({
+          kind: 'error',
+          code: 'handler-shape-invalid',
+          toolId: FIXTURE_PAUSE_TOOL_ID,
+        });
       });
     });
 

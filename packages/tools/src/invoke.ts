@@ -13,7 +13,9 @@ import type {
   OutputValidationError,
   PreconditionFailedError,
   ToolError,
+  WaitTokenRerunsExhaustedError,
 } from './errors.js';
+import { type ToolPause, isToolRerunsExhaustedError, pauseOf } from './pause.js';
 import { isToolPreconditionError } from './precondition.js';
 import type { JsonSchema, Tool, ToolContext } from './types.js';
 
@@ -115,6 +117,11 @@ export interface InvokeToolOptions {
   readonly skipOutputValidation?: boolean;
 }
 
+/** What `invokeToolOrPause` answers: the tool's result, or that its call waits. */
+export type ToolOutcome<TOutput> =
+  | Result<TOutput, ToolError>
+  | { readonly kind: 'pause'; readonly pause: ToolPause };
+
 /**
  * Invoke a tool with a caller-supplied input and context. The path is:
  *   1. Validate a copy of `input` against `tool.input`, filling in its
@@ -135,6 +142,33 @@ export async function invokeTool<TInput = unknown, TOutput = unknown>(
   ctx: ToolContext,
   options: InvokeToolOptions = {},
 ): Promise<Result<TOutput, ToolError>> {
+  const outcome = await invokeToolOrPause(tool, input, ctx, options);
+  if (outcome.kind !== 'pause') return outcome;
+  return {
+    kind: 'err',
+    error: {
+      code: 'tool-pause-unsupported',
+      message: `Tool "${tool.id}" waits for another system's answer, and this caller can't wait`,
+      toolId: tool.id,
+      tokenId: outcome.pause.tokenId,
+    },
+  };
+}
+
+/**
+ * Invoke a tool whose caller can park on a wait token: as `invokeTool`,
+ * plus a third outcome, `pause`, when the call waits for another system's
+ * answer (a pausing pack tool, through the runtime's handler for it). The
+ * caller waits on `pause.tokenId` for at most `pause.timeoutMs`; the
+ * answer, already checked against the tool's output schema, is the
+ * call's result. A pause's own value isn't checked against that schema.
+ */
+export async function invokeToolOrPause<TInput = unknown, TOutput = unknown>(
+  tool: Tool<TInput, TOutput>,
+  input: unknown,
+  ctx: ToolContext,
+  options: InvokeToolOptions = {},
+): Promise<ToolOutcome<TOutput>> {
   const prepared = await prepareInput(tool, input);
   if (prepared.kind === 'err') return prepared;
 
@@ -152,6 +186,16 @@ export async function invokeTool<TInput = unknown, TOutput = unknown>(
       };
       return { kind: 'err', error: refused };
     }
+    if (isToolRerunsExhaustedError(cause)) {
+      const exhausted: WaitTokenRerunsExhaustedError = {
+        code: 'wait-token-reruns-exhausted',
+        message: `Tool "${tool.id}" was not run: ${cause.message}`,
+        toolId: tool.id,
+        tokenId: cause.tokenId,
+        runs: cause.runs,
+      };
+      return { kind: 'err', error: exhausted };
+    }
     const err: HandlerError = {
       code: 'handler-error',
       message: `Tool "${tool.id}" handler threw: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -160,6 +204,9 @@ export async function invokeTool<TInput = unknown, TOutput = unknown>(
     };
     return { kind: 'err', error: err };
   }
+
+  const pause = pauseOf(output);
+  if (pause !== undefined) return { kind: 'pause', pause };
 
   if (!options.skipOutputValidation) {
     const outputValidator = compile(tool.output, 'output', tool);

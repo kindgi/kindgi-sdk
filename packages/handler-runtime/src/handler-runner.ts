@@ -41,6 +41,8 @@ import {
 } from '@kindgi/schema';
 import type { Result } from '@kindgi/types';
 
+import { MAX_PAUSE_NAME_LENGTH, MAX_PAUSE_TIMEOUT_MS, type WaitTokenRef } from './protocol.js';
+
 /**
  * What a handler gets beside its input: the tenant and run it serves,
  * and the "typed needs" it declares (`needsSpec.env`, `needsSpec.secrets`),
@@ -66,6 +68,21 @@ export interface HandlerContext {
    */
   readonly settings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
   /**
+   * The call's wait token (protocol 2.8.0), only for a tool that declares
+   * `pauses`: hand `url` to the system that will answer, then return
+   * `ctx.pause()`. Reading it when the runtime sent none (one from before
+   * 2.8.0) throws, and the call fails with `pause-not-available`.
+   */
+  readonly waitToken?: WaitTokenRef;
+  /**
+   * Only for a tool that declares `pauses`: the value to return when the
+   * call waits for another system's answer (`return ctx.pause({ timeoutMs:
+   * 2 * 60 * 60 * 1000, name: "the carrier's pickup confirmation" })`).
+   * Without `timeoutMs`, the runtime waits 24 hours; at most 24 days.
+   * Never on the wire; the runner adds it.
+   */
+  readonly pause?: (options?: PauseOptions) => PauseAnswer;
+  /**
    * Never on the wire; the pack service adds it: aborted when the call
    * is cancelled or passes its deadline. Handlers that do slow I/O
    * should pass it on so they stop promptly.
@@ -90,7 +107,38 @@ export interface ToolInvocationSpec {
   readonly modulePath: string;
   readonly inputSchema: Readonly<Record<string, unknown>>;
   readonly outputSchema: Readonly<Record<string, unknown>>;
+  /**
+   * The tool declares `pauses`: its handler gets `ctx.waitToken` and
+   * `ctx.pause`. A tool without it gets neither, even when the call
+   * carried a token.
+   */
+  readonly pauses?: boolean;
 }
+
+/** What a pausing handler passes to `ctx.pause`. */
+export interface PauseOptions {
+  /** How long the run waits, in milliseconds: 1 to 24 days' worth. Default: 24 hours. */
+  readonly timeoutMs?: number;
+  /** What the run waits for, in a few words: 1 to 200 characters. */
+  readonly name?: string;
+}
+
+/** What `ctx.pause` returns; the handler returns it as its result. */
+export interface PauseAnswer {
+  readonly timeoutMs?: number;
+  readonly name?: string;
+}
+
+/** A call that waits for another system's answer, as the pack service answers it. */
+export interface HandlerPause {
+  readonly timeoutMs?: number;
+  readonly name?: string;
+}
+
+/** A tool call's outcome when its caller can take a pause (`runHandlerOrPause`). */
+export type HandlerOutcome =
+  | Result<unknown, HandlerError>
+  | { readonly kind: 'pause'; readonly pause: HandlerPause };
 
 /**
  * The guardrail check being called (`RegisteredCheck.evaluate(config,
@@ -122,7 +170,8 @@ export type HandlerErrorCode =
   | 'handler-import-failed'
   | 'handler-shape-invalid'
   | 'handler-throw'
-  | 'check-shape-invalid';
+  | 'check-shape-invalid'
+  | 'pause-not-available';
 
 export interface HandlerError {
   readonly code: HandlerErrorCode;
@@ -219,11 +268,32 @@ export interface RunHandlerOptions {
 
 /**
  * Run one tool call; a typed `Result`, never a throw — every failure is
- * a `HandlerError`.
+ * a `HandlerError`. A caller that can make the run wait calls
+ * `runHandlerOrPause` instead: here, a tool's pause is refused as
+ * `pause-not-available`, so no caller reads a pause as output.
  */
 export async function runHandler(
   options: RunHandlerOptions,
 ): Promise<Result<unknown, HandlerError>> {
+  const outcome = await runHandlerOrPause(options);
+  if (outcome.kind !== 'pause') return outcome;
+  return {
+    kind: 'err',
+    error: {
+      code: 'pause-not-available',
+      message: `Tool "${options.tool.id}" paused, but its caller can't wait for an answer`,
+      toolId: options.tool.id,
+    },
+  };
+}
+
+/**
+ * Run one tool call whose caller can make the run wait: as `runHandler`,
+ * plus a third outcome, `pause`, when a tool that declares `pauses`
+ * returns `ctx.pause()`. A pause's output isn't validated: the answer
+ * that arrives later is.
+ */
+export async function runHandlerOrPause(options: RunHandlerOptions): Promise<HandlerOutcome> {
   const { tool, input, ctx } = options;
   const importHandler = options.importHandler ?? defaultImportHandler;
 
@@ -305,10 +375,28 @@ export async function runHandler(
     prepared = parsed.value;
   }
 
-  let output: unknown;
+  const called = await callHandler(handler, prepared, ctx, tool);
+  if (called.kind === 'err') return called;
+  if (isPauseAnswer(called.value)) return pauseOf(tool, called.value);
+  return checkedOutput(tool, called.value);
+}
+
+/** What the handler returned, or the error its throw is. */
+async function callHandler(
+  handler: HandlerFn,
+  input: unknown,
+  ctx: HandlerContext,
+  tool: ToolInvocationSpec,
+): Promise<Result<unknown, HandlerError>> {
   try {
-    output = await handler(prepared, ctx);
+    return { kind: 'ok', value: await handler(input, callContext(ctx, tool)) };
   } catch (cause) {
+    if (isPauseNotAvailable(cause)) {
+      return {
+        kind: 'err',
+        error: { code: 'pause-not-available', message: cause.message, toolId: tool.id },
+      };
+    }
     return {
       kind: 'err',
       error: {
@@ -319,7 +407,10 @@ export async function runHandler(
       },
     };
   }
+}
 
+/** The handler's output, checked against the tool's output schema. */
+function checkedOutput(tool: ToolInvocationSpec, output: unknown): Result<unknown, HandlerError> {
   let outputValidator: ValidateFunction;
   try {
     outputValidator = compileSchema(tool.outputSchema, 'output');
@@ -345,8 +436,133 @@ export async function runHandler(
       },
     };
   }
-
   return { kind: 'ok', value: output };
+}
+
+// -----------------------------------------------------------------------
+// Pauses — `ctx.waitToken`, `ctx.pause`
+// -----------------------------------------------------------------------
+
+/**
+ * Marks what `ctx.pause` returns. Registered, so a handler module that
+ * loads its own copy of this package still returns a pause the runner
+ * recognizes.
+ */
+const PAUSE_ANSWER = Symbol.for('kindgi.pack.pause-answer');
+const PAUSE_NOT_AVAILABLE = Symbol.for('kindgi.pack.pause-not-available');
+
+class PauseNotAvailableError extends Error {
+  readonly [PAUSE_NOT_AVAILABLE] = true;
+}
+
+function isPauseNotAvailable(value: unknown): value is PauseNotAvailableError {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { readonly [PAUSE_NOT_AVAILABLE]?: unknown })[PAUSE_NOT_AVAILABLE] === true
+  );
+}
+
+function isPauseAnswer(value: unknown): value is PauseAnswer {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { readonly [PAUSE_ANSWER]?: unknown })[PAUSE_ANSWER] === true
+  );
+}
+
+function noWaitToken(toolId: string): PauseNotAvailableError {
+  return new PauseNotAvailableError(
+    `Tool "${toolId}" can't pause: the runtime that called it sent no wait token. Pausing needs a runtime that speaks pack protocol 2.8.0 or later.`,
+  );
+}
+
+/**
+ * The context a handler gets. A tool that declares `pauses` gets the
+ * call's `waitToken` and `pause`; any other tool gets neither, even when
+ * the call carried a token. The caller's context isn't changed; its
+ * properties, non-enumerable ones too (`secrets`, `log`), are kept.
+ */
+function callContext(ctx: HandlerContext, tool: ToolInvocationSpec): HandlerContext {
+  const { waitToken } = ctx;
+  if (tool.pauses !== true && waitToken === undefined) return ctx;
+  const descriptors = Object.fromEntries(
+    Object.entries(Object.getOwnPropertyDescriptors(ctx)).filter(
+      ([key]) => key !== 'waitToken' && key !== 'pause',
+    ),
+  );
+  const out = Object.defineProperties({}, descriptors) as HandlerContext;
+  if (tool.pauses !== true) return out;
+  if (waitToken === undefined) {
+    Object.defineProperty(out, 'waitToken', {
+      get: () => {
+        throw noWaitToken(tool.id);
+      },
+    });
+  } else {
+    Object.defineProperty(out, 'waitToken', {
+      value: Object.freeze({ id: waitToken.id, url: waitToken.url }),
+      enumerable: true,
+    });
+  }
+  Object.defineProperty(out, 'pause', {
+    value: (options: PauseOptions = {}): PauseAnswer => {
+      if (waitToken === undefined) throw noWaitToken(tool.id);
+      return Object.freeze({
+        ...(options.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }),
+        ...(options.name !== undefined && { name: options.name }),
+        [PAUSE_ANSWER]: true,
+      });
+    },
+  });
+  return out;
+}
+
+/** A handler's pause, checked: within the limits the protocol states, from a tool that may pause. */
+function pauseOf(tool: ToolInvocationSpec, answer: PauseAnswer): HandlerOutcome {
+  if (tool.pauses !== true) {
+    return {
+      kind: 'err',
+      error: {
+        code: 'pause-not-available',
+        message: `Tool "${tool.id}" answered with a pause, but doesn't declare \`pauses: true\``,
+        toolId: tool.id,
+      },
+    };
+  }
+  const { timeoutMs, name } = answer;
+  if (
+    timeoutMs !== undefined &&
+    (typeof timeoutMs !== 'number' ||
+      !Number.isInteger(timeoutMs) ||
+      timeoutMs < 1 ||
+      timeoutMs > MAX_PAUSE_TIMEOUT_MS)
+  ) {
+    return shapeInvalid(
+      tool.id,
+      `Tool "${tool.id}" paused with timeoutMs ${String(timeoutMs)}: it must be a whole number of milliseconds from 1 to ${MAX_PAUSE_TIMEOUT_MS} (24 days)`,
+    );
+  }
+  if (
+    name !== undefined &&
+    (typeof name !== 'string' || name.length === 0 || name.length > MAX_PAUSE_NAME_LENGTH)
+  ) {
+    return shapeInvalid(
+      tool.id,
+      `Tool "${tool.id}" paused with a name that isn't 1 to ${MAX_PAUSE_NAME_LENGTH} characters`,
+    );
+  }
+  return {
+    kind: 'pause',
+    pause: {
+      ...(timeoutMs !== undefined && { timeoutMs }),
+      ...(name !== undefined && { name }),
+    },
+  };
+}
+
+function shapeInvalid(toolId: string, message: string): HandlerOutcome {
+  return { kind: 'err', error: { code: 'handler-shape-invalid', message, toolId } };
 }
 
 // -----------------------------------------------------------------------
