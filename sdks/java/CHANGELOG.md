@@ -7,6 +7,7 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-pack`, `kindgi-pack-scala`: **a tool can be an HTTP request, declared as data.** `Tool.define(...).http(spec)` (Scala: `.http(spec)`) finishes a tool with an `HttpToolSpec` — method, URL template, headers, authorization by secret reference, request body and success-status range — in place of a handler. The Kindgi runtime makes the request; calling the tool in the JVM throws. `{placeholders}` in the URL's path and query, and in a text body, are filled from the input's fields, never from the host. The same declarative form as the TypeScript `kind: 'http'` tool spec and Python's `http_tool`.
 - `kindgi-pack`, `kindgi-pack-scala`: **an agent's `conversationPolicy` can't set `autoCloseAfterInactiveSeconds`.** It was accepted and never acted on: a conversation never closes by itself, only when someone closes it. The indexer refuses an agent that sets it, as a file error at `/conversationPolicy/autoCloseAfterInactiveSeconds`; the rest of the pack still indexes, and `kindgi build` stops on it.
 
 ## 0.1.9

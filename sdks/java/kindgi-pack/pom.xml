@@ -137,6 +137,7 @@
         <includes>
           <include>pack-index.schema.json</include>
           <include>flow.schema.json</include>
+          <include>tool.schema.json</include>
         </includes>
       </resource>
     </resources>

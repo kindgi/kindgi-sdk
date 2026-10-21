@@ -4,6 +4,7 @@
 package com.kindgi.pack.scaladsl
 
 import com.kindgi.pack.{AsyncToolHandler, ToolHandler}
+import com.kindgi.pack.http.HttpToolSpec
 import java.util.concurrent.CompletionStage
 import scala.concurrent.Future
 import scala.jdk.FutureConverters._
@@ -90,6 +91,14 @@ final class ToolBuilder[I, O] private[scaladsl] (
       def handle(input: AnyRef, ctx: ToolContext): CompletionStage[AnyRef] =
         f(in(input), ctx).asInstanceOf[Future[AnyRef]].asJava
     }))
+
+  /**
+   * Finishes the tool as an HTTP request the Kindgi runtime makes, in place of a handler: the
+   * method, URL template and options are data (`com.kindgi.pack.http.HttpToolSpec`), and the runtime
+   * calls the endpoint. Calling the tool in this JVM throws. `{placeholders}` in the URL's path and
+   * query (and in a text body) are filled from the input's fields.
+   */
+  def http(spec: HttpToolSpec): Tool[I, O] = build(_.http(spec))
 
   private def in(input: AnyRef): I =
     (if (inputType.isEmpty) JsonValues.scalaMap(input) else input).asInstanceOf[I]
