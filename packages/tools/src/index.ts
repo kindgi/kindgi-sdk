@@ -22,7 +22,7 @@ export type {
 import './http.js';
 export { registerToolSpecSynthesizer, getToolSpecSynthesizer } from './spec-registry.js';
 export type { ToolSpecSynthesizer, ToolSpecSynthesizerOptions } from './spec-registry.js';
-export { invokeTool, invokeToolOrPause } from './invoke.js';
+export { invokeTool, invokeToolOrPause, toolOutputIssues } from './invoke.js';
 export {
   DEFAULT_PAUSE_TIMEOUT_MS,
   MAX_PAUSE_NAME_LENGTH,

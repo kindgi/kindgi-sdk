@@ -71,6 +71,25 @@ function compile(
 }
 
 /**
+ * Where `output` doesn't fit `tool.output`, checked as a call's output is
+ * (the same validator, in the tool's dialect): one issue per finding, its
+ * `path` a JSON pointer into the output; `undefined` when it fits. For an
+ * answer that comes from outside the call, such as another system's answer
+ * to a call that paused.
+ */
+export function toolOutputIssues(
+  tool: Pick<Tool, 'output' | 'transport'>,
+  output: unknown,
+): readonly { readonly path: string; readonly message: string }[] | undefined {
+  const validator = compile(tool.output, 'output', tool);
+  if (validator(output)) return undefined;
+  return (validator.errors ?? []).map((e) => ({
+    path: e.instancePath,
+    message: e.message ?? 'invalid',
+  }));
+}
+
+/**
  * The input a handler receives: validated against `tool.input` with its
  * defaults filled in, then — for a Zod-authored tool — parsed by its Zod
  * schema, so defaults, transforms and refinements apply and the handler
