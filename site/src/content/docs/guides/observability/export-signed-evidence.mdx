@@ -216,12 +216,44 @@ An auditor without access to your deployment passes the PEM you gave them: `trus
 </TabItem>
 <TabItem label="Java">
 
-Not in the Java SDK. Check an export with the CLI, `./kindgiw exports verify <file> --from-runtime` in a Java pack (the CLI tab).
+```java
+// src/main/java/com/acme/app/VerifyExport.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.exports.SignedExportVerification;
+import com.kindgi.client.exports.SignedExports;
+import com.kindgi.client.models.ExportSigningKey;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+
+public final class VerifyExport {
+  public static void main(String[] args) throws IOException {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    String exported = Files.readString(Path.of(args.length > 0 ? args[0] : "approval.json"));
+    List<String> keys =
+        kindgi.exportSigningKeys().list().data().stream()
+            .map(ExportSigningKey::publicKeyPem)
+            .toList();
+
+    SignedExportVerification checked = SignedExports.verify(exported, keys);
+    if (!checked.valid()) {
+      throw new IllegalStateException(String.join("; ", checked.issues()));
+    }
+    System.out.println("signed by " + checked.signingKeyId());
+  }
+}
+```
+
+`SignedExports.verify` checks with the JDK's own crypto, so there's nothing extra to install. An auditor without access to your deployment passes the PEM you gave them as the trusted keys: `SignedExports.verify(exported, List.of(Files.readString(Path.of("export-signing.pub.pem"))))`.
 
 </TabItem>
 <TabItem label="Scala">
 
-Not in the Scala SDK. Check an export with the CLI, `./kindgiw exports verify <file> --from-runtime` in a Scala pack (the CLI tab).
+The Scala SDK has no verifier of its own. Call Java's `com.kindgi.client.exports.SignedExports.verify` from Scala, exactly as above: it takes the export as JSON and the trusted PEMs as a `java.util.List[String]`, and returns a `SignedExportVerification` with `valid`, `signingKeyId` and `issues`.
 
 </TabItem>
 </Tabs>
