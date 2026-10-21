@@ -1007,6 +1007,25 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['guides/agents/agent-and-tool-versions'],
   },
+  'block-unresolvable': {
+    description:
+      "A data block the agent uses (its prompt, settings or model settings) can't be loaded: no published version matches its version range, the pinned version is gone, it's the other kind of block, or the runtime serves no blocks. Under `kindgi dev`, blocks come only from the pack's files: add the block under the pack's blocks folder, at a version the range takes.",
+    details: [
+      {
+        key: 'blockId',
+        meaning: 'the block',
+      },
+      {
+        key: 'requestedRange',
+        meaning: 'the version range or pin the agent asked for',
+      },
+      {
+        key: 'runId',
+        meaning: 'the run that failed',
+      },
+    ],
+    seeAlso: ['guides/evals/change-a-prompt-or-setting'],
+  },
   'tool-invocation-failed': {
     description:
       "A tool the agent called failed, and the agent's tool-error policy didn't let the model recover. The message carries the tool's own error.",
