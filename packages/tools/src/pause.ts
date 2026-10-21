@@ -27,11 +27,14 @@ export const MAX_PAUSE_NAME_LENGTH = 200;
 
 /** A call's wait token: its id, and the link the other system posts its answer to. */
 export interface WaitToken {
+  /** The same every time this attempt of the call runs (a retry of its step gets a new token). */
   readonly id: string;
   /**
    * `POST` the answer here, as a JSON body, with no `Authorization`
    * header: the link is the credential. Hand it only to the system that
-   * answers.
+   * answers. A re-run after a crash gets a new link to the same wait, and
+   * either link completes it. Hand on the new one only if the old one
+   * never went out, and dedupe on `idempotencyKey`.
    */
   readonly url: string;
 }
@@ -93,6 +96,29 @@ const TOOL_PAUSE = Symbol.for('kindgi.tool-pause');
  *   number from 1 to `MAX_PAUSE_TIMEOUT_MS`.
  */
 export function pauseOutcome(pause: ToolPause): unknown {
+  return Object.freeze({ [TOOL_PAUSE]: true, pause: checked(pause) });
+}
+
+/**
+ * The pause a handler's return value carries, if it's a `pauseOutcome`.
+ * The mark is registered, so any code can make one: the pause is checked
+ * again here.
+ *
+ * @throws RangeError as `pauseOutcome` does, when the marked value's pause
+ *   is out of bounds.
+ */
+export function pauseOf(value: unknown): ToolPause | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const marked = value as { readonly [TOOL_PAUSE]?: unknown; readonly pause?: unknown };
+  if (marked[TOOL_PAUSE] !== true) return undefined;
+  if (typeof marked.pause !== 'object' || marked.pause === null) {
+    throw new RangeError('A pause needs the id of the wait token it waits on');
+  }
+  return checked(marked.pause as ToolPause);
+}
+
+/** A plain copy of a pause within the bounds, with no mark, so a caller can keep it in a journal. */
+function checked(pause: ToolPause): ToolPause {
   if (typeof pause.tokenId !== 'string' || pause.tokenId.length === 0) {
     throw new RangeError('A pause needs the id of the wait token it waits on');
   }
@@ -105,16 +131,7 @@ export function pauseOutcome(pause: ToolPause): unknown {
       `A pause waits from 1 to ${MAX_PAUSE_TIMEOUT_MS} ms (24 days), not ${String(pause.timeoutMs)}`,
     );
   }
-  return Object.freeze({ [TOOL_PAUSE]: true, pause: toolPause(pause) });
-}
-
-/** The pause a handler's return value carries, if it's a `pauseOutcome`. */
-export function pauseOf(value: unknown): ToolPause | undefined {
-  if (typeof value !== 'object' || value === null) return undefined;
-  const marked = value as { readonly [TOOL_PAUSE]?: unknown; readonly pause?: ToolPause };
-  return marked[TOOL_PAUSE] === true && marked.pause !== undefined
-    ? toolPause(marked.pause)
-    : undefined;
+  return toolPause(pause);
 }
 
 /** A plain copy with no mark, so a caller can keep it in a journal. */

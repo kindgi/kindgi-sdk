@@ -109,6 +109,25 @@ describe('a tool that pauses', () => {
     expect(pausing).toMatchObject({ kind: 'err', error: { code: 'pause-not-available' } });
   });
 
+  test('a pause made without ctx.pause, on a call with no wait token, is pause-not-available', async () => {
+    const forged = Object.freeze({ [Symbol.for('kindgi.pack.pause-answer')]: true });
+    const outcome = await run(() => forged, {}, noToken);
+    expect(outcome).toMatchObject({
+      kind: 'err',
+      error: { code: 'pause-not-available', toolId: 'acme.carrier.book-pickup' },
+    });
+    expect(outcome.kind === 'err' && outcome.error.message).toContain('pack protocol 2.8.0');
+  });
+
+  test('a name is counted in code points, as the schema and a Python pack count it', async () => {
+    const name = '\u{1F4E6}'.repeat(200);
+    expect(await run((_input, c) => c.pause({ name }))).toEqual({ kind: 'pause', pause: { name } });
+    expect(await run((_input, c) => c.pause({ name: `${name}x` }))).toMatchObject({
+      kind: 'err',
+      error: { code: 'handler-shape-invalid' },
+    });
+  });
+
   test.each([
     ['no time', { timeoutMs: 0 }],
     ['more than 24 days', { timeoutMs: MAX_PAUSE_TIMEOUT_MS + 1 }],
@@ -165,5 +184,11 @@ describe('the pause response', () => {
     ]) {
       expect(parsePackResponse({ v: 2, kind: 'pause', ...bad }).kind).toBe('err');
     }
+  });
+
+  test("counts the name in code points: 200 emoji is 200 characters, as the schema's maxLength says", () => {
+    const name = '\u{1F4E6}'.repeat(200);
+    expect(parsePackResponse({ v: 2, kind: 'pause', name }).kind).toBe('ok');
+    expect(parsePackResponse({ v: 2, kind: 'pause', name: `${name}x` }).kind).toBe('err');
   });
 });

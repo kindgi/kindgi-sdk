@@ -13,6 +13,7 @@ import type {
   OutputValidationError,
   PreconditionFailedError,
   ToolError,
+  ToolPauseUnsupportedError,
   WaitTokenRerunsExhaustedError,
 } from './errors.js';
 import { type ToolPause, isToolRerunsExhaustedError, pauseOf } from './pause.js';
@@ -162,6 +163,8 @@ export async function invokeTool<TInput = unknown, TOutput = unknown>(
  * caller waits on `pause.tokenId` for at most `pause.timeoutMs`; the
  * answer, already checked against the tool's output schema, is the
  * call's result. A pause's own value isn't checked against that schema.
+ * A pause from a tool that doesn't declare `pauses` is
+ * `tool-pause-unsupported`, and one out of bounds is `handler-error`.
  */
 export async function invokeToolOrPause<TInput = unknown, TOutput = unknown>(
   tool: Tool<TInput, TOutput>,
@@ -205,8 +208,8 @@ export async function invokeToolOrPause<TInput = unknown, TOutput = unknown>(
     return { kind: 'err', error: err };
   }
 
-  const pause = pauseOf(output);
-  if (pause !== undefined) return { kind: 'pause', pause };
+  const paused = pausedCall(tool, output);
+  if (paused !== undefined) return paused;
 
   if (!options.skipOutputValidation) {
     const outputValidator = compile(tool.output, 'output', tool);
@@ -222,4 +225,37 @@ export async function invokeToolOrPause<TInput = unknown, TOutput = unknown>(
   }
 
   return { kind: 'ok', value: output };
+}
+
+/**
+ * The call's pause, if the handler returned one: from a tool that
+ * declares `pauses`, within the bounds `pauseOutcome` checks.
+ */
+function pausedCall(
+  tool: Pick<Tool, 'id' | 'pauses'>,
+  output: unknown,
+): ToolOutcome<never> | undefined {
+  let pause: ToolPause | undefined;
+  try {
+    pause = pauseOf(output);
+  } catch (cause) {
+    const err: HandlerError = {
+      code: 'handler-error',
+      message: `Tool "${tool.id}" paused out of bounds: ${cause instanceof Error ? cause.message : String(cause)}`,
+      toolId: tool.id,
+      cause,
+    };
+    return { kind: 'err', error: err };
+  }
+  if (pause === undefined) return undefined;
+  if (tool.pauses !== true) {
+    const err: ToolPauseUnsupportedError = {
+      code: 'tool-pause-unsupported',
+      message: `Tool "${tool.id}" answered with a pause, but doesn't declare \`pauses: true\``,
+      toolId: tool.id,
+      tokenId: pause.tokenId,
+    };
+    return { kind: 'err', error: err };
+  }
+  return { kind: 'pause', pause };
 }

@@ -20,6 +20,7 @@ import {
   invokeTool,
   invokeToolOrPause,
   isToolRerunsExhaustedError,
+  pauseOf,
   pauseOutcome,
 } from '../src/index.js';
 import type { PauseContext, Tool, ToolContext, ToolPauseAnswer } from '../src/index.js';
@@ -34,11 +35,12 @@ const Pickup = z.object({ orderId: z.string() });
 const Confirmed = z.object({ confirmedAt: z.string() });
 
 /** A tool as a runtime wraps a pack's pausing tool: its handler answers what the pack did. */
-function wrapped(answer: () => unknown): Tool {
+function wrapped(answer: () => unknown, pauses = true): Tool {
   const r = defineTool({
     id: 'acme.carrier.book-pickup' as ToolId,
     description: 'Books a pickup and waits for the carrier to confirm it.',
     version: '1.0.0',
+    pauses,
     input: { type: 'object' },
     output: {
       type: 'object',
@@ -139,6 +141,40 @@ describe('a call that waits', () => {
     ['part of a millisecond', { tokenId: 'wt-1', timeoutMs: 1.5 }],
   ])('a pause with %s is refused where it is made', (_label, pause) => {
     expect(() => pauseOutcome(pause)).toThrow(RangeError);
+  });
+
+  test("a pause from a tool that doesn't declare pauses is tool-pause-unsupported", async () => {
+    const tool = wrapped(() => pauseOutcome({ tokenId: 'wt-1', timeoutMs: 60_000 }), false);
+    expect(await invokeToolOrPause(tool, {}, ctx())).toMatchObject({
+      kind: 'err',
+      error: {
+        code: 'tool-pause-unsupported',
+        toolId: 'acme.carrier.book-pickup',
+        tokenId: 'wt-1',
+      },
+    });
+  });
+
+  test('a pause made without pauseOutcome is checked as pauseOutcome checks it', async () => {
+    const forged = (pause: unknown) =>
+      Object.freeze({ [Symbol.for('kindgi.tool-pause')]: true, pause });
+    for (const pause of [
+      { tokenId: '', timeoutMs: 60_000 },
+      { tokenId: 'wt-1', timeoutMs: 0 },
+      null,
+    ]) {
+      expect(() => pauseOf(forged(pause))).toThrow(RangeError);
+      const outcome = await invokeToolOrPause(
+        wrapped(() => forged(pause)),
+        {},
+        ctx(),
+      );
+      expect(outcome).toMatchObject({ kind: 'err', error: { code: 'handler-error' } });
+    }
+    expect(pauseOf(forged({ tokenId: 'wt-1', timeoutMs: 60_000 }))).toEqual({
+      tokenId: 'wt-1',
+      timeoutMs: 60_000,
+    });
   });
 
   test('a call that may not run again is wait-token-reruns-exhausted', async () => {
