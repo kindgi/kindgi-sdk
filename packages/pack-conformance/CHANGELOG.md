@@ -1,5 +1,12 @@
 # @kindgi/pack-conformance
 
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- Updated dependencies [b9a68d5]
+  - @kindgi/specs@0.1.10-rc.0
+
 ## 0.1.9
 
 ### Patch Changes

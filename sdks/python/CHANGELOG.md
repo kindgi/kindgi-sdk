@@ -10,6 +10,8 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+## 0.1.10rc0
+
 - `kindgi`: **`system_keys.mint`, `list`, `revoke` and `whoami` say what a
   runtime serving one tenant answers.** Its own token mints, lists and revokes
   keys holding `system:license` alone, for the license renewal, and such a key

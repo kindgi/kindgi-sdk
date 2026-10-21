@@ -1,5 +1,107 @@
 # @kindgi/cli
 
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- 439d6e3: `image.buildEnv: { NODE_ENV: 'production' }` no longer leaves a TypeScript pack's build steps without its dev dependencies. The build env is set before the install, and with npm, Yarn 1 or pnpm 9 a `NODE_ENV=production` there narrowed the install to production dependencies, so a build step's tool, such as the `prisma` CLI, was missing. The install now asks for dev dependencies itself (`npm ci --include=dev`, `yarn install --production=false`, `pnpm install --prod=false`); the scripts it runs, the rebuild and the prune to production after the steps are as before.
+- d582e1a: **A pack image's indexer loads the pack's modules with `NODE_ENV=production`, as the deployed service does.** Only the final stage set it, so code that picks a development-only path when `NODE_ENV` isn't `production` (a logger's pretty-print transport, say) took that path while `kindgi build` indexed the pack, and the build failed with `file-import-failed`. The indexer stage now sets `NODE_ENV=production`, unless `image.buildEnv` sets `NODE_ENV`, which still wins. The install doesn't get it, so build steps still have their dev dependencies.
+- 3f91c68: With `image: { dependencies: 'loaded' }`, a TypeScript pack's image downloads only what the pack loads, instead of the app's whole production install trimmed after.
+  
+  - `kindgi build` cuts the app's `package.json` and lockfile down to the packages the pack loads and their own dependencies, each lockfile entry copied as the app has it (version, resolution, integrity). It checks the result against the app's lockfile, and the image installs it frozen, with the usual command. pnpm (lockfile `9.0`, with its env document, catalogs, overrides and patches), npm (lockfile 2 and 3) and Yarn 1.
+  - The build says how much of the lockfile the image installs, and which of the pack's own dependencies it leaves out.
+  - In a few cases, such as Yarn berry, another lockfile version or a local package (`link:`, `file:`, `workspace:`) among what the pack loads, the image keeps the full install, trimmed after, as before. The build line says why.
+  - A `node_modules` out of date with the lockfile fails the build, naming the package, its folder and the command that brings it back in line (`pnpm install`, `npm ci`, `yarn install`).
+- d582e1a: **A pack image without build steps installs production dependencies only.** `kindgi build` used to install every dependency, dev ones included, then prune to production, so an app's dev tools (test runners, bundlers, doc generators) were downloaded for every image build, even when nothing used them. Now, when `image` has no build steps, the install takes production dependencies only: `pnpm install --prod` (in a workspace, with the same filter), `npm ci --omit=dev`, and `yarn install --production` for Yarn 1, with no prune after. With build steps (`prisma()`'s `prisma generate`), whose tools can be dev dependencies, the install still takes dev dependencies too and prunes them after the steps. Yarn 2 or later keeps the full install and the prune as well, because its production install (`yarn workspaces focus --production`) installs a dependency missing from `yarn.lock` instead of failing, even with `enableImmutableInstalls` on (it takes no `--immutable`). The build output says which (`✓ Install: production dependencies only`, or why dev dependencies too), and so does a comment in the Containerfile. The final image is production-only either way.
+- a78f7b2: `kindgi dev` runs runtime 0.1.10-rc.0.
+- 25a7309: **`kindgi tenant get` and `kindgi tenant rename` read and rename your workspace,** through the client's `tenant.get` and `tenant.update`.
+  - **`get`** prints your workspace: its id, name and slug, and what the runtime adds.
+  - **`rename [--name=<name>] [--slug=<slug>]`** changes the name, the slug, or both, and prints the workspace. It's for tenant admins. The console's addresses carry the slug, so after a new one, links with the old one stop opening it. Nothing in the CLI uses the slug.
+  - **A `--slug`** is lowercase letters, digits and single hyphens, starting and ending with a letter or digit, at most 63 characters. Anything else, neither flag, or one given empty, is a usage error, exit 2, and nothing is sent.
+  - **Refusals name the server's code and exit 1:** `tenant-slug-taken`, `tenant-slug-in-config`, `tenant-closing`, `tenant-setup-pending`, `permission-denied`, `tenant-not-found`. Should the workspace not read back after the change, stderr says so, exit 0: the change went through.
+- 019a6fd: **`POST /v1/deployments` answers a deploy refused by the tenant's hour of image reads as the rate limit it is: `429 rate-limit-exceeded` with `Retry-After` and `details.limit: "tenant-unpack-hour"`,** where it answered `400 image-unverifiable` with the wait only in its message. The hour passes, so it's waited out as the server's other limits are: `kindgi deploy` waits and sends the same request again (up to 10 minutes in all), and the clients map it to their `rate-limited` error with the wait.
+  - `ImageRegistryError`'s `image-limit-exceeded` has an optional `retryAfterMs`: for `tenant-unpack-hour`, how long until the tenant's hour has room again. The route sends it as `Retry-After`; a binding that gives none gets the whole hour.
+  - The image's own bounds (`manifest`, `file`, `layer`, `read` and `unpack`) stay `400 image-unverifiable`: the same image is refused again.
+  - `kindgi deploy`'s hint for the tenant's hour now follows the `429`, shown when the wait is longer than the command waits.
+- d6f844d: **A runtime serving one tenant mints a system key for the license renewal, so the renewal can send the deployment's use.**
+  - `/v1/system/keys` (mint, list, revoke) answers the deployment's own token on a runtime serving one tenant too. There it mints keys holding `system:license` alone: a mint asking for any other scope, or for `kindgi:system`, gets `400 bad-input`. With a `systemAccessAudit`, each mint, list and revoke is on the system access record, as the deployment's own token (`boot`).
+  - Such a key reads `GET /v1/license` and `GET /v1/license/usage`, and nothing else. A tenant's route refuses it (`403 system-key-on-tenant-route`), and so does every `/v1/system/*` route (`403 system-scope-missing`).
+  - A system key holding anything but `system:license` (one minted while the runtime served many tenants, say) is refused on every route with a new code, `403 system-key-scope-not-served`. Its `details` name the key's `scopes` and the ones `served`.
+  - `TokenResolution` takes `systemKeysOperator`, a `SystemPrincipal`. A runtime serving one tenant sets it on its own token, which is then that system principal, with the full system capability, on `/v1/system/keys` alone. Everywhere else the token is the tenant's, as before.
+  - `systemPrincipalFence` applies these rules unless its `tenancy` is `multi`. Among them: the deployment's own token (`boot`) as a system principal is refused outside `/v1/system/keys` (`403 system-principal-required`), whatever the bearer makes of it.
+  - `@kindgi/client`: `SystemKeysClient`'s docs cover a runtime serving one tenant.
+  - `@kindgi/cli`: `kindgi license renew --runtime-token` names a system key holding `system:license` as what it can read, beside the runtime's own token.
+- 2e60ae2: A TypeScript pack's image can carry only what the pack loads: `image: { dependencies: 'loaded' }` in `kindgi.config` keeps the packages the pack's bundles import by name, with their own dependencies, and what `image.keep` names, instead of every production dependency of the app (`'all'`, still the default).
+  
+  - Each package is resolved as Node resolves it, over the layout the package manager made (pnpm's links, npm's and Yarn's hoisting), and kept whole.
+  - Most misses fail the build, naming the package. An import that isn't installed fails the image's closure step, by name. Every package the bundles import is loaded on the trimmed install before indexing, which runs there too. A `require(x)` / `import(x)` with a computed name in the pack's own code fails `kindgi build`, by file and line, until `image.keep` names what it loads.
+  - The build prints what it kept of what's installed, and which of the pack's own dependencies its tools don't import.
+  - What no check can see reaches a run: a package loaded by a name in a string (a plugin named in a config), through a `createRequire` alias or `module.require`, or a dependency's own undeclared one. That call fails, saying what to add to `image.keep`.
+  - `prisma()` keeps Prisma 6's generated `.prisma/client` when it's there.
+  - A Python pack's `[tool.kindgi.image] dependencies = "loaded"` (or `keep`) is refused for now: its image keeps every dependency in the lockfile.
+- 01964ed: **A tenant admin lets one of a site's people removed in Kindgi back in, through their site.** `POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore` is for someone removed with `POST /v1/identity/users/{userId}/unregister` while the site still knows them. They're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. It answers `200 { user }`.
+  - It's refused, with nothing changed, as `409 site-person-restore-refused` with `details.reason`:
+    - `not-removed`: they're in the tenant and their site still knows them;
+    - `left`: their site said they left it. A site forgets a person who leaves, so if they come back, it signs them in as a new person;
+    - `linked-elsewhere`: they also sign in another way (through another site, or the tenant's own sign-in), and letting them back in would open that too. Add them again instead, as a new person.
+  - A site with no link to that person is `404 site-person-not-found`.
+  - `SiteBinding` gains an optional `restorePerson` (`SitePersonRestoreInput`, `SitePersonRestoreOutcome`, `SitePersonRestoreRefusal`). The route is mounted only when a deployment's binding has it.
+  - The TypeScript client gains `projects.sites.restorePerson(projectId, siteId, userId)`, and the Python client `projects.sites.restore_person`.
+  - The CLI gains `kindgi sites restore-person <site-id> <user-id> [--project=<project-id>]`.
+- 9b6da8a: **Usage reads: a tenant reads its own usage, aggregated, and the operator reads usage across tenants.**
+  
+  - **What's counted:** usage records (`USAGE_KINDS`): runs started and ended, each with its class; approvals requested and decided; model calls, inference and embedding; and a project put in production or taken out. A read answers groups: each group's count, the sum of its quantities (milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count) and its first and last times. It never answers a record's content. Model-call cost stays on `/v1/cost`.
+  - **The query,** the same on both routes:
+    - `from` and `to`: times with a zone, `to` not included, at most 92 days apart. A longer span is read in parts;
+    - `groupBy`, comma-separated;
+    - the filters `kind`, `class` and `state`, each comma-separated. A list naming an unknown value, or one value twice, is `400 bad-input`;
+    - `limit`: groups a page, from 1 to 10000 (default 1000);
+    - `cursor`: the last page's `nextCursor`. A cursor the route didn't give is `400 bad-input`.
+  - **The answer** is `{ data, watermark, nextCursor? }`. Every record at or before `watermark` is in it, so a reader re-reads a window until its watermark is past the window's end. Every page of one read carries the same watermark. A group's `kind`, `class` and `state` are plain strings: a runtime may count more later, and a reader shows a value it doesn't know as it is.
+  - **`GET /v1/usage`:** the caller's tenant's usage. `groupBy` takes `project`, `agent`, `kind`, `class`, `state` and `day` (the UTC date); the default is `project,kind`. `projectId` reads one project.
+    - **Which projects:** a tenant admin, or a deployment without authorization, reads every project and the tenant's records with no project. Anyone else, an admin's API key limited to a project included, reads only the projects they may `read`, and no record without a project.
+    - **A project the caller can't read** is absent from the answer, never an error, so the answer doesn't say it exists.
+    - **When the projects a caller may read can't be listed,** one asked for with `projectId` is still read. A read across projects is refused (`403`), never over-counted.
+  - **`GET /v1/system/usage`** takes the new system capability `system:usage:read` (`kindgi:system` includes it). `groupBy` also takes `tenant`; the default is `tenant,kind`. `tenantId` reads one tenant.
+    - A test tenant's usage, and that of a tenant whose setup is pending, is never in the answer, even when `tenantId` names one.
+    - The access record marks a read across every tenant, or names the one read.
+  - **Mounting:** `createApp` takes `usage`, a `UsageBinding` (`acrossTenants`, `ofTenant`). Without it, neither route is mounted (`404`). `@kindgi/api` exports the binding's types and the lists the query takes (`USAGE_STATES`, `USAGE_GROUP_KEYS`, `TENANT_USAGE_GROUP_KEYS`, `USAGE_WINDOW_MAX_DAYS`).
+  - **The TypeScript client** adds `client.usage.read` (`TenantUsageClient`) and `client.systemUsage.read` (`SystemUsageClient`); lists are sent comma-separated. `@kindgi/sdk` exports `TenantUsageClient`, `UsageQuery`, `UsagePage`, `UsageGroup` and `UsageGroupKey`. `UsageClient` is still `client.cost.usage`'s.
+  - **The Python client** adds `client.usage.read` and `client.system_usage.read`.
+  - **The CLI adds `kindgi usage`:**
+    - **The window:** a calendar month in UTC (`--month=YYYY-MM`, the current one by default), or `--from` and `--to` together;
+    - **The query:** `--project`, `--group-by`, `--kind`, `--class` and `--state` (comma-separated), `--limit` and `--cursor`;
+    - **The output:** the page as JSON. `--table` prints a row per group, with `(none)` for no project or agent, and on stderr the watermark and the next page's `--cursor`.
+- Updated dependencies [997470e]
+- Updated dependencies [b9a68d5]
+- Updated dependencies [6b3f48c]
+- Updated dependencies [e03762c]
+- Updated dependencies [fde2432]
+- Updated dependencies [43eafb2]
+- Updated dependencies [d6f844d]
+- Updated dependencies [2e60ae2]
+- Updated dependencies [4bdb49f]
+- Updated dependencies [72b63e8]
+- Updated dependencies [01964ed]
+- Updated dependencies [a21cec2]
+- Updated dependencies [e1fd4cd]
+- Updated dependencies [a05a216]
+- Updated dependencies [05b762e]
+- Updated dependencies [25a7309]
+- Updated dependencies [9b6da8a]
+  - @kindgi/client@0.1.10-rc.0
+  - @kindgi/agents@0.1.10-rc.0
+  - @kindgi/env-schema@0.1.10-rc.0
+  - @kindgi/handler-runtime@0.1.10-rc.0
+  - @kindgi/sdk@0.1.10-rc.0
+  - @kindgi/platform@0.1.10-rc.0
+  - @kindgi/secrets-dotenv@0.1.10-rc.0
+  - @kindgi/flow@0.1.10-rc.0
+  - @kindgi/crypto@0.1.10-rc.0
+  - @kindgi/dotenv-file@0.1.10-rc.0
+  - @kindgi/log@0.1.10-rc.0
+  - @kindgi/types@0.1.10-rc.0
+
 ## 0.1.9
 
 ### Patch Changes
