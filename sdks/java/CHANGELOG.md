@@ -7,6 +7,7 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-client`: **the SSO handoff message, for a JVM app that sets up sign-in.** `SsoHandoff.forProvider(urls, preset, version)` builds what an admin sends whoever runs their identity provider — the OIDC or SAML URLs and what to send back, a preset's console steps (`IdentityProviderPreset`: Google, Entra, Okta, Keycloak) and the guide's link (`DocsLinks.docsUrl`). The same text the CLI's `kindgi sso providers start` and the console show. No network and no dependencies, so an app that shows its own setup screen can use it on its own.
 - `kindgi-pack`, `kindgi-pack-scala`: **an agent's `conversationPolicy` can't set `autoCloseAfterInactiveSeconds`.** It was accepted and never acted on: a conversation never closes by itself, only when someone closes it. The indexer refuses an agent that sets it, as a file error at `/conversationPolicy/autoCloseAfterInactiveSeconds`; the rest of the pack still indexes, and `kindgi build` stops on it.
 
 ## 0.1.9
