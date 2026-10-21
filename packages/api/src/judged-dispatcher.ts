@@ -194,7 +194,29 @@ export interface JudgedComparisonSummary {
    * Corrections graded across the cases, shown for a promotion gate, not
    * enforced. Absent when the test set carries no corrections.
    */
-  readonly corrections?: { readonly checked: number; readonly passed: number };
+  readonly corrections?: {
+    readonly checked: number;
+    readonly passed: number;
+    /**
+     * Each correction graded, by its judgment: whether it passed (every
+     * repetition did). What an improvement pass compares, run to run, to
+     * keep only a model-settings change that breaks none the current
+     * version passes. Absent from a summary recorded before it.
+     */
+    readonly judgments?: readonly { readonly judgmentId: string; readonly pass: boolean }[];
+  };
+  /**
+   * What the candidate's replays cost in model calls, as the runtime
+   * reported it: each repetition's total over the cases whose every
+   * repetition reported a cost (`cases`), averaged over the repetitions;
+   * with more than one, `spread` is the totals' max − min. Absent when no
+   * case's did.
+   */
+  readonly costUsd?: {
+    readonly candidate: number;
+    readonly spread?: number;
+    readonly cases: number;
+  };
 }
 
 /** One case's result. */
@@ -233,6 +255,12 @@ export interface JudgedCaseResult {
     readonly repetition: number;
     readonly differences: readonly CorrectionDifference[];
   }[];
+  /**
+   * What each repetition's replay cost in model calls, as the runtime
+   * reported it, one per repetition. Absent when a repetition reported
+   * none.
+   */
+  readonly costUsd?: readonly number[];
   readonly diverged: boolean;
   readonly refusedWrites: number;
   readonly noContext: boolean;
@@ -438,6 +466,8 @@ class CaseTally {
     { readonly repetition: number; readonly differences: readonly CorrectionDifference[] }
   >();
   private correctionRepetitions = 0;
+  /** Each repetition's reported cost, in order (undefined where one reported none). */
+  private readonly costs: (number | undefined)[] = [];
 
   constructor(
     private readonly judgedCase: JudgedEvalCase,
@@ -449,6 +479,7 @@ class CaseTally {
 
   add(outcome: EvalRunSubjectInvokeOutcome): 'ran' | 'stopped' | 'error' {
     this.gradeCorrections(outcome);
+    this.costs.push(outcome.costUsd);
     if (outcome.runId !== undefined) this.runIds.push(outcome.runId as unknown as string);
     if (outcome.stopped !== undefined) {
       this.stopped ??= outcome.stopped;
@@ -537,6 +568,9 @@ class CaseTally {
             },
           ];
     });
+    const costs = this.costs;
+    const costUsd =
+      costs.length === n && costs.every((c): c is number => c !== undefined) ? costs : undefined;
     return {
       caseId: this.judgedCase.caseId,
       runIds: this.runIds,
@@ -546,6 +580,7 @@ class CaseTally {
       ...(this.first?.replay !== undefined && { tools: this.first.replay.tools }),
       ...(corrections.length > 0 && { corrections }),
       ...(correctionDifferences.length > 0 && { correctionDifferences }),
+      ...(costUsd !== undefined && { costUsd }),
       diverged: this.diverged,
       refusedWrites: this.refusedWrites,
       noContext: this.judgedCase.context === undefined,
@@ -880,11 +915,8 @@ function summarize(
       ? specProject
       : (ctx.projectId as unknown as string | undefined);
   const judgedWeight = (s: OutputScore) => s.totalWeight;
-  const correctionsChecked = results.reduce((a, r) => a + (r.corrections?.length ?? 0), 0);
-  const correctionsPassed = results.reduce(
-    (a, r) => a + (r.corrections?.filter((c) => c.pass).length ?? 0),
-    0,
-  );
+  const corrections = correctionsOf(results);
+  const costUsd = costOf(results, comparison.repetitions);
   return {
     evalRunId: ctx.runId as unknown as string,
     status:
@@ -931,9 +963,41 @@ function summarize(
         { k: comparison.k },
       ),
     },
-    ...(correctionsChecked > 0 && {
-      corrections: { checked: correctionsChecked, passed: correctionsPassed },
-    }),
+    ...(corrections !== undefined && { corrections }),
+    ...(costUsd !== undefined && { costUsd }),
+  };
+}
+
+/** The corrections graded across the cases, and each one's verdict by judgment; none graded, undefined. */
+function correctionsOf(
+  results: readonly JudgedCaseResult[],
+): JudgedComparisonSummary['corrections'] {
+  const judgments = results.flatMap((r) =>
+    (r.corrections ?? []).map(({ judgmentId, pass }) => ({ judgmentId, pass })),
+  );
+  if (judgments.length === 0) return undefined;
+  const passed = judgments.filter((j) => j.pass).length;
+  return { checked: judgments.length, passed, judgments };
+}
+
+/**
+ * What the candidate's replays cost: each repetition's total over the
+ * cases whose every repetition reported a cost, averaged, and with more
+ * than one repetition the totals' spread. Undefined when no case's did.
+ */
+function costOf(
+  results: readonly JudgedCaseResult[],
+  repetitions: number,
+): JudgedComparisonSummary['costUsd'] {
+  const costed = results.flatMap((r) => (r.costUsd?.length === repetitions ? [r.costUsd] : []));
+  if (costed.length === 0) return undefined;
+  const totals = Array.from({ length: repetitions }, (_, rep) =>
+    costed.reduce((a, c) => a + (c[rep] ?? 0), 0),
+  );
+  return {
+    candidate: totals.reduce((a, b) => a + b, 0) / repetitions,
+    ...(repetitions > 1 && { spread: Math.max(...totals) - Math.min(...totals) }),
+    cases: costed.length,
   };
 }
 

@@ -3,7 +3,7 @@
 
 import { type Context, Hono } from 'hono';
 
-import { type AgentId, tunableKeys } from '@kindgi/agents';
+import { type AgentId, modelSettingsTunableKeys, tunableKeys } from '@kindgi/agents';
 import { type Action, ref } from '@kindgi/authz';
 import type { Cursor, ProjectId, Semver, TenantId } from '@kindgi/types';
 
@@ -412,14 +412,20 @@ async function nothingToTune(
       ? undefined
       : `${named} doesn't take its instructions from a pinned prompt block: there's no template for a prompt pass to draft. Move the instructions into a prompt block and publish the agent again.`;
   }
+  // Why the model-settings block's model keys aren't tried, if they aren't.
+  let skipped: string | undefined;
   for (const [blockId, pinned] of Object.entries(version.pins?.settings ?? {})) {
-    if (version.modelSettings?.id === blockId) continue;
     const block = await blocks.getVersion({ tenantId, blockId, version: pinned });
-    if (block?.kind === 'settings' && tunableKeys(block.content.schema).length > 0) {
-      return undefined;
-    }
+    if (block?.kind !== 'settings') continue;
+    const tunable: { readonly keys: readonly unknown[]; readonly skipped?: string } =
+      version.modelSettings?.id === blockId
+        ? modelSettingsTunableKeys(block.content.schema, version)
+        : { keys: tunableKeys(block.content.schema) };
+    if (tunable.keys.length > 0) return undefined;
+    skipped ??= tunable.skipped;
   }
-  return `${named} pins no settings block with keys marked "x-kindgi-tunable": there's nothing for a pass to tune. Mark the keys it may tune in the block's schema (a number or integer with a minimum and maximum, or an enum) and publish it.`;
+  const why = skipped === undefined ? '' : ` In its model-settings block, ${skipped}.`;
+  return `${named} pins no settings block with keys marked "x-kindgi-tunable": there's nothing for a pass to tune. Mark the keys it may tune in the block's schema (a number or integer with a minimum and maximum, or an enum) and publish it.${why}`;
 }
 
 export function serializePass(p: ImprovementPass): Record<string, unknown> {
