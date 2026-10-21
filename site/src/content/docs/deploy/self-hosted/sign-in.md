@@ -24,11 +24,16 @@ stay Kindgi's.
   ([Self-host with Docker](../self-host/)).
 - **The address people reach it at,** over `https`, such as
   `https://kindgi.acme.com`.
-- **A secrets store for the runtime,** set by `KINDGI_SECRETS_BACKEND`. An
-  identity provider's client secret and keys are references into it
-  ([Keep secrets in your own secret manager](../secret-manager/), or the
-  default Postgres one).
+- **A secrets store for the runtime,** set by `KINDGI_SECRETS_BACKEND`, for
+  a workspace's own identity providers: their client secret and keys are
+  references into it ([Keep secrets in your own secret manager](../secret-manager/),
+  or the Postgres one). Without one, Continue with Google, Microsoft or
+  GitHub and the emailed link still work, and adding or changing a
+  workspace's own provider answers `409 identity-providers-need-secrets-store`.
 - **`openssl`,** to make sign-in's own secret.
+- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+  pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## 1. Turn it on
 
@@ -132,8 +137,22 @@ could claim another company's domain and catch its people.
 
   Each entry is a domain and the workspace it belongs to, by the
   workspace's id or its slug. The runtime checks the list when it starts.
-  An entry it can't read, a domain listed twice, or a workspace it doesn't
-  serve stops it, naming the entry.
+  An entry it can't read, or a domain listed twice, stops it, naming the
+  entry. An entry for a workspace it doesn't serve (no workspace has that
+  id or slug, it was purged, or its setup hasn't finished) doesn't: the
+  runtime warns, naming the domain and the workspace, and treats that
+  domain as one not listed until it next starts with the workspace set up.
+
+  Each replica reads its own list, as does any other runtime on the same
+  database: give them all the same one.
+
+  An entry by id keeps working through a rename (runtime 0.1.10 or later).
+  While an entry names a workspace by its slug, that slug can't change, and
+  no workspace can be renamed to a slug an entry names
+  (`409 tenant-slug-in-config`). A rename is checked against the list of the
+  replica that takes it. To change a slug an entry names, name the workspace
+  by its id in the list, restart every replica and any other runtime on that
+  database, then rename it.
 
 The startup output lists what routes:
 
@@ -182,6 +201,20 @@ KINDGI_AUTH_TENANT_PROVIDERS=off
   ![The Sign-in page with KINDGI_AUTH_TENANT_PROVIDERS=off: Whoever runs Kindgi manages sign-in here, and acme-ops listed with Try only](../../../../assets/sso/console-providers-operator.png)
 
 `on` is the default. Like the other settings here, it needs sign-in on.
+
+Without a secrets store (`KINDGI_SECRETS_BACKEND=none`), nobody adds or
+changes a workspace's own provider, whichever the setting. The startup
+output says so instead:
+
+```text
+  Identity providers: a tenant's own are off: their client secret and keys go in a secrets store, and this server has none (KINDGI_SECRETS_BACKEND)
+```
+
+A provider added while the deployment had a store signs nobody in once the
+store is gone. People are sent back to the sign-in page with
+`sign-in-unavailable`, and the runtime's log says why. On a domain verified
+to its workspace, GitHub and the emailed link still don't sign people in
+([Who gets in](#who-gets-in)). Remove the provider, or set up a store again.
 
 ## Continue with Google, Microsoft or GitHub
 
@@ -389,7 +422,7 @@ machine:
 
 ## A second factor
 
-A person can add a second factor to signing in (runtime 0.1.8.1 or later):
+A person can add a second factor to signing in (runtime 0.1.9 or later):
 the codes an authenticator app shows (TOTP, as in Google Authenticator,
 1Password or Authy), and 10 recovery codes for when the phone is lost. They set it up in
 the console, which shows the key as a QR code, once. From then on, signing
@@ -401,7 +434,7 @@ sign in.
 A tenant admin can require one for the whole workspace:
 
 ```sh
-kindgi sign-in settings --require-second-factor=on
+npx --yes @kindgi/cli@0.1 sign-in settings --require-second-factor=on
 ```
 
 - Someone without one sets one up at their next sign-in.
@@ -425,7 +458,7 @@ factor for the rest of that time (`second-factor-locked`). For a lost phone, a t
 theirs, and they're told by email where the deployment sends it:
 
 ```sh
-kindgi people reset-second-factor <user-id>
+npx --yes @kindgi/cli@0.1 people reset-second-factor <user-id>
 ```
 
 An admin's own isn't removed this way: they take it off on My access, with a
@@ -440,6 +473,22 @@ person's next code.
 it until that is 0. A key that opens under neither secret can't be used
 (`second-factor-unusable`): its person signs in with a recovery code, or an
 admin removes it.
+
+## Terms and privacy links
+
+The console's sign-in page can link your terms and privacy policy
+(runtime 0.1.9 or later):
+
+```sh
+# kindgi.env
+KINDGI_AUTH_TERMS_URL=https://www.acme-live.example/terms
+KINDGI_AUTH_PRIVACY_URL=https://www.acme-live.example/privacy
+```
+
+Set either one, or both. Each is an absolute `https` URL, with no username
+or password in it: with anything else, the runtime doesn't start. Unset,
+the page links neither. The links
+show beside kindgi.com and Docs, or under the form on a narrow screen.
 
 ## Behind a load balancer
 

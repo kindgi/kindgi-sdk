@@ -11,7 +11,7 @@ import {
   REVIEWER_ROLE_RANK,
   type ReviewerRole,
 } from '@kindgi/authz';
-import type { Cursor, SessionId, TenantId, UserId } from '@kindgi/types';
+import type { Cursor, EnvName, SessionId, TenantId, UserId } from '@kindgi/types';
 
 import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../caller.js';
 import type { EnvBinding } from '../env-binding.js';
@@ -35,7 +35,7 @@ import { callerReviewerRole } from '../reviewer-role.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
-import { resolveTenantConfigEnvName } from './tenant.js';
+import { DEFAULT_TENANT_CONFIG_ENV_NAME } from './tenant.js';
 
 /**
  * Identity routes — the canonical caller-identity surface.
@@ -104,6 +104,13 @@ export interface IdentityRouterOptions {
    * (`console.readOnlyNotice`).
    */
   readonly tenantConfig?: EnvBinding;
+  /**
+   * Optional. The env this runtime serves (`KINDGI_ENV`), and whether it
+   * refuses values under any other (`refuseOtherEnvs`). whoami answers it
+   * as `servedEnv`, for a client to default to it. Absent: whoami leaves
+   * the field out.
+   */
+  readonly servedEnv?: { readonly envName: EnvName; readonly refusesOtherEnvs: boolean };
 }
 
 export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv> {
@@ -115,6 +122,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     personGrants,
     myAccess,
     tenantConfig,
+    servedEnv,
   } = options;
   const r = new Hono<AppEnv>();
 
@@ -164,6 +172,12 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     if (sessionId !== undefined && sessionStore !== undefined) {
       const session = await sessionStore.get({ tenantId, sessionId });
       if (session !== null) body.expiresAt = session.expiresAt;
+    }
+    if (servedEnv !== undefined) {
+      body.servedEnv = {
+        envName: servedEnv.envName,
+        refusesOtherEnvs: servedEnv.refusesOtherEnvs,
+      };
     }
     return c.json(body);
   });
@@ -693,7 +707,8 @@ async function consoleReadOnlyNotice(
   try {
     const entry = await tenantConfig.get({
       scope: { kind: 'tenant', tenantId: c.get('tenantId') as TenantId },
-      envName: resolveTenantConfigEnvName(),
+      // A tenant setting: under `default`, whatever env the runtime serves.
+      envName: DEFAULT_TENANT_CONFIG_ENV_NAME,
       name: READ_ONLY_NOTICE_KEY,
     });
     const text = entry?.value.replace(/\s+/g, ' ').trim() ?? '';
@@ -858,7 +873,8 @@ function serializePersonGrants(g: PersonGrants): Record<string, unknown> {
   };
 }
 
-function serializeUser(u: UserRecord): Record<string, unknown> {
+/** A person on the wire (`UserRecord`): also a site's person a restore lets back in (sites.ts). */
+export function serializeUser(u: UserRecord): Record<string, unknown> {
   return {
     userId: u.userId as unknown as string,
     tenantId: u.tenantId as unknown as string,

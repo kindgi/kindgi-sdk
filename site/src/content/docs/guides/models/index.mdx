@@ -67,9 +67,36 @@ off, and nothing restarts.
 A preset is a ready-made registration for a vendor's API. To list the presets
 with every model they register:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi providers presets
+pnpm exec kindgi providers presets
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi providers presets
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw providers presets
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw providers presets
+```
+
+</TabItem>
+</Tabs>
 
 It prints each preset as JSON: its adapter, its models, the name of its key
 and the date its prices were checked.
@@ -126,10 +153,40 @@ The `bedrock` preset's default model is Amazon Nova Pro
 (`us.amazon.nova-pro-v1:0`), Amazon's own. To register one of its Claude or
 GPT models instead, name it with `--models`:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi providers register --preset=bedrock --region=us-east-2 \
+pnpm exec kindgi providers register --preset=bedrock --region=us-east-2 \
   --models=us.anthropic.claude-haiku-4-5-20251001-v1:0
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi providers register --preset=bedrock --region=us-east-2 \
+  --models=us.anthropic.claude-haiku-4-5-20251001-v1:0
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw providers register --preset=bedrock --region=us-east-2 \
+  --models=us.anthropic.claude-haiku-4-5-20251001-v1:0
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw providers register --preset=bedrock --region=us-east-2 \
+  --models=us.anthropic.claude-haiku-4-5-20251001-v1:0
+```
+
+</TabItem>
+</Tabs>
 
 - `--region=us-east-2` is the Region your account uses Bedrock in.
 - `--models` names the Bedrock model id to register.
@@ -215,6 +272,11 @@ For reference, the spec it writes looks like this:
   }
 }
 ```
+
+:::note[On Kindgi Cloud]
+Use `prod` for the environment: `--env=prod` when you store the key, and
+`"envName": "prod"` in the spec.
+:::
 
 With the spec saved as `bedrock.json`,
 `kindgi providers register --spec=@bedrock.json` prints the provider's id:
@@ -394,6 +456,11 @@ and a provider you register by hand is in that one only. A provider declared
 in the pack's config is registered by `kindgi dev` on every boot: in a new
 worktree, after `--reset`, and on a teammate's machine.
 
+Commit the declaration with the rest of the config. It holds a key's name,
+never the key, and it's how a teammate's `kindgi dev`, or another
+worktree's, gets the same providers. The key itself stays out of git: each
+teammate, and each worktree, sets it in its own env files.
+
 Ask your coding agent: "Declare my model providers in the pack's config." For
 reference, it adds them to `providers`, like this:
 
@@ -535,9 +602,24 @@ At each boot, `kindgi dev` says what it did:
   plain line.
 
 `kindgi dev` keeps track of the providers it registered in
-`.kindgi/dev/providers.json`. A runtime that `kindgi dev` doesn't run, such as
-your staging or production one, gets its providers with
-`kindgi providers register`.
+`.kindgi/dev/providers.json`. That's a local record, under the gitignored
+`.kindgi/`, not the place to declare a provider.
+
+A runtime that `kindgi dev` doesn't run, such as your staging or production
+one, doesn't read the declaration. Register its providers there by hand with
+`kindgi providers register`, once per runtime: a registration is shared by
+every environment the runtime serves. Register again when you add a provider.
+To change one, unregister it first, then register it again. The key isn't
+shared: set it first in each environment that runs the pack, with
+`kindgi secrets set <KEY> --env=<environment>`. `kindgi deploy` doesn't
+register providers, and `kindgi promote` stops while the target has none.
+
+:::note[On Kindgi Cloud]
+Register a preset with `--env=prod`: without `--env`, it reads `local`. A
+spec's key names `"envName": "prod"`. A model key is the workspace's: runs
+in every project use it. To try a change before it's live, see
+[Change your agent once it's live](../../hosted/deploy-your-agent/#change-your-agent-once-its-live).
+:::
 
 ## Keys
 
@@ -547,17 +629,47 @@ Kindgi's own `.kindgi/secrets.env`, which wins on a clash.
 
 To store a key without echoing it, with `kindgi dev` running:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi secrets set <KEY_NAME> --env=local --scope=tenant
+pnpm exec kindgi secrets set <KEY_NAME> --env=local --scope=tenant
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi secrets set <KEY_NAME> --env=local --scope=tenant
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw secrets set <KEY_NAME> --env=local --scope=tenant
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw secrets set <KEY_NAME> --env=local --scope=tenant
+```
+
+</TabItem>
+</Tabs>
 
 - `<KEY_NAME>` is the secret's name: the key name the provider reads, such as
   `OPENAI_API_KEY`. The [presets](#presets) table names each preset's key.
 - `--env=local` is the environment the secret belongs to. Under
   `kindgi dev`, `local` is the pack's env files.
 - `--scope=tenant` is where the secret lives: the tenant, rather than one org
-  (`org:<orgId>`) or project (`project:<projectId>`). A provider reads its key
-  from the tenant.
+  (`org:<orgId>`) or project (`project:<projectId>`). Under `kindgi dev`, the
+  files hold one value for every scope. On a runtime, a run reads a
+  provider's key at its project, else its org, else the tenant (runtime
+  0.1.9 or later; an older runtime reads the tenant's only), so the
+  tenant's key serves every project without one of its own.
 
 It prompts for the value and writes it to `.kindgi/secrets.env`, which your
 app doesn't load. In a script, pipe the value in and add `--from-stdin`. To
@@ -573,12 +685,48 @@ provider's key under a name of its own, then register.
 
 ## List, change and remove
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi providers list                          # every provider, with its models
-kindgi providers list --feature=structured-output
-kindgi providers get ollama
-kindgi providers unregister ollama
+pnpm exec kindgi providers list                          # every provider, with its models
+pnpm exec kindgi providers list --feature=structured-output
+pnpm exec kindgi providers get ollama
+pnpm exec kindgi providers unregister ollama
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi providers list                          # every provider, with its models
+uv run kindgi providers list --feature=structured-output
+uv run kindgi providers get ollama
+uv run kindgi providers unregister ollama
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw providers list                          # every provider, with its models
+./kindgiw providers list --feature=structured-output
+./kindgiw providers get ollama
+./kindgiw providers unregister ollama
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw providers list                          # every provider, with its models
+./kindgiw providers list --feature=structured-output
+./kindgiw providers get ollama
+./kindgiw providers unregister ollama
+```
+
+</TabItem>
+</Tabs>
 
 - `--feature=<name>` lists only the providers with a model that has this
   feature, such as `structured-output` or `tool-use`.

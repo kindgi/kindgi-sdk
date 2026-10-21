@@ -218,7 +218,7 @@ export interface ApprovalFilter extends Omit<Filter<ApprovalStatus>, 'status'> {
   readonly assignedTo?: 'me';
   /**
    * `'me'`: only the approvals the caller's own reviewer row decided. A
-   * runtime before Kindgi 0.1.8.1 ignores it and lists them all; its page
+   * runtime before Kindgi 0.1.9 ignores it and lists them all; its page
    * has no `decidedBy`.
    */
   readonly decidedBy?: 'me';
@@ -251,7 +251,7 @@ export interface ApprovalPage extends ListPage<Approval> {
   /**
    * `'me'` on every page of a list asked for with `decidedBy: 'me'`: it
    * holds only the approvals the caller decided. Absent from a runtime
-   * before Kindgi 0.1.8.1, which ignores the filter and lists them all.
+   * before Kindgi 0.1.9, which ignores the filter and lists them all.
    */
   readonly decidedBy?: 'me';
 }

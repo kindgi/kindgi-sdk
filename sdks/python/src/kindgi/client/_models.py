@@ -11,6 +11,8 @@ from uuid import UUID
 from pydantic import AnyUrl, AwareDatetime, BaseModel, ConfigDict, Field, RootModel, constr
 from typing_extensions import TypeAliasType
 
+from . import _open
+
 
 class Error(BaseModel):
     model_config = ConfigDict(
@@ -63,7 +65,9 @@ class OtherItem(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    what: Literal["child-run", "decided-approval", "unattributed", "no-open-wait"]
+    what: Annotated[
+        Literal["child-run", "decided-approval", "unattributed", "no-open-wait"] | str, _open.OPEN
+    ]
     child_run_id: Annotated[UUID | None, Field(alias="childRunId")] = None
     child_status: Annotated[str | None, Field(alias="childStatus")] = None
     approval_id: Annotated[UUID | None, Field(alias="approvalId")] = None
@@ -82,7 +86,7 @@ class RunTrigger(BaseModel):
         populate_by_name=True,
     )
     trigger_id: Annotated[UUID, Field(alias="triggerId")]
-    kind: Literal["schedule", "event", "webhook"]
+    kind: Annotated[Literal["schedule", "event", "webhook"] | str, _open.OPEN]
     fire_id: Annotated[str, Field(alias="fireId")]
     """
     The fire that started the run: one entry of the trigger's fire history.
@@ -157,64 +161,12 @@ class LiveScopeSegment(BaseModel):
     path: Annotated[list[ScopeSegment], Field(max_length=8, min_length=1)]
 
 
-class LiveVersionResolution(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    agent_id: Annotated[str, Field(alias="agentId")]
-    version: str
-    """
-    The version a run would use (semver).
-    """
-    via: Literal["live", "latest"]
-    """
-    A live pin chose it, or nothing is live on the way up and it is the latest.
-    """
-    live_scope: Annotated[
-        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment | None,
-        Field(alias="liveScope", discriminator="kind"),
-    ] = None
-    """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
-    """
-
-
-class LivePin(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    agent_id: Annotated[str, Field(alias="agentId")]
-    scope: Annotated[
-        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
-        Field(discriminator="kind"),
-    ]
-    """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
-    """
-    version: str
-    promotion_id: Annotated[UUID, Field(alias="promotionId")]
-    """
-    The promotion that set it.
-    """
-    set_at: Annotated[AwareDatetime, Field(alias="setAt")]
-
-
-class LivePinList(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[LivePin]
-
-
 class RequestedBy(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["user", "service"]
+    kind: Annotated[Literal["user", "service"] | str, _open.OPEN]
     id: str
 
 
@@ -258,7 +210,7 @@ class GateApproval(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    role: Literal["standard", "senior", "admin"]
+    role: Annotated[Literal["standard", "senior", "admin"] | str, _open.OPEN]
     count: Annotated[int, Field(ge=1)]
     separate_approver: Annotated[bool, Field(alias="separateApprover")]
     """
@@ -302,7 +254,9 @@ class Metric(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    name: Literal["weightedYesShare", "judgedCoverage", "weightedPrecisionAtK"]
+    name: Annotated[
+        Literal["weightedYesShare", "judgedCoverage", "weightedPrecisionAtK"] | str, _open.OPEN
+    ]
     k: Annotated[int | None, Field(ge=1, le=100)] = None
     """
     `weightedPrecisionAtK` only: the summary's `k` must be this.
@@ -338,7 +292,7 @@ class Approvals(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    role: Literal["standard", "senior", "admin"] | None = None
+    role: Annotated[Literal["standard", "senior", "admin"] | str, _open.OPEN] | None = None
     """
     Default `senior`.
     """
@@ -377,70 +331,6 @@ class GatePolicySpec(BaseModel):
     """
 
 
-class GatePolicy(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: str
-    version: str
-    agent_id: Annotated[str, Field(alias="agentId")]
-    scope: Annotated[
-        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
-        Field(discriminator="kind"),
-    ]
-    """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
-    """
-    spec: GatePolicySpec
-    description: str | None = None
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
-
-
-class GatePolicyPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[GatePolicy]
-    has_more: Annotated[bool, Field(alias="hasMore")]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-
-
-class PublishGatePolicyBody(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: Annotated[str, Field(pattern="^[a-z0-9][a-z0-9._-]{0,127}$")]
-    """
-    Yours to choose, e.g. `acme.drafting-prod`.
-    """
-    version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
-    agent_id: Annotated[str, Field(alias="agentId")]
-    scope: Annotated[
-        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
-        Field(discriminator="kind"),
-    ]
-    """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
-    """
-    spec: GatePolicySpec
-    description: str | None = None
-
-
-class GatePolicyResolution(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    policy: GatePolicy | None
-    """
-    The policy that gates a promotion for the scope; null when none does.
-    """
-
-
 class PromotionCheck(BaseModel):
     """
     What the gate would say about a promotion. Nothing is recorded.
@@ -450,70 +340,13 @@ class PromotionCheck(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    outcome: Literal["would-promote", "needs-approval", "gate-failed"]
+    outcome: Annotated[Literal["would-promote", "needs-approval", "gate-failed"] | str, _open.OPEN]
     policy: GatePolicyRef | None
     """
     The policy that applies; null when none does.
     """
     checks: list[GateCheck]
     approval: GateApproval | None = None
-
-
-class PromoteBody(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    version: str
-    """
-    The agent version to make live (registered, active).
-    """
-    scope: Annotated[
-        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
-        Field(discriminator="kind"),
-    ]
-    """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
-    """
-    reason: Annotated[str | None, Field(max_length=2000)] = None
-    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
-    """
-    The comparison this promotion was judged on.
-    """
-
-
-class RollbackBody(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    scope: Annotated[
-        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
-        Field(discriminator="kind"),
-    ]
-    """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
-    """
-    to_version: Annotated[str | None, Field(alias="toVersion")] = None
-    """
-    An earlier version to go back to; omit → the scope's previous live version.
-    """
-    reason: Annotated[str | None, Field(max_length=2000)] = None
-
-
-class UnpinBody(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    scope: Annotated[
-        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
-        Field(discriminator="kind"),
-    ]
-    """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
-    """
-    reason: Annotated[str | None, Field(max_length=2000)] = None
 
 
 class RunFailure(BaseModel):
@@ -550,7 +383,7 @@ class FailureSubject(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["agent", "flow"]
+    kind: Annotated[Literal["agent", "flow"] | str, _open.OPEN]
     id: str
 
 
@@ -794,27 +627,31 @@ class RunEvent(BaseModel):
     run_id: Annotated[str, Field(alias="runId", min_length=1)]
     tenant_id: Annotated[str, Field(alias="tenantId", min_length=1)]
     timestamp: AwareDatetime
-    kind: Literal[
-        "run.queued",
-        "run.started",
-        "run.step-started",
-        "run.step-completed",
-        "run.step-failed",
-        "run.step-retry-scheduled",
-        "run.iteration-started",
-        "run.iteration-completed",
-        "run.tool-invoked",
-        "run.tool-result",
-        "run.model-token",
-        "run.artifact-produced",
-        "run.guardrail-violated",
-        "run.wait-suspended",
-        "run.wait-resumed",
-        "run.approval-requested",
-        "run.approval-completed",
-        "run.completed",
-        "run.failed",
-        "run.cancelled",
+    kind: Annotated[
+        Literal[
+            "run.queued",
+            "run.started",
+            "run.step-started",
+            "run.step-completed",
+            "run.step-failed",
+            "run.step-retry-scheduled",
+            "run.iteration-started",
+            "run.iteration-completed",
+            "run.tool-invoked",
+            "run.tool-result",
+            "run.model-token",
+            "run.artifact-produced",
+            "run.guardrail-violated",
+            "run.wait-suspended",
+            "run.wait-resumed",
+            "run.approval-requested",
+            "run.approval-completed",
+            "run.completed",
+            "run.failed",
+            "run.cancelled",
+        ]
+        | str,
+        _open.OPEN,
     ]
     sequence: Annotated[int | None, Field(ge=0)] = None
     node_id: Annotated[str | None, Field(alias="nodeId")] = None
@@ -836,7 +673,10 @@ class RunProgress(BaseModel):
     """
     flow_id: Annotated[str, Field(alias="flowId")]
     flow_version: Annotated[str, Field(alias="flowVersion")]
-    status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
+    status: Annotated[
+        Literal["pending", "running", "suspended", "completed", "failed", "cancelled"] | str,
+        _open.OPEN,
+    ]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
@@ -895,6 +735,8 @@ class SystemKey(BaseModel):
             "system:tenants:purge",
             "system:suspend",
             "system:deployments",
+            "system:pack-env",
+            "system:usage:read",
             "system:license",
             "kindgi:system",
         ]
@@ -925,6 +767,8 @@ class MintSystemKeyBody(BaseModel):
                 "system:tenants:purge",
                 "system:suspend",
                 "system:deployments",
+                "system:pack-env",
+                "system:usage:read",
                 "system:license",
                 "kindgi:system",
             ]
@@ -959,18 +803,24 @@ class MintSystemKeyResult(BaseModel):
     What the key is for, as given at mint.
     """
     scopes: list[
-        Literal[
-            "system:tenants",
-            "system:tenants:create",
-            "system:tenants:image-prefix",
-            "system:tenants:production",
-            "system:tenants:limits",
-            "system:tenants:contacts",
-            "system:tenants:purge",
-            "system:suspend",
-            "system:deployments",
-            "system:license",
-            "kindgi:system",
+        Annotated[
+            Literal[
+                "system:tenants",
+                "system:tenants:create",
+                "system:tenants:image-prefix",
+                "system:tenants:production",
+                "system:tenants:limits",
+                "system:tenants:contacts",
+                "system:tenants:purge",
+                "system:suspend",
+                "system:deployments",
+                "system:pack-env",
+                "system:usage:read",
+                "system:license",
+                "kindgi:system",
+            ]
+            | str,
+            _open.OPEN,
         ]
     ]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
@@ -1004,18 +854,24 @@ class Datum2(BaseModel):
     What the key is for, as given at mint.
     """
     scopes: list[
-        Literal[
-            "system:tenants",
-            "system:tenants:create",
-            "system:tenants:image-prefix",
-            "system:tenants:production",
-            "system:tenants:limits",
-            "system:tenants:contacts",
-            "system:tenants:purge",
-            "system:suspend",
-            "system:deployments",
-            "system:license",
-            "kindgi:system",
+        Annotated[
+            Literal[
+                "system:tenants",
+                "system:tenants:create",
+                "system:tenants:image-prefix",
+                "system:tenants:production",
+                "system:tenants:limits",
+                "system:tenants:contacts",
+                "system:tenants:purge",
+                "system:suspend",
+                "system:deployments",
+                "system:pack-env",
+                "system:usage:read",
+                "system:license",
+                "kindgi:system",
+            ]
+            | str,
+            _open.OPEN,
         ]
     ]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
@@ -1053,18 +909,24 @@ class RevokeSystemKeyResult(BaseModel):
     What the key is for, as given at mint.
     """
     scopes: list[
-        Literal[
-            "system:tenants",
-            "system:tenants:create",
-            "system:tenants:image-prefix",
-            "system:tenants:production",
-            "system:tenants:limits",
-            "system:tenants:contacts",
-            "system:tenants:purge",
-            "system:suspend",
-            "system:deployments",
-            "system:license",
-            "kindgi:system",
+        Annotated[
+            Literal[
+                "system:tenants",
+                "system:tenants:create",
+                "system:tenants:image-prefix",
+                "system:tenants:production",
+                "system:tenants:limits",
+                "system:tenants:contacts",
+                "system:tenants:purge",
+                "system:suspend",
+                "system:deployments",
+                "system:pack-env",
+                "system:usage:read",
+                "system:license",
+                "kindgi:system",
+            ]
+            | str,
+            _open.OPEN,
         ]
     ]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
@@ -1097,7 +959,7 @@ class SystemDeploymentEntry(BaseModel):
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    The project the deploy was scoped to. Absent for a tenant-wide deploy.
+    The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project.
     """
     image_ref: Annotated[str, Field(alias="imageRef")]
     """
@@ -1107,12 +969,16 @@ class SystemDeploymentEntry(BaseModel):
     artifact_version: Annotated[str, Field(alias="artifactVersion")]
     activated_at: Annotated[AwareDatetime, Field(alias="activatedAt")]
     reason: (
-        Literal[
-            "superseded",
-            "tenant-closing",
-            "tenant-suspended",
-            "project-suspended",
-            "pack-suspended",
+        Annotated[
+            Literal[
+                "superseded",
+                "tenant-closing",
+                "tenant-suspended",
+                "project-suspended",
+                "pack-suspended",
+            ]
+            | str,
+            _open.OPEN,
         ]
         | None
     ) = None
@@ -1151,6 +1017,186 @@ class SetPackEndpointBody(BaseModel):
     """
     The pack service's token (`KINDGI_PACK_SERVICE_TOKEN`), printable ASCII without spaces. Stored wrapped; never returned, logged or recorded.
     """
+    pack_env_revision: Annotated[
+        str | None, Field(alias="packEnvRevision", max_length=128, min_length=1)
+    ] = None
+    """
+    The `revision` from `GET …/pack-env` whose values the service was made with, when its pack declares an environment. Kept as the one it runs, so `GET /v1/system/pack-env` lists it once they change.
+    """
+
+
+class PackEnvDeclaration(BaseModel):
+    """
+    The names the pack service reads from its process environment, as the image's `index.json` declares them (`env`), each list in name order. Names only, never a value. On a deployment: absent when it declares none, and from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    required: list[str]
+    """
+    Names the pack service needs, set and non-empty, to be ready.
+    """
+    optional: list[str]
+    """
+    Names the pack reads when present.
+    """
+
+
+class PackEnvScope(BaseModel):
+    """
+    Where a value is set: the deployment's project, the project's org, or the tenant.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Annotated[Literal["project", "org", "tenant"] | str, _open.OPEN]
+    id: str | None = None
+    """
+    The project's or the org's id. Absent for the tenant.
+    """
+
+
+class PackEnvNameStatus(BaseModel):
+    """
+    One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (`secretScope`, for `ambiguous` only, names the secret's scope). Each name is looked for at the deployment's project, then its org, then the tenant (most specific wins); a tenant-wide deployment's, at the tenant's Default project. Never a value.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: str
+    required: bool
+    kind: Annotated[Literal["env", "secret"] | str, _open.OPEN] | None
+    """
+    What it is set as: a plain value (`env`) or a secret. `null` when it is set nowhere.
+    """
+    scope: PackEnvScope | None
+    """
+    Where it is set: the plain value's scope when `ambiguous`. `null` when it is set nowhere.
+    """
+    missing: bool
+    """
+    Set nowhere, as a plain value or a secret (optional names too).
+    """
+    problem: (
+        Annotated[Literal["ambiguous", "secret-not-yet", "missing", "unreadable"] | str, _open.OPEN]
+        | None
+    ) = None
+    """
+    Why it can't be given to the pack service. `ambiguous`: set both as a secret and as a plain value (`secretScope` names the secret's scope). `secret-not-yet`: set only as a secret, and the orchestrator didn't ask for secret values (`secrets=values`); a tool reads it per call (`ctx.secrets`). `missing`: a required name set nowhere. `unreadable`: set as a secret, and it can't be read for a reason the platform fixes, not the owner. Absent when it can be given, and for an optional name set nowhere. The owner's check (`GET /v1/deployments/{deploymentId}/pack-env`) lists a name set only as a secret as `kind: 'secret'`, with no problem.
+    """
+    secret_scope: Annotated[PackEnvScope | None, Field(alias="secretScope")] = None
+
+
+class PackEnvSecretValue(BaseModel):
+    """
+    A secret given to the deployment's pack service: its value, read at the version `revision` names, and audited before the answer.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    value: str
+    revision: str
+    """
+    `ps1-…`: the same for the same value under the same name, and changes whenever what's given for the name does (a new version, another scope, a revoke or a delete). Made from the name's part of the deployment's `revision`, never from the value.
+    """
+
+
+class SystemPackEnvHold(BaseModel):
+    """
+    Only when it's held at its current revision for a cause the platform fixes, not the owner: it's listed every time, as the revision doesn't move when that's fixed. Read its values again when your back-off says. Absent otherwise.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: Annotated[
+        Literal["pack-env-secret-unreadable", "pack-env-secrets-unaudited"] | str, _open.OPEN
+    ]
+    since: AwareDatetime
+    """
+    When it was first held.
+    """
+
+
+class RecordPackEnvBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    revision: Annotated[str, Field(max_length=128, min_length=1)]
+    """
+    The `revision` from `GET …/pack-env`. Without `held`: the service now runs its values. With `held`: they weren't given, and the service keeps what it runs.
+    """
+    held: (
+        Annotated[
+            Literal[
+                "pack-env-ambiguous",
+                "pack-env-secret-not-yet",
+                "pack-env-missing",
+                "pack-env-secret-unreadable",
+                "pack-env-update-failed",
+                "pack-env-secrets-unaudited",
+                "pack-env-secret-too-large",
+                "pack-env-secret-redeploy",
+            ]
+            | str,
+            _open.OPEN,
+        ]
+        | None
+    ) = None
+    """
+    Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it; `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. The orchestrator couldn't give it its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out, so it gives none; the platform fixes it), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-secret-redeploy` (a name is now set only as a secret, and this pack service was made where no secret can be given to it; a new deployment's can be, from a new build of the pack). A service held as `pack-env-secret-unreadable` or `pack-env-secrets-unaudited` is listed by `GET /v1/system/pack-env` every time, with its `held`, as the revision doesn't move when the platform fixes it. A later runtime may add codes, so treat an unknown one as a reason not yet named.
+    """
+    applied_revision: Annotated[
+        str | None, Field(alias="appliedRevision", max_length=128, min_length=1)
+    ] = None
+    """
+    The revision the service was found running, as `GET /v1/system/pack-env` listed it. Absent: none was recorded. Another revision recorded since is a conflict (`pack-env-conflict`).
+    """
+
+
+class PackEnvNames(BaseModel):
+    """
+    Where each name the deployment's pack declares is set, at the env the server serves. Never a value.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    env_name: Annotated[str, Field(alias="envName")]
+    """
+    The env the values are read at (`KINDGI_ENV`).
+    """
+    data: list[PackEnvNameStatus]
+    """
+    Every declared name, required ones first, each list in name order.
+    """
+    problem: (
+        Annotated[
+            Literal[
+                "pack-env-ambiguous",
+                "pack-env-secret-not-yet",
+                "pack-env-missing",
+                "pack-env-secret-unreadable",
+            ]
+            | str,
+            _open.OPEN,
+        ]
+        | None
+    ) = None
+    """
+    Why a deployment's pack service can't be given its declared environment, the first in this order: `pack-env-ambiguous` (a name is set both as a secret and as a plain value), `pack-env-secret-not-yet` (a name is set only as a secret, and its value wasn't asked for), `pack-env-missing` (a required name is set nowhere), `pack-env-secret-unreadable` (a name's secret is set, but it can't be read for a reason the platform fixes, not the owner; only a read with `secrets=values` finds it, and only when there's no other problem). A later runtime may add codes, so treat an unknown one as a reason not yet named.
+    """
 
 
 class RecordDeploymentProblemBody(BaseModel):
@@ -1168,6 +1214,13 @@ class RecordDeploymentProblemBody(BaseModel):
         "tenant-not-provisioned",
         "capacity-unavailable",
         "service-start-failed",
+        "pack-env-ambiguous",
+        "pack-env-secret-not-yet",
+        "pack-env-missing",
+        "pack-env-secret-unreadable",
+        "pack-env-secrets-unaudited",
+        "pack-env-secret-too-large",
+        "pack-env-secret-capacity",
     ]
     """
     Why the pack service couldn't be created, or was refused: one of `DEPLOYMENT_ENDPOINT_PROBLEM_CODES`. The tenant sees the code, never more.
@@ -1210,7 +1263,7 @@ class SystemTenant(BaseModel):
     id: UUID
     name: str
     slug: str
-    state: Literal["active", "suspended", "closing"]
+    state: Annotated[Literal["active", "suspended", "closing"] | str, _open.OPEN]
     """
     `closing`: readable and exportable with its own keys for its window, nothing runs. `suspended`: the same, reversibly. `closing` wins over `suspended`.
     """
@@ -1369,6 +1422,74 @@ class TenantAdminContacts(BaseModel):
     data: Annotated[list[Datum3], Field(max_length=100)]
 
 
+class PurgeTenantBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    confirm: Annotated[str, Field(min_length=1)]
+    """
+    The tenant's slug, a second check on the id.
+    """
+
+
+class TenantTableRows(BaseModel):
+    """
+    A tenant's rows in one table: the table's name and a count.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    table: str
+    rows: Annotated[int, Field(ge=1)]
+
+
+class SystemTenantPurge(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    complete: bool
+    """
+    `true`: nothing of the tenant is left, its purge record is written, and it's marked purged. `false`: `left` and `objectsLeft` say what is; run it again.
+    """
+    already_purged: Annotated[bool, Field(alias="alreadyPurged")]
+    """
+    It was marked purged before this run: what this run deleted was written after its mark. Its mark and its record stay as they were.
+    """
+    purged_at: Annotated[AwareDatetime | None, Field(alias="purgedAt")] = None
+    """
+    When it was marked purged. Absent while something of it from before the mark is left.
+    """
+    deleted: list[TenantTableRows]
+    """
+    Rows this run deleted, per table with any: table names and counts, never the rows' content.
+    """
+    objects_deleted: Annotated[int, Field(alias="objectsDeleted", ge=0)]
+    """
+    Objects this run deleted from the artifacts' store.
+    """
+    authz_store_deleted: Annotated[bool, Field(alias="authzStoreDeleted")]
+    """
+    Whether this run deleted its authorization store.
+    """
+    left: list[TenantTableRows]
+    """
+    Rows of it still there afterwards, per table; empty when none are. A table the purge doesn't delete from is named too: report it.
+    """
+    objects_left: Annotated[int, Field(alias="objectsLeft", ge=0)]
+    """
+    Objects still under its prefix in the artifacts' store.
+    """
+    left_because: Annotated[str | None, Field(alias="leftBecause")] = None
+    """
+    Why what's left wasn't deleted, when it's a setting the runtime lacks.
+    """
+
+
 class SystemWhoami(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -1391,7 +1512,7 @@ class ApiKeyPrincipal(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["user", "service-account"]
+    kind: Annotated[Literal["user", "service-account"] | str, _open.OPEN]
     id: Annotated[str, Field(min_length=1)]
     """
     The user id, or the service account id.
@@ -1476,7 +1597,7 @@ class TrustedSigningKey(BaseModel):
     The signer key id a deployment envelope names.
     """
     tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    algorithm: Literal["ed25519"]
+    algorithm: Annotated[Literal["ed25519"] | str, _open.OPEN]
     public_key: Annotated[str, Field(alias="publicKey")]
     """
     Base64 of the raw public-key bytes (32 for Ed25519).
@@ -1615,14 +1736,15 @@ class ApprovalDecisionRecord(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    decision: Literal["approve", "reject", "escalate", "withdraw"]
+    decision: Annotated[Literal["approve", "reject", "escalate", "withdraw"] | str, _open.OPEN]
     decided_by: Annotated[str | None, Field(alias="decidedBy")] = None
     """
     Who decided, as an actor: `user:<userId>`, the reviewer's user. The run's journal and provenance name the decider the same way. The Kindgi runtime always records it; a deployment whose HITL binding doesn't leaves it out.
     """
     reviewer_id: Annotated[UUID, Field(alias="reviewerId")]
     reviewer_role_at_decision: Annotated[
-        Literal["standard", "senior", "admin"], Field(alias="reviewerRoleAtDecision")
+        Annotated[Literal["standard", "senior", "admin"] | str, _open.OPEN],
+        Field(alias="reviewerRoleAtDecision"),
     ]
     """
     Reviewer role class. Hierarchy: standard < senior < admin.
@@ -1647,10 +1769,11 @@ class ReviewDecision(BaseModel):
     id: str
     approval_id: Annotated[UUID, Field(alias="approvalId")]
     reviewer_id: Annotated[UUID, Field(alias="reviewerId")]
-    decision: Literal["approve", "reject", "escalate", "withdraw"]
+    decision: Annotated[Literal["approve", "reject", "escalate", "withdraw"] | str, _open.OPEN]
     rationale: str | None = None
     reviewer_role_at_decision: Annotated[
-        Literal["standard", "senior", "admin"], Field(alias="reviewerRoleAtDecision")
+        Annotated[Literal["standard", "senior", "admin"] | str, _open.OPEN],
+        Field(alias="reviewerRoleAtDecision"),
     ]
     """
     Reviewer role class. Hierarchy: standard < senior < admin.
@@ -1712,7 +1835,7 @@ class Reviewer(BaseModel):
     """
     tenant_id: Annotated[UUID, Field(alias="tenantId")]
     user_id: Annotated[UUID, Field(alias="userId")]
-    role: Literal["standard", "senior", "admin"]
+    role: Annotated[Literal["standard", "senior", "admin"] | str, _open.OPEN]
     """
     Reviewer role class. Hierarchy: standard < senior < admin.
     """
@@ -1773,7 +1896,7 @@ class ExportSigningKey(BaseModel):
     """
     Derived from the public key (`ex_` and 16 base64url characters), so the same key keeps its id.
     """
-    algorithm: Literal["ed25519", "ecdsa-p256-sha256"]
+    algorithm: Annotated[Literal["ed25519", "ecdsa-p256-sha256"] | str, _open.OPEN]
     """
     An Ed25519 key signs `ed25519`; an EC P-256 key (a KMS without Ed25519) signs `ecdsa-p256-sha256`.
     """
@@ -1799,6 +1922,71 @@ class ExportSigningKeyList(BaseModel):
     data: list[ExportSigningKey]
     """
     Active first. Empty when the deployment doesn't sign exports.
+    """
+
+
+class UsageGroup(BaseModel):
+    """
+    One group: the dimensions it's grouped by (only those), then its count, the sum of its quantities, and its first and last times.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID | None, Field(alias="tenantId")] = None
+    """
+    The tenant, on the operator's read across tenants.
+    """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    Absent for a record with no project; a tenant admin's read includes those, and the CLI shows them as `(none)`.
+    """
+    agent_id: Annotated[str | None, Field(alias="agentId")] = None
+    """
+    Absent for a record with no agent; the CLI shows those as `(none)`.
+    """
+    kind: str | None = None
+    """
+    What was counted: `run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`. A runtime may count more kinds later: show one you don't know as it is.
+    """
+    class_: Annotated[str | None, Field(alias="class")] = None
+    """
+    The class of the run a record counts or belongs to, fixed when the run was created: `production`, `staging`, `dry-run`, `replay`, `eval`, `child`. A record with no counted run has none. A runtime may add classes later: show one you don't know as it is.
+    """
+    state: str | None = None
+    """
+    The record's state, by kind: `on`, `off` (`project.production`); `completed`, `failed`, `cancelled` (`run.ended`); `escalation` (`approval.requested`, an escalation's next tier); `approved`, `rejected`, `withdrawn`, `escalated`, `expired` (`approval.decided`). Other kinds have none.
+    """
+    day: Annotated[str | None, Field(pattern="^\\d{4}-\\d{2}-\\d{2}$")] = None
+    """
+    The UTC date, `YYYY-MM-DD`.
+    """
+    count: Annotated[int, Field(ge=0)]
+    """
+    Records in the group.
+    """
+    quantity: float
+    """
+    The sum of their quantities: milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count.
+    """
+    first_at: Annotated[AwareDatetime, Field(alias="firstAt")]
+    last_at: Annotated[AwareDatetime, Field(alias="lastAt")]
+
+
+class UsagePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[UsageGroup]
+    watermark: AwareDatetime
+    """
+    Every record at or before this time is in the answer; a later one may not be yet. Re-read a window until its watermark is past the window's end. Every page of one read carries the same watermark.
+    """
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    More groups: pass it as `cursor`. Absent on the last page.
     """
 
 
@@ -1874,7 +2062,7 @@ class ExportAuditBundleResult(BaseModel):
     """
     The body's version, semver. `2.0.0`: a string like the other exports' (it was the integer `1`), named `bundleSchemaVersion` in the body too, with `exportedAt` signed once.
     """
-    algorithm: Literal["ed25519", "ecdsa-p256-sha256"]
+    algorithm: Annotated[Literal["ed25519", "ecdsa-p256-sha256"] | str, _open.OPEN]
     """
     The signing key's algorithm. `ecdsa-p256-sha256` signatures are IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know.
     """
@@ -1947,15 +2135,19 @@ class Observation(BaseModel):
     agent_version: Annotated[str, Field(alias="agentVersion")]
     conversation_id: Annotated[UUID, Field(alias="conversationId")]
     turn_number: Annotated[int, Field(alias="turnNumber", ge=0)]
-    status: Literal[
-        "succeeded",
-        "guardrail-violation",
-        "guardrail-warning",
-        "tool-error",
-        "model-error",
-        "budget-exceeded",
-        "aborted",
-        "other",
+    status: Annotated[
+        Literal[
+            "succeeded",
+            "guardrail-violation",
+            "guardrail-warning",
+            "tool-error",
+            "model-error",
+            "budget-exceeded",
+            "aborted",
+            "other",
+        ]
+        | str,
+        _open.OPEN,
     ]
     failure_code: Annotated[str | None, Field(alias="failureCode")] = None
     violations: list[dict[str, Any]]
@@ -1998,7 +2190,7 @@ class JudgedSubject(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["agent", "flow"]
+    kind: Annotated[Literal["agent", "flow"] | str, _open.OPEN]
     id: str
     version: str
 
@@ -2035,7 +2227,7 @@ class JudgmentAssertedBy(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["user", "service"]
+    kind: Annotated[Literal["user", "service"] | str, _open.OPEN]
     id: str
     """
     A user id, or for a service token its token or session id.
@@ -2053,7 +2245,7 @@ class Judgment(BaseModel):
     run_id: Annotated[str, Field(alias="runId")]
     subject: JudgedSubject
     item: JudgedItem
-    verdict: Literal["yes", "no"]
+    verdict: Annotated[Literal["yes", "no"] | str, _open.OPEN]
     reason: str | None = None
     judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
     """
@@ -2154,7 +2346,7 @@ class Reason(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    verdict: Literal["yes", "no"]
+    verdict: Annotated[Literal["yes", "no"] | str, _open.OPEN]
     reason: str
     judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
     """
@@ -2247,13 +2439,15 @@ class JudgeClassAssertableByView(BaseModel):
         populate_by_name=True,
     )
     min_reviewer_role: Annotated[
-        Literal["standard", "senior", "admin"] | None, Field(alias="minReviewerRole")
+        Annotated[Literal["standard", "senior", "admin"] | str, _open.OPEN] | None,
+        Field(alias="minReviewerRole"),
     ] = None
     """
     The caller's reviewer role is at least this (its token's, or the roster's).
     """
     principal_kinds: Annotated[
-        list[Literal["user", "service"]] | None, Field(alias="principalKinds", min_length=1)
+        list[Annotated[Literal["user", "service"] | str, _open.OPEN]] | None,
+        Field(alias="principalKinds", min_length=1),
     ] = None
     """
     Users, service tokens, or both.
@@ -2324,7 +2518,7 @@ class BuildJudgedSuiteResult(BaseModel):
     )
     suite_id: Annotated[str, Field(alias="suiteId")]
     version: str
-    kind: Literal["judged"]
+    kind: Annotated[Literal["judged"] | str, _open.OPEN]
     case_count: Annotated[int, Field(alias="caseCount", ge=0)]
     truncated: bool
     """
@@ -2339,7 +2533,7 @@ class PromptParameter(BaseModel):
     )
     name: str
     description: str | None = None
-    type: Literal["string", "number", "boolean", "date"]
+    type: Annotated[Literal["string", "number", "boolean", "date"] | str, _open.OPEN]
     required: bool | None = None
     default: Any | None = None
     """
@@ -2352,7 +2546,7 @@ class RetrievalIntent(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    source: Literal["facts", "conversations"] | None = None
+    source: Annotated[Literal["facts", "conversations"] | str, _open.OPEN] | None = None
     """
     What it reads: facts (the default), or messages of this agent's earlier conversations, quoted in the turn's `<memory>` block as earlier conversation, never as turns.
     """
@@ -2360,16 +2554,21 @@ class RetrievalIntent(BaseModel):
     """
     The fact types it retrieves: required for facts; not used for conversations.
     """
-    roles: Annotated[list[Literal["user", "agent"]] | None, Field(min_length=1)] = None
+    roles: Annotated[
+        list[Annotated[Literal["user", "agent"] | str, _open.OPEN]] | None, Field(min_length=1)
+    ] = None
     """
     For conversations: whose messages it recalls. Default `['user']`, the people's own words. Adding `agent` recalls the agent's earlier answers too, which can carry its mistakes: they are quoted as unverified earlier answers, and publishing warns `recall-agent-answers`.
     """
-    scope: Literal["same-conversation", "same-user", "same-segment", "same-project", "tenant"]
+    scope: Annotated[
+        Literal["same-conversation", "same-user", "same-segment", "same-project", "tenant"] | str,
+        _open.OPEN,
+    ]
     """
     What the intent selects within what the run may see. Facts: this conversation's; the run's end user's only (`same-user`: none when the run names no `participantId`); the run's project's (none without a project); or every fact of the type it may see (`tenant`). Conversations: this end user's other conversations with the agent (`same-user`: none when the run names no `participantId`); this conversation's messages older than the history window (`same-conversation`); conversations in the run's segment path (`same-segment`) or its project (`same-project`), whoever had them: those two quote other people's conversations, so publishing warns and their messages are marked as another person's. `same-segment` is for conversations only, `tenant` for facts only.
     """
     limit: Annotated[int | None, Field(ge=1)] = None
-    mode: Literal["keyword", "semantic", "both"] | None = None
+    mode: Annotated[Literal["keyword", "semantic", "both"] | str, _open.OPEN] | None = None
     """
     With the user's message as the query: full-text, by meaning (fails the turn with `semantic-unavailable` on a runtime without embeddings), or both fused by rank (without embeddings, the keyword half). Absent: the newest facts.
     """
@@ -2396,7 +2595,9 @@ class Remember(BaseModel):
     """
     The fact types it may write.
     """
-    scope: Literal["same-user", "same-conversation", "same-project", "tenant"]
+    scope: Annotated[
+        Literal["same-user", "same-conversation", "same-project", "tenant"] | str, _open.OPEN
+    ]
     """
     Where its facts go: the conversation's end user (else the user the run acts for), the conversation, the run's project, or the tenant. Each but `tenant` includes the run's project.
     """
@@ -2433,9 +2634,6 @@ class ConversationPolicy(BaseModel):
         populate_by_name=True,
     )
     history_limit: Annotated[int | None, Field(alias="historyLimit", ge=1)] = None
-    auto_close_after_inactive_seconds: Annotated[
-        int | None, Field(alias="autoCloseAfterInactiveSeconds", ge=1)
-    ] = None
     hitl_after_turns: Annotated[int | None, Field(alias="hitlAfterTurns", ge=1)] = None
 
 
@@ -2502,7 +2700,10 @@ class ToolErrorsSpec(BaseModel):
     Failed calls sent back to the model per turn. Default 1.
     """
     retry_on: Annotated[
-        list[Literal["invalid-arguments", "unknown-tool", "tool-error"]] | None,
+        list[
+            Annotated[Literal["invalid-arguments", "unknown-tool", "tool-error"] | str, _open.OPEN]
+        ]
+        | None,
         Field(alias="retryOn"),
     ] = None
     """
@@ -2587,7 +2788,7 @@ class PinChange(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["tool", "prompt", "setting", "agent"]
+    kind: Annotated[Literal["tool", "prompt", "setting", "agent"] | str, _open.OPEN]
     id: str
     from_: Annotated[str | None, Field(alias="from")] = None
     """
@@ -2612,7 +2813,9 @@ class VersionDerivation(BaseModel):
     """
     The version the definition names.
     """
-    reason: Literal["pins-changed", "unpinned", "version-taken", "edited"]
+    reason: Annotated[
+        Literal["pins-changed", "unpinned", "version-taken", "edited"] | str, _open.OPEN
+    ]
     """
     `pins-changed`: a block it uses has a new version; `unpinned`: the definition's version was published before pins existed; `version-taken`: the definition's version holds another definition; `edited`: derived from `version` with some data-block pins swapped (`POST /v1/agents/{agentId}/versions`).
     """
@@ -2790,7 +2993,7 @@ class FlowNode(BaseModel):
         populate_by_name=True,
     )
     id: str
-    kind: Literal["tool", "agent", "loop", "fanout", "subgraph"]
+    kind: Annotated[Literal["tool", "agent", "loop", "fanout", "subgraph"] | str, _open.OPEN]
     ref: str | None = None
     """
     Handler reference for leaf nodes.
@@ -2932,15 +3135,19 @@ class ToolEffect(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal[
-        "reads",
-        "writes",
-        "deletes",
-        "network",
-        "spawns-run",
-        "emits-event",
-        "external-side-effect",
-        "sensitive-data-egress",
+    kind: Annotated[
+        Literal[
+            "reads",
+            "writes",
+            "deletes",
+            "network",
+            "spawns-run",
+            "emits-event",
+            "external-side-effect",
+            "sensitive-data-egress",
+        ]
+        | str,
+        _open.OPEN,
     ]
     resource: str | None = None
     notes: str | None = None
@@ -3126,7 +3333,7 @@ class GuardrailScope(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    when: Literal["always", "ci-only", "runtime-only"] | None = None
+    when: Annotated[Literal["always", "ci-only", "runtime-only"] | str, _open.OPEN] | None = None
     agents: list[str] | None = None
     flows: list[str] | None = None
     tenants: list[str] | None = None
@@ -3163,7 +3370,9 @@ class Guardrail(BaseModel):
     """
     config: dict[str, Any] | None = None
     action: GuardrailAction
-    severity: Literal["info", "warn", "error", "critical"] | None = None
+    severity: Annotated[Literal["info", "warn", "error", "critical"] | str, _open.OPEN] | None = (
+        None
+    )
     scope: GuardrailScope | None = None
     budget: Budget | None = None
     judge_capabilities: Annotated[dict[str, Any] | None, Field(alias="judgeCapabilities")] = None
@@ -3366,7 +3575,7 @@ class Conversation(BaseModel):
     """
     Free-form scope object (currently `{ tenantId }` in tests; enterprises extend with `matterId`, `engagementId`, etc.).
     """
-    status: Literal["open", "closed"]
+    status: Annotated[Literal["open", "closed"] | str, _open.OPEN]
     """
     Lifecycle status derived from `closedAt`: `open` when null, `closed` otherwise.
     """
@@ -3399,7 +3608,7 @@ class ConversationMessage(BaseModel):
     """
     Monotonic index within the conversation. Sort order for the list endpoint.
     """
-    role: Literal["user", "agent", "tool", "system"]
+    role: Annotated[Literal["user", "agent", "tool", "system"] | str, _open.OPEN]
     content: Any
     """
     Free-form string OR a structured object (tool results, multi-modal payloads).
@@ -3449,9 +3658,11 @@ class ConversationCollectionPage(BaseModel):
     Opaque cursor for the next page. Absent when `hasMore: false`.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
-    opened_by: Annotated[Literal["me"] | None, Field(alias="openedBy")] = None
+    opened_by: Annotated[
+        Annotated[Literal["me"] | str, _open.OPEN] | None, Field(alias="openedBy")
+    ] = None
     """
-    `me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.
+    `me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.9, which ignores `openedBy` and lists everyone's.
     """
 
 
@@ -3515,7 +3726,7 @@ class SourceRefresh(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    strategy: Literal["on-read", "background", "manual"]
+    strategy: Annotated[Literal["on-read", "background", "manual"] | str, _open.OPEN]
     handler: str | None = None
     priority: int | None = None
 
@@ -3525,7 +3736,9 @@ class FactSource(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["http-api", "blob", "mcp-tool", "external-db", "user-input"]
+    kind: Annotated[
+        Literal["http-api", "blob", "mcp-tool", "external-db", "user-input"] | str, _open.OPEN
+    ]
     uri: str | None = None
     freshness: SourceFreshness
     refresh: SourceRefresh
@@ -3540,7 +3753,7 @@ class FactSubject(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["participant", "user", "external"]
+    kind: Annotated[Literal["participant", "user", "external"] | str, _open.OPEN]
     id: Annotated[str, Field(min_length=1)]
 
 
@@ -3553,7 +3766,7 @@ class FactAttribution(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["user", "service", "agent"]
+    kind: Annotated[Literal["user", "service", "agent"] | str, _open.OPEN]
     id: str
     agent_version: Annotated[str | None, Field(alias="agentVersion")] = None
 
@@ -3614,7 +3827,7 @@ class Fact(BaseModel):
     """
     The revision this one replaced.
     """
-    trust: Literal["verified", "asserted", "unverified"] | None = None
+    trust: Annotated[Literal["verified", "asserted", "unverified"] | str, _open.OPEN] | None = None
     """
     `verified`: a person with the right checked it. `asserted`: an app or a person wrote it. `unverified`: an agent remembered it during a conversation. Absent on facts from before trust was recorded: `asserted`.
     """
@@ -3644,10 +3857,10 @@ class Fact(BaseModel):
     `user:<id>` or `service:<id>`.
     """
     invalidation_reason: Annotated[
-        Literal["superseded", "deleted", "erased", "expired"] | None,
+        Annotated[Literal["superseded", "deleted", "erased", "expired"] | str, _open.OPEN] | None,
         Field(alias="invalidationReason"),
     ] = None
-    review: Literal["pending"] | None = None
+    review: Annotated[Literal["pending"] | str, _open.OPEN] | None = None
     """
     `pending` while a person must approve it: a pending fact is never retrieved.
     """
@@ -3810,7 +4023,7 @@ class Subject(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["participant", "external"]
+    kind: Annotated[Literal["participant", "external"] | str, _open.OPEN]
     id: Annotated[str, Field(max_length=256, min_length=1)]
 
 
@@ -3874,7 +4087,8 @@ class MemoryErasure(BaseModel):
     )
     id: UUID
     selector_kind: Annotated[
-        Literal["fact", "participant", "external", "conversation"], Field(alias="selectorKind")
+        Annotated[Literal["fact", "participant", "external", "conversation"] | str, _open.OPEN],
+        Field(alias="selectorKind"),
     ]
     selector: (
         MemoryErasureFactSelector
@@ -3885,11 +4099,13 @@ class MemoryErasure(BaseModel):
     """
     Only while it runs: a completed or failed erasure keeps no identifier.
     """
-    status: Literal["pending", "running", "waiting-on-run", "completed", "failed"]
+    status: Annotated[
+        Literal["pending", "running", "waiting-on-run", "completed", "failed"] | str, _open.OPEN
+    ]
     """
     `waiting-on-run`: a turn of the person's sits in a flow that serves other people; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.
     """
-    phase: Literal["seed", "expand", "settle", "erase", "done"]
+    phase: Annotated[Literal["seed", "expand", "settle", "erase", "done"] | str, _open.OPEN]
     """
     Where a running erasure is: `seed`, `expand`, `settle` (the person's unfinished runs end, or it waits for them, before anything is cleared), `erase`, then `done`.
     """
@@ -3936,7 +4152,7 @@ class Warning1(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    code: Literal["erasure-unmatchable"]
+    code: Annotated[Literal["erasure-unmatchable"] | str, _open.OPEN]
     """
     `erasure-unmatchable`: this deployment has no erasure ledger key (`KINDGI_ERASURE_LEDGER_KEY`), so a replay after a restore can't find this person.
     """
@@ -3968,7 +4184,8 @@ class MemoryErasureLedgerEntry(BaseModel):
     )
     id: UUID
     selector_kind: Annotated[
-        Literal["fact", "participant", "external", "conversation"], Field(alias="selectorKind")
+        Annotated[Literal["fact", "participant", "external", "conversation"] | str, _open.OPEN],
+        Field(alias="selectorKind"),
     ]
     selector_hmac: Annotated[str | None, Field(alias="selectorHmac", pattern="^[0-9a-f]{64}$")] = (
         None
@@ -3981,7 +4198,9 @@ class MemoryErasureLedgerEntry(BaseModel):
     Which ledger key made `selectorHmac`.
     """
     requested_by: Annotated[str, Field(alias="requestedBy")]
-    status: Literal["pending", "running", "waiting-on-run", "completed", "failed"]
+    status: Annotated[
+        Literal["pending", "running", "waiting-on-run", "completed", "failed"] | str, _open.OPEN
+    ]
     """
     `waiting-on-run`: a turn of the person's sits in a flow that serves other people; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.
     """
@@ -4025,7 +4244,7 @@ class UnmatchedItem(BaseModel):
         populate_by_name=True,
     )
     id: UUID
-    reason: Literal["no-keyed-hash", "unknown-key"]
+    reason: Annotated[Literal["no-keyed-hash", "unknown-key"] | str, _open.OPEN]
 
 
 class ReplayMemoryErasuresResult(BaseModel):
@@ -4098,7 +4317,7 @@ class ProposalDrafter(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["person", "settings-optimizer", "prompt-drafter"]
+    kind: Annotated[Literal["person", "settings-optimizer", "prompt-drafter"] | str, _open.OPEN]
     by: str | None = None
     """
     For a person: `user:<id>` (or `service:<id>`).
@@ -4151,10 +4370,13 @@ class ProposalEvaluation(BaseModel):
     """
     The test set (a judged eval suite).
     """
-    objective: Literal["weightedYesShare", "weightedPrecisionAtK"]
+    objective: Annotated[Literal["weightedYesShare", "weightedPrecisionAtK"] | str, _open.OPEN]
     started_at: Annotated[AwareDatetime, Field(alias="startedAt")]
     run_status: Annotated[
-        Literal["pending", "running", "completed", "failed", "cancelled"] | None,
+        Annotated[
+            Literal["pending", "running", "completed", "failed", "cancelled"] | str, _open.OPEN
+        ]
+        | None,
         Field(alias="runStatus"),
     ] = None
     """
@@ -4190,7 +4412,11 @@ class ProposalPromotion(BaseModel):
         populate_by_name=True,
     )
     id: str
-    status: Literal["promoted", "pending-approval", "refused", "superseded", "rejected", "expired"]
+    status: Annotated[
+        Literal["promoted", "pending-approval", "refused", "superseded", "rejected", "expired"]
+        | str,
+        _open.OPEN,
+    ]
     approval_id: Annotated[str | None, Field(alias="approvalId")] = None
     """
     The approval a request in review waits on.
@@ -4233,76 +4459,6 @@ class Withdrawn(BaseModel):
     reason: str
 
 
-class FixProposal(BaseModel):
-    """
-    An improvement proposal: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: UUID
-    agent_id: Annotated[str, Field(alias="agentId")]
-    from_version: Annotated[str, Field(alias="fromVersion")]
-    """
-    The agent version the change applies to.
-    """
-    scope: Annotated[
-        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
-        Field(discriminator="kind"),
-    ]
-    """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
-    """
-    tier: Literal["settings-block", "prompt-block"]
-    """
-    What a proposal changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
-    """
-    change: ProposalChange
-    hypothesis: str
-    """
-    What the change should improve, and why.
-    """
-    evidence: Evidence1 | None = None
-    drafter: ProposalDrafter
-    status: Literal[
-        "draft",
-        "evaluating",
-        "evaluated",
-        "not-better",
-        "evaluation-failed",
-        "in-review",
-        "promoted",
-        "refused",
-        "rejected",
-        "expired",
-        "superseded",
-        "rolled-back",
-        "withdrawn",
-    ]
-    """
-    Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.
-    """
-    candidate: ProposalCandidate | None = None
-    evaluation: ProposalEvaluation | None = None
-    promotion: ProposalPromotion | None = None
-    rolled_back: Annotated[RolledBack | None, Field(alias="rolledBack")] = None
-    withdrawn: Withdrawn | None = None
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-
-
-class FixProposalCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[FixProposal]
-    has_more: Annotated[bool, Field(alias="hasMore")]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-
-
 class ImprovementBudget(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -4338,7 +4494,7 @@ class ImprovementPassOutcome(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["proposed", "nothing-found", "failed"]
+    kind: Annotated[Literal["proposed", "nothing-found", "failed"] | str, _open.OPEN]
     proposal_id: Annotated[UUID | None, Field(alias="proposalId")] = None
     reason: str | None = None
     hold_out: Annotated[HoldOut | None, Field(alias="holdOut")] = None
@@ -4373,8 +4529,8 @@ class Comparison1(BaseModel):
         populate_by_name=True,
     )
     eval_run_id: Annotated[UUID | None, Field(alias="evalRunId")] = None
-    role: Literal["reference", "candidate", "proof"]
-    part: Literal["search", "hold-out"]
+    role: Annotated[Literal["reference", "candidate", "proof"] | str, _open.OPEN]
+    part: Annotated[Literal["search", "hold-out"] | str, _open.OPEN]
     block_id: Annotated[str | None, Field(alias="blockId")] = None
     changed: dict[str, Any] | None = None
     score: float | None = None
@@ -4400,84 +4556,6 @@ class Trigger(BaseModel):
     )
     trigger_id: Annotated[str, Field(alias="triggerId")]
     fire_id: Annotated[str, Field(alias="fireId")]
-
-
-class ImprovementPass(BaseModel):
-    """
-    An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes an improvement proposal.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: UUID
-    agent_id: Annotated[str, Field(alias="agentId")]
-    from_version: Annotated[str, Field(alias="fromVersion")]
-    """
-    The version whose settings it tunes.
-    """
-    scope: Annotated[
-        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
-        Field(discriminator="kind"),
-    ]
-    """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
-    """
-    suite_id: Annotated[str, Field(alias="suiteId")]
-    """
-    The test set it searches and proves on.
-    """
-    tiers: list[Literal["settings", "prompt"]]
-    objective: Literal["weightedYesShare", "weightedPrecisionAtK"]
-    class_weights: Annotated[
-        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
-    ] = None
-    """
-    Which judgments its comparisons count. Absent from older servers: `restricted-only`.
-    """
-    model: Model1 | None = None
-    """
-    For a prompt pass: the provider and model that drafts the templates.
-    """
-    candidates: Annotated[int | None, Field(ge=1, le=5)] = None
-    """
-    For a prompt pass: how many templates it drafts.
-    """
-    budget: ImprovementBudget
-    requested_by: Annotated[str, Field(alias="requestedBy")]
-    status: Literal["running", "completed", "failed", "cancelled"]
-    candidates_evaluated: Annotated[int, Field(alias="candidatesEvaluated", ge=0)]
-    cost_usd: Annotated[str, Field(alias="costUsd")]
-    """
-    What its comparisons have cost so far (US dollars).
-    """
-    outcome: ImprovementPassOutcome | None = None
-    cancel_reason: Annotated[str | None, Field(alias="cancelReason")] = None
-    """
-    Why a `cancelled` pass stopped when nobody cancelled it: a comparison's eval run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no proposal. Absent when it was cancelled.
-    """
-    comparisons: list[Comparison1] | None = None
-    """
-    Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.
-    """
-    trigger: Trigger | None = None
-    """
-    The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for a pass a person started.
-    """
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-    finished_at: Annotated[AwareDatetime | None, Field(alias="finishedAt")] = None
-
-
-class ImprovementPassCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[ImprovementPass]
-    has_more: Annotated[bool, Field(alias="hasMore")]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
 class Model2(BaseModel):
@@ -4506,58 +4584,6 @@ class Budget2(BaseModel):
     max_candidates: Annotated[int | None, Field(alias="maxCandidates", ge=1, le=200)] = None
 
 
-class ImproveBody(BaseModel):
-    """
-    Start an improvement pass.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    agent_id: Annotated[str, Field(alias="agentId")]
-    from_version: Annotated[str | None, Field(alias="fromVersion")] = None
-    """
-    The version whose settings it tunes. Default: the one serving `scope`.
-    """
-    scope: Annotated[
-        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
-        Field(discriminator="kind"),
-    ]
-    """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
-    """
-    suite_id: Annotated[str, Field(alias="suiteId")]
-    """
-    The test set (a judged eval suite). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.
-    """
-    tiers: Annotated[
-        list[Literal["settings", "prompt"]] | None, Field(max_length=1, min_length=1)
-    ] = ["settings"]
-    """
-    `['settings']`: values for the tunable settings keys. `['prompt']`: a model drafts templates for the prompt block (needs `model`); a template that reads or names anything the agent doesn't have is refused, and a drafted proposal always waits for a reviewer.
-    """
-    model: Model2 | None = None
-    """
-    For a prompt pass: the tenant's provider and model that drafts the templates.
-    """
-    candidates: Annotated[int | None, Field(ge=1, le=5)] = 3
-    """
-    For a prompt pass: how many templates it drafts.
-    """
-    class_weights: Annotated[
-        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
-    ] = "restricted-only"
-    """
-    Which judgments the pass learns from: by default only those recorded under a restricted (trusted) judge class.
-    """
-    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
-    budget: Budget2 | None = None
-    """
-    Default: $5 and 30 candidates.
-    """
-
-
 class Content1(BaseModel):
     """
     `{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.
@@ -4584,36 +4610,6 @@ class Change(BaseModel):
     """
     `{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.
     """
-
-
-class CreateProposalBody(BaseModel):
-    """
-    A hand-written proposal: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one proposal (answered with `X-Proposal-Deduped: true`).
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    agent_id: Annotated[str, Field(alias="agentId")]
-    from_version: Annotated[str, Field(alias="fromVersion")]
-    """
-    The agent version the change applies to.
-    """
-    scope: Annotated[
-        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
-        Field(discriminator="kind"),
-    ]
-    """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
-    """
-    tier: Literal["settings-block", "prompt-block"]
-    """
-    What a proposal changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
-    """
-    change: Change
-    hypothesis: Annotated[str, Field(max_length=2000, min_length=1)]
-    evidence: Evidence1 | None = None
 
 
 class ProposalReasonBody(BaseModel):
@@ -4819,22 +4815,26 @@ class Node(BaseModel):
         populate_by_name=True,
     )
     id: str
-    kind: Literal[
-        "input",
-        "prompt",
-        "retrieval",
-        "tool-call",
-        "tool-result",
-        "model-call",
-        "model-output",
-        "artifact",
-        "guardrail-check",
-        "event",
-        "policy-decision",
-        "memory-read",
-        "memory-write",
-        "wait",
-        "resume",
+    kind: Annotated[
+        Literal[
+            "input",
+            "prompt",
+            "retrieval",
+            "tool-call",
+            "tool-result",
+            "model-call",
+            "model-output",
+            "artifact",
+            "guardrail-check",
+            "event",
+            "policy-decision",
+            "memory-read",
+            "memory-write",
+            "wait",
+            "resume",
+        ]
+        | str,
+        _open.OPEN,
     ]
     timestamp: AwareDatetime
     actor: str | None = None
@@ -4852,15 +4852,19 @@ class Edge(BaseModel):
     )
     from_: Annotated[str, Field(alias="from")]
     to: str
-    kind: Literal[
-        "caused-by",
-        "influenced-by",
-        "retrieved-from",
-        "invoked",
-        "produced",
-        "checked-against",
-        "waited-on",
-        "resumed-from",
+    kind: Annotated[
+        Literal[
+            "caused-by",
+            "influenced-by",
+            "retrieved-from",
+            "invoked",
+            "produced",
+            "checked-against",
+            "waited-on",
+            "resumed-from",
+        ]
+        | str,
+        _open.OPEN,
     ]
 
 
@@ -4942,7 +4946,7 @@ class ExportProvenanceResult(BaseModel):
     """
     The body's version, semver. `1.2.0` adds `exportedAt` to the signed body; `1.1.0` added `callUsage`.
     """
-    algorithm: Literal["ed25519", "ecdsa-p256-sha256"]
+    algorithm: Annotated[Literal["ed25519", "ecdsa-p256-sha256"] | str, _open.OPEN]
     """
     The signing key's algorithm. `ecdsa-p256-sha256` signatures are IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know.
     """
@@ -5011,6 +5015,14 @@ class BlobMeta(BaseModel):
     Who uploaded it: `user:<id>` or `service_account:<id>`.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    bucket: str | None = None
+    """
+    The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.
+    """
+    key: str | None = None
+    """
+    The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one.
+    """
 
 
 class Datum5(BaseModel):
@@ -5056,6 +5068,14 @@ class Datum5(BaseModel):
     Who uploaded it: `user:<id>` or `service_account:<id>`.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    bucket: str | None = None
+    """
+    The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.
+    """
+    key: str | None = None
+    """
+    The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one.
+    """
 
 
 class ArtifactCollectionPage(BaseModel):
@@ -5134,7 +5154,7 @@ class ModelThinking(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    mode: Literal["adaptive", "always"]
+    mode: Annotated[Literal["adaptive", "always"] | str, _open.OPEN]
     """
     `adaptive`: on unless turned down. `always`: on, and it can only be lowered.
     """
@@ -5171,20 +5191,24 @@ class ModelInfo(BaseModel):
     Context window in tokens.
     """
     features: list[
-        Literal[
-            "structured-output",
-            "vision",
-            "audio-input",
-            "audio-output",
-            "tool-use",
-            "parallel-tool-use",
-            "thinking",
-            "long-context",
-            "code-execution",
-            "web-search",
-            "file-search",
-            "streaming",
-            "batch",
+        Annotated[
+            Literal[
+                "structured-output",
+                "vision",
+                "audio-input",
+                "audio-output",
+                "tool-use",
+                "parallel-tool-use",
+                "thinking",
+                "long-context",
+                "code-execution",
+                "web-search",
+                "file-search",
+                "streaming",
+                "batch",
+            ]
+            | str,
+            _open.OPEN,
         ]
     ]
     """
@@ -5477,7 +5501,8 @@ class MCPOAuth2ClientCredentialsAuth(BaseModel):
     An `audience` parameter, for identity providers that need one. Absent: none sent.
     """
     client_auth: Annotated[
-        Literal["client_secret_basic", "client_secret_post"] | None, Field(alias="clientAuth")
+        Annotated[Literal["client_secret_basic", "client_secret_post"] | str, _open.OPEN] | None,
+        Field(alias="clientAuth"),
     ] = None
     """
     How the client authenticates to the token endpoint (RFC 6749 §2.3.1): `client_secret_basic` (an `Authorization: Basic` header, the default) or `client_secret_post` (`client_id` and `client_secret` in the form).
@@ -5659,15 +5684,6 @@ class Content3(BaseModel):
     mime_type: Annotated[str, Field(alias="mimeType")]
 
 
-class MCPPromptMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    role: Literal["user", "assistant"]
-    content: Content2 | Content3
-
-
 class GetMCPPromptBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -5677,14 +5693,6 @@ class GetMCPPromptBody(BaseModel):
     """
     Argument bag for the prompt template. Every value must be a string per MCP spec.
     """
-
-
-class GetMCPPromptResult(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    messages: list[MCPPromptMessage]
 
 
 class RawUsage(BaseModel):
@@ -5787,21 +5795,25 @@ class CostAggregateResult(BaseModel):
     time_range: Annotated[TimeRange, Field(alias="timeRange")]
     group_by: Annotated[
         list[
-            Literal[
-                "agentId",
-                "runId",
-                "category",
-                "providerId",
-                "day",
-                "month",
-                "tenant",
-                "conversationId",
-                "model",
-                "servedModel",
-                "projectId",
-                "orgId",
-                "rootRunId",
-                "flowId",
+            Annotated[
+                Literal[
+                    "agentId",
+                    "runId",
+                    "category",
+                    "providerId",
+                    "day",
+                    "month",
+                    "tenant",
+                    "conversationId",
+                    "model",
+                    "servedModel",
+                    "projectId",
+                    "orgId",
+                    "rootRunId",
+                    "flowId",
+                ]
+                | str,
+                _open.OPEN,
             ]
         ],
         Field(alias="groupBy"),
@@ -5817,7 +5829,10 @@ class Adapter(BaseModel):
         populate_by_name=True,
     )
     adapter_id: Annotated[str, Field(alias="adapterId", min_length=1)]
-    kind: Literal["model", "model-provider", "embedding", "blob", "sandbox", "eval-judge"]
+    kind: Annotated[
+        Literal["model", "model-provider", "embedding", "blob", "sandbox", "eval-judge"] | str,
+        _open.OPEN,
+    ]
     name: Annotated[str, Field(min_length=1)]
     """
     Package name that owns the implementation (e.g. `@kindgi/adapter-model-in-process`).
@@ -5834,7 +5849,7 @@ class Adapter(BaseModel):
     """
     Redacted routing hints only. No secrets — bindings never surface API keys, endpoints, or credentials.
     """
-    status: Literal["active", "degraded", "error"]
+    status: Annotated[Literal["active", "degraded", "error"] | str, _open.OPEN]
     status_reason: Annotated[str | None, Field(alias="statusReason")] = None
     """
     Human-readable reason accompanying `degraded` / `error` status.
@@ -5882,15 +5897,19 @@ class Policy(BaseModel):
     """
     Semver — publishing a modified policy produces a new version.
     """
-    kind: Literal[
-        "access-control",
-        "model-routing",
-        "adapter-allowlist",
-        "rate-limit",
-        "retention",
-        "compliance",
-        "tool-errors",
-        "hitl",
+    kind: Annotated[
+        Literal[
+            "access-control",
+            "model-routing",
+            "adapter-allowlist",
+            "rate-limit",
+            "retention",
+            "compliance",
+            "tool-errors",
+            "hitl",
+        ]
+        | str,
+        _open.OPEN,
     ]
     description: str | None = None
     spec: dict[str, Any]
@@ -5920,15 +5939,19 @@ class PolicyVersionRow(BaseModel):
     """
     Semver — publishing a modified policy produces a new version.
     """
-    kind: Literal[
-        "access-control",
-        "model-routing",
-        "adapter-allowlist",
-        "rate-limit",
-        "retention",
-        "compliance",
-        "tool-errors",
-        "hitl",
+    kind: Annotated[
+        Literal[
+            "access-control",
+            "model-routing",
+            "adapter-allowlist",
+            "rate-limit",
+            "retention",
+            "compliance",
+            "tool-errors",
+            "hitl",
+        ]
+        | str,
+        _open.OPEN,
     ]
     description: str | None = None
     spec: dict[str, Any]
@@ -5962,15 +5985,19 @@ class PublishPolicyBody(BaseModel):
     Optional. When present, must match the caller tenant (server-derived from the token). Cross-tenant publish is rejected.
     """
     version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
-    kind: Literal[
-        "access-control",
-        "model-routing",
-        "adapter-allowlist",
-        "rate-limit",
-        "retention",
-        "compliance",
-        "tool-errors",
-        "hitl",
+    kind: Annotated[
+        Literal[
+            "access-control",
+            "model-routing",
+            "adapter-allowlist",
+            "rate-limit",
+            "retention",
+            "compliance",
+            "tool-errors",
+            "hitl",
+        ]
+        | str,
+        _open.OPEN,
     ]
     description: str | None = None
     spec: dict[str, Any]
@@ -6010,27 +6037,31 @@ class RetentionPolicyConflict(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    domain: Literal[
-        "org",
-        "agent",
-        "flow",
-        "tool",
-        "eval_suite",
-        "guardrail",
-        "mcp_endpoint",
-        "env",
-        "secret",
-        "run",
-        "artifact",
-        "policy",
-        "judgment",
-        "judge_class",
-        "provider",
-        "memory",
-        "conversation",
-        "api_key",
-        "service_account",
-        "*",
+    domain: Annotated[
+        Literal[
+            "org",
+            "agent",
+            "flow",
+            "tool",
+            "eval_suite",
+            "guardrail",
+            "mcp_endpoint",
+            "env",
+            "secret",
+            "run",
+            "artifact",
+            "policy",
+            "judgment",
+            "judge_class",
+            "provider",
+            "memory",
+            "conversation",
+            "api_key",
+            "service_account",
+            "*",
+        ]
+        | str,
+        _open.OPEN,
     ]
     """
     The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory` and `conversation`: they hold people's words, so only a policy naming them purges them.
@@ -6050,27 +6081,31 @@ class RetentionScheduledItem(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    domain: Literal[
-        "org",
-        "agent",
-        "flow",
-        "tool",
-        "eval_suite",
-        "guardrail",
-        "mcp_endpoint",
-        "env",
-        "secret",
-        "run",
-        "artifact",
-        "policy",
-        "judgment",
-        "judge_class",
-        "provider",
-        "memory",
-        "conversation",
-        "api_key",
-        "service_account",
-        "*",
+    domain: Annotated[
+        Literal[
+            "org",
+            "agent",
+            "flow",
+            "tool",
+            "eval_suite",
+            "guardrail",
+            "mcp_endpoint",
+            "env",
+            "secret",
+            "run",
+            "artifact",
+            "policy",
+            "judgment",
+            "judge_class",
+            "provider",
+            "memory",
+            "conversation",
+            "api_key",
+            "service_account",
+            "*",
+        ]
+        | str,
+        _open.OPEN,
     ]
     """
     The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory` and `conversation`: they hold people's words, so only a policy naming them purges them.
@@ -6122,27 +6157,31 @@ class RetentionScheduledPage(BaseModel):
     """
     domains_missing_adapter: Annotated[
         list[
-            Literal[
-                "org",
-                "agent",
-                "flow",
-                "tool",
-                "eval_suite",
-                "guardrail",
-                "mcp_endpoint",
-                "env",
-                "secret",
-                "run",
-                "artifact",
-                "policy",
-                "judgment",
-                "judge_class",
-                "provider",
-                "memory",
-                "conversation",
-                "api_key",
-                "service_account",
-                "*",
+            Annotated[
+                Literal[
+                    "org",
+                    "agent",
+                    "flow",
+                    "tool",
+                    "eval_suite",
+                    "guardrail",
+                    "mcp_endpoint",
+                    "env",
+                    "secret",
+                    "run",
+                    "artifact",
+                    "policy",
+                    "judgment",
+                    "judge_class",
+                    "provider",
+                    "memory",
+                    "conversation",
+                    "api_key",
+                    "service_account",
+                    "*",
+                ]
+                | str,
+                _open.OPEN,
             ]
         ],
         Field(alias="domainsMissingAdapter"),
@@ -6152,27 +6191,31 @@ class RetentionScheduledPage(BaseModel):
     """
     unpoliced_domains: Annotated[
         list[
-            Literal[
-                "org",
-                "agent",
-                "flow",
-                "tool",
-                "eval_suite",
-                "guardrail",
-                "mcp_endpoint",
-                "env",
-                "secret",
-                "run",
-                "artifact",
-                "policy",
-                "judgment",
-                "judge_class",
-                "provider",
-                "memory",
-                "conversation",
-                "api_key",
-                "service_account",
-                "*",
+            Annotated[
+                Literal[
+                    "org",
+                    "agent",
+                    "flow",
+                    "tool",
+                    "eval_suite",
+                    "guardrail",
+                    "mcp_endpoint",
+                    "env",
+                    "secret",
+                    "run",
+                    "artifact",
+                    "policy",
+                    "judgment",
+                    "judge_class",
+                    "provider",
+                    "memory",
+                    "conversation",
+                    "api_key",
+                    "service_account",
+                    "*",
+                ]
+                | str,
+                _open.OPEN,
             ]
         ],
         Field(alias="unpolicedDomains"),
@@ -6192,27 +6235,31 @@ class RetentionSweepBody(BaseModel):
         populate_by_name=True,
     )
     domain: (
-        Literal[
-            "org",
-            "agent",
-            "flow",
-            "tool",
-            "eval_suite",
-            "guardrail",
-            "mcp_endpoint",
-            "env",
-            "secret",
-            "run",
-            "artifact",
-            "policy",
-            "judgment",
-            "judge_class",
-            "provider",
-            "memory",
-            "conversation",
-            "api_key",
-            "service_account",
-            "*",
+        Annotated[
+            Literal[
+                "org",
+                "agent",
+                "flow",
+                "tool",
+                "eval_suite",
+                "guardrail",
+                "mcp_endpoint",
+                "env",
+                "secret",
+                "run",
+                "artifact",
+                "policy",
+                "judgment",
+                "judge_class",
+                "provider",
+                "memory",
+                "conversation",
+                "api_key",
+                "service_account",
+                "*",
+            ]
+            | str,
+            _open.OPEN,
         ]
         | None
     ) = None
@@ -6241,27 +6288,31 @@ class PerDomainItem(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    domain: Literal[
-        "org",
-        "agent",
-        "flow",
-        "tool",
-        "eval_suite",
-        "guardrail",
-        "mcp_endpoint",
-        "env",
-        "secret",
-        "run",
-        "artifact",
-        "policy",
-        "judgment",
-        "judge_class",
-        "provider",
-        "memory",
-        "conversation",
-        "api_key",
-        "service_account",
-        "*",
+    domain: Annotated[
+        Literal[
+            "org",
+            "agent",
+            "flow",
+            "tool",
+            "eval_suite",
+            "guardrail",
+            "mcp_endpoint",
+            "env",
+            "secret",
+            "run",
+            "artifact",
+            "policy",
+            "judgment",
+            "judge_class",
+            "provider",
+            "memory",
+            "conversation",
+            "api_key",
+            "service_account",
+            "*",
+        ]
+        | str,
+        _open.OPEN,
     ]
     """
     The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory` and `conversation`: they hold people's words, so only a policy naming them purges them.
@@ -6313,8 +6364,12 @@ class EvalSuite(BaseModel):
     """
     Semver — publishing a modified suite produces a new version.
     """
-    kind: Literal[
-        "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+    kind: Annotated[
+        Literal[
+            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+        ]
+        | str,
+        _open.OPEN,
     ]
     description: str | None = None
     spec: dict[str, Any]
@@ -6352,8 +6407,12 @@ class PublishEvalSuiteBody(BaseModel):
     Optional. When present, must match the caller tenant (server-derived from the token). Cross-tenant publish is rejected.
     """
     version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
-    kind: Literal[
-        "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+    kind: Annotated[
+        Literal[
+            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+        ]
+        | str,
+        _open.OPEN,
     ]
     description: str | None = None
     spec: dict[str, Any]
@@ -6429,7 +6488,7 @@ class Block(BaseModel):
     Dotted lowercase id (e.g. `acme.intake-prompt`).
     """
     version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
-    kind: Literal["prompt", "settings"]
+    kind: Annotated[Literal["prompt", "settings"] | str, _open.OPEN]
     """
     `prompt`: a Liquid template an agent renders as its instructions. `settings`: a JSON object tools and templates read.
     """
@@ -6467,7 +6526,7 @@ class PublishBlockBody(BaseModel):
     """
     id: Annotated[str, Field(min_length=1)]
     version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
-    kind: Literal["prompt", "settings"]
+    kind: Annotated[Literal["prompt", "settings"] | str, _open.OPEN]
     """
     `prompt`: a Liquid template an agent renders as its instructions. `settings`: a JSON object tools and templates read.
     """
@@ -6593,7 +6652,7 @@ class EvalSample(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    part: Literal["search", "hold-out"]
+    part: Annotated[Literal["search", "hold-out"] | str, _open.OPEN]
     seed: Annotated[str, Field(max_length=200, min_length=1)]
     hold_out_share: Annotated[float, Field(alias="holdOutShare", ge=0.1, le=0.9)]
 
@@ -6607,11 +6666,11 @@ class EvalComparison(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    baseline: Literal["recorded"] | EvalBaseline1 | EvalBaseline2
+    baseline: Annotated[Literal["recorded"] | str, _open.OPEN] | EvalBaseline1 | EvalBaseline2
     """
     What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
-    reads: Literal["recorded", "live"]
+    reads: Annotated[Literal["recorded", "live"] | str, _open.OPEN]
     """
     Whether replayed reads use the past run's results when it has them (`recorded`), or run live.
     """
@@ -6619,7 +6678,8 @@ class EvalComparison(BaseModel):
     k: Annotated[int, Field(ge=1, le=100)]
     versions: FlowVersionOverrides | None = None
     class_weights: Annotated[
-        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
+        Annotated[Literal["as-recorded", "restricted-only"] | str, _open.OPEN] | None,
+        Field(alias="classWeights"),
     ] = None
     """
     Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).
@@ -6893,12 +6953,18 @@ class EvalRun(BaseModel):
     """
     suite_id: Annotated[str, Field(alias="suiteId")]
     suite_version: Annotated[str, Field(alias="suiteVersion", pattern="^\\d+\\.\\d+\\.\\d+$")]
-    kind: Literal[
-        "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+    kind: Annotated[
+        Literal[
+            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+        ]
+        | str,
+        _open.OPEN,
     ]
     agent_ref: Annotated[EvalRunAgentRef | None, Field(alias="agentRef")] = None
     flow_ref: Annotated[EvalRunFlowRef | None, Field(alias="flowRef")] = None
-    status: Literal["pending", "running", "completed", "failed", "cancelled"]
+    status: Annotated[
+        Literal["pending", "running", "completed", "failed", "cancelled"] | str, _open.OPEN
+    ]
     dry_run: Annotated[bool, Field(alias="dryRun")]
     started_at: Annotated[AwareDatetime, Field(alias="startedAt")]
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
@@ -6942,7 +7008,9 @@ class StartEvalRunBody(BaseModel):
     flow_ref: Annotated[EvalRunFlowRef | None, Field(alias="flowRef")] = None
     dry_run: Annotated[bool | None, Field(alias="dryRun")] = None
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
-    baseline: Literal["recorded"] | EvalBaseline1 | EvalBaseline2 | None = None
+    baseline: (
+        Annotated[Literal["recorded"] | str, _open.OPEN] | EvalBaseline1 | EvalBaseline2 | None
+    ) = None
     """
     What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
@@ -7065,7 +7133,7 @@ class OidcIdentityProviderConfig(BaseModel):
     """
     The email domains whose people sign in with this provider (lowercase, e.g. `acme.com`): how an email-first sign-in page finds it.
     """
-    join: Literal["invite", "domain"] | None = None
+    join: Annotated[Literal["invite", "domain"] | str, _open.OPEN] | None = None
     """
     Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them.
     """
@@ -7130,7 +7198,7 @@ class SamlIdentityProviderConfig(BaseModel):
     """
     The email domains whose people sign in with this provider (lowercase, e.g. `acme.com`): how an email-first sign-in page finds it.
     """
-    join: Literal["invite", "domain"] | None = None
+    join: Annotated[Literal["invite", "domain"] | str, _open.OPEN] | None = None
     """
     Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them.
     """
@@ -7183,35 +7251,6 @@ class RegisterIdentityProviderBody(
     """
 
 
-class GetIdentityProviderResult(RootModel[OidcIdentityProviderConfig | SamlIdentityProviderConfig]):
-    root: Annotated[
-        OidcIdentityProviderConfig | SamlIdentityProviderConfig, Field(discriminator="kind")
-    ]
-    """
-    An identity provider as stored, one shape per `kind`, with `signIn` when the deployment sets it. Secrets appear only as references.
-    """
-
-
-class IdentityProviderCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[
-        Annotated[
-            OidcIdentityProviderConfig | SamlIdentityProviderConfig, Field(discriminator="kind")
-        ]
-    ]
-    has_more: Annotated[bool | None, Field(alias="hasMore")] = None
-    """
-    Always `false`: the list comes whole. Absent from older servers.
-    """
-    changes: Literal["tenant", "operator"] | None = None
-    """
-    Who may add, change and remove the providers here: `tenant`, its admins; `operator`, only the deployment's own token, because the operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`). The providers there sign people in either way. Absent from older servers: read it as `tenant`.
-    """
-
-
 class SignInOption(BaseModel):
     """
     One way to sign in, as a sign-in page shows it.
@@ -7230,7 +7269,7 @@ class SignInOption(BaseModel):
     """
     Where the browser goes to start signing in with this provider.
     """
-    owner: Literal["tenant", "deployment"] | None = None
+    owner: Annotated[Literal["tenant", "deployment"] | str, _open.OPEN] | None = None
     """
     Whose it is: a workspace's own identity provider (`tenant`), or one the deployment offers everyone it has added ("Continue with Google", `deployment`). A sign-in page shows a workspace's own first. Absent: `tenant`.
     """
@@ -7265,15 +7304,34 @@ class Methods(BaseModel):
     """
     Sign-in to the console with an API token (`POST /v1/auth/token-sign-in`).
     """
-    session_cookie: Annotated[Literal["secure", "plain"] | None, Field(alias="sessionCookie")] = (
-        None
-    )
+    session_cookie: Annotated[
+        Annotated[Literal["secure", "plain"] | str, _open.OPEN] | None, Field(alias="sessionCookie")
+    ] = None
     """
     The browser session cookie's kind: `secure` (`Secure` and `__Host-`, kept by browsers only over https, and by some on http://localhost), or `plain` (development on a loopback address only, so every browser keeps it there). A sign-in page can check the browser keeps that kind before offering sign-in. Absent from older servers, and where there are no browser sessions: treat as `secure`.
     """
     email_link: Annotated[EmailLink | None, Field(alias="emailLink")] = None
     """
     Present when the deployment emails sign-in links: a sign-in page offers "Email me a sign-in link". With `captchaSiteKey`, the request needs a Cloudflare Turnstile token (`x-captcha-response`).
+    """
+
+
+class Legal(BaseModel):
+    """
+    The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    terms_url: Annotated[AnyUrl | None, Field(alias="termsUrl")] = None
+    """
+    Its terms.
+    """
+    privacy_url: Annotated[AnyUrl | None, Field(alias="privacyUrl")] = None
+    """
+    Its privacy policy.
     """
 
 
@@ -7286,6 +7344,10 @@ class SignInOptions(BaseModel):
     methods: Methods | None = None
     """
     The ways in this deployment allows, for a sign-in page to show. Absent from older servers.
+    """
+    legal: Legal | None = None
+    """
+    The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.
     """
 
 
@@ -7315,17 +7377,21 @@ class SignInEvent(BaseModel):
     )
     id: str
     timestamp: AwareDatetime
-    kind: Literal[
-        "signed-in",
-        "signed-out",
-        "sign-in-refused",
-        "sign-in-link-sent",
-        "sign-in-link-capped",
-        "sessions-revoked",
-        "sessions-ended",
-        "second-factor-set-up",
-        "second-factor-removed",
-        "recovery-codes-replaced",
+    kind: Annotated[
+        Literal[
+            "signed-in",
+            "signed-out",
+            "sign-in-refused",
+            "sign-in-link-sent",
+            "sign-in-link-capped",
+            "sessions-revoked",
+            "sessions-ended",
+            "second-factor-set-up",
+            "second-factor-removed",
+            "recovery-codes-replaced",
+        ]
+        | str,
+        _open.OPEN,
     ]
     """
     `signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token, or a session made without a second factor in a workspace that requires one: `reason` says which); `second-factor-set-up`, `second-factor-removed` (`byUserId` is the admin who removed it, if not the person) and `recovery-codes-replaced`. Never a key or a code.
@@ -7354,20 +7420,6 @@ class SignInEvent(BaseModel):
     by_user_id: Annotated[str | None, Field(alias="byUserId")] = None
     """
     Who acted, when it isn't `userId`: the admin who ended this person's sessions.
-    """
-
-
-class RegisterIdentityProviderResult(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    provider_id: Annotated[str, Field(alias="providerId", min_length=1)]
-    provider: Annotated[
-        OidcIdentityProviderConfig | SamlIdentityProviderConfig | None, Field(discriminator="kind")
-    ] = None
-    """
-    The provider as stored: discovered endpoints, and `signIn` (what to give the identity provider). Absent from older servers.
     """
 
 
@@ -7403,7 +7455,7 @@ class UpdateIdentityProviderBody(BaseModel):
     """
     Must match the path when given.
     """
-    kind: Literal["oidc", "saml"] | None = None
+    kind: Annotated[Literal["oidc", "saml"] | str, _open.OPEN] | None = None
     """
     `oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with.
     """
@@ -7435,20 +7487,6 @@ class UpdateIdentityProviderBody(BaseModel):
     attribute_mapping: Annotated[AttributeMapping1 | None, Field(alias="attributeMapping")] = None
 
 
-class UpdateIdentityProviderResult(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    provider_id: Annotated[str, Field(alias="providerId", min_length=1)]
-    provider: Annotated[
-        OidcIdentityProviderConfig | SamlIdentityProviderConfig, Field(discriminator="kind")
-    ]
-    """
-    The provider as stored now; its `signIn` is unchanged.
-    """
-
-
 class IdentityProviderSignInUrls(BaseModel):
     """
     What to give the identity provider so it can send people back, for a provider under this `providerId`: the same before it's registered, after, and after an unregister and a new registration, so the identity provider's side can be set up first. Not secrets: they're in every sign-in's browser redirects.
@@ -7459,7 +7497,7 @@ class IdentityProviderSignInUrls(BaseModel):
         populate_by_name=True,
     )
     provider_id: Annotated[str, Field(alias="providerId", min_length=1)]
-    kind: Literal["oidc", "saml"]
+    kind: Annotated[Literal["oidc", "saml"] | str, _open.OPEN]
     """
     `oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with.
     """
@@ -7495,6 +7533,25 @@ class LogoutResult(BaseModel):
     revoked: bool
 
 
+class ServedEnv(BaseModel):
+    """
+    The env this runtime serves (`KINDGI_ENV`): where the values its tools read are kept. With `refusesOtherEnvs`, it's the only one: a secret, env value or secret reference under another env is refused (`409 env-not-served`), so a client defaults to `envName`. Absent when the runtime serves no env, and from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    env_name: Annotated[str, Field(alias="envName")]
+    """
+    The env name.
+    """
+    refuses_other_envs: Annotated[bool, Field(alias="refusesOtherEnvs")]
+    """
+    Whether values under any other env are refused.
+    """
+
+
 class UserInvite(BaseModel):
     """
     An open invitation. `pending` signs in. `expired` (past `expiresAt`, 7 days after it was made or last renewed) is refused at every way of signing in until a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`).
@@ -7504,7 +7561,7 @@ class UserInvite(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    state: Literal["pending", "expired"]
+    state: Annotated[Literal["pending", "expired"] | str, _open.OPEN]
     expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
     sent_at: Annotated[AwareDatetime | None, Field(alias="sentAt")] = None
     """
@@ -7523,7 +7580,11 @@ class InviteEmail(BaseModel):
     )
     sent: bool
     reason: (
-        Literal["no-email", "not-requested", "not-configured", "send-failed", "capped"] | None
+        Annotated[
+            Literal["no-email", "not-requested", "not-configured", "send-failed", "capped"] | str,
+            _open.OPEN,
+        ]
+        | None
     ) = None
 
 
@@ -7548,11 +7609,11 @@ class UserCreated(BaseModel):
     """
     invite: UserInvite | None = None
     """
-    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).
+    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.9).
     """
     first_signed_in_at: Annotated[AwareDatetime | None, Field(alias="firstSignedInAt")] = None
     """
-    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).
+    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).
     """
     metadata: dict[str, Any] | None = None
     invite_email: Annotated[InviteEmail | None, Field(alias="inviteEmail")] = None
@@ -7730,7 +7791,7 @@ class PersonReviewerRole(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    role: Literal["standard", "senior", "admin"]
+    role: Annotated[Literal["standard", "senior", "admin"] | str, _open.OPEN]
     """
     Reviewer role class. Hierarchy: standard < senior < admin.
     """
@@ -7768,7 +7829,8 @@ class JudgingRuleWhen(BaseModel):
     These versions exactly, or `live`: runs that got the agent's live version, not one the caller named. Runs from before the runtime recorded how their version was chosen never match `live`.
     """
     status: Annotated[
-        list[Literal["completed", "failed", "cancelled"]] | None, Field(min_length=1)
+        list[Annotated[Literal["completed", "failed", "cancelled"] | str, _open.OPEN]] | None,
+        Field(min_length=1),
     ] = None
     """
     How the run ended. Only `completed` today: a judgment needs a completed run, so `failed` and `cancelled` are refused (400). Absent: `completed`.
@@ -7949,7 +8011,10 @@ class JudgingQueueItem(BaseModel):
     agent_id: Annotated[str | None, Field(alias="agentId")] = None
     agent_version: Annotated[str | None, Field(alias="agentVersion")] = None
     flow_id: Annotated[str, Field(alias="flowId")]
-    run_status: Annotated[Literal["completed", "failed", "cancelled"], Field(alias="runStatus")]
+    run_status: Annotated[
+        Annotated[Literal["completed", "failed", "cancelled"] | str, _open.OPEN],
+        Field(alias="runStatus"),
+    ]
     """
     How a run ended.
     """
@@ -7968,7 +8033,7 @@ class JudgingQueueItem(BaseModel):
     """
     progress: JudgingProgress
     added_at: Annotated[AwareDatetime, Field(alias="addedAt")]
-    state: Literal["open", "judged", "dismissed", "erased"]
+    state: Annotated[Literal["open", "judged", "dismissed", "erased"] | str, _open.OPEN]
     """
     Where a queued run stands. `judged`: every rule that queued it has the judgment it wants. `erased`: the run's content is gone (erased, or the run purged); the item shows nothing of it.
     """
@@ -8094,7 +8159,7 @@ class AccessPathDirect(BaseModel):
         populate_by_name=True,
     )
     kind: Literal["direct"]
-    role: Literal["owner", "admin", "editor", "viewer"]
+    role: Annotated[Literal["owner", "admin", "editor", "viewer"] | str, _open.OPEN]
     """
     A project role, as the authorization model holds it: `owner` > `admin` > `editor` > `viewer` (a membership stored as `member` is `viewer`).
     """
@@ -8112,7 +8177,7 @@ class AccessPathTeam(BaseModel):
     kind: Literal["team"]
     team_id: Annotated[str, Field(alias="teamId")]
     team_name: Annotated[str, Field(alias="teamName")]
-    role: Literal["owner", "admin", "editor", "viewer"]
+    role: Annotated[Literal["owner", "admin", "editor", "viewer"] | str, _open.OPEN]
     """
     The role the team holds on the project.
     """
@@ -8148,28 +8213,6 @@ class AccessPathTenantAdmin(BaseModel):
     kind: Literal["tenant-admin"]
 
 
-class MyProjectAccess(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    project_id: Annotated[str, Field(alias="projectId")]
-    name: str
-    role: Literal["owner", "admin", "editor", "viewer"]
-    """
-    The highest role the caller holds on the project, whichever way.
-    """
-    via: list[
-        Annotated[
-            AccessPathDirect | AccessPathTeam | AccessPathOrgAdmin | AccessPathTenantAdmin,
-            Field(discriminator="kind"),
-        ]
-    ]
-    """
-    Every way the caller holds a role on it (for "My access").
-    """
-
-
 class MyOrgAccess(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -8177,7 +8220,7 @@ class MyOrgAccess(BaseModel):
     )
     org_id: Annotated[str, Field(alias="orgId")]
     name: str
-    role: Literal["admin", "member"]
+    role: Annotated[Literal["admin", "member"] | str, _open.OPEN]
 
 
 class MyReviewerAccess(BaseModel):
@@ -8185,7 +8228,7 @@ class MyReviewerAccess(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    role: Literal["standard", "senior", "admin"]
+    role: Annotated[Literal["standard", "senior", "admin"] | str, _open.OPEN]
     """
     Reviewer role class. Hierarchy: standard < senior < admin.
     """
@@ -8193,7 +8236,7 @@ class MyReviewerAccess(BaseModel):
     """
     The caller's reviewer id, its row on the roster: an approval assigned to the caller names it in `assignedTo`. Absent without a roster row (then `canDecide` is false), and from a runtime before 0.1.6.
     """
-    decides: list[Literal["standard", "senior", "admin"]]
+    decides: list[Annotated[Literal["standard", "senior", "admin"] | str, _open.OPEN]]
     """
     The approvals' required roles the caller may decide: its own rank and below, lowest first.
     """
@@ -8212,18 +8255,31 @@ class RoleActions(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    project: list[Literal["read", "write", "admin", "delete"]]
-    agent: list[Literal["read", "write", "delete", "admin", "execute", "publish", "promote"]]
-    flow: list[Literal["read", "write", "delete", "admin", "execute", "publish"]]
-    tool: list[Literal["read", "write", "delete", "admin", "invoke"]]
-    guardrail: list[Literal["read", "write", "delete", "admin"]]
-    eval_suite: list[Literal["read", "write", "delete", "admin", "execute", "publish"]]
-    trigger: list[Literal["read", "write", "delete", "admin", "fire"]]
-    conversation: list[Literal["read", "write", "delete", "admin"]]
-    secret: list[Literal["read", "write", "delete", "admin", "rotate"]]
-    env: list[Literal["read", "write", "delete", "admin"]]
-    mcp_endpoint: list[Literal["read", "write", "delete", "admin"]]
-    run: list[Literal["read", "cancel", "delete"]]
+    project: list[Annotated[Literal["read", "write", "admin", "delete"] | str, _open.OPEN]]
+    agent: list[
+        Annotated[
+            Literal["read", "write", "delete", "admin", "execute", "publish", "promote"] | str,
+            _open.OPEN,
+        ]
+    ]
+    flow: list[
+        Annotated[
+            Literal["read", "write", "delete", "admin", "execute", "publish"] | str, _open.OPEN
+        ]
+    ]
+    tool: list[Annotated[Literal["read", "write", "delete", "admin", "invoke"] | str, _open.OPEN]]
+    guardrail: list[Annotated[Literal["read", "write", "delete", "admin"] | str, _open.OPEN]]
+    eval_suite: list[
+        Annotated[
+            Literal["read", "write", "delete", "admin", "execute", "publish"] | str, _open.OPEN
+        ]
+    ]
+    trigger: list[Annotated[Literal["read", "write", "delete", "admin", "fire"] | str, _open.OPEN]]
+    conversation: list[Annotated[Literal["read", "write", "delete", "admin"] | str, _open.OPEN]]
+    secret: list[Annotated[Literal["read", "write", "delete", "admin", "rotate"] | str, _open.OPEN]]
+    env: list[Annotated[Literal["read", "write", "delete", "admin"] | str, _open.OPEN]]
+    mcp_endpoint: list[Annotated[Literal["read", "write", "delete", "admin"] | str, _open.OPEN]]
+    run: list[Annotated[Literal["read", "cancel", "delete"] | str, _open.OPEN]]
 
 
 class RoleCapabilities(BaseModel):
@@ -8266,7 +8322,7 @@ class MyKeyLimits(BaseModel):
         populate_by_name=True,
     )
     token_id: Annotated[str, Field(alias="tokenId")]
-    role: Literal["admin", "member"] | None = None
+    role: Annotated[Literal["admin", "member"] | str, _open.OPEN] | None = None
     """
     The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
     """
@@ -8335,7 +8391,39 @@ class DeploymentEndpointProblem(BaseModel):
     )
     code: str
     """
-    One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start).
+    One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start). It can't be given its declared environment (`GET /v1/deployments/{deploymentId}/pack-env` names the names): `pack-env-ambiguous`, `pack-env-secret-not-yet`, `pack-env-missing`, `pack-env-secret-unreadable` (a name's secret can't be read for a reason the platform fixes, not the owner; it's tried again). It can't be given its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out; the platform fixes it, and it's tried again), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-secret-capacity` (a name is set only as a secret, and there's no room just now for a pack service that can be given one, apart from other projects'; it's tried again).
+    """
+    since: AwareDatetime
+    """
+    When it was recorded.
+    """
+
+
+class PackEnvProblem(BaseModel):
+    """
+    `ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say, or a secret can't be given), or didn't start (`pack-env-update-failed`). Gone once they can, or do. For a name that can't be given, `GET /v1/deployments/{deploymentId}/pack-env` names it. Absent from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: Annotated[
+        Literal[
+            "pack-env-ambiguous",
+            "pack-env-secret-not-yet",
+            "pack-env-missing",
+            "pack-env-secret-unreadable",
+            "pack-env-update-failed",
+            "pack-env-secrets-unaudited",
+            "pack-env-secret-too-large",
+            "pack-env-secret-redeploy",
+        ]
+        | str,
+        _open.OPEN,
+    ]
+    """
+    Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it; `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. The orchestrator couldn't give it its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out, so it gives none; the platform fixes it), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-secret-redeploy` (a name is now set only as a secret, and this pack service was made where no secret can be given to it; a new deployment's can be, from a new build of the pack). A service held as `pack-env-secret-unreadable` or `pack-env-secrets-unaudited` is listed by `GET /v1/system/pack-env` every time, with its `held`, as the revision doesn't move when the platform fixes it. A later runtime may add codes, so treat an unknown one as a reason not yet named.
     """
     since: AwareDatetime
     """
@@ -8352,7 +8440,7 @@ class DeploymentEndpoint(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    status: Literal["pending", "ready", "cleared"]
+    status: Annotated[Literal["pending", "ready", "cleared"] | str, _open.OPEN]
     since: AwareDatetime
     """
     When the status last changed.
@@ -8365,6 +8453,169 @@ class DeploymentEndpoint(BaseModel):
     retired: str | None = None
     """
     `cleared` only: why no pack service is wanted for it now. `superseded` is for good: newer deployments ship every tool version and check it does, so no new call reaches it; a tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.
+    """
+    pack_env_problem: Annotated[PackEnvProblem | None, Field(alias="packEnvProblem")] = None
+    """
+    `ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say, or a secret can't be given), or didn't start (`pack-env-update-failed`). Gone once they can, or do. For a name that can't be given, `GET /v1/deployments/{deploymentId}/pack-env` names it. Absent from older servers.
+    """
+
+
+class DeploymentValueNeededBy(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    type: str
+    """
+    `tool`, `agent`, `provider` or `pack`; a later runtime may add kinds, so treat an unknown one as a need not yet named.
+    """
+    id: str
+    version: str | None = None
+
+
+class DeploymentValue(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: str
+    """
+    The secret's or env value's name; for a model key, the key's secret name, or `any provider` when none is registered.
+    """
+    kind: str
+    """
+    `secret`, `env`, `model-key` or `pack-env`; a later runtime may add kinds, so treat an unknown one as a value not yet named.
+    """
+    needed_by: Annotated[DeploymentValueNeededBy, Field(alias="neededBy")]
+    found_at: Annotated[
+        Annotated[Literal["project", "org", "tenant"] | str, _open.OPEN] | None,
+        Field(alias="foundAt"),
+    ] = None
+    """
+    Where a run finds it, when it is set: the project, else its org, else the tenant.
+    """
+    problem: str | None = None
+    """
+    Why it isn't ready; absent when it is. One of a fixed list; a later runtime may add problems, so treat an unknown one as a reason not yet named. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set both as a secret and as a plain value. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one). `no-provider`: an agent that runs on any provider (it names none, or names one that isn't registered), with no provider registered in the tenant, so a run has none to call.
+    """
+
+
+class DeploymentValueList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[DeploymentValue]
+    """
+    Every value the deployment needs in the project: each tool's secrets and env values (in the deployment's order), then each model key by provider, then the pack service's env.
+    """
+
+
+class DeploymentPromotionBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    to_project_id: Annotated[str, Field(alias="toProjectId", min_length=1)]
+    """
+    The next environment of the deployment's order.
+    """
+    reason: Annotated[str | None, Field(max_length=1000)] = None
+    """
+    Why, kept in the `deployment-promoted` audit record.
+    """
+    make_live: Annotated[bool | None, Field(alias="makeLive")] = None
+    """
+    Make every agent version the promotion carries live in the target project, each through its scope's gate. The answer's `live` reports each. An error answered after some carried agents were already pinned lists those in `error.details.live`, in `live`'s shape.
+    """
+
+
+class DeploymentPromotionCheckBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    to_project_id: Annotated[str, Field(alias="toProjectId", min_length=1)]
+    """
+    The next environment of the deployment's order.
+    """
+
+
+class PromotionMovedVersion(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str | None = None
+    carried: Literal[True] | None = None
+    """
+    Carried with the build: an edit of a version it ships. Absent for one it ships.
+    """
+
+
+class LeftBehindVersion(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    `agent` or `flow`; a later runtime may add kinds, so treat an unknown one as an item not yet named.
+    """
+    id: str
+    version: str
+    from_: Annotated[str, Field(alias="from")]
+    """
+    The version its chain of edits starts from.
+    """
+
+
+class DeploymentLivePinGate(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    status: Annotated[
+        Literal["promoted", "pending-approval", "refused", "superseded", "rejected", "expired"]
+        | str,
+        _open.OPEN,
+    ]
+    promotion_id: Annotated[UUID, Field(alias="promotionId")]
+    policy: GatePolicyRef | None = None
+    """
+    The gate policy that applied; null when none did.
+    """
+    approval_id: Annotated[str | None, Field(alias="approvalId")] = None
+    """
+    The approval a `pending-approval` pin waits on.
+    """
+    checks: list[GateCheck] | None = None
+
+
+class DeploymentLivePin(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str
+    pinned: bool
+    """
+    Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).
+    """
+    gate: DeploymentLivePinGate | None = None
+
+
+class PromotionNextEnvironment(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str, Field(alias="projectId")]
+    position: Annotated[int, Field(ge=1)]
+    """
+    Its place in the order, from 0 (the first, which takes builds).
     """
 
 
@@ -8510,6 +8761,8 @@ class EvidenceKind(RootModel[str]):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "environment-order-set",
+                "deployment-promoted",
             ],
             min_length=1,
         ),
@@ -8572,7 +8825,9 @@ class Actor(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["user", "agent", "system", "admin", "external"] | None = None
+    kind: (
+        Annotated[Literal["user", "agent", "system", "admin", "external"] | str, _open.OPEN] | None
+    ) = None
     id: str | None = None
     ip_address: Annotated[str | None, Field(alias="ipAddress")] = None
     user_agent: Annotated[str | None, Field(alias="userAgent")] = None
@@ -8672,6 +8927,8 @@ class ComplianceEvidence(BaseModel):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "environment-order-set",
+                "deployment-promoted",
             ],
             min_length=1,
         ),
@@ -8682,7 +8939,12 @@ class ComplianceEvidence(BaseModel):
     timestamp: AwareDatetime
     actor: Actor | None = None
     subject: Subject1 | None = None
-    outcome: Literal["allowed", "denied", "succeeded", "failed", "escalated"] | None = None
+    outcome: (
+        Annotated[
+            Literal["allowed", "denied", "succeeded", "failed", "escalated"] | str, _open.OPEN
+        ]
+        | None
+    ) = None
     payload: dict[str, Any]
     """
     Kind-specific payload document. Always carries `version` for on-read migration; other fields vary by kind.
@@ -8759,6 +9021,8 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "environment-order-set",
+                "deployment-promoted",
             ],
             min_length=1,
         ),
@@ -8828,6 +9092,8 @@ class Filter(BaseModel):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "environment-order-set",
+                "deployment-promoted",
             ],
             min_length=1,
         ),
@@ -8880,7 +9146,7 @@ class SignedComplianceEvidenceBundle(BaseModel):
     """
     The body's version, semver: `1.0.0`.
     """
-    algorithm: Literal["ed25519", "ecdsa-p256-sha256"]
+    algorithm: Annotated[Literal["ed25519", "ecdsa-p256-sha256"] | str, _open.OPEN]
     """
     The signing key's algorithm. `ecdsa-p256-sha256` signatures are IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know.
     """
@@ -9022,7 +9288,7 @@ class TeamMembership(BaseModel):
     )
     team_id: Annotated[str, Field(alias="teamId")]
     user_id: Annotated[str, Field(alias="userId")]
-    role: Literal["member", "admin"]
+    role: Annotated[Literal["member", "admin"] | str, _open.OPEN]
     """
     Role on a team membership.
     """
@@ -9045,7 +9311,7 @@ class AddTeamMembershipBody(BaseModel):
         populate_by_name=True,
     )
     user_id: Annotated[str, Field(alias="userId", min_length=1)]
-    role: Literal["member", "admin"]
+    role: Annotated[Literal["member", "admin"] | str, _open.OPEN]
     """
     Role on a team membership.
     """
@@ -9056,7 +9322,7 @@ class UpdateTeamMembershipBody(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    role: Literal["member", "admin"]
+    role: Annotated[Literal["member", "admin"] | str, _open.OPEN]
     """
     Role on a team membership.
     """
@@ -9069,7 +9335,7 @@ class AddTeamMembershipResult(BaseModel):
     )
     team_id: Annotated[str, Field(alias="teamId")]
     user_id: Annotated[str, Field(alias="userId")]
-    role: Literal["member", "admin"]
+    role: Annotated[Literal["member", "admin"] | str, _open.OPEN]
     """
     Role on a team membership.
     """
@@ -9086,7 +9352,7 @@ class TeamProjectGrant(BaseModel):
     )
     team_id: Annotated[str, Field(alias="teamId")]
     project_id: Annotated[str, Field(alias="projectId")]
-    role: Literal["viewer", "editor", "admin"]
+    role: Annotated[Literal["viewer", "editor", "admin"] | str, _open.OPEN]
     """
     A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
     """
@@ -9114,7 +9380,7 @@ class AddTeamProjectGrantBody(BaseModel):
         populate_by_name=True,
     )
     team_id: Annotated[str, Field(alias="teamId", min_length=1)]
-    role: Literal["viewer", "editor", "admin"]
+    role: Annotated[Literal["viewer", "editor", "admin"] | str, _open.OPEN]
     """
     A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
     """
@@ -9125,7 +9391,7 @@ class UpdateTeamProjectGrantBody(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    role: Literal["viewer", "editor", "admin"]
+    role: Annotated[Literal["viewer", "editor", "admin"] | str, _open.OPEN]
     """
     A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
     """
@@ -9140,7 +9406,7 @@ class AccessPrincipal(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["user", "service-account"]
+    kind: Annotated[Literal["user", "service-account"] | str, _open.OPEN]
     id: Annotated[str, Field(min_length=1)]
 
 
@@ -9154,7 +9420,7 @@ class ProjectAccessDirect(BaseModel):
         populate_by_name=True,
     )
     kind: Literal["direct"]
-    role: Literal["viewer", "editor", "owner", "admin", "member"]
+    role: Annotated[Literal["viewer", "editor", "owner", "admin", "member"] | str, _open.OPEN]
     """
     Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
@@ -9173,7 +9439,7 @@ class ProjectAccessTeam(BaseModel):
     kind: Literal["team"]
     team_id: Annotated[str, Field(alias="teamId")]
     team_name: Annotated[str | None, Field(alias="teamName")] = None
-    role: Literal["viewer", "editor", "admin"]
+    role: Annotated[Literal["viewer", "editor", "admin"] | str, _open.OPEN]
     """
     A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
     """
@@ -9203,55 +9469,6 @@ class ProjectAccessTenantAdmin(BaseModel):
         populate_by_name=True,
     )
     kind: Literal["tenant-admin"]
-
-
-class ProjectAccess(BaseModel):
-    """
-    Someone with access to the project, their effective role, and every way in.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    principal: AccessPrincipal
-    display_name: Annotated[str | None, Field(alias="displayName")] = None
-    """
-    A person's name, or a service account's.
-    """
-    primary_email: Annotated[str | None, Field(alias="primaryEmail")] = None
-    """
-    A person's email: shown to the project's admins only.
-    """
-    role: Literal["owner", "admin", "editor", "viewer"]
-    """
-    The effective role: the highest any way in gives.
-    """
-    via: Annotated[
-        list[
-            Annotated[
-                ProjectAccessDirect
-                | ProjectAccessTeam
-                | ProjectAccessOrgAdmin
-                | ProjectAccessTenantAdmin,
-                Field(discriminator="kind"),
-            ]
-        ],
-        Field(min_length=1),
-    ]
-    """
-    Every way in, the highest role first.
-    """
-
-
-class ProjectAccessPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[ProjectAccess]
-    has_more: Annotated[bool, Field(alias="hasMore")]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
 class Project(BaseModel):
@@ -9343,7 +9560,7 @@ class ProjectMembership(BaseModel):
     )
     project_id: Annotated[str, Field(alias="projectId")]
     user_id: Annotated[str, Field(alias="userId")]
-    role: Literal["viewer", "editor", "owner", "admin", "member"]
+    role: Annotated[Literal["viewer", "editor", "owner", "admin", "member"] | str, _open.OPEN]
     """
     Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
@@ -9398,9 +9615,25 @@ class AddProjectMembershipResult(BaseModel):
     )
     project_id: Annotated[str, Field(alias="projectId")]
     user_id: Annotated[str, Field(alias="userId")]
-    role: Literal["viewer", "editor", "owner", "admin", "member"]
+    role: Annotated[Literal["viewer", "editor", "owner", "admin", "member"] | str, _open.OPEN]
     """
     Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
+    """
+
+
+class TenantPatch(BaseModel):
+    """
+    A new name, a new slug, or both; a field left out stays as it is. The id stays, so whatever names the tenant by its id keeps working.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: Annotated[str | None, Field(max_length=100, min_length=1)] = None
+    slug: Annotated[str | None, Field(max_length=63, pattern="^[a-z0-9](?:-?[a-z0-9])*$")] = None
+    """
+    Lowercase letters, digits and single hyphens, unique across tenants. The console's addresses carry it, so links with the old one stop opening the tenant; nothing else is keyed by it.
     """
 
 
@@ -9505,7 +9738,7 @@ class TenantConfigEntry(BaseModel):
         populate_by_name=True,
     )
     tenant_id: Annotated[str, Field(alias="tenantId")]
-    kind: Literal["env", "config", "secret"]
+    kind: Annotated[Literal["env", "config", "secret"] | str, _open.OPEN]
     """
     Slot for a tenant config entry (tenant-scoped). `env` and `config` both address `EnvBinding`; `secret` addresses `SecretBinding`. Prefer `/v1/env/*` + `/v1/secrets/*` for new callers.
     """
@@ -9534,7 +9767,7 @@ class UpsertTenantConfigBody(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["env", "config", "secret"]
+    kind: Annotated[Literal["env", "config", "secret"] | str, _open.OPEN]
     """
     Slot for a tenant config entry (tenant-scoped). `env` and `config` both address `EnvBinding`; `secret` addresses `SecretBinding`. Prefer `/v1/env/*` + `/v1/secrets/*` for new callers.
     """
@@ -9577,6 +9810,23 @@ class EnvironmentPage(BaseModel):
     data: list[Environment]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class EnvironmentOrderEntry(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    position: Annotated[int, Field(ge=0)]
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+
+
+class EnvironmentOrderSetRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_ids: Annotated[list[str], Field(alias="projectIds")]
 
 
 class SecretRevokeOutcome(BaseModel):
@@ -9626,7 +9876,7 @@ class RotationStatus(BaseModel):
         populate_by_name=True,
     )
     rotation_id: Annotated[UUID, Field(alias="rotationId")]
-    status: Literal["pending", "succeeded", "failed"]
+    status: Annotated[Literal["pending", "succeeded", "failed"] | str, _open.OPEN]
     started_at: Annotated[AwareDatetime, Field(alias="startedAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
     new_version_id: Annotated[int | None, Field(alias="newVersionId", ge=1)] = None
@@ -9648,7 +9898,7 @@ class TriggerOwner(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["user", "service"]
+    kind: Annotated[Literal["user", "service"] | str, _open.OPEN]
     id: str
     display_name: Annotated[str | None, Field(alias="displayName")] = None
     """
@@ -9673,8 +9923,18 @@ class ScheduleFire(BaseModel):
     The occurrence it is for; absent on a `run-now` fire.
     """
     fired_at: Annotated[AwareDatetime, Field(alias="firedAt")]
-    outcome: Literal[
-        "pending", "started", "skipped-overlap", "skipped-erasure", "skipped", "refused", "failed"
+    outcome: Annotated[
+        Literal[
+            "pending",
+            "started",
+            "skipped-overlap",
+            "skipped-erasure",
+            "skipped",
+            "refused",
+            "failed",
+        ]
+        | str,
+        _open.OPEN,
     ]
     """
     `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or pass started; its run or pass hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.
@@ -9778,7 +10038,9 @@ class WebhookFire(BaseModel):
     fire_id: Annotated[str, Field(alias="fireId")]
     trigger_id: Annotated[str, Field(alias="triggerId")]
     fired_at: Annotated[AwareDatetime, Field(alias="firedAt")]
-    outcome: Literal["pending", "started", "skipped", "refused", "failed"]
+    outcome: Annotated[
+        Literal["pending", "started", "skipped", "refused", "failed"] | str, _open.OPEN
+    ]
     """
     `pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); its run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start.
     """
@@ -9935,7 +10197,12 @@ class CreateWebhookEndpointBody(BaseModel):
     Absolute https URL (http only where the deployment allows it, e.g. development). No credentials in the URL. The deployment may refuse private network addresses (`400 webhook-url-refused`).
     """
     events: Annotated[
-        list[Literal["run.finished", "improvement-pass.finished", "approval.requested"]],
+        list[
+            Annotated[
+                Literal["run.finished", "improvement-pass.finished", "approval.requested"] | str,
+                _open.OPEN,
+            ]
+        ],
         Field(min_length=1),
     ]
     filter: WebhookEndpointFilter | None = None
@@ -9954,7 +10221,13 @@ class PatchWebhookEndpointBody(BaseModel):
     )
     url: AnyUrl | None = None
     events: Annotated[
-        list[Literal["run.finished", "improvement-pass.finished", "approval.requested"]] | None,
+        list[
+            Annotated[
+                Literal["run.finished", "improvement-pass.finished", "approval.requested"] | str,
+                _open.OPEN,
+            ]
+        ]
+        | None,
         Field(min_length=1),
     ] = None
     filter: WebhookEndpointFilter | None = None
@@ -9991,35 +10264,6 @@ class RunTreeUsage(BaseModel):
     tokens: CostTokenTotals
 
 
-class Data1(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    pass_: Annotated[ImprovementPass, Field(alias="pass")]
-    """
-    The pass, as `GET /v1/improvement-passes/{passId}` shows it.
-    """
-
-
-class ImprovementPassFinishedEvent(BaseModel):
-    """
-    An improvement pass ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the proposal it wrote, if it wrote one.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: str
-    """
-    Event id, also sent as the `webhook-id` header; the same on every retry.
-    """
-    type: Literal["improvement-pass.finished"]
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    data: Data1
-
-
 class RequestedApproval(BaseModel):
     """
     The approval an `approval.requested` event names. What it is about stays behind sign-in: no `context`, no tool call or run input.
@@ -10031,7 +10275,10 @@ class RequestedApproval(BaseModel):
     )
     approval_id: Annotated[str, Field(alias="approvalId")]
     project_id: Annotated[str | None, Field(alias="projectId")] = None
-    required_role: Annotated[Literal["standard", "senior", "admin"], Field(alias="requiredRole")]
+    required_role: Annotated[
+        Annotated[Literal["standard", "senior", "admin"] | str, _open.OPEN],
+        Field(alias="requiredRole"),
+    ]
     """
     The least reviewer role that may decide it.
     """
@@ -10072,25 +10319,6 @@ class ApprovalRequestedEvent(BaseModel):
     type: Literal["approval.requested"]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     data: ApprovalRequestedEventData
-
-
-class ImproveScheduleTarget(BaseModel):
-    """
-    What an improve schedule works on: the agent, and the live scope its passes propose for and count judgments in.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    agent_id: Annotated[str, Field(alias="agentId", min_length=1)]
-    scope: Annotated[
-        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
-        Field(discriminator="kind"),
-    ]
-    """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
-    """
 
 
 class Model4(BaseModel):
@@ -10200,7 +10428,7 @@ class LicensePreview(BaseModel):
     """
     Whole days until then; negative once it has passed.
     """
-    standing: Literal["valid", "expiring", "expired"]
+    standing: Annotated[Literal["valid", "expiring", "expired"] | str, _open.OPEN]
     """
     `expiring`: 30 days or fewer left. `expired`: past it: this server runs on, but won't start again; run a newer release.
     """
@@ -10219,7 +10447,7 @@ class SiteRoleGrant(BaseModel):
     """
     Whether they may start turns with the project's agents.
     """
-    reviewer: Literal["standard", "senior"] | None = None
+    reviewer: Annotated[Literal["standard", "senior"] | str, _open.OPEN] | None = None
     """
     The reviewer role they decide approvals with, at most the site's `reviewerCeiling`; absent: they decide none.
     """
@@ -10277,7 +10505,9 @@ class Site(BaseModel):
     """
     Role → grant. A person with several allowed roles gets the most any of them gives.
     """
-    reviewer_ceiling: Annotated[Literal["standard", "senior"], Field(alias="reviewerCeiling")]
+    reviewer_ceiling: Annotated[
+        Annotated[Literal["standard", "senior"] | str, _open.OPEN], Field(alias="reviewerCeiling")
+    ]
     vouching: bool
     """
     Whether the site's statements are accepted.
@@ -10523,7 +10753,7 @@ class Datum6(BaseModel):
     on_behalf_subject: Annotated[str | None, Field(alias="onBehalfSubject")] = None
     action: str
     resource: str
-    outcome: Literal["allowed", "denied"]
+    outcome: Annotated[Literal["allowed", "denied"] | str, _open.OPEN]
     reason: str
     failing: str | None = None
     evidence: dict[str, Any] | None = None
@@ -10655,7 +10885,7 @@ class CodeArtifactRefFilesystem(BaseModel):
 
 class RecordedSecretScopeTenant(BaseModel):
     """
-    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
     """
 
     model_config = ConfigDict(
@@ -10667,7 +10897,7 @@ class RecordedSecretScopeTenant(BaseModel):
 
 class RecordedSecretScopeOrg(BaseModel):
     """
-    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
     """
 
     model_config = ConfigDict(
@@ -10680,7 +10910,7 @@ class RecordedSecretScopeOrg(BaseModel):
 
 class RecordedSecretScopeProject(BaseModel):
     """
-    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
     """
 
     model_config = ConfigDict(
@@ -10782,6 +11012,23 @@ class ScopeProject(BaseModel):
     project_id: Annotated[str, Field(alias="projectId")]
 
 
+class EnvironmentOrderParentTenant(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["tenant"]
+
+
+class EnvironmentOrderParentOrg(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["org"]
+    org_id: Annotated[str, Field(alias="orgId")]
+
+
 class EnvSetOutcomeRevisionConflict(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -10853,7 +11100,7 @@ class WebhookSignatureHmacSha256(BaseModel):
         populate_by_name=True,
     )
     kind: Literal["hmac-sha256"]
-    encoding: Literal["hex", "base64"]
+    encoding: Annotated[Literal["hex", "base64"] | str, _open.OPEN]
     header: Annotated[str, Field(max_length=100, min_length=1)]
     """
     The header that carries the signature (matched case-insensitively).
@@ -11024,7 +11271,9 @@ class DeploymentContentsAgent(BaseModel):
     """
     The version the agent's or flow's definition names, present when it differs from `version`: that version was registered already with other pins or content, and versions never change, so the deploy registered the next free version in its line (or an earlier deploy did).
     """
-    reason: Literal["pins-changed", "unpinned", "version-taken"] | None = None
+    reason: (
+        Annotated[Literal["pins-changed", "unpinned", "version-taken"] | str, _open.OPEN] | None
+    ) = None
     """
     Why `version` differs from `authoredVersion`: `pins-changed` (a tool or agent it uses has a new version), `unpinned` (`authoredVersion` was published before pins existed), `version-taken` (`authoredVersion` is registered with other content).
     """
@@ -11052,7 +11301,9 @@ class DeploymentContentsFlow(BaseModel):
     """
     The version the agent's or flow's definition names, present when it differs from `version`: that version was registered already with other pins or content, and versions never change, so the deploy registered the next free version in its line (or an earlier deploy did).
     """
-    reason: Literal["pins-changed", "unpinned", "version-taken"] | None = None
+    reason: (
+        Annotated[Literal["pins-changed", "unpinned", "version-taken"] | str, _open.OPEN] | None
+    ) = None
     """
     Why `version` differs from `authoredVersion`: `pins-changed` (a tool or agent it uses has a new version), `unpinned` (`authoredVersion` was published before pins existed), `version-taken` (`authoredVersion` is registered with other content).
     """
@@ -11066,34 +11317,327 @@ class DeploymentContentsFlow(BaseModel):
     """
 
 
-class RunAgent(BaseModel):
+class PromotionMovesTool(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str | None = None
     """
-    Set on an agent's turn (an agent run, or the turn a flow's agent step started): the agent, the version that ran and the conversation. Absent on other runs, and on turns that ran before Kindgi 0.1.3.
+    Absent for guardrails, which have no version.
+    """
+
+
+class PromotionMovesGuardrail(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str | None = None
+    """
+    Absent for guardrails, which have no version.
+    """
+
+
+class AccessPathUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    id: str
+    kind: str
     """
-    The agent id.
+    The `kind` it came with.
     """
-    version: str
+
+
+class CodeArtifactRefUnrecognized(BaseModel):
     """
-    The agent version that ran (semver).
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
     """
-    conversation_id: Annotated[UUID, Field(alias="conversationId")]
-    via: Literal["explicit", "flow-pin", "conversation", "live", "latest"] | None = None
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
     """
-    Why this version ran: named by the caller (`explicit`); held by the flow version a flow's agent step runs in (`flow-pin`: the node's `config.version`, else the version the flow version pinned when it was published); the conversation's own (`conversation`); the version live for the run's scope (`live`); or the latest, nothing being live (`latest`). Absent on runs from before Kindgi 0.1.4.
+    The `kind` it came with.
     """
-    live_scope: Annotated[
-        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment | None,
-        Field(alias="liveScope", discriminator="kind"),
-    ] = None
+
+
+class CompleteApprovalResultResumeUnrecognized(BaseModel):
     """
-    The pin that chose the version, when `via` is `live`.
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class EnvironmentOrderParentUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class GetIdentityProviderResultUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class HttpAuthSpecUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class HttpRequestBodySpecUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class IdentityProviderConfigUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class JudgeClassScopeUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class LiveScopeUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class MCPEndpointConfigUnrecognized(BaseModel):
+    """
+    A `transport` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    transport: str
+    """
+    The `transport` it came with.
+    """
+
+
+class MCPEndpointAuthUnrecognized(BaseModel):
+    """
+    A `scheme` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    scheme: str
+    """
+    The `scheme` it came with.
+    """
+
+
+class MCPPromptMessageContentUnrecognized(BaseModel):
+    """
+    A `type` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    type: str
+    """
+    The `type` it came with.
+    """
+
+
+class NetworkPolicyUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class ProjectAccessPathUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class RecordedSecretScopeUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class ScopeUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class ServiceAccountGrantUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class WebhookEventUnrecognized(BaseModel):
+    """
+    A `type` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    type: str
+    """
+    The `type` it came with.
+    """
+
+
+class WebhookSignatureUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
     """
 
 
@@ -11128,6 +11672,70 @@ class RunWaitingApproval(BaseModel):
     """
 
 
+class LiveVersionResolution(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId")]
+    version: str
+    """
+    The version a run would use (semver).
+    """
+    via: Annotated[Literal["live", "latest"] | str, _open.OPEN]
+    """
+    A live pin chose it, or nothing is live on the way up and it is the latest.
+    """
+    live_scope: Annotated[
+        Annotated[
+            LiveScopeTenant
+            | LiveScopeOrg
+            | LiveScopeProject
+            | LiveScopeSegment
+            | LiveScopeUnrecognized,
+            _open.OpenUnion("kind", LiveScopeUnrecognized),
+        ]
+        | None,
+        Field(alias="liveScope"),
+    ] = None
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+
+
+class LivePin(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId")]
+    scope: Annotated[
+        LiveScopeTenant
+        | LiveScopeOrg
+        | LiveScopeProject
+        | LiveScopeSegment
+        | LiveScopeUnrecognized,
+        _open.OpenUnion("kind", LiveScopeUnrecognized),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    version: str
+    promotion_id: Annotated[UUID, Field(alias="promotionId")]
+    """
+    The promotion that set it.
+    """
+    set_at: Annotated[AwareDatetime, Field(alias="setAt")]
+
+
+class LivePinList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[LivePin]
+
+
 class Promotion(BaseModel):
     """
     One change of a scope's live version, kept for good: what was live before, what is after, who asked and why.
@@ -11140,13 +11748,17 @@ class Promotion(BaseModel):
     id: UUID
     agent_id: Annotated[str, Field(alias="agentId")]
     scope: Annotated[
-        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
-        Field(discriminator="kind"),
+        LiveScopeTenant
+        | LiveScopeOrg
+        | LiveScopeProject
+        | LiveScopeSegment
+        | LiveScopeUnrecognized,
+        _open.OpenUnion("kind", LiveScopeUnrecognized),
     ]
     """
     Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
-    action: Literal["promote", "rollback", "unpin"]
+    action: Annotated[Literal["promote", "rollback", "unpin"] | str, _open.OPEN]
     from_version: Annotated[str | None, Field(alias="fromVersion")]
     """
     The scope's own pin before; null when it had none.
@@ -11163,7 +11775,11 @@ class Promotion(BaseModel):
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     status: (
-        Literal["promoted", "pending-approval", "refused", "superseded", "rejected", "expired"]
+        Annotated[
+            Literal["promoted", "pending-approval", "refused", "superseded", "rejected", "expired"]
+            | str,
+            _open.OPEN,
+        ]
         | None
     ) = None
     """
@@ -11192,6 +11808,147 @@ class PromotionPage(BaseModel):
     data: list[Promotion]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class GatePolicy(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str
+    agent_id: Annotated[str, Field(alias="agentId")]
+    scope: Annotated[
+        LiveScopeTenant
+        | LiveScopeOrg
+        | LiveScopeProject
+        | LiveScopeSegment
+        | LiveScopeUnrecognized,
+        _open.OpenUnion("kind", LiveScopeUnrecognized),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    spec: GatePolicySpec
+    description: str | None = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+
+
+class GatePolicyPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[GatePolicy]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class PublishGatePolicyBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: Annotated[str, Field(pattern="^[a-z0-9][a-z0-9._-]{0,127}$")]
+    """
+    Yours to choose, e.g. `acme.drafting-prod`.
+    """
+    version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
+    agent_id: Annotated[str, Field(alias="agentId")]
+    scope: Annotated[
+        LiveScopeTenant
+        | LiveScopeOrg
+        | LiveScopeProject
+        | LiveScopeSegment
+        | LiveScopeUnrecognized,
+        _open.OpenUnion("kind", LiveScopeUnrecognized),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    spec: GatePolicySpec
+    description: str | None = None
+
+
+class GatePolicyResolution(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    policy: GatePolicy | None
+    """
+    The policy that gates a promotion for the scope; null when none does.
+    """
+
+
+class PromoteBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    """
+    The agent version to make live (registered, active).
+    """
+    scope: Annotated[
+        LiveScopeTenant
+        | LiveScopeOrg
+        | LiveScopeProject
+        | LiveScopeSegment
+        | LiveScopeUnrecognized,
+        _open.OpenUnion("kind", LiveScopeUnrecognized),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    reason: Annotated[str | None, Field(max_length=2000)] = None
+    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    """
+    The comparison this promotion was judged on.
+    """
+
+
+class RollbackBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    scope: Annotated[
+        LiveScopeTenant
+        | LiveScopeOrg
+        | LiveScopeProject
+        | LiveScopeSegment
+        | LiveScopeUnrecognized,
+        _open.OpenUnion("kind", LiveScopeUnrecognized),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    to_version: Annotated[str | None, Field(alias="toVersion")] = None
+    """
+    An earlier version to go back to; omit → the scope's previous live version.
+    """
+    reason: Annotated[str | None, Field(max_length=2000)] = None
+
+
+class UnpinBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    scope: Annotated[
+        LiveScopeTenant
+        | LiveScopeOrg
+        | LiveScopeProject
+        | LiveScopeSegment
+        | LiveScopeUnrecognized,
+        _open.OpenUnion("kind", LiveScopeUnrecognized),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    reason: Annotated[str | None, Field(max_length=2000)] = None
 
 
 class MintTokenBody(BaseModel):
@@ -11237,7 +11994,7 @@ class MintTokenResult(BaseModel):
     )
     token_id: Annotated[UUID, Field(alias="tokenId")]
     principal: ApiKeyPrincipal | None = None
-    role: Literal["admin", "member"]
+    role: Annotated[Literal["admin", "member"] | str, _open.OPEN]
     """
     The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
     """
@@ -11270,6 +12027,95 @@ class MintTokenResult(BaseModel):
     """
 
 
+class SystemPackEnv(BaseModel):
+    """
+    What the deployment's pack service is to be given: where each declared name is set, and the values when nothing stands in the way, plain ones in `env` and, when asked for (`secrets=values`), secrets in `secrets`. Each value given out is on the audit record: `env-resolved` as the deployment's system read, and `secret-resolved` (caller `pack-env`, with the request id as its `correlationId` and the system key's id), written before the answer.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    revision: str
+    """
+    Changes whenever what would be given changes: a value written or removed, a secret set or revoked. Made from scopes, row ids, revisions and update times, never from a value. Send it back with the endpoint (`packEnvRevision`) or `PUT …/pack-env`.
+    """
+    names: list[PackEnvNameStatus]
+    """
+    Every declared name, required ones first, each list in name order.
+    """
+    problem: (
+        Annotated[
+            Literal[
+                "pack-env-ambiguous",
+                "pack-env-secret-not-yet",
+                "pack-env-missing",
+                "pack-env-secret-unreadable",
+            ]
+            | str,
+            _open.OPEN,
+        ]
+        | None
+    ) = None
+    """
+    Why a deployment's pack service can't be given its declared environment, the first in this order: `pack-env-ambiguous` (a name is set both as a secret and as a plain value), `pack-env-secret-not-yet` (a name is set only as a secret, and its value wasn't asked for), `pack-env-missing` (a required name is set nowhere), `pack-env-secret-unreadable` (a name's secret is set, but it can't be read for a reason the platform fixes, not the owner; only a read with `secrets=values` finds it, and only when there's no other problem). A later runtime may add codes, so treat an unknown one as a reason not yet named.
+    """
+    env: dict[str, str] | None = None
+    """
+    Each declared name that is set, by name, as plain values. Absent while there is a `problem`: then nothing is given, and the service keeps what it runs.
+    """
+    secrets: dict[str, PackEnvSecretValue] | None = None
+    """
+    With `secrets=values` only: each declared name that is set only as a secret, by name (`{}` when there's none). Never put one into a plain env. Absent while there is a `problem`, and when it wasn't asked for.
+    """
+
+
+class SystemPackEnvEntry(BaseModel):
+    """
+    A deployment whose pack service runs on declared env values that changed since: ids, the image, and the revision it runs. Never a value. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    deployment_id: Annotated[str, Field(alias="deploymentId", min_length=1)]
+    pack_id: Annotated[str, Field(alias="packId", min_length=1)]
+    """
+    The pack it deploys (the image index's `packId`).
+    """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project.
+    """
+    image_ref: Annotated[str, Field(alias="imageRef")]
+    """
+    Digest-pinned, as registered: the pack service is created from exactly this.
+    """
+    image_digest: Annotated[str, Field(alias="imageDigest", pattern="^sha256:[0-9a-f]{64}$")]
+    artifact_version: Annotated[str, Field(alias="artifactVersion")]
+    activated_at: Annotated[AwareDatetime, Field(alias="activatedAt")]
+    applied_revision: Annotated[str | None, Field(alias="appliedRevision")] = None
+    """
+    The revision its service runs: given with its endpoint, or recorded since. Absent: none was. Send it back as `appliedRevision` with `PUT …/pack-env`.
+    """
+    held: SystemPackEnvHold | None = None
+
+
+class SystemPackEnvPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[SystemPackEnvEntry]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
 class ApiToken(BaseModel):
     """
     An API key. Never includes the secret. `principal` is whom it acts for; absent on a key that is a service account of its own (`service_account:<tokenId>`), as keys minted before principals are.
@@ -11281,7 +12127,7 @@ class ApiToken(BaseModel):
     )
     token_id: Annotated[UUID, Field(alias="tokenId")]
     principal: ApiKeyPrincipal | None = None
-    role: Literal["admin", "member"]
+    role: Annotated[Literal["admin", "member"] | str, _open.OPEN]
     """
     The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
     """
@@ -11321,7 +12167,7 @@ class Datum4(BaseModel):
     )
     token_id: Annotated[UUID, Field(alias="tokenId")]
     principal: ApiKeyPrincipal | None = None
-    role: Literal["admin", "member"]
+    role: Annotated[Literal["admin", "member"] | str, _open.OPEN]
     """
     The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
     """
@@ -11374,7 +12220,7 @@ class ServiceAccountGrantProject(BaseModel):
     )
     kind: Literal["project"]
     project_id: Annotated[UUID, Field(alias="projectId")]
-    role: Literal["viewer", "editor", "owner", "admin", "member"]
+    role: Annotated[Literal["viewer", "editor", "owner", "admin", "member"] | str, _open.OPEN]
     """
     Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
@@ -11434,8 +12280,9 @@ class ServiceAccount(BaseModel):
         Annotated[
             ServiceAccountGrantTenantAdmin
             | ServiceAccountGrantTenantMember
-            | ServiceAccountGrantProject,
-            Field(discriminator="kind"),
+            | ServiceAccountGrantProject
+            | ServiceAccountGrantUnrecognized,
+            _open.OpenUnion("kind", ServiceAccountGrantUnrecognized),
         ]
     ]
     created_by: Annotated[str | None, Field(alias="createdBy")] = None
@@ -11495,19 +12342,26 @@ class Approval(BaseModel):
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     subject_kind: Annotated[str, Field(alias="subjectKind")]
     subject_ref: Annotated[dict[str, Any], Field(alias="subjectRef")]
-    required_role: Annotated[Literal["standard", "senior", "admin"], Field(alias="requiredRole")]
+    required_role: Annotated[
+        Annotated[Literal["standard", "senior", "admin"] | str, _open.OPEN],
+        Field(alias="requiredRole"),
+    ]
     """
     Reviewer role class. Hierarchy: standard < senior < admin.
     """
-    status: Literal[
-        "pending",
-        "assigned",
-        "in_review",
-        "approved",
-        "rejected",
-        "escalated",
-        "expired",
-        "withdrawn",
+    status: Annotated[
+        Literal[
+            "pending",
+            "assigned",
+            "in_review",
+            "approved",
+            "rejected",
+            "escalated",
+            "expired",
+            "withdrawn",
+        ]
+        | str,
+        _open.OPEN,
     ]
     assigned_to: Annotated[UUID | None, Field(alias="assignedTo")] = None
     batch_key: Annotated[str | None, Field(alias="batchKey")] = None
@@ -11533,7 +12387,8 @@ class Approval(BaseModel):
     Whether the person who asked may not approve it (four eyes). A runtime that knows it always sends it, `false` included.
     """
     withdrawn_because: Annotated[
-        Literal["run-cancelled", "run-ended"] | None, Field(alias="withdrawnBecause")
+        Annotated[Literal["run-cancelled", "run-ended"] | str, _open.OPEN] | None,
+        Field(alias="withdrawnBecause"),
     ] = None
     """
     Why it was withdrawn, when its run's end withdrew it (a reviewer's withdrawal has its `decision` instead).
@@ -11559,13 +12414,15 @@ class ApprovalCollectionPage(BaseModel):
     Opaque cursor for the next page, in the same order; treat as opaque on the client.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
-    order: Literal["asc", "desc"] | None = None
+    order: Annotated[Literal["asc", "desc"] | str, _open.OPEN] | None = None
     """
     The order the page is in: `asc` (oldest first) or `desc` (newest first). Absent from a runtime before Kindgi 0.1.6, which lists newest first and ignores `order`.
     """
-    decided_by: Annotated[Literal["me"] | None, Field(alias="decidedBy")] = None
+    decided_by: Annotated[
+        Annotated[Literal["me"] | str, _open.OPEN] | None, Field(alias="decidedBy")
+    ] = None
     """
-    `me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.
+    `me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.9, which ignores `decidedBy` and lists them all.
     """
 
 
@@ -11578,7 +12435,7 @@ class CompleteApprovalResult(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["terminal", "escalated"]
+    kind: Annotated[Literal["terminal", "escalated"] | str, _open.OPEN]
     approval: Approval
     decision: ReviewDecision
     next_approval: Annotated[Approval | None, Field(alias="nextApproval")] = None
@@ -11590,10 +12447,20 @@ class CompleteApprovalResult(BaseModel):
     True when the approval had a `waitTokenId` and this call resolved the run's waitpoint: approve and reject complete it; withdraw cancels it, so the run ends (`failed`, `hitl-withdrawn`).
     """
     run_status: Annotated[
-        Literal["pending", "running", "suspended", "completed", "failed", "cancelled"] | None,
+        Annotated[
+            Literal["pending", "running", "suspended", "completed", "failed", "cancelled"] | str,
+            _open.OPEN,
+        ]
+        | None,
         Field(alias="runStatus"),
     ] = None
-    resume: Resume | Resume1 | None = None
+    resume: (
+        Annotated[
+            Resume | Resume1 | CompleteApprovalResultResumeUnrecognized,
+            _open.OpenUnion("kind", CompleteApprovalResultResumeUnrecognized),
+        ]
+        | None
+    ) = None
     """
     How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
     """
@@ -11604,7 +12471,7 @@ class LicenseStatus(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    mode: Literal["development", "licensed"]
+    mode: Annotated[Literal["development", "licensed"] | str, _open.OPEN]
     """
     `development`: no key needed (`KINDGI_DEV`); the key's fields are absent, and `preview` may be present.
     """
@@ -11612,7 +12479,7 @@ class LicenseStatus(BaseModel):
     """
     Whose key: the name the banner prints.
     """
-    use: Literal["production", "non-production"] | None = None
+    use: Annotated[Literal["production", "non-production"] | str, _open.OPEN] | None = None
     expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
     starts_until: Annotated[AwareDatetime | None, Field(alias="startsUntil")] = None
     """
@@ -11622,11 +12489,15 @@ class LicenseStatus(BaseModel):
     """
     Whole days until it expires; negative once it has.
     """
-    standing: Literal["valid", "expiring", "grace", "expired"] | None = None
+    standing: (
+        Annotated[Literal["valid", "expiring", "grace", "expired"] | str, _open.OPEN] | None
+    ) = None
     """
     `expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days). `expired`: past the grace too: this server runs on, but won't start with it again.
     """
-    renew_by: Annotated[Literal["command", "contact"] | None, Field(alias="renewBy")] = None
+    renew_by: Annotated[
+        Annotated[Literal["command", "contact"] | str, _open.OPEN] | None, Field(alias="renewBy")
+    ] = None
     """
     Which way to the next key applies: `command`, a key this deployment renews itself (`kindgi license renew`); `contact`, a key Kindgi issued (write to Kindgi).
     """
@@ -11644,7 +12515,13 @@ class JudgeClass(BaseModel):
     )
     id: str
     tenant_id: Annotated[str, Field(alias="tenantId")]
-    scope: JudgeClassScopeTenant | JudgeClassScopeProject | JudgeClassScopeAgent
+    scope: Annotated[
+        JudgeClassScopeTenant
+        | JudgeClassScopeProject
+        | JudgeClassScopeAgent
+        | JudgeClassScopeUnrecognized,
+        _open.OpenUnion("kind", JudgeClassScopeUnrecognized),
+    ]
     """
     Where a judge class applies: the whole tenant, one project, or one agent in a project.
     """
@@ -11684,7 +12561,13 @@ class CreateJudgeClassBody(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: JudgeClassScopeTenant | JudgeClassScopeProject | JudgeClassScopeAgent
+    scope: Annotated[
+        JudgeClassScopeTenant
+        | JudgeClassScopeProject
+        | JudgeClassScopeAgent
+        | JudgeClassScopeUnrecognized,
+        _open.OpenUnion("kind", JudgeClassScopeUnrecognized),
+    ]
     """
     Where a judge class applies: the whole tenant, one project, or one agent in a project.
     """
@@ -11937,17 +12820,27 @@ class HttpToolSpec(BaseModel):
         populate_by_name=True,
     )
     kind: Literal["http"]
-    method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
+    method: Annotated[Literal["GET", "POST", "PUT", "PATCH", "DELETE"] | str, _open.OPEN]
     url_template: Annotated[str, Field(alias="urlTemplate", min_length=1)]
     """
     URL template with `{param}` placeholders substituted from the tool's input at invoke time.
     """
     headers: list[HttpHeaderSpec] | None = None
-    authorization: HttpAuthSpecBearer | HttpAuthSpecHeader | None = None
+    authorization: (
+        Annotated[
+            HttpAuthSpecBearer | HttpAuthSpecHeader | HttpAuthSpecUnrecognized,
+            _open.OpenUnion("kind", HttpAuthSpecUnrecognized),
+        ]
+        | None
+    ) = None
     request_body: Annotated[
-        HttpRequestBodySpecJsonInput
-        | HttpRequestBodySpecInputPassthrough
-        | HttpRequestBodySpecText
+        Annotated[
+            HttpRequestBodySpecJsonInput
+            | HttpRequestBodySpecInputPassthrough
+            | HttpRequestBodySpecText
+            | HttpRequestBodySpecUnrecognized,
+            _open.OpenUnion("kind", HttpRequestBodySpecUnrecognized),
+        ]
         | None,
         Field(alias="requestBody"),
     ] = None
@@ -12011,23 +12904,287 @@ class RegisterToolBody(BaseModel):
     """
     `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.
     """
-    sandbox: Literal["none", "context-isolated", "strict"] | None = None
+    sandbox: Annotated[Literal["none", "context-isolated", "strict"] | str, _open.OPEN] | None = (
+        None
+    )
     """
     Isolation posture the runtime enforces around the handler. Optional additive field.
     """
     limits: RuntimeLimits | None = None
-    network: NetworkPolicy1 | NetworkPolicy2 | None = None
+    network: (
+        Annotated[
+            NetworkPolicy1 | NetworkPolicy2 | NetworkPolicyUnrecognized,
+            _open.OpenUnion("kind", NetworkPolicyUnrecognized),
+        ]
+        | None
+    ) = None
     """
     Network egress policy. Optional additive field. Discriminated on `kind`.
     """
     needs_spec: Annotated[TypedNeeds | None, Field(alias="needsSpec")] = None
     code_artifact_ref: Annotated[
-        CodeArtifactRefOci | CodeArtifactRefFilesystem | None, Field(alias="codeArtifactRef")
+        Annotated[
+            CodeArtifactRefOci | CodeArtifactRefFilesystem | CodeArtifactRefUnrecognized,
+            _open.OpenUnion("kind", CodeArtifactRefUnrecognized),
+        ]
+        | None,
+        Field(alias="codeArtifactRef"),
     ] = None
     """
     Handler-artifact pointer. Discriminated on `kind`: `oci` is the deploy-pipeline shape (image + module path + artifactVersion); `filesystem` is the local-development shape — absolute host path at the pack's on-disk handler file. Production servers SHOULD reject `filesystem`.
     """
     spec: ToolSpec | None = None
+
+
+class FixProposal(BaseModel):
+    """
+    An improvement proposal: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    agent_id: Annotated[str, Field(alias="agentId")]
+    from_version: Annotated[str, Field(alias="fromVersion")]
+    """
+    The agent version the change applies to.
+    """
+    scope: Annotated[
+        LiveScopeTenant
+        | LiveScopeOrg
+        | LiveScopeProject
+        | LiveScopeSegment
+        | LiveScopeUnrecognized,
+        _open.OpenUnion("kind", LiveScopeUnrecognized),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    tier: Annotated[Literal["settings-block", "prompt-block"] | str, _open.OPEN]
+    """
+    What a proposal changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
+    """
+    change: ProposalChange
+    hypothesis: str
+    """
+    What the change should improve, and why.
+    """
+    evidence: Evidence1 | None = None
+    drafter: ProposalDrafter
+    status: Annotated[
+        Literal[
+            "draft",
+            "evaluating",
+            "evaluated",
+            "not-better",
+            "evaluation-failed",
+            "in-review",
+            "promoted",
+            "refused",
+            "rejected",
+            "expired",
+            "superseded",
+            "rolled-back",
+            "withdrawn",
+        ]
+        | str,
+        _open.OPEN,
+    ]
+    """
+    Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.
+    """
+    candidate: ProposalCandidate | None = None
+    evaluation: ProposalEvaluation | None = None
+    promotion: ProposalPromotion | None = None
+    rolled_back: Annotated[RolledBack | None, Field(alias="rolledBack")] = None
+    withdrawn: Withdrawn | None = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+
+
+class FixProposalCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[FixProposal]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class ImprovementPass(BaseModel):
+    """
+    An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes an improvement proposal.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    agent_id: Annotated[str, Field(alias="agentId")]
+    from_version: Annotated[str, Field(alias="fromVersion")]
+    """
+    The version whose settings it tunes.
+    """
+    scope: Annotated[
+        LiveScopeTenant
+        | LiveScopeOrg
+        | LiveScopeProject
+        | LiveScopeSegment
+        | LiveScopeUnrecognized,
+        _open.OpenUnion("kind", LiveScopeUnrecognized),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    suite_id: Annotated[str, Field(alias="suiteId")]
+    """
+    The test set it searches and proves on.
+    """
+    tiers: list[Annotated[Literal["settings", "prompt"] | str, _open.OPEN]]
+    objective: Annotated[Literal["weightedYesShare", "weightedPrecisionAtK"] | str, _open.OPEN]
+    class_weights: Annotated[
+        Annotated[Literal["as-recorded", "restricted-only"] | str, _open.OPEN] | None,
+        Field(alias="classWeights"),
+    ] = None
+    """
+    Which judgments its comparisons count. Absent from older servers: `restricted-only`.
+    """
+    model: Model1 | None = None
+    """
+    For a prompt pass: the provider and model that drafts the templates.
+    """
+    candidates: Annotated[int | None, Field(ge=1, le=5)] = None
+    """
+    For a prompt pass: how many templates it drafts.
+    """
+    budget: ImprovementBudget
+    requested_by: Annotated[str, Field(alias="requestedBy")]
+    status: Annotated[Literal["running", "completed", "failed", "cancelled"] | str, _open.OPEN]
+    candidates_evaluated: Annotated[int, Field(alias="candidatesEvaluated", ge=0)]
+    cost_usd: Annotated[str, Field(alias="costUsd")]
+    """
+    What its comparisons have cost so far (US dollars).
+    """
+    outcome: ImprovementPassOutcome | None = None
+    cancel_reason: Annotated[str | None, Field(alias="cancelReason")] = None
+    """
+    Why a `cancelled` pass stopped when nobody cancelled it: a comparison's eval run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no proposal. Absent when it was cancelled.
+    """
+    comparisons: list[Comparison1] | None = None
+    """
+    Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.
+    """
+    trigger: Trigger | None = None
+    """
+    The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for a pass a person started.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    finished_at: Annotated[AwareDatetime | None, Field(alias="finishedAt")] = None
+
+
+class ImprovementPassCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ImprovementPass]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class ImproveBody(BaseModel):
+    """
+    Start an improvement pass.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId")]
+    from_version: Annotated[str | None, Field(alias="fromVersion")] = None
+    """
+    The version whose settings it tunes. Default: the one serving `scope`.
+    """
+    scope: Annotated[
+        LiveScopeTenant
+        | LiveScopeOrg
+        | LiveScopeProject
+        | LiveScopeSegment
+        | LiveScopeUnrecognized,
+        _open.OpenUnion("kind", LiveScopeUnrecognized),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    suite_id: Annotated[str, Field(alias="suiteId")]
+    """
+    The test set (a judged eval suite). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.
+    """
+    tiers: Annotated[
+        list[Literal["settings", "prompt"]] | None, Field(max_length=1, min_length=1)
+    ] = ["settings"]
+    """
+    `['settings']`: values for the tunable settings keys. `['prompt']`: a model drafts templates for the prompt block (needs `model`); a template that reads or names anything the agent doesn't have is refused, and a drafted proposal always waits for a reviewer.
+    """
+    model: Model2 | None = None
+    """
+    For a prompt pass: the tenant's provider and model that drafts the templates.
+    """
+    candidates: Annotated[int | None, Field(ge=1, le=5)] = 3
+    """
+    For a prompt pass: how many templates it drafts.
+    """
+    class_weights: Annotated[
+        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
+    ] = "restricted-only"
+    """
+    Which judgments the pass learns from: by default only those recorded under a restricted (trusted) judge class.
+    """
+    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
+    budget: Budget2 | None = None
+    """
+    Default: $5 and 30 candidates.
+    """
+
+
+class CreateProposalBody(BaseModel):
+    """
+    A hand-written proposal: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one proposal (answered with `X-Proposal-Deduped: true`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId")]
+    from_version: Annotated[str, Field(alias="fromVersion")]
+    """
+    The agent version the change applies to.
+    """
+    scope: Annotated[
+        LiveScopeTenant
+        | LiveScopeOrg
+        | LiveScopeProject
+        | LiveScopeSegment
+        | LiveScopeUnrecognized,
+        _open.OpenUnion("kind", LiveScopeUnrecognized),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    tier: Annotated[Literal["settings-block", "prompt-block"] | str, _open.OPEN]
+    """
+    What a proposal changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
+    """
+    change: Change
+    hypothesis: Annotated[str, Field(max_length=2000, min_length=1)]
+    evidence: Evidence1 | None = None
 
 
 class EvaluateProposalBody(BaseModel):
@@ -12104,20 +13261,24 @@ class CapabilityDescriptor(BaseModel):
     """
     feature: (
         str
-        | Literal[
-            "structured-output",
-            "vision",
-            "audio-input",
-            "audio-output",
-            "tool-use",
-            "parallel-tool-use",
-            "thinking",
-            "long-context",
-            "code-execution",
-            "web-search",
-            "file-search",
-            "streaming",
-            "batch",
+        | Annotated[
+            Literal[
+                "structured-output",
+                "vision",
+                "audio-input",
+                "audio-output",
+                "tool-use",
+                "parallel-tool-use",
+                "thinking",
+                "long-context",
+                "code-execution",
+                "web-search",
+                "file-search",
+                "streaming",
+                "batch",
+            ]
+            | str,
+            _open.OPEN,
         ]
     )
     description: str
@@ -12164,6 +13325,26 @@ class MCPHeaderAuth(BaseModel):
     )
     scheme: Literal["header"]
     headers: Annotated[list[MCPAuthHeader], Field(max_length=4, min_length=1)]
+
+
+class MCPPromptMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    role: Annotated[Literal["user", "assistant"] | str, _open.OPEN]
+    content: Annotated[
+        Content2 | Content3 | MCPPromptMessageContentUnrecognized,
+        _open.OpenUnion("type", MCPPromptMessageContentUnrecognized),
+    ]
+
+
+class GetMCPPromptResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    messages: list[MCPPromptMessage]
 
 
 class CostRecord(BaseModel):
@@ -12235,7 +13416,7 @@ class CostRecord(BaseModel):
     """
     The router picked a fallback provider for the turn.
     """
-    status: Literal["ok", "failed"] | None = None
+    status: Annotated[Literal["ok", "failed"] | str, _open.OPEN] | None = None
     """
     `ok`: the provider answered. `failed`: the call threw.
     """
@@ -12395,6 +13576,87 @@ class JudgedComparisonResult(BaseModel):
     per_case: Annotated[list[ComparisonCaseResult], Field(alias="perCase")]
 
 
+class GetIdentityProviderResult(
+    RootModel[
+        Annotated[
+            OidcIdentityProviderConfig
+            | SamlIdentityProviderConfig
+            | GetIdentityProviderResultUnrecognized,
+            _open.OpenUnion("kind", GetIdentityProviderResultUnrecognized),
+        ]
+    ]
+):
+    root: Annotated[
+        OidcIdentityProviderConfig
+        | SamlIdentityProviderConfig
+        | GetIdentityProviderResultUnrecognized,
+        _open.OpenUnion("kind", GetIdentityProviderResultUnrecognized),
+    ]
+    """
+    An identity provider as stored, one shape per `kind`, with `signIn` when the deployment sets it. Secrets appear only as references.
+    """
+
+
+class IdentityProviderCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[
+        Annotated[
+            OidcIdentityProviderConfig
+            | SamlIdentityProviderConfig
+            | IdentityProviderConfigUnrecognized,
+            _open.OpenUnion("kind", IdentityProviderConfigUnrecognized),
+        ]
+    ]
+    has_more: Annotated[bool | None, Field(alias="hasMore")] = None
+    """
+    Always `false`: the list comes whole. Absent from older servers.
+    """
+    changes: Annotated[Literal["tenant", "operator"] | str, _open.OPEN] | None = None
+    """
+    Who may add, change and remove the providers here: `tenant`, its admins; `operator`, only the deployment's own token, because the operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`). The providers there sign people in either way. Absent from older servers: read it as `tenant`.
+    """
+
+
+class RegisterIdentityProviderResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId", min_length=1)]
+    provider: (
+        Annotated[
+            OidcIdentityProviderConfig
+            | SamlIdentityProviderConfig
+            | IdentityProviderConfigUnrecognized,
+            _open.OpenUnion("kind", IdentityProviderConfigUnrecognized),
+        ]
+        | None
+    ) = None
+    """
+    The provider as stored: discovered endpoints, and `signIn` (what to give the identity provider). Absent from older servers.
+    """
+
+
+class UpdateIdentityProviderResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId", min_length=1)]
+    provider: Annotated[
+        OidcIdentityProviderConfig
+        | SamlIdentityProviderConfig
+        | IdentityProviderConfigUnrecognized,
+        _open.OpenUnion("kind", IdentityProviderConfigUnrecognized),
+    ]
+    """
+    The provider as stored now; its `signIn` is unchanged.
+    """
+
+
 class PersonProjectRole(BaseModel):
     """
     A person's direct role on a project.
@@ -12405,7 +13667,7 @@ class PersonProjectRole(BaseModel):
         populate_by_name=True,
     )
     project_id: Annotated[str, Field(alias="projectId")]
-    role: Literal["viewer", "editor", "owner", "admin", "member"]
+    role: Annotated[Literal["viewer", "editor", "owner", "admin", "member"] | str, _open.OPEN]
     """
     Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
@@ -12421,9 +13683,35 @@ class PersonTeamRole(BaseModel):
         populate_by_name=True,
     )
     team_id: Annotated[str, Field(alias="teamId")]
-    role: Literal["member", "admin"]
+    role: Annotated[Literal["member", "admin"] | str, _open.OPEN]
     """
     Role on a team membership.
+    """
+
+
+class MyProjectAccess(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str, Field(alias="projectId")]
+    name: str
+    role: Annotated[Literal["owner", "admin", "editor", "viewer"] | str, _open.OPEN]
+    """
+    The highest role the caller holds on the project, whichever way.
+    """
+    via: list[
+        Annotated[
+            AccessPathDirect
+            | AccessPathTeam
+            | AccessPathOrgAdmin
+            | AccessPathTenantAdmin
+            | AccessPathUnrecognized,
+            _open.OpenUnion("kind", AccessPathUnrecognized),
+        ]
+    ]
+    """
+    Every way the caller holds a role on it (for "My access").
     """
 
 
@@ -12434,7 +13722,7 @@ class MyTeamAccess(BaseModel):
     )
     team_id: Annotated[str, Field(alias="teamId")]
     name: str
-    role: Literal["member", "admin"]
+    role: Annotated[Literal["member", "admin"] | str, _open.OPEN]
     """
     Role on a team membership.
     """
@@ -12534,9 +13822,75 @@ class DeploymentRecord(BaseModel):
     """
     The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's Default project).
     """
+    pack_env: Annotated[PackEnvDeclaration | None, Field(alias="packEnv")] = None
+    promoted_from_deployment_id: Annotated[
+        str | None, Field(alias="promotedFromDeploymentId", min_length=1)
+    ] = None
+    """
+    When this deployment was made by promoting another into the next environment of its order: the deployment it was promoted from. Absent for one deployed directly.
+    """
+    pack_id: Annotated[str | None, Field(alias="packId")] = None
+    """
+    The pack's id, from the image's index. Absent from a runtime that doesn't keep it.
+    """
     endpoint: DeploymentEndpoint | None = None
     primitives: DeploymentPrimitiveCounts
     contents: DeploymentContents
+
+
+class PromotionMoves(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    pack_id: Annotated[str | None, Field(alias="packId")] = None
+    image_digest: Annotated[str, Field(alias="imageDigest", pattern="^sha256:[0-9a-f]{64}$")]
+    agents: list[PromotionMovedVersion]
+    flows: list[PromotionMovedVersion]
+    tools: list[PromotionMovesTool]
+    guardrails: list[PromotionMovesGuardrail]
+
+
+class DeploymentPromotion(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    deployment: DeploymentRecord
+    created: bool
+    """
+    `true`: the promotion made this deployment (`201`). `false`: the target had this build already (`200`), and only the versions it lacked were carried.
+    """
+    moved: PromotionMoves
+    left_behind: Annotated[list[LeftBehindVersion] | None, Field(alias="leftBehind")] = None
+    """
+    Edits of the build's agents and flows that stay behind; absent when none.
+    """
+    live: list[DeploymentLivePin] | None = None
+    """
+    Each carried agent pinned live in the target; present only when `makeLive` was asked.
+    """
+
+
+class DeploymentPromotionCheck(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    moves: PromotionMoves
+    values: list[DeploymentValue]
+    """
+    Each value with a problem in the target; empty when every one is ready.
+    """
+    next_environment: Annotated[PromotionNextEnvironment, Field(alias="nextEnvironment")]
+    env_name: Annotated[str | None, Field(alias="envName")] = None
+    """
+    The env this runtime serves, which a run in the target reads its values under: a value is set there (`--env=<envName>` with `--scope=project:<id>`). Absent when the runtime names none, and each value is then listed unread.
+    """
+    left_behind: Annotated[list[LeftBehindVersion] | None, Field(alias="leftBehind")] = None
+    """
+    Edits of the build's agents and flows that would stay behind; absent when none.
+    """
 
 
 class DeploymentCollectionPage(BaseModel):
@@ -12547,6 +13901,14 @@ class DeploymentCollectionPage(BaseModel):
     data: list[DeploymentRecord]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `projectId` and lists them all.
+    """
+    pack_id: Annotated[str | None, Field(alias="packId")] = None
+    """
+    The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `packId` and lists them all.
+    """
 
 
 class DeploymentSecretsSyncRequest(BaseModel):
@@ -12562,6 +13924,56 @@ class DeploymentSecretsSyncRequest(BaseModel):
     """
     Zero or more secret entries. Each entry MUST set exactly one of `ref` (validate-only) or `value` (write new version).
     """
+
+
+class ProjectAccess(BaseModel):
+    """
+    Someone with access to the project, their effective role, and every way in.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    principal: AccessPrincipal
+    display_name: Annotated[str | None, Field(alias="displayName")] = None
+    """
+    A person's name, or a service account's.
+    """
+    primary_email: Annotated[str | None, Field(alias="primaryEmail")] = None
+    """
+    A person's email: shown to the project's admins only.
+    """
+    role: Annotated[Literal["owner", "admin", "editor", "viewer"] | str, _open.OPEN]
+    """
+    The effective role: the highest any way in gives.
+    """
+    via: Annotated[
+        list[
+            Annotated[
+                ProjectAccessDirect
+                | ProjectAccessTeam
+                | ProjectAccessOrgAdmin
+                | ProjectAccessTenantAdmin
+                | ProjectAccessPathUnrecognized,
+                _open.OpenUnion("kind", ProjectAccessPathUnrecognized),
+            ]
+        ],
+        Field(min_length=1),
+    ]
+    """
+    Every way in, the highest role first.
+    """
+
+
+class ProjectAccessPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ProjectAccess]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
 class Tenant(BaseModel):
@@ -12582,7 +13994,7 @@ class Tenant(BaseModel):
     """
     Where to go to be allowed to put projects in production, for example a billing page. Only while `productionAllowed` is `false`, and only when the runtime names one.
     """
-    state: Literal["active", "suspended", "closing"] | None = None
+    state: Annotated[Literal["active", "suspended", "closing"] | str, _open.OPEN] | None = None
     """
     On a runtime serving many tenants: `closing` (readable and exportable for its window, nothing changes) or `suspended` (the same, until restored). `closing` wins. Absent: active.
     """
@@ -12605,7 +14017,10 @@ class EnvRecord(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: ScopeTenant | ScopeOrg | ScopeProject
+    scope: Annotated[
+        ScopeTenant | ScopeOrg | ScopeProject | ScopeUnrecognized,
+        _open.OpenUnion("kind", ScopeUnrecognized),
+    ]
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -12630,12 +14045,39 @@ class EnvListPage(BaseModel):
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
+class EnvironmentOrder(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    parent: Annotated[
+        EnvironmentOrderParentTenant
+        | EnvironmentOrderParentOrg
+        | EnvironmentOrderParentUnrecognized,
+        _open.OpenUnion("kind", EnvironmentOrderParentUnrecognized),
+    ]
+    entries: list[EnvironmentOrderEntry]
+
+
+class EnvironmentOrderPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[EnvironmentOrder]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
 class EnvSetInput(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    scope: ScopeTenant | ScopeOrg | ScopeProject
+    scope: Annotated[
+        ScopeTenant | ScopeOrg | ScopeProject | ScopeUnrecognized,
+        _open.OpenUnion("kind", ScopeUnrecognized),
+    ]
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -12654,7 +14096,10 @@ class SecretRecord(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: ScopeTenant | ScopeOrg | ScopeProject
+    scope: Annotated[
+        ScopeTenant | ScopeOrg | ScopeProject | ScopeUnrecognized,
+        _open.OpenUnion("kind", ScopeUnrecognized),
+    ]
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -12686,7 +14131,10 @@ class SecretVersionRecord(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: ScopeTenant | ScopeOrg | ScopeProject
+    scope: Annotated[
+        ScopeTenant | ScopeOrg | ScopeProject | ScopeUnrecognized,
+        _open.OpenUnion("kind", ScopeUnrecognized),
+    ]
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -12709,7 +14157,10 @@ class SecretSetInput(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: ScopeTenant | ScopeOrg | ScopeProject
+    scope: Annotated[
+        ScopeTenant | ScopeOrg | ScopeProject | ScopeUnrecognized,
+        _open.OpenUnion("kind", ScopeUnrecognized),
+    ]
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -12733,7 +14184,13 @@ class SecretResolveOutcome(BaseModel):
     name: str
     version_id: Annotated[int, Field(alias="versionId", ge=1)]
     value: str
-    scope: ScopeTenant | ScopeOrg | ScopeProject | None = None
+    scope: (
+        Annotated[
+            ScopeTenant | ScopeOrg | ScopeProject | ScopeUnrecognized,
+            _open.OpenUnion("kind", ScopeUnrecognized),
+        ]
+        | None
+    ) = None
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -12761,7 +14218,13 @@ class EnvSetRequest(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: ScopeTenant | ScopeOrg | ScopeProject | None = None
+    scope: (
+        Annotated[
+            ScopeTenant | ScopeOrg | ScopeProject | ScopeUnrecognized,
+            _open.OpenUnion("kind", ScopeUnrecognized),
+        ]
+        | None
+    ) = None
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -12806,7 +14269,10 @@ class SecretSetRequest(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: ScopeTenant | ScopeOrg | ScopeProject
+    scope: Annotated[
+        ScopeTenant | ScopeOrg | ScopeProject | ScopeUnrecognized,
+        _open.OpenUnion("kind", ScopeUnrecognized),
+    ]
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -12843,7 +14309,13 @@ class SecretRotateRequest(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    scope: ScopeTenant | ScopeOrg | ScopeProject | None = None
+    scope: (
+        Annotated[
+            ScopeTenant | ScopeOrg | ScopeProject | ScopeUnrecognized,
+            _open.OpenUnion("kind", ScopeUnrecognized),
+        ]
+        | None
+    ) = None
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
     """
@@ -12853,6 +14325,873 @@ class SecretRotateRequest(BaseModel):
     """
     new_value: Annotated[str | None, Field(alias="newValue")] = None
     revoke_old_after_ms: Annotated[int | None, Field(alias="revokeOldAfterMs", ge=0)] = None
+
+
+class WebhookTriggerRecord(BaseModel):
+    """
+    A webhook trigger: a signed request to its `receiveUrl` starts a run of its flow, as its owner. The signing secret is never on it, only its name.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    webhook_id: Annotated[str, Field(alias="webhookId")]
+    """
+    The routable id in the receive URL. Route-minted (a random UUID); unique per tenant. Not a secret: the signature is what a request is checked by.
+    """
+    receive_url: Annotated[AnyUrl | None, Field(alias="receiveUrl")] = None
+    """
+    Where the sender posts: `{public URL}/v1/hooks/{tenantId}/{webhookId}`. Absent when the deployment has no public URL configured (`KINDGI_PUBLIC_URL`); it's never taken from a request's `Host`.
+    """
+    flow_id: Annotated[str, Field(alias="flowId", min_length=1)]
+    flow_version: Annotated[str, Field(alias="flowVersion", min_length=1)]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    The trigger's project: its runs are this project's.
+    """
+    owner: TriggerOwner
+    """
+    Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every delivery.
+    """
+    input: Any | None = None
+    """
+    The flow's input on every delivery, in place of the event. Absent: the event (the body, parsed as JSON for a JSON content type, else its text).
+    """
+    hmac_secret_name: Annotated[str, Field(alias="hmacSecretName", min_length=1)]
+    """
+    The signing secret, by name (written with `POST /v1/secrets`, or made by `generateSecret`). Read in the env the deployment serves, at `hmacSecretScope`.
+    """
+    hmac_secret_scope: Annotated[
+        Annotated[
+            RecordedSecretScopeTenant
+            | RecordedSecretScopeOrg
+            | RecordedSecretScopeProject
+            | RecordedSecretScopeUnrecognized,
+            _open.OpenUnion("kind", RecordedSecretScopeUnrecognized),
+        ]
+        | None,
+        Field(alias="hmacSecretScope"),
+    ] = None
+    """
+    Where the signing secret is read, recorded when the trigger was registered (or its secret named again). `null`: none usable, so no delivery verifies until an admin names it again. Absent on triggers registered before it was recorded: read at the tenant, as before.
+    """
+    signing_secret: Annotated[str | None, Field(alias="signingSecret")] = None
+    """
+    Only in the answer to a register with `generateSecret`: the new signing secret, shown this once, to paste into the sender. It's stored as `hmacSecretName` in the trigger's own scope; no later read shows it.
+    """
+    signature: Annotated[
+        WebhookSignatureHmacSha256
+        | WebhookSignatureStandardWebhooks
+        | WebhookSignatureUnrecognized,
+        _open.OpenUnion("kind", WebhookSignatureUnrecognized),
+    ]
+    """
+    How a webhook trigger's sender signs. `hmac-sha256`: an HMAC-SHA256 of the raw body under the secret's UTF-8 bytes, in `header`, `hex` or `base64`, after an optional `prefix` (GitHub and Drupal's Webhooks module: `X-Hub-Signature-256`, hex, `sha256=`; WooCommerce: `X-WC-Webhook-Signature`, base64; Shopify: `X-Shopify-Hmac-Sha256`, base64). No timestamp is signed, so only the trigger's dedupe catches a replay. `standard-webhooks`: the Standard Webhooks format (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64>` over `{id}.{timestamp}.{body}`, a `whsec_` secret), refused past `toleranceSeconds` (default 300) from the receiver's clock; it dedupes on its `webhook-id`.
+    """
+    delivery_id_header: Annotated[str | None, Field(alias="deliveryIdHeader")] = None
+    """
+    The header whose value, with the body, is a delivery's dedupe key (WooCommerce: `X-WC-Webhook-Delivery-ID`, which is per second, not per event, so the body counts too). Absent: deliveries aren't deduped (`standard-webhooks` dedupes on its own `webhook-id`).
+    """
+    body_limit_bytes: Annotated[int, Field(alias="bodyLimitBytes", ge=1024, le=1048576)]
+    """
+    The largest body it takes (default 262144).
+    """
+    rate_limit_per_minute: Annotated[int, Field(alias="rateLimitPerMinute", ge=1, le=6000)]
+    """
+    Accepted deliveries a minute (default 600); past it, `429`.
+    """
+    label: str | None
+    status: Annotated[Literal["active", "paused"] | str, _open.OPEN]
+    """
+    Lifecycle status. Only `active` triggers fire. Tombstoned rows are excluded from every read path.
+    """
+    status_reason: Annotated[str | None, Field(alias="statusReason")] = None
+    """
+    Why the runtime paused it (repeated refused or failed starts; a sender's failed proofs never count), when it did.
+    """
+    suppressed_refusals: Annotated[SuppressedRefusals | None, Field(alias="suppressedRefusals")] = (
+        None
+    )
+    """
+    Refusals and skipped deliveries this minute past the 20 recorded in its history, which only counted.
+    """
+    last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+
+
+class WebhookTriggerCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[WebhookTriggerRecord]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class RegisterWebhookTriggerBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str, Field(alias="flowId", min_length=1)]
+    flow_version: Annotated[str, Field(alias="flowVersion", min_length=1)]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The trigger's project; absent: the tenant's Default project.
+    """
+    config: Config8 | None = None
+    hmac_secret_name: Annotated[str, Field(alias="hmacSecretName", min_length=1)]
+    """
+    The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the tenant that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing). Under `kindgi dev`, `generateSecret` writes it to an env file, so the name is capital letters, digits and underscores, not starting with a digit (`secret-name-invalid` otherwise).
+    """
+    generate_secret: Annotated[bool | None, Field(alias="generateSecret")] = None
+    """
+    Make a new signing secret, store it as `hmacSecretName` in the trigger's own project (in the env the deployment serves), and return it once as `signingSecret`. Needs only `write` on the project. A name the project already has is refused (`secret-write-conflict`, 409), never overwritten. Letters and digits, or `whsec_…` for `standard-webhooks`.
+    """
+    signature: (
+        Annotated[
+            WebhookSignatureHmacSha256
+            | WebhookSignatureStandardWebhooks
+            | WebhookSignatureUnrecognized,
+            _open.OpenUnion("kind", WebhookSignatureUnrecognized),
+        ]
+        | None
+    ) = None
+    """
+    How a webhook trigger's sender signs. `hmac-sha256`: an HMAC-SHA256 of the raw body under the secret's UTF-8 bytes, in `header`, `hex` or `base64`, after an optional `prefix` (GitHub and Drupal's Webhooks module: `X-Hub-Signature-256`, hex, `sha256=`; WooCommerce: `X-WC-Webhook-Signature`, base64; Shopify: `X-Shopify-Hmac-Sha256`, base64). No timestamp is signed, so only the trigger's dedupe catches a replay. `standard-webhooks`: the Standard Webhooks format (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64>` over `{id}.{timestamp}.{body}`, a `whsec_` secret), refused past `toleranceSeconds` (default 300) from the receiver's clock; it dedupes on its `webhook-id`.
+    """
+    delivery_id_header: Annotated[
+        str | None, Field(alias="deliveryIdHeader", max_length=100, min_length=1)
+    ] = None
+    """
+    The header whose value, with the body, dedupes deliveries. Not with `standard-webhooks`, which dedupes on its `webhook-id`.
+    """
+    body_limit_bytes: Annotated[int | None, Field(alias="bodyLimitBytes", ge=1024, le=1048576)] = (
+        None
+    )
+    rate_limit_per_minute: Annotated[
+        int | None, Field(alias="rateLimitPerMinute", ge=1, le=6000)
+    ] = None
+    label: str | None = None
+    run_as_service_account_id: Annotated[
+        str | None, Field(alias="runAsServiceAccountId", min_length=1)
+    ] = None
+    """
+    A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Absent: the caller owns it.
+    """
+
+
+class PatchWebhookTriggerBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    config: Config8 | None = None
+    label: str | None = None
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    hmac_secret_name: Annotated[str | None, Field(alias="hmacSecretName", min_length=1)] = None
+    signature: (
+        Annotated[
+            WebhookSignatureHmacSha256
+            | WebhookSignatureStandardWebhooks
+            | WebhookSignatureUnrecognized,
+            _open.OpenUnion("kind", WebhookSignatureUnrecognized),
+        ]
+        | None
+    ) = None
+    """
+    How a webhook trigger's sender signs. `hmac-sha256`: an HMAC-SHA256 of the raw body under the secret's UTF-8 bytes, in `header`, `hex` or `base64`, after an optional `prefix` (GitHub and Drupal's Webhooks module: `X-Hub-Signature-256`, hex, `sha256=`; WooCommerce: `X-WC-Webhook-Signature`, base64; Shopify: `X-Shopify-Hmac-Sha256`, base64). No timestamp is signed, so only the trigger's dedupe catches a replay. `standard-webhooks`: the Standard Webhooks format (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64>` over `{id}.{timestamp}.{body}`, a `whsec_` secret), refused past `toleranceSeconds` (default 300) from the receiver's clock; it dedupes on its `webhook-id`.
+    """
+    delivery_id_header: Annotated[str | None, Field(alias="deliveryIdHeader", max_length=100)] = (
+        None
+    )
+    """
+    `null` stops deduping.
+    """
+    body_limit_bytes: Annotated[int | None, Field(alias="bodyLimitBytes", ge=1024, le=1048576)] = (
+        None
+    )
+    """
+    `null`: the default.
+    """
+    rate_limit_per_minute: Annotated[
+        int | None, Field(alias="rateLimitPerMinute", ge=1, le=6000)
+    ] = None
+    """
+    `null`: the default.
+    """
+
+
+class WebhookEndpoint(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    endpoint_id: Annotated[str, Field(alias="endpointId")]
+    url: AnyUrl
+    events: list[
+        Annotated[
+            Literal["run.finished", "improvement-pass.finished", "approval.requested"] | str,
+            _open.OPEN,
+        ]
+    ]
+    filter: WebhookEndpointFilter
+    description: str | None
+    secret_ref: Annotated[WebhookSecretRef, Field(alias="secretRef")]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+
+
+class WebhookEndpointCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[WebhookEndpoint]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class Data1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    pass_: Annotated[ImprovementPass, Field(alias="pass")]
+    """
+    The pass, as `GET /v1/improvement-passes/{passId}` shows it.
+    """
+
+
+class ImprovementPassFinishedEvent(BaseModel):
+    """
+    An improvement pass ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the proposal it wrote, if it wrote one.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    Event id, also sent as the `webhook-id` header; the same on every retry.
+    """
+    type: Literal["improvement-pass.finished"]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    data: Data1
+
+
+class ImproveScheduleTarget(BaseModel):
+    """
+    What an improve schedule works on: the agent, and the live scope its passes propose for and count judgments in.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId", min_length=1)]
+    scope: Annotated[
+        LiveScopeTenant
+        | LiveScopeOrg
+        | LiveScopeProject
+        | LiveScopeSegment
+        | LiveScopeUnrecognized,
+        _open.OpenUnion("kind", LiveScopeUnrecognized),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+
+
+class EnvSetOutcomeOk(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["ok"]
+    record: EnvRecord
+
+
+class SecretSetOutcomeOk(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["ok"]
+    record: SecretRecord
+    version_id: Annotated[int, Field(alias="versionId", ge=1)]
+
+
+class SecretSetOutcomeAlreadyExists(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["already-exists"]
+    record: SecretRecord
+
+
+class RunAgent(BaseModel):
+    """
+    Set on an agent's turn (an agent run, or the turn a flow's agent step started): the agent, the version that ran and the conversation. Absent on other runs, and on turns that ran before Kindgi 0.1.3.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The agent id.
+    """
+    version: str
+    """
+    The agent version that ran (semver).
+    """
+    conversation_id: Annotated[UUID, Field(alias="conversationId")]
+    via: (
+        Annotated[
+            Literal["explicit", "flow-pin", "conversation", "live", "latest"] | str, _open.OPEN
+        ]
+        | None
+    ) = None
+    """
+    Why this version ran: named by the caller (`explicit`); held by the flow version a flow's agent step runs in (`flow-pin`: the node's `config.version`, else the version the flow version pinned when it was published); the conversation's own (`conversation`); the version live for the run's scope (`live`); or the latest, nothing being live (`latest`). Absent on runs from before Kindgi 0.1.4.
+    """
+    live_scope: Annotated[
+        Annotated[
+            LiveScopeTenant
+            | LiveScopeOrg
+            | LiveScopeProject
+            | LiveScopeSegment
+            | LiveScopeUnrecognized,
+            _open.OpenUnion("kind", LiveScopeUnrecognized),
+        ]
+        | None,
+        Field(alias="liveScope"),
+    ] = None
+    """
+    The pin that chose the version, when `via` is `live`.
+    """
+
+
+class RunWaitingFor(BaseModel):
+    """
+    Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    approvals: list[RunWaitingApproval]
+    other: list[OtherItem]
+
+
+class Run(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    """
+    RunId.
+    """
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    flow_id: Annotated[str, Field(alias="flowId")]
+    flow_version: Annotated[str, Field(alias="flowVersion")]
+    """
+    Semver.
+    """
+    status: Annotated[
+        Literal["pending", "running", "suspended", "completed", "failed", "cancelled"] | str,
+        _open.OPEN,
+    ]
+    dry_run: Annotated[bool, Field(alias="dryRun")]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
+    failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
+    """
+    The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form.
+    """
+    failure: RunFailure | None = None
+    output: Any | None = None
+    """
+    The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.
+    """
+    content_erased_at: Annotated[AwareDatetime | None, Field(alias="contentErasedAt")] = None
+    """
+    When an erasure cleared the run's content (its input, output, failure message and journal payloads): a person's words were erased. Structure (status, times, ids) stays.
+    """
+    parent_run_id: Annotated[UUID | None, Field(alias="parentRunId")] = None
+    """
+    Set on a child run (a sub-flow run, or the agent turn an agent step started): the run that started it.
+    """
+    parent_node_id: Annotated[str | None, Field(alias="parentNodeId")] = None
+    """
+    Set on a child run: the node in the parent run that started it.
+    """
+    agent: RunAgent | None = None
+    waiting_for: Annotated[RunWaitingFor | None, Field(alias="waitingFor")] = None
+    trigger: RunTrigger | None = None
+    started_by: Annotated[
+        Annotated[Literal["person", "key", "schedule", "webhook", "event"] | str, _open.OPEN]
+        | None,
+        Field(alias="startedBy"),
+    ] = None
+    """
+    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
+    """
+    replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
+    """
+    Set on a replay run (an eval run re-running a past run): the run it replays.
+    """
+    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    """
+    Set on a replay run: the eval run that started it.
+    """
+    versions: FlowVersionOverrides | None = None
+    segments: list[ScopeSegment] | None = None
+    """
+    The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.
+    """
+    trace_id: Annotated[str | None, Field(alias="traceId", pattern="^[0-9a-f]{32}$")] = None
+    """
+    The W3C trace id of the request that started the run: the caller's (from its `traceparent`) or one the API minted. The runtime's records about the run carry it; `GET` responses answer `traceresponse` with each request's own. Absent for a run no request started, and on runs from before runs recorded it.
+    """
+    public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
+    """
+    Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
+    """
+    public_access_token_expires_at: Annotated[
+        AwareDatetime | None, Field(alias="publicAccessTokenExpiresAt")
+    ] = None
+    """
+    When `publicAccessToken` stops working.
+    """
+
+
+class Datum(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    """
+    RunId.
+    """
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    flow_id: Annotated[str, Field(alias="flowId")]
+    flow_version: Annotated[str, Field(alias="flowVersion")]
+    """
+    Semver.
+    """
+    status: Annotated[
+        Literal["pending", "running", "suspended", "completed", "failed", "cancelled"] | str,
+        _open.OPEN,
+    ]
+    dry_run: Annotated[bool, Field(alias="dryRun")]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
+    failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
+    """
+    The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form.
+    """
+    failure: RunFailure | None = None
+    output: Any | None = None
+    """
+    The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.
+    """
+    content_erased_at: Annotated[AwareDatetime | None, Field(alias="contentErasedAt")] = None
+    """
+    When an erasure cleared the run's content (its input, output, failure message and journal payloads): a person's words were erased. Structure (status, times, ids) stays.
+    """
+    parent_run_id: Annotated[UUID | None, Field(alias="parentRunId")] = None
+    """
+    Set on a child run (a sub-flow run, or the agent turn an agent step started): the run that started it.
+    """
+    parent_node_id: Annotated[str | None, Field(alias="parentNodeId")] = None
+    """
+    Set on a child run: the node in the parent run that started it.
+    """
+    agent: RunAgent | None = None
+    waiting_for: Annotated[RunWaitingFor | None, Field(alias="waitingFor")] = None
+    trigger: RunTrigger | None = None
+    started_by: Annotated[
+        Annotated[Literal["person", "key", "schedule", "webhook", "event"] | str, _open.OPEN]
+        | None,
+        Field(alias="startedBy"),
+    ] = None
+    """
+    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
+    """
+    replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
+    """
+    Set on a replay run (an eval run re-running a past run): the run it replays.
+    """
+    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    """
+    Set on a replay run: the eval run that started it.
+    """
+    versions: FlowVersionOverrides | None = None
+    segments: list[ScopeSegment] | None = None
+    """
+    The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.
+    """
+    trace_id: Annotated[str | None, Field(alias="traceId", pattern="^[0-9a-f]{32}$")] = None
+    """
+    The W3C trace id of the request that started the run: the caller's (from its `traceparent`) or one the API minted. The runtime's records about the run carry it; `GET` responses answer `traceresponse` with each request's own. Absent for a run no request started, and on runs from before runs recorded it.
+    """
+    public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
+    """
+    Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
+    """
+    public_access_token_expires_at: Annotated[
+        AwareDatetime | None, Field(alias="publicAccessTokenExpiresAt")
+    ] = None
+    """
+    When `publicAccessToken` stops working.
+    """
+
+
+class RunCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Datum]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`. See `docs/API-ROUTE-CONVENTIONS.md` §5.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class Tool(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: Annotated[str, Field(min_length=1)]
+    """
+    ToolId — dotted namespace (e.g. `acme.verify-citation`).
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
+    """
+    description: Annotated[str, Field(min_length=1)]
+    version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
+    input: dict[str, Any]
+    """
+    JSON Schema (Draft 2020-12) for the tool input.
+    """
+    output: dict[str, Any]
+    """
+    JSON Schema (Draft 2020-12) for the tool output.
+    """
+    needs: list[ToolNeed] | None = None
+    effects: list[ToolEffect] | None = None
+    transport: Annotated[Literal["auto", "native", "mcp"] | str, _open.OPEN] | None = None
+    mcp_endpoint: Annotated[str | None, Field(alias="mcpEndpoint")] = None
+    metadata: dict[str, Any] | None = None
+    mutating: bool | None = None
+    """
+    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
+    """
+    needs_approval_when_unattended: Annotated[
+        bool | None, Field(alias="needsApprovalWhenUnattended")
+    ] = None
+    """
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.
+    """
+    sandbox: Annotated[Literal["none", "context-isolated", "strict"] | str, _open.OPEN] | None = (
+        None
+    )
+    """
+    Isolation posture the runtime enforces around the handler. Optional additive field.
+    """
+    limits: RuntimeLimits | None = None
+    network: (
+        Annotated[
+            NetworkPolicy1 | NetworkPolicy2 | NetworkPolicyUnrecognized,
+            _open.OpenUnion("kind", NetworkPolicyUnrecognized),
+        ]
+        | None
+    ) = None
+    """
+    Network egress policy. Optional additive field. Discriminated on `kind`.
+    """
+    needs_spec: Annotated[TypedNeeds | None, Field(alias="needsSpec")] = None
+    code_artifact_ref: Annotated[
+        Annotated[
+            CodeArtifactRefOci | CodeArtifactRefFilesystem | CodeArtifactRefUnrecognized,
+            _open.OpenUnion("kind", CodeArtifactRefUnrecognized),
+        ]
+        | None,
+        Field(alias="codeArtifactRef"),
+    ] = None
+    """
+    Handler-artifact pointer. Discriminated on `kind`: `oci` is the deploy-pipeline shape (image + module path + artifactVersion); `filesystem` is the local-development shape — absolute host path at the pack's on-disk handler file. Production servers SHOULD reject `filesystem`.
+    """
+    spec: ToolSpec | None = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Present only on an unregistered version: a retired tool (every version unregistered) as `GET /v1/tools?includeRetired=true` lists it.
+    """
+    secret_scopes: Annotated[
+        dict[
+            str,
+            Annotated[
+                RecordedSecretScopeTenant
+                | RecordedSecretScopeOrg
+                | RecordedSecretScopeProject
+                | RecordedSecretScopeUnrecognized,
+                _open.OpenUnion("kind", RecordedSecretScopeUnrecognized),
+            ]
+            | None,
+        ]
+        | None,
+        Field(alias="secretScopes"),
+    ] = None
+    """
+    Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.
+    """
+
+
+class ToolCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Tool]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class ToolVersionRow(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: Annotated[str, Field(min_length=1)]
+    """
+    ToolId — dotted namespace (e.g. `acme.verify-citation`).
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
+    """
+    description: Annotated[str, Field(min_length=1)]
+    version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
+    input: dict[str, Any]
+    """
+    JSON Schema (Draft 2020-12) for the tool input.
+    """
+    output: dict[str, Any]
+    """
+    JSON Schema (Draft 2020-12) for the tool output.
+    """
+    needs: list[ToolNeed] | None = None
+    effects: list[ToolEffect] | None = None
+    transport: Annotated[Literal["auto", "native", "mcp"] | str, _open.OPEN] | None = None
+    mcp_endpoint: Annotated[str | None, Field(alias="mcpEndpoint")] = None
+    metadata: dict[str, Any] | None = None
+    mutating: bool | None = None
+    """
+    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
+    """
+    needs_approval_when_unattended: Annotated[
+        bool | None, Field(alias="needsApprovalWhenUnattended")
+    ] = None
+    """
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.
+    """
+    sandbox: Annotated[Literal["none", "context-isolated", "strict"] | str, _open.OPEN] | None = (
+        None
+    )
+    """
+    Isolation posture the runtime enforces around the handler. Optional additive field.
+    """
+    limits: RuntimeLimits | None = None
+    network: (
+        Annotated[
+            NetworkPolicy1 | NetworkPolicy2 | NetworkPolicyUnrecognized,
+            _open.OpenUnion("kind", NetworkPolicyUnrecognized),
+        ]
+        | None
+    ) = None
+    """
+    Network egress policy. Optional additive field. Discriminated on `kind`.
+    """
+    needs_spec: Annotated[TypedNeeds | None, Field(alias="needsSpec")] = None
+    code_artifact_ref: Annotated[
+        Annotated[
+            CodeArtifactRefOci | CodeArtifactRefFilesystem | CodeArtifactRefUnrecognized,
+            _open.OpenUnion("kind", CodeArtifactRefUnrecognized),
+        ]
+        | None,
+        Field(alias="codeArtifactRef"),
+    ] = None
+    """
+    Handler-artifact pointer. Discriminated on `kind`: `oci` is the deploy-pipeline shape (image + module path + artifactVersion); `filesystem` is the local-development shape — absolute host path at the pack's on-disk handler file. Production servers SHOULD reject `filesystem`.
+    """
+    spec: ToolSpec | None = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    ISO 8601 timestamp — present iff this version has been soft-tombstoned via `POST /versions/:v/unregister`. Absent on active versions.
+    """
+    secret_scopes: Annotated[
+        dict[
+            str,
+            Annotated[
+                RecordedSecretScopeTenant
+                | RecordedSecretScopeOrg
+                | RecordedSecretScopeProject
+                | RecordedSecretScopeUnrecognized,
+                _open.OpenUnion("kind", RecordedSecretScopeUnrecognized),
+            ]
+            | None,
+        ]
+        | None,
+        Field(alias="secretScopes"),
+    ] = None
+    """
+    Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.
+    """
+
+
+class ToolVersionCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ToolVersionRow]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class RegisterMCPEndpointBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    endpoint_id: Annotated[str, Field(alias="endpointId", min_length=1, pattern="^[^.]+$")]
+    """
+    No `.`: an MCP tool's id is `<endpointId>.<tool name>`, so it splits at its first `.`. An endpoint registered with one before keeps it.
+    """
+    name: Annotated[str, Field(min_length=1)]
+    """
+    Human-readable display name.
+    """
+    transport: Annotated[Literal["stdio", "http-sse", "streamable-http"] | str, _open.OPEN]
+    """
+    MCP transport variant. `stdio` — local subprocess (spawn a command). `http-sse` — the older MCP HTTP+SSE transport (separate POST + SSE endpoints). `streamable-http` — the Streamable HTTP transport (single endpoint, session id via header).
+    """
+    config: Config3 | Config4 | Config5
+    """
+    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
+    """
+    secret_ref: Annotated[MCPEndpointSecretRef | None, Field(alias="secretRef")] = None
+    auth: (
+        Annotated[
+            MCPBasicAuth
+            | MCPOAuth2ClientCredentialsAuth
+            | MCPHeaderAuth
+            | MCPEndpointAuthUnrecognized,
+            _open.OpenUnion("scheme", MCPEndpointAuthUnrecognized),
+        ]
+        | None
+    ) = None
+    """
+    How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`.
+    """
+    instructions: str | None = None
+    """
+    Optional pass-through to the MCP client `serverInfo.instructions`.
+    """
+    metadata: dict[str, Any] | None = None
+    """
+    Optional caller-defined metadata bag.
+    """
+    send_traceparent: Annotated[bool | None, Field(alias="sendTraceparent")] = None
+    """
+    Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.
+    """
+    scope_kind: Annotated[Literal["tenant", "org", "project"], Field(alias="scopeKind")]
+    """
+    Discriminator for the ?scopeKind + ?scopeId + ?inherit triplet. Tenant carries no id (implicit from session); org/project require scopeId.
+    """
+    scope_id: Annotated[str | None, Field(alias="scopeId", min_length=1)] = None
+    """
+    Required when `scopeKind` is `org` or `project`; absent for `tenant` (implicit from the session).
+    """
+
+
+class PersonGrants(BaseModel):
+    """
+    What a person may do, as granted directly: tenant admin, a role on a project (its memberships), a role in a team, and the reviewer roster. What a team's or an org's grants imply is not expanded.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId")]
+    tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
+    """
+    Whether the person is a tenant admin. Absent when the runtime has no authorization store: nothing grants it then.
+    """
+    tenant_member: Annotated[bool | None, Field(alias="tenantMember")] = None
+    """
+    Whether the person is a tenant member: they read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A person is one from being added. Absent when the runtime has no authorization store, or doesn't report it.
+    """
+    projects: list[PersonProjectRole]
+    """
+    Direct project memberships.
+    """
+    teams: list[PersonTeamRole]
+    """
+    Team memberships.
+    """
+    reviewer: PersonReviewerRole | None = None
+
+
+class EnvSetOutcome(
+    RootModel[EnvSetOutcomeOk | EnvSetOutcomeRevisionConflict | EnvSetOutcomeError]
+):
+    root: EnvSetOutcomeOk | EnvSetOutcomeRevisionConflict | EnvSetOutcomeError
+
+
+class SecretSetOutcome(
+    RootModel[
+        SecretSetOutcomeOk
+        | SecretSetOutcomeAlreadyExists
+        | SecretSetOutcomeVersionConflict
+        | SecretSetOutcomeError
+    ]
+):
+    root: (
+        SecretSetOutcomeOk
+        | SecretSetOutcomeAlreadyExists
+        | SecretSetOutcomeVersionConflict
+        | SecretSetOutcomeError
+    )
 
 
 class ScheduleRecord(BaseModel):
@@ -12903,11 +15242,13 @@ class ScheduleRecord(BaseModel):
     """
     Static input handed to the run on every fire. Absent → `{}`.
     """
-    catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
+    catch_up: Annotated[
+        Annotated[Literal["latest", "skip"] | str, _open.OPEN] | None, Field(alias="catchUp")
+    ] = None
     """
     After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence. A tenant's suspension isn't caught up either way: once the tenant is restored, a schedule that's on fires next at its first occurrence after the restore.
     """
-    overlap: Literal["skip", "allow"] | None = None
+    overlap: Annotated[Literal["skip", "allow"] | str, _open.OPEN] | None = None
     """
     When an occurrence comes while the previous run of this schedule is still running: `skip` records the fire as skipped; `allow` starts another run.
     """
@@ -12918,7 +15259,7 @@ class ScheduleRecord(BaseModel):
     How late a fire may start and still count as on time; past it, `catchUp` applies.
     """
     label: str | None
-    status: Literal["active", "paused"]
+    status: Annotated[Literal["active", "paused"] | str, _open.OPEN]
     """
     Lifecycle status. Only `active` triggers fire. Tombstoned rows are excluded from every read path.
     """
@@ -13044,202 +15385,6 @@ class PatchScheduleBody(BaseModel):
     """
 
 
-class WebhookTriggerRecord(BaseModel):
-    """
-    A webhook trigger: a signed request to its `receiveUrl` starts a run of its flow, as its owner. The signing secret is never on it, only its name.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    trigger_id: Annotated[str, Field(alias="triggerId")]
-    webhook_id: Annotated[str, Field(alias="webhookId")]
-    """
-    The routable id in the receive URL. Route-minted (a random UUID); unique per tenant. Not a secret: the signature is what a request is checked by.
-    """
-    receive_url: Annotated[AnyUrl | None, Field(alias="receiveUrl")] = None
-    """
-    Where the sender posts: `{public URL}/v1/hooks/{tenantId}/{webhookId}`. Absent when the deployment has no public URL configured (`KINDGI_PUBLIC_URL`); it's never taken from a request's `Host`.
-    """
-    flow_id: Annotated[str, Field(alias="flowId", min_length=1)]
-    flow_version: Annotated[str, Field(alias="flowVersion", min_length=1)]
-    project_id: Annotated[UUID, Field(alias="projectId")]
-    """
-    The trigger's project: its runs are this project's.
-    """
-    owner: TriggerOwner
-    """
-    Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every delivery.
-    """
-    input: Any | None = None
-    """
-    The flow's input on every delivery, in place of the event. Absent: the event (the body, parsed as JSON for a JSON content type, else its text).
-    """
-    hmac_secret_name: Annotated[str, Field(alias="hmacSecretName", min_length=1)]
-    """
-    The signing secret, by name (written with `POST /v1/secrets`, or made by `generateSecret`). Read in the env the deployment serves, at `hmacSecretScope`.
-    """
-    hmac_secret_scope: Annotated[
-        RecordedSecretScopeTenant | RecordedSecretScopeOrg | RecordedSecretScopeProject | None,
-        Field(alias="hmacSecretScope"),
-    ] = None
-    """
-    Where the signing secret is read, recorded when the trigger was registered (or its secret named again). `null`: none usable, so no delivery verifies until an admin names it again. Absent on triggers registered before it was recorded: read at the tenant, as before.
-    """
-    signing_secret: Annotated[str | None, Field(alias="signingSecret")] = None
-    """
-    Only in the answer to a register with `generateSecret`: the new signing secret, shown this once, to paste into the sender. It's stored as `hmacSecretName` in the trigger's own scope; no later read shows it.
-    """
-    signature: WebhookSignatureHmacSha256 | WebhookSignatureStandardWebhooks
-    """
-    How a webhook trigger's sender signs. `hmac-sha256`: an HMAC-SHA256 of the raw body under the secret's UTF-8 bytes, in `header`, `hex` or `base64`, after an optional `prefix` (GitHub and Drupal's Webhooks module: `X-Hub-Signature-256`, hex, `sha256=`; WooCommerce: `X-WC-Webhook-Signature`, base64; Shopify: `X-Shopify-Hmac-Sha256`, base64). No timestamp is signed, so only the trigger's dedupe catches a replay. `standard-webhooks`: the Standard Webhooks format (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64>` over `{id}.{timestamp}.{body}`, a `whsec_` secret), refused past `toleranceSeconds` (default 300) from the receiver's clock; it dedupes on its `webhook-id`.
-    """
-    delivery_id_header: Annotated[str | None, Field(alias="deliveryIdHeader")] = None
-    """
-    The header whose value, with the body, is a delivery's dedupe key (WooCommerce: `X-WC-Webhook-Delivery-ID`, which is per second, not per event, so the body counts too). Absent: deliveries aren't deduped (`standard-webhooks` dedupes on its own `webhook-id`).
-    """
-    body_limit_bytes: Annotated[int, Field(alias="bodyLimitBytes", ge=1024, le=1048576)]
-    """
-    The largest body it takes (default 262144).
-    """
-    rate_limit_per_minute: Annotated[int, Field(alias="rateLimitPerMinute", ge=1, le=6000)]
-    """
-    Accepted deliveries a minute (default 600); past it, `429`.
-    """
-    label: str | None
-    status: Literal["active", "paused"]
-    """
-    Lifecycle status. Only `active` triggers fire. Tombstoned rows are excluded from every read path.
-    """
-    status_reason: Annotated[str | None, Field(alias="statusReason")] = None
-    """
-    Why the runtime paused it (repeated refused or failed starts; a sender's failed proofs never count), when it did.
-    """
-    suppressed_refusals: Annotated[SuppressedRefusals | None, Field(alias="suppressedRefusals")] = (
-        None
-    )
-    """
-    Refusals and skipped deliveries this minute past the 20 recorded in its history, which only counted.
-    """
-    last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-
-
-class WebhookTriggerCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[WebhookTriggerRecord]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    has_more: Annotated[bool, Field(alias="hasMore")]
-
-
-class RegisterWebhookTriggerBody(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    flow_id: Annotated[str, Field(alias="flowId", min_length=1)]
-    flow_version: Annotated[str, Field(alias="flowVersion", min_length=1)]
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    """
-    The trigger's project; absent: the tenant's Default project.
-    """
-    config: Config8 | None = None
-    hmac_secret_name: Annotated[str, Field(alias="hmacSecretName", min_length=1)]
-    """
-    The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the tenant that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing). Under `kindgi dev`, `generateSecret` writes it to an env file, so the name is capital letters, digits and underscores, not starting with a digit (`secret-name-invalid` otherwise).
-    """
-    generate_secret: Annotated[bool | None, Field(alias="generateSecret")] = None
-    """
-    Make a new signing secret, store it as `hmacSecretName` in the trigger's own project (in the env the deployment serves), and return it once as `signingSecret`. Needs only `write` on the project. A name the project already has is refused (`secret-write-conflict`, 409), never overwritten. Letters and digits, or `whsec_…` for `standard-webhooks`.
-    """
-    signature: WebhookSignatureHmacSha256 | WebhookSignatureStandardWebhooks | None = None
-    """
-    How a webhook trigger's sender signs. `hmac-sha256`: an HMAC-SHA256 of the raw body under the secret's UTF-8 bytes, in `header`, `hex` or `base64`, after an optional `prefix` (GitHub and Drupal's Webhooks module: `X-Hub-Signature-256`, hex, `sha256=`; WooCommerce: `X-WC-Webhook-Signature`, base64; Shopify: `X-Shopify-Hmac-Sha256`, base64). No timestamp is signed, so only the trigger's dedupe catches a replay. `standard-webhooks`: the Standard Webhooks format (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64>` over `{id}.{timestamp}.{body}`, a `whsec_` secret), refused past `toleranceSeconds` (default 300) from the receiver's clock; it dedupes on its `webhook-id`.
-    """
-    delivery_id_header: Annotated[
-        str | None, Field(alias="deliveryIdHeader", max_length=100, min_length=1)
-    ] = None
-    """
-    The header whose value, with the body, dedupes deliveries. Not with `standard-webhooks`, which dedupes on its `webhook-id`.
-    """
-    body_limit_bytes: Annotated[int | None, Field(alias="bodyLimitBytes", ge=1024, le=1048576)] = (
-        None
-    )
-    rate_limit_per_minute: Annotated[
-        int | None, Field(alias="rateLimitPerMinute", ge=1, le=6000)
-    ] = None
-    label: str | None = None
-    run_as_service_account_id: Annotated[
-        str | None, Field(alias="runAsServiceAccountId", min_length=1)
-    ] = None
-    """
-    A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Absent: the caller owns it.
-    """
-
-
-class PatchWebhookTriggerBody(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    config: Config8 | None = None
-    label: str | None = None
-    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
-    hmac_secret_name: Annotated[str | None, Field(alias="hmacSecretName", min_length=1)] = None
-    signature: WebhookSignatureHmacSha256 | WebhookSignatureStandardWebhooks | None = None
-    """
-    How a webhook trigger's sender signs. `hmac-sha256`: an HMAC-SHA256 of the raw body under the secret's UTF-8 bytes, in `header`, `hex` or `base64`, after an optional `prefix` (GitHub and Drupal's Webhooks module: `X-Hub-Signature-256`, hex, `sha256=`; WooCommerce: `X-WC-Webhook-Signature`, base64; Shopify: `X-Shopify-Hmac-Sha256`, base64). No timestamp is signed, so only the trigger's dedupe catches a replay. `standard-webhooks`: the Standard Webhooks format (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64>` over `{id}.{timestamp}.{body}`, a `whsec_` secret), refused past `toleranceSeconds` (default 300) from the receiver's clock; it dedupes on its `webhook-id`.
-    """
-    delivery_id_header: Annotated[str | None, Field(alias="deliveryIdHeader", max_length=100)] = (
-        None
-    )
-    """
-    `null` stops deduping.
-    """
-    body_limit_bytes: Annotated[int | None, Field(alias="bodyLimitBytes", ge=1024, le=1048576)] = (
-        None
-    )
-    """
-    `null`: the default.
-    """
-    rate_limit_per_minute: Annotated[
-        int | None, Field(alias="rateLimitPerMinute", ge=1, le=6000)
-    ] = None
-    """
-    `null`: the default.
-    """
-
-
-class WebhookEndpoint(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    endpoint_id: Annotated[str, Field(alias="endpointId")]
-    url: AnyUrl
-    events: list[Literal["run.finished", "improvement-pass.finished", "approval.requested"]]
-    filter: WebhookEndpointFilter
-    description: str | None
-    secret_ref: Annotated[WebhookSecretRef, Field(alias="secretRef")]
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-
-
-class WebhookEndpointCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[WebhookEndpoint]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    has_more: Annotated[bool, Field(alias="hasMore")]
-
-
 class FinishedRun(BaseModel):
     """
     A finished top-level run: its identity and outcome, never its input or output. Field names match `GET /v1/runs/{runId}`.
@@ -13256,7 +15401,7 @@ class FinishedRun(BaseModel):
     project_id: Annotated[UUID, Field(alias="projectId")]
     flow_id: Annotated[str, Field(alias="flowId")]
     flow_version: Annotated[str, Field(alias="flowVersion")]
-    status: Literal["completed", "failed", "cancelled"]
+    status: Annotated[Literal["completed", "failed", "cancelled"] | str, _open.OPEN]
     dry_run: Annotated[bool, Field(alias="dryRun")]
     failure_message: Annotated[str | None, Field(alias="failureMessage")]
     """
@@ -13305,13 +15450,17 @@ class WebhookDelivery(BaseModel):
     delivery_id: Annotated[str, Field(alias="deliveryId")]
     endpoint_id: Annotated[str, Field(alias="endpointId")]
     event: Annotated[
-        RunFinishedEvent | ImprovementPassFinishedEvent | ApprovalRequestedEvent | WebhookTestEvent,
-        Field(discriminator="type"),
+        RunFinishedEvent
+        | ImprovementPassFinishedEvent
+        | ApprovalRequestedEvent
+        | WebhookTestEvent
+        | WebhookEventUnrecognized,
+        _open.OpenUnion("type", WebhookEventUnrecognized),
     ]
     """
     The JSON body of every webhook request.
     """
-    status: Literal["pending", "delivered", "failed"]
+    status: Annotated[Literal["pending", "delivered", "failed"] | str, _open.OPEN]
     """
     `pending`: waiting for its next attempt. `delivered`: the endpoint answered 2xx. `failed`: every attempt failed, or the endpoint was unregistered first; redeliver queues it again.
     """
@@ -13340,492 +15489,6 @@ class WebhookDeliveryCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class EnvSetOutcomeOk(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["ok"]
-    record: EnvRecord
-
-
-class SecretSetOutcomeOk(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["ok"]
-    record: SecretRecord
-    version_id: Annotated[int, Field(alias="versionId", ge=1)]
-
-
-class SecretSetOutcomeAlreadyExists(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["already-exists"]
-    record: SecretRecord
-
-
-class RunWaitingFor(BaseModel):
-    """
-    Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    approvals: list[RunWaitingApproval]
-    other: list[OtherItem]
-
-
-class Run(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: UUID
-    """
-    RunId.
-    """
-    tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    flow_id: Annotated[str, Field(alias="flowId")]
-    flow_version: Annotated[str, Field(alias="flowVersion")]
-    """
-    Semver.
-    """
-    status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
-    dry_run: Annotated[bool, Field(alias="dryRun")]
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-    completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
-    failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
-    """
-    The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form.
-    """
-    failure: RunFailure | None = None
-    output: Any | None = None
-    """
-    The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.
-    """
-    content_erased_at: Annotated[AwareDatetime | None, Field(alias="contentErasedAt")] = None
-    """
-    When an erasure cleared the run's content (its input, output, failure message and journal payloads): a person's words were erased. Structure (status, times, ids) stays.
-    """
-    parent_run_id: Annotated[UUID | None, Field(alias="parentRunId")] = None
-    """
-    Set on a child run (a sub-flow run, or the agent turn an agent step started): the run that started it.
-    """
-    parent_node_id: Annotated[str | None, Field(alias="parentNodeId")] = None
-    """
-    Set on a child run: the node in the parent run that started it.
-    """
-    agent: RunAgent | None = None
-    waiting_for: Annotated[RunWaitingFor | None, Field(alias="waitingFor")] = None
-    trigger: RunTrigger | None = None
-    started_by: Annotated[
-        Literal["person", "key", "schedule", "webhook", "event"] | None, Field(alias="startedBy")
-    ] = None
-    """
-    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
-    """
-    replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
-    """
-    Set on a replay run (an eval run re-running a past run): the run it replays.
-    """
-    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
-    """
-    Set on a replay run: the eval run that started it.
-    """
-    versions: FlowVersionOverrides | None = None
-    segments: list[ScopeSegment] | None = None
-    """
-    The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.
-    """
-    trace_id: Annotated[str | None, Field(alias="traceId", pattern="^[0-9a-f]{32}$")] = None
-    """
-    The W3C trace id of the request that started the run: the caller's (from its `traceparent`) or one the API minted. The runtime's records about the run carry it; `GET` responses answer `traceresponse` with each request's own. Absent for a run no request started, and on runs from before runs recorded it.
-    """
-    public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
-    """
-    Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
-    """
-    public_access_token_expires_at: Annotated[
-        AwareDatetime | None, Field(alias="publicAccessTokenExpiresAt")
-    ] = None
-    """
-    When `publicAccessToken` stops working.
-    """
-
-
-class Datum(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: UUID
-    """
-    RunId.
-    """
-    tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    flow_id: Annotated[str, Field(alias="flowId")]
-    flow_version: Annotated[str, Field(alias="flowVersion")]
-    """
-    Semver.
-    """
-    status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
-    dry_run: Annotated[bool, Field(alias="dryRun")]
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-    completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
-    failure_message: Annotated[str | None, Field(alias="failureMessage")] = None
-    """
-    The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form.
-    """
-    failure: RunFailure | None = None
-    output: Any | None = None
-    """
-    The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.
-    """
-    content_erased_at: Annotated[AwareDatetime | None, Field(alias="contentErasedAt")] = None
-    """
-    When an erasure cleared the run's content (its input, output, failure message and journal payloads): a person's words were erased. Structure (status, times, ids) stays.
-    """
-    parent_run_id: Annotated[UUID | None, Field(alias="parentRunId")] = None
-    """
-    Set on a child run (a sub-flow run, or the agent turn an agent step started): the run that started it.
-    """
-    parent_node_id: Annotated[str | None, Field(alias="parentNodeId")] = None
-    """
-    Set on a child run: the node in the parent run that started it.
-    """
-    agent: RunAgent | None = None
-    waiting_for: Annotated[RunWaitingFor | None, Field(alias="waitingFor")] = None
-    trigger: RunTrigger | None = None
-    started_by: Annotated[
-        Literal["person", "key", "schedule", "webhook", "event"] | None, Field(alias="startedBy")
-    ] = None
-    """
-    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
-    """
-    replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
-    """
-    Set on a replay run (an eval run re-running a past run): the run it replays.
-    """
-    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
-    """
-    Set on a replay run: the eval run that started it.
-    """
-    versions: FlowVersionOverrides | None = None
-    segments: list[ScopeSegment] | None = None
-    """
-    The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.
-    """
-    trace_id: Annotated[str | None, Field(alias="traceId", pattern="^[0-9a-f]{32}$")] = None
-    """
-    The W3C trace id of the request that started the run: the caller's (from its `traceparent`) or one the API minted. The runtime's records about the run carry it; `GET` responses answer `traceresponse` with each request's own. Absent for a run no request started, and on runs from before runs recorded it.
-    """
-    public_access_token: Annotated[str | None, Field(alias="publicAccessToken")] = None
-    """
-    Only in the response to `POST /v1/runs`, when the deployment issues public run tokens: a read-only token for this run (and its descendants) to hand to a browser, for `GET /v1/runs/{runId}/progress` and its stream.
-    """
-    public_access_token_expires_at: Annotated[
-        AwareDatetime | None, Field(alias="publicAccessTokenExpiresAt")
-    ] = None
-    """
-    When `publicAccessToken` stops working.
-    """
-
-
-class RunCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[Datum]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor for the next page. Absent when `hasMore: false`. See `docs/API-ROUTE-CONVENTIONS.md` §5.
-    """
-    has_more: Annotated[bool, Field(alias="hasMore")]
-
-
-class Tool(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: Annotated[str, Field(min_length=1)]
-    """
-    ToolId — dotted namespace (e.g. `acme.verify-citation`).
-    """
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    """
-    The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
-    """
-    description: Annotated[str, Field(min_length=1)]
-    version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
-    input: dict[str, Any]
-    """
-    JSON Schema (Draft 2020-12) for the tool input.
-    """
-    output: dict[str, Any]
-    """
-    JSON Schema (Draft 2020-12) for the tool output.
-    """
-    needs: list[ToolNeed] | None = None
-    effects: list[ToolEffect] | None = None
-    transport: Literal["auto", "native", "mcp"] | None = None
-    mcp_endpoint: Annotated[str | None, Field(alias="mcpEndpoint")] = None
-    metadata: dict[str, Any] | None = None
-    mutating: bool | None = None
-    """
-    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
-    """
-    needs_approval_when_unattended: Annotated[
-        bool | None, Field(alias="needsApprovalWhenUnattended")
-    ] = None
-    """
-    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.
-    """
-    sandbox: Literal["none", "context-isolated", "strict"] | None = None
-    """
-    Isolation posture the runtime enforces around the handler. Optional additive field.
-    """
-    limits: RuntimeLimits | None = None
-    network: NetworkPolicy1 | NetworkPolicy2 | None = None
-    """
-    Network egress policy. Optional additive field. Discriminated on `kind`.
-    """
-    needs_spec: Annotated[TypedNeeds | None, Field(alias="needsSpec")] = None
-    code_artifact_ref: Annotated[
-        CodeArtifactRefOci | CodeArtifactRefFilesystem | None, Field(alias="codeArtifactRef")
-    ] = None
-    """
-    Handler-artifact pointer. Discriminated on `kind`: `oci` is the deploy-pipeline shape (image + module path + artifactVersion); `filesystem` is the local-development shape — absolute host path at the pack's on-disk handler file. Production servers SHOULD reject `filesystem`.
-    """
-    spec: ToolSpec | None = None
-    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
-    """
-    Present only on an unregistered version: a retired tool (every version unregistered) as `GET /v1/tools?includeRetired=true` lists it.
-    """
-    secret_scopes: Annotated[
-        dict[
-            str,
-            RecordedSecretScopeTenant | RecordedSecretScopeOrg | RecordedSecretScopeProject | None,
-        ]
-        | None,
-        Field(alias="secretScopes"),
-    ] = None
-    """
-    Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.
-    """
-
-
-class ToolCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[Tool]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor for the next page. Absent when `hasMore: false`.
-    """
-    has_more: Annotated[bool, Field(alias="hasMore")]
-
-
-class ToolVersionRow(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: Annotated[str, Field(min_length=1)]
-    """
-    ToolId — dotted namespace (e.g. `acme.verify-citation`).
-    """
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    """
-    The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
-    """
-    description: Annotated[str, Field(min_length=1)]
-    version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
-    input: dict[str, Any]
-    """
-    JSON Schema (Draft 2020-12) for the tool input.
-    """
-    output: dict[str, Any]
-    """
-    JSON Schema (Draft 2020-12) for the tool output.
-    """
-    needs: list[ToolNeed] | None = None
-    effects: list[ToolEffect] | None = None
-    transport: Literal["auto", "native", "mcp"] | None = None
-    mcp_endpoint: Annotated[str | None, Field(alias="mcpEndpoint")] = None
-    metadata: dict[str, Any] | None = None
-    mutating: bool | None = None
-    """
-    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
-    """
-    needs_approval_when_unattended: Annotated[
-        bool | None, Field(alias="needsApprovalWhenUnattended")
-    ] = None
-    """
-    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.
-    """
-    sandbox: Literal["none", "context-isolated", "strict"] | None = None
-    """
-    Isolation posture the runtime enforces around the handler. Optional additive field.
-    """
-    limits: RuntimeLimits | None = None
-    network: NetworkPolicy1 | NetworkPolicy2 | None = None
-    """
-    Network egress policy. Optional additive field. Discriminated on `kind`.
-    """
-    needs_spec: Annotated[TypedNeeds | None, Field(alias="needsSpec")] = None
-    code_artifact_ref: Annotated[
-        CodeArtifactRefOci | CodeArtifactRefFilesystem | None, Field(alias="codeArtifactRef")
-    ] = None
-    """
-    Handler-artifact pointer. Discriminated on `kind`: `oci` is the deploy-pipeline shape (image + module path + artifactVersion); `filesystem` is the local-development shape — absolute host path at the pack's on-disk handler file. Production servers SHOULD reject `filesystem`.
-    """
-    spec: ToolSpec | None = None
-    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
-    """
-    ISO 8601 timestamp — present iff this version has been soft-tombstoned via `POST /versions/:v/unregister`. Absent on active versions.
-    """
-    secret_scopes: Annotated[
-        dict[
-            str,
-            RecordedSecretScopeTenant | RecordedSecretScopeOrg | RecordedSecretScopeProject | None,
-        ]
-        | None,
-        Field(alias="secretScopes"),
-    ] = None
-    """
-    Where each secret it names is read, by name: recorded by the server when it was registered, never sent by a caller. `null`: none usable (the registrant administers no scope the secret could be read at), until an admin records it again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again. Absent on items registered before it was recorded, or on a runtime without a secrets store.
-    """
-
-
-class ToolVersionCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[ToolVersionRow]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor for the next page. Absent when `hasMore: false`.
-    """
-    has_more: Annotated[bool, Field(alias="hasMore")]
-
-
-class RegisterMCPEndpointBody(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    endpoint_id: Annotated[str, Field(alias="endpointId", min_length=1, pattern="^[^.]+$")]
-    """
-    No `.`: an MCP tool's id is `<endpointId>.<tool name>`, so it splits at its first `.`. An endpoint registered with one before keeps it.
-    """
-    name: Annotated[str, Field(min_length=1)]
-    """
-    Human-readable display name.
-    """
-    transport: Literal["stdio", "http-sse", "streamable-http"]
-    """
-    MCP transport variant. `stdio` — local subprocess (spawn a command). `http-sse` — the older MCP HTTP+SSE transport (separate POST + SSE endpoints). `streamable-http` — the Streamable HTTP transport (single endpoint, session id via header).
-    """
-    config: Config3 | Config4 | Config5
-    """
-    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
-    """
-    secret_ref: Annotated[MCPEndpointSecretRef | None, Field(alias="secretRef")] = None
-    auth: Annotated[
-        MCPBasicAuth | MCPOAuth2ClientCredentialsAuth | MCPHeaderAuth | None,
-        Field(discriminator="scheme"),
-    ] = None
-    """
-    How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`.
-    """
-    instructions: str | None = None
-    """
-    Optional pass-through to the MCP client `serverInfo.instructions`.
-    """
-    metadata: dict[str, Any] | None = None
-    """
-    Optional caller-defined metadata bag.
-    """
-    send_traceparent: Annotated[bool | None, Field(alias="sendTraceparent")] = None
-    """
-    Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.
-    """
-    scope_kind: Annotated[Literal["tenant", "org", "project"], Field(alias="scopeKind")]
-    """
-    Discriminator for the ?scopeKind + ?scopeId + ?inherit triplet. Tenant carries no id (implicit from session); org/project require scopeId.
-    """
-    scope_id: Annotated[str | None, Field(alias="scopeId", min_length=1)] = None
-    """
-    Required when `scopeKind` is `org` or `project`; absent for `tenant` (implicit from the session).
-    """
-
-
-class PersonGrants(BaseModel):
-    """
-    What a person may do, as granted directly: tenant admin, a role on a project (its memberships), a role in a team, and the reviewer roster. What a team's or an org's grants imply is not expanded.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    user_id: Annotated[str, Field(alias="userId")]
-    tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
-    """
-    Whether the person is a tenant admin. Absent when the runtime has no authorization store: nothing grants it then.
-    """
-    tenant_member: Annotated[bool | None, Field(alias="tenantMember")] = None
-    """
-    Whether the person is a tenant member: they read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A person is one from being added. Absent when the runtime has no authorization store, or doesn't report it.
-    """
-    projects: list[PersonProjectRole]
-    """
-    Direct project memberships.
-    """
-    teams: list[PersonTeamRole]
-    """
-    Team memberships.
-    """
-    reviewer: PersonReviewerRole | None = None
-
-
-class EnvSetOutcome(
-    RootModel[EnvSetOutcomeOk | EnvSetOutcomeRevisionConflict | EnvSetOutcomeError]
-):
-    root: EnvSetOutcomeOk | EnvSetOutcomeRevisionConflict | EnvSetOutcomeError
-
-
-class SecretSetOutcome(
-    RootModel[
-        SecretSetOutcomeOk
-        | SecretSetOutcomeAlreadyExists
-        | SecretSetOutcomeVersionConflict
-        | SecretSetOutcomeError
-    ]
-):
-    root: (
-        SecretSetOutcomeOk
-        | SecretSetOutcomeAlreadyExists
-        | SecretSetOutcomeVersionConflict
-        | SecretSetOutcomeError
-    )
-
-
 class MCPEndpoint(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -13836,19 +15499,28 @@ class MCPEndpoint(BaseModel):
     """
     Human-readable display name.
     """
-    transport: Literal["stdio", "http-sse", "streamable-http"]
+    transport: Annotated[Literal["stdio", "http-sse", "streamable-http"] | str, _open.OPEN]
     """
     MCP transport variant. `stdio` — local subprocess (spawn a command). `http-sse` — the older MCP HTTP+SSE transport (separate POST + SSE endpoints). `streamable-http` — the Streamable HTTP transport (single endpoint, session id via header).
     """
-    config: Config | Config1 | Config2
+    config: Annotated[
+        Config | Config1 | Config2 | MCPEndpointConfigUnrecognized,
+        _open.OpenUnion("transport", MCPEndpointConfigUnrecognized),
+    ]
     """
     Transport-tagged config union. Server enforces `config.transport === transport` at registration.
     """
     secret_ref: Annotated[MCPEndpointSecretRef | None, Field(alias="secretRef")] = None
-    auth: Annotated[
-        MCPBasicAuth | MCPOAuth2ClientCredentialsAuth | MCPHeaderAuth | None,
-        Field(discriminator="scheme"),
-    ] = None
+    auth: (
+        Annotated[
+            MCPBasicAuth
+            | MCPOAuth2ClientCredentialsAuth
+            | MCPHeaderAuth
+            | MCPEndpointAuthUnrecognized,
+            _open.OpenUnion("scheme", MCPEndpointAuthUnrecognized),
+        ]
+        | None
+    ) = None
     """
     How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`.
     """
@@ -13867,7 +15539,14 @@ class MCPEndpoint(BaseModel):
     secret_scopes: Annotated[
         dict[
             str,
-            RecordedSecretScopeTenant | RecordedSecretScopeOrg | RecordedSecretScopeProject | None,
+            Annotated[
+                RecordedSecretScopeTenant
+                | RecordedSecretScopeOrg
+                | RecordedSecretScopeProject
+                | RecordedSecretScopeUnrecognized,
+                _open.OpenUnion("kind", RecordedSecretScopeUnrecognized),
+            ]
+            | None,
         ]
         | None,
         Field(alias="secretScopes"),
@@ -13908,11 +15587,11 @@ class UserRecord(BaseModel):
     """
     invite: UserInvite | None = None
     """
-    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).
+    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.9).
     """
     first_signed_in_at: Annotated[AwareDatetime | None, Field(alias="firstSignedInAt")] = None
     """
-    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).
+    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).
     """
     metadata: dict[str, Any] | None = None
     grants: PersonGrants | None = None
@@ -13959,6 +15638,18 @@ class UserCollectionPage(BaseModel):
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
+class SitePersonRestoreResult(BaseModel):
+    """
+    A site's person let back in after a removal made in Kindgi (`POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user: UserRecord
+
+
 class WhoamiResult(BaseModel):
     """
     Introspection of the caller's current authentication context. Always carries `tenantId` and `scopes` (empty for static bearer tokens), plus `userId` when the token carries one; `principal` says whom the caller acts as, and an API key adds `tokenId`, its `role` and the `projectId` it is limited to; session-token callers additionally see `sessionId`, `providerId`, and `expiresAt`. `user` is the caller's directory record, present when the deployment wires an identity directory and it knows the `userId`. `reviewerRole` is set when the caller is a reviewer — its token carries a reviewer role, or its user is a registered reviewer — so clients can gate reviewer-only UI (the approvals surface) without a second round trip.
@@ -13979,7 +15670,8 @@ class WhoamiResult(BaseModel):
     scopes: list[str]
     expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
     reviewer_role: Annotated[
-        Literal["standard", "senior", "admin"] | None, Field(alias="reviewerRole")
+        Annotated[Literal["standard", "senior", "admin"] | str, _open.OPEN] | None,
+        Field(alias="reviewerRole"),
     ] = None
     """
     Reviewer role class. Hierarchy: standard < senior < admin.
@@ -13990,7 +15682,7 @@ class WhoamiResult(BaseModel):
     """
     The caller's API key, when it is one.
     """
-    role: Literal["admin", "member"] | None = None
+    role: Annotated[Literal["admin", "member"] | str, _open.OPEN] | None = None
     """
     The caller's API key role, when the key has one, or its session's role ceiling.
     """
@@ -14001,4 +15693,8 @@ class WhoamiResult(BaseModel):
     tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
     """
     Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.
+    """
+    served_env: Annotated[ServedEnv | None, Field(alias="servedEnv")] = None
+    """
+    The env this runtime serves (`KINDGI_ENV`): where the values its tools read are kept. With `refusesOtherEnvs`, it's the only one: a secret, env value or secret reference under another env is refused (`409 env-not-served`), so a client defaults to `envName`. Absent when the runtime serves no env, and from older servers.
     """

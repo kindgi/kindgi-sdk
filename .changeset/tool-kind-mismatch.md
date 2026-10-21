@@ -1,8 +1,0 @@
----
-"@kindgi/api": patch
----
-
-**A tool id is either an MCP endpoint's tool or a tool published here, never both: a version of the other kind is refused with `409 tool-kind-mismatch`.** The runtime registers each tool an MCP endpoint lists as `<endpoint id>.<tool name>`. A tool published under the same id, by `POST /v1/tools` or a deploy, used to land beside the endpoint's versions. The id was then served as neither kind, so the endpoint's tool stopped working for every project. A registry can now refuse such a version, and nothing is written:
-- **`ToolPublishOutcome` and `ToolReinstateVersionOutcome`** gain `kind-mismatch` (`ToolKindMismatch`: `toolId`, `version`, and `endpointId` when the id is an MCP endpoint's tool). A registry that doesn't hold MCP endpoints' tools never answers it. Only active versions count: once the other kind's versions are unregistered, the id takes either. A registry checks this before `already-registered`, so a version number the other kind already used is refused too.
-- **`POST /v1/tools`** and **`POST /v1/tools/{toolId}/versions/{version}/reinstate`** answer `409 tool-kind-mismatch` with `details.toolId`, `details.version` and, for an endpoint's tool, `details.endpointId`. The message says what to do: publish under another id, or unregister the endpoint (or the other kind's versions) first. A refused reinstate leaves the version unregistered.
-- **`POST /v1/deployments`** answers `409 tool-kind-mismatch` for an image whose tool has an endpoint's tool's id (`details.primitive`, `details.id`, `details.endpointId`). What it had published is rolled back, and nothing is deployed.

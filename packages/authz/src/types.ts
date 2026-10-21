@@ -62,6 +62,9 @@ export const ACTIONS = [
   'promote',
   // Delegation: naming a principal as the one a trigger's runs act as.
   'act_as',
+  // Running an agent in a project: asked of the project only
+  // (`CHECK_ONLY_ACTIONS`).
+  'call',
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];
@@ -79,6 +82,7 @@ export const ACTION_TO_RELATION: Record<Action, string> = {
   cancel: 'can_cancel',
   promote: 'can_promote',
   act_as: 'can_act_as',
+  call: 'can_call',
 };
 
 // Which verbs are meaningful for which object types. A PEP uses this to
@@ -107,6 +111,24 @@ export const OBJECT_ACTIONS: Record<ObjectType, readonly Action[]> = {
   mcp_endpoint: ['read', 'write', 'delete', 'admin'],
 
   run: ['read', 'cancel', 'delete'],
+};
+
+/**
+ * Actions a check may ask of a type that `OBJECT_ACTIONS` doesn't list.
+ * The model defines them, but nothing reports them: `OBJECT_ACTIONS` is
+ * also the list a caller's permissions report and the role capabilities
+ * name per type (`RoleActions`), and clients validate that list, so an
+ * action added there is a change on the wire.
+ *
+ * A project's `call` and `execute` are what running an agent, a flow or
+ * an eval suite asks of the project the run is in, when the item is
+ * served by more than one project: `call` (an editor or a caller of the
+ * project) for an agent, `execute` (an editor or an executor) for a flow
+ * or a suite. They're the rights an item inherits from its project as
+ * `execute`, asked of the project itself.
+ */
+export const CHECK_ONLY_ACTIONS: Partial<Record<ObjectType, readonly Action[]>> = {
+  project: ['call', 'execute'],
 };
 
 // Tenant-global identities and structural boundaries: object types that are

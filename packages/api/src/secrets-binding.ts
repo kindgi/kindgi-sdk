@@ -98,8 +98,9 @@ export interface SecretBinding {
    * method from `get` — different capability gate, different audit
    * event, different rate profile. Called by the runtime (handler
    * dispatch, deploy-time sync, boot — see `ResolveContext.caller`),
-   * not by the HTTP routes. Emits a `secret-resolved` compliance-evidence
-   * event on every call.
+   * not by the HTTP routes, but for the orchestrator's pack env read.
+   * Emits a `secret-resolved` compliance-evidence event on every call,
+   * but for caller `pack-env`, whose reader writes its own.
    */
   resolve(input: SecretResolveInput): Promise<Result<SecretResolveOutcome, SecretError>>;
 
@@ -306,6 +307,14 @@ export interface SecretRecord {
   readonly revokeReason?: string;
   readonly tags?: Readonly<Record<string, string>>;
   readonly rotationDueAt?: string;
+  /**
+   * The store's own id for the record, never on the wire. A secret removed
+   * and created again is a new record with a new id, so it's told from the
+   * old one even when both are at version 1 with the same update time. A
+   * revoked one set again, soft or hard, keeps its id: its versions go on. A
+   * store with no record id leaves it unset.
+   */
+  readonly recordId?: string;
 }
 
 export interface SecretVersionRecord {
@@ -378,7 +387,18 @@ export interface ResolveContext {
   readonly runId?: string;
   readonly deploymentId?: string;
   readonly nodeId?: string;
-  readonly caller: 'dispatch' | 'deploy-sync' | 'admin-cli' | 'boot-bridge' | 'webhook-receiver';
+  /**
+   * `pack-env`: the orchestrator's read of a deployment's pack env, which
+   * writes its own row per value it gives out, so a store doesn't emit one
+   * for it.
+   */
+  readonly caller:
+    | 'dispatch'
+    | 'deploy-sync'
+    | 'admin-cli'
+    | 'boot-bridge'
+    | 'webhook-receiver'
+    | 'pack-env';
 }
 
 export interface SecretResolveOutcome {

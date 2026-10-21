@@ -375,7 +375,7 @@ The skills are copies, made when you ran `kindgi init`: one in
 both:
 
 ```sh
-kindgi skills sync
+pnpm exec kindgi skills sync
 ```
 
 It keeps skills you edited, in either folder. `--force` replaces those too.
@@ -431,9 +431,9 @@ Give the coding agent access to a database or another service through an
 MCP server, without writing its secret into the project:
 
 ```sh
-kindgi mcp presets
-kindgi secrets set MY_DB_URL --env=local --scope=tenant
-kindgi mcp add postgres --secret=MY_DB_URL
+pnpm exec kindgi mcp presets
+pnpm exec kindgi secrets set MY_DB_URL --env=local --scope=tenant
+pnpm exec kindgi mcp add postgres --secret=MY_DB_URL
 ```
 
 - `mcp presets` lists the servers Kindgi has a preset for.

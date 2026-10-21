@@ -64,6 +64,11 @@ Who calls whom:
 - **Terraform 1.6 or later, gcloud, Docker** with `buildx`, **jq**, **curl**,
   **openssl**, and your pack's `kindgi` CLI, 0.1.2 or later, which has
   `kindgi key trust`.
+- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+  pack project, `pnpm exec kindgi` runs the project's pinned CLI instead. The
+  build, `env plan` and deploy steps need the pack's folder, so they use
+  `pnpm exec kindgi`.
 - **Runtime 0.1.1 or later.** Cloud SQL has no superuser; 0.1.0 can't start
   on it.
 - **Access to the runtime image** (`kindgi auth registry`; see
@@ -129,8 +134,8 @@ built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.1.8" \
-  quay.io/kindgi/runtime:0.1.8@sha256:48b81defe532ec284abb2a9cd8fac5ff7543dea998e7cbf67704a163ce183358
+docker buildx imagetools create --tag "$REPO/runtime:0.1.9" \
+  quay.io/kindgi/runtime:0.1.9@sha256:604e283abed492f5bd50c88dcf582d13e38e19534ee7ddad817ba08012f99523
 ```
 
 - `REPO` is the repository's address, from the foundation's output.
@@ -542,8 +547,8 @@ endpoint ([Serve many tenants](#serve-many-tenants)).
 
 ```sh
 URL=$(terraform output -raw server_url)
-KINDGI_API_TOKEN=$(gcloud secrets versions access latest --secret=$N-api-token)
-pnpm exec kindgi key trust acme-prod --url "$URL" --token "$KINDGI_API_TOKEN"
+export KINDGI_API_TOKEN=$(gcloud secrets versions access latest --secret=$N-api-token)
+npx --yes @kindgi/cli@0.1 key trust acme-prod --url "$URL"
 ```
 
 It prints the key the runtime now trusts, then says so:
@@ -563,12 +568,13 @@ It prints the key the runtime now trusts, then says so:
 
 - `gcloud secrets versions access` reads the API token from step 3.
 - `acme-prod` is your signing key's id, from `~/.kindgi/keys/`.
-- `--url` and `--token` are the runtime's address and its API token.
+- `--url` is the runtime's address. The commands send the API token,
+  exported as `KINDGI_API_TOKEN`, which keeps it off the command line.
   `kindgi deploy` takes the address as `--endpoint`, and `--env prod` names
   the environment block to deploy.
 
 ```sh
-pnpm exec kindgi deploy --env prod --endpoint "$URL" --token "$KINDGI_API_TOKEN"
+pnpm exec kindgi deploy --env prod --endpoint "$URL"
 ```
 
 It prints the deployment as JSON, then each step. The last steps:
@@ -600,9 +606,9 @@ what to fix. Fix it and run the same command again.
 Check the runtime answers, lists your pack's tools, and runs a flow:
 
 ```sh
-curl "$URL/health"                                                    # {"ok":true}
-pnpm exec kindgi tools list --url "$URL" --token "$KINDGI_API_TOKEN"   # your pack's tools
-pnpm exec kindgi runs start --flow=acme.greet-echo --input='{"name":"Ada"}' --url "$URL" --token "$KINDGI_API_TOKEN"
+curl "$URL/health"                                  # {"ok":true}
+npx --yes @kindgi/cli@0.1 tools list --url "$URL"   # your pack's tools
+npx --yes @kindgi/cli@0.1 runs start --flow=acme.greet-echo --input='{"name":"Ada"}' --url "$URL"
 ```
 
 `--flow` names the flow to run, and `--input` is its input, as JSON.
@@ -698,7 +704,7 @@ on the Vertex AI API and grants the runtime's service account
 `roles/aiplatform.user`. Then register the preset:
 
 ```sh
-pnpm exec kindgi providers register --preset=gemini --project=<project> --models=gemini-3.8-flash --url "$URL" --token "$KINDGI_API_TOKEN"
+npx --yes @kindgi/cli@0.1 providers register --preset=gemini --project=<project> --models=gemini-3.8-flash --url "$URL"
 ```
 
 ```text
@@ -761,6 +767,21 @@ A new grant can take a minute or two to apply.
   see the caller. Behind an external Application Load Balancer, set `"2"`:
   it adds the client and then its own address
   ([Google: X-Forwarded-For header](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).
+- **Database timeouts** (they need runtime 0.1.9 or later): the server's
+  connections carry their own, 60 s a statement, 30 s waiting for a lock,
+  and 30 s idle in a transaction, and a query waits at most 10 s for
+  one of the server's pooled connections. `KINDGI_DB_STATEMENT_TIMEOUT_MS`,
+  `KINDGI_DB_LOCK_TIMEOUT_MS`, `KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` and
+  `KINDGI_DB_POOL_WAIT_TIMEOUT_MS` in `server_env` change them; `0` turns
+  one off. A GET or HEAD the statement or lock timeout or the pool wait
+  ends answers 503 `database-busy` with `Retry-After: 5` (under `/auth/`, a
+  browser signing in is sent back to the sign-in page instead), any other
+  request 500, and the log has a `db` warning naming the setting, its value
+  and its variable. The instance itself ends any other session left idle in a
+  transaction for 10 minutes (`database_idle_in_transaction_timeout_ms`, `0`
+  for off). An instance from before that variable gets the flag at the next
+  apply, in place: Cloud SQL lists it as needing no restart
+  ([Cloud SQL: configure database flags](https://docs.cloud.google.com/sql/docs/postgres/flags)).
 - **Erasures, after a restore:** a memory erasure keeps a keyed hash of whom
   it erased, so it can be replayed after you restore a backup. The key goes
   in Secret Manager, named in `server_secret_env`:

@@ -22,6 +22,28 @@ This page sets it up:
 
 It also covers what the site's people can and can't do in Kindgi.
 
+## On Kindgi Cloud
+
+Site sign-in is off on Kindgi Cloud. So the plugin can't connect a site to
+a Kindgi Cloud workspace, and its **Kindgi** page doesn't sign anyone in
+there. The rest of this page is for a runtime you run, with site sign-in
+on.
+
+An agent on Kindgi Cloud can still work with a WooCommerce store, through
+the store's own API and its webhooks:
+
+- **The `woocommerce` template:** `kindgi init --template=woocommerce`
+  makes agents for a WooCommerce store, where a larger refund, a price
+  change and publishing a product each wait for a person. A WooCommerce
+  webhook starts its order review.
+- **The store's actions as an MCP server's tools,** as
+  [Give the agent the store's actions](#give-the-agent-the-stores-actions)
+  shows. On Kindgi Cloud, that's an MCP server the store serves on the
+  internet.
+
+A person approves what waits, in the console or with the CLI
+([Approve it](../../guides/approvals/ask-before-a-tool-runs/#approve-it)).
+
 ## How the site signs its people in
 
 - **The site vouches for its staff.** When Jane opens the page, the plugin
@@ -38,9 +60,9 @@ It also covers what the site's people can and can't do in Kindgi.
   person by their site and a random id the plugin keeps for them. It never
   uses their WordPress user id, login name or email for that.
 
-## Turn site sign-in on
+## Self-hosted: turn site sign-in on
 
-Site sign-in needs a runtime on Kindgi 0.1.8.1 or later, and is off by
+Site sign-in needs a runtime on Kindgi 0.1.9 or later, and is off by
 default. It needs two more settings in the runtime's environment:
 - [authorization enforced](../../deploy/authorization/), which holds a
   site's people to its project;
@@ -71,7 +93,7 @@ plugin's **Kindgi → Settings** page shows the two addresses to register:
 - its approvals URL.
 
 ```sh
-kindgi sites register --project=<project-id> --name='Acme store' \
+pnpm exec kindgi sites register --project=<project-id> --name='Acme store' \
   --origin=https://acme-store.example \
   --approvals-url='https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}'
 ```
@@ -307,9 +329,18 @@ another reviewer decides." instead of **Approve**.
   every session the site opened. `kindgi sites get <site-id>` lists the
   site's keys, with thumbprints to compare with the plugin's key id under
   **Kindgi → Settings**.
-- **Remove one person** (`kindgi people remove <user-id>`). It's for good:
-  their next sign-in is refused, "This person was removed: their site can't
-  sign them in again".
+- **Remove one person** (`kindgi people remove <user-id>`). Their next
+  sign-in is refused, "This person was removed: their site can't sign them
+  in again", until a tenant admin lets them back in.
+- **Let them back in**
+  (`kindgi sites restore-person <site-id> <user-id>`; runtime 0.1.10 or
+  later). They're the same person, with their history, and their next
+  sign-in gives them what their roles give then.
+  `kindgi people list --include-removed` finds their id. It's for someone
+  removed in Kindgi: someone who left the store stays gone (below). It's
+  refused when they also sign in another way (through another site, or the
+  tenant's own sign-in), since that would let them in there too: add them
+  again instead, as a new person.
 
 ## When someone leaves the store
 
@@ -321,7 +352,8 @@ someone who can't open the page any more doesn't keep what they had:
   personal-data tools. Kindgi ends their grants, their reviewer role (and
   its emails) and every session they hold, so a page they still have open
   can't approve anything. Then it refuses them: "This person was removed:
-  their site can't sign them in again".
+  their site can't sign them in again". The plugin forgets them too, so if
+  they come back, they're a new person in Kindgi, without the history.
 - **Taking away their roles** ends the same, but not for good. Give them a
   role that may sign in again, and they're the same person in Kindgi, with
   their history.
@@ -366,7 +398,7 @@ Kindgi answers 401 `site-sign-in-refused` with a reason in
 | `too-long-lived` | A statement lives at most 60 s | Something other than the plugin signs the site's statements: use the plugin. |
 | `replayed` | This statement was already used | The plugin never sends one twice. A copied statement is refused. |
 | `role-not-allowed` | None of these roles may sign in through this site | Add the role: `kindgi sites update <site-id>`, with an `--allowed-role` for it and for each role the site keeps. A person who had signed in before loses what their roles gave them. |
-| `person-removed` | This person was removed: their site can't sign them in again | Nothing, through the site: removing a person is for good. |
+| `person-removed` | This person was removed: their site can't sign them in again | If they were removed in Kindgi, a tenant admin lets them back in (runtime 0.1.10 or later): `kindgi sites restore-person <site-id> <user-id>`. Someone who left the store comes back as a new person. |
 | `people-cap` | This site has as many people as it may: a tenant admin can raise its cap | Raise `--people-cap` or `--new-people-per-day` (`kindgi sites update <site-id>`). |
 
 Too many sign-ins at once get 429, with `Retry-After`.
@@ -376,7 +408,7 @@ Too many sign-ins at once get 429, with `Retry-After`.
 A store's webhooks to Kindgi (to a receive URL, `/v1/hooks/…`, like the
 `woocommerce` template's order trigger) can stop. WooCommerce turns a
 webhook off after 7 refused deliveries in a row, and never resends one it
-didn't deliver. Where Kindgi limits webhook receives (Kindgi hosted does),
+didn't deliver. Where Kindgi limits webhook receives (Kindgi Cloud does),
 it answers a delivery past the limit with 429 and `Retry-After`, which
 WooCommerce counts as a refusal like any other. When
 WooCommerce has turned one off, **Kindgi → Settings** says so, with when,

@@ -99,7 +99,7 @@ Every promotion, rollback and unpin is kept, with who asked and why, newest
 first:
 
 ```sh
-kindgi agents promotions list acme.order-desk --table
+pnpm exec kindgi agents promotions list acme.order-desk --table
 ```
 
 `--table` prints a table. `STATUS` says how each ended, `done` for a
@@ -176,7 +176,7 @@ for its runs, so it needs no comparison and no approval, even when a gate
 already applies:
 
 ```sh
-kindgi agents promote acme.order-desk 1.0.0 --project=<project-id> --segment=company:globex --reason="Pin globex before its gate"
+pnpm exec kindgi agents promote acme.order-desk 1.0.0 --project=<project-id> --segment=company:globex --reason="Pin globex before its gate"
 ```
 
 - `<project-id>` is the segment's project.

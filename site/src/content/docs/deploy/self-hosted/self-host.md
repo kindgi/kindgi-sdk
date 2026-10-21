@@ -27,13 +27,16 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
 
 - **Docker**, `openssl`, `uuidgen` and `curl`, and for a TypeScript pack
   **Node 22.12** or later and **pnpm**.
-- **Kindgi 0.1's CLI.**
+- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+  pack project, `pnpm exec kindgi` runs the project's pinned CLI instead. The
+  build and deploy steps need the pack's folder, so they use `pnpm exec kindgi`.
 - **Ollama**, with `llama3.1` pulled, for the flow in step 8.
 - **A pack.** This page uses the sample. `--template=sample` picks it, and
   `acme-pack` is its folder and its pack id:
 
   ```sh
-  npx @kindgi/cli init acme-pack --template=sample
+  npx --yes @kindgi/cli@0.1 init acme-pack --template=sample
   cd acme-pack
   pnpm install
   ```
@@ -48,7 +51,7 @@ The runtime runs from Kindgi's image. Log in to its registry and pull it:
 
 ```sh
 docker login quay.io
-docker pull quay.io/kindgi/runtime:0.1.8
+docker pull quay.io/kindgi/runtime:0.1.9
 ```
 
 `docker login` prints `Login Succeeded`. It asks for the robot name and
@@ -107,9 +110,9 @@ If your app's code needs a generate step in the image (Prisma's client, for
 example), set that up first:
 [What the pack's image needs](../../../start/existing-app-typescript/#what-the-packs-image-needs).
 
-In a Python pack, run each `pnpm exec kindgi` on this page as
-`uv run kindgi`, and lock its dependencies first (`uv lock`, or
-`poetry lock`): the image installs them from the lockfile.
+In a Python pack, run each `kindgi` command on this page, `pnpm exec kindgi` and
+`npx --yes @kindgi/cli@0.1` alike, as `uv run kindgi`. Lock its dependencies
+first (`uv lock`, or `poetry lock`): the image installs them from the lockfile.
 
 Pick a tenant id. The runtime serves this tenant, and the pack's signature names it:
 
@@ -123,7 +126,7 @@ Create a signing key. `acme-selfhost` is the key's id, and `--env selfhost`
 also prints the lines to add to the `selfhost` environment:
 
 ```sh
-pnpm exec kindgi key create acme-selfhost --env selfhost
+npx --yes @kindgi/cli@0.1 key create acme-selfhost --env selfhost
 ```
 
 It prints the key's JSON, then the paths of its private and public key files
@@ -189,7 +192,7 @@ build too, without your app's files or services. Open files, databases and
 connections lazily, inside the handler. A module that opens a database file
 at import fails the build with `unable to open database file`.
 
-The image is for `linux/amd64` by default. On Apple silicon it runs under emulation. `--platform` picks another.
+With `--push`, as here, the image is for `linux/amd64`, and on Apple silicon it runs under emulation. Without `--push`, it's for your machine's platform. `--platform` picks another.
 
 ## 4. Run your pack's service
 
@@ -259,6 +262,8 @@ It holds the API token and the license key, so keep it to yourself:
 Every setting is in the [environment variable reference](../../../reference/env-vars/). These are worth knowing now:
 
 - **`KINDGI_DATABASE_URL`** connects to Postgres directly, or through a pooler in session mode. The runtime holds session locks on its connection while it migrates. A pooler in transaction mode, such as PgBouncer's `pool_mode = transaction`, doesn't keep them, as [PgBouncer's pooling modes](https://www.pgbouncer.org/features.html) describes.
+  - **Through PgBouncer:** on runtime 0.1.9 or later, the runtime sends its [database timeouts](../../../reference/env-vars/#kindgi_db_statement_timeout_ms) as startup parameters. A PgBouncer on its default settings refuses them, so the runtime can't connect (`unsupported startup parameter: statement_timeout`). On PgBouncer 1.26.0 or later, have it pass them on with `track_extra_parameters = statement_timeout, lock_timeout, idle_in_transaction_session_timeout` ([PgBouncer's settings](https://www.pgbouncer.org/config.html#track_extra_parameters)). Earlier versions mishandle a tracked parameter that Postgres doesn't report, as it doesn't these three, when a client sends it at startup (fixed in 1.26.0, [PgBouncer's changelog](https://www.pgbouncer.org/changelog.html)). `ignore_startup_parameters` with the same names lets the runtime connect, but PgBouncer drops them, and your role's, database's or server's settings hold instead. The runtime's admin commands (`kindgi-runtime tenants …` and `kindgi-runtime check …`) send theirs the same way, with no statement timeout, and don't read back what's in effect. So behind a PgBouncer that drops them, a long purge or check runs under those settings, and can be ended by them.
+  - **The runtime checks at boot:** its startup line shows the timeouts Postgres has in effect, and it logs a warning for each one that differs from what it sent.
 - **`KINDGI_ENV`** names the environment your tools' secrets resolve in.
 - **The port** is 4000 unless something sets another. The runtime takes the first that's set: `KINDGI_API_PORT`, then the platform's `PORT`, then 4000. Cloud Run, Render, Heroku and Fly set `PORT`. [`KINDGI_API_PORT`](../../../reference/env-vars/#kindgi_api_port) has the whole order.
 - **`KINDGI_CONSOLE_TOKEN_SIGN_IN=on`** lets you sign in to the console by pasting the API token from this file, so you can try the console straight away. It's off by default outside `kindgi dev`, and with it off and no single sign-on, nobody can sign in to the console. In a real deployment, [turn on sign-in](../sign-in/) with your organization's identity provider instead, and remove the line. The token works for the API, the CLI and the SDKs either way.
@@ -272,7 +277,7 @@ Start the runtime:
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.8
+  quay.io/kindgi/runtime:0.1.9
 ```
 
 - **`--restart unless-stopped`** brings the runtime back by itself after a
@@ -393,11 +398,12 @@ explains.
 ## 7. Trust your key and deploy
 
 The runtime deploys only images signed by a key its tenant trusts. Trust
-yours. `--url` is the runtime, and `--token` the API token:
+yours, with the API token exported as `KINDGI_API_TOKEN`. `--url` is the
+runtime:
 
 ```sh
 export KINDGI_API_TOKEN=<the token from kindgi.env>
-pnpm exec kindgi key trust acme-selfhost --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
+npx --yes @kindgi/cli@0.1 key trust acme-selfhost --url http://localhost:4000
 ```
 
 It prints the trusted key as JSON, then confirms it:
@@ -411,11 +417,10 @@ It prints the trusted key as JSON, then confirms it:
 The fingerprint is the one `kindgi key create` printed. The runtime now
 accepts deploys this key signs.
 
-Then deploy. `--env selfhost` picks the environment, and `--token` sends
-the API token:
+Then deploy. `--env selfhost` picks the environment:
 
 ```sh
-pnpm exec kindgi deploy --env selfhost --token "$KINDGI_API_TOKEN"
+pnpm exec kindgi deploy --env selfhost
 ```
 
 ```text
@@ -450,8 +455,8 @@ Register it, then start the sample's flow. `--spec=@ollama.json` reads the
 provider from the file, `--flow` is the flow, and `--input` its input:
 
 ```sh
-pnpm exec kindgi providers register --spec=@ollama.json --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
-pnpm exec kindgi runs start --flow=acme-pack.echo-flow --input='{"name":"Ada"}' --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
+npx --yes @kindgi/cli@0.1 providers register --spec=@ollama.json --url http://localhost:4000
+npx --yes @kindgi/cli@0.1 runs start --flow=acme-pack.echo-flow --input='{"name":"Ada"}' --url http://localhost:4000
 ```
 
 `register` prints the provider's id, as JSON. The run ends:

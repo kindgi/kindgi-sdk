@@ -9,10 +9,40 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 ## From the CLI
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.review-order --input='{"orderId":"A-200"}'
-kindgi runs start --flow=acme.review-order --input=@order.json
+pnpm exec kindgi runs start --flow=acme.review-order --input='{"orderId":"A-200"}'
+pnpm exec kindgi runs start --flow=acme.review-order --input=@order.json
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.review-order --input='{"orderId":"A-200"}'
+uv run kindgi runs start --flow=acme.review-order --input=@order.json
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.review-order --input='{"orderId":"A-200"}'
+./kindgiw runs start --flow=acme.review-order --input=@order.json
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.review-order --input='{"orderId":"A-200"}'
+./kindgiw runs start --flow=acme.review-order --input=@order.json
+```
+
+</TabItem>
+</Tabs>
 
 `--input` is the run's input as JSON, or `@` and a file to read it from. The
 command waits for the run to finish, however long it takes, and prints it.
@@ -24,9 +54,36 @@ Stopped waiting. Run f91ff793-b029-48e8-9ce4-f9fa70bd0c40 goes on: kindgi runs g
 
 With `--no-wait`, it prints the run as soon as it exists:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.reserve-order --input='{"orderId":"A-300"}' --no-wait
+pnpm exec kindgi runs start --flow=acme.reserve-order --input='{"orderId":"A-300"}' --no-wait
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.reserve-order --input='{"orderId":"A-300"}' --no-wait
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.reserve-order --input='{"orderId":"A-300"}' --no-wait
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.reserve-order --input='{"orderId":"A-300"}' --no-wait
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -48,9 +105,36 @@ agent's or flow's own, which is Default for what `kindgi deploy` registers
 (`kindgi projects list` lists the projects with their ids). With
 authorization on, naming a project needs `write` on it:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme.order-desk --agent-version=0.1.0 --project=<project-id> --input='{"userMessage":"Where is order A-1002?"}'
+pnpm exec kindgi runs start --agent=acme.order-desk --agent-version=0.1.0 --project=<project-id> --input='{"userMessage":"Where is order A-1002?"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme.order-desk --agent-version=0.1.0 --project=<project-id> --input='{"userMessage":"Where is order A-1002?"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme.order-desk --agent-version=0.1.0 --project=<project-id> --input='{"userMessage":"Where is order A-1002?"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme.order-desk --agent-version=0.1.0 --project=<project-id> --input='{"userMessage":"Where is order A-1002?"}'
+```
+
+</TabItem>
+</Tabs>
 
 A `--project` that isn't a project in your tenant stops before anything runs,
 with `No project with id "<project-id>" in this tenant` (the API answers 404

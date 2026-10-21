@@ -62,7 +62,7 @@ and the pass is refused, saying so.
 A pass searches for a better version of the agent's marked settings:
 
 ```sh
-kindgi proposals improve --agent=acme.rank.scorer --tenant --test-set=acme.rank-prompt-52080 --max-candidates=4 --wait
+pnpm exec kindgi proposals improve --agent=acme.rank.scorer --tenant --test-set=acme.rank-prompt-52080 --max-candidates=4 --wait
 ```
 
 - **The agent and scope:** `--agent` and `--tenant`, or another scope flag.
@@ -160,7 +160,7 @@ clients:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/proposals/improve" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{"agentId":"acme-ops.reply-drafter","scope":{"kind":"tenant"},"suiteId":"acme.reply-cases","tiers":["prompt"],"model":{"providerId":"anthropic","model":"claude-sonnet-5-5"},"candidates":3}'
 ```
 
@@ -191,7 +191,7 @@ drafted a template reading a variable the agent doesn't have. The drafts are
 that model's words, and yours will differ:
 
 ```sh
-kindgi proposals passes get <pass-id>
+pnpm exec kindgi proposals passes get <pass-id>
 ```
 
 ```json
@@ -234,9 +234,9 @@ it goes live.
 ## Read passes back, or stop one
 
 ```sh
-kindgi proposals passes list --table
-kindgi proposals passes get <pass-id>
-kindgi proposals passes cancel <pass-id>
+pnpm exec kindgi proposals passes list --table
+pnpm exec kindgi proposals passes get <pass-id>
+pnpm exec kindgi proposals passes cancel <pass-id>
 ```
 
 - `list --table` prints each pass's agent version, scope, status, the

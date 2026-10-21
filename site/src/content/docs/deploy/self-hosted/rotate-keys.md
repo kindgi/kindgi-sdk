@@ -14,8 +14,12 @@ one stops working.
   `kindgi-server` and `kindgi-pack` containers, on the `kindgi` network, with
   `kindgi.env` and `pack.env`.
 - **Docker** and **OpenSSL**, on the machine that runs the containers.
-- **`KINDGI_API_TOKEN` set in your shell** to the runtime's API token.
-- **For `kindgi` commands:** your pack's directory, with Kindgi 0.1's CLI.
+- **`KINDGI_API_TOKEN` exported in your shell** as the runtime's API token,
+  where the `kindgi` commands read it.
+- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+  pack project, `pnpm exec kindgi` runs the project's pinned CLI instead. The
+  build and deploy steps need the pack's folder, so they use `pnpm exec kindgi`.
 
 Each rotation ends with a restart, as
 [Restart the runtime](../restart-and-check-health/#restart-the-runtime)
@@ -134,7 +138,7 @@ revoked id can't be trusted again.
 1. Create a key:
 
    ```sh
-   pnpm exec kindgi key create acme-selfhost-2 --env selfhost
+   npx --yes @kindgi/cli@0.1 key create acme-selfhost-2 --env selfhost
    ```
 
    `acme-selfhost-2` is the new key's id. `--env selfhost` also prints the
@@ -171,12 +175,11 @@ revoked id can't be trusted again.
    Then trust it on the runtime:
 
    ```sh
-   pnpm exec kindgi key trust acme-selfhost-2 --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
+   npx --yes @kindgi/cli@0.1 key trust acme-selfhost-2 --url http://localhost:4000
    ```
 
-   `--url` and `--token` are the runtime's URL and API token. It prints the
-   trusted key as JSON, then `✓ Trusted acme-selfhost-2` with the fingerprint
-   `key create` printed:
+   `--url` is the runtime's URL. It prints the trusted key as JSON, then
+   `✓ Trusted acme-selfhost-2` with the fingerprint `key create` printed:
 
    ```text
    {
@@ -207,7 +210,7 @@ revoked id can't be trusted again.
    ```sh
    cp .kindgi/build/deploy-envelope.json old-envelope.json
    pnpm exec kindgi build --local --push --env selfhost
-   pnpm exec kindgi deploy --env selfhost --token "$KINDGI_API_TOKEN"
+   pnpm exec kindgi deploy --env selfhost
    ```
 
    The deploy prints the deployment as JSON, then each step. Its registering
@@ -228,8 +231,8 @@ revoked id can't be trusted again.
 3. Revoke the old key:
 
    ```sh
-   pnpm exec kindgi key revoke acme-selfhost --reason "rotated to acme-selfhost-2" \
-     --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
+   npx --yes @kindgi/cli@0.1 key revoke acme-selfhost --reason "rotated to acme-selfhost-2" \
+     --url http://localhost:4000
    ```
 
    `acme-selfhost` is the old key's id, and `--reason` is kept with the
@@ -253,7 +256,7 @@ envelope it signed earlier:
 
 ```sh
 pnpm exec kindgi deploy --env selfhost --from-envelope old-envelope.json \
-  --idempotency-key redeploy-old --token "$KINDGI_API_TOKEN"
+  --idempotency-key redeploy-old
 ```
 
 `--from-envelope` deploys a signed envelope as it is. `--idempotency-key`
@@ -275,7 +278,7 @@ signed keeps running, through restarts too. The revoked key stays listed for
 audit:
 
 ```sh
-curl -s "http://localhost:4000/v1/signing-keys?includeRevoked=true" -H "authorization: Bearer $KINDGI_API_TOKEN"
+curl -s "http://localhost:4000/v1/signing-keys?includeRevoked=true" -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 It answers with the keys as JSON. Each key in the list has its `revokedAt`
@@ -314,7 +317,7 @@ docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -v "$PWD/public-token-signing.pem:/etc/kindgi/public-token-signing.pem:ro" \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.8
+  quay.io/kindgi/runtime:0.1.9
 ```
 
 `-v` mounts the key file, read-only, at the path `kindgi.env` names. The

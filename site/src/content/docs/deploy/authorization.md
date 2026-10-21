@@ -14,6 +14,13 @@ token. Whoever holds it can do anything in its tenant. **Authorization** adds a
 second check, per resource, kept in [OpenFGA](https://openfga.dev): who may
 read, write or administer each project and what's in it.
 
+:::note[On Kindgi Cloud]
+Authorization is always on, and Kindgi runs OpenFGA. Skip
+[Before you start](#before-you-start) and
+[Run OpenFGA next to the runtime](#run-openfga-next-to-the-runtime), and the
+runtime's `KINDGI_*` settings: they're Kindgi's.
+:::
+
 ## What it gives, and what it doesn't
 
 Authorization is for several people and teams sharing one deployment:
@@ -148,7 +155,7 @@ the keys minted for them. A runtime started with a new token and no
 
 **When OpenFGA is unreachable,** requests that need a check answer `500
 internal-server-error` with `Unhandled server error` and the request id
-(runtime 0.1.8.1 or later; earlier ones answer with the cause itself). The
+(runtime 0.1.9 or later; earlier ones answer with the cause itself). The
 runtime's `unhandled error` log line for that request id has the cause,
 `FGA Error: connect ECONNREFUSED …` ([Logs](../self-hosted/logs/)). They work again
 once it's back.
@@ -293,7 +300,7 @@ Adding, changing or removing a membership changes OpenFGA too:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/memberships" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{"userId":"<user-id>","role":"editor"}'
 ```
 
@@ -368,7 +375,7 @@ team never owns a project: `owner` is a person's role.
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/team-grants" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{"teamId":"<team-id>","role":"editor"}'
 ```
 

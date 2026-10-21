@@ -21,6 +21,7 @@ import type {
 
 import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
+import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import {
@@ -84,6 +85,12 @@ export interface WebhooksRouterOptions {
   readonly receiveUrl?: (tenantId: TenantId, webhookId: string) => string;
   /** What a webhook trigger's project may run (`reference-scope.ts`); absent → as named. */
   readonly referenceScope?: ReferenceScopeBinding;
+  /**
+   * Rights on a flow more than one project serves (`item-rights.ts`):
+   * from a trigger in one of its projects, running it is that project's
+   * `execute`, as for a run naming it. Absent: one project each.
+   */
+  readonly itemRights?: ItemRights;
 }
 
 /**
@@ -123,8 +130,24 @@ export function webhooksRouter(
     envName,
     auditEvents,
     referenceScope,
+    itemRights,
   } = options;
   const r = new Hono<AppEnv>();
+
+  /** Running `flowId` from a trigger in `projectId`: `execute` on it, or for a flow more than one project serves, there (`runIn`). */
+  async function flowRefused(
+    c: Context<AppEnv>,
+    flowId: string,
+    projectId: string | undefined,
+  ): Promise<Response | undefined> {
+    const served =
+      authorizer === undefined ? undefined : await itemRights?.multi(c, 'flow', flowId);
+    return itemRights !== undefined &&
+      projectId !== undefined &&
+      served?.includes(projectId as ProjectId) === true
+      ? runIn(c, itemRights, { kind: 'flow', id: flowId }, projectId)
+      : denied(c, 'execute', ref('flow', flowId));
+  }
 
   /** Nothing, when allowed; else the authorizer's own 403. */
   async function denied(
@@ -268,15 +291,16 @@ export function webhooksRouter(
       (project === undefined
         ? await denied(c, 'admin', ref('tenant', tenantId as unknown as string))
         : await denied(c, 'write', ref('project', project))) ??
-      (await denied(c, 'execute', ref('flow', flowId.value)));
+      (await flowRefused(c, flowId.value, project));
     if (refused !== undefined) return refused;
-    // The flow it runs must be its project's to reach (`reference-scope.ts`).
+    // The flow it runs, at its version, must be its project's to reach
+    // (`reference-scope.ts`).
     if (project !== undefined) {
       const outOfScope = await referencesOutOfScope(
         referenceScope,
         tenantId,
         project as ProjectId,
-        [{ path: '/flowId', kind: 'flow', id: flowId.value }],
+        [{ path: '/flowId', kind: 'flow', id: flowId.value, version: flowVersion.value }],
       );
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
@@ -497,8 +521,27 @@ export function webhooksRouter(
       return bad(c, requestId, STANDARD_WEBHOOKS_DEDUPES);
     }
     if (typeof body.flowVersion === 'string') {
-      const refused = await denied(c, 'execute', ref('flow', found.value.flowId));
+      const refused = await flowRefused(
+        c,
+        found.value.flowId,
+        found.value.projectId as unknown as string,
+      );
       if (refused !== undefined) return refused;
+      // The version it moves to must be its project's to reach, as at registration.
+      const outOfScope = await referencesOutOfScope(
+        referenceScope,
+        tenantId,
+        found.value.projectId,
+        [
+          {
+            path: '/flowVersion',
+            kind: 'flow',
+            id: found.value.flowId as unknown as string,
+            version: body.flowVersion,
+          },
+        ],
+      );
+      if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
     if (typeof body.hmacSecretName === 'string') {
       const keyRefused = await providerKeyRefused(c, body.hmacSecretName);
@@ -603,7 +646,11 @@ export function webhooksRouter(
     const found = await webhookFor(c, 'admin');
     if (found.kind === 'err') return found.response;
     if (binding.setOwner === undefined) return unsupported(c, requestId, 'changing the owner');
-    const refused = await denied(c, 'execute', ref('flow', found.value.flowId));
+    const refused = await flowRefused(
+      c,
+      found.value.flowId,
+      found.value.projectId as unknown as string,
+    );
     if (refused !== undefined) return refused;
     // The caller takes it over, or names a service account with
     // `runAsServiceAccountId` in an optional body (gated by `act_as`).

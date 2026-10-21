@@ -77,9 +77,36 @@ action: { 'on-violation': 'log-only' },
 
 With `halt`, starting a run fails with the check's reason:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+pnpm exec kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--agent` is the agent the guardrail is on, and `--input` its input.
 
@@ -90,9 +117,36 @@ Error [guardrail-violation]: Turn blocked by guardrail 'my-pack.answer-length': 
 The run is `failed`, and its `failureMessage` carries the violation. Get
 the run:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs get <run-id>
+pnpm exec kindgi runs get <run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs get <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs get <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs get <run-id>
+```
+
+</TabItem>
+</Tabs>
 
 `<run-id>` is the failed run's id. `kindgi runs list` shows it first.
 
@@ -266,7 +320,7 @@ Here `acme.no-secret` halts on `SECRET`, on an agent at versions 2.0.0 and
 once. Count its outcomes:
 
 ```sh
-curl -s -H "authorization: Bearer $KINDGI_API_TOKEN" \
+curl -s -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
   "$KINDGI_API_URL/v1/guardrails/acme.no-secret/outcomes?projectId=a1e2b238-ae0b-4f03-b012-07875b9e5ee0&from=2026-10-11T06:02:19Z&to=2026-10-11T06:05:22Z"
 ```
 

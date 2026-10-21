@@ -73,6 +73,11 @@ Who calls whom:
   write-only. Also the **Azure CLI**, **Docker** with `buildx`, **jq**, and
   your pack's `kindgi` CLI, 0.1.6 or later. The module needs the `azurerm`
   provider 5.9 or later, and its lock file pins it.
+- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+  pack project, `pnpm exec kindgi` runs the project's pinned CLI instead. The
+  build, `env plan` and deploy steps need the pack's folder, so they use
+  `pnpm exec kindgi`.
 - **Runtime 0.1.6 or later:** the first with Key Vault keys and the
   registry's managed identity.
 - **Access to the runtime image** (`kindgi auth registry`; see
@@ -179,8 +184,8 @@ image there by digest, with every platform it was built for:
 ```sh
 ACR=$(terraform output -raw image_registry)
 az acr login -n "${ACR%%.*}"
-docker buildx imagetools create --tag "$ACR/runtime:0.1.8" \
-  quay.io/kindgi/runtime:0.1.8@sha256:48b81defe532ec284abb2a9cd8fac5ff7543dea998e7cbf67704a163ce183358
+docker buildx imagetools create --tag "$ACR/runtime:0.1.9" \
+  quay.io/kindgi/runtime:0.1.9@sha256:604e283abed492f5bd50c88dcf582d13e38e19534ee7ddad817ba08012f99523
 ```
 
 - `ACR` is the registry's address, from the foundation's output, and
@@ -426,8 +431,8 @@ pack's key, then deploy:
 
 ```sh
 URL=$(terraform output -raw server_url)
-KINDGI_API_TOKEN=$(az keyvault secret show --vault-name "$V" -n api-token --query value -o tsv)
-pnpm exec kindgi key trust acme-dev --label dev --url "$URL" --token "$KINDGI_API_TOKEN"
+export KINDGI_API_TOKEN=$(az keyvault secret show --vault-name "$V" -n api-token --query value -o tsv)
+npx --yes @kindgi/cli@0.1 key trust acme-dev --label dev --url "$URL"
 ```
 
 It prints the key the runtime now trusts, then says so:
@@ -448,12 +453,13 @@ It prints the key the runtime now trusts, then says so:
 
 - `acme-dev` is your signing key's id, from `~/.kindgi/keys/`. `--label` is
   a label the runtime keeps with it.
-- `--url` and `--token` are the runtime's address and its API token, from
-  the vault. `kindgi deploy` takes the address as `--endpoint`.
+- `--url` is the runtime's address. The commands send the API token from
+  the vault, exported as `KINDGI_API_TOKEN`, which keeps it off the command
+  line. `kindgi deploy` takes the address as `--endpoint`.
 - `--env dev` deploys the pack's `dev` environment block.
 
 ```sh
-pnpm exec kindgi deploy --env dev --endpoint "$URL" --token "$KINDGI_API_TOKEN"
+pnpm exec kindgi deploy --env dev --endpoint "$URL"
 ```
 
 It prints the deployment as JSON, then each step. The last steps:
@@ -492,9 +498,9 @@ KINDGI_IMAGE_REGISTRY_AUTH=azure signs in to an Azure Container Registry: KINDGI
 Check the runtime answers, lists your pack's tools, and runs a flow:
 
 ```sh
-curl "$URL/health"                                                # {"ok":true}
-pnpm exec kindgi tools list --url "$URL" --token "$KINDGI_API_TOKEN"   # your pack's tools
-pnpm exec kindgi runs start --flow=acme.greet-flow --input='{"name":"Azure"}' --url "$URL" --token "$KINDGI_API_TOKEN"
+curl "$URL/health"                                  # {"ok":true}
+npx --yes @kindgi/cli@0.1 tools list --url "$URL"   # your pack's tools
+npx --yes @kindgi/cli@0.1 runs start --flow=acme.greet-flow --input='{"name":"Azure"}' --url "$URL"
 ```
 
 `--flow` names the flow to run, and `--input` is its input, as JSON.
@@ -543,7 +549,11 @@ to finish, with the output `{"greeting":"Hello, Azure!"}`.
   scheduler. Or set `license_renewal_schedule`, a cron in UTC, and the
   module runs it as a job of its own. It comes with an alert for a failed run,
   and one for a key within 7 days of its end
-  ([Renew the license key](../renew-the-license-key/#on-a-schedule)).
+  ([Renew the license key](../renew-the-license-key/#on-a-schedule)). With
+  `license_usage_key_secret` too, its renewals carry counts of the
+  deployment's use
+  ([A key for the counts](../renew-the-license-key/#a-key-for-the-counts)),
+  and an alert says when a run sent none.
 - **A key the runtime can't use:** a new replica exits with code 2 and says
   why, and what to check:
 

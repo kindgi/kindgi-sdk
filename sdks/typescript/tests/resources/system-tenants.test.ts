@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createClient } from '../../src/index.js';
-import { jsonFetch } from '../support/recording-fetch.js';
+import { hangingFetch, jsonFetch, noContentFetch } from '../support/recording-fetch.js';
 
 const AUTH = { kind: 'apiToken' as const, token: 't' };
 const API = 'https://api.example.com';
@@ -24,6 +24,18 @@ describe('systemTenants — wire round-trip', () => {
     );
     expect(JSON.parse(call.body ?? '{}')).toEqual({ allowed: false });
     expect(call.headers['idempotency-key']).toBe('k-1');
+  });
+
+  it('update: PATCH /v1/system/tenants/{id} with the fields given; a 204 resolves to nothing', async () => {
+    const stub = noContentFetch();
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(
+      await client.systemTenants.update(TENANT, { slug: 'acme-store' }, { idempotencyKey: 'k-2' }),
+    ).toBeUndefined();
+    const call = stub.calls[0]!;
+    expect(`${call.method} ${call.url}`).toBe(`PATCH ${API}/v1/system/tenants/${TENANT}`);
+    expect(JSON.parse(call.body ?? '{}')).toEqual({ slug: 'acme-store' });
+    expect(call.headers['idempotency-key']).toBe('k-2');
   });
 
   it('limits: GET …/limits, the shape setLimits takes', async () => {
@@ -104,6 +116,38 @@ describe('systemTenants — P1 routes, wire round-trip', () => {
       );
       expect(JSON.parse(call.body ?? '{}')).toEqual(body);
     }
+  });
+
+  it('purge: POST …/purge with { confirm }, and what it did comes back', async () => {
+    const answer = {
+      tenantId: TENANT,
+      complete: true,
+      alreadyPurged: false,
+      purgedAt: '2026-11-20T10:00:15.000Z',
+      deleted: [{ table: 'runs', rows: 12 }],
+      objectsDeleted: 3,
+      authzStoreDeleted: true,
+      left: [],
+      objectsLeft: 0,
+    };
+    const stub = jsonFetch(answer);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(
+      await client.systemTenants.purge(TENANT, 'acme-store', { idempotencyKey: 'purge:1' }),
+    ).toEqual(answer);
+    const call = stub.calls[0]!;
+    expect(`${call.method} ${call.url}`).toBe(`POST ${API}/v1/system/tenants/${TENANT}/purge`);
+    expect(JSON.parse(call.body ?? '{}')).toEqual({ confirm: 'acme-store' });
+    expect(call.headers['idempotency-key']).toBe('purge:1');
+  });
+
+  it("purge: timeoutMs is this call's, not part of the request", async () => {
+    const stub = hangingFetch();
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    await expect(
+      client.systemTenants.purge(TENANT, 'acme-store', { timeoutMs: 20 }),
+    ).rejects.toMatchObject({ error: { code: 'network', timeoutMs: 20 } });
+    expect(JSON.parse(stub.calls[0]?.body ?? '{}')).toEqual({ confirm: 'acme-store' });
   });
 
   it('list, get and admins read; whoami names the key', async () => {

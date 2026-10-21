@@ -14,9 +14,12 @@ fresh one, with every erasure still in force.
   `kindgi-server` and `kindgi-db` containers, on the `kindgi` network, with
   `kindgi.env`.
 - **Docker**, on the machine that runs the containers.
-- **`KINDGI_API_TOKEN` set in your shell** to the runtime's API token, and
-  **`DB_PASSWORD`** to the database password from `kindgi.env`.
-- **For `kindgi` commands:** your pack's directory, with Kindgi 0.1's CLI.
+- **`KINDGI_API_TOKEN` exported in your shell** as the runtime's API token,
+  where the `kindgi` commands read it, and **`DB_PASSWORD`** set to the
+  database password from `kindgi.env`.
+- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+  pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## Back up Postgres
 
@@ -149,7 +152,7 @@ Then [restart the runtime](../restart-and-check-health/#restart-the-runtime).
 A run from before the backup is there, where `<run id>` is its id:
 
 ```sh
-pnpm exec kindgi runs get <run id> --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
+npx --yes @kindgi/cli@0.1 runs get <run id> --url http://localhost:4000
 ```
 
 ```text
@@ -225,7 +228,7 @@ Then:
    with everything else:
 
    ```sh
-   kindgi memory erasures export --out=erasures-$(date +%F).json
+   npx --yes @kindgi/cli@0.1 memory erasures export --out=erasures-$(date +%F).json
    ```
 
    `--out` is the file it writes. `$(date +%F)` names it with the date of the
@@ -243,7 +246,7 @@ Then:
    anyone. It erases again whoever the restored database holds:
 
    ```sh
-   kindgi memory erasures replay erasures-<date>.json
+   npx --yes @kindgi/cli@0.1 memory erasures replay erasures-<date>.json
    ```
 
    `erasures-<date>.json` is the latest export. Its answer sorts the
@@ -284,7 +287,11 @@ can export them all:
 **What each copy is:**
 - one file, `erasure-ledger-<YYYYMMDD>-<digest>.json`, holding every tenant's
   ledger: keyed hashes only, never whom an erasure names;
-- a new one is written when the ledger changes, and at least one a day;
+- every tenant marked purged, by its id and when it was created (runtime
+  0.1.10 or later). A runtime that serves one tenant names only that tenant,
+  even on a database others share;
+- a new one is written when the ledger changes or a tenant is purged, and at
+  least one a day;
 - none is ever overwritten or deleted, so keep them longer than your
   backups (a bucket's lifecycle rule, say).
 
@@ -322,8 +329,24 @@ docker run --rm --network kindgi --env-file kindgi.env \
   hold (set the key it was made with, and replay again), or one isn't done by
   `--timeout` (seconds, default 600). Exit `2` when it can't run.
 
+**Then purge the purged tenants again** (runtime 0.1.10 or later). A backup
+from before a tenant's purge brings the tenant back with its data, and replay
+doesn't purge it. Before the runtime serves anyone, run
+[`kindgi-runtime tenants repurge`](../serve-many-tenants/#after-a-restore-tenants-repurge)
+with `--ledger` where the copies are (`KINDGI_ERASURE_LEDGER_EXPORT` by
+default). The newest copy names every
+tenant purged before it was written, even one whose purge record is gone.
+
 `erasures export --out <local:<dir> | gcs:<bucket>[/<prefix>]>` writes a copy
-now, before an upgrade say.
+now, before an upgrade say, and says what it holds (`already there:` in
+place of `wrote` when a copy holding the same is there):
+
+```text
+erasures export: wrote erasure-ledger-<YYYYMMDD>-<digest>.json (2 tenants, 3 erasures, 1 purged tenant)
+```
+
+The server logs each copy it writes the same way, as
+`erasure ledger exported: <file> to <where> (…)`.
 
 ### Look at a restored copy before it serves: `KINDGI_PASSIVE`
 

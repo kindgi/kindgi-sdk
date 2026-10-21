@@ -13,6 +13,7 @@ import type {
   JudgedItemSummary,
 } from '../eval-case-binding.js';
 import type { EvalSuiteRegistryBinding } from '../eval-suite-binding.js';
+import type { ItemRights } from '../item-rights.js';
 import { classWeightReader, summarizeJudgments } from '../judged-summary.js';
 import {
   type JudgedRunListInput,
@@ -48,6 +49,8 @@ export function judgedSuitesRouter(
   judgments: JudgmentRegistryBinding,
   cases: EvalCaseStoreBinding,
   authorizer?: Authorizer,
+  /** Rights on a suite more than one project serves (`item-rights.ts`); absent → the suite's own. */
+  itemRights?: ItemRights,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -105,8 +108,11 @@ export function judgedSuitesRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const suiteId = c.req.param('suiteId');
     const version = c.req.param('version');
+    // A suite more than one project serves was checked on those projects,
+    // this version among them (`item-rights.ts`, the suites' middleware).
     if (
       authorizer !== undefined &&
+      (await itemRights?.multi(c, 'eval_suite', suiteId)) === undefined &&
       !(await authorizer.can(c, 'read', ref('eval_suite', suiteId)))
     ) {
       return fail(c, 'eval-suite-not-found', `No eval suite "${suiteId}".`);
