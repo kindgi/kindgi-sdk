@@ -113,20 +113,21 @@ export function runIsAttended(startedBy: RunStartedBy | undefined): boolean {
 /**
  * Whether a call of `tool` waits for a person's yes because no person is
  * watching its run: the tool declares `needsApprovalWhenUnattended`, the
- * run isn't attended (`runIsAttended`), and the webhook or schedule that
- * started it doesn't list the tool in `toolsAllowedUnattended`. The one
- * rule an agent's tool gate and a flow's tool step both apply.
+ * run isn't attended (`runIsAttended`), and it isn't a run a webhook or a
+ * schedule started whose `toolsAllowedUnattended` lists the tool. Only
+ * those runs have a list: on any other, one lifts nothing. The one rule an
+ * agent's tool gate and a flow's tool step both apply.
  */
 export function needsPersonsYesUnattended(
   tool: { readonly id: string; readonly needsApprovalWhenUnattended?: boolean },
   startedBy: RunStartedBy | undefined,
   toolsAllowedUnattended: readonly string[] | undefined,
 ): boolean {
-  return (
-    tool.needsApprovalWhenUnattended === true &&
-    !runIsAttended(startedBy) &&
-    toolsAllowedUnattended?.includes(tool.id) !== true
-  );
+  if (tool.needsApprovalWhenUnattended !== true || runIsAttended(startedBy)) return false;
+  const listed =
+    (startedBy === 'webhook' || startedBy === 'schedule') &&
+    toolsAllowedUnattended?.includes(tool.id) === true;
+  return !listed;
 }
 
 /**

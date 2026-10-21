@@ -425,6 +425,7 @@ describe('a schedule', () => {
       agentSchedule({ agentVersion: '1.0.0', toolsAllowedUnattended: ['acme.send'] }),
     );
     const id = made.body.scheduleId as string;
+    expect(await h.toolEvents()).toHaveLength(1);
 
     // A version alone: kept, nothing audited.
     const bumped = await h.call('PATCH', `/v1/schedules/${id}`, {
@@ -433,6 +434,7 @@ describe('a schedule', () => {
     });
     expect(bumped.status).toBe(200);
     expect(bumped.body.toolsAllowedUnattended).toEqual(['acme.send']);
+    expect(await h.toolEvents()).toHaveLength(1);
 
     // Another target, the field left out: refused, the schedule unchanged.
     const silent = await h.call('PATCH', `/v1/schedules/${id}`, {

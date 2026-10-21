@@ -86,7 +86,15 @@ describe('needsPersonsYesUnattended — the one rule the gate and the runtime sh
       expect(needsPersonsYesUnattended(declared, by, undefined)).toBe(true);
       expect(needsPersonsYesUnattended(declared, by, [])).toBe(true);
       expect(needsPersonsYesUnattended(declared, by, ['pack.other'])).toBe(true);
+    }
+    for (const by of ['webhook', 'schedule'] as const) {
       expect(needsPersonsYesUnattended(declared, by, ['pack.other', 'pack.refund'])).toBe(false);
+    }
+  });
+
+  test("only a webhook's or a schedule's run has a list: on any other, one lifts nothing", () => {
+    for (const by of ['key', 'event', undefined] as const) {
+      expect(needsPersonsYesUnattended(declared, by, ['pack.refund'])).toBe(true);
     }
   });
 
