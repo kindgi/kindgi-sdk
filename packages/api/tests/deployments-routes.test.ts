@@ -6381,21 +6381,56 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     expect(await held('acme.reply', '1.0.0')).not.toHaveProperty('unregisteredAt');
   });
 
-  test("an agent's range pins over the registry's versions and the pack's: the newest in range", async () => {
-    const { blocks, deploy, held, pinned } = setup();
+  /** Publish a version of the prompt block straight to the runtime, as `kindgi blocks publish` does. */
+  async function publishReply(blocks: ReturnType<typeof inMemoryBlocks>, version: string) {
     await blocks.publish({
       tenantId,
       projectId: DEFAULT_PROJECT_ID,
-      block: {
-        id: 'acme.reply',
-        version: '1.5.0',
-        kind: 'prompt',
-        content: { template: 'Hello.' },
-      },
+      block: { id: 'acme.reply', version, kind: 'prompt', content: { template: 'Hello.' } },
     });
-    expect((await deploy(pack([{ ...REPLY, version: '1.2.0' }, STYLE]))).status).toBe(201);
+  }
+
+  test("an agent pins the pack's own version of a block it brings, not a newer one in range", async () => {
+    const { blocks, deploy, held, pinned } = setup();
+    await publishReply(blocks, '1.0.0');
+    await publishReply(blocks, '1.5.0');
+    const res = await deploy(pack([{ ...REPLY, version: '1.2.0' }, STYLE]));
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(await held('acme.reply', '1.2.0')).not.toBeNull();
-    expect(pinned).toEqual([expect.objectContaining({ prompts: { 'acme.reply': '1.5.0' } })]);
+    expect(pinned).toEqual([
+      expect.objectContaining({
+        prompts: { 'acme.reply': '1.2.0' },
+        settings: { 'acme.style': '1.0.0' },
+      }),
+    ]);
+  });
+
+  test("a block the pack doesn't bring pins the newest published version in range, as before", async () => {
+    const { blocks, deploy, pinned } = setup();
+    await publishReply(blocks, '1.0.0');
+    await publishReply(blocks, '1.5.0');
+    const res = await deploy(pack([STYLE]));
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(pinned).toEqual([
+      expect.objectContaining({
+        prompts: { 'acme.reply': '1.5.0' },
+        settings: { 'acme.style': '1.0.0' },
+      }),
+    ]);
+  });
+
+  test("a range that doesn't take the pack's version is refused, naming both, before anything is written", async () => {
+    const { blocks, deploy, held, written } = setup();
+    // The runtime holds a version the range takes; the pack's files are the agent, so it isn't used.
+    await publishReply(blocks, '1.0.0');
+    const res = await deploy(pack([{ ...REPLY, version: '2.0.0' }, STYLE]));
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('validation-failed');
+    expect(JSON.stringify(res.body.error.details)).toContain(
+      'prompt block \\"acme.reply\\": the pack brings version 2.0.0, which \\"^1.0.0\\" doesn\'t take; change the agent\'s range or the block\'s version',
+    );
+    expect(written).toEqual([]);
+    expect(await held('acme.reply', '2.0.0')).toBeNull();
   });
 
   test("an index without blocks (a CLI from before them) pins what's published, and refuses what isn't", async () => {

@@ -188,8 +188,12 @@ holds:
   kindgi blocks reinstate acme.reply-prompt --block-version=1.0.0
   ```
 
-Each agent pins the newest version in its range, of the runtime's and the
-pack's. A runtime from an earlier release doesn't publish a pack's blocks:
+An agent pins the pack's own version of each block the pack brings, as the
+pack's files are the agent: a newer version published on the runtime since
+isn't picked, even one in the agent's range. If the agent's range doesn't take
+the pack's version, the deploy is refused, naming both. A block the pack
+doesn't bring pins the newest published version in the agent's range, as
+before. A runtime from an earlier release doesn't publish a pack's blocks:
 `kindgi deploy` checks first, and refuses, naming the release it needs.
 
 ## Use them in an agent

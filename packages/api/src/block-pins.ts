@@ -32,16 +32,19 @@ const VERSIONS_PAGE = 200;
  * Pin the data blocks an agent references (its prompt block, settings
  * blocks and model-settings block) when a version of it is published:
  * each range resolves by `pickVersion` over the block's active versions,
- * as a turn of an unpinned agent would. A reference that matches no
- * published version, names a block of the other kind, or names model
- * settings that aren't (`MODEL_SETTINGS_SCHEMA`) is an issue: the
- * caller refuses the publish. So is any reference on a runtime with no
- * block registry.
+ * as a turn of an unpinned agent would. A block a deploy's pack brings
+ * (`pack`: its id and version) pins the pack's version only, as the
+ * pack's files are the agent: a newer version published on the runtime
+ * isn't picked. A reference that matches no published version (or not
+ * the pack's), names a block of the other kind, or names model settings
+ * that aren't (`MODEL_SETTINGS_SCHEMA`) is an issue: the caller refuses
+ * the publish. So is any reference on a runtime with no block registry.
  */
 export async function resolveBlockPins(
   blocks: BlockVersionReads | undefined,
   tenantId: TenantId,
   agent: Agent,
+  pack?: ReadonlyMap<string, string>,
 ): Promise<BlockPins> {
   const prompts: Record<string, string> = {};
   const settings: Record<string, string> = {};
@@ -54,16 +57,14 @@ export async function resolveBlockPins(
       });
       continue;
     }
-    const available = await activeBlockVersions(blocks, tenantId, ref.id);
+    const packVersion = pack?.get(ref.id);
+    const available =
+      packVersion !== undefined
+        ? [packVersion]
+        : await activeBlockVersions(blocks, tenantId, ref.id);
     const pick = pickVersion(available, ref.range);
     if (pick.kind !== 'ok') {
-      issues.push({
-        path: ref.path,
-        message:
-          available.length === 0
-            ? `${describe(ref)} has no published version; publish the block first`
-            : `${describe(ref)} has no published version in "${ref.range}" (published: ${available.join(', ')})`,
-      });
+      issues.push({ path: ref.path, message: missed(ref, available, packVersion) });
       continue;
     }
     const block = await blocks.getVersion({ tenantId, blockId: ref.id, version: pick.version });
@@ -103,6 +104,16 @@ export function blockRefs(agent: Agent): Ref[] {
     });
   }
   return refs;
+}
+
+/** Why no version can serve a reference: none the runtime holds in range, or not the pack's. */
+function missed(ref: Ref, available: readonly string[], packVersion: string | undefined): string {
+  if (packVersion !== undefined) {
+    return `${describe(ref)}: the pack brings version ${packVersion}, which "${ref.range}" doesn't take; change the agent's range or the block's version`;
+  }
+  return available.length === 0
+    ? `${describe(ref)} has no published version; publish the block first`
+    : `${describe(ref)} has no published version in "${ref.range}" (published: ${available.join(', ')})`;
 }
 
 /** Why a block version can't serve its reference; undefined when it can. */

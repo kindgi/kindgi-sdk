@@ -15,8 +15,11 @@
  *   doesn't record who unregistered it, a person or a deploy that failed
  *   after publishing it (which rolls back what it published), so the
  *   deploy never reinstates one itself.
- * - An agent's block ranges pin over the registry's versions and the
- *   pack's new ones (`withPackVersions`): the newest in range, as before.
+ * - An agent's reference to a block the pack brings pins the pack's
+ *   version, and is refused when its range doesn't take it
+ *   (`resolveBlockPins`). Its other ranges pin over the registry's
+ *   versions and the pack's new ones (`withPackVersions`): the newest in
+ *   range, as before.
  * - In the write phase, each is published (`publishPackBlocks`) before
  *   anything else, a new one with an unregister to roll it back. The
  *   registry answers a block whose versions live in another project
