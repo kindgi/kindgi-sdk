@@ -66,7 +66,7 @@ apart, and the two that let you allow and count them:
 | Setting | What it does |
 |---|---|
 | `KINDGI_TENANT_HOST_ACCESS=isolated` | What a tenant registers reaches public hosts only: not the metadata server, this host or private networks, and never with the server's own cloud credentials. The server then refuses `KINDGI_DEV`, `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow` and `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`. |
-| `KINDGI_PACK_ROUTING=per-deployment` | Each call goes to the pack service of the deployment that shipped the tool or check, never to one pack service every tenant shares. It needs `KINDGI_SECRETS_BACKEND=postgres`, because each endpoint's token is sealed under the secrets' key. `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused. |
+| `KINDGI_PACK_ROUTING=per-deployment` | Each call goes to the pack service of the newest deployment in the run's project that shipped the tool or check, never to one pack service every tenant shares. A run with no project uses the Default project, whose deployments include each one that named no project. It needs `KINDGI_SECRETS_BACKEND=postgres`, because each endpoint's token is sealed under the secrets' key. `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused. |
 | `KINDGI_PACK_ENDPOINT_HOSTS` | The hosts a deployment's pack service may be on, comma-separated: a host name, `*.` and a domain, or `*-`, a tail and a domain. |
 | `KINDGI_OPENFGA_API_URL` and `KINDGI_OPENFGA_PRESHARED_KEY` | The authorization store, and the key it requires of its callers, so only the server reads and writes tenants' grants ([Require a key for OpenFGA](../../authorization/#require-a-key-for-openfga)). |
 | `KINDGI_PRODUCTION_GATE=on` | A tenant puts a project in production only once you allow it ([Limits and production](#limits-and-production)). |
@@ -151,9 +151,54 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   ([Turn on sign-in](../sign-in/)). No key comes back: once signed in, they
   make the tenant's keys ([API keys](../../people-and-keys/#api-keys)).
 - **Without `firstAdmin`,** the answer carries the tenant's first admin key,
-  once. Store it, because nothing shows it again, and without it nothing
-  gives the tenant another admin key. Only the full capability creates a
-  tenant that way.
+  once. Store it, because nothing shows it again. Only the full capability
+  creates a tenant that way.
+- **A tenant whose admins can't sign in any more** (runtime 0.1.9 or later):
+  `kindgi-runtime tenants make-admin` makes one of its people its admin, or a
+  new person by email, with what a first admin holds: every capability but
+  `secrets:reveal`, which no person is given. They then sign in and make the
+  tenant's keys, so it needs sign-in turned on ([Turn on sign-in](../sign-in/)).
+  Like [`tenants repair`](#after-each-upgrade-tenants-repair), it runs
+  against the runtime's database and authorization store. Run it with
+  `--dry-run` first, which says what would change and changes nothing:
+
+  ```sh
+  kindgi-runtime tenants make-admin <tenant id> \
+    --email pat@acme-store.example --name Pat \
+    --reason "Pat can't sign in; checked with Acme Store" --dry-run
+  ```
+
+  `--person <user id>` names one of its people instead, who must be a
+  tenant member. Nothing is taken from anyone. If it stops partway, run it
+  again with the same arguments to finish it. What it does is in the
+  tenant's audit log, by `system`, which the tenant's admins can read:
+  making them admin and what that gives them carry your `--reason`.
+- **A tenant created without `firstAdmin` whose admin key is lost** (runtime
+  0.1.11 or later): `kindgi-runtime tenants admin-key` mints it again. The
+  live keys of the tenant's "First admin" service account are revoked, and
+  the console sessions they opened end. Then one key is minted for it,
+  carrying what the first one did: tenant admin, and the tenant's root
+  capabilities, `secrets:reveal` among them. It runs against the runtime's
+  database. Run it with `--dry-run` first:
+
+  ```sh
+  kindgi-runtime tenants admin-key <tenant id> \
+    --reason "Acme Store's admin key was lost; checked with Acme Store" --dry-run
+  ```
+
+  The key is printed once, alone, on stdout, so it can go straight into a
+  secret store; the rest is said on stderr. With `--dry-run`, nothing is
+  minted, and what would change is said on stdout. It's refused when one of
+  those keys has a use recorded, unless `--revoke-used`: a key that was used
+  was received, and someone may be holding it. A use is recorded at most once
+  a minute, so a key used just now may not show it yet. A suspended tenant
+  gets the key too, as does a closing one inside its 30-day export window; a
+  closing tenant past that window is refused. Each key revoked, and the key
+  minted, is in the tenant's audit log, by `system`, with your `--reason`. It
+  exits `0` when the key is minted, `1` when it's minted but an audit entry
+  couldn't be written or a revoked key's sessions couldn't be ended, and `2`
+  when it's refused and nothing changed. A tenant created with `firstAdmin`
+  has no such account: `tenants make-admin` makes a person its admin.
 - **Production starts blocked.** `"productionAllowed": true` allows it from
   the start, and takes `system:tenants:production`.
 - **`imagePrefix`** is the repository every image the tenant deploys must
@@ -198,13 +243,13 @@ service is, and checks it. It never creates or deletes one.
 
 1. **List the deployments that need a service:**
    `GET /v1/system/deployments?endpoint=missing`, oldest first across tenants.
-   A deployment needs one while it's routed: it's the newest with routes for
-   some tool version or pack check, it has no endpoint or a cleared one, and
-   nothing about it is closing or suspended. Each entry has the tenant's id,
-   the deployment's id, its pack and project (the one it named, else the
-   tenant's Default), and its image: the digest-pinned `imageRef`, its
-   digest, the artifact version and when it went live. It has nothing else
-   of the tenant.
+   A deployment needs one while it's routed: it's the newest in its project
+   with routes for some tool version or pack check, it has no endpoint or a
+   cleared one, and nothing about it is closing or suspended. Each entry has
+   the tenant's id, the deployment's id, its pack and project (the one it
+   named, else the tenant's Default), and its image: the digest-pinned
+   `imageRef`, its digest, the artifact version and when it went live. It
+   has nothing else of the tenant.
 2. **Run the image as a service** whose host begins with the deployment's own
    service name, `packServiceName(tenantId, deploymentId)` from `@kindgi/api`
    (`kp-` and 20 characters), then `-` or `.`. Give it a token of its own,
@@ -283,12 +328,27 @@ service is, and checks it. It never creates or deletes one.
    lists deployments with an endpoint whose service should go, each with its
    `reason`. Clear the endpoint first, with `DELETE …/endpoint`, then delete
    the service. A `superseded` deployment is one whose every tool version and
-   check newer deployments ship.
+   check newer deployments in its project ship.
 
 A call to a deployment's tool never goes anywhere else. With no endpoint yet
 it fails with `pack-endpoint-pending`, and after a clear with
 `pack-endpoint-cleared`. A tenant sees its deployment's `endpoint`: `pending`
 (with the problem, if one is recorded), `ready` or `cleared`.
+
+A call never goes to a deployment in another project, either. When no
+deployment in the run's project ships what it names, it fails with
+`pack-route-missing`:
+
+```text
+No deployment in project "<project name>" ships tool acme.lookup@1.0.0.
+```
+
+A call run again stays on the deployment it first ran on. If that
+deployment isn't in the run's project, or doesn't ship what the call names:
+
+```text
+Deployment <deployment-id> isn't in project "<project name>", or doesn't ship tool acme.lookup@1.0.0. This call first ran on deployment <deployment-id>, and a re-run doesn't move to another.
+```
 
 ## Limits and production
 
@@ -325,7 +385,8 @@ restoring clears both. A closing tenant can't be suspended (`409 tenant-closing`
   Nothing new runs in it (`409 project-suspended`), and no pack service's
   endpoint is recorded for it. Its running runs are cancelled, its schedules
   and webhooks are skipped, and its deployments list to retire. The rest of
-  the tenant is untouched.
+  the tenant is untouched. While the Default project is suspended, a pack
+  call that names no project is refused too.
 - **A pack:** `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended`.
   Its calls fail with `pack-suspended`, never going to an older deployment,
   and it lists to retire. Restored, it serves again from the endpoint

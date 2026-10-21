@@ -1638,10 +1638,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '404': ErrorResponse(
-        "Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`); or `input.conversationId` names no conversation of this tenant (`conversation-not-found`), answered before any turn starts, with `options.wait: false` too. A caller who can't read the conversation gets the same answer, byte for byte, in place of the 409 for a turn naming another project, of the 403 for a conversation with no participant, or of the 409 for a closed conversation with no participant.",
+        "Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`); or `input.conversationId` names no conversation of this tenant (`conversation-not-found`), answered before any turn starts, with `options.wait: false` too. A caller who can't read the conversation gets the same answer, byte for byte, in place of the 409 for a turn naming another project, of the 403 for a turn into it they may not add (a conversation with no participant, or `participant-not-allowed` for its stored participant), or of the 409 for a closed conversation they may not add a turn to.",
       ),
       '403': ErrorResponse(
-        "No `execute` on the agent or flow; or, for one more than one project serves run in one of its projects (the one named, else the conversation's, else a project-scoped key's when it is one of them, else its first), no `call` there for an agent (`caller` or `editor`) or `execute` there for a flow (`executor` or `editor`), asked in place of its own `execute` and of `write` on a named project; otherwise, naming a `projectId` without `write` on it; or a turn run as a participant whose memory the caller may not read (`participant-not-allowed`). A turn runs with its participant's memory (the conversation's stored participant, else `input.participantId`), so running as one takes being them (a person, by their user id) or `write` on the turn's project, as reading their memory does. A turn into a conversation with no participant takes having opened it (the caller `?openedBy=me` names) or `write` on its project (on its agent, for a conversation from before projects): `permission-denied`, with `details.resource` the conversation.",
+        "No `execute` on the agent or flow; or, for one more than one project serves run in one of its projects (the one named, else the conversation's, else a project-scoped key's when it is one of them, else its first), no `call` there for an agent (`caller` or `editor`) or `execute` there for a flow (`executor` or `editor`), asked in place of its own `execute` and of `write` on a named project; otherwise, naming a `projectId` without `write` on it; or a turn run as a participant whose memory the caller may not read (`participant-not-allowed`; for a conversation's stored participant, only to a caller who can read the conversation). A turn runs with its participant's memory (the conversation's stored participant, else `input.participantId`), so running as one takes being them (a person, by their user id) or `write` on the turn's project, as reading their memory does. A turn into a conversation with no participant takes having opened it (the caller `?openedBy=me` names) or `write` on its project (on its agent, for a conversation from before projects): `permission-denied`, with `details.resource` the conversation, to a caller who can read it.",
       ),
       '422': ErrorResponse('Guardrail violation or budget exceeded.'),
       '409': ErrorResponse(
@@ -4267,7 +4267,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Conversation.', schema: ref('Conversation') },
       ...CommonAuthErrors,
       '400': ErrorResponse('`conversationId` is not a conversation id (a UUID).'),
-      '404': ErrorResponse('No conversation with that id under this tenant.'),
+      '404': ErrorResponse(
+        "No conversation with that id under this tenant, or one the caller can't read (`read` on its project, or on its agent for one from before projects): the same answer, byte for byte.",
+      ),
     },
   },
   {
@@ -4311,7 +4313,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '400': ErrorResponse('`conversationId` is not a conversation id (a UUID).'),
-      '404': ErrorResponse('No conversation with that id under this tenant.'),
+      '403': ErrorResponse(
+        "The caller can read the conversation, and has no `execute` on its agent or, for an agent more than one project serves, no `call` on the conversation's project (`caller` or `editor`). Closing one doesn't take reading it.",
+      ),
+      '404': ErrorResponse(
+        "No conversation with that id under this tenant, or one the caller may not close and can't read: the same answer, byte for byte.",
+      ),
     },
   },
   {
@@ -4332,8 +4339,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '400': ErrorResponse('`conversationId` is not a conversation id (a UUID).'),
+      '403': ErrorResponse(
+        'The caller can read the conversation, and has no `write` on its project (on its agent, for one from before projects).',
+      ),
       '404': ErrorResponse(
-        'No conversation with that id under this tenant, or it is unregistered already.',
+        "No conversation with that id under this tenant, or it is unregistered already, or the caller may not unregister it and can't read it: the same answer, byte for byte.",
       ),
       '501': ErrorResponse(
         "`conversation-unregister-unsupported`: this runtime can't unregister conversations.",
@@ -4360,7 +4370,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         'Malformed cursor, or `conversationId` is not a conversation id (a UUID).',
       ),
-      '404': ErrorResponse('No conversation with that id under this tenant.'),
+      '404': ErrorResponse(
+        "No conversation with that id under this tenant, or one the caller can't read (`read` on its project, or on its agent for one from before projects): the same answer, byte for byte.",
+      ),
     },
   },
 
