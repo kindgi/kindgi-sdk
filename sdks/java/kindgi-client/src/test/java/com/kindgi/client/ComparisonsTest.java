@@ -142,30 +142,44 @@ class ComparisonsTest {
   }
 
   @Test
-  void emptyForAnotherKindADryRunOrOneNotFinished() {
-    EvalRun accuracy =
-        runWith(
-            run -> {
-              run.put("kind", "accuracy");
-              run.remove("result");
-            });
-    assertThat(Comparisons.comparisonOf(accuracy)).isEmpty();
+  void emptyForEachReasonOnItsOwn() {
+    // Each run below trips exactly one of the four conditions in comparisonOf, so dropping any
+    // single guard would make this test fail — a non-judged kind, no result yet, a result with no
+    // summary, and a result with no perCase list.
 
-    EvalRun dry =
-        runWith(
-            run -> {
-              run.put("dryRun", true);
-              run.put("result", Map.of("dryRun", true, "cases", 2));
-            });
-    assertThat(Comparisons.comparisonOf(dry)).isEmpty();
+    // Another kind of run, but with the judged result kept — only the kind guard makes it empty.
+    EvalRun otherKind = runWith(run -> run.put("kind", "accuracy"));
+    assertThat(Comparisons.comparisonOf(otherKind)).isEmpty();
 
-    EvalRun running =
+    // A judged run that hasn't finished — no result yet — only the result-present guard.
+    EvalRun unfinished =
         runWith(
             run -> {
               run.put("status", "running");
               run.remove("result");
             });
-    assertThat(Comparisons.comparisonOf(running)).isEmpty();
+    assertThat(Comparisons.comparisonOf(unfinished)).isEmpty();
+
+    // A judged run whose result has the perCase list but no summary — only the summary guard.
+    // Without that guard this would throw (summary is required), not return empty.
+    EvalRun noSummary =
+        runWith(
+            run -> {
+              @SuppressWarnings("unchecked")
+              Map<String, Object> result = (Map<String, Object>) run.get("result");
+              result.remove("summary");
+            });
+    assertThat(Comparisons.comparisonOf(noSummary)).isEmpty();
+
+    // A judged run whose result has a summary but no perCase list — only the perCase guard.
+    EvalRun noPerCase =
+        runWith(
+            run -> {
+              @SuppressWarnings("unchecked")
+              Map<String, Object> result = (Map<String, Object>) run.get("result");
+              result.remove("perCase");
+            });
+    assertThat(Comparisons.comparisonOf(noPerCase)).isEmpty();
   }
 
   @Test
