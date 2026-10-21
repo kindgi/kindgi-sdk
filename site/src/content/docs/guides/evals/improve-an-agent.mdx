@@ -196,8 +196,11 @@ curl -X POST "$KINDGI_API_URL/v1/proposals/improve" \
 
 It answers at once (`202`) with the pass, as the CLI does without `--wait`.
 
-The drafter sees the cases judged wrong and their reasons. A template it
-writes is compared only if it stays within what the agent already has:
+The drafter sees the cases judged wrong, their reasons, and
+[what an expert corrected on them](../fix-what-experts-corrected/): the
+calls the agent should have made and the tools it shouldn't have called,
+as an example for that case, not a rule. A template it writes is compared
+only if it stays within what the agent already has:
 
 - it parses as Liquid;
 - it reads only the prompt's declared parameters, the variables the current
