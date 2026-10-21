@@ -5,7 +5,7 @@
  * Whom a run acts for (`actsFor`), as `GET /v1/runs/{runId}` and
  * `GET /v1/runs` answer it: the id the run records, `user:<id>` or
  * `service_account:<id>`, never a name. A person or a service account's
- * key that started it, a trigger's owner (an event's too), a parent's for
+ * key that started it, a schedule's or a webhook's owner, a parent's for
  * a child run. A run that acts for no one (a replay run, one from before
  * runs recorded it) has none.
  */
@@ -55,9 +55,9 @@ function runRow(overrides: Partial<KernelRunRecord>): KernelRunRecord {
 
 const byPerson = runRow({ startedBy: 'person', actsFor: `user:${PERSON}` });
 const byKey = runRow({ startedBy: 'key', actsFor: 'service_account:sa-automation' });
-const byEvent = runRow({
-  startedBy: 'event',
-  trigger: { triggerId: randomUUID() as TriggerId, kind: 'event', fireId: 'fire-1' },
+const byWebhook = runRow({
+  startedBy: 'webhook',
+  trigger: { triggerId: randomUUID() as TriggerId, kind: 'webhook', fireId: 'fire-1' },
   actsFor: `user:${OWNER}`,
 });
 const child = runRow({
@@ -68,7 +68,7 @@ const child = runRow({
 });
 const replay = runRow({ replayOf: byPerson.runId, evalRunId: 'eval-1' });
 const older = runRow({});
-const rows = [byPerson, byKey, byEvent, child, replay, older];
+const rows = [byPerson, byKey, byWebhook, child, replay, older];
 
 function allow(action: Action, resource: ResourceRef): Decision {
   return {
@@ -116,7 +116,7 @@ describe('GET /v1/runs/{runId}: whom the run acts for', () => {
   test.each([
     ['a person started it', byPerson, `user:${PERSON}`],
     ["a service account's key started it", byKey, 'service_account:sa-automation'],
-    ["an event trigger fired it: the trigger's owner", byEvent, `user:${OWNER}`],
+    ['a webhook fired it: its owner, as stored', byWebhook, `user:${OWNER}`],
     ["a child run: its parent's", child, `user:${PERSON}`],
   ] as const)('%s', async (_how, row, actsFor) => {
     const res = await get(makeApp(), `/v1/runs/${row.runId}`);

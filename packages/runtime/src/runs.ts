@@ -77,8 +77,8 @@ export interface KernelRunRecord {
   readonly startedBy?: RunStartedBy;
   /**
    * Whom the run acts for (`RunActsFor`). Absent on a run that acts for no
-   * one (a system job, an agent on its own, a replay run), runs from
-   * before runs recorded it included.
+   * one (a system job, an agent on its own, an eval run's replay run), runs
+   * from before runs recorded it included.
    */
   readonly actsFor?: RunActsFor;
   /**
