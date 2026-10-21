@@ -197,6 +197,8 @@ KMS probe OK (gcp-cloud-kms): gcp-cloud-kms v1 (encrypt/decrypt round trip, key 
 
 **On the first apply** the pack service line can read `⚠ Pack service at https://… isn't answering (pack-service-unauthorized: The platform in front of the pack service refused the call: …)`. The server's invoker grant on the pack service is seconds old then, and IAM is still propagating it. Calls work once it has, without a restart (in our run, the first tool call, 3½ minutes after the warning, worked). If tool calls still fail after that, check that the server's service account has `roles/run.invoker` on the pack service.
 
+**When the server starts with the pack service at zero** (`pack_min_instances = 0`), the line can read `⚠ Pack service at https://… didn't answer within 5 s. The server is up; pack tools and checks fail until it answers.` The server waits 5 s for the pack service at startup, and a service at zero takes longer than that to start an instance. It's harmless: the first tool call waits for the instance (**The pack service at zero**, above). With `pack_min_instances` at its default of 1, one instance stays up to answer. If tool calls keep failing, read the pack service's logs: its startup probe (`/readyz`) fails until every module is loaded and every `env.required` name is set, and its logs name what's missing.
+
 The runtime's KMS key needs `roles/cloudkms.cryptoKeyEncrypterDecrypter`. A runtime before 0.1.3 also needs `roles/cloudkms.viewer`, because its boot probe reads the key; from 0.1.3 the probe is an encrypt/decrypt round trip. The module grants both.
 
 ## 6. Register the pack
