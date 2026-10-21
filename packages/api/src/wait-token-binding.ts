@@ -88,12 +88,14 @@ export type WaitTokenRefusal =
   | { readonly code: 'wait-token-output-invalid'; readonly issues: readonly unknown[] }
   /**
    * The run's tenant is closing or suspended, or its state can't be read
-   * (`unreadable`, which fails closed). Nothing is taken or held, and the
-   * wait stays open, so the same answer lands once a suspended tenant is
-   * restored. Answered as every write of a frozen tenant is.
+   * (`unreadable`, which fails closed). Nothing is taken or held. Closing or
+   * suspending cancels the tenant's runs, paused ones included, so this
+   * answers an answer that comes before the cancel reaches its run; an
+   * `unreadable` one leaves the wait open for the same answer again.
+   * Answered as every write of a frozen tenant is.
    */
   | { readonly code: 'tenant-frozen'; readonly state: 'closing' | 'suspended' | 'unreadable' }
-  /** The run's project is suspended: nothing is taken, and the wait stays open. */
+  /** The run's project is suspended, which cancels its runs: nothing is taken. */
   | { readonly code: 'project-suspended' };
 
 /** A run's open wait for another system's answer, as a run reader sees it. */

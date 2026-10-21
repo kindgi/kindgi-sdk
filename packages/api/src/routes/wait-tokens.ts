@@ -27,11 +27,10 @@
  *     told apart; also on a runtime that can't pause runs;
  *   - `409 wait-token-closed` (`details.state`): the wait is over;
  *   - `409 tenant-closing`, `409 tenant-suspended` (`details.state`), `409
- *     project-suspended`: nothing runs where the run is, so the answer
- *     isn't taken, and once a suspended tenant or project is restored the
- *     same answer lands. Not a `202` as a webhook delivery to one gets: the
- *     run still waits for this answer, and a sender told it was taken
- *     wouldn't send it again. `503 tenant-state-unavailable`
+ *     project-suspended`: nothing runs where the run is, and closing or
+ *     suspending cancels its runs, so the answer isn't taken. Not a `202`
+ *     as a webhook delivery to one gets: a sender told its answer was
+ *     taken would count on it. `503 tenant-state-unavailable`
  *     (`Retry-After`) when the tenant's state can't be read;
  *   - `413 request-too-large` (`details.maxBytes`): past 1 MiB;
  *   - `415 unsupported-media-type`: a body that isn't JSON. An empty body is `{}`;
@@ -275,7 +274,7 @@ function refusalBody(refused: Exclude<WaitTokenRefusal, { code: 'tenant-frozen' 
       return {
         code: refused.code,
         message:
-          "The run's project is suspended, so nothing runs in it until it's restored; the answer wasn't taken, and the wait is still open",
+          "The run's project is suspended, so nothing runs in it and its runs are cancelled; the answer wasn't taken",
       };
   }
 }
