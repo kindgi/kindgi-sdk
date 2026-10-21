@@ -92,8 +92,9 @@ const TOOL_PAUSE = Symbol.for('kindgi.tool-pause');
  * handler for a pack tool returns one. `invokeToolOrPause` recognizes it
  * before checking the output; `invokeTool` refuses it.
  *
- * @throws RangeError when `tokenId` is empty, or `timeoutMs` isn't a whole
- *   number from 1 to `MAX_PAUSE_TIMEOUT_MS`.
+ * @throws RangeError when `tokenId` is empty, `timeoutMs` isn't a whole
+ *   number from 1 to `MAX_PAUSE_TIMEOUT_MS`, or `name` isn't 1 to
+ *   `MAX_PAUSE_NAME_LENGTH` characters.
  */
 export function pauseOutcome(pause: ToolPause): unknown {
   return Object.freeze({ [TOOL_PAUSE]: true, pause: checked(pause) });
@@ -130,6 +131,14 @@ function checked(pause: ToolPause): ToolPause {
     throw new RangeError(
       `A pause waits from 1 to ${MAX_PAUSE_TIMEOUT_MS} ms (24 days), not ${String(pause.timeoutMs)}`,
     );
+  }
+  // In code points, as the schema's `maxLength` and a Python pack count it.
+  const { name } = pause;
+  if (
+    name !== undefined &&
+    (typeof name !== 'string' || name.length === 0 || [...name].length > MAX_PAUSE_NAME_LENGTH)
+  ) {
+    throw new RangeError(`A pause's name is 1 to ${MAX_PAUSE_NAME_LENGTH} characters`);
   }
   return toolPause(pause);
 }

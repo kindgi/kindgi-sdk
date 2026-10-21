@@ -139,6 +139,11 @@ describe('a call that waits', () => {
     ['no time', { tokenId: 'wt-1', timeoutMs: 0 }],
     ['more than 24 days', { tokenId: 'wt-1', timeoutMs: MAX_PAUSE_TIMEOUT_MS + 1 }],
     ['part of a millisecond', { tokenId: 'wt-1', timeoutMs: 1.5 }],
+    ['an empty name', { tokenId: 'wt-1', timeoutMs: 60_000, name: '' }],
+    [
+      'a name over 200 characters',
+      { tokenId: 'wt-1', timeoutMs: 60_000, name: '\u{1F4E6}'.repeat(201) },
+    ],
   ])('a pause with %s is refused where it is made', (_label, pause) => {
     expect(() => pauseOutcome(pause)).toThrow(RangeError);
   });
@@ -161,6 +166,8 @@ describe('a call that waits', () => {
     for (const pause of [
       { tokenId: '', timeoutMs: 60_000 },
       { tokenId: 'wt-1', timeoutMs: 0 },
+      { tokenId: 'wt-1', timeoutMs: 60_000, name: 42 },
+      { tokenId: 'wt-1', timeoutMs: 60_000, name: 'x'.repeat(201) },
       null,
     ]) {
       expect(() => pauseOf(forged(pause))).toThrow(RangeError);
