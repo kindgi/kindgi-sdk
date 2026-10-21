@@ -61,6 +61,12 @@ export const EVIDENCE_KINDS = [
   // Human-in-the-loop approval decisions (exportable in the shipped
   // compliance classifier).
   'hitl-decision',
+  // Another system's answer to a run's paused tool call, at its wait
+  // token's link or through the API: an answer landed (held for the run,
+  // or taken), and a held early answer the run never took. The payload
+  // carries the answer's size and SHA-256, never the answer.
+  'wait-token-completed',
+  'wait-token-discarded',
   // Which agent version is live for a scope: a promotion, a rollback, or
   // an unpin (the scope falls back to the one above).
   'agent-promotion',
