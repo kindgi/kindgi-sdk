@@ -85,7 +85,16 @@ export type WaitTokenRefusal =
   | { readonly code: 'wait-token-not-found' }
   | { readonly code: 'wait-token-closed'; readonly state: WaitTokenState }
   /** The answer doesn't fit the tool's output schema; the wait stays open. */
-  | { readonly code: 'wait-token-output-invalid'; readonly issues: readonly unknown[] };
+  | { readonly code: 'wait-token-output-invalid'; readonly issues: readonly unknown[] }
+  /**
+   * Nothing runs where the run is: its tenant is closing or suspended, or
+   * its project is suspended. Nothing is taken or held, and the wait stays
+   * open, so the same answer lands once a suspended tenant or project is
+   * restored.
+   */
+  | { readonly code: 'tenant-closing' }
+  | { readonly code: 'tenant-suspended' }
+  | { readonly code: 'project-suspended' };
 
 /** A run's open wait for another system's answer, as a run reader sees it. */
 export interface WaitingToken {
@@ -109,6 +118,12 @@ export interface WaitTokenBinding {
    * answer again, by its canonical JSON, is accepted again), resolve the
    * wait or hold the answer until the run reaches it, and write the audit
    * entry.
+   *
+   * Once the token matches, before anything else, it refuses an answer to a
+   * run whose tenant is closing or suspended, or whose project is
+   * suspended (as `createApp`'s `tenantStates` and `projectSuspended` would
+   * say), and takes nothing: nothing runs there. Only to a caller whose
+   * token matched, as the webhook receiver tells a sender that proved itself.
    */
   complete(input: CompleteWaitTokenInput): Promise<Result<WaitTokenAccepted, WaitTokenRefusal>>;
   /** The run's open waits for another system's answer. */

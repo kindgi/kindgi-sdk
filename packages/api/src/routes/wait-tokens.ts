@@ -26,6 +26,12 @@
  *   - `404 wait-token-not-found`: no such token, or a wrong secret, never
  *     told apart; also on a runtime that can't pause runs;
  *   - `409 wait-token-closed` (`details.state`): the wait is over;
+ *   - `409 tenant-closing`, `409 tenant-suspended` (`details.state`), `409
+ *     project-suspended`: nothing runs where the run is, so the answer
+ *     isn't taken, and once a suspended tenant or project is restored the
+ *     same answer lands. Not a `202` as a webhook delivery to one gets: the
+ *     run still waits for this answer, and a sender told it was taken
+ *     wouldn't send it again;
  *   - `413 request-too-large` (`details.maxBytes`): past 1 MiB;
  *   - `415 unsupported-media-type`: a body that isn't JSON. An empty body is `{}`;
  *   - `429 rate-limit-exceeded` (`Retry-After`): past
@@ -45,6 +51,7 @@ import { tenantInputBounds } from '@kindgi/bounds';
 import { statusFor, toWireError } from '../errors.js';
 import type { RunHandlerBinding } from '../handler-binding.js';
 import { deepJsonRefusal, nestsDeeperThan } from '../middleware/request-body.js';
+import { frozenTenantRefusal } from '../middleware/tenant-state.js';
 import {
   type RateLimitStore,
   type RateLimitTake,
@@ -237,11 +244,21 @@ function isJsonContentType(header: string | undefined): boolean {
 
 /** A refusal on the wire; the messages never echo the token. */
 export function refusal(c: Context<AppEnv>, refused: WaitTokenRefusal): Response {
-  c.status(statusFor(refused.code) as never);
-  return c.json(toWireError(refusalBody(refused), c.get('requestId')));
+  switch (refused.code) {
+    // As every write of a frozen tenant is refused (`tenantStateGate`).
+    case 'tenant-closing':
+      return frozenTenantRefusal(c, 'closing');
+    case 'tenant-suspended':
+      return frozenTenantRefusal(c, 'suspended');
+    default:
+      c.status(statusFor(refused.code) as never);
+      return c.json(toWireError(refusalBody(refused), c.get('requestId')));
+  }
 }
 
-function refusalBody(refused: WaitTokenRefusal) {
+function refusalBody(
+  refused: Exclude<WaitTokenRefusal, { code: 'tenant-closing' | 'tenant-suspended' }>,
+) {
   switch (refused.code) {
     case 'wait-token-not-found':
       return { code: refused.code, message: 'No wait token matches this link' };
@@ -256,6 +273,12 @@ function refusalBody(refused: WaitTokenRefusal) {
         code: refused.code,
         message: "The answer doesn't fit the tool's output schema; the wait is still open",
         issues: refused.issues,
+      };
+    case 'project-suspended':
+      return {
+        code: refused.code,
+        message:
+          "The run's project is suspended, so nothing runs in it until it's restored; the answer wasn't taken, and the wait is still open",
       };
   }
 }

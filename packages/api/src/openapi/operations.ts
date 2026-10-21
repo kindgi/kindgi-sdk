@@ -1822,7 +1822,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         '`run-not-found`: no run with that id under this tenant. `wait-token-not-found`: the run has no such wait.',
       ),
       '409': ErrorResponse(
-        "`wait-token-closed` (`details.state`): the wait is over (`completed`, `timed-out`, `cancelled`, `unused`), or holds a different answer the run hasn't taken yet (`answered`). Or an `Idempotency-Key` reused with a different body.",
+        "`wait-token-closed` (`details.state`): the wait is over (`completed`, `timed-out`, `cancelled`, `unused`), or holds a different answer the run hasn't taken yet (`answered`). `project-suspended`: nothing runs in the run's project until it's restored, so the value wasn't taken and the wait stays open. Or an `Idempotency-Key` reused with a different body.",
       ),
       '422': ErrorResponse(
         "`run-resume-not-supported`: a waitpoint that isn't a pause, or a runtime that pauses no run.",
@@ -10491,7 +10491,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         '`wait-token-not-found`: no wait token matches the link (an unknown token and a wrong secret alike), or this runtime pauses no run.',
       ),
       '409': ErrorResponse(
-        "`wait-token-closed` (`details.state`): the wait is over (`completed`, `timed-out`, `cancelled`, `unused`), or holds a different answer the run hasn't taken yet (`answered`).",
+        "`wait-token-closed` (`details.state`): the wait is over (`completed`, `timed-out`, `cancelled`, `unused`), or holds a different answer the run hasn't taken yet (`answered`). `tenant-closing`, `tenant-suspended` (`details.state`) or `project-suspended`: nothing runs where the run is, so the answer wasn't taken; once a suspended tenant or project is restored, the same answer lands. Told only for a token that matches.",
       ),
       '413': ErrorResponse('`request-too-large` (`details.maxBytes`): past 1 MiB.'),
       '415': ErrorResponse(

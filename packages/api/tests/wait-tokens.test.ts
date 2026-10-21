@@ -275,6 +275,10 @@ describe('the link', () => {
       400,
       { issues: [{ path: '/confirmedAt' }] },
     ],
+    // As every write of a frozen tenant is refused, with the same details.
+    [{ code: 'tenant-closing' } as const, 409, { state: 'closing' }],
+    [{ code: 'tenant-suspended' } as const, 409, { state: 'suspended' }],
+    [{ code: 'project-suspended' } as const, 409, undefined],
   ])('the binding refuses %o: %i', async (refusal, status, details) => {
     const h = harness({ complete: () => ({ kind: 'err', error: refusal }) });
     const res = await h.answer(JSON.stringify(ANSWER));
@@ -427,6 +431,14 @@ describe('POST /v1/runs/{runId}/resume with a pause', () => {
       code: 'wait-token-closed',
       details: { state: 'completed' },
     });
+    expect(h.resumed).toEqual([]);
+  });
+
+  test("a run in a suspended project is 409 project-suspended, and isn't resumed", async () => {
+    const h = harness({ complete: () => ({ kind: 'err', error: { code: 'project-suspended' } }) });
+    const res = await h.resume({ waitpointId: PAUSE_ID, value: ANSWER });
+    expect(res.status).toBe(409);
+    expect((await errorOf(res)).code).toBe('project-suspended');
     expect(h.resumed).toEqual([]);
   });
 

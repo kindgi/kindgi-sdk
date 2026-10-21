@@ -24926,7 +24926,7 @@
             }
           },
           "409": {
-            "description": "`wait-token-closed` (`details.state`): the wait is over (`completed`, `timed-out`, `cancelled`, `unused`), or holds a different answer the run hasn't taken yet (`answered`). Or an `Idempotency-Key` reused with a different body.",
+            "description": "`wait-token-closed` (`details.state`): the wait is over (`completed`, `timed-out`, `cancelled`, `unused`), or holds a different answer the run hasn't taken yet (`answered`). `project-suspended`: nothing runs in the run's project until it's restored, so the value wasn't taken and the wait stays open. Or an `Idempotency-Key` reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -58498,7 +58498,7 @@
             }
           },
           "409": {
-            "description": "`wait-token-closed` (`details.state`): the wait is over (`completed`, `timed-out`, `cancelled`, `unused`), or holds a different answer the run hasn't taken yet (`answered`).",
+            "description": "`wait-token-closed` (`details.state`): the wait is over (`completed`, `timed-out`, `cancelled`, `unused`), or holds a different answer the run hasn't taken yet (`answered`). `tenant-closing`, `tenant-suspended` (`details.state`) or `project-suspended`: nothing runs where the run is, so the answer wasn't taken; once a suspended tenant or project is restored, the same answer lands. Told only for a token that matches.",
             "content": {
               "application/json": {
                 "schema": {
