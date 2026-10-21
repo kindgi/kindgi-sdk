@@ -1,5 +1,30 @@
 # @kindgi/api
 
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/agents@0.1.10-rc.1
+  - @kindgi/audit-events@0.1.10-rc.1
+  - @kindgi/authz@0.1.10-rc.1
+  - @kindgi/blob-binding@0.1.10-rc.1
+  - @kindgi/bounds@0.1.10-rc.1
+  - @kindgi/capabilities@0.1.10-rc.1
+  - @kindgi/compliance@0.1.10-rc.1
+  - @kindgi/crypto@0.1.10-rc.1
+  - @kindgi/flow@0.1.10-rc.1
+  - @kindgi/guardrails@0.1.10-rc.1
+  - @kindgi/handler-runtime@0.1.10-rc.1
+  - @kindgi/log@0.1.10-rc.1
+  - @kindgi/memory@0.1.10-rc.1
+  - @kindgi/platform@0.1.10-rc.1
+  - @kindgi/policy-contract@0.1.10-rc.1
+  - @kindgi/provenance@0.1.10-rc.1
+  - @kindgi/runtime@0.1.10-rc.1
+  - @kindgi/schema@0.1.10-rc.1
+  - @kindgi/tools@0.1.10-rc.1
+  - @kindgi/types@0.1.10-rc.1
+
 ## 0.1.10-rc.0
 
 ### Patch Changes

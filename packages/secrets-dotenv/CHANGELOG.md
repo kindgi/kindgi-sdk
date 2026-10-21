@@ -1,5 +1,14 @@
 # @kindgi/secrets-dotenv
 
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/api@0.1.10-rc.1
+  - @kindgi/dotenv-file@0.1.10-rc.1
+  - @kindgi/platform@0.1.10-rc.1
+  - @kindgi/types@0.1.10-rc.1
+
 ## 0.1.10-rc.0
 
 ### Patch Changes
