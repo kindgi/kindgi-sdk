@@ -36,7 +36,8 @@ runtime warns from 30 days before
 A restart after that day doesn't come back up.
 
 **Before you start, read the upgrade steps of each release you're
-upgrading across:** [0.1.9's](../../../releases/0.1.9/#upgrade-steps) and
+upgrading across:** [0.1.10's](../../../releases/0.1.10/#upgrade-steps),
+[0.1.9's](../../../releases/0.1.9/#upgrade-steps) and
 [0.1.8's](../../../releases/0.1.8/#upgrade-steps) are in their release
 notes, and earlier releases' are below.
 
