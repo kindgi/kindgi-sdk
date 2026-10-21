@@ -2019,7 +2019,7 @@ export const ERROR_ENTRIES = {
   },
   'system-scope-missing': {
     description:
-      "The system key doesn't hold the scope this request takes, which `scope` names: the route's own, or more for what the request asks (creating a tenant without `firstAdmin`, for one). Every `/v1/system/keys` route takes the full system capability, which a scoped key doesn't hold. A deployment's secret values (`secrets=values` on its pack env) take a key holding `system:pack-env` itself: `kindgi:system` doesn't stand in for it.",
+      "The system key doesn't hold the scope this request takes, which `scope` names: the route's own, or more for what the request asks (creating a tenant without `firstAdmin`, for one). Every `/v1/system/keys` route takes the full system capability, which a scoped key doesn't hold. A deployment's secret values (`secrets=values` on its pack env) take a key holding `system:pack-env` itself: `kindgi:system` doesn't stand in for it. On a runtime serving one tenant, a system key reaches no `/v1/system/*` route, and `scope` is `kindgi:system`: the system keys take the deployment's own token there.",
     details: [
       {
         key: 'scope',
@@ -2038,6 +2038,33 @@ export const ERROR_ENTRIES = {
         meaning: 'why the caller was refused',
       },
     ],
+  },
+  'system-key-scope-not-served': {
+    description:
+      "The runtime serves one tenant, where a system key holds `system:license` alone, and this key holds anything else, which `scopes` names: it was minted while the runtime served many tenants, say. It's refused on every route. Mint one holding `system:license` with the deployment's own token, and revoke this one.",
+    details: [
+      {
+        key: 'scopes',
+        meaning: 'the scopes the key holds',
+      },
+      {
+        key: 'served',
+        meaning: 'the scopes a system key may hold on this runtime',
+      },
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+    seeAlso: ['POST /v1/system/keys', 'POST /v1/system/keys/{keyId}/revoke'],
   },
   'system-key-not-found': {
     description: 'No system key has that id.',
@@ -2080,6 +2107,78 @@ export const ERROR_ENTRIES = {
         meaning: 'the tenant; from a system route only',
       },
     ],
+  },
+  'tenant-slug-mismatch': {
+    description:
+      "A purge's `confirm` isn't the tenant's slug, the second check on its id. Nothing was changed: send its slug, as `GET /v1/system/tenants/{tenantId}` gives it.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+    ],
+  },
+  'tenant-not-closing': {
+    description:
+      'A purge of a tenant that is active or suspended. Only a closing tenant is purged, once its 30-day export window has passed: close it first (`POST /v1/system/tenants/{tenantId}/close`). Nothing was changed.',
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+      {
+        key: 'state',
+        meaning: '`active` or `suspended`',
+      },
+    ],
+  },
+  'tenant-export-window-open': {
+    description:
+      "A purge of a closing tenant whose 30-day export window hasn't passed: its own keys and sessions can still read and export it. Purge it once `windowEndsAt` has passed. Nothing was changed.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+      {
+        key: 'windowEndsAt',
+        meaning: 'when its export window ends',
+      },
+    ],
+  },
+  'purge-record-unset': {
+    description:
+      "A purge on a runtime with nowhere set to keep purge records (`KINDGI_TENANT_PURGE_RECORD`). Without a record, a restore from a backup older than the purge would bring the tenant back. Set it on the runtime's servers, then purge. Nothing was changed.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+    ],
+  },
+  'purge-setting-missing': {
+    description:
+      "A purge of a tenant holding something the runtime has no setting to reach: artifacts with no artifacts' store set (`KINDGI_ARTIFACTS`), or an authorization store with no OpenFGA set (`KINDGI_OPENFGA_API_URL`). The message says which. Nothing was changed.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+    ],
+  },
+  'authz-store-delete-failed': {
+    description:
+      "A purge's delete of the tenant's authorization store failed; the message gives OpenFGA's answer, if it gave one, and what that left. A tenant's rows go only after its store, so a failure before then leaves every row, though its artifacts' bytes may be deleted. Run the purge again once OpenFGA answers.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+    ],
+  },
+  'tenant-purge-unsupported': {
+    description: "This runtime doesn't purge tenants through the API.",
+    details: [],
   },
   'tenant-slug-taken': {
     description:
@@ -2492,6 +2591,17 @@ export const ERROR_ENTRIES = {
     description:
       "The deployment's operator manages sign-in, so changing identity providers needs the deployment's own token; a tenant admin's key is refused.",
     details: [],
+  },
+  'identity-providers-need-secrets-store': {
+    description:
+      "The deployment has no secrets store (`KINDGI_SECRETS_BACKEND` is `none`), and an identity provider's client secret and keys are references into one, so no provider is added or changed until the operator sets one up. Removing a provider still works. Continue with Google, Microsoft or GitHub and the emailed link don't need a store.",
+    details: [
+      {
+        key: 'providerId',
+        meaning: 'the provider that was being added or changed',
+      },
+    ],
+    seeAlso: ['deploy/self-hosted/sign-in', 'deploy/self-hosted/secret-manager'],
   },
   'license-operator-only': {
     description:
@@ -3539,7 +3649,7 @@ export const OUTSIDE_THE_MAP = [
     code: 'sign-in-unavailable',
     status: 500,
     description:
-      "Signing in failed on the server, for example because its database didn't answer. Nothing about the cause is sent to the browser; a sign-in page shows the code instead of JSON. The runtime's log says why, as an `sso` warning: `sign-in request failed: <reason>`. Try again.",
+      "Signing in failed on the server: its database didn't answer, say, or an identity provider's settings can't start a sign-in, or a SAML response the provider's page posted was refused. Nothing about the cause is sent to the browser; a sign-in page shows the code instead of JSON. The runtime's log says why, as an `sso` warning: `sign-in request failed: <reason>`, `sign-in with provider <id> didn't start: <reason>`, or `a SAML response for provider <id> was refused: <status> <code>: <message>`. Try again; when it keeps failing, the warning says what to fix.",
     seeAlso: ['deploy/self-hosted/sign-in'],
   },
 ];

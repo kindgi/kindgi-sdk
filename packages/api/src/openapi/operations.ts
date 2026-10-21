@@ -1508,6 +1508,13 @@ const ProviderChangeRefused: ResponseSpec = ErrorResponse(
   "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
 );
 
+/** Adding or changing a provider: the usual conflicts, or a deployment without a secrets store. */
+function providerChangeConflict(text: string): ResponseSpec {
+  return ErrorResponse(
+    `Idempotency-Key was reused with a different body, or resource-state conflict${text}. Or this deployment has no secrets store (\`identity-providers-need-secrets-store\`, \`KINDGI_SECRETS_BACKEND\`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.`,
+  );
+}
+
 // ---------------- operation registry ----------------
 
 function usageQueryParams(groupBy: string): ParameterSpec[] {
@@ -2084,7 +2091,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemKeys.mint',
     summary: 'Mint a system key',
     description:
-      "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. A runtime serving one tenant has no system keys: there, the deployment's own token is that tenant's, and this route isn't mounted.",
+      "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. On a runtime serving one tenant, only the deployment's own token reaches the system keys, and a key holds `system:license` alone: it reads `GET /v1/license` and `GET /v1/license/usage`, for the license renewal, and every other route refuses it.",
     tags: ['system-keys'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -2093,10 +2100,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'System key minted.', schema: ref('MintSystemKeyResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        'Malformed request body: no scopes, one that is not a system scope, a scope twice, `kindgi:system` beside another, a past `expiresAt`, or an empty label.',
+        'Malformed request body: no scopes, one that is not a system scope, a scope twice, `kindgi:system` beside another, a past `expiresAt`, or an empty label; on a runtime serving one tenant, any scope but `system:license`.',
       ),
       '403': ErrorResponse(
-        "A tenant's key or session (`system-principal-required`); a scoped system key (`system-scope-missing`, `details.scope` `kindgi:system`); a key that would outlive the key minting it (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a full key minted by another system key without `expiresAt` (`system-key-expiry-required`: only the deployment's own token mints one that never expires).",
+        "A tenant's key or session (`system-principal-required`); a scoped system key (`system-scope-missing`, `details.scope` `kindgi:system`; on a runtime serving one tenant, `system-key-scope-not-served` for one holding anything but `system:license`); a key that would outlive the key minting it (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a full key minted by another system key without `expiresAt` (`system-key-expiry-required`: only the deployment's own token mints one that never expires).",
       ),
       '409': ErrorResponse(
         "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`).",
@@ -2113,14 +2120,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemKeys.list',
     summary: 'List system keys',
     description:
-      "The operator's system keys (`kgi_sy_…`) on a runtime serving many tenants: each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them.",
+      "The operator's system keys (`kgi_sy_…`): each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them; on a runtime serving one tenant, the deployment's own token alone.",
     tags: ['system-keys'],
     security: 'bearer',
     responses: {
       '200': { description: 'The system keys.', schema: ref('SystemKeyList') },
       ...CommonAuthErrors,
       '403': ErrorResponse(
-        "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`).",
+        "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`; on a runtime serving one tenant, `system-key-scope-not-served` for one holding anything but `system:license`).",
       ),
     },
   },
@@ -2131,7 +2138,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemKeys.revoke',
     summary: 'Revoke a system key',
     description:
-      "Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.",
+      "Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them; on a runtime serving one tenant, the deployment's own token alone.",
     tags: ['system-keys'],
     security: 'bearer',
     parameters: [
@@ -2151,7 +2158,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`).",
+        "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`; on a runtime serving one tenant, `system-key-scope-not-served` for one holding anything but `system:license`).",
       ),
       '400': ErrorResponse('`keyId` is not a system key id (a UUID).'),
       '404': ErrorResponse('No system key with that id (`system-key-not-found`).'),
@@ -2459,19 +2466,69 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/system/tenants/:tenantId/purge',
+    openapiPath: '/v1/system/tenants/{tenantId}/purge',
+    operationId: 'systemTenants.purge',
+    summary: 'Purge a closed tenant, for good',
+    description:
+      "Deletes a `closing` tenant whose 30-day export window has passed: every row of it, its artifacts' bytes and its authorization store. Once nothing of it is left, its purge record is written, so a restore from an older backup purges it again, and it's marked purged: its tenants row stays, and nothing of it signs in or is served. Then, once each server has seen the mark, it deletes again what work under way at the mark wrote meanwhile. Irreversible. `confirm` is the tenant's slug, a second check on the id. It answers when done. Safe to run again: a run that stopped part-way (`complete: false`, or a request that ended before its answer) is finished by the next, and on a tenant already purged it deletes what was written after its mark, leaving its mark and its record as they were. A run again is a new request: a new Idempotency-Key, or none. Takes its own scope, `system:tenants:purge`, which no other scope includes, or `kindgi:system`.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('PurgeTenantBody') },
+    responses: {
+      '200': {
+        description: 'What it deleted, and what of it is left.',
+        schema: ref('SystemTenantPurge'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "No `confirm`, or one that isn't the tenant's slug (`tenant-slug-mismatch`). Nothing was changed.",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:purge` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse(
+        'No tenant with that id (`tenant-not-found`). A purged one is found, for a run again.',
+      ),
+      '409': ErrorResponse(
+        "Nothing was changed: the tenant isn't closing (`tenant-not-closing`), or its export window is still open (`tenant-export-window-open`); the runtime has nowhere set to keep purge records (`purge-record-unset`), or lacks the setting that reaches what the tenant holds (`purge-setting-missing`); or an Idempotency-Key reused with another body.",
+      ),
+      '501': ErrorResponse("This runtime doesn't purge tenants (`tenant-purge-unsupported`)."),
+      '502': ErrorResponse(
+        "Deleting the tenant's authorization store failed (`authz-store-delete-failed`): the message says what that left. Run it again.",
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+      ),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/system/whoami',
     openapiPath: '/v1/system/whoami',
     operationId: 'systemKeys.whoami',
     summary: 'Which system key this is',
     description:
-      "A system key's own id, scopes and expiry, for a service checking its key. Any system principal; a tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key.",
+      "A system key's own id, scopes and expiry, for a service checking its key: any system principal, on a runtime serving many tenants. A tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key. A runtime serving one tenant answers no one here: its own token is that tenant's outside `/v1/system/keys`, and a system key reads the license routes alone.",
     tags: ['system-keys'],
     security: 'bearer',
     responses: {
       '200': { description: 'The key.', schema: ref('SystemWhoami') },
       ...CommonAuthErrors,
-      '403': ErrorResponse("A tenant's key or session (`system-principal-required`)."),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`). On a runtime serving one tenant, the deployment's own token too (`system-principal-required`), a system key (`system-scope-missing`), and one holding anything but `system:license` (`system-key-scope-not-served`).",
+      ),
     },
   },
   // ---------- system: tenant settings and usage ----------
@@ -4950,7 +5007,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The license status.', schema: ref('LicenseStatus') },
       ...CommonAuthErrors,
       '403': ErrorResponse(
-        "Not the deployment's own token, a system key holding `system:license`, or an admin of the one tenant it serves (`license-operator-only`).",
+        "Not the deployment's own token, a system key holding `system:license`, or an admin of the one tenant it serves (`license-operator-only`). On a runtime serving one tenant, a system key holding anything but `system:license` (`system-key-scope-not-served`).",
       ),
     },
   },
@@ -4972,7 +5029,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       ...CommonAuthErrors,
       '403': ErrorResponse(
-        "Not the deployment's own token or a system key holding `system:license` (`license-operator-only`).",
+        "Not the deployment's own token or a system key holding `system:license` (`license-operator-only`). On a runtime serving one tenant, a system key holding anything but `system:license` (`system-key-scope-not-served`).",
       ),
     },
   },
@@ -6633,6 +6690,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '403': ProviderChangeRefused,
+      '409': providerChangeConflict(
+        ' (`identity-provider-already-registered`: a provider with this id is registered)',
+      ),
       '422': ErrorResponse(
         'The deployment could not use the configuration, or `kind` is `oauth2`, a plain OAuth 2.0 provider, which sign-in does not use (`identity-provider-invalid`).',
       ),
@@ -6723,6 +6783,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '403': ProviderChangeRefused,
       '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
+      '409': providerChangeConflict(''),
       '422': ErrorResponse(
         'The deployment could not use the configuration (`identity-provider-invalid`).',
       ),

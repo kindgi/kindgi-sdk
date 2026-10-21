@@ -281,6 +281,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'system-principal-required': 403,
   /** A system key without the scope the system route takes (`details.scope`). */
   'system-scope-missing': 403,
+  /** Serving one tenant: a system key holding more than `system:license` (`details.scopes`), refused on every route. */
+  'system-key-scope-not-served': 403,
   /** No system key with that id. */
   'system-key-not-found': 404,
   /** A full system key minted by another system key, with no `expiresAt`: only the deployment's own token mints one that never expires. */
@@ -296,6 +298,20 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   /** A system route naming a tenant in a state it refuses. */
   'tenant-closing': 409,
   'tenant-suspended': 409,
+  /** A purge's `confirm` that isn't the tenant's slug: nothing was changed. */
+  'tenant-slug-mismatch': 400,
+  /** A purge of a tenant that isn't closing (`details.state`). */
+  'tenant-not-closing': 409,
+  /** A purge of a closing tenant whose export window is still open (`details.windowEndsAt`). */
+  'tenant-export-window-open': 409,
+  /** A purge on a runtime with nowhere set to keep purge records, so a restore couldn't purge it again. */
+  'purge-record-unset': 409,
+  /** A purge of a tenant holding what a setting the runtime lacks reaches (its artifacts' bytes, its authorization store). */
+  'purge-setting-missing': 409,
+  /** A purge's delete of the tenant's authorization store failed; the message says what that left. */
+  'authz-store-delete-failed': 502,
+  /** A runtime whose tenants binding doesn't purge. */
+  'tenant-purge-unsupported': 501,
   /** A deployment, eval run or improvement pass whose project, or pack, is suspended. */
   'project-suspended': 409,
   'pack-suspended': 409,
@@ -406,6 +422,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // The operator manages sign-in (KINDGI_AUTH_TENANT_PROVIDERS=off): a
   // change to a provider takes the deployment's own token.
   'identity-providers-operator-managed': 403,
+  // The deployment has no secrets store (KINDGI_SECRETS_BACKEND), which a
+  // provider's client secret and keys are references into: adding or
+  // changing a provider waits until it has one.
+  'identity-providers-need-secrets-store': 409,
   // `GET /v1/license` or `GET /v1/license/usage` by anyone but the
   // deployment's own token or a system key holding `system:license`, save a
   // sole tenant's admins reading the license's countdown.

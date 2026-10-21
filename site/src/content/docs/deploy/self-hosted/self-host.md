@@ -51,7 +51,7 @@ The runtime runs from Kindgi's image. Log in to its registry and pull it:
 
 ```sh
 docker login quay.io
-docker pull quay.io/kindgi/runtime:0.1.8
+docker pull quay.io/kindgi/runtime:0.1.9
 ```
 
 `docker login` prints `Login Succeeded`. It asks for the robot name and
@@ -192,7 +192,7 @@ build too, without your app's files or services. Open files, databases and
 connections lazily, inside the handler. A module that opens a database file
 at import fails the build with `unable to open database file`.
 
-The image is for `linux/amd64` by default. On Apple silicon it runs under emulation. `--platform` picks another.
+With `--push`, as here, the image is for `linux/amd64`, and on Apple silicon it runs under emulation. Without `--push`, it's for your machine's platform. `--platform` picks another.
 
 ## 4. Run your pack's service
 
@@ -277,7 +277,7 @@ Start the runtime:
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.8
+  quay.io/kindgi/runtime:0.1.9
 ```
 
 - **`--restart unless-stopped`** brings the runtime back by itself after a

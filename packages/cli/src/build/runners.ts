@@ -84,6 +84,7 @@ export interface EsbuildBundleResult {
 import type { ComputedImport } from './computed-imports.js';
 import type { HostInstall, HostSecret } from './host-install.js';
 import type { ResolvedImage } from './image-config.js';
+import type { LoadedInstallOptions, LoadedInstallOutcome } from './loaded-install.js';
 import type { PythonInstaller } from './python-image.js';
 
 export interface WriteContainerfileOptions {
@@ -348,4 +349,10 @@ export interface BuildRunners {
    * Rejects, with the reason, when it can't be read.
    */
   readonly hostPnpmVersion: (root: string) => Promise<string>;
+  /**
+   * `image.dependencies: 'loaded'`: the install cut down to what the pack
+   * loads, or why the image takes the full install and trims it
+   * (`loaded-install.ts`).
+   */
+  readonly loadedInstall: (opts: LoadedInstallOptions) => Promise<LoadedInstallOutcome>;
 }

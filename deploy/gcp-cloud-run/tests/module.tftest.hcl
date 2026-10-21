@@ -1176,6 +1176,86 @@ run "connector_plans_with_a_static_nat_ip" {
   }
 }
 
+# ---- Cloud NAT ports ---------------------------------------------------------
+
+run "nat_ports_grow_on_demand_by_default" {
+  command = plan
+
+  assert {
+    condition     = google_compute_router_nat.nat[0].enable_dynamic_port_allocation && !google_compute_router_nat.nat[0].enable_endpoint_independent_mapping
+    error_message = "The NAT allocates ports dynamically, with endpoint-independent mapping off (dynamic allocation needs it off)."
+  }
+  assert {
+    condition     = google_compute_router_nat.nat[0].min_ports_per_vm == 64 && google_compute_router_nat.nat[0].max_ports_per_vm == 4096
+    error_message = "Each instance should start with 64 NAT ports and grow to at most 4096 by default."
+  }
+  assert {
+    condition     = google_compute_router_nat.nat[0].tcp_time_wait_timeout_sec == 30
+    error_message = "A closed TCP connection's NAT port should come free after 30 s by default, not the provider's 120."
+  }
+}
+
+run "nat_ports_follow_the_variables" {
+  command = plan
+  variables {
+    nat_min_ports_per_vm          = 1024
+    nat_max_ports_per_vm          = 65536
+    nat_tcp_time_wait_timeout_sec = 120
+  }
+  assert {
+    condition     = google_compute_router_nat.nat[0].min_ports_per_vm == 1024 && google_compute_router_nat.nat[0].max_ports_per_vm == 65536 && google_compute_router_nat.nat[0].tcp_time_wait_timeout_sec == 120
+    error_message = "The NAT should take its ports and TIME_WAIT from nat_min_ports_per_vm, nat_max_ports_per_vm and nat_tcp_time_wait_timeout_sec."
+  }
+}
+
+run "nat_min_ports_must_be_a_power_of_two" {
+  command = plan
+  variables {
+    nat_min_ports_per_vm = 100
+  }
+  expect_failures = [var.nat_min_ports_per_vm]
+}
+
+run "nat_max_ports_must_be_a_power_of_two" {
+  command = plan
+  variables {
+    nat_max_ports_per_vm = 5000
+  }
+  expect_failures = [var.nat_max_ports_per_vm]
+}
+
+run "nat_max_ports_must_be_above_the_minimum" {
+  command = plan
+  variables {
+    nat_min_ports_per_vm = 4096
+    nat_max_ports_per_vm = 4096
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "nat_ports_are_not_checked_without_a_nat" {
+  command = plan
+  variables {
+    network_mode         = "connector"
+    vpc_connector        = "projects/acme-app-dev/locations/northamerica-northeast2/connectors/acme"
+    pack_ingress         = "INGRESS_TRAFFIC_ALL"
+    nat_min_ports_per_vm = 4096
+    nat_max_ports_per_vm = 4096
+  }
+  assert {
+    condition     = length(google_compute_router_nat.nat) == 0
+    error_message = "connector mode creates no Cloud NAT, so the plan does not check its ports."
+  }
+}
+
+run "nat_time_wait_must_be_whole_seconds" {
+  command = plan
+  variables {
+    nat_tcp_time_wait_timeout_sec = 0.5
+  }
+  expect_failures = [var.nat_tcp_time_wait_timeout_sec]
+}
+
 run "the_idle_backstop_is_ten_minutes_by_default" {
   command = plan
 

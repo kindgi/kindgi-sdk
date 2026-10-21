@@ -122,6 +122,9 @@ export type {
   SystemTenant,
   SystemTenantCreateInput,
   SystemTenantCreateOutcome,
+  SystemTenantPurged,
+  SystemTenantPurgeOutcome,
+  SystemTenantTableRows,
   SystemTenantsBinding,
 } from './routes/system-tenants.js';
 export { createInMemoryRateLimitStore } from './rate-limit-store.js';

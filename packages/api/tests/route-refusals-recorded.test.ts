@@ -58,6 +58,7 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'system-key-on-tenant-route',
   'system-principal-required',
   'system-scope-missing',
+  'system-key-scope-not-served',
 ]);
 
 /**

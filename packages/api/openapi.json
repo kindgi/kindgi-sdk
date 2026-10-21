@@ -397,12 +397,20 @@
           "system-key-on-tenant-route": 403,
           "system-principal-required": 403,
           "system-scope-missing": 403,
+          "system-key-scope-not-served": 403,
           "system-key-not-found": 404,
           "system-key-expiry-required": 403,
           "access-record-unavailable": 503,
           "pack-env-unavailable": 503,
           "tenant-closing": 409,
           "tenant-suspended": 409,
+          "tenant-slug-mismatch": 400,
+          "tenant-not-closing": 409,
+          "tenant-export-window-open": 409,
+          "purge-record-unset": 409,
+          "purge-setting-missing": 409,
+          "authz-store-delete-failed": 502,
+          "tenant-purge-unsupported": 501,
           "project-suspended": 409,
           "pack-suspended": 409,
           "endpoint-url-invalid": 400,
@@ -461,6 +469,7 @@
           "identity-provider-already-registered": 409,
           "identity-provider-invalid": 422,
           "identity-providers-operator-managed": 403,
+          "identity-providers-need-secrets-store": 409,
           "license-operator-only": 403,
           "invalid-provider-config": 400,
           "auth-not-session-token": 400,
@@ -3619,6 +3628,103 @@
                 }
               }
             }
+          }
+        }
+      },
+      "PurgeTenantBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "confirm"
+        ],
+        "properties": {
+          "confirm": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The tenant's slug, a second check on the id."
+          }
+        }
+      },
+      "TenantTableRows": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A tenant's rows in one table: the table's name and a count.",
+        "required": [
+          "table",
+          "rows"
+        ],
+        "properties": {
+          "table": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "SystemTenantPurge": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenantId",
+          "complete",
+          "alreadyPurged",
+          "deleted",
+          "objectsDeleted",
+          "authzStoreDeleted",
+          "left",
+          "objectsLeft"
+        ],
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "complete": {
+            "type": "boolean",
+            "description": "`true`: nothing of the tenant is left, its purge record is written, and it's marked purged. `false`: `left` and `objectsLeft` say what is; run it again."
+          },
+          "alreadyPurged": {
+            "type": "boolean",
+            "description": "It was marked purged before this run: what this run deleted was written after its mark. Its mark and its record stay as they were."
+          },
+          "purgedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was marked purged. Absent while something of it from before the mark is left."
+          },
+          "deleted": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenantTableRows"
+            },
+            "description": "Rows this run deleted, per table with any: table names and counts, never the rows' content."
+          },
+          "objectsDeleted": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Objects this run deleted from the artifacts' store."
+          },
+          "authzStoreDeleted": {
+            "type": "boolean",
+            "description": "Whether this run deleted its authorization store."
+          },
+          "left": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenantTableRows"
+            },
+            "description": "Rows of it still there afterwards, per table; empty when none are. A table the purge doesn't delete from is named too: report it."
+          },
+          "objectsLeft": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Objects still under its prefix in the artifacts' store."
+          },
+          "leftBecause": {
+            "type": "string",
+            "description": "Why what's left wasn't deleted, when it's a setting the runtime lacks."
           }
         }
       },
@@ -11400,6 +11506,14 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "bucket": {
+            "type": "string",
+            "description": "The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key."
+          },
+          "key": {
+            "type": "string",
+            "description": "The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one."
           }
         }
       },
@@ -11476,6 +11590,14 @@
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
+                },
+                "bucket": {
+                  "type": "string",
+                  "description": "The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key."
+                },
+                "key": {
+                  "type": "string",
+                  "description": "The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one."
                 }
               }
             }
@@ -25849,7 +25971,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body: no scopes, one that is not a system scope, a scope twice, `kindgi:system` beside another, a past `expiresAt`, or an empty label.",
+            "description": "Malformed request body: no scopes, one that is not a system scope, a scope twice, `kindgi:system` beside another, a past `expiresAt`, or an empty label; on a runtime serving one tenant, any scope but `system:license`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -25869,7 +25991,7 @@
             }
           },
           "403": {
-            "description": "A tenant's key or session (`system-principal-required`); a scoped system key (`system-scope-missing`, `details.scope` `kindgi:system`); a key that would outlive the key minting it (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a full key minted by another system key without `expiresAt` (`system-key-expiry-required`: only the deployment's own token mints one that never expires).",
+            "description": "A tenant's key or session (`system-principal-required`); a scoped system key (`system-scope-missing`, `details.scope` `kindgi:system`; on a runtime serving one tenant, `system-key-scope-not-served` for one holding anything but `system:license`); a key that would outlive the key minting it (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a full key minted by another system key without `expiresAt` (`system-key-expiry-required`: only the deployment's own token mints one that never expires).",
             "content": {
               "application/json": {
                 "schema": {
@@ -25919,7 +26041,7 @@
             }
           }
         },
-        "description": "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. A runtime serving one tenant has no system keys: there, the deployment's own token is that tenant's, and this route isn't mounted.",
+        "description": "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. On a runtime serving one tenant, only the deployment's own token reaches the system keys, and a key holds `system:license` alone: it reads `GET /v1/license` and `GET /v1/license/usage`, for the license renewal, and every other route refuses it.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -25976,7 +26098,7 @@
             }
           },
           "403": {
-            "description": "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`).",
+            "description": "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`; on a runtime serving one tenant, `system-key-scope-not-served` for one holding anything but `system:license`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -25986,7 +26108,7 @@
             }
           }
         },
-        "description": "The operator's system keys (`kgi_sy_…`) on a runtime serving many tenants: each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them.",
+        "description": "The operator's system keys (`kgi_sy_…`): each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them; on a runtime serving one tenant, the deployment's own token alone.",
         "security": [
           {
             "bearerAuth": []
@@ -26033,7 +26155,7 @@
             }
           },
           "403": {
-            "description": "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`).",
+            "description": "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`; on a runtime serving one tenant, `system-key-scope-not-served` for one holding anything but `system:license`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -26083,7 +26205,7 @@
             }
           }
         },
-        "description": "Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.",
+        "description": "Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them; on a runtime serving one tenant, the deployment's own token alone.",
         "parameters": [
           {
             "name": "keyId",
@@ -27124,6 +27246,165 @@
         ]
       }
     },
+    "/v1/system/tenants/{tenantId}/purge": {
+      "post": {
+        "operationId": "systemTenants.purge",
+        "summary": "Purge a closed tenant, for good",
+        "tags": [
+          "system-tenants"
+        ],
+        "responses": {
+          "200": {
+            "description": "What it deleted, and what of it is left.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemTenantPurge"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No `confirm`, or one that isn't the tenant's slug (`tenant-slug-mismatch`). Nothing was changed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:purge` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No tenant with that id (`tenant-not-found`). A purged one is found, for a run again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Nothing was changed: the tenant isn't closing (`tenant-not-closing`), or its export window is still open (`tenant-export-window-open`); the runtime has nowhere set to keep purge records (`purge-record-unset`), or lacks the setting that reaches what the tenant holds (`purge-setting-missing`); or an Idempotency-Key reused with another body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "This runtime doesn't purge tenants (`tenant-purge-unsupported`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Deleting the tenant's authorization store failed (`authz-store-delete-failed`): the message says what that left. Run it again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Deletes a `closing` tenant whose 30-day export window has passed: every row of it, its artifacts' bytes and its authorization store. Once nothing of it is left, its purge record is written, so a restore from an older backup purges it again, and it's marked purged: its tenants row stays, and nothing of it signs in or is served. Then, once each server has seen the mark, it deletes again what work under way at the mark wrote meanwhile. Irreversible. `confirm` is the tenant's slug, a second check on the id. It answers when done. Safe to run again: a run that stopped part-way (`complete: false`, or a request that ended before its answer) is finished by the next, and on a tenant already purged it deletes what was written after its mark, leaving its mark and its record as they were. A run again is a new request: a new Idempotency-Key, or none. Takes its own scope, `system:tenants:purge`, which no other scope includes, or `kindgi:system`.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurgeTenantBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/system/whoami": {
       "get": {
         "operationId": "systemKeys.whoami",
@@ -27153,7 +27434,7 @@
             }
           },
           "403": {
-            "description": "A tenant's key or session (`system-principal-required`).",
+            "description": "A tenant's key or session (`system-principal-required`). On a runtime serving one tenant, the deployment's own token too (`system-principal-required`), a system key (`system-scope-missing`), and one holding anything but `system:license` (`system-key-scope-not-served`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -27163,7 +27444,7 @@
             }
           }
         },
-        "description": "A system key's own id, scopes and expiry, for a service checking its key. Any system principal; a tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key.",
+        "description": "A system key's own id, scopes and expiry, for a service checking its key: any system principal, on a runtime serving many tenants. A tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key. A runtime serving one tenant answers no one here: its own token is that tenant's outside `/v1/system/keys`, and a system key reads the license routes alone.",
         "security": [
           {
             "bearerAuth": []
@@ -38219,7 +38500,7 @@
             }
           },
           "403": {
-            "description": "Not the deployment's own token, a system key holding `system:license`, or an admin of the one tenant it serves (`license-operator-only`).",
+            "description": "Not the deployment's own token, a system key holding `system:license`, or an admin of the one tenant it serves (`license-operator-only`). On a runtime serving one tenant, a system key holding anything but `system:license` (`system-key-scope-not-served`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -38276,7 +38557,7 @@
             }
           },
           "403": {
-            "description": "Not the deployment's own token or a system key holding `system:license` (`license-operator-only`).",
+            "description": "Not the deployment's own token or a system key holding `system:license` (`license-operator-only`). On a runtime serving one tenant, a system key holding anything but `system:license` (`system-key-scope-not-served`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -45395,7 +45676,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict (`identity-provider-already-registered`: a provider with this id is registered). Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.",
             "content": {
               "application/json": {
                 "schema": {
@@ -45702,7 +45983,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.",
             "content": {
               "application/json": {
                 "schema": {

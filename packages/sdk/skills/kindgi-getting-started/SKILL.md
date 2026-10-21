@@ -14,7 +14,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.13"
+version: "0.3.14"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -202,8 +202,11 @@ Most of the setup is automatable, but two require your knowledge:
   registered. Declare it in `kindgi.config.ts`
   (`providers: [{ preset: 'anthropic' }]`, the key stored by the person with
   `kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant`) and `kindgi dev`
-  registers it on every boot, in every worktree and after `--reset`; or once,
-  by hand: `kindgi providers register --preset=anthropic`. See
+  registers it on every boot, in every worktree and after `--reset`. Commit
+  the declaration: it holds the key's name, never the key, and it's how a
+  teammate's `kindgi dev`, or another worktree's, gets the same provider.
+  Or once, by hand: `kindgi providers register --preset=anthropic`, which
+  is in this worktree's dev database only. See
   `kindgi-authoring-providers`.
 
 ## Commands for the person's own terminal

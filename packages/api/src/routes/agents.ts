@@ -1061,6 +1061,8 @@ function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
     }),
     ...(a.budget !== undefined && { budget: a.budget }),
     ...(a.tags !== undefined && { tags: a.tags }),
+    ...(a.output !== undefined && { output: a.output }),
+    ...(a.toolErrors !== undefined && { toolErrors: a.toolErrors }),
     ...(a.preferredProvider !== undefined && { preferredProvider: a.preferredProvider }),
     ...(a.preferredModel !== undefined && { preferredModel: a.preferredModel }),
     ...(a.pins !== undefined && { pins: a.pins }),

@@ -47,6 +47,7 @@ import {
   type SkippedScript,
   devOnlyImports,
   resolveHostInstall,
+  whyDevDependencies,
 } from '../build/host-install.js';
 import {
   BuildServiceRefusal,
@@ -916,6 +917,20 @@ async function prepareNodeContext(
   const dependencies = dependenciesStep(image, bundle.computedImports, args.packDir);
   if (dependencies.kind === 'refuse') return failure(dependencies.message);
   lines(dependencies.lines.join('\n'));
+  // Only what the pack loads: the install cut down to it, or the full one trimmed after, and why.
+  let imageInstall = install;
+  let trimmedBecause: string | undefined;
+  if (image.dependencies === 'loaded') {
+    const loaded = await runners.loadedInstall({
+      install,
+      packDir: args.packDir,
+      externals: bundle.externals,
+      image,
+    });
+    if (loaded.kind === 'err') return failure(`${loaded.message}\n`);
+    if (loaded.kind === 'fallback') trimmedBecause = loaded.reason;
+    else imageInstall = loaded.install;
+  }
 
   // ---- 2. Local indexer over the bundles ----------------------------------
   const localIndex = await runners.runLocalIndexer({
@@ -951,7 +966,7 @@ async function prepareNodeContext(
     publishedAt: args.publishedAt,
     baseImageRef: base.image.ref,
     buildTarget: args.buildTarget,
-    install,
+    install: imageInstall,
     image,
     hasIncludes: includeFiles.files.length > 0,
   });
@@ -959,20 +974,21 @@ async function prepareNodeContext(
   await runners.writeContext({
     contextDir,
     packDir: args.packDir,
-    install,
+    install: imageInstall,
     bundleDir,
     containerfilePath,
     includes: includeFiles.files,
     extensionFiles: image.contextFiles,
   });
   lines(
-    `    ✓ Context: ${install.files.length} install file(s), the bundles${includeFiles.files.length > 0 ? `, ${includeFiles.files.length} bundle.include file(s)` : ''}; no pack source`,
+    `    ✓ Context: ${imageInstall.files.length} install file(s), the bundles${includeFiles.files.length > 0 ? `, ${includeFiles.files.length} bundle.include file(s)` : ''}; no pack source`,
   );
   if (install.secrets.length > 0) {
     lines(
       `    ✓ ${install.secrets.map((s) => s.file).join(', ')}: read by the install as a build secret, never in the image`,
     );
   }
+  lines(installLine(imageInstall, image.steps, trimmedBecause));
   for (const line of skippedScriptLines(install.skippedScripts)) lines(line);
   const secrets = install.secrets.map((secret) => ({
     id: secret.id,
@@ -980,6 +996,33 @@ async function prepareNodeContext(
     file: secret.file,
   }));
   return { kind: 'ok', contextDir, counts: localIndex.counts, secrets };
+}
+
+/**
+ * The image's install: production dependencies only, or dev ones too, and
+ * why. With `image.dependencies: 'loaded'`: only what the pack loads, or the
+ * full install trimmed after, and why (`trimmedBecause`).
+ */
+export function installLine(
+  install: Pick<HostInstall, 'manager' | 'yarnBerry' | 'reduced'>,
+  steps: ResolvedImage['steps'],
+  trimmedBecause?: string,
+): string {
+  const why = whyDevDependencies(install, steps);
+  const what =
+    why === undefined
+      ? 'production dependencies only'
+      : `dev dependencies too, ${why}; pruned to production after`;
+  if (install.reduced !== undefined) {
+    const { kept, total, leftOut } = install.reduced;
+    const line = `    ✓ Install: only what the pack loads, ${kept} of the lockfile's ${total} packages; ${what}`;
+    return leftOut.length === 0
+      ? line
+      : `${line}\n      Left out ${leftOut.length} of the pack's own dependencies its tools don't import: ${leftOut.join(', ')}`;
+  }
+  return trimmedBecause === undefined
+    ? `    ✓ Install: ${what}`
+    : `    ✓ Install: ${what}, then trimmed to what the pack loads\n      It downloads the app's whole install first, since ${trimmedBecause}.`;
 }
 
 /**

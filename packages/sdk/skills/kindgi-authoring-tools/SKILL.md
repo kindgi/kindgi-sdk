@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.11"
+version: "0.4.13"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -293,7 +293,7 @@ const result = await invokeTool(lookupOrder, { orderId: 'ord_1001' }, toolContex
 
 ## Shared code
 
-Code several tools share (schemas, a client, helpers) goes outside `tools/`, for example in `lib/` beside it. Discovery loads every `.ts`, `.js` and `.mjs` file under `tools/` (tests aside) as a primitive, so a helper there fails the index. Don't put it in the app's own source either: import the app's functions from where they are (unless their module imports `server-only`: see mistake 12), and keep what's Kindgi's in the pack's folder.
+Code several tools share (schemas, a client, helpers) goes outside `tools/`, for example in `lib/` beside it. Discovery loads every `.ts`, `.js` and `.mjs` file under `tools/` (tests aside) as a primitive, so a helper there fails the index. Don't put it in the app's own source either: import the app's functions from where they are (unless their module imports `server-only`: see mistake 12; for a CommonJS package's default import, see mistake 13), and keep what's Kindgi's in the pack's folder.
 
 ## Wiring the tool onto an agent
 
@@ -397,6 +397,39 @@ run start via `semver.maxSatisfying`. No implicit `:latest`.
     (`import 'server-only'; export * from './orders-core';`), so the app's
     own imports don't change, and the tool imports the new module. Nothing
     guards it, so only the app's server code and the pack should import it.
+
+13. **A default import of a package that ships only CommonJS.** A pack's
+    code runs as ES modules: `kindgi build` bundles it into `.mjs` files,
+    leaving out the packages from `node_modules`, and `kindgi dev` and the
+    deployed pack load it with Node's own `import()`. Node gives
+    `import OrdersClient from '@acme/orders-client'` the package's whole
+    `module.exports`; when the package puts its class on `exports.default`
+    (TypeScript's CommonJS output for `export default`), the class is on its
+    `default`. Vitest, Next.js, and tsx in an app without `"type": "module"`
+    give the class itself. So the tool passes `kindgi test`, and app code it
+    imports works in the app, but under `kindgi dev` and once deployed it
+    fails with `TypeError: OrdersClient is not a constructor`. With
+    `"moduleResolution": "NodeNext"` (a new pack's `tsconfig.json`),
+    TypeScript already refuses `new OrdersClient()`; with `"bundler"`
+    (Next.js apps) it compiles. This is Node's own behavior, and Kindgi keeps
+    it: take the class either way.
+
+    ```ts
+    import OrdersClientExport from '@acme/orders-client';
+
+    type DefaultOf<T> = T extends { default: infer C } ? C : T;
+
+    function defaultOf<T>(loaded: T): DefaultOf<T> {
+      const value = typeof loaded === 'function' ? loaded : (loaded as { default: unknown }).default;
+      return value as DefaultOf<T>;
+    }
+
+    const OrdersClient = defaultOf(OrdersClientExport);
+    ```
+
+    A dynamic import is the same: `(await import('@acme/orders-client')).default`
+    is the class under Vitest and the whole `module.exports` under Node, so
+    take it with `defaultOf((await import('@acme/orders-client')).default)`.
 
 ## References
 
