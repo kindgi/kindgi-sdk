@@ -86,8 +86,10 @@ export function waitTokensRouter(options: WaitTokensRouterOptions): Hono<AppEnv>
  * runs to its next wait or its end, model calls and tools, which can take
  * minutes; the system that answered waits for none of it, and its callback
  * client would time out first. The answer is the runtime's either way: a
- * resume that fails is logged, and the runtime resumes the run later, as
- * it does on a host that gives no CPU outside a request.
+ * failed resume is logged, and if it failed before it took the run, the
+ * runtime's sweep resumes the run later. One cut after it took the run
+ * fails with it, as any run does whose server stops. So the runtime needs
+ * CPU outside requests, as its background turns and sweeps already do.
  */
 function resumeBehind(
   c: Context<AppEnv>,
@@ -99,7 +101,8 @@ function resumeBehind(
   void resumeInline(runHandler, accepted.tenantId, accepted.runId, { traceId, spanId })
     .then((resumed) => {
       if (resumed.kind === 'failed') {
-        log.warn('resume after a wait token answer failed; the runtime resumes it later', {
+        log.warn('resume after a wait token answer failed', {
+          runId: accepted.runId,
           code: resumed.code,
         });
       }

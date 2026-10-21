@@ -1012,7 +1012,7 @@ function resumeNotSupportedMessage(pausesRuns: boolean): string {
 /**
  * Resume a run whose wait was just answered, in this request. The answer
  * is the runtime's either way: a failed resume is logged, and the
- * runtime resumes the run later.
+ * runtime ends a run that can't go on, or its sweep resumes the run later.
  */
 async function resumeAfterAnswer(
   c: Context<AppEnv>,
@@ -1026,7 +1026,7 @@ async function resumeAfterAnswer(
     spanId: trace.spanId,
   });
   if (resumed.kind === 'failed') {
-    c.get('log').warn('resume after a wait token answer failed; the runtime resumes it later', {
+    c.get('log').warn('resume after a wait token answer failed', {
       runId,
       code: resumed.code,
     });
