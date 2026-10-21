@@ -250,10 +250,14 @@ export const JVM_PREVIEW =
 
 /**
  * The resolver an sbt build needs for kindgi-pack: none from Maven Central;
- * the local Maven repository for a checkout's (`./mvnw install` puts it there).
+ * for a checkout's, the local Maven repository (`./mvnw install` puts it
+ * there), before Maven Central: the checkout's version can be one already
+ * released there, and that jar lacks what the checkout has added since.
  */
 export function sbtLocalResolver(source: KindgiJavaSource): string | undefined {
-  return source.kind === 'local-checkout' ? 'resolvers += Resolver.mavenLocal' : undefined;
+  return source.kind === 'local-checkout'
+    ? 'externalResolvers := Resolver.mavenLocal +: externalResolvers.value'
+    : undefined;
 }
 
 export async function resolveKindgiJavaSource(

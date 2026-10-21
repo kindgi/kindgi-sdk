@@ -59,6 +59,13 @@ export interface EsbuildBundleOptions {
   readonly configPath: string;
   /** The Node major the image runs: the bundles' esbuild target. */
   readonly nodeMajor: number;
+  /**
+   * `image.dependencies`. With `'loaded'`, `dist/` also gets
+   * `externals.json` (what the bundles import by name) and
+   * `kindgi-closure.mjs`, which the image's closure and indexer stages
+   * run. Default `'all'`.
+   */
+  readonly dependencies?: 'loaded' | 'all';
 }
 
 export interface EsbuildBundleResult {
@@ -68,12 +75,16 @@ export interface EsbuildBundleResult {
   readonly totalBytes: number;
   /** The packages the pack's bundles import from `node_modules`, sorted. */
   readonly externals: readonly string[];
+  /** `require(x)` / `import(x)` calls with a computed argument in the pack's own code (`computed-imports.ts`). */
+  readonly computedImports?: readonly ComputedImport[];
   /** Each primitive's source path → its bundle, under `outputDir` (`bundle-map.json`). */
   readonly bundleMap: Readonly<Record<string, string>>;
 }
 
+import type { ComputedImport } from './computed-imports.js';
 import type { HostInstall, HostSecret } from './host-install.js';
 import type { ResolvedImage } from './image-config.js';
+import type { LoadedInstallOptions, LoadedInstallOutcome } from './loaded-install.js';
 import type { PythonInstaller } from './python-image.js';
 
 export interface WriteContainerfileOptions {
@@ -345,4 +356,10 @@ export interface BuildRunners {
    * Rejects, with the reason, when it can't be read.
    */
   readonly hostPnpmVersion: (root: string) => Promise<string>;
+  /**
+   * `image.dependencies: 'loaded'`: the install cut down to what the pack
+   * loads, or why the image takes the full install and trims it
+   * (`loaded-install.ts`).
+   */
+  readonly loadedInstall: (opts: LoadedInstallOptions) => Promise<LoadedInstallOutcome>;
 }

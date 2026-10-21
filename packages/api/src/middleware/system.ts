@@ -10,11 +10,13 @@ import { statusFor, toWireError } from '../errors.js';
 import { refused } from '../routes/denied.js';
 import {
   FULL_SYSTEM_CAPABILITY,
+  ONE_TENANT_SYSTEM_SCOPES,
   SYSTEM_PRINCIPAL_ALLOWED_ROUTES,
   type SystemPrincipal,
   type SystemScope,
   holdsSystemScope,
   isSystemCapability,
+  isSystemKeysPath,
 } from '../system.js';
 import type { AppEnv } from '../types.js';
 import type { Authorizer } from './authorize.js';
@@ -115,7 +117,9 @@ export interface SystemPrincipalFenceOptions {
    * How many tenants the runtime serves (default `single`). With `multi`, a
    * tenant's key or session never holds the operator's powers: `kindgi:system`
    * and every `system:*` are dropped from its capabilities, whatever it was
-   * minted with.
+   * minted with. Serving one tenant, a system key holds `system:license`
+   * alone and reaches the license routes alone: under `/v1/system/*`, the
+   * system keys take the deployment's own token.
    */
   readonly tenancy?: 'single' | 'multi';
 }
@@ -132,6 +136,11 @@ export interface SystemPrincipalFenceOptions {
  *   many tenants it loses `kindgi:system` and `system:*`, with a warning
  *   naming the key: a key minted before the runtime served many tenants
  *   keeps none of the operator's powers.
+ * - **Serving one tenant,** a system key holds `system:license` alone: one
+ *   holding anything else (minted while the runtime served many tenants,
+ *   say) is refused on every route, `403 system-key-scope-not-served`. It
+ *   reaches the license routes and nothing under `/v1/system/*`, where the
+ *   system keys take the deployment's own token (`403 system-scope-missing`).
  *
  * The record is written once the response is known. An action already
  * taken can't be undone, so a failed write is logged at error level and
@@ -174,10 +183,57 @@ export function systemPrincipalFence(
       await next();
       return undefined;
     };
-    const refusal = await admitSystemRequest(c, proceed, authorizer);
+    const refusal =
+      (tenancy === 'multi' ? undefined : oneTenantRefusal(c, system, authorizer)) ??
+      (await admitSystemRequest(c, proceed, authorizer));
     if (audit !== undefined) await recordSystemRequest(c, audit, system, refusal, attemptId);
     return refusal;
   };
+}
+
+/**
+ * Serving one tenant: a system key holding anything but `system:license`
+ * is refused outright, and one holding it is refused under `/v1/system/*`,
+ * where the system keys take the deployment's own token. The deployment's
+ * own token (`boot`) is a system principal on `/v1/system/keys` alone, and
+ * is refused as one anywhere else.
+ */
+function oneTenantRefusal(
+  c: Context<AppEnv>,
+  system: SystemPrincipal,
+  authorizer: Authorizer | undefined,
+): Response | undefined {
+  if (system.keyId === 'boot') {
+    if (isSystemKeysPath(c.req.path)) return undefined;
+    return deny(
+      c,
+      authorizer,
+      'system-principal-required',
+      `This runtime serves one tenant, where the deployment's own token is a system principal on /v1/system/keys alone, not on ${c.req.path}.`,
+    );
+  }
+  const held = c.get('capabilities') ?? [];
+  const served =
+    held.length > 0 && held.every((cap) => ONE_TENANT_SYSTEM_SCOPES.includes(cap as SystemScope));
+  if (!served) {
+    return deny(
+      c,
+      authorizer,
+      'system-key-scope-not-served',
+      `This runtime serves one tenant, where a system key holds ${ONE_TENANT_SYSTEM_SCOPES.join(', ')} alone; this one holds ${held.length > 0 ? held.join(', ') : 'no scope'}. Mint one with the deployment's own token (POST /v1/system/keys).`,
+      { scopes: [...held], served: [...ONE_TENANT_SYSTEM_SCOPES] },
+    );
+  }
+  if (isSystemPath(c.req.path)) {
+    return deny(
+      c,
+      authorizer,
+      'system-scope-missing',
+      `This runtime serves one tenant, where a system key reads the license alone and reaches no /v1/system/* route, not ${c.req.path}: the system keys take the deployment's own token.`,
+      { scope: FULL_SYSTEM_CAPABILITY },
+    );
+  }
+  return undefined;
 }
 
 /**
@@ -406,8 +462,14 @@ export interface SystemTenantDirectory {
 export interface SystemTenantOptions {
   /** The scope the route takes, checked again here. */
   readonly scope: SystemScope;
-  /** States the route refuses, each with `409 tenant-<state>`; `purged` always. */
+  /** States the route refuses, each with `409 tenant-<state>`; `purged` always, unless `admitPurged`. */
   readonly refuse?: readonly Exclude<SystemTenantState, 'active' | 'purged'>[];
+  /**
+   * The purge's route only: a purged tenant is let through, so running the
+   * purge again deletes what was written after its mark. Every other route
+   * answers `404 tenant-not-found` for one.
+   */
+  readonly admitPurged?: boolean;
   /** Records a refusal of the caller, as every refusal the API decides itself is. */
   readonly authorizer?: Authorizer;
 }
@@ -417,7 +479,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /**
  * The one way a system route acts in a tenant the path names. It checks the
  * scope again, that the tenant exists and isn't purged (`404
- * tenant-not-found`) and isn't in a refused state (`409 tenant-closing`,
+ * tenant-not-found`; `admitPurged` lets a purged one through, for the
+ * purge's route) and isn't in a refused state (`409 tenant-closing`,
  * `409 tenant-suspended`), and marks the tenant on the access record. Then
  * `fn` runs with the tenant; the route passes that id to its bindings,
  * which act inside the tenant's own row-level security.
@@ -439,7 +502,7 @@ export async function withSystemTenantContext(
   c.set('systemScopeUsed', options.scope);
   c.set('systemTargetTenant', tenantId);
   const found = UUID_RE.test(tenantId) ? await directory.get(tenantId as TenantId) : null;
-  if (found === null || found.state === 'purged') {
+  if (found === null || (found.state === 'purged' && options.admitPurged !== true)) {
     return answer(c, 'tenant-not-found', `No tenant with id "${tenantId}".`, { tenantId });
   }
   if (options.refuse?.includes(found.state as Exclude<SystemTenantState, 'active' | 'purged'>)) {

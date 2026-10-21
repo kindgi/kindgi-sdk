@@ -65,7 +65,7 @@ import { type DeploymentValuesDeps, deploymentValues } from '../deployment-value
 import type { EnvBinding } from '../env-binding.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
-import { type WireErrorBody, statusFor, toWireError } from '../errors.js';
+import { type WireErrorBody, retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
 import { type FlowPinsLive, publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
 import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
@@ -724,10 +724,7 @@ export function deploymentsRouter(
     // ---- Image pullability + index integrity ----
     const head = await bindings.imageRegistry.head({ tenantId, imageRef: wire.imageRef });
     if (head.kind === 'err') {
-      c.status(statusFor('image-unverifiable') as never);
-      return c.json(
-        registryRefusal('Image head probe failed', head.error, wire.imageRef, requestId),
-      );
+      return registryRefusal(c, 'Image head probe failed', head.error, wire.imageRef, requestId);
     }
     if (head.value.digest !== imageDigest) {
       c.status(statusFor('image-unverifiable') as never);
@@ -749,14 +746,12 @@ export function deploymentsRouter(
       path: '/app/index.json',
     });
     if (indexFile.kind === 'err') {
-      c.status(statusFor('image-unverifiable') as never);
-      return c.json(
-        registryRefusal(
-          'Extract /app/index.json failed',
-          indexFile.error,
-          wire.imageRef,
-          requestId,
-        ),
+      return registryRefusal(
+        c,
+        'Extract /app/index.json failed',
+        indexFile.error,
+        wire.imageRef,
+        requestId,
       );
     }
     const normalisedIndexHash = normaliseSha256Hex(indexFile.value.sha256);
@@ -1044,8 +1039,24 @@ export function deploymentsRouter(
       bindings.agentRegistry !== undefined &&
       bindings.toolRegistry !== undefined &&
       targetProjectId !== undefined
-        ? await pinBlocks(blockReads, tenantId, validated.agents)
+        ? await pinBlocks(
+            blockReads,
+            tenantId,
+            validated.agents,
+            new Map(packBlocks.map(({ block }) => [block.id, block.version])),
+          )
         : undefined;
+    // The pack's blocks are written first, and a failed deploy's rollback
+    // leaves their new versions unregistered, which refuses the pack's next
+    // deploy until they're reinstated. So with the pack's blocks, a block
+    // range the agents can't pin is refused here, before anything is
+    // written; a tool range is named at the write, as before.
+    if (packBlocks.length > 0 && blockPinsOf !== undefined) {
+      const unpinnable = blockPinsOf.flatMap((pins, i) =>
+        atAgent(i, validated.agents[i] as Agent, pins.issues),
+      );
+      if (unpinnable.length > 0) return unpinnableResponse(c, requestId, unpinnable);
+    }
 
     const rolled: RollbackAction[] = [];
     // The version each agent is registered under: its definition's, or
@@ -1200,19 +1211,7 @@ export function deploymentsRouter(
       // that outcome's own status and code. Anything else propagates to the
       // central error handler (a 500 for this write).
       if (cause instanceof PublishRefused) return publishRefusedResponse(c, requestId, cause);
-      if (cause instanceof UnpinnableDeploy) {
-        c.status(statusFor('invalid-agent') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'validation-failed',
-              message: `The deployment's agents or flows use tool or agent versions that aren't published (${cause.issues.length} issue${cause.issues.length === 1 ? '' : 's'}); nothing was deployed`,
-              issues: cause.issues as unknown as Record<string, unknown>[],
-            },
-            requestId,
-          ),
-        );
-      }
+      if (cause instanceof UnpinnableDeploy) return unpinnableResponse(c, requestId, cause.issues);
       // Not a mapped outcome: to the central error handler (a 500 for this
       // write — the rollback above already ran; the whole error is logged).
       throw cause;
@@ -2401,6 +2400,25 @@ function validateFlowIndexShape(
 
 type RollbackAction = () => Promise<void>;
 
+/** The refusal of a deploy whose agents or flows use versions nothing published takes. */
+function unpinnableResponse(
+  c: Context<AppEnv>,
+  requestId: string,
+  issues: readonly UnpinnableRef[],
+) {
+  c.status(statusFor('invalid-agent') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'validation-failed',
+        message: `The deployment's agents or flows use tool or agent versions that aren't published (${issues.length} issue${issues.length === 1 ? '' : 's'}); nothing was deployed`,
+        issues: issues as unknown as Record<string, unknown>[],
+      },
+      requestId,
+    ),
+  );
+}
+
 /** A deploy whose agents or flows use a tool or agent with no published version in range. */
 class UnpinnableDeploy extends Error {
   constructor(readonly issues: readonly UnpinnableRef[]) {
@@ -2593,14 +2611,18 @@ async function pinFlows(
   return pins;
 }
 
-/** Each agent's data-block pins, in order (`resolveBlockPins`); `pinAgents` reports their issues. */
+/**
+ * Each agent's data-block pins, in order (`resolveBlockPins`), a block
+ * the pack brings at the pack's version; `pinAgents` reports their issues.
+ */
 async function pinBlocks(
   blocks: BlockVersionReads | undefined,
   tenantId: TenantId,
   defined: readonly Agent[],
+  pack: ReadonlyMap<string, string>,
 ): Promise<BlockPins[]> {
   const pins: BlockPins[] = [];
-  for (const agent of defined) pins.push(await resolveBlockPins(blocks, tenantId, agent));
+  for (const agent of defined) pins.push(await resolveBlockPins(blocks, tenantId, agent, pack));
   return pins;
 }
 
@@ -2625,15 +2647,18 @@ async function pinAgents(
       pins.push(resolved.pins);
       continue;
     }
-    for (const issue of resolved.issues) {
-      unpinnable.push({
-        path: `/agents/${i}${issue.path}`,
-        message: `agent "${agent.id as unknown as string}": ${issue.message}`,
-      });
-    }
+    unpinnable.push(...atAgent(i, agent, resolved.issues));
   }
   if (unpinnable.length > 0) throw new UnpinnableDeploy(unpinnable);
   return pins;
+}
+
+/** An agent's pin issues at its place in the deployment, naming it. */
+function atAgent(i: number, agent: Agent, issues: readonly UnpinnableRef[]): UnpinnableRef[] {
+  return issues.map((issue) => ({
+    path: `/agents/${i}${issue.path}`,
+    message: `agent "${agent.id as unknown as string}": ${issue.message}`,
+  }));
 }
 
 async function rollback(actions: readonly RollbackAction[]): Promise<void> {
@@ -2682,22 +2707,39 @@ async function notifyWrites(
   }
 }
 
+/** The tenant's hour, when its binding gives no wait: the most the hour can take. */
+const UNPACK_HOUR_MS = 60 * 60 * 1000;
+
 /**
- * A registry read that failed, as `image-unverifiable`: `details.cause`
+ * A registry read that failed, as `400 image-unverifiable`: `details.cause`
  * is the binding's code, and `details.limit` the bound that refused the
  * image, when one did. Built here, not by `toWireError`, which keeps a
- * domain error's `cause` off the wire.
+ * domain error's `cause` off the wire. The tenant's hour
+ * (`tenant-unpack-hour`) passes, so it's answered as the rate limit it is:
+ * `429 rate-limit-exceeded` with `details.limit` and `Retry-After`, which
+ * clients wait out.
  */
 function registryRefusal(
+  c: Context<AppEnv>,
   step: string,
   error: ImageRegistryError,
   imageRef: string,
   requestId: string,
-): WireErrorBody {
-  return {
+): Response {
+  const message = `${step}: ${error.message}`;
+  if (error.code === 'image-limit-exceeded' && error.limit === 'tenant-unpack-hour') {
+    const wait = error.retryAfterMs;
+    const waitMs = wait !== undefined && Number.isFinite(wait) ? wait : UNPACK_HOUR_MS;
+    c.header('Retry-After', String(retryAfterSeconds(waitMs)));
+    c.status(statusFor('rate-limit-exceeded') as never);
+    return c.json(
+      toWireError({ code: 'rate-limit-exceeded', message, limit: error.limit }, requestId),
+    );
+  }
+  const body: WireErrorBody = {
     error: {
       code: 'image-unverifiable',
-      message: `${step}: ${error.message}`,
+      message,
       details: {
         imageRef,
         cause: error.code,
@@ -2706,6 +2748,8 @@ function registryRefusal(
       requestId,
     },
   };
+  c.status(statusFor('image-unverifiable') as never);
+  return c.json(body);
 }
 
 // Formats a sha256 digest in the canonical `sha256:<hex>` shape. Not used

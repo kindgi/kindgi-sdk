@@ -310,7 +310,7 @@ Here `acme.no-secret` halts on `SECRET`, on an agent at versions 2.0.0 and
 once. Count its outcomes:
 
 ```sh
-curl -s -H "authorization: Bearer $KINDGI_API_TOKEN" \
+curl -s -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
   "$KINDGI_API_URL/v1/guardrails/acme.no-secret/outcomes?projectId=a1e2b238-ae0b-4f03-b012-07875b9e5ee0&from=2026-10-11T06:02:19Z&to=2026-10-11T06:05:22Z"
 ```
 

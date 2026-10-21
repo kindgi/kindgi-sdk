@@ -260,6 +260,36 @@ describe('defineAgent — hitl.onTimeout', () => {
   });
 });
 
+describe('defineAgent — autoCloseAfterInactiveSeconds', () => {
+  const REFUSED = {
+    path: '/conversationPolicy/autoCloseAfterInactiveSeconds',
+    message:
+      "autoCloseAfterInactiveSeconds isn't supported: a conversation never closes by itself. It closes when someone closes it: Close in the console, kindgi conversations close, or POST /v1/conversations/{id}/close. Leave it out.",
+  };
+  const withPolicy = (conversationPolicy: unknown) =>
+    defineAgent({
+      ...baseSpec,
+      conversationPolicy,
+    } as unknown as Parameters<typeof defineAgent>[0]);
+
+  test('a policy without it is accepted as it was', () => {
+    const r = withPolicy({ historyLimit: 5, hitlAfterTurns: 3 });
+    expect(r.kind).toBe('ok');
+    if (r.kind === 'ok') {
+      expect(r.value.conversationPolicy).toEqual({ historyLimit: 5, hitlAfterTurns: 3 });
+    }
+  });
+
+  test.each([600, 1, 0, -5, 1.5, '600', null])(
+    'any value (%j) is refused, saying how a conversation closes',
+    (value) => {
+      const r = withPolicy({ historyLimit: 5, autoCloseAfterInactiveSeconds: value });
+      expect(r.kind).toBe('err');
+      if (r.kind === 'err') expect(r.error.issues).toEqual([REFUSED]);
+    },
+  );
+});
+
 describe('defineAgent — hitl.separateApprover', () => {
   const withFourEyes = (separateApprover: unknown) =>
     defineAgent({

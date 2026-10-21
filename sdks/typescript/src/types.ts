@@ -2805,6 +2805,12 @@ export interface BlobMeta {
   /** Who uploaded it: `user:<id>` or `service_account:<id>`. */
   readonly createdBy?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
+  /**
+   * The blob's S3-compatible address (`/s3/{bucket}/{key}`), both or
+   * neither: present when the server's storage gives the blob one.
+   */
+  readonly bucket?: string;
+  readonly key?: string;
 }
 
 /** Input for `artifacts.upload` (`POST /v1/artifacts`, multipart). */

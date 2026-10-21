@@ -153,7 +153,7 @@ export const ERROR_ENTRIES = {
   },
   'participant-not-allowed': {
     description:
-      "A turn would run as a participant, and you may not read that participant's memory. A turn reads and keeps its participant's memory, so running as one takes what the memory API takes: you're the participant yourself (that user, with their session or their own API key, never a service account's key), or you hold `write` on the turn's project. When the turn's project isn't known, only the participant may. It's checked wherever a turn gets a participant: `input.participantId` on `POST /v1/runs`, `participantId` on `POST /v1/conversations`, and a conversation's own participant when you post a turn into it, whatever the body names. Nothing was started or opened. Use a key or role with `write` on the turn's project, or have the participant run it.",
+      "A turn would run as a participant, and you may not read that participant's memory. A turn reads and keeps its participant's memory, so running as one takes what the memory API takes: you're the participant yourself (that user, with their session or their own API key, never a service account's key), or you hold `write` on the turn's project. When the turn's project isn't known, only the participant may. It's checked wherever a turn gets a participant: `input.participantId` on `POST /v1/runs`, `participantId` on `POST /v1/conversations`, and a conversation's own participant when you post a turn into it, whatever the body names. Into a conversation you can't read, the refusal answers `404 conversation-not-found` instead. Nothing was started or opened. Use a key or role with `write` on the turn's project, or have the participant run it.",
     details: [
       {
         key: 'action',
@@ -315,7 +315,7 @@ export const ERROR_ENTRIES = {
   },
   'conversation-not-found': {
     description:
-      "The conversation doesn't exist in your tenant, or a turn names one in a project your key can't read. Check the conversation id.",
+      "The conversation doesn't exist in your tenant, or you can't read it: one you can't read answers as if it weren't there when you read it or its messages, or are refused closing it, unregistering it or adding a turn. Check the conversation id, and that your key or role can read its project.",
     details: [
       {
         key: 'conversationId',
@@ -1106,12 +1106,12 @@ export const ERROR_ENTRIES = {
   },
   'rate-limit-exceeded': {
     description:
-      "You sent too many requests, or a tenant reached one of its limits: a webhook trigger got more deliveries than its per-minute limit, a client sent too many refused webhook requests, too many sign-in lookups came from one source, or the tenant reached its limit on API requests or webhook deliveries a minute, or on runs waiting to start. A tenant's API requests to `/v1` and `/s3` count together; on `/s3`, its limit answers as S3 does, with `503 SlowDown` and `Retry-After`, not with this code. On a server with budgets kept per tenant (Kindgi Cloud), it's also the answer when the tenant's schemas took their budget compiling, or its instructions templates rendering, in the last 60 seconds; an agent's turn refused this way fails its run with this code. Retry after the `Retry-After` header; a refusal by the limit on runs waiting to start has none: retry once some have started.",
+      "You sent too many requests, or a tenant reached one of its limits: a webhook trigger got more deliveries than its per-minute limit, a client sent too many refused webhook requests, too many sign-in lookups came from one source, or the tenant reached its limit on API requests or webhook deliveries a minute, or on runs waiting to start. A tenant's API requests to `/v1` and `/s3` count together; on `/s3`, its limit answers as S3 does, with `503 SlowDown` and `Retry-After`, not with this code. On a server with budgets kept per tenant (Kindgi Cloud), it's also the answer when the tenant's schemas took their budget compiling, or its instructions templates rendering, in the last 60 seconds; an agent's turn refused this way fails its run with this code. A deploy is refused with it too when the tenant's image reads unpacked as much as they may in an hour. Retry after the `Retry-After` header; a refusal by the limit on runs waiting to start has none: retry once some have started.",
     details: [
       {
         key: 'limit',
         meaning:
-          "the tenant's limit that was reached: `api-requests`, `webhook-receives`, `runs-pending`, or a budget, `schema-compile-time` or `template-render-time`. Absent when the limit isn't the tenant's",
+          "the tenant's limit that was reached: `api-requests`, `webhook-receives`, `runs-pending`, a budget, `schema-compile-time` or `template-render-time`, or `tenant-unpack-hour`, its image reads in the last hour. Absent when the limit isn't the tenant's",
       },
       {
         key: 'runsPending',
@@ -1183,7 +1183,7 @@ export const ERROR_ENTRIES = {
     description:
       "The database was too busy to answer the read in time: a lock held by other work or a query past the database's time limit ended it, or no database connection came free within the server's wait. Only a `GET` or `HEAD` answers it. Retry after the `Retry-After` header. A request with any other method that the database was too busy for answers a 500 (`internal-server-error`, or the code of what failed, such as `persistence-error`), since it may have saved part of its work: check what it changed before you send it again.",
     details: [],
-    seeAlso: ['GET /v1/runs'],
+    seeAlso: ['GET /v1/runs', 'reference/env-vars'],
   },
   'journal-error': {
     description:
@@ -2054,7 +2054,7 @@ export const ERROR_ENTRIES = {
   },
   'system-scope-missing': {
     description:
-      "The system key doesn't hold the scope this request takes, which `scope` names: the route's own, or more for what the request asks (creating a tenant without `firstAdmin`, for one). Every `/v1/system/keys` route takes the full system capability, which a scoped key doesn't hold. A deployment's secret values (`secrets=values` on its pack env) take a key holding `system:pack-env` itself: `kindgi:system` doesn't stand in for it.",
+      "The system key doesn't hold the scope this request takes, which `scope` names: the route's own, or more for what the request asks (creating a tenant without `firstAdmin`, for one). Every `/v1/system/keys` route takes the full system capability, which a scoped key doesn't hold. A deployment's secret values (`secrets=values` on its pack env) take a key holding `system:pack-env` itself: `kindgi:system` doesn't stand in for it. On a runtime serving one tenant, a system key reaches no `/v1/system/*` route, and `scope` is `kindgi:system`: the system keys take the deployment's own token there.",
     details: [
       {
         key: 'scope',
@@ -2073,6 +2073,33 @@ export const ERROR_ENTRIES = {
         meaning: 'why the caller was refused',
       },
     ],
+  },
+  'system-key-scope-not-served': {
+    description:
+      "The runtime serves one tenant, where a system key holds `system:license` alone, and this key holds anything else, which `scopes` names: it was minted while the runtime served many tenants, say. It's refused on every route. Mint one holding `system:license` with the deployment's own token, and revoke this one.",
+    details: [
+      {
+        key: 'scopes',
+        meaning: 'the scopes the key holds',
+      },
+      {
+        key: 'served',
+        meaning: 'the scopes a system key may hold on this runtime',
+      },
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+    seeAlso: ['POST /v1/system/keys', 'POST /v1/system/keys/{keyId}/revoke'],
   },
   'system-key-not-found': {
     description: 'No system key has that id.',
@@ -2098,7 +2125,7 @@ export const ERROR_ENTRIES = {
       },
       {
         key: 'tenantId',
-        meaning: 'the tenant; from a system route only',
+        meaning: 'the tenant; from a system route, or from renaming one',
       },
     ],
   },
@@ -2116,12 +2143,111 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'tenant-slug-mismatch': {
+    description:
+      "A purge's `confirm` isn't the tenant's slug, the second check on its id. Nothing was changed: send its slug, as `GET /v1/system/tenants/{tenantId}` gives it.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+    ],
+  },
+  'tenant-not-closing': {
+    description:
+      'A purge of a tenant that is active or suspended. Only a closing tenant is purged, once its 30-day export window has passed: close it first (`POST /v1/system/tenants/{tenantId}/close`). Nothing was changed.',
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+      {
+        key: 'state',
+        meaning: '`active` or `suspended`',
+      },
+    ],
+  },
+  'tenant-export-window-open': {
+    description:
+      "A purge of a closing tenant whose 30-day export window hasn't passed: its own keys and sessions can still read and export it. Purge it once `windowEndsAt` has passed. Nothing was changed.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+      {
+        key: 'windowEndsAt',
+        meaning: 'when its export window ends',
+      },
+    ],
+  },
+  'purge-record-unset': {
+    description:
+      "A purge on a runtime with nowhere set to keep purge records (`KINDGI_TENANT_PURGE_RECORD`). Without a record, a restore from a backup older than the purge would bring the tenant back. Set it on the runtime's servers, then purge. Nothing was changed.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+    ],
+  },
+  'purge-setting-missing': {
+    description:
+      "A purge of a tenant holding something the runtime has no setting to reach: artifacts with no artifacts' store set (`KINDGI_ARTIFACTS`), or an authorization store with no OpenFGA set (`KINDGI_OPENFGA_API_URL`). The message says which. Nothing was changed.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+    ],
+  },
+  'authz-store-delete-failed': {
+    description:
+      "A purge's delete of the tenant's authorization store failed; the message gives OpenFGA's answer, if it gave one, and what that left. A tenant's rows go only after its store, so a failure before then leaves every row, though its artifacts' bytes may be deleted. Run the purge again once OpenFGA answers.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+    ],
+  },
+  'tenant-purge-unsupported': {
+    description: "This runtime doesn't purge tenants through the API.",
+    details: [],
+  },
   'tenant-slug-taken': {
-    description: 'Another tenant has that slug. Choose another.',
+    description:
+      'Another tenant has that slug, creating a tenant or renaming one. A purged tenant keeps its slug. Choose another.',
     details: [
       {
         key: 'slug',
         meaning: 'the slug that is taken',
+      },
+    ],
+  },
+  'tenant-slug-in-config': {
+    description:
+      "A tenant's slug can't change while the server's `KINDGI_AUTH_VERIFIED_DOMAINS` names a tenant by it. When it names this tenant by its current slug, the server would find no tenant by it when it next starts: the server's operator names the tenant there by its id instead and restarts the server, and then it can be renamed. When it names the new slug, the server's next start would give those domains to this tenant: choose another slug.",
+    details: [
+      {
+        key: 'slug',
+        meaning: 'the slug the setting names: the current one, or the new one',
+      },
+      {
+        key: 'domains',
+        meaning:
+          'the domains that name this tenant by its current slug; absent when the setting names the new one',
+      },
+    ],
+    seeAlso: ['PATCH /v1/tenant'],
+  },
+  'tenant-setup-pending': {
+    description:
+      "The tenant's setup hasn't finished, so it can't be renamed yet. Sending the request that created it again finishes it.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
       },
     ],
   },
@@ -2501,6 +2627,17 @@ export const ERROR_ENTRIES = {
       "The deployment's operator manages sign-in, so changing identity providers needs the deployment's own token; a tenant admin's key is refused.",
     details: [],
   },
+  'identity-providers-need-secrets-store': {
+    description:
+      "The deployment has no secrets store (`KINDGI_SECRETS_BACKEND` is `none`), and an identity provider's client secret and keys are references into one, so no provider is added or changed until the operator sets one up. Removing a provider still works. Continue with Google, Microsoft or GitHub and the emailed link don't need a store.",
+    details: [
+      {
+        key: 'providerId',
+        meaning: 'the provider that was being added or changed',
+      },
+    ],
+    seeAlso: ['deploy/self-hosted/sign-in', 'deploy/self-hosted/secret-manager'],
+  },
   'license-operator-only': {
     description:
       "`GET /v1/license` and `GET /v1/license/usage` are for the deployment's own token, or a system key holding `system:license`. Where the deployment is set up to serve one tenant (without `KINDGI_TENANCY=multi`) and its database holds only that one, that tenant's admins also read the license's countdown, never its use. Other callers are refused, and the refusal recorded.",
@@ -2593,6 +2730,30 @@ export const ERROR_ENTRIES = {
       "The request would change what a person a site signs in may do: give them or take away a grant, a tenant role, a project or team membership or its role, or a reviewer role, or mint them a key. Such a person holds only what their site's sign-in writes: their next sign-in would undo a change, and a key would outlive a paused or unregistered site. Change their role on the site, remove the person, or pause the site instead.",
     details: [],
   },
+  'site-person-not-found': {
+    description:
+      'The site has no link to that person: they never signed in through it. Only the people a site signs in are let back in through it. Find their id with `kindgi people list --include-removed`.',
+    details: [
+      {
+        key: 'userId',
+        meaning: 'the person who was to be let back in',
+      },
+    ],
+  },
+  'site-person-restore-refused': {
+    description:
+      "The site's person wasn't let back in, and nothing changed. `not-removed`: they're in the tenant and their site still knows them, so there's nothing to undo. `left`: their site said they left it. A site forgets a person who leaves, so if they come back, it signs them in as a new person. `linked-elsewhere`: they also sign in another way (through another site, or the tenant's own sign-in), and letting them back in would let them in there too: add them again instead, as a new person.",
+    details: [
+      {
+        key: 'reason',
+        meaning: "why it was refused: 'not-removed', 'left' or 'linked-elsewhere'",
+      },
+      {
+        key: 'userId',
+        meaning: 'the person who was to be let back in',
+      },
+    ],
+  },
   'token-sign-in-needs-an-api-token': {
     description:
       "`POST /v1/auth/token-sign-in` was called while signed in by a session. It takes an API token in the Authorization header, so there's nothing to exchange.",
@@ -2666,7 +2827,7 @@ export const ERROR_ENTRIES = {
       {
         key: 'limit',
         meaning:
-          "with `image-limit-exceeded`, the bound: `manifest`, `file`, `layer`, `read` or `unpack` are the image's own, so the same image is refused again; `tenant-unpack-hour` is the tenant's image reads in the last hour, and passes: deploy again after the wait the message names",
+          "with `image-limit-exceeded`, the bound: `manifest`, `file`, `layer`, `read` or `unpack`, the image's own, so the same image is refused again. The tenant's hour of image reads is never this code: reaching it answers `rate-limit-exceeded` with `limit` `tenant-unpack-hour` and `Retry-After`",
       },
     ],
     seeAlso: ['POST /v1/deployments'],
@@ -3523,7 +3684,7 @@ export const OUTSIDE_THE_MAP = [
     code: 'sign-in-unavailable',
     status: 500,
     description:
-      "Signing in failed on the server, for example because its database didn't answer. Nothing about the cause is sent to the browser; a sign-in page shows the code instead of JSON. The runtime's log says why, as an `sso` warning: `sign-in request failed: <reason>`. Try again.",
+      "Signing in failed on the server: its database didn't answer, say, or an identity provider's settings can't start a sign-in, or a SAML response the provider's page posted was refused. Nothing about the cause is sent to the browser; a sign-in page shows the code instead of JSON. The runtime's log says why, as an `sso` warning: `sign-in request failed: <reason>`, `sign-in with provider <id> didn't start: <reason>`, or `a SAML response for provider <id> was refused: <status> <code>: <message>`. Try again; when it keeps failing, the warning says what to fix.",
     seeAlso: ['deploy/self-hosted/sign-in'],
   },
 ];

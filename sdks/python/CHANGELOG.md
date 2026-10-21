@@ -10,6 +10,33 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **`system_keys.mint`, `list`, `revoke` and `whoami` say what a
+  runtime serving one tenant answers.** Its own token mints, lists and revokes
+  keys holding `system:license` alone, for the license renewal, and such a key
+  reads the license and its use and nothing else.
+- `kindgi`: **an agent's `conversation_policy` can't set
+  `autoCloseAfterInactiveSeconds`.** It was accepted and never acted on: a
+  conversation never closes by itself, only when someone closes it. The
+  indexer refuses a pack whose agent sets it (`manifest-validation-failed`, at
+  `/agents/<n>/conversationPolicy/autoCloseAfterInactiveSeconds`). The client's
+  `ConversationPolicy` model loses `auto_close_after_inactive_seconds`.
+- `kindgi`: **`projects.sites.restore_person` lets one of a site's people
+  removed in Kindgi back in**, while the site still knows them: the same
+  person, with their history. Their grants come back the next time the site
+  signs them in. Refused (`site-person-restore-refused`) for someone who
+  isn't removed, someone their site said left, and someone who also signs
+  in another way. Tenant admins only.
+
+## 0.1.9
+
+No Python changes; the version moves with the npm packages.
+
+## 0.1.9rc1
+
+No Python changes; the version moves with the npm packages.
+
+## 0.1.9rc0
+
 - `kindgi`: **`deployments.pack_env` shows where each name a deployment's
   pack declares is set** (`project`, `org` or `tenant`) and why it can't be
   given to its pack service, if it can't, on a server that runs a pack

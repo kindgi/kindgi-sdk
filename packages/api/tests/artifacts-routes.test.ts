@@ -22,6 +22,7 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
+import { validateAgainst } from './support/openapi-schema.js';
 
 const tenantId = '00000000-0000-4000-8000-0000000000a1' as TenantId;
 const P1 = '00000000-0000-4000-8000-0000000000b1';
@@ -42,7 +43,11 @@ const resolveToken: TokenResolver = async (token) =>
       ? { tenantId, userId: 'alice' as UserId, scopes: [], capabilities: [], tokenProjectId: P1 }
       : null;
 
-function memoryBlobs(): BlobStorageBinding & {
+/**
+ * With `s3Address`, each upload gets an S3-compatible address, as a store
+ * serving `/s3` gives it: bucket `artifacts`, the `blobId` as its key.
+ */
+function memoryBlobs(options: { s3Address?: boolean } = {}): BlobStorageBinding & {
   readonly rows: Map<string, BlobMeta>;
   readonly bytes: Map<string, Uint8Array>;
   /** Each blob `get` opened, by id. */
@@ -69,6 +74,7 @@ function memoryBlobs(): BlobStorageBinding & {
         ...(input.projectId !== undefined && { projectId: input.projectId }),
         ...(input.createdBy !== undefined && { createdBy: input.createdBy }),
         createdAt: '2026-10-07T00:00:00.000Z' as Timestamp,
+        ...(options.s3Address === true && { bucket: 'artifacts', key: blobId }),
       };
       rows.set(blobId, meta);
       bytes.set(blobId, body);
@@ -109,9 +115,16 @@ function decision(user: string, action: Action, resource: ResourceRef): Decision
   };
 }
 
-function harness(options: { authz?: boolean; maxBytes?: number; defaultProject?: string } = {}) {
+function harness(
+  options: {
+    authz?: boolean;
+    maxBytes?: number;
+    defaultProject?: string;
+    s3Address?: boolean;
+  } = {},
+) {
   const stubs = createStubAppBindings();
-  const blobs = memoryBlobs();
+  const blobs = memoryBlobs({ s3Address: options.s3Address === true });
   const run = {
     ...stubs.kernelBinding.run,
     getRun: async (_t: TenantId, id: RunId) =>
@@ -219,6 +232,31 @@ describe('artifacts belong to a project', () => {
     const h = harness();
     const r = await h.upload('alice', { projectId: P2 });
     expect([r.status, r.body.error.code]).toEqual([403, 'permission-denied']);
+  });
+});
+
+describe("an artifact answer carries only BlobMeta's properties", () => {
+  test('from a store that gives a blob an S3-compatible address, the upload and the list carry it', async () => {
+    const h = harness({ s3Address: true });
+    const up = await h.upload('alice');
+    expect(up.status, JSON.stringify(up.body)).toBe(201);
+    expect(up.body).toMatchObject({ bucket: 'artifacts', key: up.body.blobId });
+    expect(validateAgainst('BlobMeta', up.body)).toEqual([]);
+    const list = (await h.call('alice', 'GET', '/v1/artifacts')).json();
+    expect(list.data).toEqual([up.body]);
+    expect(validateAgainst('ArtifactCollectionPage', list)).toEqual([]);
+  });
+
+  test('from a store that gives it none, the upload and the list leave it out', async () => {
+    const h = harness();
+    const up = await h.upload('alice');
+    expect(up.status, JSON.stringify(up.body)).toBe(201);
+    expect(up.body).not.toHaveProperty('bucket');
+    expect(up.body).not.toHaveProperty('key');
+    expect(validateAgainst('BlobMeta', up.body)).toEqual([]);
+    const list = (await h.call('alice', 'GET', '/v1/artifacts')).json();
+    expect(list.data).toEqual([up.body]);
+    expect(validateAgainst('ArtifactCollectionPage', list)).toEqual([]);
   });
 });
 

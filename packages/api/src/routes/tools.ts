@@ -702,8 +702,9 @@ function kindMismatch(outcome: ToolKindMismatch, write: 'publish' | 'reinstate')
  * The manifest as the wire carries it: every `ToolManifest` field the
  * `Tool` schema declares (a mirror of `@kindgi/specs/tool.schema.json`),
  * including where the code runs (`codeArtifactRef`) and the declarative
- * `spec`, and the tool's project when the registry records it. A secret
- * appears only as a reference (`secretRef`), never a value.
+ * `spec`, and the tool's project and where each secret it names is read
+ * (`secretScopes`) when the registry records them. A secret appears only
+ * as a reference (`secretRef`), never a value.
  */
 function serializeTool(t: ToolRecord): Record<string, unknown> {
   return {
@@ -728,6 +729,7 @@ function serializeTool(t: ToolRecord): Record<string, unknown> {
     ...(t.needsSpec !== undefined && { needsSpec: t.needsSpec }),
     ...(t.codeArtifactRef !== undefined && { codeArtifactRef: t.codeArtifactRef }),
     ...(t.spec !== undefined && { spec: t.spec }),
+    ...(t.secretScopes !== undefined && { secretScopes: t.secretScopes }),
   };
 }
 

@@ -278,7 +278,7 @@ signed keeps running, through restarts too. The revoked key stays listed for
 audit:
 
 ```sh
-curl -s "http://localhost:4000/v1/signing-keys?includeRevoked=true" -H "authorization: Bearer $KINDGI_API_TOKEN"
+curl -s "http://localhost:4000/v1/signing-keys?includeRevoked=true" -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 It answers with the keys as JSON. Each key in the list has its `revokedAt`
@@ -317,7 +317,7 @@ docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -v "$PWD/public-token-signing.pem:/etc/kindgi/public-token-signing.pem:ro" \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.8
+  quay.io/kindgi/runtime:0.1.9
 ```
 
 `-v` mounts the key file, read-only, at the path `kindgi.env` names. The
