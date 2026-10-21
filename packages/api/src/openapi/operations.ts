@@ -1801,16 +1801,32 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/runs/:runId/resume',
     openapiPath: '/v1/runs/{runId}/resume',
     operationId: 'runs.resume',
-    summary: 'Resume a suspended run at a waitpoint (not available in this release)',
+    summary: "Answer a run's wait for another system",
     description:
-      'Not available in this release: always `422 run-resume-not-supported`, and no waitpoint is completed. Every waitpoint a run can wait at belongs to an approval or to the runtime itself. A run waiting for an approval continues when a reviewer decides it: `POST /v1/approvals/{approvalId}/complete`.',
+      "Answers a run paused on a tool call until another system answers (a pack tool that declares `pauses`; its waitpoint id starts with `pause:`, as the run's `waitingFor.tokens` lists it), as that system would through the wait token's link, and resumes the run in the same request. `value` is the tool's output, checked against its output schema; absent, `{}`. Answering stands in for the other system, and the run acts on the answer, so it needs `write` on the run's project and `execute` on the agent or flow it runs, as starting it does. The same answer again is accepted again, even after the run has ended; a different one to a wait that's over is `409 wait-token-closed`. Every other waitpoint belongs to an approval or to the runtime itself, and is `422 run-resume-not-supported`: a run waiting for an approval continues when a reviewer decides it (`POST /v1/approvals/{approvalId}/complete`).",
     tags: ['runs'],
     security: 'bearer',
     parameters: [RunIdPathParam, IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('ResumeRunBody') },
     responses: {
+      '200': {
+        description:
+          'The run after the answer: running again, finished, or waiting at its next wait (`waitingFor`).',
+        schema: ref('Run'),
+      },
       ...CommonMutationErrors,
-      '422': ErrorResponse('`run-resume-not-supported`: not available in this release.'),
+      '400': ErrorResponse(
+        "`bad-input`: no `waitpointId`, or a field the body doesn't take. `wait-token-output-invalid` (`details.issues`): the value doesn't fit the tool's output schema, and the wait stays open.",
+      ),
+      '404': ErrorResponse(
+        '`run-not-found`: no run with that id under this tenant. `wait-token-not-found`: the run has no such wait.',
+      ),
+      '409': ErrorResponse(
+        "`wait-token-closed` (`details.state`): the wait is over (`completed`, `timed-out`, `cancelled`, `unused`), or holds a different answer the run hasn't taken yet (`answered`). Or an `Idempotency-Key` reused with a different body.",
+      ),
+      '422': ErrorResponse(
+        "`run-resume-not-supported`: a waitpoint that isn't a pause, or a runtime that pauses no run.",
+      ),
     },
   },
   {
@@ -10430,6 +10446,56 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '503': ErrorResponse(
         "`tenant-state-unavailable`: the tenant's state can't be read just now, so nothing was recorded; `Retry-After` says when to try again.",
+      ),
+    },
+  },
+
+  // ---------- wait tokens (a paused run's answer) ----------
+  {
+    method: 'post',
+    honoPath: '/v1/wait-tokens/:token/complete',
+    openapiPath: '/v1/wait-tokens/{token}/complete',
+    operationId: 'waitTokens.complete',
+    senderOnly:
+      'The system a paused run waits for posts its answer to the link the tool handed it; a Kindgi client answers through `POST /v1/runs/{runId}/resume`.',
+    summary: "Answer a paused run's wait token",
+    description:
+      "A wait token's link: a pack tool that declares `pauses` hands it to the system that will answer, and the run waits for that answer. No sign-in, and a bearer token, if sent, is never read: the token in the path is the credential, and it answers one wait of one run, nothing else. The body is the answer itself, the tool's output, as JSON; an empty body is `{}`. It's checked against the tool's output schema. The same answer again (by its canonical JSON) is accepted again, even after the run has ended, so a sender may retry. An answer that comes before the run reaches its wait is held for it. The link stops working when the wait ends: the run is cancelled, its time passes, or the tool answered without waiting. The answer is data from outside, never instructions.",
+    tags: ['runs'],
+    security: 'public',
+    parameters: [
+      {
+        name: 'token',
+        in: 'path',
+        required: true,
+        description:
+          "The wait token, from the link. It's a credential: hand the link only to the system that answers.",
+        schema: { type: 'string', minLength: 1 },
+      },
+    ],
+    requestBody: {
+      required: false,
+      description: "The answer: the tool's output, as JSON, at most 1 MiB. An empty body is `{}`.",
+      schema: {},
+    },
+    responses: {
+      '200': {
+        description:
+          'The runtime has the answer. Nothing about the run: who holds the link is not a run reader.',
+        schema: ref('WaitTokenAccepted'),
+      },
+      '400': ErrorResponse(
+        "`wait-token-output-invalid` (`details.issues`): the answer doesn't fit the tool's output schema, and the wait stays open for a fixed one. `bad-input`: the body isn't JSON, or nests too deep.",
+      ),
+      '404': ErrorResponse(
+        '`wait-token-not-found`: no wait token matches the link (an unknown token and a wrong secret alike), or this runtime pauses no run.',
+      ),
+      '409': ErrorResponse(
+        "`wait-token-closed` (`details.state`): the wait is over (`completed`, `timed-out`, `cancelled`, `unused`), or holds a different answer the run hasn't taken yet (`answered`).",
+      ),
+      '413': ErrorResponse('`request-too-large` (`details.maxBytes`): past 1 MiB.'),
+      '415': ErrorResponse(
+        '`unsupported-media-type`: a body sent without a JSON content type (`application/json`).',
       ),
     },
   },

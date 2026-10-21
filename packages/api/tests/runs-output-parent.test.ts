@@ -200,16 +200,17 @@ describe('POST /v1/runs — options.wait', () => {
 });
 
 describe('POST /v1/runs/:runId/resume', () => {
-  // Not available in this release: every waitpoint belongs to an approval
-  // (decided through the approvals routes) or to the runtime. The route
-  // answers 422 and completes nothing, whatever the body names.
+  // Only a run paused until another system answers (a `pause:` waitpoint,
+  // `wait-tokens.test.ts`) resumes here. Every other waitpoint belongs to an
+  // approval (decided through the approvals routes) or to the runtime: the
+  // route answers 422 and completes nothing.
   test.each([
     [
       'an approval waitpoint, approved',
       { waitpointId: 'approval-1', value: { decided: 'approve' } },
     ],
     ['a runtime child waitpoint', { waitpointId: `child:${randomUUID()}:1`, value: {} }],
-    ['no waitpoint', {}],
+    ['a pause, on a runtime that pauses no run', { waitpointId: 'pause:k:1', value: {} }],
   ])('%s: 422 run-resume-not-supported, nothing completed or resumed', async (_name, body) => {
     const suspended = row({ status: 'suspended' });
     const h = harness([suspended]);
@@ -218,6 +219,16 @@ describe('POST /v1/runs/:runId/resume', () => {
     const json = res.body as { error: { code: string; message: string } };
     expect(json.error.code).toBe('run-resume-not-supported');
     expect(json.error.message).toContain('/v1/approvals/{approvalId}/complete');
+    expect(h.completed).toEqual([]);
+    expect(h.resumed).toEqual([]);
+  });
+
+  test('no waitpoint: 400 bad-input, nothing completed or resumed', async () => {
+    const suspended = row({ status: 'suspended' });
+    const h = harness([suspended]);
+    const res = await call(h, `/v1/runs/${suspended.runId}/resume`, {});
+    expect(res.status).toBe(400);
+    expect((res.body as { error: { code: string } }).error.code).toBe('bad-input');
     expect(h.completed).toEqual([]);
     expect(h.resumed).toEqual([]);
   });

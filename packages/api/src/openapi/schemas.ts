@@ -777,14 +777,56 @@ export const RunWaitingApprovalSchema: JsonSchema = {
   },
 };
 
+export const RunWaitingTokenSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tokenId', 'tool', 'createdAt', 'timesOutAt'],
+  description:
+    "A wait for another system's answer: a pack tool that declares `pauses` handed its wait token's link on. Answer it through the link, or with `POST /v1/runs/{runId}/resume` and this `tokenId`. Never the link itself.",
+  properties: {
+    tokenId: {
+      type: 'string',
+      description: 'The waitpoint id (`pause:…`), for `POST /v1/runs/{runId}/resume`.',
+    },
+    name: { type: 'string', description: 'What the run waits for, as the tool named it.' },
+    tool: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['id', 'version'],
+      description: 'The tool whose call waits.',
+      properties: {
+        id: { type: 'string', description: 'The tool id.' },
+        version: { type: 'string' },
+        callId: {
+          type: 'string',
+          description: "The model's id for the call, for an agent's call.",
+        },
+      },
+    },
+    nodeId: { type: 'string', description: "The flow step that waits, for a flow's tool step." },
+    createdAt: { type: 'string', format: 'date-time' },
+    timesOutAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the wait times out, and the call fails with `wait-token-timed-out`.',
+    },
+  },
+};
+
 export const RunWaitingForSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['approvals', 'other'],
   description:
-    "Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.",
+    "Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `tokens`: its waits for another system's answer. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.",
   properties: {
     approvals: { type: 'array', items: { $ref: '#/components/schemas/RunWaitingApproval' } },
+    tokens: {
+      type: 'array',
+      description:
+        "Its waits for another system's answer (a pausing tool's calls). Absent on a runtime that pauses no run, or when they can't be read: those waits are then `unattributed`.",
+      items: { $ref: '#/components/schemas/RunWaitingToken' },
+    },
     other: {
       type: 'array',
       items: {
@@ -1008,10 +1050,11 @@ export const ResumeRunBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        'Token id of the pending waitpoint to complete. Ids starting with `child:` are reserved for the runtime. Resuming without a waitpoint id returns `400 bad-input`.',
+        "Token id of the pending waitpoint to complete: a `pause:` id, from the run's `waitingFor.tokens`. Ids starting with `child:` and `pause:` are reserved for the runtime: a handler never waits on one of its own. Resuming without a waitpoint id returns `400 bad-input`.",
     },
     value: {
-      description: 'Resolved value passed back into the flow handler that suspended.',
+      description:
+        "The answer: the paused tool's output, checked against its output schema. Absent: `{}`.",
     },
   },
 };
@@ -13247,6 +13290,15 @@ export const WebhookFirePageSchema: JsonSchema = {
   },
 };
 
+export const WaitTokenAcceptedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['status'],
+  description:
+    "The runtime has the answer. It says nothing about the run: who holds a wait token's link isn't a run reader.",
+  properties: { status: { type: 'string', enum: ['accepted'] } },
+};
+
 export const WebhookReceiptSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -13922,6 +13974,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RunAgent', RunAgentSchema],
   ['RunWaitingFor', RunWaitingForSchema],
   ['RunWaitingApproval', RunWaitingApprovalSchema],
+  ['RunWaitingToken', RunWaitingTokenSchema],
   ['RunTrigger', RunTriggerSchema],
   ['ScopeSegment', ScopeSegmentSchema],
   ['LiveScopeTenant', LiveScopeTenantSchema],
@@ -14525,6 +14578,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WebhookTriggerRecord', WebhookTriggerRecordSchema],
   ['WebhookFire', WebhookFireSchema],
   ['WebhookFirePage', WebhookFirePageSchema],
+  ['WaitTokenAccepted', WaitTokenAcceptedSchema],
   ['WebhookReceipt', WebhookReceiptSchema],
   ['WebhookTriggerCollectionPage', WebhookTriggerCollectionPageSchema],
   ['RegisterWebhookTriggerBody', RegisterWebhookTriggerBodySchema],

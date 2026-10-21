@@ -26,7 +26,7 @@ import type {
 } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
-import type { RunHandlerBinding, RunTrace } from '../handler-binding.js';
+import type { RunHandlerBinding } from '../handler-binding.js';
 import type {
   Approval,
   ApprovalPosition,
@@ -37,6 +37,7 @@ import type {
 } from '../hitl-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
+import { type ResumeReport, resumeInline } from '../resume-inline.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import {
@@ -1017,40 +1018,6 @@ function parseAuditBundleBody(
     includeMessages = im;
   }
   return { kind: 'ok', value: { signingKeyId: signingKeyId.value, includeMessages } };
-}
-
-/** How the inline resume after a decision went. */
-type ResumeReport =
-  | { readonly kind: 'ok' }
-  | { readonly kind: 'failed'; readonly code: string; readonly message: string };
-
-/**
- * Resume the run a decision released, in the same request. A resume that
- * fails is reported, not raised: the decision is durable either way, and
- * the runtime ends a run that can't go on, or resumes it later.
- */
-async function resumeInline(
-  runHandler: RunHandlerBinding,
-  tenantId: TenantId,
-  runId: RunId,
-  trace: RunTrace | undefined,
-): Promise<ResumeReport> {
-  try {
-    const outcome = await runHandler.resumeRun({
-      tenantId,
-      runId,
-      ...(trace !== undefined && { trace }),
-    });
-    return outcome.kind === 'ok'
-      ? { kind: 'ok' }
-      : { kind: 'failed', code: outcome.error.code, message: outcome.error.message };
-  } catch (cause) {
-    return {
-      kind: 'failed',
-      code: 'resume-failed',
-      message: cause instanceof Error ? cause.message : String(cause),
-    };
-  }
 }
 
 /** Marks an oldest-first page's cursor (`order=asc`), which only continues that order. */

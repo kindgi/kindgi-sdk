@@ -19,6 +19,12 @@ same version, and the CLI's own changes are in
   first, so the tool hands nothing on. `ToolContext.for_test(wait_token=...)`
   tests one. New: `PauseAnswer`, `PauseNotAvailable` and `WaitToken`. The
   client's `Tool` model carries `pauses`.
+- `kindgi`: **the client answers a run's wait for another system.**
+  `runs.resume(run_id, waitpoint_id=..., value=...)` takes a `pause:` waitpoint
+  from `runs.get(run_id).waiting_for.tokens` (`RunWaitingToken`), with the
+  tool's output as `value`. Any other waitpoint is refused with
+  `run-resume-not-supported`. New error codes: `wait-token-not-found`,
+  `wait-token-closed`, `wait-token-output-invalid` and `unsupported-media-type`.
 - `kindgi`: **`system_keys.mint`, `list`, `revoke` and `whoami` say what a
   runtime serving one tenant answers.** Its own token mints, lists and revokes
   keys holding `system:license` alone, for the license renewal, and such a key

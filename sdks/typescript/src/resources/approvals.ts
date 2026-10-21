@@ -1,14 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type {
-  ApprovalId,
-  AuditBundleId,
-  Filter,
-  ReviewerId,
-  RunId,
-  Timestamp,
-} from '@kindgi/types';
+import type { ApprovalId, AuditBundleId, Filter, ReviewerId, Timestamp } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
@@ -51,7 +44,7 @@ import { verifySignedExport } from '../verify-export.js';
  * ≤ their rank (standard < senior < admin). Out-of-scope reads surface
  * as `404 approval-not-found` to avoid cross-tier existence leaks.
  *
- * `batch`, `assign`, `completeToken`, `audit.get`, `audit.list` and
+ * `batch`, `assign`, `audit.get`, `audit.list` and
  * `audit.verify` have no API route and throw `not-yet-wired`.
  * `reviewers.updateRole` has no dedicated route either — role rotation
  * happens via re-`register` (idempotent per `(tenantId, userId)`).
@@ -103,14 +96,6 @@ export interface ApprovalsClient {
    *   required reviewer role is fixed when the approval is created.
    */
   assign(id: ApprovalId, reviewerId: ReviewerId): Promise<void>;
-
-  /**
-   * @unwired The API has no standalone complete-token route. Waitpoint
-   *   resume is part of `decide`: a terminating decision on an approval
-   *   that carries a `waitTokenId` completes the waitpoint. There is no
-   *   route that resumes a run without recording a review decision.
-   */
-  completeToken(id: ApprovalId, input: CompleteTokenInput): Promise<{ readonly runId: RunId }>;
 
   readonly reviewers: ReviewersClient;
   readonly audit: AuditClient;
@@ -266,8 +251,7 @@ export interface DecideInput {
   /** Free-form justification. Wire field name is `rationale`. */
   readonly rationale?: string;
   /**
-   * Optional payload passed to the run's waitpoint (`completeToken`)
-   * when the approval is linked to a suspended run and the decision is
+   * Optional payload passed to the run's waitpoint when the approval is linked to a suspended run and the decision is
    * `approve` or `reject`. Ignored otherwise.
    */
   readonly value?: unknown;
@@ -278,10 +262,6 @@ export interface BatchDecideInput {
   readonly ids: readonly ApprovalId[];
   readonly decision: ApprovalDecision;
   readonly rationale?: string;
-}
-
-export interface CompleteTokenInput {
-  readonly value: unknown;
 }
 
 export interface AuditExportInput {
@@ -367,15 +347,6 @@ export function makeApprovalsClient(transport: Transport): ApprovalsClient {
         notYetWired(
           'approvals.assign',
           'no per-approval assign route on the API — assignment happens at approval-creation time via HITL binding resolveReviewer, external re-assign is a planned follow-up',
-        ),
-      );
-    },
-
-    async completeToken(_id, _input) {
-      throw new KindgiApiError(
-        notYetWired(
-          'approvals.completeToken',
-          'no standalone complete-token route on the API — wire fuses waitpoint resume into POST /v1/approvals/{id}/complete (any decide that terminates + carries a waitTokenId auto-resumes), use approvals.decide instead',
         ),
       );
     },

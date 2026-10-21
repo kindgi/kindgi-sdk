@@ -41,6 +41,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'schema-validation-failed': 400,
   // Platform hierarchy scope filter.
   'scope-invalid': 400,
+  // Another system's answer to a paused tool call doesn't fit the tool's output schema.
+  'wait-token-output-invalid': 400,
   // 401 — auth
   'auth-missing': 401,
   'auth-expired': 401,
@@ -70,6 +72,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'guardrail-not-found': 404,
   'fact-not-found': 404,
   'flow-not-found': 404,
+  // No wait token matches the link (an unknown token and a wrong secret alike).
+  'wait-token-not-found': 404,
   // 409 — conflict
   'already-terminal': 409,
   'fact-changed': 409,
@@ -77,6 +81,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'erasure-in-progress': 409,
   'run-already-terminal': 409,
   'run-lease-lost': 409,
+  // The wait a token belongs to is over (`details.state`).
+  'wait-token-closed': 409,
   'idempotency-key-body-mismatch': 409,
   'idempotency-key-in-flight': 409,
   'idempotency-key-replay-withheld': 409,
@@ -380,6 +386,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'artifact-too-large': 413,
   /** A request body over the API's limit (`requestMaxBytes`); `details.maxBytes` says how much. */
   'request-too-large': 413,
+  /** A body that isn't JSON where a route takes JSON alone (a wait token's answer). */
+  'unsupported-media-type': 415,
   'run-not-finished': 409,
   'item-not-found': 400,
   // The judgment binding can't list judged runs, so no test sets from judgments.

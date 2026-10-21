@@ -1072,7 +1072,38 @@ export const ERROR_ENTRIES = {
   },
   'run-resume-not-supported': {
     description:
-      "Resuming a run at a waitpoint through `POST /v1/runs/{runId}/resume` isn't available. A run waiting for an approval continues when a reviewer decides it.",
+      "Resuming a run at this waitpoint through `POST /v1/runs/{runId}/resume` isn't available. Only a run paused until another system answers (a `pause:` waitpoint) resumes there, on a server that pauses runs. A run waiting for an approval continues when a reviewer decides it.",
+    details: [],
+  },
+  'wait-token-not-found': {
+    description:
+      "No open wait matches: the link's token is unknown (a wrong or mistyped link answers the same), or the run doesn't wait at the `waitpointId` you named. A run's open waits are in `waitingFor.tokens` on `GET /v1/runs/{runId}`.",
+    details: [],
+  },
+  'wait-token-closed': {
+    description:
+      'The wait is over, so it takes no other answer: it already took a different answer, its time passed, its run was cancelled, or its tool call answered without waiting or was retried and waits on a new link. Sending the answer it took again is accepted, not refused.',
+    details: [
+      {
+        key: 'state',
+        meaning:
+          'why the wait is over: `answered` or `completed` (it took a different answer), `timed-out`, `cancelled` or `unused`',
+      },
+    ],
+  },
+  'wait-token-output-invalid': {
+    description:
+      "The answer doesn't fit the output schema of the tool that waits for it. Nothing is taken and the wait stays open: fix the answer and send it again before the wait times out.",
+    details: [
+      {
+        key: 'issues',
+        meaning: 'list of problems, each with a path to the offending field and a message',
+      },
+    ],
+  },
+  'unsupported-media-type': {
+    description:
+      "The body isn't JSON where the route takes JSON alone: an answer to a wait (`POST /v1/wait-tokens/{token}/complete`) is sent with `Content-Type: application/json`, or with no body at all.",
     details: [],
   },
   'semantic-unavailable': {

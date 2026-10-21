@@ -43,9 +43,15 @@ import {
   outOfScopeResponse,
   referencesOutOfScope,
 } from '../reference-scope.js';
+import { resumeInline } from '../resume-inline.js';
 import { type RunFailure, runFailure } from '../run-failure.js';
 import { runWaitingFor } from '../run-waiting-for.js';
 import type { AppEnv } from '../types.js';
+import {
+  type CompleteWaitTokenInput,
+  PAUSE_TOKEN_PREFIX,
+  type WaitTokenBinding,
+} from '../wait-token-binding.js';
 import { deniedBy } from './denied.js';
 import { liveScopeToWire } from './live-scope-wire.js';
 import type { DecodedCursor } from './pagination.js';
@@ -65,6 +71,7 @@ import {
 } from './sse.js';
 import { type TurnConversation, closedRefusal, hiddenOr, turnRefusal } from './turn-access.js';
 import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
+import { refusal as waitTokenRefusal } from './wait-tokens.js';
 
 const KERNEL_RUN_CHANNEL_PREFIX = 'kernel:run:';
 
@@ -75,6 +82,13 @@ export interface RunsRouterOptions {
    * to its open waits). Absent: those waits are `unattributed`.
    */
   readonly hitl?: HitlBinding;
+  /**
+   * Runs paused until another system answers: `POST /:runId/resume` with a
+   * `pause:` waitpoint id answers one, and a suspended run's `waitingFor`
+   * lists them (`tokens`). Absent: the route answers `422
+   * run-resume-not-supported`, and `tokens` is left out.
+   */
+  readonly waitTokens?: WaitTokenBinding;
   /**
    * Optional push-based event bus. When present, `GET /:runId/stream`
    * subscribes on `kernel:run:<runId>` and delivers events
@@ -161,7 +175,8 @@ export function runsRouter(
   //                       existing one; a missing one is the handler's 404)
   // GET /:runId         — read on the run's project
   // POST /:runId/cancel — write on the run's project
-  // POST /:runId/resume — write on the run's project
+  // POST /:runId/resume — write on the run's project; answering a pause,
+  //                       also execute on what the run runs (the route's)
   // GET /:runId/journal — read on the run's project
   // GET /:runId/stream  — read on the run's project
   // GET /               — list; rows filtered to `read` on their project
@@ -378,16 +393,7 @@ export function runsRouter(
         toWireError({ code: 'run-not-found', message: `No run with id ${runId}` }, requestId),
       );
     }
-    // A suspended run says what it waits for (left out when that can't be read).
-    const waitingFor = await runWaitingFor(
-      { runBinding, ...(options.hitl !== undefined && { hitl: options.hitl }) },
-      tenantId,
-      { id: loaded.runId, status: loaded.status },
-    );
-    return c.json({
-      ...serializeRun(loaded, { output: true }),
-      ...(waitingFor !== undefined && { waitingFor }),
-    });
+    return c.json(await runWithWaits(runBinding, options, tenantId, loaded));
   });
 
   // ---------- GET /:runId/progress ----------
@@ -497,25 +503,52 @@ export function runsRouter(
   });
 
   // ---------- POST /:runId/resume ----------
-  // Not available in this release. Every waitpoint a run can wait at
-  // belongs to an approval or to the runtime itself (a flow's agent step
-  // waiting on its child turn). Completing one here would skip what owns
-  // it: an approval's reviewer check and recorded decision, or the
-  // runtime's own wake-up. A run waiting for an approval continues
-  // through `POST /v1/approvals/:id/complete`. So nothing is read or
-  // completed; the route stays mounted for a clear answer.
-  r.post('/:runId/resume', (c) => {
-    c.status(statusFor('run-resume-not-supported') as never);
-    return c.json(
-      toWireError(
-        {
-          code: 'run-resume-not-supported',
-          message:
-            'Resuming a run at a waitpoint is not available in this release: every waitpoint belongs to an approval or to the runtime. A run waiting for an approval continues when a reviewer decides it (POST /v1/approvals/{approvalId}/complete, or `kindgi approvals complete`).',
-        },
-        c.get('requestId'),
-      ),
-    );
+  // Answers a run paused until another system answers (a `pause:`
+  // waitpoint), as that system would through the token's link: the value
+  // is the tool's output, checked against its schema. The run resumes in
+  // the same request, and the route answers the run. Every other waitpoint
+  // belongs to an approval or to the runtime itself; completing one here
+  // would skip what owns it (an approval's reviewer check and recorded
+  // decision, or the runtime's own wake-up), so it's `422
+  // run-resume-not-supported`. A run waiting for an approval continues
+  // through `POST /v1/approvals/:id/complete`.
+  r.post('/:runId/resume', refuseMalformedRunId, async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const runId = c.req.param('runId') as RunId;
+    const parsed = await readResumeRunBody(c);
+    if (parsed.kind === 'err') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: parsed.message }, requestId));
+    }
+    const waitTokens = options.waitTokens;
+    if (!parsed.value.waitpointId.startsWith(PAUSE_TOKEN_PREFIX) || waitTokens === undefined) {
+      c.status(statusFor('run-resume-not-supported') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'run-resume-not-supported',
+            message: resumeNotSupportedMessage(waitTokens !== undefined),
+          },
+          requestId,
+        ),
+      );
+    }
+    const loaded = await runBinding.getRun(tenantId, runId);
+    if (loaded === null) {
+      c.status(statusFor('run-not-found') as never);
+      return c.json(
+        toWireError({ code: 'run-not-found', message: `No run with id ${runId}` }, requestId),
+      );
+    }
+    const refused = await answerRefusal(c, authorizer, options, loaded);
+    if (refused !== undefined) return refused;
+
+    const taken = await waitTokens.complete(apiAnswer(c, tenantId, runId, parsed.value));
+    if (taken.kind === 'err') return waitTokenRefusal(c, taken.error);
+    if (taken.value.resolved) await resumeAfterAnswer(c, binding, tenantId, runId);
+    const answered = (await runBinding.getRun(tenantId, runId)) ?? loaded;
+    return c.json(await runWithWaits(runBinding, options, tenantId, answered));
   });
 
   // ---------- GET /:runId/stream and /:runId/progress/stream (SSE) ----------
@@ -881,6 +914,150 @@ export function startedByCaller(
   if (serviceAccountKey || principal.actor.kind === 'service_account') return 'key';
   if (principal.actor.kind === 'user' && principal.onBehalfOf === undefined) return 'person';
   return undefined;
+}
+
+/**
+ * An answer to a run's wait stands in for the system that would send it,
+ * and the run acts on it: as starting the run, `execute` on the agent or
+ * flow it runs (in the run's project, for one more than one project
+ * serves: that project's right), beside the `write` on the run's project
+ * the route's middleware asks. A target that's gone is left to the resume.
+ */
+async function answerRefusal(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  options: RunsRouterOptions,
+  run: KernelRunRecord,
+): Promise<Response | undefined> {
+  if (authorizer === undefined) return undefined;
+  const target =
+    run.agent !== undefined
+      ? { kind: 'agent' as const, id: run.agent.id as unknown as string }
+      : { kind: 'flow' as const, id: run.flowId as unknown as string };
+  const projectId = run.projectId as unknown as string;
+  if (
+    options.itemRights !== undefined &&
+    (await servedThere(c, options.itemRights, target, projectId))
+  ) {
+    return runIn(c, options.itemRights, target, projectId);
+  }
+  if ((await options.targetExists?.(run.tenantId, target)) === false) return undefined;
+  return deniedBy(authorizer, c, 'execute', ref(target.kind, target.id));
+}
+
+/**
+ * A run in full, as `GET /:runId` answers it. A suspended run says what
+ * it waits for (left out when that can't be read).
+ */
+async function runWithWaits(
+  runBinding: RunBinding,
+  options: RunsRouterOptions,
+  tenantId: TenantId,
+  run: KernelRunRecord,
+): Promise<Record<string, unknown>> {
+  const waitingFor = await runWaitingFor(
+    {
+      runBinding,
+      ...(options.hitl !== undefined && { hitl: options.hitl }),
+      ...(options.waitTokens !== undefined && { waitTokens: options.waitTokens }),
+    },
+    tenantId,
+    { id: run.runId, status: run.status },
+  );
+  return {
+    ...serializeRun(run, { output: true }),
+    ...(waitingFor !== undefined && { waitingFor }),
+  };
+}
+
+/** The resume body as an answer to the wait, from the caller. */
+function apiAnswer(
+  c: Context<AppEnv>,
+  tenantId: TenantId,
+  runId: RunId,
+  body: { readonly waitpointId: string; readonly value?: unknown },
+): CompleteWaitTokenInput {
+  const principal = c.get('principal');
+  return {
+    via: 'api',
+    tenantId,
+    runId,
+    tokenId: body.waitpointId,
+    // As the link takes an empty body: `{}`.
+    output: body.value ?? {},
+    ...(principal !== undefined && { principal }),
+  };
+}
+
+/** The resume body, read and parsed. */
+async function readResumeRunBody(
+  c: Context<AppEnv>,
+): Promise<ReturnType<typeof parseResumeRunBody>> {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return { kind: 'err', message: 'Request body must be valid JSON' };
+  }
+  return parseResumeRunBody(body);
+}
+
+/** Why this runtime can't resume at the named waitpoint. */
+function resumeNotSupportedMessage(pausesRuns: boolean): string {
+  return pausesRuns
+    ? 'Only a run paused until another system answers (a `pause:` waitpoint) resumes here: every other waitpoint belongs to an approval or to the runtime. A run waiting for an approval continues when a reviewer decides it (POST /v1/approvals/{approvalId}/complete, or `kindgi approvals complete`).'
+    : 'This runtime resumes no run at a waitpoint: it pauses no run until another system answers. A run waiting for an approval continues when a reviewer decides it (POST /v1/approvals/{approvalId}/complete, or `kindgi approvals complete`).';
+}
+
+/**
+ * Resume a run whose wait was just answered, in this request. The answer
+ * is the runtime's either way: a failed resume is logged, and the
+ * runtime resumes the run later.
+ */
+async function resumeAfterAnswer(
+  c: Context<AppEnv>,
+  binding: RunHandlerBinding,
+  tenantId: TenantId,
+  runId: RunId,
+): Promise<void> {
+  const trace = c.get('trace');
+  const resumed = await resumeInline(binding, tenantId, runId, {
+    traceId: trace.traceId,
+    spanId: trace.spanId,
+  });
+  if (resumed.kind === 'failed') {
+    c.get('log').warn('resume after a wait token answer failed; the runtime resumes it later', {
+      runId,
+      code: resumed.code,
+    });
+  }
+}
+
+/** `{ waitpointId, value? }`, and nothing else. */
+function parseResumeRunBody(body: unknown):
+  | {
+      readonly kind: 'ok';
+      readonly value: { readonly waitpointId: string; readonly value?: unknown };
+    }
+  | { readonly kind: 'err'; readonly message: string } {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return { kind: 'err', message: 'The body is an object: `{ waitpointId, value }`' };
+  }
+  const { waitpointId, value, ...rest } = body as Record<string, unknown>;
+  const unknown = Object.keys(rest);
+  if (unknown.length > 0) {
+    return {
+      kind: 'err',
+      message: `Unknown field \`${unknown[0]}\`: the body is \`{ waitpointId, value }\``,
+    };
+  }
+  if (typeof waitpointId !== 'string' || waitpointId.length === 0) {
+    return {
+      kind: 'err',
+      message: 'Field `waitpointId` is required: the id of the wait to answer',
+    };
+  }
+  return { kind: 'ok', value: { waitpointId, ...(value !== undefined && { value }) } };
 }
 
 /**
