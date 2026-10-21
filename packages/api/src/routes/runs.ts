@@ -983,8 +983,8 @@ function apiAnswer(
     tenantId,
     runId,
     tokenId: body.waitpointId,
-    // As the link takes an empty body: `{}`.
-    output: body.value ?? {},
+    // No value is `{}`, as the link takes an empty body; a `null` is the answer, as on the link.
+    output: body.value === undefined ? {} : body.value,
     ...(principal !== undefined && { principal }),
   };
 }

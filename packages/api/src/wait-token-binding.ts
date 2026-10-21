@@ -44,10 +44,13 @@ export type CompleteWaitTokenInput =
 
 /**
  * The answer is the runtime's. `resolved`: the run was waiting and has
- * the answer now, so the route resumes it in the same request; otherwise
- * the run hasn't reached its wait yet and takes the answer when it does
- * (or the same answer came before). Never on the wire: the link answers
- * `{ status: 'accepted' }` alone.
+ * the answer now, so the route resumes it (the link behind its answer, the
+ * resume route in the same request). Otherwise the run hasn't reached its
+ * wait yet, or the same answer came before. An answer that came before the
+ * run reached its wait is held for it, and dropped if the run never waits
+ * on this token (the tool answered at once, or its step was retried); the
+ * link then answers `409 wait-token-closed`, `unused`. Never on the wire:
+ * the link answers `{ status: 'accepted' }` alone.
  */
 export interface WaitTokenAccepted {
   readonly status: 'accepted';

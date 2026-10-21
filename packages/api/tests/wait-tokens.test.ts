@@ -12,7 +12,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import { createLogger } from '@kindgi/log';
@@ -62,6 +62,8 @@ interface Options {
   readonly waiting?: () => Promise<readonly WaitingToken[]>;
   readonly grants?: readonly string[];
   readonly resumeThrows?: boolean;
+  /** The resume runs on and never settles, as a long stretch of the run would. */
+  readonly resumeHangs?: boolean;
 }
 
 function harness(options: Options = {}) {
@@ -107,6 +109,7 @@ function harness(options: Options = {}) {
     resumeRun: async ({ runId }: { runId: RunId }) => {
       resumed.push(runId);
       if (options.resumeThrows === true) throw new Error('the resume broke');
+      if (options.resumeHangs === true) return new Promise(() => {});
       current = { ...run, status: 'completed', output: ANSWER };
       return { kind: 'ok', runId };
     },
@@ -185,10 +188,26 @@ describe('the link', () => {
     expect(h.resumed).toEqual([]);
   });
 
-  test("a resume that fails doesn't fail the answer: the runtime resumes the run later", async () => {
+  test("a resume that fails doesn't fail the answer: it's logged, and the runtime resumes the run later", async () => {
     const h = harness({ resumeThrows: true });
     const res = await h.answer(JSON.stringify(ANSWER));
     expect(res.status).toBe(200);
+    expect(h.resumed).toEqual([h.run.runId]);
+    await vi.waitFor(() =>
+      expect(h.lines.some((l) => l.includes('resume after a wait token answer failed'))).toBe(true),
+    );
+  });
+
+  test("answers at once, while the run's resume goes on behind the answer", async () => {
+    const h = harness({ resumeHangs: true });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const held = new Promise<'held'>((resolve) => {
+      timer = setTimeout(() => resolve('held'), 1_000);
+    });
+    const res = await Promise.race([h.answer(JSON.stringify(ANSWER)), held]);
+    clearTimeout(timer);
+    expect(res).not.toBe('held');
+    expect((res as Response).status).toBe(200);
     expect(h.resumed).toEqual([h.run.runId]);
   });
 
@@ -306,10 +325,12 @@ describe('POST /v1/runs/{runId}/resume with a pause', () => {
     expect(h.resumed).toEqual([h.run.runId]);
   });
 
-  test('no value is {}, as an empty body on the link', async () => {
+  test('no value is {}, as an empty body on the link; a null is the answer, as on the link', async () => {
     const h = harness();
     await h.resume({ waitpointId: PAUSE_ID });
     expect(h.completed[0]?.output).toEqual({});
+    await h.resume({ waitpointId: PAUSE_ID, value: null });
+    expect(h.completed[1]?.output).toBeNull();
   });
 
   test('a run still waiting answers what it waits for', async () => {

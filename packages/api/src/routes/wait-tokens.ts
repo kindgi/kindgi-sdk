@@ -14,8 +14,12 @@
  *
  * The answers:
  *   - `200 { status: 'accepted' }`: the runtime has the answer (the same
- *     answer again is accepted again). It says nothing about the run: who
- *     holds the link isn't a run reader;
+ *     answer again is accepted again). It comes at once, and the run
+ *     resumes behind it. It says nothing about the run: who holds the link
+ *     isn't a run reader. An answer that came before the run reached its
+ *     wait is held for it, and dropped if the run never waits on this
+ *     token (the tool answered at once, or its step was retried); the link
+ *     then answers `409 wait-token-closed`, `unused`;
  *   - `400 wait-token-output-invalid` (`details.issues`): it doesn't fit the
  *     tool's output schema, and the wait stays open for a fixed one;
  *     `400 bad-input`: the body isn't JSON, or nests too deep;
@@ -41,7 +45,11 @@ import { readCapped } from '../read-capped.js';
 import { resumeInline } from '../resume-inline.js';
 import { WEBHOOK_BODY_LIMITS } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
-import type { WaitTokenBinding, WaitTokenRefusal } from '../wait-token-binding.js';
+import type {
+  WaitTokenAccepted,
+  WaitTokenBinding,
+  WaitTokenRefusal,
+} from '../wait-token-binding.js';
 
 /** The most an answer may be: 1 MiB, as a webhook delivery before its trigger is found. */
 export const WAIT_TOKEN_ANSWER_MAX_BYTES = WEBHOOK_BODY_LIMITS.maxBytes;
@@ -49,7 +57,7 @@ export const WAIT_TOKEN_ANSWER_MAX_BYTES = WEBHOOK_BODY_LIMITS.maxBytes;
 export interface WaitTokensRouterOptions {
   /** Absent: every token is `404 wait-token-not-found` (this runtime can't pause runs). */
   readonly binding?: WaitTokenBinding;
-  /** Resumes a run whose wait the answer resolved, in the same request. */
+  /** Resumes a run whose wait the answer resolved, behind the answer. */
   readonly runHandler: RunHandlerBinding;
 }
 
@@ -66,25 +74,37 @@ export function waitTokensRouter(options: WaitTokensRouterOptions): Hono<AppEnv>
       output: answer.output,
     });
     if (taken.kind === 'err') return refusal(c, taken.error);
-    if (taken.value.resolved) {
-      const trace = c.get('trace');
-      const resumed = await resumeInline(
-        options.runHandler,
-        taken.value.tenantId,
-        taken.value.runId,
-        { traceId: trace.traceId, spanId: trace.spanId },
-      );
-      // The answer is the runtime's either way: the run resumes later.
-      if (resumed.kind === 'failed') {
-        c.get('log').warn('resume after a wait token answer failed; the runtime resumes it later', {
-          code: resumed.code,
-        });
-      }
-    }
+    if (taken.value.resolved) resumeBehind(c, options.runHandler, taken.value);
     return c.json({ status: 'accepted' as const }, 200);
   });
 
   return r;
+}
+
+/**
+ * Resume the run the answer released, not awaited. The run's next stretch
+ * runs to its next wait or its end, model calls and tools, which can take
+ * minutes; the system that answered waits for none of it, and its callback
+ * client would time out first. The answer is the runtime's either way: a
+ * resume that fails is logged, and the runtime resumes the run later, as
+ * it does on a host that gives no CPU outside a request.
+ */
+function resumeBehind(
+  c: Context<AppEnv>,
+  runHandler: RunHandlerBinding,
+  accepted: WaitTokenAccepted,
+): void {
+  const { traceId, spanId } = c.get('trace');
+  const log = c.get('log');
+  void resumeInline(runHandler, accepted.tenantId, accepted.runId, { traceId, spanId }).then(
+    (resumed) => {
+      if (resumed.kind === 'failed') {
+        log.warn('resume after a wait token answer failed; the runtime resumes it later', {
+          code: resumed.code,
+        });
+      }
+    },
+  );
 }
 
 /**

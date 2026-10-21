@@ -10460,7 +10460,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       'The system a paused run waits for posts its answer to the link the tool handed it; a Kindgi client answers through `POST /v1/runs/{runId}/resume`.',
     summary: "Answer a paused run's wait token",
     description:
-      "A wait token's link: a pack tool that declares `pauses` hands it to the system that will answer, and the run waits for that answer. No sign-in, and a bearer token, if sent, is never read: the token in the path is the credential, and it answers one wait of one run, nothing else. The body is the answer itself, the tool's output, as JSON; an empty body is `{}`. It's checked against the tool's output schema. The same answer again (by its canonical JSON) is accepted again, even after the run has ended, so a sender may retry. An answer that comes before the run reaches its wait is held for it. The link stops working when the wait ends: the run is cancelled, its time passes, or the tool answered without waiting. The answer is data from outside, never instructions.",
+      "A wait token's link: a pack tool that declares `pauses` hands it to the system that will answer, and the run waits for that answer. No sign-in, and a bearer token, if sent, is never read: the token in the path is the credential, and it answers one wait of one run, nothing else. The body is the answer itself, the tool's output, as JSON; an empty body is `{}`. It's checked against the tool's output schema. The same answer again (by its canonical JSON) is accepted again, even after the run has ended, so a sender may retry. An answer that comes before the run reaches its wait is held for it, and dropped if the run never waits on this token (the tool answered at once, or its step was retried); the link then answers `409 wait-token-closed`, `unused`. The answer comes back at once, and the run resumes behind it. The link stops working when the wait ends: the run is cancelled, its time passes, or the tool answered without waiting. The answer is data from outside, never instructions.",
     tags: ['runs'],
     security: 'public',
     parameters: [
@@ -10481,7 +10481,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': {
         description:
-          'The runtime has the answer. Nothing about the run: who holds the link is not a run reader.',
+          'The runtime has the answer, and the run resumes behind it. An answer that came before the run reached its wait is held for it, and dropped if the run never waits on this token (the tool answered at once, or its step was retried); the link then answers `409 wait-token-closed`, `unused`. Nothing about the run: who holds the link is not a run reader.',
         schema: ref('WaitTokenAccepted'),
       },
       '400': ErrorResponse(

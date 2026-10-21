@@ -251,8 +251,9 @@ export interface DecideInput {
   /** Free-form justification. Wire field name is `rationale`. */
   readonly rationale?: string;
   /**
-   * Optional payload passed to the run's waitpoint when the approval is linked to a suspended run and the decision is
-   * `approve` or `reject`. Ignored otherwise.
+   * Optional payload passed to the run's waitpoint when the approval is
+   * linked to a suspended run and the decision is `approve` or `reject`.
+   * Ignored otherwise.
    */
   readonly value?: unknown;
   readonly idempotencyKey?: string;
