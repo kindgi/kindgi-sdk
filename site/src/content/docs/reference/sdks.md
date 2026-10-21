@@ -56,7 +56,7 @@ in as data, as the API names them: `set("budget", …)`, `node(Map.of(…))`,
 | [Follow a run's events](../../guides/runs/follow-a-run/), reconnecting until it ends | Yes | Yes | Yes | Yes |
 | Typed errors, and retries a call can take | Yes | Yes | Yes | Yes |
 | [Comparing an agent version](../../guides/evals/compare-an-agent-version/): a helper that reads the comparison | Yes | Yes | No | No |
-| [Verifying a webhook](../../guides/webhooks/verify-a-webhook/), reading its event, signing a test one | Yes | Yes | No | No |
+| [Verifying a webhook](../../guides/webhooks/verify-a-webhook/), reading its event, signing a test one | Yes | Yes | Yes | Yes |
 | [Checking a signed export](../../guides/observability/export-signed-evidence/#check-an-export) | Yes | Yes | No | No |
 
 ## Where an SDK lacks a feature
@@ -74,10 +74,6 @@ in as data, as the API names them: `set("budget", …)`, `node(Map.of(…))`,
   client's `JudgedComparisonResult`:
   `KindgiJson.read(KindgiJson.write(run.result()), JudgedComparisonResult.class)`.
   Check first that the run is a comparison (`kind` `judged`) and has ended.
-- **Webhooks:** Kindgi's deliveries are
-  [Standard Webhooks](https://www.standardwebhooks.com), so a Standard
-  Webhooks library verifies them with the same secret.
-  `client.webhookEndpoints().generateSecret()` gives a new secret.
 - **Signed exports:** check one with the CLI, `./kindgiw exports verify <file>
   --from-runtime`. `<file>` is the export's path. `--from-runtime` trusts the
   keys your runtime signs exports with.
