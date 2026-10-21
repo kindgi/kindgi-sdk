@@ -22,6 +22,7 @@ import {
   isToolRerunsExhaustedError,
   pauseOf,
   pauseOutcome,
+  toolOutputIssues,
 } from '../src/index.js';
 import type { PauseContext, Tool, ToolContext, ToolPauseAnswer } from '../src/index.js';
 
@@ -197,6 +198,17 @@ describe('a call that waits', () => {
       tokenId: 'wt-1',
       timeoutMs: 60_000,
     });
+  });
+
+  test("an answer from outside the call is checked as the call's output is", () => {
+    const tool = wrapped(() => undefined);
+    expect(toolOutputIssues(tool, { confirmedAt: '2026-10-21T15:00:00Z' })).toBeUndefined();
+    expect(toolOutputIssues(tool, { confirmedAt: 5 })).toEqual([
+      { path: '/confirmedAt', message: 'must be string' },
+    ]);
+    expect(toolOutputIssues(tool, {})).toEqual([
+      { path: '', message: "must have required property 'confirmedAt'" },
+    ]);
   });
 
   test('a call that may not run again is wait-token-reruns-exhausted', async () => {
