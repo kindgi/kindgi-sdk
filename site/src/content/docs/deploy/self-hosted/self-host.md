@@ -51,7 +51,7 @@ The runtime runs from Kindgi's image. Log in to its registry and pull it:
 
 ```sh
 docker login quay.io
-docker pull quay.io/kindgi/runtime:0.1.8
+docker pull quay.io/kindgi/runtime:0.1.9
 ```
 
 `docker login` prints `Login Succeeded`. It asks for the robot name and
@@ -259,9 +259,13 @@ KINDGI_CONSOLE_TOKEN_SIGN_IN=on
 It holds the API token and the license key, so keep it to yourself:
 `chmod 600 kindgi.env`.
 
-Every setting is in the [environment variable reference](../../../reference/env-vars/). These are worth knowing now:
+Every setting but the four database ones below is in the [environment variable reference](../../../reference/env-vars/). These are worth knowing now:
 
 - **`KINDGI_DATABASE_URL`** connects to Postgres directly, or through a pooler in session mode. The runtime holds session locks on its connection while it migrates. A pooler in transaction mode, such as PgBouncer's `pool_mode = transaction`, doesn't keep them, as [PgBouncer's pooling modes](https://www.pgbouncer.org/features.html) describes.
+  - **The database timeouts** (runtime 0.1.9 or later): the runtime sets three Postgres timeouts on its own connections, in milliseconds, and `0` turns one off. `KINDGI_DB_STATEMENT_TIMEOUT_MS`, `60000` (60 seconds), is how long one statement may run before Postgres ends it (`statement_timeout`). `KINDGI_DB_LOCK_TIMEOUT_MS`, `30000`, is how long a statement may wait for a lock (`lock_timeout`); with both on, it must be shorter than the statement timeout. `KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS`, `30000`, is how long a transaction may sit idle between statements before Postgres ends its session (`idle_in_transaction_session_timeout`). A value that isn't a whole number up to 2147483647 stops the boot, naming the variable. A GET or HEAD a statement or lock timeout ends answers `503 database-busy` with `Retry-After: 5` (under `/auth/`, a GET is sent back to the sign-in page instead and a HEAD answers `500`), any other request `500`, and the log has a `db` warning naming the variable. The migrations at boot and the runtime's admin commands (`kindgi-runtime tenants …`, `check …` and `erasures …`) run with no statement timeout. A migration waits 5 seconds for a lock, 6 tries in all; then the boot fails, naming the table and the sessions holding it.
+  - **`KINDGI_DB_POOL_WAIT_TIMEOUT_MS`** (runtime 0.1.9 or later), `10000` (10 seconds), is how long a query waits for one of the server's pooled connections while every one is taken; `0` lets it wait as long as it takes. Past it the query fails before it runs: a GET or HEAD answers `503 database-busy` with `Retry-After: 5` (under `/auth/`, a GET is sent back to the sign-in page instead and a HEAD answers `500`), any other request `500`, and the log has a `db` warning naming the variable. `kindgi-runtime tenants …` and `check …` wait as long as it takes.
+  - **Through PgBouncer:** on runtime 0.1.9 or later, the runtime sends the three database timeouts as startup parameters. A PgBouncer on its default settings refuses them, so the runtime can't connect (`unsupported startup parameter: statement_timeout`). On PgBouncer 1.26.0 or later, have it pass them on with `track_extra_parameters = statement_timeout, lock_timeout, idle_in_transaction_session_timeout` ([PgBouncer's settings](https://www.pgbouncer.org/config.html#track_extra_parameters)). Earlier versions mishandle a tracked parameter that Postgres doesn't report, as it doesn't these three, when a client sends it at startup (fixed in 1.26.0, [PgBouncer's changelog](https://www.pgbouncer.org/changelog.html)). `ignore_startup_parameters` with the same names lets the runtime connect, but PgBouncer drops them, and your role's, database's or server's settings hold instead. The runtime's admin commands (`kindgi-runtime tenants …` and `kindgi-runtime check …`) send theirs the same way, with no statement timeout, and don't read back what's in effect. So behind a PgBouncer that drops them, a long purge or check runs under those settings, and can be ended by them.
+  - **The runtime checks at boot:** its startup line shows the timeouts Postgres has in effect, and it logs a warning for each one that differs from what it sent.
 - **`KINDGI_ENV`** names the environment your tools' secrets resolve in.
 - **The port** is 4000 unless something sets another. The runtime takes the first that's set: `KINDGI_API_PORT`, then the platform's `PORT`, then 4000. Cloud Run, Render, Heroku and Fly set `PORT`. [`KINDGI_API_PORT`](../../../reference/env-vars/#kindgi_api_port) has the whole order.
 - **`KINDGI_CONSOLE_TOKEN_SIGN_IN=on`** lets you sign in to the console by pasting the API token from this file, so you can try the console straight away. It's off by default outside `kindgi dev`, and with it off and no single sign-on, nobody can sign in to the console. In a real deployment, [turn on sign-in](../sign-in/) with your organization's identity provider instead, and remove the line. The token works for the API, the CLI and the SDKs either way.
@@ -275,7 +279,7 @@ Start the runtime:
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.8
+  quay.io/kindgi/runtime:0.1.9
 ```
 
 - **`--restart unless-stopped`** brings the runtime back by itself after a

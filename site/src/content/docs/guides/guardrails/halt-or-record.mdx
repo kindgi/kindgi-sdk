@@ -217,6 +217,8 @@ can't run when:
 - no check by that name is registered;
 - its configuration is invalid;
 - an `llm-judge` guardrail's judge can't be routed to a model;
+- with a pack service for each deployment, the check's pack isn't deployed
+  into the run's project;
 - the check throws, because pack code crashed or a pack service couldn't be
   reached.
 
@@ -230,6 +232,13 @@ What happens next depends on the action:
   Error [guardrail-violation]: Turn blocked: guardrail 'acme.pack-only' couldn't run its check (unknown-check: Guardrail "acme.pack-only" references unregistered check "acme.checks.not-deployed")
   ```
 - With any other action, the turn completes.
+
+Where each deployment has its own pack service, as on Kindgi Cloud
+([A pack service for each deployment](../../../deploy/self-hosted/serve-many-tenants/#a-pack-service-for-each-deployment)),
+a guardrail's pack check runs from a pack deployed into the run's project,
+never from one in another project. So a check deployed only into another
+project can't run, and the message ends:
+`A guardrail's pack check runs from a pack deployed into the run's project.`
 
 Either way, the error is recorded in two places. The run's provenance has
 the guardrail's node, with `evaluated: false`. The run journal's
@@ -310,7 +319,7 @@ Here `acme.no-secret` halts on `SECRET`, on an agent at versions 2.0.0 and
 once. Count its outcomes:
 
 ```sh
-curl -s -H "authorization: Bearer $KINDGI_API_TOKEN" \
+curl -s -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
   "$KINDGI_API_URL/v1/guardrails/acme.no-secret/outcomes?projectId=a1e2b238-ae0b-4f03-b012-07875b9e5ee0&from=2026-10-11T06:02:19Z&to=2026-10-11T06:05:22Z"
 ```
 

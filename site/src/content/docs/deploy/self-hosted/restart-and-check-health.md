@@ -33,7 +33,7 @@ docker rm kindgi-server
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.8
+  quay.io/kindgi/runtime:0.1.9
 ```
 
 - `-t 30` gives the runtime 30 seconds to stop before Docker kills it.
@@ -144,7 +144,7 @@ A route that reads the database answers `500` and names the cause. With
 Postgres unreachable, `GET /v1/deployments` answers:
 
 ```sh
-curl -s http://localhost:4000/v1/deployments -H "authorization: Bearer $KINDGI_API_TOKEN"
+curl -s http://localhost:4000/v1/deployments -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 ```text

@@ -87,7 +87,7 @@ The verifiers in [Check an export](#check-an-export) check either. They refuse a
 The runtime publishes its key's public half. Pin it, so you can tell your deployment's exports from anyone else's:
 
 ```sh
-curl "$KINDGI_API_URL/v1/export-signing-keys" -H "Authorization: Bearer $KINDGI_API_TOKEN"
+curl "$KINDGI_API_URL/v1/export-signing-keys" -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 It answers with the keys as JSON, the active one first. Each key has an id derived from it, `ex_…`, so the same key keeps its id across restarts. Its `fingerprint`, `sha256:…`, is there to compare by eye, and `publicKeyPem` is its public half.
@@ -136,7 +136,7 @@ uv run kindgi provenance export 11a79b0a-ebdd-4d21-9e66-e0cacaea50e8 > provenanc
 
   ```sh
   curl -X POST "$KINDGI_API_URL/v1/compliance/evidence/export" \
-    -H "Authorization: Bearer $KINDGI_API_TOKEN" \
+    -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
     -H 'content-type: application/json' \
     -d '{ "filter": { "runId": "11a79b0a-ebdd-4d21-9e66-e0cacaea50e8" } }' > evidence.json
   ```
@@ -272,7 +272,7 @@ Replace the key and restart: the file, the secret's version, or the KMS key vers
 An export signed before still checks out against the old public key wherever you pinned it. For `--from-runtime` to keep trusting it, list the old key as retired. Save its public half before you replace it:
 
 ```sh
-curl -s "$KINDGI_API_URL/v1/export-signing-keys" -H "Authorization: Bearer $KINDGI_API_TOKEN" \
+curl -s "$KINDGI_API_URL/v1/export-signing-keys" -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
   | jq -r '.data[] | select(.active) | .publicKeyPem' >> export-signing-retired.pem
 ```
 
