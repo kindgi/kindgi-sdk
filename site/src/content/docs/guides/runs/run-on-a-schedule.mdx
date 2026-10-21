@@ -338,7 +338,9 @@ judgments and the skip note names them. Without one, it would count every
   month.
 - **A monthly cap:** once the schedule's passes this month, in UTC, have
   cost `monthlyCapUsd`, its fires are skipped until the next month. A pass's
-  budget is never more than what's left of it.
+  budget is never more than what's left of it. Its cost counts the
+  comparisons that prove its best candidate, which its budget doesn't stop,
+  so a month's passes can cost more than the cap.
 - **One pass at a time:** while the schedule's previous pass still runs, a
   fire is `skipped-overlap`.
 - **At most once an hour.** Registering needs `publish` on the agent.

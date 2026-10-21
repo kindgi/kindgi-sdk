@@ -968,7 +968,7 @@ function summarize(
   };
 }
 
-/** The corrections graded across the cases, and each one's verdict by judgment; none graded, undefined. */
+/** The corrections graded across the cases, and whether each one passed, by judgment; none graded, undefined. */
 function correctionsOf(
   results: readonly JudgedCaseResult[],
 ): JudgedComparisonSummary['corrections'] {
