@@ -26,6 +26,17 @@ same version, and the CLI's own changes are in
   signs them in. Refused (`site-person-restore-refused`) for someone who
   isn't removed, someone their site said left, and someone who also signs
   in another way. Tenant admins only.
+
+## 0.1.9
+
+No Python changes; the version moves with the npm packages.
+
+## 0.1.9rc1
+
+No Python changes; the version moves with the npm packages.
+
+## 0.1.9rc0
+
 - `kindgi`: **`deployments.pack_env` shows where each name a deployment's
   pack declares is set** (`project`, `org` or `tenant`) and why it can't be
   given to its pack service, if it can't, on a server that runs a pack
