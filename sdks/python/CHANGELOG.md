@@ -10,6 +10,10 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+## 0.1.9
+
+No Python changes; the version moves with the npm packages.
+
 ## 0.1.9rc1
 
 No Python changes; the version moves with the npm packages.
