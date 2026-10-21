@@ -497,10 +497,10 @@ secret up, and nothing restarts.
 An HTTP tool is one request and its JSON answer. Paging, retries, several
 calls, or reshaping the answer belong in a [code tool](../write-a-tool/).
 
-Calling an HTTP tool in-process raises: Kindgi makes the request, not your
-SDK. Try it through `kindgi dev` instead of a unit test. In Python it's a
-`RuntimeError`; in Java and Scala, an `UnsupportedOperationException` that
-says the same:
+In Python, Java and Scala, calling an HTTP tool in-process raises: Kindgi
+makes the request, not your SDK. Try it through `kindgi dev` instead of a unit
+test. In Python it's a `RuntimeError`; in Java and Scala, an
+`UnsupportedOperationException` that says the same:
 
 ```text
 RuntimeError: Tool "my-pack.add-order-note" is an HTTP tool: the Kindgi runtime makes its request, not Python. Call it through Kindgi (an agent, a flow, `kindgi dev`).
