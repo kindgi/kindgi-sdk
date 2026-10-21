@@ -7,6 +7,10 @@ heading into its version.
 
 ## Unreleased
 
+## 0.1.10-rc.1
+
+No JVM changes; the version moves with the npm packages.
+
 ## 0.1.10-rc.0
 
 - `kindgi-pack`, `kindgi-pack-scala`: **an agent's `conversationPolicy` can't set `autoCloseAfterInactiveSeconds`.** It was accepted and never acted on: a conversation never closes by itself, only when someone closes it. The indexer refuses an agent that sets it, as a file error at `/conversationPolicy/autoCloseAfterInactiveSeconds`; the rest of the pack still indexes, and `kindgi build` stops on it.

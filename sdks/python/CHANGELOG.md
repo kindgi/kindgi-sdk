@@ -10,6 +10,10 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+## 0.1.10rc1
+
+No Python changes; the version moves with the npm packages.
+
 ## 0.1.10rc0
 
 - `kindgi`: **`system_keys.mint`, `list`, `revoke` and `whoami` say what a
