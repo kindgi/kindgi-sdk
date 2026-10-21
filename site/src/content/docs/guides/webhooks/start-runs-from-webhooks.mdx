@@ -485,7 +485,7 @@ A delivery is data from outside. Its run says a webhook started it,
 - **It stays data in the conversation.** A later turn reads the delivery
   back from its history as an `<event>` block too, whoever starts that turn,
   so a person continuing the conversation reads it as data (it needs
-  runtime 0.1.8.1 or later: a message an earlier runtime kept reads as it
+  runtime 0.1.9 or later: a message an earlier runtime kept reads as it
   came).
 - **Every agent step of the run reads its message this way,** so put a
   step's task in the agent's instructions, not in its input.
@@ -520,7 +520,7 @@ A run an event trigger starts reads the same, with `startedBy: "event"`.
   instance that took the rotation, and within 10 seconds on the others.
 - **`kindgi webhooks take-ownership <trigger-id>`:** for a trigger whose owner
   left. Once they're removed from the tenant, its deliveries are refused
-  (runtime 0.1.8.1 or later). After 5 deliveries in a row that were refused
+  (runtime 0.1.9 or later). After 5 deliveries in a row that were refused
   or failed, a trigger pauses itself, with the reason in its `statusReason`:
   take it over, then `kindgi webhooks resume <trigger-id>`. Its runs act as
   you from the next delivery. This needs `admin` on the project and `execute`

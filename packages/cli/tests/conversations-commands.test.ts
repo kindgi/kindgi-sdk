@@ -68,7 +68,7 @@ describe('kindgi conversations list', () => {
     const { out } = await list(['--opened-by=me'], { data: [{ id: 'c-1' }], hasMore: false });
     expect(out.exitCode).toBe(1);
     expect(out.stdout).toBe('');
-    expect(out.stderr).toBe('Error: --opened-by needs a runtime on Kindgi 0.1.8.1 or later.\n');
+    expect(out.stderr).toBe('Error: --opened-by needs a runtime on Kindgi 0.1.9 or later.\n');
   });
 
   test('--status, --replays, --limit and --cursor map to one list call', async () => {

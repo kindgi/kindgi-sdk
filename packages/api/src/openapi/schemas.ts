@@ -1481,6 +1481,94 @@ export const TenantAdminContactsSchema: JsonSchema = {
   },
 };
 
+export const PurgeTenantBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['confirm'],
+  properties: {
+    confirm: {
+      type: 'string',
+      minLength: 1,
+      description: "The tenant's slug, a second check on the id.",
+    },
+  },
+};
+
+export const TenantTableRowsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A tenant's rows in one table: the table's name and a count.",
+  required: ['table', 'rows'],
+  properties: {
+    table: { type: 'string' },
+    rows: { type: 'integer', minimum: 1 },
+  },
+};
+
+export const SystemTenantPurgeSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'tenantId',
+    'complete',
+    'alreadyPurged',
+    'deleted',
+    'objectsDeleted',
+    'authzStoreDeleted',
+    'left',
+    'objectsLeft',
+  ],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    complete: {
+      type: 'boolean',
+      description:
+        "`true`: nothing of the tenant is left, its purge record is written, and it's marked purged. `false`: `left` and `objectsLeft` say what is; run it again.",
+    },
+    alreadyPurged: {
+      type: 'boolean',
+      description:
+        'It was marked purged before this run: what this run deleted was written after its mark. Its mark and its record stay as they were.',
+    },
+    purgedAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When it was marked purged. Absent while something of it from before the mark is left.',
+    },
+    deleted: {
+      type: 'array',
+      items: ref('TenantTableRows'),
+      description:
+        "Rows this run deleted, per table with any: table names and counts, never the rows' content.",
+    },
+    objectsDeleted: {
+      type: 'integer',
+      minimum: 0,
+      description: "Objects this run deleted from the artifacts' store.",
+    },
+    authzStoreDeleted: {
+      type: 'boolean',
+      description: 'Whether this run deleted its authorization store.',
+    },
+    left: {
+      type: 'array',
+      items: ref('TenantTableRows'),
+      description:
+        "Rows of it still there afterwards, per table; empty when none are. A table the purge doesn't delete from is named too: report it.",
+    },
+    objectsLeft: {
+      type: 'integer',
+      minimum: 0,
+      description: "Objects still under its prefix in the artifacts' store.",
+    },
+    leftBecause: {
+      type: 'string',
+      description: "Why what's left wasn't deleted, when it's a setting the runtime lacks.",
+    },
+  },
+};
+
 export const SystemWhoamiSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -2187,7 +2275,7 @@ export const ApprovalCollectionPageSchema: JsonSchema = {
       type: 'string',
       enum: ['me'],
       description:
-        '`me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.',
+        '`me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.9, which ignores `decidedBy` and lists them all.',
     },
   },
 };
@@ -2439,6 +2527,17 @@ export const SiteEnrollmentCodeSchema: JsonSchema = {
   properties: {
     code: { type: 'string' },
     expiresAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const SitePersonRestoreResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['user'],
+  description:
+    "A site's person let back in after a removal made in Kindgi (`POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`).",
+  properties: {
+    user: { $ref: '#/components/schemas/UserRecord' },
   },
 };
 
@@ -2912,7 +3011,6 @@ export const ConversationPolicySchema: JsonSchema = {
   additionalProperties: false,
   properties: {
     historyLimit: { type: 'integer', minimum: 1 },
-    autoCloseAfterInactiveSeconds: { type: 'integer', minimum: 1 },
     hitlAfterTurns: { type: 'integer', minimum: 1 },
   },
 };
@@ -4240,7 +4338,7 @@ export const ConversationCollectionPageSchema: JsonSchema = {
       type: 'string',
       enum: ['me'],
       description:
-        "`me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.",
+        "`me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.9, which ignores `openedBy` and lists everyone's.",
     },
   },
 };
@@ -6519,6 +6617,16 @@ export const BlobMetaSchema: JsonSchema = {
       description: 'Who uploaded it: `user:<id>` or `service_account:<id>`.',
     },
     createdAt: { type: 'string', format: 'date-time' },
+    bucket: {
+      type: 'string',
+      description:
+        "The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.",
+    },
+    key: {
+      type: 'string',
+      description:
+        "The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one.",
+    },
   },
 };
 
@@ -9598,13 +9706,13 @@ const USER_PROPERTIES: Record<string, JsonSchema> = {
   invite: {
     $ref: '#/components/schemas/UserInvite',
     description:
-      "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).",
+      "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.9).",
   },
   firstSignedInAt: {
     type: 'string',
     format: 'date-time',
     description:
-      'Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).',
+      'Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).',
   },
   metadata: { type: 'object', additionalProperties: true },
 };
@@ -11115,12 +11223,12 @@ export const DeploymentCollectionPageSchema: JsonSchema = {
     projectId: {
       type: 'string',
       description:
-        "The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `projectId` and lists them all.",
+        "The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `projectId` and lists them all.",
     },
     packId: {
       type: 'string',
       description:
-        "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `packId` and lists them all.",
+        "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `packId` and lists them all.",
     },
   },
 };
@@ -11907,6 +12015,23 @@ export const TenantSchema: JsonSchema = {
     },
     limits: ref('TenantLimits'),
     egress: ref('EgressAddresses'),
+  },
+};
+
+export const TenantPatchSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'A new name, a new slug, or both; a field left out stays as it is. The id stays, so whatever names the tenant by its id keeps working.',
+  properties: {
+    name: { type: 'string', minLength: 1, maxLength: 100 },
+    slug: {
+      type: 'string',
+      maxLength: 63,
+      pattern: '^[a-z0-9](?:-?[a-z0-9])*$',
+      description:
+        "Lowercase letters, digits and single hyphens, unique across tenants. The console's addresses carry it, so links with the old one stop opening the tenant; nothing else is keyed by it.",
+    },
   },
 };
 
@@ -13916,6 +14041,77 @@ export const MintPublicRunTokenResultSchema: JsonSchema = {
   },
 };
 
+export const UsageGroupSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['count', 'quantity', 'firstAt', 'lastAt'],
+  description:
+    "One group: the dimensions it's grouped by (only those), then its count, the sum of its quantities, and its first and last times.",
+  properties: {
+    tenantId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The tenant, on the operator's read across tenants.",
+    },
+    projectId: {
+      type: 'string',
+      description:
+        "Absent for a record with no project; a tenant admin's read includes those, and the CLI shows them as `(none)`.",
+    },
+    agentId: {
+      type: 'string',
+      description: 'Absent for a record with no agent; the CLI shows those as `(none)`.',
+    },
+    kind: {
+      type: 'string',
+      description:
+        "What was counted: `run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`. A runtime may count more kinds later: show one you don't know as it is.",
+    },
+    class: {
+      type: 'string',
+      description:
+        "The class of the run a record counts or belongs to, fixed when the run was created: `production`, `staging`, `dry-run`, `replay`, `eval`, `child`. A record with no counted run has none. A runtime may add classes later: show one you don't know as it is.",
+    },
+    state: {
+      type: 'string',
+      description:
+        "The record's state, by kind: `on`, `off` (`project.production`); `completed`, `failed`, `cancelled` (`run.ended`); `escalation` (`approval.requested`, an escalation's next tier); `approved`, `rejected`, `withdrawn`, `escalated`, `expired` (`approval.decided`). Other kinds have none.",
+    },
+    day: {
+      type: 'string',
+      pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+      description: 'The UTC date, `YYYY-MM-DD`.',
+    },
+    count: { type: 'integer', minimum: 0, description: 'Records in the group.' },
+    quantity: {
+      type: 'number',
+      description:
+        'The sum of their quantities: milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count.',
+    },
+    firstAt: { type: 'string', format: 'date-time' },
+    lastAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const UsagePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'watermark'],
+  properties: {
+    data: { type: 'array', items: ref('UsageGroup') },
+    watermark: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "Every record at or before this time is in the answer; a later one may not be yet. Re-read a window until its watermark is past the window's end. Every page of one read carries the same watermark.",
+    },
+    nextCursor: {
+      type: 'string',
+      description: 'More groups: pass it as `cursor`. Absent on the last page.',
+    },
+  },
+};
+
 export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WireError', WireErrorSchema],
   ['HealthResult', HealthResultSchema],
@@ -13995,6 +14191,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SetTenantImagePrefixBody', SetTenantImagePrefixBodySchema],
   ['ProjectSuspension', ProjectSuspensionSchema],
   ['TenantAdminContacts', TenantAdminContactsSchema],
+  ['PurgeTenantBody', PurgeTenantBodySchema],
+  ['TenantTableRows', TenantTableRowsSchema],
+  ['SystemTenantPurge', SystemTenantPurgeSchema],
   ['SystemWhoami', SystemWhoamiSchema],
   ['ApiToken', ApiTokenSchema],
   ['ApiTokenPage', ApiTokenPageSchema],
@@ -14034,6 +14233,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ExportSigningKey', ExportSigningKeySchema],
   ['ExportSigningKeyList', ExportSigningKeyListSchema],
   ['LicenseStatus', LicenseStatusSchema],
+  ['UsageGroup', UsageGroupSchema],
+  ['UsagePage', UsagePageSchema],
   ['LicenseUsage', LicenseUsageSchema],
   ['ExportAuditBundleBody', ExportAuditBundleBodySchema],
   ['ExportAuditBundleResult', ExportAuditBundleResultSchema],
@@ -14456,6 +14657,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateProjectMembershipBody', UpdateProjectMembershipBodySchema],
   ['AddProjectMembershipResult', AddProjectMembershipResultSchema],
   ['Tenant', TenantSchema],
+  ['TenantPatch', TenantPatchSchema],
   ['TenantLimits', TenantLimitsSchema],
   ['EgressAddresses', EgressAddressesSchema],
   ['ProductionAllowedBody', ProductionAllowedBodySchema],
@@ -14561,6 +14763,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateSiteBody', UpdateSiteBodySchema],
   ['SiteEnrollmentCode', SiteEnrollmentCodeSchema],
   ['RegisterSiteResult', RegisterSiteResultSchema],
+  ['SitePersonRestoreResult', SitePersonRestoreResultSchema],
   ['EnrollSiteBody', EnrollSiteBodySchema],
   ['EnrollSiteResult', EnrollSiteResultSchema],
   ['SiteSignInBody', SiteSignInBodySchema],

@@ -274,6 +274,10 @@ export const CLI_DEFAULTS = {
     name: 'unchanged',
     slug: 'unchanged',
   },
+  'tenant rename': {
+    name: 'unchanged',
+    slug: 'unchanged',
+  },
   'runs list': {
     agent: 'none',
     cursor: 'none',
@@ -695,6 +699,9 @@ export const CLI_DEFAULTS = {
   'sites revoke-key': {
     project: "the tenant's Default project",
   },
+  'sites restore-person': {
+    project: "the tenant's Default project",
+  },
   'sites unregister': {
     project: "the tenant's Default project",
   },
@@ -962,6 +969,18 @@ export const CLI_DEFAULTS = {
   },
   doctor: {
     path: 'the current directory',
+  },
+  usage: {
+    month: 'the current calendar month, in UTC',
+    from: 'none; with `--to` it sets a window instead of a month',
+    to: 'none; the window ends here (exclusive), at most 92 days after `--from`',
+    project: 'none: every project you can read',
+    'group-by': '`project,kind`',
+    kind: 'none: every kind',
+    class: 'none: every run class',
+    state: 'none: every state',
+    limit: '`1000` (`1` to `10000`)',
+    cursor: 'none: the first page',
   },
 };
 
@@ -1276,6 +1295,22 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Change its name and its slug.',
       line: 'kindgi projects rename <project-id> --name=Storefront --slug=storefront',
+    },
+  ],
+  'tenant get': [
+    {
+      purpose: 'Print your workspace: its id, name and slug.',
+      line: 'kindgi tenant get',
+    },
+  ],
+  'tenant rename': [
+    {
+      purpose: "Change your workspace's name; its slug, and the console's addresses, stay.",
+      line: 'kindgi tenant rename --name="Acme Store"',
+    },
+    {
+      purpose: 'Change its slug too. Links to the console with the old slug stop opening it.',
+      line: 'kindgi tenant rename --name="Acme Store" --slug=acme-store',
     },
   ],
   'agents list': [
@@ -1616,6 +1651,13 @@ export const CLI_EXAMPLES = {
     {
       purpose: "Refuse what a site's key signs from now on.",
       line: 'kindgi sites revoke-key <site-id> <kid>',
+    },
+  ],
+  'sites restore-person': [
+    {
+      purpose:
+        'Let a person removed in Kindgi back in through their site: the same person, with their history.',
+      line: 'kindgi sites restore-person <site-id> <user-id>',
     },
   ],
   'sites unregister': [
@@ -2016,6 +2058,16 @@ export const CLI_EXAMPLES = {
       line: 'kindgi version',
     },
   ],
+  usage: [
+    {
+      purpose: "This month's usage so far, grouped by project and kind (the default).",
+      line: 'kindgi usage',
+    },
+    {
+      purpose: 'A past month, broken down by agent and kind, as a table.',
+      line: 'kindgi usage --month=2026-09 --group-by=agent,kind --table',
+    },
+  ],
 };
 
 /** "See also" for a command group that no guide runs: page slugs. */
@@ -2028,6 +2080,7 @@ export const CLI_GROUP_SEE_ALSO = {
   'mcp-launch': ['guides/tools/mcp-servers'],
   deployments: ['hosted/deploy-your-agent', 'guides/secrets/pack-env'],
   projects: ['guides/projects/organize-by-org-and-project'],
+  tenant: ['guides/projects/organize-by-org-and-project'],
   environments: ['guides/projects/organize-by-org-and-project'],
   promote: ['guides/projects/organize-by-org-and-project'],
   flows: ['guides/flows/write-a-flow', 'guides/flows/index'],
@@ -2037,4 +2090,5 @@ export const CLI_GROUP_SEE_ALSO = {
   egress: ['deploy/self-hosted/egress-addresses'],
   health: ['deploy/self-hosted/operate'],
   version: ['start/install'],
+  usage: ['guides/observability/cost-per-run', 'guides/projects/organize-by-org-and-project'],
 };

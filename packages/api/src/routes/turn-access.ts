@@ -21,6 +21,8 @@ export interface TurnConversation {
   readonly projectId?: string;
   /** Who opened it (`user:<id>`, `service_account:<id>`): absent on old ones. */
   readonly openedBy?: string;
+  /** When it was closed: absent while it's open (`closedRefusal`). */
+  readonly closedAt?: string;
 }
 
 /** A turn posted into the conversation `conversationId` names. */
@@ -105,6 +107,34 @@ function checkedOn(conversation: TurnConversation): ResourceRef {
   return conversation.projectId !== undefined
     ? ref('project', conversation.projectId)
     : ref('agent', conversation.agentId);
+}
+
+/**
+ * A closed conversation takes no new turns: `409 conversation-closed`,
+ * before a run is made, with `options.wait: false` too. The message is the
+ * one the turn failed with at its setup when a run was made for it. Asked
+ * once every rule on who may add the turn has let it through (`turnRefusal`,
+ * `participantRefusal`), so a caller who can't read the conversation still
+ * gets the answer for one that doesn't exist. No conversation: nothing to
+ * refuse here.
+ */
+export function closedRefusal(
+  c: Context<AppEnv>,
+  conversationId: string | undefined,
+  conversation: TurnConversation | null,
+): Response | undefined {
+  if (conversationId === undefined || conversation?.closedAt === undefined) return undefined;
+  c.status(statusFor('conversation-closed') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'conversation-closed',
+        message: `Conversation "${conversationId}" is closed`,
+        conversationId,
+      },
+      requestIdOf(c),
+    ),
+  );
 }
 
 /** The answer for a conversation that doesn't exist, as a turn into one failed before. */

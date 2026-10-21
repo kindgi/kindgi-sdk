@@ -96,12 +96,12 @@ const list: LeafCommand = {
     project: {
       type: 'string',
       description:
-        "Only one project's deployments, by its id or its slug. The Default project's include the deployments that name no project. A slug two orgs share is refused: pass the id. Needs a runtime on Kindgi 0.1.8.1 or later.",
+        "Only one project's deployments, by its id or its slug. The Default project's include the deployments that name no project. A slug two orgs share is refused: pass the id. Needs a runtime on Kindgi 0.1.9 or later.",
     },
     pack: {
       type: 'string',
       description:
-        "Only one pack's deployments, by its pack id (the image index's `packId`). Needs a runtime on Kindgi 0.1.8.1 or later.",
+        "Only one pack's deployments, by its pack id (the image index's `packId`). Needs a runtime on Kindgi 0.1.9 or later.",
     },
     'image-ref-prefix': {
       type: 'string',
@@ -130,10 +130,10 @@ const list: LeafCommand = {
         });
         // A runtime before these filters ignores them and lists them all, without saying so on the page.
         if (projectId !== undefined && listed.projectId !== projectId) {
-          throw filterIgnored('project', '0.1.8.1');
+          throw filterIgnored('project', '0.1.9');
         }
         if (packId !== undefined && listed.packId !== packId) {
-          throw filterIgnored('pack', '0.1.8.1');
+          throw filterIgnored('pack', '0.1.9');
         }
         return listed;
       },
