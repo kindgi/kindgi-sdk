@@ -153,7 +153,7 @@ export const ERROR_ENTRIES = {
   },
   'participant-not-allowed': {
     description:
-      "A turn would run as a participant, and you may not read that participant's memory. A turn reads and keeps its participant's memory, so running as one takes what the memory API takes: you're the participant yourself (that user, with their session or their own API key, never a service account's key), or you hold `write` on the turn's project. When the turn's project isn't known, only the participant may. It's checked wherever a turn gets a participant: `input.participantId` on `POST /v1/runs`, `participantId` on `POST /v1/conversations`, and a conversation's own participant when you post a turn into it, whatever the body names. Nothing was started or opened. Use a key or role with `write` on the turn's project, or have the participant run it.",
+      "A turn would run as a participant, and you may not read that participant's memory. A turn reads and keeps its participant's memory, so running as one takes what the memory API takes: you're the participant yourself (that user, with their session or their own API key, never a service account's key), or you hold `write` on the turn's project. When the turn's project isn't known, only the participant may. It's checked wherever a turn gets a participant: `input.participantId` on `POST /v1/runs`, `participantId` on `POST /v1/conversations`, and a conversation's own participant when you post a turn into it, whatever the body names. Into a conversation you can't read, the refusal answers `404 conversation-not-found` instead. Nothing was started or opened. Use a key or role with `write` on the turn's project, or have the participant run it.",
     details: [
       {
         key: 'action',
@@ -315,7 +315,7 @@ export const ERROR_ENTRIES = {
   },
   'conversation-not-found': {
     description:
-      "The conversation doesn't exist in your tenant, or a turn names one in a project your key can't read. Check the conversation id.",
+      "The conversation doesn't exist in your tenant, or you can't read it: one you can't read answers as if it weren't there when you read it or its messages, or are refused closing it, unregistering it or adding a turn. Check the conversation id, and that your key or role can read its project.",
     details: [
       {
         key: 'conversationId',
