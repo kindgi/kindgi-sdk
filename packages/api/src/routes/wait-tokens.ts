@@ -96,15 +96,17 @@ function resumeBehind(
 ): void {
   const { traceId, spanId } = c.get('trace');
   const log = c.get('log');
-  void resumeInline(runHandler, accepted.tenantId, accepted.runId, { traceId, spanId }).then(
-    (resumed) => {
+  void resumeInline(runHandler, accepted.tenantId, accepted.runId, { traceId, spanId })
+    .then((resumed) => {
       if (resumed.kind === 'failed') {
         log.warn('resume after a wait token answer failed; the runtime resumes it later', {
           code: resumed.code,
         });
       }
-    },
-  );
+    })
+    // `resumeInline` never rejects; this keeps a throwing logger from
+    // becoming an unhandled rejection.
+    .catch(() => undefined);
 }
 
 /**
