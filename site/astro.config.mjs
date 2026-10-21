@@ -178,6 +178,7 @@ export default defineConfig({
         { tag: 'meta', attrs: { property: 'og:image:height', content: '630' } },
         { tag: 'meta', attrs: { property: 'og:image:alt', content: shareImageAlt } },
         { tag: 'meta', attrs: { name: 'twitter:image', content: shareImage } },
+        { tag: 'meta', attrs: { name: 'twitter:image:alt', content: shareImageAlt } },
         { tag: 'link', attrs: { rel: 'icon', href: `${base}favicon.ico`, sizes: '32x32' } },
         { tag: 'link', attrs: { rel: 'apple-touch-icon', href: `${base}apple-touch-icon.png` } },
         ...(indexed ? [] : [{ tag: 'meta', attrs: { name: 'robots', content: 'noindex' } }]),
