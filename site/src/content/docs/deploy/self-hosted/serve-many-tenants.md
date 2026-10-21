@@ -151,9 +151,28 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   ([Turn on sign-in](../sign-in/)). No key comes back: once signed in, they
   make the tenant's keys ([API keys](../../people-and-keys/#api-keys)).
 - **Without `firstAdmin`,** the answer carries the tenant's first admin key,
-  once. Store it, because nothing shows it again, and without it nothing
-  gives the tenant another admin key. Only the full capability creates a
-  tenant that way.
+  once. Store it, because nothing shows it again. Only the full capability
+  creates a tenant that way.
+- **A tenant whose admins can't sign in any more** (runtime 0.1.9 or later):
+  `kindgi-runtime tenants make-admin` makes one of its people its admin, or a
+  new person by email, with what a first admin holds: every capability but
+  `secrets:reveal`, which no person is given. They then sign in and make the
+  tenant's keys, so it needs sign-in turned on ([Turn on sign-in](../sign-in/)).
+  Like [`tenants repair`](#after-each-upgrade-tenants-repair), it runs
+  against the runtime's database and authorization store. Run it with
+  `--dry-run` first, which says what would change and changes nothing:
+
+  ```sh
+  kindgi-runtime tenants make-admin <tenant id> \
+    --email pat@acme-store.example --name Pat \
+    --reason "Pat can't sign in; checked with Acme Store" --dry-run
+  ```
+
+  `--person <user id>` names one of its people instead, who must be a
+  tenant member. Nothing is taken from anyone. If it stops partway, run it
+  again with the same arguments to finish it. What it does is in the
+  tenant's audit log, by `system`, which the tenant's admins can read:
+  making them admin and what that gives them carry your `--reason`.
 - **Production starts blocked.** `"productionAllowed": true` allows it from
   the start, and takes `system:tenants:production`.
 - **`imagePrefix`** is the repository every image the tenant deploys must
