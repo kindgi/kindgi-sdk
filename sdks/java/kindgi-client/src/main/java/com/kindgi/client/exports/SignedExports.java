@@ -11,6 +11,7 @@ import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
 import java.security.PublicKey;
 import java.security.Signature;
+import java.security.SignatureException;
 import java.security.interfaces.ECPublicKey;
 import java.security.spec.ECGenParameterSpec;
 import java.security.spec.ECParameterSpec;
@@ -100,7 +101,9 @@ public final class SignedExports {
     List<String> issues = new ArrayList<>();
 
     Object algorithm = envelope.get("algorithm");
-    if (!ALGORITHMS.contains(algorithm)) {
+    // ALGORITHMS is List.of(...), whose contains(null) throws; a missing or null algorithm is an
+    // export that doesn't verify, not one we throw on. It falls through to the issue below.
+    if (!(algorithm instanceof String named) || !ALGORITHMS.contains(named)) {
       issues.add(
           "algorithm \""
               + algorithm
@@ -206,7 +209,13 @@ public final class SignedExports {
     Signature verifier = Signature.getInstance(algorithm);
     verifier.initVerify(key);
     verifier.update(data);
-    return verifier.verify(signature);
+    try {
+      return verifier.verify(signature);
+    } catch (SignatureException malformed) {
+      // A signature the provider can't even parse (an Ed25519 one of the wrong length, say)
+      // didn't sign these bytes: the same "doesn't match" Python and TypeScript report.
+      return false;
+    }
   }
 
   private static boolean isP256(ECPublicKey key) {

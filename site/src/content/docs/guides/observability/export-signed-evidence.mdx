@@ -253,7 +253,7 @@ public final class VerifyExport {
 </TabItem>
 <TabItem label="Scala">
 
-The Scala SDK has no verifier of its own. Call Java's `com.kindgi.client.exports.SignedExports.verify` from Scala, exactly as above: it takes the export as JSON and the trusted PEMs as a `java.util.List[String]`, and returns a `SignedExportVerification` with `valid`, `signingKeyId` and `issues`.
+Scala apps use the Java helper: call `SignedExports.verify` from `com.kindgi.client.exports` as the Java tab shows. It takes the export as JSON and the trusted PEMs as a `java.util.List[String]`, and returns a `SignedExportVerification` with `valid`, `signingKeyId` and `issues`.
 
 </TabItem>
 </Tabs>

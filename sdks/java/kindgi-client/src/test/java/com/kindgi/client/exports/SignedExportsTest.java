@@ -17,6 +17,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PublicKey;
 import java.security.Signature;
+import java.security.spec.ECGenParameterSpec;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -147,10 +148,119 @@ final class SignedExportsTest {
     assertFalse(SignedExports.verify(asBool).valid());
   }
 
+  @Test
+  void anEnvelopeWithoutAlgorithmIsRefusedNotThrown() throws Exception {
+    // A missing or null algorithm is an export that doesn't verify, not a NullPointerException
+    // from ALGORITHMS.contains(null).
+    SignedExportVerification missing = SignedExports.verify(without(signed(Map.of()), "algorithm"));
+    assertFalse(missing.valid());
+    assertTrue(String.join(" ", missing.issues()).contains("isn't one this verifier knows"));
+
+    SignedExportVerification nulled = SignedExports.verify(with(signed(Map.of()), "algorithm", null));
+    assertFalse(nulled.valid());
+    assertTrue(String.join(" ", nulled.issues()).contains("isn't one this verifier knows"));
+  }
+
+  @Test
+  void everyIssueComesBackAtOnce() throws Exception {
+    // No short-circuit: a bad algorithm, a bad canonicalization and an untrusted key all report,
+    // in that order.
+    Map<String, Object> envelope =
+        with(with(signed(Map.of()), "algorithm", "made-up"), "canonicalization", "raw");
+    SignedExportVerification checked =
+        SignedExports.verify(envelope, List.of(pem(freshKey().getPublic())));
+    assertFalse(checked.valid());
+    assertEquals(3, checked.issues().size(), () -> checked.issues().toString());
+    assertTrue(checked.issues().get(0).contains("isn't one this verifier knows"));
+    assertTrue(checked.issues().get(1).contains("isn't sorted-key-json"));
+    assertTrue(checked.issues().get(2).contains("isn't one you trust"));
+  }
+
+  @Test
+  void aWrongCanonicalizationIsRefused() throws Exception {
+    SignedExportVerification checked =
+        SignedExports.verify(with(signed(Map.of()), "canonicalization", "raw"));
+    assertFalse(checked.valid());
+    assertEquals(1, checked.issues().size(), () -> checked.issues().toString());
+    assertTrue(checked.issues().get(0).contains("isn't sorted-key-json"));
+  }
+
+  @Test
+  void anEmptyTrustedKeysListRefusesEveryExport() throws Exception {
+    SignedExportVerification checked = SignedExports.verify(signed(Map.of()), List.of());
+    assertFalse(checked.valid());
+    assertEquals(CheckedAgainst.TRUSTED_KEYS, checked.checkedAgainst());
+    assertTrue(String.join(" ", checked.issues()).contains("isn't one you trust"));
+  }
+
+  @Test
+  void ed25519WithAnEcKeyIsRefused() throws Exception {
+    Map<String, Object> envelope =
+        with(signed(Map.of()), "publicKey", pem(ecKey("secp256r1").getPublic()));
+    SignedExportVerification checked = SignedExports.verify(envelope);
+    assertFalse(checked.valid());
+    assertTrue(String.join(" ", checked.issues()).contains("isn't an Ed25519 key"));
+  }
+
+  @Test
+  void ecdsaWithAnEd25519KeyOrAP384KeyIsRefused() throws Exception {
+    Map<String, Object> valid = part(vector("ecdsa-p256-sha256"), "valid");
+
+    SignedExportVerification wrongType =
+        SignedExports.verify(with(valid, "publicKey", pem(freshKey().getPublic())));
+    assertFalse(wrongType.valid());
+    assertTrue(String.join(" ", wrongType.issues()).contains("isn't an EC P-256 key"));
+
+    SignedExportVerification wrongCurve =
+        SignedExports.verify(with(valid, "publicKey", pem(ecKey("secp384r1").getPublic())));
+    assertFalse(wrongCurve.valid());
+    assertTrue(String.join(" ", wrongCurve.issues()).contains("isn't an EC P-256 key"));
+  }
+
+  @Test
+  void aShortEcdsaSignatureIsRefusedByLength() throws Exception {
+    Map<String, Object> valid = part(vector("ecdsa-p256-sha256"), "valid");
+    Map<String, Object> short63 =
+        with(valid, "signature", Base64.getEncoder().encodeToString(new byte[63]));
+    SignedExportVerification checked = SignedExports.verify(short63);
+    assertFalse(checked.valid());
+    assertTrue(String.join(" ", checked.issues()).contains("not P1363's 64"));
+  }
+
+  @Test
+  void malformedBase64CantBeChecked() throws Exception {
+    SignedExportVerification checked =
+        SignedExports.verify(with(signed(Map.of()), "bundle", "not base64 @@@"));
+    assertFalse(checked.valid());
+    assertTrue(String.join(" ", checked.issues()).contains("it can't be checked"));
+  }
+
+  @Test
+  void aWrongLengthEd25519SignatureDoesntMatch() throws Exception {
+    // A malformed signature reads as "doesn't match the bundle", not "it can't be checked".
+    Map<String, Object> envelope =
+        with(signed(Map.of()), "signature", Base64.getEncoder().encodeToString(new byte[32]));
+    SignedExportVerification checked = SignedExports.verify(envelope);
+    assertFalse(checked.valid());
+    assertTrue(String.join(" ", checked.issues()).contains("doesn't match the bundle"));
+  }
+
   // --- helpers ---
 
   private static KeyPair freshKey() throws Exception {
     return KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+  }
+
+  private static KeyPair ecKey(String curve) throws Exception {
+    KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+    generator.initialize(new ECGenParameterSpec(curve));
+    return generator.generateKeyPair();
+  }
+
+  private static Map<String, Object> without(Map<String, Object> envelope, String key) {
+    Map<String, Object> copy = new LinkedHashMap<>(envelope);
+    copy.remove(key);
+    return copy;
   }
 
   /** An export as the API answers one, signed with a fresh key. */
