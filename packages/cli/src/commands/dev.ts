@@ -42,6 +42,7 @@ import { createInterface } from 'node:readline';
 import {
   type DiscoveryConfig,
   type KindgiConfig,
+  type PackBlockWrite,
   type PackLanguage,
   blocksFolder,
   codePatterns,
@@ -112,7 +113,7 @@ import {
 } from '../dev/log-view.js';
 import { type PackCode, isJvmPackCode, resolvePackCode } from '../dev/pack-code.js';
 import { devPackEnv, devPackEnvFiles } from '../dev/pack-env.js';
-import { createPackRefresher, showPackEvent } from '../dev/pack-service.js';
+import { createPackRefresher, showBlockWritten, showPackEvent } from '../dev/pack-service.js';
 import { PORT_SEARCH_SPAN, firstFreePort } from '../dev/port.js';
 import {
   devRuntimeSource,
@@ -138,6 +139,7 @@ import type {
   DevRunners,
   IndexResult,
   IndexedCounts,
+  PackBlockWritten,
   PackBuild,
   PackBuilder,
   RunningApiServer,
@@ -763,6 +765,11 @@ async function runDevForPack(
       emitOutput(showText('pack', line, logView, stream)),
     onEvent: (event: Parameters<typeof showPackEvent>[0]) => {
       for (const output of showPackEvent(event, logView)) emitOutput(output);
+    },
+    blocks: {
+      pattern: projectEnv.blocksPattern,
+      onWritten: (write: PackBlockWrite, written: PackBlockWritten) =>
+        emitProgress(`  ${showBlockWritten(write, written)}`),
     },
   };
   // The front listens for the whole session; children come and go behind

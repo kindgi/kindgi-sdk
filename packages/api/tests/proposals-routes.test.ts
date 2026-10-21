@@ -461,7 +461,8 @@ function inMemoryPasses() {
 async function harness(
   opts: {
     grants?: readonly string[];
-    readOnly?: boolean;
+    /** Read-only (kindgi dev), or read-only but taking Improve's candidates. */
+    readOnly?: boolean | 'takes-candidates';
     tunable?: boolean;
     passes?: ImprovementPassBinding;
     /** Instructions inline, not from a pinned prompt block. */
@@ -592,7 +593,9 @@ async function harness(
     agentRegistry:
       opts.readOnly === true
         ? { ...agents, readOnly: { reason: 'The pack files are the source: change them instead.' } }
-        : agents,
+        : opts.readOnly === 'takes-candidates'
+          ? { ...agents, readOnly: TAKES_CANDIDATES }
+          : agents,
     blockRegistry: blocks,
     evalRunBinding: evalRuns.binding,
     agentReleases: releases.releases,
@@ -642,9 +645,22 @@ const DRAFT = {
   hypothesis: 'Recent filings matter more for acme',
 };
 
-/** A draft, with the tenant pinned to 1.0.0 so it can be evaluated. */
+/** An agent registry that's read-only but takes Improve's candidates, as kindgi dev's. */
+const TAKES_CANDIDATES = {
+  reason: 'The pack files are the source: change them instead.',
+  takesCandidates: {
+    undoReason: "The pack's files are what's live: undo it with git.",
+    scopeReason: "The pack's files serve every scope: improve the whole tenant.",
+  },
+};
+
+/**
+ * A draft, with the tenant pinned to 1.0.0 so it can be evaluated. One
+ * that takes Improve's candidates improves the whole tenant only.
+ */
 async function drafted(
   opts: {
+    readOnly?: boolean | 'takes-candidates';
     grants?: readonly string[];
     referenceScope?: ReferenceScopeBinding;
     orders?: readonly (readonly ProjectId[])[];
@@ -653,13 +669,18 @@ async function drafted(
 ) {
   const h = await harness(opts);
   h.releases.pin({ kind: 'tenant' }, '1.0.0');
-  const res = await h.call('POST', '/v1/proposals', DRAFT);
+  const draft =
+    opts.readOnly === 'takes-candidates' ? { ...DRAFT, scope: { kind: 'tenant' } } : DRAFT;
+  const res = await h.call('POST', '/v1/proposals', draft);
   expect(res.status, JSON.stringify(res.body)).toBe(201);
   return { ...h, id: res.body.id as string };
 }
 
 /** A proposal whose comparison finished with `delta`. */
-async function evaluated(delta: number, opts: { referenceScope?: ReferenceScopeBinding } = {}) {
+async function evaluated(
+  delta: number,
+  opts: { referenceScope?: ReferenceScopeBinding; readOnly?: 'takes-candidates' } = {},
+) {
   const h = await drafted(opts);
   const res = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
     suiteId: 'acme.scoring-judged',
@@ -2178,5 +2199,98 @@ describe('an agent an order carries from its project to prod', () => {
     const res = await h.call('POST', '/v1/proposals', DRAFT);
     expect(res.status).toBe(403);
     expect(res.body.error.message).toContain(`publish on agent "${AGENT}"`);
+  });
+});
+
+describe("an agent registry that takes Improve's candidates (kindgi dev)", () => {
+  const IMPROVE = { agentId: AGENT, scope: { kind: 'tenant' }, suiteId: 'acme.scoring-judged' };
+  const NARROWER = {
+    code: 'registry-read-only',
+    message: TAKES_CANDIDATES.takesCandidates.scopeReason,
+  };
+
+  test('a pass starts (202)', async () => {
+    const passes = inMemoryPasses();
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      readOnly: 'takes-candidates',
+    });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started).toHaveLength(1);
+  });
+
+  test('a read-only one refuses a pass (409 registry-read-only) and starts none', async () => {
+    const passes = inMemoryPasses();
+    const h = await harness({ tunable: true, passes: passes.binding, readOnly: true });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'registry-read-only',
+      message: TAKES_CANDIDATES.reason,
+    });
+    expect(passes.started).toEqual([]);
+  });
+
+  test('a pass for a scope narrower than the tenant is refused with the scope reason, and none starts', async () => {
+    const passes = inMemoryPasses();
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      readOnly: 'takes-candidates',
+    });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', { ...IMPROVE, scope: SEGMENT_WIRE });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatchObject(NARROWER);
+    expect(passes.started).toEqual([]);
+  });
+
+  test('a draft for a narrower scope is refused the same way, and none is kept', async () => {
+    const h = await harness({ readOnly: 'takes-candidates' });
+    const res = await h.call('POST', '/v1/proposals', DRAFT);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatchObject(NARROWER);
+    expect(h.proposals.rows.size).toBe(0);
+  });
+
+  test('a narrower proposal from before is not evaluated: nothing published or started', async () => {
+    const h = await drafted({ readOnly: 'takes-candidates' });
+    const row = h.proposals.rows.get(h.id);
+    if (row === undefined) throw new Error('no proposal');
+    h.proposals.rows.set(h.id, { ...row, scope: { kind: 'project', projectId } });
+    const res = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
+      suiteId: 'acme.scoring-judged',
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatchObject(NARROWER);
+    expect(h.evalRuns.started).toEqual([]);
+  });
+
+  test('an evaluation publishes the block version, derives its agent version, and starts the comparison (202)', async () => {
+    const { call, id, evalRuns } = await drafted({ readOnly: 'takes-candidates' });
+    const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
+      suiteId: 'acme.scoring-judged',
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(res.body.candidate).toMatchObject({ agentVersion: '1.0.1', blockVersion: '1.0.1' });
+    expect(evalRuns.started).toHaveLength(1);
+  });
+
+  test("a proposal's roll back is refused with the undo reason, and nothing is rolled back or unpinned", async () => {
+    const { call, id, releases } = await evaluated(0.1, { readOnly: 'takes-candidates' });
+    expect((await call('POST', `/v1/proposals/${id}/request`, {})).status).not.toBe(409);
+    const before = releases.calls.length;
+    const res = await call('POST', `/v1/proposals/${id}/rollback`, {});
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'registry-read-only',
+      message: TAKES_CANDIDATES.takesCandidates.undoReason,
+    });
+    expect(releases.calls.slice(before).map((c) => c.method)).not.toContain('unpin');
+    expect(releases.calls.slice(before).map((c) => c.method)).not.toContain('rollback');
   });
 });

@@ -46,6 +46,16 @@ export function isLiveSet(method: string, path: string): boolean {
   return method === 'POST' && /\/(promotions|live\/rollback)$/.test(path);
 }
 
+/** `POST …/promotions`: a request that a version go live. */
+export function isPromotionRequest(method: string, path: string): boolean {
+  return method === 'POST' && path.endsWith('/promotions');
+}
+
+/** `POST …/live/rollback` and `…/live/unpin`: undoing what's live. */
+export function isLiveUndo(method: string, path: string): boolean {
+  return method === 'POST' && /\/live\/(rollback|unpin)$/.test(path);
+}
+
 /** `POST …/promotions/check` changes nothing: `read` on the agent. */
 export function isPromotionCheck(method: string, path: string): boolean {
   return method === 'POST' && path.endsWith('/promotions/check');

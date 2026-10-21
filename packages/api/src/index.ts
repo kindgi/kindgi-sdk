@@ -506,6 +506,8 @@ export type {
   AgentUnregisterOutcome,
 } from './agent-binding.js';
 export type { RegistryReadOnly } from './registry-read-only.js';
+// A pack agent's block pins where the pack's own versions are the only ones (`kindgi dev`).
+export { type BlockPins, type BlockVersionReads, resolveBlockPins } from './block-pins.js';
 export type {
   FlowGetInput,
   FlowGetVersionInput,
