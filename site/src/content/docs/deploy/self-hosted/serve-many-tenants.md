@@ -151,9 +151,54 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   ([Turn on sign-in](../sign-in/)). No key comes back: once signed in, they
   make the tenant's keys ([API keys](../../people-and-keys/#api-keys)).
 - **Without `firstAdmin`,** the answer carries the tenant's first admin key,
-  once. Store it, because nothing shows it again, and without it nothing
-  gives the tenant another admin key. Only the full capability creates a
-  tenant that way.
+  once. Store it, because nothing shows it again. Only the full capability
+  creates a tenant that way.
+- **A tenant whose admins can't sign in any more** (runtime 0.1.9 or later):
+  `kindgi-runtime tenants make-admin` makes one of its people its admin, or a
+  new person by email, with what a first admin holds: every capability but
+  `secrets:reveal`, which no person is given. They then sign in and make the
+  tenant's keys, so it needs sign-in turned on ([Turn on sign-in](../sign-in/)).
+  Like [`tenants repair`](#after-each-upgrade-tenants-repair), it runs
+  against the runtime's database and authorization store. Run it with
+  `--dry-run` first, which says what would change and changes nothing:
+
+  ```sh
+  kindgi-runtime tenants make-admin <tenant id> \
+    --email pat@acme-store.example --name Pat \
+    --reason "Pat can't sign in; checked with Acme Store" --dry-run
+  ```
+
+  `--person <user id>` names one of its people instead, who must be a
+  tenant member. Nothing is taken from anyone. If it stops partway, run it
+  again with the same arguments to finish it. What it does is in the
+  tenant's audit log, by `system`, which the tenant's admins can read:
+  making them admin and what that gives them carry your `--reason`.
+- **A tenant created without `firstAdmin` whose admin key is lost** (runtime
+  0.1.11 or later): `kindgi-runtime tenants admin-key` mints it again. The
+  live keys of the tenant's "First admin" service account are revoked, and
+  the console sessions they opened end. Then one key is minted for it,
+  carrying what the first one did: tenant admin, and the tenant's root
+  capabilities, `secrets:reveal` among them. It runs against the runtime's
+  database. Run it with `--dry-run` first:
+
+  ```sh
+  kindgi-runtime tenants admin-key <tenant id> \
+    --reason "Acme Store's admin key was lost; checked with Acme Store" --dry-run
+  ```
+
+  The key is printed once, alone, on stdout, so it can go straight into a
+  secret store; the rest is said on stderr. With `--dry-run`, nothing is
+  minted, and what would change is said on stdout. It's refused when one of
+  those keys has a use recorded, unless `--revoke-used`: a key that was used
+  was received, and someone may be holding it. A use is recorded at most once
+  a minute, so a key used just now may not show it yet. A suspended tenant
+  gets the key too, as does a closing one inside its 30-day export window; a
+  closing tenant past that window is refused. Each key revoked, and the key
+  minted, is in the tenant's audit log, by `system`, with your `--reason`. It
+  exits `0` when the key is minted, `1` when it's minted but an audit entry
+  couldn't be written or a revoked key's sessions couldn't be ended, and `2`
+  when it's refused and nothing changed. A tenant created with `firstAdmin`
+  has no such account: `tenants make-admin` makes a person its admin.
 - **Production starts blocked.** `"productionAllowed": true` allows it from
   the start, and takes `system:tenants:production`.
 - **`imagePrefix`** is the repository every image the tenant deploys must
