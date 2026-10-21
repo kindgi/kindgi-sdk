@@ -404,7 +404,7 @@ const takeOwnership: LeafCommand = {
         stdout: rendered.stdout,
         stderr:
           kept.length > 0
-            ? `\n  It keeps its tools allowed unattended (${kept.join(', ')}): their calls in its runs still don't wait for a person's yes, now as the new owner. \`kindgi schedules update ${schedule.scheduleId} --allow-unattended=none\` clears them.\n\n`
+            ? `\n  It keeps its tools allowed unattended (${kept.join(', ')}): their calls in its runs still don't wait for a person's yes just because no person started them, now as the new owner. \`kindgi schedules update ${schedule.scheduleId} --allow-unattended=none\` clears them.\n\n`
             : rendered.stderr,
       };
     }),

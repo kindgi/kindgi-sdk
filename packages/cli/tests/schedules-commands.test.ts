@@ -335,6 +335,9 @@ describe('kindgi schedules', () => {
     expect(listed.out.exitCode, listed.out.stderr).toBe(0);
     expect(JSON.parse(listed.out.stdout)).toMatchObject({ toolsAllowedUnattended: ['acme.send'] });
     expect(listed.out.stderr).toContain('It keeps its tools allowed unattended (acme.send)');
+    expect(listed.out.stderr).toContain(
+      "their calls in its runs still don't wait for a person's yes just because no person started them, now as the new owner.",
+    );
     expect(listed.out.stderr).toContain(`kindgi schedules update ${ID} --allow-unattended=none`);
     const none = await schedules(['take-ownership', ID]);
     expect(none.out.stderr).not.toContain('allowed unattended');

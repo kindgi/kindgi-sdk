@@ -195,7 +195,7 @@ function keptToolsNote(t: Trigger): string[] {
   return ids.length === 0
     ? []
     : [
-        `  It keeps its tools allowed unattended (${ids.join(', ')}): their calls in its runs still don't wait for a person's yes, now as the new owner. \`kindgi webhooks update ${t.triggerId} --allow-unattended=none\` clears them.`,
+        `  It keeps its tools allowed unattended (${ids.join(', ')}): their calls in its runs still don't wait for a person's yes just because no person started them, now as the new owner. \`kindgi webhooks update ${t.triggerId} --allow-unattended=none\` clears them.`,
       ];
 }
 

@@ -372,6 +372,9 @@ describe('kindgi webhooks: the rest of the group', () => {
     });
     expect(listed.out.exitCode, listed.out.stderr).toBe(0);
     expect(listed.out.stderr).toContain('It keeps its tools allowed unattended (acme.refund)');
+    expect(listed.out.stderr).toContain(
+      "their calls in its runs still don't wait for a person's yes just because no person started them, now as the new owner.",
+    );
     expect(listed.out.stderr).toContain(`kindgi webhooks update ${ID} --allow-unattended=none`);
     const none = await webhooks(['take-ownership', ID]);
     expect(none.out.stderr).not.toContain('allowed unattended');
