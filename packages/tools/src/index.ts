@@ -27,6 +27,7 @@ export {
   DEFAULT_PAUSE_TIMEOUT_MS,
   MAX_PAUSE_NAME_LENGTH,
   MAX_PAUSE_TIMEOUT_MS,
+  PAUSE_TOKEN_PREFIX,
   ToolRerunsExhaustedError,
   isToolRerunsExhaustedError,
   pauseOf,
