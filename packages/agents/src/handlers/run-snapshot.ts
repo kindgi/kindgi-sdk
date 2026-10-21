@@ -42,5 +42,8 @@ export async function writeRunSnapshot(ctx: TurnContext, kctx: NodeContext): Pro
     ...(ctx.input.authz !== undefined && { authz: ctx.input.authz }),
     ...(ctx.input.replay !== undefined && { replay: ctx.input.replay }),
     ...(ctx.input.startedBy !== undefined && { startedBy: ctx.input.startedBy }),
+    ...(ctx.input.toolsAllowedUnattended !== undefined && {
+      toolsAllowedUnattended: ctx.input.toolsAllowedUnattended,
+    }),
   });
 }

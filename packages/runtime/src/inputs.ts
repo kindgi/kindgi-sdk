@@ -111,6 +111,25 @@ export function runIsAttended(startedBy: RunStartedBy | undefined): boolean {
 }
 
 /**
+ * Whether a call of `tool` waits for a person's yes because no person is
+ * watching its run: the tool declares `needsApprovalWhenUnattended`, the
+ * run isn't attended (`runIsAttended`), and the webhook or schedule that
+ * started it doesn't list the tool in `toolsAllowedUnattended`. The one
+ * rule an agent's tool gate and a flow's tool step both apply.
+ */
+export function needsPersonsYesUnattended(
+  tool: { readonly id: string; readonly needsApprovalWhenUnattended?: boolean },
+  startedBy: RunStartedBy | undefined,
+  toolsAllowedUnattended: readonly string[] | undefined,
+): boolean {
+  return (
+    tool.needsApprovalWhenUnattended === true &&
+    !runIsAttended(startedBy) &&
+    toolsAllowedUnattended?.includes(tool.id) !== true
+  );
+}
+
+/**
  * The idempotency key of a run start: a start with a key a run of the
  * tenant already has starts nothing and answers that run (`existing`), so
  * a retried or re-driven start never runs twice. A trigger's fire uses
@@ -178,6 +197,14 @@ export interface RunFlowInput {
    * and counts as unattended.
    */
   readonly startedBy?: RunStartedBy;
+  /**
+   * The tools, by id, a call of which doesn't wait for a person's yes
+   * though no person started the run (`needsPersonsYesUnattended`): the
+   * `toolsAllowedUnattended` of the webhook or schedule that started it,
+   * as it was when the run started. Recorded with the run and never
+   * changed; a child run takes its parent's. Absent: none.
+   */
+  readonly toolsAllowedUnattended?: readonly string[];
   /**
    * The W3C trace id of the request that started the run (32 lowercase
    * hex), kept on the run so its later turns and resumes can name the
@@ -278,6 +305,8 @@ export interface StartRunParams {
   readonly trigger?: RunTriggerRef;
   /** How the run started; see `RunFlowInput.startedBy`. */
   readonly startedBy?: RunStartedBy;
+  /** What it may call without a person's yes; see `RunFlowInput.toolsAllowedUnattended`. */
+  readonly toolsAllowedUnattended?: readonly string[];
   /** The trace id of the request that started the run; see `RunFlowInput.traceId`. */
   readonly traceId?: string;
   /** The versions the run swaps in over its flow version's pins; see `RunFlowInput.versions`. */

@@ -253,6 +253,7 @@ an HTTP API is a handler with `java.net.http.HttpClient`, as above.
 
 - **An agent's call waits** for a person's yes, whatever the agent's `conversationPolicy.hitl.tools` says. The agent's rules can't lift it: agents are reused, and the tool's author knows what it does.
 - **A flow's tool step that calls it is refused.** Put the tool behind an agent step instead, whose call waits.
+- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's or a schedule's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks` and `kindgi schedules`). In that trigger's runs, the tool is then as in a run a person started. The tenant's approval rules still apply.
 
 In a run a person started (signed in, or with their own API key), the agent's rules decide, as for any tool. Left unset, it counts as `false`. Declare it on a tool that moves money or changes something people rely on:
 

@@ -272,7 +272,8 @@ public final class Tool<I, O> {
     /**
      * @param needsApprovalWhenUnattended {@code true} makes each call wait for a person's approval
      *     in a run no person started (a webhook, a schedule, an event, or a service account's key);
-     *     in a flow's tool step it is refused. A run a person starts is unaffected
+     *     in a flow's tool step it is refused. A run a person starts is unaffected, and so is
+     *     a run whose webhook or schedule names the tool in its {@code toolsAllowedUnattended}
      * @return this
      */
     public Builder<I, O> needsApprovalWhenUnattended(boolean needsApprovalWhenUnattended) {
