@@ -18,9 +18,9 @@ them. To set an endpoint up, follow
 
 An endpoint gets the events its `events` list names. `parseEvent` in
 TypeScript and Java, and `parse_event` in Python, read each of them. An event
-type the client doesn't know yet — a newer runtime's — makes `parseEvent`
-reject it in TypeScript and Python, and reads as a `WebhookEvent.Unrecognized`
-in Java; either way, answer 2xx and move on.
+type the client doesn't know yet — a newer runtime's — is rejected in
+TypeScript and Python, and reads as a `WebhookEvent.Unrecognized` in Java;
+either way, answer 2xx and move on.
 
 ## `run.finished`
 
