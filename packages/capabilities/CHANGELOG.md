@@ -1,5 +1,14 @@
 # @kindgi/capabilities
 
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- Updated dependencies [25a7309]
+  - @kindgi/platform@0.1.10-rc.0
+  - @kindgi/schema@0.1.10-rc.0
+  - @kindgi/types@0.1.10-rc.0
+
 ## 0.1.9
 
 ### Patch Changes

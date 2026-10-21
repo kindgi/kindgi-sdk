@@ -1,5 +1,30 @@
 # kindgi-docs
 
+## 0.0.11-rc.0
+
+### Patch Changes
+
+- Updated dependencies [439d6e3]
+- Updated dependencies [d582e1a]
+- Updated dependencies [3f91c68]
+- Updated dependencies [d582e1a]
+- Updated dependencies [a78f7b2]
+- Updated dependencies [25a7309]
+- Updated dependencies [b9a68d5]
+- Updated dependencies [6b3f48c]
+- Updated dependencies [e03762c]
+- Updated dependencies [fde2432]
+- Updated dependencies [43eafb2]
+- Updated dependencies [019a6fd]
+- Updated dependencies [d6f844d]
+- Updated dependencies [2e60ae2]
+- Updated dependencies [01964ed]
+- Updated dependencies [05b762e]
+- Updated dependencies [9b6da8a]
+  - @kindgi/cli@0.1.10-rc.0
+  - @kindgi/specs@0.1.10-rc.0
+  - @kindgi/env-schema@0.1.10-rc.0
+
 ## 0.0.10
 
 ### Patch Changes

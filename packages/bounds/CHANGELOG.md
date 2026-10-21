@@ -1,5 +1,9 @@
 # @kindgi/bounds
 
+## 0.1.10-rc.0
+
+No changes in this release.
+
 ## 0.1.9
 
 ### Patch Changes
