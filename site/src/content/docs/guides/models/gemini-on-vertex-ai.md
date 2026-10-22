@@ -49,6 +49,9 @@ mounts the file read-only, and names it and whose it is when it starts:
 ✓ Google credentials: /Users/you/.config/gcloud/application_default_credentials.json (your gcloud application-default login, a user account), mounted read-only for Vertex AI
 ```
 
+When the file names a quota project, the line names it too, after whose it
+is: `, quota project <gcp-project>`.
+
 Without the setting, a `gemini` provider has no credentials and its calls
 fail. `kindgi dev` says so when it starts, and `kindgi doctor` says the same:
 
@@ -94,12 +97,14 @@ when it starts:
 ✓ Google credentials: /Users/you/.config/gcloud/application_default_credentials.json (impersonating kindgi-dev@<gcp-project>.iam.gserviceaccount.com), mounted read-only for Vertex AI
 ```
 
-If the model calls fail with a permission denied, the message names the
-permission that's missing:
+If the model calls fail with a permission denied, the message names what's
+missing:
 
 - **`iam.serviceAccounts.getAccessToken`:** your account can't impersonate
   the service account. Grant it Service Account Token Creator on the service
-  account, and check the IAM Service Account Credentials API is on.
+  account.
+- **The IAM Service Account Credentials API,** as not used in a project
+  before or turned off: turn it on in the project the message names.
 - **`aiplatform.endpoints.predict`:** the service account can't call Vertex
   AI. Grant it Vertex AI User in the project.
 
