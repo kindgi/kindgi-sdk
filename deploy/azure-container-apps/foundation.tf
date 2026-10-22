@@ -132,10 +132,11 @@ resource "azurerm_log_analytics_workspace" "kindgi" {
 }
 
 # ---- images ---------------------------------------------------------------------
-# One registry for the runtime image (mirrored from Quay, see the README) and
-# the pack images `kindgi build` pushes. Both services pull with their own
-# identities; the server also reads deployments' images with its identity
-# (KINDGI_IMAGE_REGISTRY_AUTH=azure, C-IMG-2). No admin user, no passwords.
+# One registry for the runtime image (mirrored from registry.kindgi.com, see
+# the README) and the pack images `kindgi build` pushes. Both services pull
+# with their own identities; the server also reads deployments' images with
+# its identity (KINDGI_IMAGE_REGISTRY_AUTH=azure, C-IMG-2). No admin user, no
+# passwords.
 
 resource "azurerm_container_registry" "images" {
   name                   = "${replace(var.name_prefix, "-", "")}${local.suffix}"
