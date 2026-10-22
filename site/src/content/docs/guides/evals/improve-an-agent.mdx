@@ -152,6 +152,15 @@ pnpm exec kindgi proposals improve --agent=acme.rank.scorer --tenant --test-set=
   kept as no worse and cheaper:
   [Let it try a cheaper model or another temperature](#let-it-try-a-cheaper-model-or-another-temperature).
 
+Before you start, you can ask what a pass would cost: `POST
+/v1/proposals/improve/estimate`, with the body a pass would start from,
+answers `estimatedCostUsd` — the replay count times the version's mean cost
+over its recent completed runs, capped at `--max-cost` — and starts nothing.
+Treat it as an approximation: a candidate can cost more or less per run than
+that mean, and a prompt pass also pays to draft its templates, so a pass can
+cost more than it estimates; what stops it is the budget above. An estimate
+equal to `--max-cost` means the pass is expected to spend its whole budget.
+
 It answers at once with the pass. `--wait` waits for its outcome, at most 30
 minutes, and prints it:
 
