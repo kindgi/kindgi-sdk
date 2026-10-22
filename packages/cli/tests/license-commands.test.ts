@@ -225,11 +225,11 @@ describe('kindgi license enroll', () => {
     for (const [argv, message] of [
       [
         ['--for', 'not a login', '--renewer', 'file:r'],
-        '--for must be your GitHub login, or the em- id your key page shows if you sign in by email. Got "not a login".',
+        '--for must be your GitHub login, or the em- id your key page shows. Got "not a login".',
       ],
       [
         ['--renewer', 'file:r'],
-        '--for is required: your GitHub login, or the em- id your key page shows if you sign in by email.',
+        '--for is required: your GitHub login, or the em- id your key page shows.',
       ],
       [['--for', 'octo'], '--renewer is required'],
       [

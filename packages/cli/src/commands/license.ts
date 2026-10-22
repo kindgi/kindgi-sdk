@@ -52,7 +52,7 @@ import type { CommandResult, GroupCommand, LeafCommand } from './types.js';
  */
 const GITHUB_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
 /** Who `--for` names: the account on access.kindgi.com the enroll line is for. */
-const FOR_WHOM = 'your GitHub login, or the em- id your key page shows if you sign in by email';
+const FOR_WHOM = 'your GitHub login, or the em- id your key page shows';
 const DAY_MS = 86_400_000;
 
 function store(ctx: CommandContext, flag: string, ref: string): SecretStore {
@@ -203,7 +203,7 @@ const enroll: LeafCommand = {
     for: {
       type: 'string',
       description:
-        'Your GitHub login, or the em- id your key page shows if you sign in by email: the line is for it alone.',
+        'Your GitHub login, or the em- id your key page shows: the line is for it alone.',
     },
     renewer: {
       type: 'string',
