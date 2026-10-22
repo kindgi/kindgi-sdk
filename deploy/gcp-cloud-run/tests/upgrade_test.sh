@@ -395,7 +395,7 @@ reset_env; export STUB_TAGS="0.1.8"
 run "yes" --to 0.1.10
 assert_rc 1 "0.1.10 target refused"
 assert_out "has 0.1.11 and later"
-assert_out "as of release 0.1.10"
+assert_out "as of the @kindgi/sdk@0.1.10 tag"
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_varfile_unchanged

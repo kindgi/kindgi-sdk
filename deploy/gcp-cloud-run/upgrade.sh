@@ -51,7 +51,7 @@
 #   --to               The target runtime version, 0.1.11 or later (default
 #                      0.1.11; an rc such as 0.1.11-rc.0 works too). Earlier
 #                      releases aren't on registry.kindgi.com: for those, use
-#                      this script as of release 0.1.10.
+#                      this script as of the @kindgi/sdk@0.1.10 tag.
 #   --from             Assert the current version when it can't be read from the
 #                      deployment (no version tag on the running image).
 #   --pack-dir         Rebuild and push the pack from here with `kindgi build`
@@ -221,7 +221,7 @@ done
 [[ $BACKUP_BUCKET =~ ^gs://[a-z0-9][-a-z0-9._]*(/.*)?$ ]] || die "--backup-bucket must look like gs://<bucket>[/<prefix>]."
 is_semver "$TARGET" || die "--to \"$TARGET\" isn't a version like 0.1.11."
 [[ "$(ver_num "${TARGET%%-*}")" -ge "$(ver_num "$TARGET_FLOOR")" ]] \
-  || die "--to $TARGET: this script copies the runtime from registry.kindgi.com, which has $TARGET_FLOOR and later. For an earlier release, use this script as of release 0.1.10."
+  || die "--to $TARGET: this script copies the runtime from registry.kindgi.com, which has $TARGET_FLOOR and later. For an earlier release, use this script as of the @kindgi/sdk@0.1.10 tag."
 if [[ -n $FROM_OVERRIDE ]]; then is_semver "$FROM_OVERRIDE" || die "--from \"$FROM_OVERRIDE\" isn't a version like 0.1.8."; fi
 if [[ -n $PACK_DIR ]]; then [[ -d $PACK_DIR ]] || die "--pack-dir \"$PACK_DIR\" isn't a directory."; fi
 
