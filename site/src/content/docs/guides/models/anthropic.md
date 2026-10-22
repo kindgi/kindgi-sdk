@@ -14,7 +14,7 @@ prices. Sonnet 5.5 is its default. You provide the key.
 
 ## Before you start
 
-- **A pack** with `kindgi dev` running, from Kindgi 0.1's CLI.
+- **A pack** with `kindgi dev` running, from Kindgi 0.2's CLI.
 - **An Anthropic API key.**
 - **An agent,** to try it. This guide uses `acme.order-desk`.
 
