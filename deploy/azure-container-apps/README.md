@@ -1,6 +1,6 @@
 # Kindgi on Azure Container Apps (Terraform)
 
-> **Draft (runtime 0.1.6).** These steps ran end to end on a live subscription (2026-10-08), with a runtime built from source: a pack deployed and run, a key rotation, and the teardown. Until runtime 0.1.6 is released, step 2's image isn't on Quay yet.
+> **Draft (runtime 0.1.6).** These steps ran end to end on a live subscription (2026-10-08), with a runtime built from source: a pack deployed and run, a key rotation, and the teardown.
 
 A Terraform root module that runs Kindgi in one Azure resource group you already have:
 - the runtime (the API, agent and flow execution) as a container app;
@@ -33,7 +33,7 @@ In both shapes the pack service's ingress is **environment-internal**: only apps
   done
   ```
 - **A second resource group, made by Azure:** a Container Apps environment on a VNet keeps its infrastructure in a platform-managed resource group next to yours. The module names it `<your group>-<name_prefix>-infra`; Azure creates it with the environment and deletes it with the environment. If your policies forbid new resource groups, exempt this one.
-- **Pull access to the runtime image** `registry.kindgi.com/kindgi/runtime`, with your license key as the password: `kindgi auth registry --registry registry.kindgi.com --username kindgi` logs Docker in, and asks for the key.
+- **Pull access to the runtime image** `registry.kindgi.com/kindgi/runtime`, with your license key as the password: `docker login registry.kindgi.com --username kindgi` asks for the key.
 - **A license key** from Kindgi (`KINDGI_LICENSE_KEY`; a non-production key for a pilot).
 - **Check your Azure Policy assignments** (`az policy assignment list -g <rg> --disable-scope-strict-search`): allowed locations, required tags, or a rule forbidding public network access change the recipe.
 
