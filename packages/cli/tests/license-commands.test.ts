@@ -143,7 +143,7 @@ describe('kindgi license enroll', () => {
       `Renewer ${key?.renewerId}: its private key is in the file ${join(dir, 'renewer.key')}.`,
     );
     expect(out.stdout).toContain(
-      'Add this deployment on https://access.kindgi.com, signed in as Octo',
+      'Add this deployment on https://access.kindgi.com, signed in as the person it\'s for (Octo), under "Renew the key from your deployment":',
     );
     expect(out.stdout).toContain(
       'kindgi license renew --key <where the license key is> --renewer file:renewer.key',
@@ -170,6 +170,8 @@ describe('kindgi license enroll', () => {
     const id = 'em-kqzt3xw7mfa2rb5ndl6hpye4cv';
     const out = await cli(dir, ['license', 'enroll', '--for', id, '--renewer', 'file:r.key']);
     expect(out.exitCode).toBe(0);
+    // The page names an email user by their address, so the output doesn't call the id a sign-in.
+    expect(out.stdout).toContain(`signed in as the person it's for (${id}), under`);
     const key = decodeRenewerPrivateKey(readFileSync(join(dir, 'r.key'), 'utf8').trim());
     const [pub, account, signature] = (out.stdout.match(/^ {2}(kgi_lrp_\S+)$/m)?.[1] ?? '').split(
       '.',
