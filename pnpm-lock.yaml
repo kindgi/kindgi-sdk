@@ -444,6 +444,9 @@ importers:
       '@kindgi/compliance':
         specifier: workspace:*
         version: link:../compliance
+      '@kindgi/connections':
+        specifier: workspace:*
+        version: link:../connections
       '@kindgi/crypto':
         specifier: workspace:*
         version: link:../crypto
@@ -705,6 +708,18 @@ importers:
       '@kindgi/specs':
         specifier: workspace:*
         version: link:../specs
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.3
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.3)(jsdom@25.0.1(supports-color@10.2.2))(lightningcss@1.32.0)(msw@2.15.0(@types/node@22.20.3)(typescript@5.9.3))(supports-color@10.2.2)
+
+  packages/connections:
+    devDependencies:
       '@types/node':
         specifier: ^22.10.5
         version: 22.20.3

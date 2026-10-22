@@ -1,0 +1,153 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+import type { EnvName, ProjectId, TenantId } from '@kindgi/types';
+
+/**
+ * A connection a tool needs, under the tool's own name for it
+ * (`needsSpec.connections.mail`). The runtime finds the connection to the
+ * app before the call and hands the tool its token (`ctx.connections`).
+ */
+export interface ConnectionNeed {
+  /** The app's entry id: `'google'`, `'github'`. */
+  readonly app: string;
+  /** The entry's permission keys the call needs: at least one. */
+  readonly permissions: readonly string[];
+  /**
+   * Whose connection: `'person'` is the run's person (the one it acts for,
+   * who started it or owns its trigger); `'company'` is the tenant's.
+   */
+  readonly as: 'person' | 'company';
+}
+
+/** Whose account a connection is at the app: its stable id there, and what people see. */
+export interface ConnectionAccount {
+  readonly id: string;
+  readonly label: string;
+}
+
+/**
+ * A connection, resolved for one call: what a tool reads from
+ * `ctx.connections`. Never printed, journaled or logged.
+ */
+export interface ToolConnection {
+  readonly connectionId: string;
+  readonly app: string;
+  /** The app's name as people know it: `'Google'`. */
+  readonly appName: string;
+  readonly accessToken: string;
+  readonly account: ConnectionAccount;
+  readonly expiresAt?: string;
+}
+
+/**
+ * A connect the run waits for: the person opens `connectUrl`, consents at
+ * the app, and the run goes on. Listed in a run's `waitingFor`.
+ */
+export interface WaitingForConnection {
+  /** The tool's name for the connection. */
+  readonly name: string;
+  readonly requestId: string;
+  readonly waitToken: string;
+  readonly app: string;
+  readonly appName: string;
+  /** What each permission asked for allows, in plain words. */
+  readonly says: readonly string[];
+  readonly connectUrl: string;
+  readonly expiresAt: string;
+  /** The person connected this app before, and connects it again. */
+  readonly reconnects?: boolean;
+}
+
+export interface ResolveConnectionsInput {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  /** The env the runtime serves. */
+  readonly envName: EnvName;
+  readonly runId: string;
+  readonly callId: string;
+  readonly toolId: string;
+  /** The tool's `needsSpec.connections`. */
+  readonly needs: Readonly<Record<string, ConnectionNeed>>;
+  /**
+   * The run's person: its principal (the one it acts for, else its actor)
+   * when that's a user, whatever started the run. Absent for a service
+   * account's run and an event trigger's.
+   */
+  readonly person?: { readonly userId: string };
+  /** How long a connect may wait; 0 when this call can't wait (a run no person started, a flow step). */
+  readonly waitMs: number;
+  /** Names whose token to renew first, ignoring any cached one (after the app refused it). */
+  readonly renew?: readonly string[];
+}
+
+export type ResolveConnectionsOutcome =
+  | { readonly kind: 'ready'; readonly connections: Readonly<Record<string, ToolConnection>> }
+  /** One request per connection the call waits for; asked again for the same call, the same ones. */
+  | { readonly kind: 'wait'; readonly requests: readonly WaitingForConnection[] }
+  | {
+      readonly kind: 'refused';
+      readonly code: 'connection-app-missing' | 'connection-needs-a-person' | 'connection-missing';
+      readonly name: string;
+      readonly app: string;
+      /** The permissions a connection lacks. */
+      readonly missing?: readonly string[];
+      readonly message: string;
+    };
+
+/**
+ * What a run's tool dispatch asks for a call's connections: a runtime
+ * implements it. For each need it finds the tenant's registration of the
+ * app that allows the project, the owner (the run's person, or the
+ * company), and that owner's live connection with every permission the
+ * need lists, in the served env.
+ *
+ * - **`ready`:** every need has a token.
+ * - **`wait`:** a person's connection is missing, lacks a permission, or
+ *   needs reconnecting, and the call may wait: one connect request per
+ *   connection, made once however often the call asks. Needs that come to
+ *   the same connection share one request, for all their permissions.
+ * - **`refused`:** no registration allows the project
+ *   (`connection-app-missing`), a person's connection in a run with no
+ *   person (`connection-needs-a-person`), or a missing one the call can't
+ *   wait for (`connection-missing`).
+ */
+export interface ConnectionResolver {
+  resolveConnections(input: ResolveConnectionsInput): Promise<ResolveConnectionsOutcome>;
+}
+
+const CONNECTION_REJECTED = Symbol.for('kindgi.tools.connection-rejected');
+
+/**
+ * The app refused a connection's token (an HTTP 401 from its API). A tool
+ * throws it; the runtime renews that token once and runs the call again.
+ * It never removes the connection or changes its state.
+ *
+ * Recognized by a registered symbol, not `instanceof`, so a runtime and
+ * a tool that load different copies of this package still agree.
+ */
+export class ConnectionRejectedError extends Error {
+  readonly [CONNECTION_REJECTED] = true;
+
+  /**
+   * @param connection The tool's name for the connection (its
+   *   `needsSpec.connections` key).
+   * @param message What the app said; never the token.
+   */
+  constructor(
+    readonly connection: string,
+    message?: string,
+  ) {
+    super(message ?? `the app refused the connection "${connection}"`);
+    this.name = 'ConnectionRejectedError';
+  }
+}
+
+/** Is `value` a `ConnectionRejectedError` (from any copy of this package)? */
+export function isConnectionRejectedError(value: unknown): value is ConnectionRejectedError {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { readonly [CONNECTION_REJECTED]?: unknown })[CONNECTION_REJECTED] === true
+  );
+}

@@ -107,6 +107,33 @@ export function computeToolCallWaitToken(input: {
 }
 
 /**
+ * Deterministic waitpoint token for a call's wait for a connect: the
+ * connection the tool names `name`, in call `callId` of run `runId`. A
+ * replay of the call lands on the same token, and a call asks for a
+ * connection at most once, so there's no attempt number. A runtime that
+ * makes the connect request computes the same token.
+ */
+export function computeConnectWaitToken(input: {
+  readonly runId: string;
+  readonly callId: string;
+  readonly name: string;
+}): string {
+  return createHash('sha256')
+    .update(`connect:${input.runId}:${input.callId}:${input.name}`)
+    .digest('hex')
+    .slice(0, 40);
+}
+
+/**
+ * What completes a call's wait for a connect: the person connected, or
+ * they declined. `missing` lists the permissions they didn't grant, when
+ * they granted less than the call needs.
+ */
+export type ConnectWaitResult =
+  | { readonly kind: 'connected'; readonly connectionId: string }
+  | { readonly kind: 'declined'; readonly missing?: readonly string[] };
+
+/**
  * In-conversation cache of decisions for `ask_on_first_use`. Persisted
  * on `agent_conversations.metadata.hitlToolDecisions` — a flat map of
  * `${toolId}:${argsHash}` → decision. Read/write goes through the
