@@ -23,6 +23,23 @@ describe('computeConnectWaitToken', () => {
     expect(computeConnectWaitToken({ ...call })).toBe(computeConnectWaitToken(call));
   });
 
+  it('with a step scope: sha256 of connect:<runId>:<stepScope>:<callId>:<name>', () => {
+    const expected = createHash('sha256')
+      .update('connect:00000000-0000-0000-0000-0000000000a1:turn/2:toolu_01:mail')
+      .digest('hex')
+      .slice(0, 40);
+    expect(computeConnectWaitToken({ ...call, stepScope: 'turn/2' })).toBe(expected);
+  });
+
+  it('differs by step, so a call id a later loop iteration reuses asks again', () => {
+    expect(computeConnectWaitToken({ ...call, stepScope: 'turn/2' })).not.toBe(
+      computeConnectWaitToken({ ...call, stepScope: 'turn/3' }),
+    );
+    expect(computeConnectWaitToken({ ...call, stepScope: 'turn/2' })).not.toBe(
+      computeConnectWaitToken(call),
+    );
+  });
+
   it('differs by run, by call and by connection', () => {
     const token = computeConnectWaitToken(call);
     expect(

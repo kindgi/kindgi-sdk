@@ -25,6 +25,7 @@ import type {
 
 import { type Principal, denyPayload, ref } from '@kindgi/authz';
 
+import type { ConnectionBinding } from '../connection-binding.js';
 import { type WireErrorBody, retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type { EventBusBinding, EventPayload, Subscription } from '../event-bus-binding.js';
 import type {
@@ -75,6 +76,12 @@ export interface RunsRouterOptions {
    * to its open waits). Absent: those waits are `unattributed`.
    */
   readonly hitl?: HitlBinding;
+  /**
+   * The connect requests, for a suspended run's `waitingFor.connections`
+   * (a tool waiting for a person to connect an app). Absent: those waits
+   * are `unattributed`.
+   */
+  readonly connections?: ConnectionBinding;
   /**
    * Optional push-based event bus. When present, `GET /:runId/stream`
    * subscribes on `kernel:run:<runId>` and delivers events
@@ -380,7 +387,11 @@ export function runsRouter(
     }
     // A suspended run says what it waits for (left out when that can't be read).
     const waitingFor = await runWaitingFor(
-      { runBinding, ...(options.hitl !== undefined && { hitl: options.hitl }) },
+      {
+        runBinding,
+        ...(options.hitl !== undefined && { hitl: options.hitl }),
+        ...(options.connections !== undefined && { connections: options.connections }),
+      },
       tenantId,
       { id: loaded.runId, status: loaded.status },
     );

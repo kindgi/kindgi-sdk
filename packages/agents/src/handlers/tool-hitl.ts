@@ -108,18 +108,22 @@ export function computeToolCallWaitToken(input: {
 
 /**
  * Deterministic waitpoint token for a call's wait for a connect: the
- * connection the tool names `name`, in call `callId` of run `runId`. A
- * replay of the call lands on the same token, and a call asks for a
- * connection at most once, so there's no attempt number. A runtime that
- * makes the connect request computes the same token.
+ * connection the tool names `name`, in call `callId` of run `runId`, in
+ * the step `stepScope` when the step has one (a model's call id is unique
+ * only within one answer, so two loop iterations may share one). A replay
+ * of the call lands on the same token, and a call asks for a connection
+ * at most once, so there's no attempt number. A runtime that makes the
+ * connect request computes the same token.
  */
 export function computeConnectWaitToken(input: {
   readonly runId: string;
+  readonly stepScope?: string;
   readonly callId: string;
   readonly name: string;
 }): string {
+  const step = input.stepScope === undefined ? '' : `${input.stepScope}:`;
   return createHash('sha256')
-    .update(`connect:${input.runId}:${input.callId}:${input.name}`)
+    .update(`connect:${input.runId}:${step}${input.callId}:${input.name}`)
     .digest('hex')
     .slice(0, 40);
 }

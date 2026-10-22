@@ -1061,6 +1061,30 @@ const WebhookEndpointIdPathParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
+const ConnectionAppIdPathParam: ParameterSpec = {
+  name: 'appId',
+  in: 'path',
+  required: true,
+  description: 'The app registration id (a UUID).',
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const ConnectionIdPathParam: ParameterSpec = {
+  name: 'connectionId',
+  in: 'path',
+  required: true,
+  description: 'The connection id (a UUID).',
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const ConnectRequestIdPathParam: ParameterSpec = {
+  name: 'requestId',
+  in: 'path',
+  required: true,
+  description: 'The connect request id (a UUID).',
+  schema: { type: 'string', format: 'uuid' },
+};
+
 const WebhookDeliveryIdPathParam: ParameterSpec = {
   name: 'deliveryId',
   in: 'path',
@@ -10595,6 +10619,383 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '202': { description: 'Queued.', schema: ref('WebhookDelivery') },
       ...CommonMutationErrors,
       '404': ErrorResponse('No endpoint with that id.'),
+    },
+  },
+  // ---------- connections (accounts at other apps that tools act with) ----------
+  {
+    method: 'get',
+    honoPath: '/v1/connection-entries',
+    openapiPath: '/v1/connection-entries',
+    operationId: 'connectionEntries.list',
+    summary: 'List the apps this server can connect to',
+    description:
+      'Each app with who may own a connection to it, how a person signs in, the permissions a tool may ask for (in plain words, and whether each changes anything) and the guide an admin follows to register the app. Any signed-in member. Mounted when the deployment supplies a `ConnectionBinding`.',
+    tags: ['connections'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'The apps.', schema: ref('ConnectionEntryList') },
+      ...CommonAuthErrors,
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/connection-apps',
+    openapiPath: '/v1/connection-apps',
+    operationId: 'connectionApps.list',
+    summary: "List the tenant's app registrations",
+    description:
+      "The tenant's own registrations of its client at an app: its client id, and its secrets by reference. Tenant admins only.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of registrations.', schema: ref('ConnectionAppPage') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/connection-apps',
+    openapiPath: '/v1/connection-apps',
+    operationId: 'connectionApps.create',
+    summary: 'Register an app',
+    description:
+      "Registers the tenant's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('CreateConnectionAppBody') },
+    responses: {
+      '201': { description: 'App registered.', schema: ref('ConnectionApp') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "Malformed body or unknown field (`bad-input`, `details.field`); a registration that doesn't fit its entry (`connection-app-invalid`, `details.field`); no such app (`connection-app-unknown-entry`); or a model provider's key named as a secret (`provider-key-refused`).",
+      ),
+      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/connection-apps/:appId',
+    openapiPath: '/v1/connection-apps/{appId}',
+    operationId: 'connectionApps.get',
+    summary: 'Fetch an app registration',
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [ConnectionAppIdPathParam],
+    responses: {
+      '200': { description: 'The registration.', schema: ref('ConnectionApp') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('`appId` is not a UUID (`bad-input`).'),
+      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+      '404': ErrorResponse('No registration with that id (`connection-app-not-found`).'),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/connection-apps/:appId',
+    openapiPath: '/v1/connection-apps/{appId}',
+    operationId: 'connectionApps.update',
+    summary: 'Update an app registration',
+    description:
+      'Changes the label, the client or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.',
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [ConnectionAppIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('UpdateConnectionAppBody') },
+    responses: {
+      '200': { description: 'The updated registration.', schema: ref('ConnectionApp') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "Malformed body, unknown field or an `app` (`bad-input`, `details.field`); a registration that doesn't fit its entry (`connection-app-invalid`); or a model provider's key named as a secret (`provider-key-refused`).",
+      ),
+      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+      '404': ErrorResponse('No registration with that id (`connection-app-not-found`).'),
+      '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/connection-apps/:appId',
+    openapiPath: '/v1/connection-apps/{appId}',
+    operationId: 'connectionApps.remove',
+    summary: 'Remove an app registration',
+    description:
+      'Without `withConnections=true`, a registration that still has live connections is refused (`connection-app-in-use`). With it, those connections are removed too. Tenant admins only.',
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [
+      ConnectionAppIdPathParam,
+      {
+        name: 'withConnections',
+        in: 'query',
+        required: false,
+        description: 'Remove its live connections too. Default `false`.',
+        schema: { type: 'boolean', default: false },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': { description: 'Removed.', schema: ref('ConnectionAppRemoved') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        '`appId` is not a UUID, or `withConnections` is not a boolean (`bad-input`).',
+      ),
+      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+      '404': ErrorResponse('No registration with that id (`connection-app-not-found`).'),
+      '409': ErrorResponse(
+        'Idempotency-Key was reused with a different body, or the registration still has live connections (`connection-app-in-use`).',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/connections',
+    openapiPath: '/v1/connections',
+    operationId: 'connections.list',
+    summary: 'List connections',
+    description:
+      'A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`.',
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'projectId',
+        in: 'query',
+        required: false,
+        description: 'Only those whose registration allows this project.',
+        schema: { type: 'string' },
+      },
+      {
+        name: 'app',
+        in: 'query',
+        required: false,
+        description: "Only this app's (its entry id).",
+        schema: { type: 'string' },
+      },
+      {
+        name: 'owner',
+        in: 'query',
+        required: false,
+        description: "`me`: only the caller's own, even for a tenant admin.",
+        schema: { type: 'string', enum: ['me'] },
+      },
+      {
+        name: 'ownerKind',
+        in: 'query',
+        required: false,
+        description: "Only those a member owns, or only the company's.",
+        schema: { type: 'string', enum: ['member', 'company'] },
+      },
+      {
+        name: 'state',
+        in: 'query',
+        required: false,
+        description: 'Only those in this state.',
+        schema: { $ref: '#/components/schemas/ConnectionState' },
+      },
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Page of connections.', schema: ref('ConnectionPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('An unknown `app`, `owner`, `ownerKind` or `state` (`bad-input`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/connections',
+    openapiPath: '/v1/connections',
+    operationId: 'connections.connect',
+    summary: 'Start a connect',
+    description:
+      "Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('CreateConnectRequestBody') },
+    responses: {
+      '201': { description: 'Connect request made.', schema: ref('ConnectRequest') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "Malformed body or unknown field (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
+      ),
+      '403': ErrorResponse(
+        "`for: 'company'` from a caller who is not a tenant admin (`permission-denied`).",
+      ),
+      '404': ErrorResponse('No registration with that `appId` (`connection-app-not-found`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/connections/finish',
+    openapiPath: '/v1/connections/finish',
+    operationId: 'connections.finish',
+    summary: 'Finish a connect',
+    description:
+      "Takes what the app sent back to the callback page (`state` and `code`, or `installationId` and `setupAction` for a GitHub App, or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('FinishConnectBody') },
+    responses: {
+      '200': { description: 'The outcome.', schema: ref('ConnectFinish') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'Malformed body, unknown field or no `state` (`bad-input`, `details.field`).',
+      ),
+      '403': ErrorResponse(
+        'Someone other than whoever started the request (`connection-not-yours`).',
+      ),
+      '404': ErrorResponse('No request for that state (`connection-request-not-found`).'),
+      '409': ErrorResponse(
+        'Idempotency-Key was reused with a different body; the request was finished already (`connection-request-used`); or a reconnect signed in to another account (`connection-account-mismatch`).',
+      ),
+      '410': ErrorResponse(
+        'The request expired (`connection-request-expired`), or the sign-in took longer than its state lives: start again (`connection-state-expired`).',
+      ),
+      '502': ErrorResponse(
+        "The app wouldn't give a token for the code: its client id, secret or redirect URL (`connection-app-refused`).",
+      ),
+      '503': ErrorResponse(
+        "The connection couldn't be stored just now (`connection-store-failed`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/connections/requests/:requestId',
+    openapiPath: '/v1/connections/requests/{requestId}',
+    operationId: 'connections.requests.get',
+    summary: 'Fetch a connect request',
+    description:
+      "A member's request is the member's alone; the company's is a tenant admin's. Anyone else gets the `404` of a request that doesn't exist.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [ConnectRequestIdPathParam],
+    responses: {
+      '200': { description: 'The request.', schema: ref('ConnectRequest') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('`requestId` is not a UUID (`bad-input`).'),
+      '404': ErrorResponse(
+        "No request with that id, or not the caller's (`connection-request-not-found`).",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/connections/requests/:requestId/start',
+    openapiPath: '/v1/connections/requests/{requestId}/start',
+    operationId: 'connections.requests.start',
+    summary: 'Start a connect request',
+    description:
+      "Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [ConnectRequestIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'Where to send the person.', schema: ref('ConnectStart') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('`requestId` is not a UUID (`bad-input`).'),
+      '404': ErrorResponse(
+        "No request with that id, or not the caller's (`connection-request-not-found`).",
+      ),
+      '409': ErrorResponse(
+        'Idempotency-Key was reused with a different body, or a retry of one that succeeded (`idempotency-key-replay-withheld`); or the request was finished already (`connection-request-used`).',
+      ),
+      '410': ErrorResponse('The request expired (`connection-request-expired`).'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/connections/:connectionId',
+    openapiPath: '/v1/connections/{connectionId}',
+    operationId: 'connections.get',
+    summary: 'Fetch a connection',
+    description:
+      "A member's connection is its owner's or a tenant admin's. Anyone else gets the `404` of a connection that doesn't exist.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [ConnectionIdPathParam],
+    responses: {
+      '200': { description: 'The connection.', schema: ref('Connection') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('`connectionId` is not a UUID (`bad-input`).'),
+      '404': ErrorResponse(
+        "No connection with that id, or not the caller's (`connection-not-found`).",
+      ),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/connections/:connectionId',
+    openapiPath: '/v1/connections/{connectionId}',
+    operationId: 'connections.disconnect',
+    summary: 'Disconnect',
+    description:
+      'Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal.',
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [ConnectionIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'The connection, removed.', schema: ref('Connection') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('`connectionId` is not a UUID (`bad-input`).'),
+      '404': ErrorResponse(
+        "No connection with that id, or not the caller's (`connection-not-found`).",
+      ),
+      '503': ErrorResponse("The removal couldn't be stored just now (`connection-store-failed`)."),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/connection-notices/:tenantId/:appId',
+    openapiPath: '/v1/connection-notices/{tenantId}/{appId}',
+    operationId: 'connectionNotices.receive',
+    senderOnly:
+      'The app (GitHub, Google…) posts here, signed its own way; a Kindgi client never does.',
+    summary: 'Receive an app notice',
+    description:
+      "Where an app reports a removal (an uninstall, a revoke at the app): the registration's `noticesUrl`. No sign-in, and a bearer token, if sent, is never read. The app's own signature over the body's exact bytes is what the server checks: a JSON webhook from GitHub, or a security event token from Google. Every notice not accepted (an unknown tenant or id, a bad signature, a body over the cap) is the same `400 connection-notice-invalid`. A client past its refusals this minute gets `429`. If the server couldn't check or apply the notice just now, `503 connection-notice-unavailable`: the app may send it again.",
+    tags: ['connections'],
+    security: 'public',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The registration's tenant.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'appId',
+        in: 'path',
+        required: true,
+        description: 'The registration id (`appId`).',
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
+    requestBody: {
+      required: true,
+      description:
+        "The app's signed notice, any content type: a JSON webhook from GitHub, or a security event token from Google.",
+      schema: { type: 'string', format: 'binary' },
+      contentType: '*/*',
+    },
+    responses: {
+      '202': { description: 'Accepted. No body.' },
+      '400': ErrorResponse(
+        '`connection-notice-invalid`: the notice was not accepted (the same answer whatever the reason).',
+      ),
+      '429': ErrorResponse(
+        '`rate-limit-exceeded`: too many refused notices from this client; `Retry-After` says when.',
+      ),
+      '503': ErrorResponse(
+        "`connection-notice-unavailable`: the notice couldn't be handled just now; the app may send it again.",
+      ),
     },
   },
   // ---------- sites (a site signs its own people in to one project) ----------

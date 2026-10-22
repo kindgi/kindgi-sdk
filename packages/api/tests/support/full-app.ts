@@ -28,6 +28,7 @@ import type {
   BlobStorageBinding,
   BlockRegistryBinding,
   CapabilityRegistryBinding,
+  ConnectionBinding,
   CostBinding,
   CreateAppInput,
   DeploymentBinding,
@@ -261,6 +262,29 @@ function publicRunTokensConfig(): PublicRunTokenConfig {
     keyId,
   };
 }
+
+const connectionNoop = {
+  kind: 'err',
+  error: { code: 'connection-store-failed', message: 'noop' },
+} as const;
+
+const noopConnections: ConnectionBinding = {
+  entries: () => [],
+  listApps: async () => ({ data: [] }),
+  getApp: async () => null,
+  createApp: async () => connectionNoop,
+  updateApp: async () => connectionNoop,
+  removeApp: async () => connectionNoop,
+  list: async () => ({ data: [] }),
+  get: async () => null,
+  disconnect: async () => connectionNoop,
+  createRequest: async () => connectionNoop,
+  getRequest: async () => null,
+  requestsForRun: async () => [],
+  startRequest: async () => connectionNoop,
+  finishRequest: async () => connectionNoop,
+  receiveNotice: async () => connectionNoop,
+};
 
 const noopWebhookEndpoints: WebhookEndpointBinding = {
   create: async () => ({ kind: 'url-refused', reason: 'noop' }),
@@ -650,6 +674,7 @@ export function fullAppInput(): CreateAppInput {
     adapterRegistry: noopAdapterRegistry,
     triggerRegistry: noopTriggerRegistry,
     webhookEndpoints: noopWebhookEndpoints,
+    connections: noopConnections,
     publicRunTokens: publicRunTokensConfig(),
     policyRegistry: noopPolicyRegistry,
     retention: noopRetention,

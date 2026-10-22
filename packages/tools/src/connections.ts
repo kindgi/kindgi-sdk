@@ -65,6 +65,11 @@ export interface ResolveConnectionsInput {
   /** The env the runtime serves. */
   readonly envName: EnvName;
   readonly runId: string;
+  /**
+   * The step the call is in, when it has one: with `callId`, it names the
+   * call across the run (`computeConnectWaitToken`).
+   */
+  readonly stepScope?: string;
   readonly callId: string;
   readonly toolId: string;
   /** The tool's `needsSpec.connections`. */

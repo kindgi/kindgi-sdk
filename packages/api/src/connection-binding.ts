@@ -50,7 +50,8 @@ export type ConnectionRemovedReason =
  * - `app-failed`: the app's revoke failed; the token is gone here all the same;
  * - `kept-for-other-connection`: the app's revoke is grant-wide and another
  *   live connection uses the grant, so it wasn't called;
- * - `not-supported`: the app has no revoke.
+ * - `not-supported`: the app has no revoke, or what it has would undo more
+ *   than this connection (a GitHub App's installation stays installed).
  */
 export type ConnectionWithdrawn =
   | 'at-app'
