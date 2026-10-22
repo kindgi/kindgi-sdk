@@ -103,8 +103,8 @@ missing:
 - **`iam.serviceAccounts.getAccessToken`:** your account can't impersonate
   the service account. Grant it Service Account Token Creator on the service
   account.
-- **The IAM Service Account Credentials API,** as not used in a project
-  before or turned off: turn it on in the project the message names.
+- **The IAM Service Account Credentials API,** not yet used in the project,
+  or turned off: turn it on in the project the message names.
 - **`aiplatform.endpoints.predict`:** the service account can't call Vertex
   AI. Grant it Vertex AI User in the project.
 
