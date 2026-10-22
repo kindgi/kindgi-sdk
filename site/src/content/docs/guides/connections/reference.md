@@ -95,8 +95,9 @@ An app can tell Kindgi when access ends on its side, at the notices address
 its registration shows. Each notice is checked by its signature.
 
 - **GitHub:**
-  - the app uninstalled from your organization: its connection is removed;
-  - the app suspended: its connection needs reconnecting, and works again
+  - the app uninstalled from your organization: its connections are
+    removed;
+  - the app suspended: its connections need reconnecting, and work again
     when the suspension is lifted;
   - any other event changes nothing.
 - **Google,** if you set up Cross-Account Protection:
