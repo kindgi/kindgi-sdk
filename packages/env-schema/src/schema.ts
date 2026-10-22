@@ -694,7 +694,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SESSION_TTL_MS',
     description:
-      "A browser session's absolute lifetime, in milliseconds: the person signs in again after it. Default 43200000 (12 hours); at least 60000, or the server refuses to start. Only browser sessions use it: where nobody can open one (sign-in with identity providers off, no `KINDGI_AUTH_SECRET(_PATH)`, and `KINDGI_CONSOLE_TOKEN_SIGN_IN` off), setting it stops the server from starting.",
+      "A browser session's absolute lifetime, in milliseconds: the person signs in again after it. Default 43200000 (12 hours); at least 60000, or the server refuses to start. Below an hour, also set `KINDGI_SESSION_IDLE_TIMEOUT_MS` no longer than it (its default is an hour), or the server refuses to start. Only browser sessions use it. Where nobody can open one, setting it stops the server from starting: that's with no `KINDGI_AUTH_SECRET(_PATH)` (sign-in with identity providers off) and `KINDGI_CONSOLE_TOKEN_SIGN_IN` off (its default outside development).",
     example: '43200000',
     required: false,
     appliesTo: appliesToServer,
@@ -703,7 +703,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SESSION_IDLE_TIMEOUT_MS',
     description:
-      'How long a browser session may sit idle before it ends, in milliseconds. Default 3600000 (60 minutes); at least 60000, and no longer than `KINDGI_SESSION_TTL_MS`, or the server refuses to start. Only browser sessions use it: where nobody can open one (sign-in with identity providers off, no `KINDGI_AUTH_SECRET(_PATH)`, and `KINDGI_CONSOLE_TOKEN_SIGN_IN` off), setting it stops the server from starting.',
+      "How long a browser session may sit idle before it ends, in milliseconds. Default 3600000 (60 minutes); at least 60000, and no longer than `KINDGI_SESSION_TTL_MS`, or the server refuses to start. Only browser sessions use it. Where nobody can open one, setting it stops the server from starting: that's with no `KINDGI_AUTH_SECRET(_PATH)` (sign-in with identity providers off) and `KINDGI_CONSOLE_TOKEN_SIGN_IN` off (its default outside development).",
     example: '3600000',
     required: false,
     appliesTo: appliesToServer,
