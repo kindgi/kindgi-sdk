@@ -179,10 +179,10 @@ those there.
 
 ## 2. The images into the registry
 
-The two apps run from images in the module's registry. Container Apps can't
-pull from `registry.kindgi.com`, which takes your license key as its password.
-With Docker logged in there, copy the runtime image into the module's registry
-by digest, with every platform it was built for:
+The two apps run from images in the module's registry, which they pull with
+their managed identities, never a password. With Docker logged in to
+`registry.kindgi.com`, copy the runtime image into the module's registry by
+digest, with every platform it was built for:
 
 ```sh
 ACR=$(terraform output -raw image_registry)
