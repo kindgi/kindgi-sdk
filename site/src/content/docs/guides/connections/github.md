@@ -80,32 +80,32 @@ npx --yes @kindgi/cli@0.2 secrets set ACME_GITHUB_PRIVATE_KEY --env=production -
 
 ## 3. Register the app
 
-In the console, open your workspace's **App registrations** page and choose
-**Add an app → GitHub**:
+In the console, open your workspace's **App registrations** page, choose
+**Register an app**, and pick **GitHub** as the **App**:
 
-- **App ID**, **slug** and **Client ID:** from the app's page on GitHub.
-- **Client secret**, **private key** and **webhook secret:** the names you
-  stored them under.
-- **Projects:** the projects whose runs may use it. Leave it empty for all
-  of them.
+- **App id**, **Slug** and **Client id:** from the app's page on GitHub.
+- **Client secret**, **Private key** and **Webhook secret:** the names you
+  stored them under in Kindgi's secrets.
+- **Which projects' runs may use it:** leave it empty for all of them.
 
-The registration then shows its **notices address**. Back on GitHub, in
-the app's **General** settings, tick **Webhook → Active**, enter that
-address as the **Webhook URL** and the webhook secret from step 2 as the
-**Secret**, and save. GitHub then sends Kindgi a signed notice when the app
+Then choose **Register**. Kindgi shows what to give GitHub, including a
+**Webhook URL**. Back on GitHub, in the app's **General** settings, tick
+**Webhook → Active**, enter that address as the **Webhook URL** and the
+webhook secret from step 2 as the **Secret**, and save. GitHub then sends Kindgi a signed notice when the app
 is uninstalled or suspended
 ([Notices from the app](../reference/#notices-from-the-app)).
 
 ## 4. Install it for the company
 
 An admin connects the app for the company. In a project, open
-**Connections → Connect → GitHub**, and choose **For the company**. GitHub
+**Connections**, choose **Connect an app**, pick GitHub, and under **For**
+choose **The company**. GitHub
 asks where to install the app: pick your organization and the repositories
 the tools should reach. GitHub sends you back to Kindgi, and the connection
 shows your organization.
 
-Each call then gets its own short-lived token, narrowed to that tool's
-permissions and the repositories you picked.
+Calls then use short-lived tokens limited to the tool's permissions, over
+the repositories you picked when you installed the app.
 
 ## Disconnecting
 

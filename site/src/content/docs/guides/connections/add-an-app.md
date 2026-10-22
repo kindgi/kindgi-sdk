@@ -13,7 +13,8 @@ Google and GitHub have entries in `@kindgi/connections`.
 
 An app that signs people in with standard OAuth 2.0 (the authorization code
 flow, with PKCE) fits the sign-in Kindgi already has, so adding it takes
-only its entry and its tools in `@kindgi/connections`. An app that signs in
+only its entry and its tools in `@kindgi/connections`, and its setup page
+in these docs. An app that signs in
 some other way needs code in the runtime as well.
 
 ## An entry
@@ -37,7 +38,7 @@ export const acmeCrm = defineApp({
   account: { kind: 'openid', issuers: ['https://crm.acme.com'], scopes: ['openid', 'email'] },
   removal: { revoke: 'oauth2-revoke' },
   rateLimits: [{ per: 'connection', units: 600, perSeconds: 60 }],
-  setupGuide: 'https://docs.acme.com/kindgi',
+  setupGuide: '/guides/connections/acme-crm/',
 });
 ```
 
@@ -52,9 +53,10 @@ export const acmeCrm = defineApp({
   approvals can show it.
 - **`removal`:** how a token is withdrawn at the app, and how the app
   reports an uninstall, if it does.
-- **`rateLimits`:** the app's limits. Kindgi's fetch helper keeps to them,
-  and waits when the app answers `429`.
-- **`setupGuide`:** the page that tells an admin how to register the app.
+- **`rateLimits`:** the app's limits for each connection: how many units
+  it allows in how many seconds.
+- **`setupGuide`:** the page in these docs that tells an admin how to
+  register the app, as a path such as `/guides/connections/acme-crm/`.
 
 ## Permissions
 

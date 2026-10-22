@@ -67,26 +67,30 @@ The command asks for the value twice, and doesn't show what you type.
 
 ## 3. Register the client
 
-In the console, open your workspace's **App registrations** page and choose
-**Add an app → Google**:
+In the console, open your workspace's **App registrations** page, choose
+**Register an app**, and pick **Google** as the **App**:
 
-- **Client ID:** the one Google gave you.
-- **Client secret:** the name you stored it under,
-  `ACME_GOOGLE_CONNECT_SECRET`.
-- **Projects:** the projects whose runs may use it. Leave it empty for all
-  of them.
+- **Client id:** the one Google gave you.
+- **Client secret: its name in Kindgi's secrets:** the name you stored it
+  under, `ACME_GOOGLE_CONNECT_SECRET`.
+- **Which projects' runs may use it:** leave it empty for all of them.
+
+Then choose **Register**. Kindgi shows what to give Google: the
+**Redirect URI** you entered in step 1, and a **RISC receiver (optional)**
+([When Google ends access](#when-google-ends-access)).
 
 ## 4. Connect
 
 Each person connects their own account. In a project, open
-**Connections → Connect → Google**, sign in to Google, and allow what's
-asked. Google lists it in plain words, such as "Send email on your behalf".
+**Connections**, choose **Connect an app**, pick Google, sign in to
+Google, and allow what's asked. Google lists it in plain words, such as "Send email on your behalf".
 
 The connection shows your Google account, what it allows, and when it was
 last used. Reconnecting later needs the same Google account.
 
-If you untick a permission on Google's page, Kindgi keeps what you allowed,
-and a tool that needs the rest can't use the connection.
+If you untick a permission on Google's page, Kindgi keeps what you allowed.
+A tool that needs the rest makes a run you started wait for you to allow
+it. In any other run, its call fails with `connection-missing`.
 
 ## Disconnecting
 
@@ -101,14 +105,16 @@ doesn't withdraw at Google, and only destroys this connection's token.
 
 ## When Google ends access
 
-- **Unused for six months,** Google ends a connection's access. The next
-  call that needs it asks its owner to connect again.
+- **Unused for six months,** Google ends a connection's access, and it
+  needs reconnecting. A run its owner started waits for them to connect
+  again. In any other run, the call fails with `connection-missing`, and
+  the **Connections** page shows it.
 - **Removed by the person at Google,** or their account disabled: Kindgi
   finds out at the next call, and the connection needs reconnecting.
 
 To hear about it at once, Google can send a notice to Kindgi
 ([Cross-Account Protection](https://developers.google.com/identity/protocols/risc)).
 It needs the runtime's public address to be reachable from the internet
-over HTTPS. Register the notices address the **App registrations** page
-shows for the client as your receiver
+over HTTPS. Register the **RISC receiver** address the **App
+registrations** page shows for the client as your receiver
 ([Notices from the app](../reference/#notices-from-the-app)).

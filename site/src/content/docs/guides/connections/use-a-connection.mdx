@@ -7,9 +7,9 @@ sidebar:
 ---
 
 A tool that acts in another app declares the connection it needs, the way
-it declares a secret. Kindgi finds the connection before each call, gets a
-short-lived token, and hands it to that call only. The handler never sees a
-stored token, and the token never goes into the run's journal, a log or an
+it declares a secret. Kindgi finds the connection before each call, and
+hands that call the connection's current short-lived token. The handler
+never sees a stored token, and the token never goes into the run's journal, a log or an
 approval.
 
 ## Before you start
@@ -53,8 +53,9 @@ handler: async (input, ctx) => {
 },
 ```
 
-- **`accessToken`** is good for this call. Don't keep it: the next call
-  gets its own.
+- **`accessToken`** is the connection's current short-lived token. Don't
+  keep it: Kindgi renews it shortly before it expires, and each call gets
+  the one that's current.
 - **`account`** is whose account it is, such as `ana@acme.com`.
 
 If the app refuses the token (`401`), throw `ConnectionRejectedError`.
@@ -67,7 +68,7 @@ as it is.
 An HTTP tool sends the token as a bearer header, with no code:
 
 ```ts excerpt
-auth: { kind: 'connection', connection: 'mail' },
+authorization: { kind: 'connection', connection: 'mail' },
 ```
 
 A `401` from the API counts as a refused token, as above.
@@ -82,20 +83,24 @@ input:
     yours;
   - in a run of a schedule or a webhook: its owner's. A schedule or webhook
     is owned by whoever created it, or last changed what it runs.
-  - in a run a service account started, or an event's run: none. The call
-    fails with `connection-needs-a-person`.
+  - in a run a service account started, an event's run, or a run of a
+    schedule or webhook a service account owns: none. The call fails with
+    `connection-needs-a-person`.
 - **`as: 'company'`** uses the company's connection, in any run in a
   project the registration allows.
 
 ## When the connection is missing
 
-- **In a run a person started,** the run waits for them to connect, or to
-  reconnect, or to allow a permission the connection lacks. Its page shows
+- **A person's own connection, in a run they started:** the run waits for
+  them to connect, or to reconnect, or to allow a permission the
+  connection lacks. Its page shows
   a **Connect** button, and the run goes on when they have. If they decline
   on the app's page, the call fails with `connection-declined`. If nobody
   connects in time, it fails with `connection-timed-out`.
-- **In any other run,** the call fails with `connection-missing`, naming
-  the app and what's missing.
+- **Anything else** fails the call with `connection-missing`, naming the
+  app and what's missing: a person's connection in a run they didn't
+  start, and the company's connection in any run, since only an admin
+  connects it.
 - **A flow's tool step can't wait,** so it fails with `connection-missing`
   the same way.
 
@@ -116,7 +121,10 @@ approval shows the account it acts as.
 reviewer seat at the approval's rank
 ([The Reviewers page](../../approvals/approvals-reference/#the-reviewers-page)).
 Without one, the call fails at once with
-`connection-approver-not-a-reviewer`, rather than waiting for nobody.
+`connection-approver-not-a-reviewer`, rather than waiting for nobody. A
+workspace admin sees such an approval but can't decide it
+(`named-approver-required`). It never escalates: if that person doesn't
+decide by its deadline, it expires.
 
 A rule that asks for a second person to approve (`separateApprover`) can't
 be met for a person's connection, so such a call fails with

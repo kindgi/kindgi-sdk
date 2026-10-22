@@ -25,8 +25,9 @@ it. Registering an app is for workspace admins only.
 ## Where the token is kept
 
 - **The long-lived token** (a refresh token) is one secret in your
-  workspace's secret store, written when the person connects. People's own
-  secret commands can't read or change it.
+  workspace's secret store, written when the person connects, and again
+  when the app hands out a new one. People's own secret commands can't
+  read or change it.
 - **Access tokens** are kept only in the runtime's memory, until shortly
   before they expire.
 - **A GitHub App connection keeps no token.** Each call's token is made from
@@ -47,8 +48,8 @@ connection and account a call used.
 - **If the app has ended the grant** (it answers `invalid_grant`), the
   connection needs reconnecting, and its stored token is destroyed.
 - **An idle connection lapses** when the app says so: Google ends access
-  unused for six months. The next call that needs it asks its owner to
-  connect again ([When the connection is missing](../use-a-connection/#when-the-connection-is-missing)).
+  unused for six months, and the connection then needs reconnecting
+  ([When the connection is missing](../use-a-connection/#when-the-connection-is-missing)).
 - **The connection's page shows when it was last used,** so you can
   disconnect what nobody uses.
 
@@ -91,8 +92,9 @@ If a disconnect stops part way, disconnecting again finishes it.
 
 ## Notices from the app
 
-An app can tell Kindgi when access ends on its side, at the notices address
-its registration shows. Each notice is checked by its signature.
+An app can tell Kindgi when access ends on its side, at the address its
+registration shows: GitHub's **Webhook URL**, or Google's **RISC
+receiver**. Each notice is checked by its signature.
 
 - **GitHub:**
   - the app uninstalled from your organization: its connections are

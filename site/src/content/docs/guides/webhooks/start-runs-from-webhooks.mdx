@@ -523,8 +523,9 @@ A run an event trigger starts reads the same, with `startedBy: "event"`.
   tools allowed unattended makes you its owner (runtime 0.1.12 or later),
   and its runs act as you from the next delivery. So your own access only
   serves what you set it to run. The label, scheme, delivery-id header and
-  limits leave its owner as it is, and a trigger a service account owns
-  keeps its owner, whoever changes it. Each change that moves the owner is
+  limits leave its owner as it is. A trigger a service account owns keeps
+  its owner, whoever changes it, and a service account that changes a
+  person's trigger becomes its owner. Each change that moves the owner is
   recorded as evidence, `trigger-owner-set`.
 - **`kindgi webhooks take-ownership <trigger-id>`:** for a trigger whose owner
   left. Once they're removed from the tenant, its deliveries are refused
