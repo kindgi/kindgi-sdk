@@ -74,7 +74,12 @@ secret), its runs act as them from then on, with their connections
 
   Without all three, the runtime logs at startup what it's missing:
   `connections to other apps are off: they need …`.
-- **An admin of the workspace,** to register each app.
+- **An admin of the workspace,** to register each app. Without
+  [authorization](../../deploy/authorization/), Kindgi still keeps these to
+  an admin: registering and changing apps, connecting the company's account,
+  and seeing other people's connections. It reads that from the key, which
+  must carry `tenant-admin`: a member's key or a key limited to a project
+  never does. The workspace's other settings then check only the API key.
 - **To approve what's sent from your own account, a reviewer seat**
   ([The Reviewers page](../approvals/approvals-reference/#the-reviewers-page)).
 
