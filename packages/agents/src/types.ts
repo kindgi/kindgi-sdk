@@ -246,16 +246,12 @@ export interface BlockRef {
 /**
  * Per-agent behavior for multi-turn conversations. The agent chooses:
  *   - How many prior messages to load (`historyLimit`; unset = all).
- *   - Whether to auto-close a conversation after a period of inactivity
- *     (`autoCloseAfterInactiveSeconds` — checked at read time; unset =
- *     never auto-close).
  *   - A turn count after which each new turn waits for HITL approval
  *     before it runs (`hitlAfterTurns`; `hitl.afterTurns` takes
  *     precedence when both are set).
  */
 export interface ConversationPolicy {
   readonly historyLimit?: number;
-  readonly autoCloseAfterInactiveSeconds?: number;
   readonly hitlAfterTurns?: number;
   /**
    * HITL policy: the session gate (`afterTurns`) and the tool-level

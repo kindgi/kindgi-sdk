@@ -52,7 +52,7 @@ export function releaseNotes({ version, plugin }) {
     '',
     `- **Check the download:** \`sha256sum -c ${zip}.sha256\`, or on macOS \`shasum -a 256 -c ${zip}.sha256\`.`,
     `- **Install it** under **Plugins → Add Plugin → Upload Plugin** (**Add New Plugin** before WordPress 6.8), then activate it. It needs WordPress ${plugin.wordpress} or later and PHP ${plugin.php} or later.`,
-    `- **Connect it** as the guide says: ${docsBase(version)}/guides/approvals/ask-and-approve-in-wordpress/`,
+    `- **Connect it** as the guide says: ${docsBase(version)}/sites/wordpress/`,
     '',
   ].join('\n');
 }

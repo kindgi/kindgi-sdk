@@ -240,7 +240,7 @@ Or register it with `curl`:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/mcp/endpoints" \
-  -H "authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{"endpointId":"inventory","name":"Inventory","transport":"streamable-http",
        "config":{"transport":"streamable-http","url":"http://localhost:8791/mcp"},
        "scopeKind":"tenant"}'
@@ -259,9 +259,36 @@ The runtime connects, lists the server's tools and registers them. The
 
 The tools are now your tenant's:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi tools get inventory.stock_level
+pnpm exec kindgi tools get inventory.stock_level
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi tools get inventory.stock_level
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw tools get inventory.stock_level
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw tools get inventory.stock_level
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -296,6 +323,29 @@ tool's answer is the server's structured content, checked against it.
 Otherwise the answer is the text, parsed as JSON when the text is JSON.
 Servers built with the TypeScript MCP SDK often declare none: their `echo`
 tool answers `"Echo: hi"`.
+
+## Give some projects its tools
+
+The endpoint's scope decides which projects' runs can call its tools.
+Registered for the tenant, as above, the runs in every project can.
+Register it for one org, and only the runs in that org's projects can; for
+one project, only that project's runs can. In TypeScript, the scope is
+`{ kind: 'org', orgId: '<org-id>' }` or
+`{ kind: 'project', projectId: '<project-id>' }`. In the other languages
+and the API, `scopeKind` is `org` or `project`, and `scopeId` its id.
+
+- **Registering needs admin on that scope:** a tenant admin for the tenant,
+  an admin of the org or of the project for theirs.
+- **An endpoint id is unique in the tenant,** whatever its scope, so two
+  orgs' endpoints need two ids, such as `inventory-acme`.
+- **A run in another project** that names one of its tools is refused with
+  `reference-out-of-scope`, as
+  [What a project's runs can use](../../../concepts/projects-packs-values/#what-a-projects-runs-can-use)
+  shows.
+
+One MCP server registered for an org or the tenant gives all their projects
+the same tool, where a pack's own tool serves only its project
+([One tool for several clients](../../../concepts/projects-packs-values/#one-tool-for-several-clients)).
 
 ## Call its tools
 
@@ -347,9 +397,36 @@ Start a turn with a model that calls tools. Here it's Llama 3.1 on Ollama,
 as [Models](../../models/) sets up. `--agent` is the agent, and `--input`
 its input:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
+pnpm exec kindgi runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=my-pack.order-desk --input='{"userMessage":"How many units of SKU-2 are in stock?"}'
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 "appended": [
@@ -384,8 +461,11 @@ A flow step names it in `ref`, like any tool:
 To send a token, ask your coding agent: "My inventory MCP server wants a
 bearer token." You store the token itself, as below. For reference, it adds
 `secretRef` to the registration.
-Kindgi resolves the secret in the tenant's secrets when it connects, and
-sends it as `Authorization: Bearer <value>`:
+Kindgi reads the secret when it connects, at the scope recorded when the
+endpoint was registered
+([Where values live](../../../concepts/projects-packs-values/#where-values-live)),
+and sends it as `Authorization: Bearer <value>`. For an endpoint registered
+for the tenant, that's the tenant's secrets:
 
 ```json excerpt
 "secretRef": { "envName": "local", "name": "INVENTORY_TOKEN" }
@@ -501,7 +581,7 @@ a secret in two headers, or `Authorization` with a prefix other than
 MCP server wants an API key and a secret, each in a header of its own." For
 reference, it adds this to the registration:
 
-```json
+```json excerpt
 "auth": {
   "scheme": "header",
   "headers": [
@@ -515,7 +595,7 @@ Kindgi sends each header as `<name>: <prefix><secret>` on every request, the
 secrets resolved from the tenant's secrets when it connects. Reading the
 endpoint back shows the references only:
 
-```json
+```json excerpt
 "auth":{"scheme":"header","headers":[{"name":"X-Api-Key","secretRef":{"name":"INVENTORY_KEY","envName":"local"}},{"name":"X-Api-Secret","prefix":"Secret ","secretRef":{"name":"INVENTORY_SECRET","envName":"local"}}]}
 ```
 
@@ -613,7 +693,7 @@ use `auth` with `scheme: "header"`.
 It keeps working, and:
 - **reads back `[redacted]`** for each such header, its name kept:
 
-  ```json
+  ```json excerpt
   "config":{"url":"http://127.0.0.1:18766/mcp","headers":{"X-Region":"eu","X-Api-Key":"[redacted]","X-Api-Secret":"[redacted]"},"transport":"streamable-http"}
   ```
 - **never follows a redirect**, as an endpoint with `auth` or `secretRef`
@@ -623,7 +703,7 @@ It keeps working, and:
   23:53:20.206 WARN  [mcp] MCP endpoint "inventory-moved" skipped: mcp-auth-failed: MCP endpoint "inventory-moved" redirected (HTTP 307) a request carrying a credential header in its config.headers (X-Api-Key, X-Api-Secret): register the URL it redirects to endpointId=inventory-moved transport=streamable-http
   ```
 - **is named, never its value:** by the runtime at every start (`WARN`
-  `mcp-header-credential`), by its [`check mcp-header-credentials`](../../../deploy/operate/#checks-you-can-run-before-upgrading),
+  `mcp-header-credential`), by its [`check mcp-header-credentials`](../../../deploy/self-hosted/operate/#checks-you-can-run-before-upgrading),
   and by `kindgi doctor` against the runtime it points at:
 
   ```text
@@ -645,7 +725,7 @@ called it." For reference, it adds `"sendTraceparent": true` to the
 registration, and each tool call to the server carries the W3C `traceparent`
 of the run that made it, as a request header. The server's logs can then be
 matched to the run, as [Follow a request or a
-run](../../../deploy/logs/#follow-a-request-or-a-run) shows. Only the ids go:
+run](../../../deploy/self-hosted/logs/#follow-a-request-or-a-run) shows. Only the ids go:
 the trace id and a span id, never the tool's input or output. It's off by
 default, and HTTP transports only. A `stdio` server gets no headers, so `true`
 there is refused with `invalid-mcp-endpoint`, reason
@@ -765,13 +845,13 @@ The runtime lists an endpoint's tools when the endpoint is registered. It
 doesn't watch the server. To pick up new or changed tools, unregister the
 endpoint and register it again. A runtime serving one tenant, the default,
 also lists every endpoint's tools each time it starts, so restarting it works
-too. A runtime [serving many tenants](../../../deploy/serve-many-tenants/)
+too. A runtime [serving many tenants](../../../deploy/self-hosted/serve-many-tenants/)
 (`KINDGI_TENANCY=multi`) lists none when it starts: there, only unregistering
 and registering again does. `inventory` in the path is the endpoint's id:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/mcp/endpoints/inventory/unregister" \
-  -H "authorization: Bearer $KINDGI_API_TOKEN"
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 ```json
@@ -787,6 +867,89 @@ reconnects:
 ```json excerpt
   "failureMessage": "handler-error: Tool \"inventory.stock_level\" handler threw: mcp-call-failed: MCP endpoint \"inventory\" tool \"stock_level\": tools/call \"stock_level\" failed: fetch failed (the next call reconnects)",
 ```
+
+## When a tool id is taken
+
+An endpoint's tools are filed in your tenant's Default project, whatever
+the endpoint's scope. A tool id there is one kind or the other (runtime
+0.1.9 or later): an endpoint's tool, or a tool published to the runtime, by
+`kindgi tools publish` or by a pack's deploy. Only active versions count:
+once one kind's versions are unregistered, the id is free for the other.
+
+- **A publish or a reinstate of the other kind** is refused with a 409,
+  `tool-kind-mismatch`, and nothing is written. Its `details` name the tool
+  and the version, and the endpoint (`endpointId`) when the id is an
+  endpoint's tool. A refused reinstate leaves the version unregistered.
+- **A deploy into the Default project** of a pack with a tool whose id is an
+  endpoint's tool's id, such as a pack `inventory` with a tool
+  `inventory.stock_level`, is refused the same way, with `details.primitive`,
+  `details.id` and `details.endpointId`. Nothing is deployed: the deploy
+  rolls back what it had published.
+- **An endpoint that lists a tool whose id a published tool holds** skips
+  that tool and registers the others. The runtime's log says so, at `WARN`,
+  with `endpointId`, `toolName` and `publishedVersion`. Here a pack's tool
+  `inventory.stock_level` 1.0.0 was deployed before the endpoint `inventory`
+  was registered:
+
+```text
+07:53:33.159 WARN  [mcp] MCP endpoint "inventory" tool "stock_level" skipped: its id inventory.stock_level is a tool published here (version 1.0.0), not the endpoint's; unregister that tool's versions to free the id endpointId=inventory toolName=stock_level publishedVersion=1.0.0
+```
+
+A tool published during the sync, after it reads that id's versions and
+before it writes the endpoint's tool, is named without its version; the
+endpoint's tool is skipped all the same.
+
+To fix it, give one of them another id: rename the pack or the tool, or
+register the endpoint under another id. Or free the id: unregister the
+endpoint, as [When the server changes](#when-the-server-changes) shows, or
+the published tool's active versions, then publish, deploy or register
+again:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi tools versions inventory.stock_level
+pnpm exec kindgi tools unregister inventory.stock_level 1.0.0
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi tools versions inventory.stock_level
+uv run kindgi tools unregister inventory.stock_level 1.0.0
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw tools versions inventory.stock_level
+./kindgiw tools unregister inventory.stock_level 1.0.0
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw tools versions inventory.stock_level
+./kindgiw tools unregister inventory.stock_level 1.0.0
+```
+
+</TabItem>
+</Tabs>
+
+A pack deployed into another project can't take an endpoint's tool's id
+either, and nothing is deployed. The refusal is `tool-project-mismatch`,
+since a tool stays in the project its first version was published into,
+or `tool-kind-mismatch`.
+
+An id that holds both kinds' active versions from an earlier runtime is
+served as neither, as before. Until every active version of one kind is
+unregistered, a new version of either kind is refused. While a published
+version of the id is active, the endpoint's tool is skipped with the `WARN`
+above.
 
 ## Transports
 

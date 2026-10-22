@@ -613,9 +613,36 @@ doesn't have is refused before anything runs.
 
 With `kindgi dev` running in the pack, start a run from a second terminal:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.process-order --input='{"orderId":"A-100"}'
+pnpm exec kindgi runs start --flow=acme.process-order --input='{"orderId":"A-100"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.process-order --input='{"orderId":"A-100"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.process-order --input='{"orderId":"A-100"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.process-order --input='{"orderId":"A-100"}'
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {

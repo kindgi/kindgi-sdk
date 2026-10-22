@@ -157,6 +157,61 @@ deployed pack installs production dependencies only, so a dev-only import
 works under `kindgi dev` and fails once deployed. `kindgi dev` warns when a
 tool imports one, and `kindgi build` refuses the pack until it moves.
 Build-time tools (the `prisma` CLI, `typescript`) stay in `devDependencies`.
+A default import of a package that ships only CommonJS can give a tool
+something other than what your app gets:
+see [A CommonJS package in TypeScript](../../guides/tools/write-a-tool/#a-commonjs-package-in-typescript).
+
+### Code that imports `server-only`
+
+A tool can't import a module that starts with `import 'server-only'`, as
+Next.js server code often does, or a module that imports one. That line is
+for Next.js's build, which refuses a client component that imports the
+module. Anywhere else, it stops the module from loading, so `kindgi test`,
+`kindgi dev` and `kindgi build` (and so `kindgi deploy`) fail on the tool.
+
+When your app doesn't have the `server-only` package (Next.js doesn't need
+it), none of the pack's code builds, and `kindgi dev` loads none of it:
+
+```text
+…
+  Indexer failed: [bundle-failed] The pack's code did not build:
+      lib/requests.ts:1:7: Could not resolve "server-only"
+…
+```
+
+When it has the package, `kindgi dev` loads the pack without that tool. The
+error is the package's own, though a tool isn't a Client Component:
+
+```text
+…
+    ⚠ indexer: kindgi/tools/get-request/index.ts [file-import-failed] Failed to import kindgi/tools/get-request/index.ts: Error: This module cannot be imported from a Client Component module. It should only be used from a Server Component.
+…
+```
+
+Keep the line, and move the code the tool needs into a module without it.
+Ask your coding agent: "Our request lookup imports server-only: share it
+with the Kindgi tool." For reference, the code in `lib/requests.ts` moves,
+as it is, to `lib/requests-core.ts`, without the `import 'server-only'`
+line. `lib/requests.ts` keeps the line and passes the code on, so your
+app's own imports don't change:
+
+```ts
+// lib/requests.ts
+import 'server-only';
+
+export * from './requests-core';
+```
+
+The tool imports the module without the line:
+
+```ts excerpt
+// in kindgi/tools/get-request/index.ts
+import { findRequest } from '@/lib/requests-core'; // your app's own code
+```
+
+Next.js's build still refuses a client component that imports
+`lib/requests.ts`. Nothing guards `lib/requests-core.ts`, so import it only
+from your app's server code and from the pack.
 
 ## An agent that uses it
 
@@ -327,16 +382,66 @@ const config = {
 With a `prisma.config.ts`, name it too:
 `prisma({ schema: 'prisma/schema.prisma', config: 'prisma.config.ts' })`.
 
+A build step's tool is often a dev dependency (the `prisma` CLI), so with
+build steps the install takes your dev dependencies too, and drops them after
+the steps; without any, it installs production dependencies only. Yarn 2 or
+later always takes them and drops them after, as its production install
+resolves what `yarn.lock` lacks instead of failing, even with
+`enableImmutableInstalls` on. The build says which:
+
+```text
+    ✓ Install: dev dependencies too, for the build steps (prisma), whose tools can be dev dependencies; pruned to production after
+```
+
+The install reads your registry config (`.npmrc`, and Yarn's `.yarnrc` or
+`.yarnrc.yml`) while it runs, and the image never holds it. When a slow
+registry makes the install time out, give each download longer, in
+milliseconds. With pnpm 10, in `.npmrc`:
+
+```ini excerpt
+fetch-timeout=180000
+fetch-retries=4
+```
+
+pnpm 11 and later don't read these from `.npmrc`: set them in
+`pnpm-workspace.yaml`, which the install takes too:
+
+```yaml excerpt
+fetchTimeout: 180000
+fetchRetries: 4
+```
+
 **Also under `image`:**
 - `systemPackages`: Debian packages the image needs, such as
   `['tesseract-ocr']`.
-- `buildEnv`: placeholder variables for the build steps and for loading your
-  modules while building, such as
+- `buildEnv`: placeholder variables for the install, the build steps and
+  loading your modules while building, such as
   `{ DATABASE_URL: 'postgresql://build-placeholder' }`. Never secrets: they're
-  set while building only, and the final image doesn't have them.
+  set while building only, and the final image doesn't have them. Your modules
+  load with `NODE_ENV=production` while building, as in the deployed service,
+  unless `buildEnv` sets `NODE_ENV`. A `NODE_ENV` in `buildEnv` doesn't change
+  which dependencies the install takes.
 - **patch-package:** when a skipped script runs it, `kindgi build` prints the
   build step to add (`defineBuildExtension`, also from `@kindgi/sdk/build`).
   With pnpm, `pnpm patch` applies your patches in the install itself.
+- `dependencies: 'loaded'`: the image downloads only the packages your tools
+  import, with their own dependencies, instead of every production dependency
+  of your app. On a Next.js app whose tools import `@kindgi/sdk` and `zod`, the
+  build says:
+
+  ```text
+      ✓ Install: only what the pack loads, 39 of the lockfile's 96 packages; production dependencies only
+        Left out 3 of the pack's own dependencies its tools don't import: next, react, react-dom
+  ```
+
+  A package your code loads by a name no import shows (a plugin named in a
+  config string) goes in `keep: ['pino-pretty']`. Most misses fail the build,
+  naming the package. What no check can see, such as a package loaded by a
+  name in a string, fails that call at run time, saying what to add to `keep`.
+  A `node_modules` out of date with your lockfile fails the build, saying what
+  to run. In a few cases, such as Yarn 2 or later or a local package (`link:`,
+  `file:`, `workspace:`) among what your tools import, the image downloads
+  everything and trims it after; the build says why. `'all'` is the default.
 
 The build ends with the image and a check of what's in it:
 
@@ -345,7 +450,7 @@ The build ends with the image and a check of what's in it:
     ✓ /app/index.json in the image matches the local index byte for byte
 ```
 
-[Self-host with Docker](../../deploy/self-host/) pushes, signs and deploys it.
+[Self-host with Docker](../../deploy/self-hosted/self-host/) pushes, signs and deploys it.
 
 ## Next
 
@@ -372,14 +477,14 @@ The build ends with the image and a check of what's in it:
     "esModuleInterop": true,
     "isolatedModules": true,
     "resolveJsonModule": true,
-    "paths": { "@/*": ["./src/*"] }
+    "paths": { "@/*": ["./*"] }
   },
-  "include": ["src/**/*.ts", "kindgi/**/*.ts"]
+  "include": ["lib/**/*.ts", "kindgi/**/*.ts"]
 }
 ```
 
 ```ts
-// src/lib/requests.ts
+// lib/requests-core.ts
 export function findRequest(id: string): { subject: string; body: string } | undefined {
   return id === 'REQ-1234' ? { subject: 'Refund', body: 'I was charged twice.' } : undefined;
 }

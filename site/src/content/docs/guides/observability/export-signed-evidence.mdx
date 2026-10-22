@@ -87,7 +87,7 @@ The verifiers in [Check an export](#check-an-export) check either. They refuse a
 The runtime publishes its key's public half. Pin it, so you can tell your deployment's exports from anyone else's:
 
 ```sh
-curl "$KINDGI_API_URL/v1/export-signing-keys" -H "Authorization: Bearer $KINDGI_API_TOKEN"
+curl "$KINDGI_API_URL/v1/export-signing-keys" -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 It answers with the keys as JSON, the active one first. Each key has an id derived from it, `ex_…`, so the same key keeps its id across restarts. Its `fingerprint`, `sha256:…`, is there to compare by eye, and `publicKeyPem` is its public half.
@@ -96,17 +96,47 @@ It answers with the keys as JSON, the active one first. Each key has an id deriv
 
 Export an approval by its id, or a run's provenance by the run's id. Each prints the signed export, and `>` saves it:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi approvals export 0b6e3c1e-2f4f-4a51-9d0e-7a1f2c3d4e5f > approval.json
-kindgi provenance export 11a79b0a-ebdd-4d21-9e66-e0cacaea50e8 > provenance.json
+pnpm exec kindgi approvals export 0b6e3c1e-2f4f-4a51-9d0e-7a1f2c3d4e5f > approval.json
+pnpm exec kindgi provenance export 11a79b0a-ebdd-4d21-9e66-e0cacaea50e8 > provenance.json
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals export 0b6e3c1e-2f4f-4a51-9d0e-7a1f2c3d4e5f > approval.json
+uv run kindgi provenance export 11a79b0a-ebdd-4d21-9e66-e0cacaea50e8 > provenance.json
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals export 0b6e3c1e-2f4f-4a51-9d0e-7a1f2c3d4e5f > approval.json
+./kindgiw provenance export 11a79b0a-ebdd-4d21-9e66-e0cacaea50e8 > provenance.json
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals export 0b6e3c1e-2f4f-4a51-9d0e-7a1f2c3d4e5f > approval.json
+./kindgiw provenance export 11a79b0a-ebdd-4d21-9e66-e0cacaea50e8 > provenance.json
+```
+
+</TabItem>
+</Tabs>
 
 - **An approval** must be decided: approved, rejected, escalated, expired or withdrawn. An open one answers `409 approval-not-decided`. `--include-messages` adds the conversation of the approval's run.
 - **Compliance evidence** is exported over HTTP. With no body, it covers every kind the classifier marks exportable. Here `filter` keeps one run's events:
 
   ```sh
   curl -X POST "$KINDGI_API_URL/v1/compliance/evidence/export" \
-    -H "Authorization: Bearer $KINDGI_API_TOKEN" \
+    -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
     -H 'content-type: application/json' \
     -d '{ "filter": { "runId": "11a79b0a-ebdd-4d21-9e66-e0cacaea50e8" } }' > evidence.json
   ```
@@ -121,8 +151,10 @@ To check one from your code, ask your coding agent: "I want to check that an exp
 <TabItem label="CLI">
 
 ```sh
-kindgi exports verify approval.json --from-runtime
+pnpm exec kindgi exports verify approval.json --from-runtime
 ```
+
+In a Python project that's `uv run kindgi …`, and in Java or Scala `./kindgiw …`.
 
 `--from-runtime` trusts the keys the runtime lists. An auditor without access checks against the key you gave them, with `--trust=export-signing.pub.pem`. Repeat it for several keys. It prints the check as JSON: `valid`, and `signingKeyId`, the id of the key that signed. It exits 0 when the export checks out and 1 when it doesn't, saying why.
 
@@ -184,12 +216,44 @@ An auditor without access to your deployment passes the PEM you gave them: `trus
 </TabItem>
 <TabItem label="Java">
 
-Not in the Java SDK. Check an export with the CLI, `./kindgiw exports verify <file> --from-runtime` in a Java pack (the CLI tab).
+```java
+// src/main/java/com/acme/app/VerifyExport.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.exports.SignedExportVerification;
+import com.kindgi.client.exports.SignedExports;
+import com.kindgi.client.models.ExportSigningKey;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+
+public final class VerifyExport {
+  public static void main(String[] args) throws IOException {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    String exported = Files.readString(Path.of(args.length > 0 ? args[0] : "approval.json"));
+    List<String> keys =
+        kindgi.exportSigningKeys().list().data().stream()
+            .map(ExportSigningKey::publicKeyPem)
+            .toList();
+
+    SignedExportVerification checked = SignedExports.verify(exported, keys);
+    if (!checked.valid()) {
+      throw new IllegalStateException(String.join("; ", checked.issues()));
+    }
+    System.out.println("signed by " + checked.signingKeyId());
+  }
+}
+```
+
+`SignedExports.verify` checks with the JDK's own crypto, so there's nothing extra to install. An auditor without access to your deployment passes the PEM you gave them as the trusted keys: `SignedExports.verify(exported, List.of(Files.readString(Path.of("export-signing.pub.pem"))))`.
 
 </TabItem>
 <TabItem label="Scala">
 
-Not in the Scala SDK. Check an export with the CLI, `./kindgiw exports verify <file> --from-runtime` in a Scala pack (the CLI tab).
+Scala apps use the Java helper: call `SignedExports.verify` from `com.kindgi.client.exports` as the Java tab shows. It takes the export as JSON and the trusted PEMs as a `java.util.List[String]`, and returns a `SignedExportVerification` with `valid`, `signingKeyId` and `issues`.
 
 </TabItem>
 </Tabs>
@@ -240,7 +304,7 @@ Replace the key and restart: the file, the secret's version, or the KMS key vers
 An export signed before still checks out against the old public key wherever you pinned it. For `--from-runtime` to keep trusting it, list the old key as retired. Save its public half before you replace it:
 
 ```sh
-curl -s "$KINDGI_API_URL/v1/export-signing-keys" -H "Authorization: Bearer $KINDGI_API_TOKEN" \
+curl -s "$KINDGI_API_URL/v1/export-signing-keys" -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
   | jq -r '.data[] | select(.active) | .publicKeyPem' >> export-signing-retired.pem
 ```
 
@@ -261,4 +325,4 @@ Then give the runtime the file, in one of these:
 
 - [Trace an answer and its cost](../trace-an-answer/)
 - [Decide an approval](../../approvals/decide-an-approval/)
-- [Keep secrets in your own secret manager](../../../deploy/secret-manager/)
+- [Keep secrets in your own secret manager](../../../deploy/self-hosted/secret-manager/)

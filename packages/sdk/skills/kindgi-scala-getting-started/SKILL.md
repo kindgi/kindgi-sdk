@@ -16,7 +16,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.2"
+version: "0.1.3"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -174,7 +174,10 @@ It takes over at the next turn. That registration is in this project's dev
 database only. To have `kindgi dev` register it on every boot, in every
 worktree and after `--reset`, declare it in `kindgi.config.json`:
 `"providers": [{"preset": "anthropic"}]` (its key, `ANTHROPIC_API_KEY`, comes
-from the env files). Details and other providers: `kindgi-authoring-providers`.
+from the env files). Commit it: it holds the key's name, never the key, and
+it's how a teammate's `kindgi dev`, or another worktree's, gets the same
+provider. Restart `kindgi dev` after adding it: the config isn't watched.
+Details and other providers: `kindgi-authoring-providers`.
 
 To see what Kindgi sees (the index), with no runtime:
 

@@ -39,7 +39,7 @@ The preset reads the key from a secret named in the table. In the pack,
 store it. Here it's OpenAI's:
 
 ```sh
-kindgi secrets set OPENAI_API_KEY --env=local --scope=tenant
+pnpm exec kindgi secrets set OPENAI_API_KEY --env=local --scope=tenant
 ```
 
 - `OPENAI_API_KEY` is the secret's name, the one the preset reads.
@@ -60,7 +60,7 @@ env files out of git. `kindgi init` already keeps `.kindgi/` out.
 Register the preset's models with the runtime. `--preset` names the preset:
 
 ```sh
-kindgi providers register --preset=openai
+pnpm exec kindgi providers register --preset=openai
 ```
 
 ```text

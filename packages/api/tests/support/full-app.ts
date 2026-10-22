@@ -32,6 +32,7 @@ import type {
   CreateAppInput,
   DeploymentBinding,
   EnvBinding,
+  EnvironmentOrderBinding,
   EvalCaseStoreBinding,
   EvalRunBinding,
   EvalSuiteRegistryBinding,
@@ -567,6 +568,19 @@ const noopEnvBinding: EnvBinding = {
   delete: async () => ({ deleted: false }),
 };
 
+const noopEnvironmentOrderBinding: EnvironmentOrderBinding = {
+  list: async () => ({ orders: [] }),
+  get: async ({ parent }) => ({ parent, entries: [] }),
+  set: async ({ parent }) => ({
+    kind: 'ok',
+    order: { parent, entries: [] },
+    before: [],
+    after: [],
+  }),
+  orderOf: async () => undefined,
+  hasEnvironmentOrder: async () => false,
+};
+
 const noopSecretsBinding: SecretBinding = {
   list: async () => ({ data: [] }),
   get: async () => null,
@@ -665,6 +679,7 @@ export function fullAppInput(): CreateAppInput {
     teamProjectGrantBinding: projectTrio.grants,
     envBinding: noopEnvBinding,
     secretsBinding: noopSecretsBinding,
+    environmentOrders: noopEnvironmentOrderBinding,
     webhookReceiver: { envName: 'test' as EnvName },
     // Every method answers "nothing here": the drift tests only need the routes.
     // Sites need authorization on: everything is granted here.
@@ -742,6 +757,15 @@ export function fullAppInput(): CreateAppInput {
       setLimits: async () => {
         throw new Error('not used: no system principal in the sweeps');
       },
+    },
+    usage: {
+      acrossTenants: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
+      ofTenant: async () => ({
+        kind: 'ok',
+        page: { data: [], watermark: '2026-10-01T00:00:00.000Z' },
+      }),
     },
   };
 }

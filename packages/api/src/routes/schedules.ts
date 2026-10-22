@@ -11,6 +11,7 @@ import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
 import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
+import { type ItemRights, runIn, writeWhereMade } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
   type ReferenceScopeBinding,
@@ -61,6 +62,10 @@ import { UUID_RE } from './uuid-param.js';
  * ownership `admin`, and registering or retargeting also needs `execute`
  * on what it runs, as starting that run does. The `triggerId` is aliased
  * as `scheduleId` in bodies.
+ *
+ * What it runs, when more than one project serves it (`item-rights.ts`):
+ * from a schedule in one of them, that project's right, as a run naming
+ * it; an improvement pass, `write` where the agent's versions are made.
  */
 export function schedulesRouter(
   binding: TriggerRegistryBinding,
@@ -73,6 +78,8 @@ export function schedulesRouter(
   referenceScope?: ReferenceScopeBinding,
   /** Where an owner change is recorded (`trigger-owner-set`); absent → not recorded. */
   auditEvents?: AuditEventBinding,
+  /** Rights on what a schedule runs, when more than one project serves it. Absent: one project each. */
+  itemRights?: ItemRights,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -101,6 +108,33 @@ export function schedulesRouter(
       allowed = true;
     });
     return allowed ? undefined : (answer as Response);
+  }
+
+  /**
+   * What firing `target` from a schedule in `projectId` needs, as starting
+   * it by hand does (`targetAccess`); for a target more than one project
+   * serves, as the module says.
+   */
+  async function targetRefused(
+    c: Context<AppEnv>,
+    target: TriggerTarget,
+    projectId: string | undefined,
+  ): Promise<Response | undefined> {
+    const item =
+      target.kind === 'flow'
+        ? { kind: 'flow' as const, id: target.flowId }
+        : { kind: 'agent' as const, id: target.agentId };
+    const served =
+      authorizer === undefined ? undefined : await itemRights?.multi(c, item.kind, item.id);
+    if (itemRights !== undefined && served !== undefined) {
+      if (target.kind === 'improve') {
+        return writeWhereMade(c, itemRights, item, served, `improving agent "${item.id}"`);
+      }
+      if (projectId !== undefined && served.includes(projectId as ProjectId)) {
+        return runIn(c, itemRights, item, projectId);
+      }
+    }
+    return denied(c, ...targetAccess(target));
   }
 
   /** The schedule, if it is one (another kind's id is not found here), and the caller may `action` it. */
@@ -157,7 +191,7 @@ export function schedulesRouter(
       (project === undefined
         ? await denied(c, 'admin', ref('tenant', tenantId as unknown as string))
         : await denied(c, 'write', ref('project', project))) ??
-      (await denied(c, ...targetAccess(target.value)));
+      (await targetRefused(c, target.value, project));
     if (refused !== undefined) return refused;
     // What it runs must be its project's to reach (`reference-scope.ts`).
     if (project !== undefined) {
@@ -324,7 +358,11 @@ export function schedulesRouter(
         found.value.projectId as unknown as string,
       );
       if (scopeProblem !== undefined) return bad(c, requestId, scopeProblem);
-      const refused = await denied(c, ...targetAccess(target.value));
+      const refused = await targetRefused(
+        c,
+        target.value,
+        found.value.projectId as unknown as string,
+      );
       if (refused !== undefined) return refused;
       // A new target must be the schedule's project's to reach, as at registration.
       if (found.value.projectId !== undefined) {
@@ -447,7 +485,11 @@ export function schedulesRouter(
     const found = await scheduleFor(c, 'admin');
     if (found.kind === 'err') return found.response;
     if (binding.setOwner === undefined) return unsupported(c, requestId, 'changing the owner');
-    const refused = await denied(c, ...targetAccess(found.value.target));
+    const refused = await targetRefused(
+      c,
+      found.value.target,
+      found.value.projectId as unknown as string,
+    );
     if (refused !== undefined) return refused;
     // The caller takes it over, or names a service account with
     // `runAsServiceAccountId` in an optional body (gated by `act_as`).

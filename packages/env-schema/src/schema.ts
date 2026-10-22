@@ -201,6 +201,42 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_DB_STATEMENT_TIMEOUT_MS',
+    description:
+      "Used from runtime 0.1.9; earlier runtimes ignore it. How long one statement on the server's database connections may run before Postgres ends it (`statement_timeout`), in milliseconds. Default 60000 (60 s); 0 turns it off. A whole number up to 2147483647, longer than `KINDGI_DB_LOCK_TIMEOUT_MS` when both are on; anything else stops the boot, naming the variable. The migrations at boot, an index built `CONCURRENTLY` and the admin commands (`kindgi-runtime tenants …`, `check …`, `erasures …`) run with none. A GET or HEAD it ends answers 503 `database-busy` with `Retry-After: 5` (under `/auth/`, a browser signing in is sent back to the sign-in page instead), any other request the usual 500, and the server's log has a `db` warning naming the setting, its value and this variable.",
+    example: '60000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_DB_LOCK_TIMEOUT_MS',
+    description:
+      "Used from runtime 0.1.9; earlier runtimes ignore it. How long a statement on the server's database connections may wait for a lock before Postgres ends it (`lock_timeout`), in milliseconds. Default 30000 (30 s); 0 turns it off. A whole number up to 2147483647, shorter than `KINDGI_DB_STATEMENT_TIMEOUT_MS` when both are on (a lock wait is part of a statement's time); anything else stops the boot, naming the variable. The admin commands keep it; an index built `CONCURRENTLY` waits with none. The migrations wait 5 s a try, tried 6 times, then the boot fails naming the table and the sessions holding it. A GET or HEAD it ends answers 503 `database-busy` with `Retry-After: 5` (under `/auth/`, a browser signing in is sent back to the sign-in page instead), any other request the usual 500, and the server's log has a `db` warning naming the setting, its value and this variable.",
+    example: '30000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS',
+    description:
+      "Used from runtime 0.1.9; earlier runtimes ignore it. How long a transaction on the server's database connections may sit idle between statements before Postgres ends its session (`idle_in_transaction_session_timeout`), in milliseconds. Default 30000 (30 s); 0 turns it off. A whole number up to 2147483647; anything else stops the boot, naming the variable. The admin commands keep it.",
+    example: '30000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_DB_POOL_WAIT_TIMEOUT_MS',
+    description:
+      "Used from runtime 0.1.9; earlier runtimes ignore it. How long a query waits for one of the server's pooled database connections while every one is taken, in milliseconds. Default 10000 (10 s); 0 turns it off, and a query waits as long as it takes. A whole number up to 2147483647; anything else stops the boot, naming the variable. Past it the query fails before it runs: a GET or HEAD answers 503 `database-busy` with `Retry-After: 5` (under `/auth/`, a browser signing in is sent back to the sign-in page instead), any other request 500, and the server's log has a `db` warning naming the setting, its value and this variable. It bounds the server's own pool only: the admin commands (`kindgi-runtime tenants …`, `check …`, `erasures …`) wait as long as it takes.",
+    example: '10000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_OPENFGA_API_URL',
     description:
       'OpenFGA HTTP API URL. Set → per-tenant FGA stores are bootstrapped and authorization is enforced; unset → routes mount without enforcement (dev only; production MUST set it).',
@@ -324,7 +360,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_USAGE_METERING',
     description:
-      "Used from runtime 0.1.8; earlier runtimes ignore it. Whether the server counts usage. `on`: it records each run when it's created (with its class: `production`, `staging`, `dry-run`, `replay`, `eval` or `child`) and when it ends, each approval asked for and decided, each model call, and each project put in production or taken out. Each is counted exactly once, in the same transaction as what it counts. `/v1/cost/*` reads a tenant's own counts. Unset or `off`: model calls are counted as before, and nothing else. `KINDGI_TENANCY=multi` starts only with `on`.",
+      "Used from runtime 0.1.8; earlier runtimes ignore it. Whether the server counts usage. `on`: it records each run when it's created (with its class: `production`, `staging`, `dry-run`, `replay`, `eval` or `child`) and when it ends, each approval asked for and decided, each model call, and each project put in production or taken out. Each is counted exactly once, in the same transaction as what it counts. `/v1/cost/*` reads a tenant's own counts, and from runtime 0.1.10 `on` also answers `GET /v1/usage` and `GET /v1/system/usage`. Unset or `off`: model calls are counted as before, nothing else is, and those usage reads answer 404. `KINDGI_TENANCY=multi` starts only with `on`.",
     example: 'on',
     required: false,
     appliesTo: appliesToServer,
@@ -363,6 +399,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       'The env this runtime serves. The secrets and env values a tool declares by name (`needsSpec.secrets`, `needsSpec.env`) resolve under this env name. Unset: `local` in development mode (secrets from the `.env` and `.env.local` files, env values from `/v1/env`); otherwise a tool that declares either fails its calls, naming this variable.',
     example: 'production',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_REFUSE_OTHER_ENVS',
+    description:
+      '`true`: this runtime keeps every value under the env it serves (`KINDGI_ENV`, which must then be set). A secret or env value written under another env, or a model provider, MCP endpoint or webhook endpoint naming its secret under another, is refused (`409 env-not-served`): it would never be read. Reads and deletes under any env still work, and a secret that a registration made before names under its own env can still be written, so it can be rotated. Unset or `false`: any env is taken.',
+    example: 'true',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -620,6 +665,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_AUTH_TERMS_URL',
+    description:
+      "The deployment's terms, which the console's sign-in page links as \"Terms\" (sign-in options' `legal.termsUrl`). An absolute https URL with no username or password; anything else, and the runtime refuses to start. Set on its own or with `KINDGI_AUTH_PRIVACY_URL`.",
+    example: 'https://example.com/terms',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_PRIVACY_URL',
+    description:
+      "The deployment's privacy policy, which the console's sign-in page links as \"Privacy\" (sign-in options' `legal.privacyUrl`). An absolute https URL with no username or password; anything else, and the runtime refuses to start. Set on its own or with `KINDGI_AUTH_TERMS_URL`.",
+    example: 'https://example.com/privacy',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_TRUSTED_PROXIES',
     description:
       "Which proxies in front of the runtime to trust for the client's address, which rate limits and audit records use. Unset: the connection's peer, and `X-Forwarded-For` is ignored (anyone can send it). A hop count (`1` behind one proxy such as a cloud load balancer or ingress, `2` behind two) or comma-separated IPs/CIDR ranges of your proxies: the client is the first `X-Forwarded-For` hop, from the right, that isn't one of them; never the leftmost on its own. Behind a proxy without this, every client counts as the proxy, so rate limits are shared by everyone.",
@@ -713,7 +776,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_EGRESS_SERVER_ADDRESSES',
     description:
-      "Used from runtime 0.1.8.1; earlier runtimes ignore it. The IP addresses this server's own calls to other sites come from, such as its calls to MCP servers and model providers, and its webhook deliveries: comma-separated IPv4 or IPv6 addresses, such as your NAT's. It publishes them for a site that admits only known addresses: `GET /v1/tenant` shows them to every tenant as `egress.server`, and `kindgi egress` prints them. It changes nothing about where calls go or come from, so set it only once calls really come from these addresses. A value that isn't an IP address stops the server from starting.",
+      "Used from runtime 0.1.9; earlier runtimes ignore it. The IP addresses this server's own calls to other sites come from, such as its calls to MCP servers and model providers, and its webhook deliveries: comma-separated IPv4 or IPv6 addresses, such as your NAT's. It publishes them for a site that admits only known addresses: `GET /v1/tenant` shows them to every tenant as `egress.server`, and `kindgi egress` prints them. It changes nothing about where calls go or come from, so set it only once calls really come from these addresses. A value that isn't an IP address stops the server from starting.",
     example: '192.0.2.10',
     required: false,
     appliesTo: appliesToServer,
@@ -722,7 +785,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_EGRESS_DEPLOYMENT_ADDRESSES',
     description:
-      "Used from runtime 0.1.8.1; earlier runtimes ignore it. The IP addresses calls made by the code deployed to this server come from: comma-separated IPv4 or IPv6 addresses. As with `KINDGI_EGRESS_SERVER_ADDRESSES`, it only publishes them: `GET /v1/tenant` shows them to every tenant as `egress.deployments`, and `kindgi egress` prints them. A value that isn't an IP address stops the server from starting.",
+      "Used from runtime 0.1.9; earlier runtimes ignore it. The IP addresses calls made by the code deployed to this server come from: comma-separated IPv4 or IPv6 addresses. As with `KINDGI_EGRESS_SERVER_ADDRESSES`, it only publishes them: `GET /v1/tenant` shows them to every tenant as `egress.deployments`, and `kindgi egress` prints them. A value that isn't an IP address stops the server from starting.",
     example: '198.51.100.20,198.51.100.21',
     required: false,
     appliesTo: appliesToServer,
@@ -839,7 +902,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ERASURE_LEDGER_EXPORT',
     description:
-      'Where the server keeps copies of the erasure ledger, off the database, so erasures can be replayed after a backup restore: `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs). On an interval (`KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS`) it writes the ledger of every tenant it serves as one file (keyed hashes only, never whom an erasure names), as `kindgi memory erasures export` does for one tenant: a new file when the ledger changed, and at least one a day. It never overwrites or deletes one; keep them longer than your backups. Replay the newest after a restore with `kindgi-runtime erasures replay`. Unset (the default): the ledger stays in the database only.',
+      'Where the server keeps copies of the erasure ledger, off the database, so erasures can be replayed after a backup restore: `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs). On an interval (`KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS`) it writes the ledger of every tenant it serves as one file (keyed hashes only, never whom an erasure names), as `kindgi memory erasures export` does for one tenant, and names every tenant marked purged, by id and when it was created: a new file when either changed, and at least one a day. It never overwrites or deletes one; keep them longer than your backups. After a restore, replay the newest with `kindgi-runtime erasures replay`, then purge the purged tenants again with `kindgi-runtime tenants repurge`, which reads the newest copy here by default. Unset (the default): the ledger stays in the database only.',
     example: 'gcs:acme-erasure-ledger/runtime',
     required: false,
     appliesTo: appliesToServer,
@@ -850,6 +913,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       'How often the server writes the erasure ledger to `KINDGI_ERASURE_LEDGER_EXPORT`, in milliseconds. An erasure made after the last copy and after the restore point is in neither, so this bounds what a restore can miss. Default 3600000 (an hour). At least 60000, and needs `KINDGI_ERASURE_LEDGER_EXPORT`, or the server refuses to start.',
     example: '900000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_TENANT_PURGE_RECORD',
+    description:
+      "Where the server writes a purged tenant's record, off the database, so a restore from an older backup purges it again: `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs). Each record is `purged/<tenant id>.json` there, as `kindgi-runtime tenants purge --record` writes it, and `kindgi-runtime tenants repurge --from` purges again every tenant one names, after a restore. It never overwrites or deletes one; keep them longer than your backups. On a runtime serving many tenants, `POST /v1/system/tenants/{tenantId}/purge` needs it: unset (the default), that route refuses every purge with `409 purge-record-unset`. A value that is neither form stops the server from starting.",
+    example: 'gcs:acme-purge-records/runtime',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -947,7 +1019,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_TEMPLATE_RENDER_WORKERS',
     description:
-      "Used from runtime 0.1.8.1; earlier runtimes ignore it. How many worker processes the server renders a turn's instruction template in, off the thread that runs the turn. Default 1 on a runtime serving many tenants (`KINDGI_TENANCY=multi`): one worker process, started at the first render and shared across turns; a higher count lets several templates render at once. Default 0 on a runtime serving one: the template renders in the server process, as before, and no worker starts. A runtime serving one tenant gives a render no time limit: with workers turned on there, a render that never ends holds its worker until a restart, and the turns after it wait for a free worker. Each worker holds about 67 MiB at rest, and up to its heap cap (`KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB`) under load. A value that isn't a whole number of at least 0 stops the server at boot, naming this variable (exit code 2).",
+      "Used from runtime 0.1.9; earlier runtimes ignore it. How many worker processes the server renders a turn's instruction template in, off the thread that runs the turn. Default 1 on a runtime serving many tenants (`KINDGI_TENANCY=multi`): one worker process, started at the first render and shared across turns; a higher count lets several templates render at once. Default 0 on a runtime serving one: the template renders in the server process, as before, and no worker starts. A runtime serving one tenant gives a render no time limit: with workers turned on there, a render that never ends holds its worker until a restart, and the turns after it wait for a free worker. Each worker holds about 67 MiB at rest, and up to its heap cap (`KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB`) under load. A value that isn't a whole number of at least 0 stops the server at boot, naming this variable (exit code 2).",
     example: '1',
     required: false,
     appliesTo: appliesToServer,
@@ -956,7 +1028,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB',
     description:
-      "Used from runtime 0.1.8.1; earlier runtimes ignore it. Each template-render worker process's old-space heap cap, in MiB (`--max-old-space-size`), when `KINDGI_TEMPLATE_RENDER_WORKERS` is 1 or more; unused when it is 0. Default 128. A value that isn't a whole number of at least 1 stops the server at boot, naming this variable (exit code 2).",
+      "Used from runtime 0.1.9; earlier runtimes ignore it. Each template-render worker process's old-space heap cap, in MiB (`--max-old-space-size`), when `KINDGI_TEMPLATE_RENDER_WORKERS` is 1 or more; unused when it is 0. Default 128. A value that isn't a whole number of at least 1 stops the server at boot, naming this variable (exit code 2).",
     example: '128',
     required: false,
     appliesTo: appliesToServer,
@@ -997,7 +1069,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SECRETS_BACKEND',
     description:
-      'Where secret bytes live. `none` (default; /v1/secrets/* unmounted) | `postgres` (envelope-encrypted, needs KMS) | `dotenv` (`.env` files in a directory; development only, needs `KINDGI_DEV=true`) | `secret-manager` (your own secret manager holds the bytes; pick it with `KINDGI_SECRETS_MANAGER`).',
+      'Where secret bytes live. `none` (default; /v1/secrets/* unmounted, and tenants register no identity providers) | `postgres` (envelope-encrypted, needs KMS) | `dotenv` (`.env` files in a directory; development only, needs `KINDGI_DEV=true`) | `secret-manager` (your own secret manager holds the bytes; pick it with `KINDGI_SECRETS_MANAGER`).',
     example: 'postgres',
     required: false,
     appliesTo: appliesToServer,

@@ -62,7 +62,9 @@ export interface AuthClient {
    * needed): the identity providers for the email's domain, each with a
    * `signInUrl` for the browser. Sign-in is email first: with no email,
    * the list is empty. `methods` says which ways in the deployment allows
-   * (both `false`: nobody can sign in to the console).
+   * (both `false`: nobody can sign in to the console). `legal`, when its
+   * operator set them, has its terms and privacy policy for a sign-in page
+   * to link.
    * @wire GET /v1/auth/sign-in-options
    */
   signInOptions(input?: { readonly email?: string }): Promise<SignInOptionsResult>;

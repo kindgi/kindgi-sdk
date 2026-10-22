@@ -23,9 +23,36 @@ inside it.
 
 A cancel stops the run wherever it is, and ends it as `cancelled`.
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs cancel <run-id>
+pnpm exec kindgi runs cancel <run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs cancel <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs cancel <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs cancel <run-id>
+```
+
+</TabItem>
+</Tabs>
 
 `<run-id>` is the run's id. It prints:
 

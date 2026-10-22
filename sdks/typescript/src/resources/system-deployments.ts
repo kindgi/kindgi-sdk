@@ -5,19 +5,32 @@ import type {
   DeploymentEndpoint,
   PackSuspension,
   RecordDeploymentProblemBody,
+  RecordPackEnvBody,
   SetPackEndpointBody,
   SetPackSuspendedBody,
   SystemDeploymentPage,
+  SystemPackEnv,
+  SystemPackEnvPage,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 
 /** A deployment as whatever runs its pack service needs it; `reason` in the `retire` list only. */
 export type SystemDeploymentEntry = SystemDeploymentPage['data'][number];
 export type { SystemDeploymentPage };
+/** A deployment whose pack service runs on changed values, with the revision it runs (`appliedRevision`). */
+export type SystemPackEnvEntry = SystemPackEnvPage['data'][number];
+export type { SystemPackEnvPage };
 export type PackEndpointSpec = SetPackEndpointBody;
 export type DeploymentEndpointProblemSpec = RecordDeploymentProblemBody;
 export type PackSuspensionSpec = SetPackSuspendedBody;
 export type { PackSuspension };
+/**
+ * Where each name a deployment's pack declares is set, and the values when
+ * nothing stands in the way: plain ones in `env`, and when asked for,
+ * secrets in `secrets`.
+ */
+export type { SystemPackEnv };
+export type PackEnvRecordSpec = RecordPackEnvBody;
 
 /** Which deployments to list: those that need a pack service, or those whose service should go. */
 export type SystemDeploymentsWanted = 'missing' | 'retire';
@@ -91,6 +104,48 @@ export interface SystemDeploymentsClient {
     spec: PackSuspensionSpec,
     options?: { readonly idempotencyKey?: string },
   ): Promise<PackSuspension>;
+  /**
+   * One page across tenants (`system:pack-env`): deployments with a `ready`
+   * pack service whose declared env values changed since the revision it
+   * runs, and weren't held back at this revision: ids, and the revision
+   * each runs (`appliedRevision`, sent back with `recordPackEnv`). One held
+   * at its revision for a cause the platform fixes is listed every time,
+   * with its `held`. Never a value.
+   *
+   * @wire `GET /v1/system/pack-env`
+   */
+  listPackEnvChanged(page?: {
+    readonly cursor?: string;
+    readonly limit?: number;
+  }): Promise<SystemPackEnvPage>;
+  /**
+   * What the deployment's pack service is to be given (`system:pack-env`):
+   * where each declared name is set, its `revision`, and the plain values
+   * (`env`) unless there's a `problem`. With `secrets: 'values'`, each name
+   * set only as a secret too (`secrets`), for a key holding
+   * `system:pack-env` itself. Each value given out is on the audit record,
+   * a secret's before the answer.
+   *
+   * @wire `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
+   */
+  getPackEnv(
+    tenantId: string,
+    deploymentId: string,
+    options?: { readonly secrets?: 'values' },
+  ): Promise<SystemPackEnv>;
+  /**
+   * Records the revision a `ready` pack service now runs, or, with `held`,
+   * that this revision couldn't be given and the service keeps what it
+   * runs. Compare-and-set on `appliedRevision` (`pack-env-conflict`).
+   *
+   * @wire `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
+   */
+  recordPackEnv(
+    tenantId: string,
+    deploymentId: string,
+    spec: PackEnvRecordSpec,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<DeploymentEndpoint>;
 }
 
 export function makeSystemDeploymentsClient(transport: Transport): SystemDeploymentsClient {
@@ -136,6 +191,31 @@ export function makeSystemDeploymentsClient(transport: Transport): SystemDeploym
       return transport.request<PackSuspension>({
         method: 'PUT',
         path: `/v1/system/tenants/${seg(tenantId)}/deployments/${seg(deploymentId)}/suspended`,
+        body: spec,
+        ...key(options),
+      });
+    },
+    async listPackEnvChanged(page) {
+      return transport.request<SystemPackEnvPage>({
+        method: 'GET',
+        path: '/v1/system/pack-env',
+        query: {
+          ...(page?.cursor !== undefined && { cursor: page.cursor }),
+          ...(page?.limit !== undefined && { limit: page.limit }),
+        },
+      });
+    },
+    async getPackEnv(tenantId, deploymentId, options) {
+      return transport.request<SystemPackEnv>({
+        method: 'GET',
+        path: `/v1/system/tenants/${seg(tenantId)}/deployments/${seg(deploymentId)}/pack-env`,
+        query: { ...(options?.secrets !== undefined && { secrets: options.secrets }) },
+      });
+    },
+    async recordPackEnv(tenantId, deploymentId, spec, options) {
+      return transport.request<DeploymentEndpoint>({
+        method: 'PUT',
+        path: `/v1/system/tenants/${seg(tenantId)}/deployments/${seg(deploymentId)}/pack-env`,
         body: spec,
         ...key(options),
       });

@@ -136,6 +136,9 @@ class IndexerTest {
     assertThat(errors.get("Unknown.java")).startsWith("manifest-validation-failed: ").contains("tool 'acme.unknown' is invalid at /")
         .contains("('colour')");
     assertThat(errors.get("BadFlow.java")).contains("flow 'acme.bad-flow' is invalid at /nodes/0/kind: must be one of ");
+    assertThat(errors.get("Lingers.java")).isEqualTo("manifest-validation-failed: src/main/java/com/kindgi/pack/testpacks/bad/agents/Lingers.java: "
+        + "agent 'acme.lingers' is invalid at "
+        + "/conversationPolicy/autoCloseAfterInactiveSeconds: must NOT be valid");
     assertThat(errors).doesNotContainKey("Dup.java");
     assertThat(report.get("counts")).isEqualTo(Map.of("tools", 1, "guardrails", 0, "agents", 0, "flows", 0));
     Map<String, Object> boom = ((List<Map<String, Object>>) report.get("fileErrors")).stream()

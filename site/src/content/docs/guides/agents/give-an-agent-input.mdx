@@ -28,9 +28,36 @@ step's input instead.
 
 A direct run gives the agent a message:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
+pnpm exec kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--agent` is the agent, and `--input` the turn's input, as JSON. It has these
 fields:
@@ -287,9 +314,36 @@ instructions still name the variable, and rendering fails without a value.
 
 Run it with a `tone`:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme.reply-drafter --input='{"userMessage":"My parcel is a week late.","parameters":{"tone":"friendly"}}'
+pnpm exec kindgi runs start --agent=acme.reply-drafter --input='{"userMessage":"My parcel is a week late.","parameters":{"tone":"friendly"}}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme.reply-drafter --input='{"userMessage":"My parcel is a week late.","parameters":{"tone":"friendly"}}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme.reply-drafter --input='{"userMessage":"My parcel is a week late.","parameters":{"tone":"friendly"}}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme.reply-drafter --input='{"userMessage":"My parcel is a week late.","parameters":{"tone":"friendly"}}'
+```
+
+</TabItem>
+</Tabs>
 
 `parameters` in `--input` gives the parameters' values. It prints the run:
 
@@ -651,9 +705,36 @@ object OrderUpdate {
 
 Run the flow:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
+pnpm exec kindgi runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--flow` is the flow, and `--input` its input. It prints the run, with the
 agent's update as the flow's output:

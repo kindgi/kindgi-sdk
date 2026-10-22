@@ -26,6 +26,7 @@ import {
   membershipNotKeptInStepError,
   orgNotFoundError,
   projectDefaultAlreadyExistsError,
+  projectInEnvironmentOrderError,
   slugConflictError,
 } from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
@@ -751,6 +752,11 @@ export function projectsRouter(
       c.status(statusFor(error.code) as never);
       return c.json(toWireError(error, requestId));
     }
+    if (outcome.kind === 'project-in-environment-order') {
+      const error = projectInEnvironmentOrderError(outcome.orderId);
+      c.status(statusFor(error.code) as never);
+      return c.json(toWireError(error, requestId));
+    }
     c.status(204);
     return c.body(null);
   });
@@ -759,7 +765,13 @@ export function projectsRouter(
   r.delete('/:projectId', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const projectId = c.req.param('projectId') as ProjectId;
-    await binding.delete(tenantId, projectId);
+    const requestId = c.get('requestId');
+    const outcome = await binding.delete(tenantId, projectId);
+    if (outcome.kind === 'project-in-environment-order') {
+      const error = projectInEnvironmentOrderError(outcome.orderId);
+      c.status(statusFor(error.code) as never);
+      return c.json(toWireError(error, requestId));
+    }
     c.status(204);
     return c.body(null);
   });
