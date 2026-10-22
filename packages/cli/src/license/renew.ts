@@ -206,7 +206,7 @@ async function whatIsHeld(
   if (renewer === undefined) {
     return {
       kind: 'failed',
-      message: `There's no renewer key in ${input.renewer.describe}. Enroll this deployment first: kindgi license enroll --for <your GitHub login> --renewer <where to keep its key>.`,
+      message: `There's no renewer key in ${input.renewer.describe}. Enroll this deployment first: kindgi license enroll --for <your GitHub login, or the em- id your key page shows if you sign in by email> --renewer <where to keep its key>.`,
     };
   }
   return { kind: 'held', currentKey, current: current.claims, renewer };

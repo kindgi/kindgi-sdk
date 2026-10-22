@@ -165,6 +165,30 @@ describe('kindgi license enroll', () => {
     ).toBe(true);
   });
 
+  test('an email user: --for takes the em- id their key page shows, and the line is for it', async () => {
+    const dir = workdir();
+    const id = 'em-kqzt3xw7mfa2rb5ndl6hpye4cv';
+    const out = await cli(dir, ['license', 'enroll', '--for', id, '--renewer', 'file:r.key']);
+    expect(out.exitCode).toBe(0);
+    const key = decodeRenewerPrivateKey(readFileSync(join(dir, 'r.key'), 'utf8').trim());
+    const [pub, account, signature] = (out.stdout.match(/^ {2}(kgi_lrp_\S+)$/m)?.[1] ?? '').split(
+      '.',
+    );
+    expect(Buffer.from(account ?? '', 'base64url').toString()).toBe(id);
+    const publicKey = createPublicKey({
+      key: { kty: 'OKP', crv: 'Ed25519', x: (pub ?? '').slice(8) },
+      format: 'jwk',
+    });
+    expect(
+      verify(
+        null,
+        Buffer.from(enrollSigningInput(ORIGIN, key?.renewerId ?? '', id)),
+        publicKey,
+        Buffer.from(signature ?? '', 'base64url'),
+      ),
+    ).toBe(true);
+  });
+
   test('again: the same key, the same line; --replace: a new one', async () => {
     const dir = workdir();
     const first = await cli(dir, ['license', 'enroll', '--for', 'octo', '--renewer', 'file:r.key']);
@@ -199,8 +223,14 @@ describe('kindgi license enroll', () => {
     expect(occupied.stderr).toContain("already holds something that isn't a renewer key");
     expect(readFileSync(join(dir, 'license.key'), 'utf8')).toBe(`${licenseKey()}\n`);
     for (const [argv, message] of [
-      [['--for', 'not a login', '--renewer', 'file:r'], '--for must be a GitHub login'],
-      [['--renewer', 'file:r'], '--for is required'],
+      [
+        ['--for', 'not a login', '--renewer', 'file:r'],
+        '--for must be your GitHub login, or the em- id your key page shows if you sign in by email. Got "not a login".',
+      ],
+      [
+        ['--renewer', 'file:r'],
+        '--for is required: your GitHub login, or the em- id your key page shows if you sign in by email.',
+      ],
       [['--for', 'octo'], '--renewer is required'],
       [
         ['--for', 'octo', '--renewer', 'renewer.key'],
