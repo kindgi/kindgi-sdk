@@ -5,6 +5,8 @@ import type { Logger } from '@kindgi/log';
 import type { ZodLikeSchema } from '@kindgi/schema';
 import type { OrgId, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types';
 
+import type { ConnectionNeed, ToolConnection } from './connections.js';
+
 /**
  * JSON Schema for a tool's input/output. Author-supplied, Draft 2020-12.
  * Kept as `unknown` here — the loader validates that the provided value is
@@ -164,6 +166,16 @@ export interface ToolContext {
    */
   readonly secrets?: Readonly<Record<string, string>>;
   /**
+   * The connections this tool declares in `needsSpec.connections`, by its
+   * name for each, resolved by the runtime for this call: the account's
+   * access token at the app, and whose account it is. Never print, log or
+   * return a token. When the app refuses one (an HTTP 401), throw
+   * `ConnectionRejectedError` with its name: the runtime renews the token
+   * once and runs the call again. Absent when the tool declares none, and
+   * wherever nothing resolves them; a unit test passes its own.
+   */
+  readonly connections?: Readonly<Record<string, ToolConnection>>;
+  /**
    * The env values this tool declares in `needsSpec.env`, by name,
    * resolved by the runtime for this call: the call's project's value,
    * else its org's, else the tenant's, in the env the runtime serves
@@ -274,6 +286,12 @@ export interface TypedNeeds {
   readonly config?: Readonly<Record<string, JsonSchema>>;
   readonly capabilities?: readonly string[];
   readonly bindings?: readonly string[];
+  /**
+   * Accounts at other apps the tool acts with, by the tool's name for each
+   * (`mail`): the app, the permissions it needs, and whose connection
+   * (`as: 'person'` or `'company'`). Resolved per call (`ctx.connections`).
+   */
+  readonly connections?: Readonly<Record<string, ConnectionNeed>>;
 }
 
 /**
@@ -580,6 +598,15 @@ export type HttpAuthSpec =
       readonly kind: 'header';
       readonly headerName: string;
       readonly secretRef: ToolSecretRef;
+    }
+  /**
+   * A connection the tool declares in `needsSpec.connections`, by its
+   * name there: sent as `Authorization: Bearer <access token>`. A 401
+   * answer fails the call with `ConnectionRejectedError`.
+   */
+  | {
+      readonly kind: 'connection';
+      readonly connection: string;
     };
 
 export type HttpRequestBodySpec =

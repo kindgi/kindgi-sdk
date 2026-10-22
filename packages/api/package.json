@@ -41,6 +41,7 @@
     "@kindgi/agents": "workspace:*",
     "@kindgi/audit-events": "workspace:*",
     "@kindgi/compliance": "workspace:*",
+    "@kindgi/connections": "workspace:*",
     "@kindgi/authz": "workspace:*",
     "@kindgi/blob-binding": "workspace:*",
     "@kindgi/bounds": "workspace:*",
