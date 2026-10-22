@@ -88,7 +88,7 @@ require_cmd() {
 }
 
 # A version as a plain base-10 integer for comparison, with an rc ranked below
-# its final: 0.1.10-rc.1 -> 1010000001, 0.1.10 -> 1010000999. 10# keeps a
+# its final: 0.1.10-rc.1 -> 1010001, 0.1.10 -> 1010999. 10# keeps a
 # zero-padded component from being read as octal.
 ver_num() {
   local v="${1%%-*}" rc=999 a b c
