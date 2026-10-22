@@ -16,9 +16,9 @@ ready 10 seconds after its container started, its first migrations
 included.
 
 :::note[Access to the runtime image]
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
-runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your
+email address for a license key. The key is also the runtime image's
+password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## What you'll have
@@ -80,10 +80,11 @@ Who calls whom:
   `pnpm exec kindgi`.
 - **Runtime 0.1.6 or later:** the first with Key Vault keys and the
   registry's managed identity.
-- **Access to the runtime image** (`kindgi auth registry`; see
-  [Install](../../../start/install/)).
-- **A license key:** a non-production key covers staging. Get one at
+- **A license key:** a non-production key covers staging, and it also pulls
+  the runtime image. Get one at
   [access.kindgi.com](https://access.kindgi.com), or from contact@kindgi.com.
+- **Docker logged in to `registry.kindgi.com`** with that key
+  ([Pull the runtime image](../pull-the-runtime-image/)).
 - **A pack** that `kindgi build --local --push` builds, with an environment
   block for this deployment in its config, whose `registry` is the module's
   registry (step 2 prints it).
@@ -178,8 +179,10 @@ those there.
 
 ## 2. The images into the registry
 
-The two apps run from images in the module's registry. Copy the runtime
-image there by digest, with every platform it was built for:
+The two apps run from images in the module's registry. Container Apps can't
+pull from `registry.kindgi.com`, which takes your license key as its password.
+With Docker logged in there, copy the runtime image into the module's registry
+by digest, with every platform it was built for:
 
 ```sh
 ACR=$(terraform output -raw image_registry)

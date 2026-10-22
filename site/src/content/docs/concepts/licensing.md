@@ -26,16 +26,17 @@ and process no live business data.
 to process live business data as part of an organization's operations.
 That includes internal systems your own employees use.
 
-## Building needs no key
+## Building is free
 
 `kindgi dev` runs the runtime in development mode, with `KINDGI_DEV=true`.
-Development mode needs no license key, so everything you build and test on
-your machine is free.
+Development mode runs with no license key, and the free non-production key
+from access.kindgi.com pulls the runtime image. So everything you build and
+test on your machine is free.
 
 :::note[Access to the runtime image]
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
-runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your
+email address for a license key. The key is also the runtime image's
+password ([Pull the runtime image](../../deploy/self-hosted/pull-the-runtime-image/)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## Running outside development mode
@@ -64,7 +65,10 @@ There are two kinds of key:
   outside development mode. Get one at
   [access.kindgi.com](https://access.kindgi.com), or from contact@kindgi.com.
 
-The runtime starts with either and prints which one it has.
+The runtime starts with either and prints which one it has. It also prints
+the key's name: for a key from access.kindgi.com, your company's domain,
+your GitHub login, or your email address cut short
+([Your key's name](../../deploy/self-hosted/pull-the-runtime-image/#your-keys-name)).
 
 ## Without a valid key
 
@@ -92,6 +96,9 @@ way, with its own message.
 ```text
 KINDGI_LICENSE_KEY expired on 2026-07-31, more than 14 days ago. Renew it: contact@kindgi.com.
 ```
+
+A key pulls the runtime image on the same dates: until 14 days after it
+expires ([Pull the runtime image](../../deploy/self-hosted/pull-the-runtime-image/#which-keys-pull)).
 
 The key is checked only when the runtime starts, so a running server never
 stops because of its key. A platform that restarts instances on its own
