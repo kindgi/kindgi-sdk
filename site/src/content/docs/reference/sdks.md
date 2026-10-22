@@ -36,7 +36,7 @@ Java client.
 | Cancellation | Yes | Yes | Yes | Yes |
 | [A tool's secrets](../../guides/tools/give-a-tool-a-secret/) and [per-project values](../../guides/tools/give-a-tool-env-values/) | Yes | Yes | Yes | Yes |
 | [Settings blocks](../../guides/evals/change-a-prompt-or-setting/) a tool reads | Yes | Yes | Yes | Yes |
-| [HTTP tools without code](../../guides/tools/http-tools/) | Yes | Yes | No | No |
+| [HTTP tools without code](../../guides/tools/http-tools/) | Yes | Yes | Yes | Yes |
 | [Guardrails](../../guides/guardrails/write-a-guardrail/) with your own check | Yes | Yes | Yes | Yes |
 | [Agents](../../guides/agents/write-an-agent/), with [typed answers](../../guides/agents/typed-answer/), [memory](../../guides/agents/give-an-agent-memory/) and [budgets](../../guides/agents/budgets/) | Yes | Yes | Yes | Yes |
 | [Flows](../../guides/flows/write-a-flow/): branches, loops, parallel steps, retries, approvals | Yes | Yes | Yes | Yes |
@@ -61,9 +61,6 @@ in as data, as the API names them: `set("budget", …)`, `node(Map.of(…))`,
 
 ## Where an SDK lacks a feature
 
-- **HTTP tools without code:** in a Java or Scala pack, write a tool whose
-  handler makes the request
-  ([When to write a handler instead](../../guides/tools/http-tools/#when-to-write-a-handler-instead)).
 - **A test context with env values and secrets:** in Python,
   `ToolContext.for_test(env=…, secrets=…)` sets them. In Java and Scala,
   build the context with `new ToolContext(…)`, which takes them. In those
