@@ -9,7 +9,7 @@
  *   - `enroll --for <github login | em- id> --renewer <ref>`: once per deployment.
  *     Makes the renewer's key pair, keeps the private half at `<ref>` (it
  *     never leaves it, and is never printed), and prints the line to add on
- *     access.kindgi.com, signed in as that login.
+ *     access.kindgi.com, signed in as the person it's for.
  *   - `renew --key <ref> | --env-file <path>  --renewer <ref>`: asks for the
  *     key's next version, checks it offline, and writes it only when it's
  *     new. One line by shape; exit 1 when refused or failed, so a
@@ -241,7 +241,7 @@ const enroll: LeafCommand = {
       const stdout = [
         `Renewer ${key.renewerId}: its private key is ${reuse ? 'already ' : ''}in ${where.describe}.`,
         '',
-        `Add this deployment on ${origin}, signed in as ${login}, under "Renew the key from your deployment":`,
+        `Add this deployment on ${origin}, signed in as the person it's for (${login}), under "Renew the key from your deployment":`,
         '',
         `  ${enrollLine(key, login, origin)}`,
         '',
