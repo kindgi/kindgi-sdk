@@ -28,7 +28,7 @@ variable "kindgi_env" {
 # ---- images -------------------------------------------------------------------
 
 variable "server_image" {
-  description = "The Kindgi runtime image, by digest, in Artifact Registry (Cloud Run can't pull from a registry that needs a login, like registry.kindgi.com; see README)."
+  description = "The Kindgi runtime image, by digest, in Artifact Registry (Cloud Run can't pull from a registry that takes a password, like registry.kindgi.com; see README)."
   type        = string
 
   validation {
