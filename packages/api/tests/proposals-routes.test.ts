@@ -15,12 +15,14 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import { type Agent, createAgentRegistry, pinsDigest } from '@kindgi/agents';
-import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import type { Action, AuthzCheckBinding, Decision, Principal, ResourceRef } from '@kindgi/authz';
 import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import type {
+  Cursor,
   LiveScope,
   ProjectId,
+  ReviewerId,
   RunId,
   Semver,
   TenantId,
@@ -48,6 +50,7 @@ import type {
   LivePin,
   Promotion,
   ReferenceScopeBinding,
+  ReviewerRegistryBinding,
   RunHandlerBinding,
   StartImprovementPassInput,
   TokenResolver,
@@ -72,6 +75,8 @@ const SEGMENT: LiveScope = {
   path: [{ key: 'company', value: 'acme' }],
 };
 const SEGMENT_WIRE = { kind: 'segment', projectId, path: [{ key: 'company', value: 'acme' }] };
+const projectRef: ResourceRef = { type: 'project', id: projectId as unknown as string };
+const tenantRef: ResourceRef = { type: 'tenant', id: tenantId as unknown as string };
 
 const resolveToken: TokenResolver = async (token) =>
   token === TOKEN ? { tenantId, userId: 'user-1' as UserId } : null;
@@ -171,6 +176,10 @@ function evalRunFake(agents: AgentRegistryBinding) {
       runs.set(runId as unknown as string, {
         runId,
         tenantId: input.tenantId,
+        // The eval run records the agent's project. A drafter's approval resolves
+        // to the proposal's SCOPE, not this — set equal to the segment's project
+        // here, so only a tenant-scoped test tells the two apart.
+        projectId,
         suiteId: input.suiteId,
         suiteVersion: '1.0.0',
         kind: 'judged',
@@ -1391,6 +1400,376 @@ describe('a proposal a drafter wrote (not a person)', () => {
       version: '1.0.1' as Semver,
     });
     expect(derived?.derivedFrom).toMatchObject({ by: 'service:improvement-pass' });
+  });
+
+  function roster(
+    ...people: readonly {
+      userId: string;
+      role?: 'standard' | 'senior' | 'admin';
+      deactivated?: boolean;
+    }[]
+  ): Pick<ReviewerRegistryBinding, 'list'> {
+    return {
+      async list() {
+        return {
+          data: people.map((p, i) => ({
+            id: `reviewer-${i}` as ReviewerId,
+            tenantId,
+            userId: p.userId as UserId,
+            role: p.role ?? 'standard',
+            createdAt: '2026-01-01T00:00:00.000Z' as Timestamp,
+            ...(p.deactivated === true && {
+              deactivatedAt: '2026-02-01T00:00:00.000Z' as Timestamp,
+            }),
+          })),
+        };
+      },
+    };
+  }
+
+  /**
+   * An authorizer that allows `read` only for the given `userId → resources`
+   * grants, and records the checks it was asked — so a test can assert the
+   * count asked whether each reviewer may read the approval's resource, and
+   * that it asked about the RIGHT one (the scope's, not the eval run's).
+   */
+  function authzReads(grants: Record<string, readonly ResourceRef[]>): {
+    binding: AuthzCheckBinding;
+    checks: { userId: string; action: Action; resource: ResourceRef }[];
+  } {
+    const checks: { userId: string; action: Action; resource: ResourceRef }[] = [];
+    const keyOf = (r: ResourceRef) => `${r.type}:${r.id}`;
+    const allowed = new Map<string, Set<string>>(
+      Object.entries(grants).map(([u, rs]) => [u, new Set(rs.map(keyOf))]),
+    );
+    const decide = (p: Principal, action: Action, resource: ResourceRef): Decision => {
+      checks.push({ userId: p.actor.id, action, resource });
+      const ok = allowed.get(p.actor.id)?.has(keyOf(resource)) ?? false;
+      return {
+        allowed: ok,
+        reason: ok ? 'test: reader' : 'test: not a reader',
+        evidence: {
+          action,
+          relation: '',
+          resource: `${resource.type}:${resource.id}`,
+          actorSubject: `user:${p.actor.id}`,
+        },
+      };
+    };
+    return {
+      binding: {
+        check: async (p, action, resource) => decide(p, action, resource),
+        checkBatch: async (p, action, resources) =>
+          resources.map((resource) => decide(p, action, resource)),
+      },
+      checks,
+    };
+  }
+
+  async function draftedApprovalFor(
+    reviewers: Pick<ReviewerRegistryBinding, 'list'>,
+    actor: { kind: 'user' | 'service'; id: string },
+    authz?: AuthzCheckBinding,
+    scope: LiveScope = SEGMENT,
+  ): Promise<{ role: string; count: number; separateApprover: boolean } | undefined> {
+    const h = await harness();
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const service = createProposalService({
+      store: h.proposals,
+      agents: h.agents,
+      blocks: h.blocks,
+      evalRuns: h.evalRuns.binding,
+      releases: h.releases.releases,
+      reviewers,
+      ...(authz !== undefined && { authz }),
+    });
+    const drafted = await service.draft({
+      tenantId,
+      agentId: AGENT,
+      fromVersion: '1.0.0',
+      scope,
+      tier: 'settings-block',
+      blockId: WEIGHTS,
+      content: { values: { recency: 0.6, fit: 0.4 } },
+      hypothesis: 'The search found these weights',
+      drafter: { kind: 'settings-optimizer', version: '1' },
+    });
+    if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
+    const evaluated = await service.evaluate({
+      tenantId,
+      proposal: drafted.value.proposal,
+      suiteId: 'acme.scoring-judged',
+      objective: 'weightedYesShare',
+      actor,
+    });
+    if (evaluated.kind !== 'ok') throw new Error(JSON.stringify(evaluated.error));
+    const runId = evaluated.value.evaluation?.evalRunId as string;
+    await h.evalRuns.finish(runId, { delta: 0.2 });
+    const requested = await service.request({ tenantId, proposal: evaluated.value, actor });
+    if (requested.kind !== 'ok') throw new Error(JSON.stringify(requested.error));
+    const request = h.releases.calls.find((c) => c.method === 'request')?.input as {
+      gate: { approval?: { role: string; count: number; separateApprover: boolean } };
+    };
+    return request.gate.approval;
+  }
+
+  test('a drafter must ask a separate approver when a second reviewer could approve', async () => {
+    const approval = await draftedApprovalFor(
+      roster({ userId: 'u-alice' }, { userId: 'u-bob', role: 'senior' }),
+      { kind: 'service', id: 'improvement-pass' },
+    );
+    expect(approval).toMatchObject({ role: 'standard', count: 1, separateApprover: true });
+  });
+
+  test('the only reviewer, who asked, may approve their own drafted promotion', async () => {
+    const approval = await draftedApprovalFor(roster({ userId: 'u-solo' }), {
+      kind: 'user',
+      id: 'u-solo',
+    });
+    expect(approval).toMatchObject({ separateApprover: false });
+  });
+
+  test('a second reviewer besides the person who asked requires a separate approver', async () => {
+    const approval = await draftedApprovalFor(roster({ userId: 'u-solo' }, { userId: 'u-two' }), {
+      kind: 'user',
+      id: 'u-solo',
+    });
+    expect(approval).toMatchObject({ separateApprover: true });
+  });
+
+  test('a deactivated second reviewer does not count, so the lone active one self-approves', async () => {
+    const approval = await draftedApprovalFor(
+      roster({ userId: 'u-solo' }, { userId: 'u-gone', deactivated: true }),
+      { kind: 'user', id: 'u-solo' },
+    );
+    expect(approval).toMatchObject({ separateApprover: false });
+  });
+
+  test('an empty roster leaves nothing to separate', async () => {
+    const approval = await draftedApprovalFor(roster(), {
+      kind: 'service',
+      id: 'improvement-pass',
+    });
+    expect(approval).toMatchObject({ separateApprover: false });
+  });
+
+  test('a reviewer who cannot read the project does not count, so the requester approves alone', async () => {
+    const authz = authzReads({ 'u-alice': [projectRef] });
+    const approval = await draftedApprovalFor(
+      roster({ userId: 'u-alice' }, { userId: 'u-bob' }),
+      { kind: 'user', id: 'u-alice' },
+      authz.binding,
+    );
+    expect(approval).toMatchObject({ separateApprover: false });
+    // The count asked whether the other reviewer may read the run's project —
+    // the same resource the decide route would 404 them on.
+    expect(authz.checks).toContainEqual({
+      userId: 'u-bob',
+      action: 'read',
+      resource: { type: 'project', id: projectId as unknown as string },
+    });
+  });
+
+  test('a reviewer who can read the project counts, so a separate approver is required', async () => {
+    const authz = authzReads({ 'u-alice': [projectRef], 'u-bob': [projectRef] });
+    const approval = await draftedApprovalFor(
+      roster({ userId: 'u-alice' }, { userId: 'u-bob' }),
+      { kind: 'user', id: 'u-alice' },
+      authz.binding,
+    );
+    expect(approval).toMatchObject({ separateApprover: true });
+  });
+
+  test('a second reviewer on a later roster page still counts', async () => {
+    const row = (userId: string, i: number) => ({
+      id: `reviewer-${i}` as ReviewerId,
+      tenantId,
+      userId: userId as UserId,
+      role: 'standard' as const,
+      createdAt: '2026-01-01T00:00:00.000Z' as Timestamp,
+    });
+    const paged: Pick<ReviewerRegistryBinding, 'list'> = {
+      async list({ cursor }) {
+        return cursor === undefined
+          ? { data: [row('u-solo', 0)], nextCursor: 'page-2' as Cursor }
+          : { data: [row('u-two', 1)] };
+      },
+    };
+    const approval = await draftedApprovalFor(paged, { kind: 'user', id: 'u-solo' });
+    expect(approval).toMatchObject({ separateApprover: true });
+  });
+
+  test('a tenant-scoped drafter counts a reviewer who can read the tenant', async () => {
+    const authz = authzReads({ 'u-alice': [tenantRef], 'u-bob': [tenantRef] });
+    const approval = await draftedApprovalFor(
+      roster({ userId: 'u-alice' }, { userId: 'u-bob' }),
+      { kind: 'user', id: 'u-alice' },
+      authz.binding,
+      { kind: 'tenant' },
+    );
+    expect(approval).toMatchObject({ separateApprover: true });
+    // A tenant-scoped promotion opens an approval with no project and no
+    // provenance run, so the decide route resolves it to the tenant — and the
+    // count asks the same resource.
+    expect(authz.checks).toContainEqual({ userId: 'u-bob', action: 'read', resource: tenantRef });
+  });
+
+  test("a tenant-scoped drafter asks the tenant, not the eval run's project", async () => {
+    // u-bob may read the eval run's project but not the tenant. Resolving the
+    // count to the run's project (the bug) would admit u-bob; resolving to the
+    // tenant-scoped promotion's own resource does not.
+    const authz = authzReads({ 'u-alice': [tenantRef], 'u-bob': [projectRef] });
+    const approval = await draftedApprovalFor(
+      roster({ userId: 'u-alice' }, { userId: 'u-bob' }),
+      { kind: 'user', id: 'u-alice' },
+      authz.binding,
+      { kind: 'tenant' },
+    );
+    expect(approval).toMatchObject({ separateApprover: false });
+    expect(authz.checks).toContainEqual({ userId: 'u-bob', action: 'read', resource: tenantRef });
+    expect(authz.checks).not.toContainEqual({
+      userId: 'u-bob',
+      action: 'read',
+      resource: projectRef,
+    });
+  });
+
+  /**
+   * Like `draftedApprovalFor`, but with a scope policy in force — so the
+   * promotion's approval is `resolveApproval`'s combination of the policy's own
+   * approval and the drafter's separate-approver rule. `approvals` is the
+   * policy's approvals block; `undefined` is a policy with none (only a metric
+   * bar the candidate clears), where the drafter's own approval applies.
+   */
+  async function underPolicy(
+    approvals: NonNullable<GatePolicySpec['approvals']> | undefined,
+    reviewers: Pick<ReviewerRegistryBinding, 'list'>,
+    actor: { kind: 'user' | 'service'; id: string },
+  ): Promise<{ role: string; count: number; separateApprover: boolean } | undefined> {
+    const h = await harness();
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    h.releases.state.policy = {
+      id: 'acme.prod',
+      version: '1.0.0',
+      tenantId,
+      agentId: AGENT,
+      scope: SEGMENT,
+      spec:
+        approvals === undefined
+          ? { metrics: [{ name: 'weightedYesShare', minCandidate: 0.1 }] }
+          : { approvals },
+      createdAt: NOW,
+    };
+    const service = createProposalService({
+      store: h.proposals,
+      agents: h.agents,
+      blocks: h.blocks,
+      evalRuns: h.evalRuns.binding,
+      releases: h.releases.releases,
+      reviewers,
+    });
+    const drafted = await service.draft({
+      tenantId,
+      agentId: AGENT,
+      fromVersion: '1.0.0',
+      scope: SEGMENT,
+      tier: 'settings-block',
+      blockId: WEIGHTS,
+      content: { values: { recency: 0.6, fit: 0.4 } },
+      hypothesis: 'The search found these weights',
+      drafter: { kind: 'settings-optimizer', version: '1' },
+    });
+    if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
+    const evaluated = await service.evaluate({
+      tenantId,
+      proposal: drafted.value.proposal,
+      suiteId: 'acme.scoring-judged',
+      objective: 'weightedYesShare',
+      actor,
+    });
+    if (evaluated.kind !== 'ok') throw new Error(JSON.stringify(evaluated.error));
+    const runId = evaluated.value.evaluation?.evalRunId as string;
+    await h.evalRuns.finish(runId, { delta: 0.2 });
+    const requested = await service.request({ tenantId, proposal: evaluated.value, actor });
+    if (requested.kind !== 'ok') throw new Error(JSON.stringify(requested.error));
+    const request = h.releases.calls.find((c) => c.method === 'request')?.input as {
+      gate: { approval?: { role: string; count: number; separateApprover: boolean } };
+    };
+    return request.gate.approval;
+  }
+
+  test('a policy that asks for a separate approver is a floor the drafter cannot loosen', async () => {
+    // Explicit true, with a lone roster the drafter's own rule would let self-approve.
+    const approval = await underPolicy(
+      { role: 'standard', separateApprover: true },
+      roster({ userId: 'u-solo' }),
+      {
+        kind: 'user',
+        id: 'u-solo',
+      },
+    );
+    expect(approval).toMatchObject({ role: 'standard', separateApprover: true });
+  });
+
+  test("a policy's separate-approver default (unset) is true, so a lone drafter still cannot self-approve", async () => {
+    const approval = await underPolicy({ role: 'standard' }, roster({ userId: 'u-solo' }), {
+      kind: 'user',
+      id: 'u-solo',
+    });
+    expect(approval).toMatchObject({ role: 'standard', separateApprover: true });
+  });
+
+  test('a policy that sets separateApprover false still gets one when a second reviewer could decide', async () => {
+    const approval = await underPolicy(
+      { role: 'standard', separateApprover: false },
+      roster({ userId: 'u-solo' }, { userId: 'u-two' }),
+      { kind: 'user', id: 'u-solo' },
+    );
+    expect(approval).toMatchObject({ role: 'standard', separateApprover: true });
+  });
+
+  test('a policy that sets separateApprover false lets a lone reviewer approve their own drafted promotion', async () => {
+    const approval = await underPolicy(
+      { role: 'standard', separateApprover: false },
+      roster({ userId: 'u-solo' }),
+      { kind: 'user', id: 'u-solo' },
+    );
+    expect(approval).toMatchObject({ role: 'standard', separateApprover: false });
+  });
+
+  test("a false policy's rule is re-checked at the policy's role, so a junior second reviewer does not count", async () => {
+    // Policy role senior; the only other reviewer is standard — below senior, so
+    // no separate approver. Ranking the re-check at the drafter's own 'standard'
+    // (the bug) would count u-two and demand one.
+    const approval = await underPolicy(
+      { role: 'senior', separateApprover: false },
+      roster({ userId: 'u-solo' }, { userId: 'u-two', role: 'standard' }),
+      { kind: 'user', id: 'u-solo' },
+    );
+    expect(approval).toMatchObject({ role: 'senior', separateApprover: false });
+  });
+
+  test("a false policy's rule counts a second reviewer ranked at the policy's role", async () => {
+    const approval = await underPolicy(
+      { role: 'senior', separateApprover: false },
+      roster({ userId: 'u-solo' }, { userId: 'u-sr', role: 'senior' }),
+      { kind: 'user', id: 'u-solo' },
+    );
+    expect(approval).toMatchObject({ role: 'senior', separateApprover: true });
+  });
+
+  test("a policy with no approvals block leaves the drafter's own approval to apply", async () => {
+    // Only a metric bar: the gate passes, names no approval, so the drafter's
+    // approval (its own separate-approver rule, at standard) is what waits.
+    const approval = await underPolicy(
+      undefined,
+      roster({ userId: 'u-solo' }, { userId: 'u-two' }),
+      {
+        kind: 'user',
+        id: 'u-solo',
+      },
+    );
+    expect(approval).toMatchObject({ role: 'standard', count: 1, separateApprover: true });
   });
 });
 
