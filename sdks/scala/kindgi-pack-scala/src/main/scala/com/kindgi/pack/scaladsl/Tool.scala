@@ -56,7 +56,8 @@ final class ToolBuilder[I, O] private[scaladsl] (
 
   /**
    * Each call waits for a person's approval in a run no person started (a webhook, a schedule, an
-   * event, or a service account's key). A flow's tool step that calls it is refused there.
+   * event, or a service account's key). A flow's tool step that calls it is refused there. Neither
+   * holds in a run whose webhook or schedule names the tool in its `toolsAllowedUnattended`.
    */
   def needsApprovalWhenUnattended(needsApprovalWhenUnattended: Boolean): ToolBuilder[I, O] =
     step(_.needsApprovalWhenUnattended(needsApprovalWhenUnattended))

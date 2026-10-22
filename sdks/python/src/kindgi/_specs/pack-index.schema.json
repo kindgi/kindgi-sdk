@@ -160,7 +160,7 @@
         },
         "needsApprovalWhenUnattended": {
           "type": "boolean",
-          "description": "Whether a person must say yes to every call of the tool in a run no person started (`tool.schema.json` `needsApprovalWhenUnattended`). Absent means `false`."
+          "description": "Whether a person must say yes to every call of the tool in a run no person started, unless that run's trigger lists the tool in its `toolsAllowedUnattended` (`tool.schema.json` `needsApprovalWhenUnattended`). Absent means `false`."
         },
         "spec": {
           "$ref": "#/$defs/openObject",
