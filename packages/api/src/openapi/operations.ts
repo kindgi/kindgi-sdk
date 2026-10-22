@@ -10842,7 +10842,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.finish',
     summary: 'Finish a connect',
     description:
-      "Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, the request stays `pending` with its `installations` to pick from (start it again with `installationId`).",
+      "Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`).",
     tags: ['connections'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -10851,10 +10851,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The outcome.', schema: ref('ConnectFinish') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body, unknown field or no `state` (`bad-input`, `details.field`); or a GitHub App's person reaches several installations and picked none (`bad-input`, `details.field` `installationId`): the request's `installations` lists them.",
+        'Malformed body, unknown field or no `state`; or neither `code` nor `error` (`bad-input`, `details.field`).',
       ),
       '403': ErrorResponse(
-        "Someone other than whoever started the request; or a GitHub App's person reaches no installation of the app, and installs it on their account with a start's `newInstallation` (`connection-not-yours`).",
+        "Someone other than whoever started the request (`connection-not-yours`); or a GitHub App's person whose GitHub account doesn't reach the installation, or any (`connection-installation-unreachable`, with `details.connectRequestId`: start that request again with `newInstallation` to install the app on their account).",
       ),
       '404': ErrorResponse('No request for that state (`connection-request-not-found`).'),
       '409': ErrorResponse(

@@ -15195,9 +15195,9 @@ class ConnectFinish(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Annotated[Literal["connected", "declined"] | str, _open.OPEN]
+    kind: Annotated[Literal["connected", "declined", "pick-installation"] | str, _open.OPEN]
     """
-    `declined`: the person declined, or granted less than asked (`request.missing`).
+    `declined`: the person declined, or granted less than asked (`request.missing`). `pick-installation`: a GitHub App's person reaches several installations and picked none; the request stays `pending` with its `installations`.
     """
     request: ConnectRequest
     connection: Connection | None = None

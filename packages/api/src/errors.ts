@@ -619,6 +619,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'connection-app-in-use': 409,
   /** A finish by someone other than whoever started the request. */
   'connection-not-yours': 403,
+  /**
+   * A GitHub App's finish whose person's GitHub account doesn't reach the
+   * installation (or any): `details.connectRequestId` names the request,
+   * to start again with `newInstallation`.
+   */
+  'connection-installation-unreachable': 403,
   'connection-request-expired': 410,
   'connection-request-used': 409,
   /** The sign-in at the app took longer than its state lives: start again. */

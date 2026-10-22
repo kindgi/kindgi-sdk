@@ -1054,7 +1054,7 @@ function serializeFinish(outcome: ConnectFinishOutcome): Record<string, unknown>
         request: serializeRequest(outcome.request),
         connection: serializeConnection(outcome.connection),
       }
-    : { kind: 'declined', request: serializeRequest(outcome.request) };
+    : { kind: outcome.kind, request: serializeRequest(outcome.request) };
 }
 
 // ================ answers ================
@@ -1085,6 +1085,10 @@ function bindingRefused(
   authorizer: Authorizer | undefined,
   error: ConnectionError,
 ): Response {
+  const details = {
+    ...(error.field !== undefined && { field: error.field }),
+    ...(error.connectRequestId !== undefined && { connectRequestId: error.connectRequestId }),
+  };
   if (statusFor(error.code) === 403) {
     return refused(c, authorizer, {
       action: 'write',
@@ -1092,15 +1096,10 @@ function bindingRefused(
       message: error.message,
       failing: 'actor',
       code: error.code,
-      ...(error.field !== undefined && { details: { field: error.field } }),
+      ...(Object.keys(details).length > 0 && { details }),
     });
   }
-  return answer(
-    c,
-    error.code,
-    error.message,
-    error.field === undefined ? {} : { field: error.field },
-  );
+  return answer(c, error.code, error.message, details);
 }
 
 function appNotFound(c: Context<AppEnv>, appId: string): Response {

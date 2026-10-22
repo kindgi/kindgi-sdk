@@ -176,6 +176,25 @@ function memoryBinding() {
       if (request.startedBy !== `${input.caller.kind}:${input.caller.id}`) {
         return refuse('connection-not-yours', 'Only whoever started it finishes it');
       }
+      if (input.code === 'several') {
+        const installations = [
+          { installationId: '101', account: { id: '1', label: 'acme' } },
+          { installationId: '102', account: { id: '2', label: 'acme-labs' } },
+        ];
+        const pending = { ...request, installations };
+        requests.set(request.requestId, pending);
+        return { kind: 'ok', value: { kind: 'pick-installation', request: pending } };
+      }
+      if (input.code === 'unreachable') {
+        return {
+          kind: 'err',
+          error: {
+            code: 'connection-installation-unreachable',
+            message: "Your GitHub account doesn't reach an installation of the app",
+            connectRequestId: request.requestId,
+          },
+        };
+      }
       const connection = connectionOf(request.owner);
       connections.set(connection.connectionId, connection);
       return {
@@ -608,6 +627,44 @@ describe('a connect request: read, start and finish', () => {
         decision: expect.objectContaining({ allowed: false, failing: 'actor' }),
       },
     ]);
+  });
+
+  test("a GitHub App's finish: several installations to pick from, or none the person reaches", async () => {
+    const recorded: string[] = [];
+    const { app } = makeApp({
+      authzCheckBinding: {
+        check: async () => ({ allowed: true, reason: 'test', evidence: {} as never }),
+        checkBatch: async (_p, _a, rs) =>
+          rs.map(() => ({ allowed: true, reason: 'test', evidence: {} as never })),
+        recordDecision: (_p, action, r) => {
+          recorded.push(`${action} ${r.type}:${r.id}`);
+        },
+      },
+    });
+    const requestId = await requested(app, 'ana');
+    await call(app, 'ana', 'POST', `/v1/connections/requests/${requestId}/start`);
+    const pick = await call(app, 'ana', 'POST', '/v1/connections/finish', {
+      state: 's-1',
+      code: 'several',
+    });
+    expect(pick.status).toBe(200);
+    expect(pick.json).toMatchObject({
+      kind: 'pick-installation',
+      request: { requestId, state: 'pending', installations: [{ installationId: '101' }, {}] },
+    });
+    expect(pick.json.connection).toBeUndefined();
+    expect(pick.json.request.failure).toBeUndefined();
+
+    const none = await call(app, 'ana', 'POST', '/v1/connections/finish', {
+      state: 's-1',
+      code: 'unreachable',
+    });
+    expect(none.status).toBe(403);
+    expect(none.json.error).toMatchObject({
+      code: 'connection-installation-unreachable',
+      details: { connectRequestId: requestId },
+    });
+    expect(recorded).toEqual([`write tenant:${tenantA}`]);
   });
 
   test('a finish needs the state the app sent back, and takes only what the app sends', async () => {

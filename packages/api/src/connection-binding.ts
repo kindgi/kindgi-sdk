@@ -178,6 +178,7 @@ export type ConnectionErrorCode =
   | 'connection-app-unknown-entry'
   | 'connection-app-in-use'
   | 'connection-not-yours'
+  | 'connection-installation-unreachable'
   | 'connection-request-expired'
   | 'connection-request-used'
   | 'connection-state-expired'
@@ -193,6 +194,12 @@ export interface ConnectionError {
   readonly message: string;
   /** The input field at fault (`connection-app-invalid`, `bad-input`). */
   readonly field?: string;
+  /**
+   * The connect request it's about, for its starter to go on with
+   * (`connection-installation-unreachable`: start it again with
+   * `newInstallation`).
+   */
+  readonly connectRequestId?: string;
 }
 
 export interface ConnectionPage<T> {
@@ -265,7 +272,13 @@ export type ConnectFinishOutcome =
       readonly connection: ConnectionRecord;
     }
   /** The person declined, or granted less than asked (`request.missing`). */
-  | { readonly kind: 'declined'; readonly request: ConnectRequestRecord };
+  | { readonly kind: 'declined'; readonly request: ConnectRequestRecord }
+  /**
+   * A GitHub App's: the person's GitHub account reaches several
+   * installations and none was picked. The request stays `pending`, with
+   * its `installations` to pick from.
+   */
+  | { readonly kind: 'pick-installation'; readonly request: ConnectRequestRecord };
 
 /**
  * The store behind the connections routes. A runtime implements it; an
@@ -359,11 +372,11 @@ export interface ConnectionBinding {
    *
    * A GitHub App's attaches an installation only if the person's GitHub
    * account reaches it: the one GitHub sent back, the one they picked, or
-   * the only one they reach. None they reach is `connection-not-yours`,
-   * and the way on is installing the app on their account
-   * (`newInstallation`). Several and none picked is `bad-input` (field
-   * `installationId`): the request stays `pending` with its
-   * `installations`, and no `failure`.
+   * the only one they reach. None they reach is
+   * `connection-installation-unreachable`, with the request's id: the way
+   * on is installing the app on their account (`newInstallation`). Several
+   * and none picked is `pick-installation`: the request stays `pending`
+   * with its `installations`, and no `failure`.
    */
   finishRequest(input: ConnectFinishInput): Promise<Result<ConnectFinishOutcome, ConnectionError>>;
 
