@@ -730,6 +730,37 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.3)(jsdom@25.0.1(supports-color@10.2.2))(lightningcss@1.32.0)(msw@2.15.0(@types/node@22.20.3)(typescript@5.9.3))(supports-color@10.2.2)
 
+  packages/connections-inmemory:
+    dependencies:
+      '@kindgi/agents':
+        specifier: workspace:*
+        version: link:../agents
+      '@kindgi/api':
+        specifier: workspace:*
+        version: link:../api
+      '@kindgi/authz':
+        specifier: workspace:*
+        version: link:../authz
+      '@kindgi/connections':
+        specifier: workspace:*
+        version: link:../connections
+      '@kindgi/tools':
+        specifier: workspace:*
+        version: link:../tools
+      '@kindgi/types':
+        specifier: workspace:*
+        version: link:../types
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.3
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.3)(jsdom@25.0.1(supports-color@10.2.2))(lightningcss@1.32.0)(msw@2.15.0(@types/node@22.20.3)(typescript@5.9.3))(supports-color@10.2.2)
+
   packages/crypto:
     dependencies:
       '@kindgi/types':
