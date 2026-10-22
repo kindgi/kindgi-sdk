@@ -33,7 +33,7 @@ In both shapes the pack service's ingress is **environment-internal**: only apps
   done
   ```
 - **A second resource group, made by Azure:** a Container Apps environment on a VNet keeps its infrastructure in a platform-managed resource group next to yours. The module names it `<your group>-<name_prefix>-infra`; Azure creates it with the environment and deletes it with the environment. If your policies forbid new resource groups, exempt this one.
-- **Pull access to the runtime image** `quay.io/kindgi/runtime` (`kindgi auth registry`).
+- **Pull access to the runtime image** `registry.kindgi.com/kindgi/runtime`, with your license key as the password: `kindgi auth registry --registry registry.kindgi.com --username kindgi` logs Docker in, and asks for the key.
 - **A license key** from Kindgi (`KINDGI_LICENSE_KEY`; a non-production key for a pilot).
 - **Check your Azure Policy assignments** (`az policy assignment list -g <rg> --disable-scope-strict-search`): allowed locations, required tags, or a rule forbidding public network access change the recipe.
 
@@ -75,7 +75,7 @@ Copy the runtime's **whole multi-platform index** by digest: a `docker pull` / `
 ```sh
 ACR=$(terraform output -raw image_registry)
 az acr login -n "${ACR%%.*}"
-docker buildx imagetools create --tag $ACR/runtime:<version> quay.io/kindgi/runtime:<version>@sha256:<release digest>
+docker buildx imagetools create --tag $ACR/runtime:<version> registry.kindgi.com/kindgi/runtime:<version>@sha256:<release digest>
 kindgi build --local --push --env dev      # the pack image, signed; registry: <ACR>/<repo> in kindgi.config
 ```
 

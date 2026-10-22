@@ -37,7 +37,7 @@ For a dev environment next to an app, with no project of its own: `network_mode 
 
 - Terraform ≥ 1.6, `gcloud`, Docker, `openssl`, `curl`, `jq`, and your pack's `kindgi` CLI (0.1.2 or later, for `kindgi key trust`).
 - **Permission to create the resources:** an Owner, or Editor plus Security Admin and Secret Manager Admin.
-- **Pull access to the runtime image** `quay.io/kindgi/runtime` (`kindgi auth registry`).
+- **Pull access to the runtime image** `registry.kindgi.com/kindgi/runtime`, with your license key as the password: `kindgi auth registry --registry registry.kindgi.com --username kindgi` logs Docker in, and asks for the key.
 - **A license key** from Kindgi (`KINDGI_LICENSE_KEY`; a non-production key for a pilot).
 - **A TypeScript pack** with an `environments.<env>` block in `kindgi.config.ts` (`registry`, `signingKey`, `signerKeyId`, `tenantId`).
 - **Check your org policies first**, since they change the recipe:
@@ -88,7 +88,7 @@ Cloud Run pulls from Artifact Registry. Copy the runtime's **whole multi-platfor
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker <region>-docker.pkg.dev
-docker buildx imagetools create --tag $REPO/runtime:<version> quay.io/kindgi/runtime:<version>@sha256:<release digest>
+docker buildx imagetools create --tag $REPO/runtime:<version> registry.kindgi.com/kindgi/runtime:<version>@sha256:<release digest>
 kindgi build --local --push --env dev      # the pack image, signed; writes .kindgi/build/deploy-envelope.json
 ```
 
