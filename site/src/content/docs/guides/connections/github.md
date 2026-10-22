@@ -119,8 +119,9 @@ beside the installations to choose from. Once the app is installed
 anywhere, connecting never shows GitHub's install page by itself, so this
 is the way there.
 
-- **When your GitHub account reaches none of the app's installations,**
-  Kindgi says **The app isn't installed where you can reach it**
+- **When the GitHub account you signed in with reaches none of the app's
+  installations, or not the one you picked,** Kindgi says **The app isn't
+  reachable from your GitHub account**
   (`connection-installation-unreachable`). Choose **Install on another
   account**, and install it on an account of yours.
 - **Only whoever started a connect can finish it,** signed in to Kindgi
