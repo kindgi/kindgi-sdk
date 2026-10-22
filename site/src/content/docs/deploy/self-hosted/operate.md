@@ -61,6 +61,9 @@ docker run --rm --network kindgi --env-file kindgi.env \
   registry.kindgi.com/kindgi/runtime:<version> check provider-keys
 ```
 
+`registry.kindgi.com` has 0.1.11 and later. For an earlier version, use the
+image your server already runs.
+
 Nothing starts and nothing is written, and they print names and ids, never a value. Each exits `0` when it finds nothing, `1` when it lists what it found, and `2` when it can't run. `--tenant <uuid>` checks one tenant; by default they check every tenant in the database.
 
 | Check | What it lists |

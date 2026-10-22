@@ -32,11 +32,12 @@ pulls the image too.
    one.
 
 - **Use a work or personal address.** A throwaway address is refused.
-- **One address is one person.** If you've signed in with GitHub before, the
-  address that's your GitHub account's primary verified email signs you in as
-  that same person, with the same key.
-- **No code?** Check your spam folder, wait a minute and ask again. If it
-  still doesn't come, write to contact@kindgi.com.
+- **One address is one person.** If your address is your GitHub account's
+  primary verified email, signing in with either one gives you the same key,
+  whichever you used first.
+- **No code?** Check your spam folder, wait a minute and ask again. You can
+  ask for 3 codes an hour, and 10 a day. If it still doesn't come, write to
+  contact@kindgi.com.
 
 ### Your key's name
 
@@ -48,8 +49,13 @@ name when it starts, so the name is chosen to be safe in shared logs:
   has their own key with that name. One person's key can be revoked without
   touching anyone else's.
 - **An address at a public email service:** the address with everything
-  before the `@` cut to its first character, such as `a***@example.com`.
+  before the `@` cut to its first character, such as `a***@gmail.com`.
 - **GitHub, with a public address:** your GitHub login.
+
+If your company had one shared key before, your next sign-in gives you your
+own, which still names the company. The shared key keeps working where it's
+set until it expires, and a deployment that renews it keeps renewing that
+same key.
 
 ## Log in to the registry
 
@@ -80,7 +86,7 @@ Other clients log in the same way, with `--password-stdin`:
 - **Kubernetes:** an image pull secret of type
   `kubernetes.io/dockerconfigjson` for `registry.kindgi.com`. Make it from a
   file, so the key isn't on a command line, and update it when the key renews:
-  a node can't pull with an expired key.
+  a node can't pull once the key is more than 14 days past its expiry.
 
 Docker keeps the login in your system's credential store when it has one
 (the macOS Keychain, Windows Credential Manager, or `pass` or Secret Service on
@@ -140,6 +146,6 @@ Docker prints the registry's reason after `unauthorized:`:
   and log in again.
 - **A revoked key:** write to contact@kindgi.com.
 
-After many failed logins from one address in a minute, the registry answers
+After many failed logins from one IP address in a minute, the registry answers
 `429 Too Many Requests` for a while. Wait a minute and try again with the
 right key.
