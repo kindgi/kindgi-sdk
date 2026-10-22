@@ -226,7 +226,7 @@ function memoryBinding() {
     return connection;
   }
 
-  return { binding, calls, connected };
+  return { binding, calls, connected, requests };
 }
 
 const runHandler = {} as RunHandlerBinding;
@@ -491,6 +491,62 @@ describe('a connect request: read, start and finish', () => {
       authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth?state=s-1',
     });
     expect(calls.startRequest?.[0]).toMatchObject({ caller: { kind: 'user', id: ANA } });
+  });
+
+  test("a GitHub App's start takes the installation picked, or a new one; the request lists the ones to pick", async () => {
+    const { app, calls, requests } = makeApp();
+    const requestId = await requested(app, 'ana');
+    const installations = [
+      { installationId: '101', account: { id: '1', label: 'acme' } },
+      { installationId: '102', account: { id: '2', label: 'acme-labs' } },
+    ];
+    requests.set(requestId, {
+      ...(requests.get(requestId) as ConnectRequestRecord),
+      installations,
+    });
+    const read = await call(app, 'ana', 'GET', `/v1/connections/requests/${requestId}`);
+    expect(read.json).toMatchObject({ state: 'pending', installations });
+    expect(read.json.failure).toBeUndefined();
+
+    const path = `/v1/connections/requests/${requestId}/start`;
+    for (const body of [
+      { installationId: '102' },
+      { newInstallation: true },
+      { newInstallation: false },
+      {},
+    ]) {
+      expect((await call(app, 'ana', 'POST', path, body)).status).toBe(200);
+    }
+    const [picked, fresh, notFresh, none] = calls.startRequest ?? [];
+    expect(picked).toMatchObject({ installationId: '102' });
+    expect(picked).not.toHaveProperty('newInstallation');
+    expect(fresh).toMatchObject({ newInstallation: true });
+    expect(fresh).not.toHaveProperty('installationId');
+    for (const neither of [notFresh, none]) {
+      expect(neither).not.toHaveProperty('installationId');
+      expect(neither).not.toHaveProperty('newInstallation');
+    }
+  });
+
+  test("a start's body is checked for shape before the binding sees it", async () => {
+    const { app, calls } = makeApp();
+    const requestId = await requested(app, 'ana');
+    const path = `/v1/connections/requests/${requestId}/start`;
+    for (const [body, field] of [
+      [{ installationId: '' }, 'installationId'],
+      [{ installationId: 'x'.repeat(65) }, 'installationId'],
+      [{ installationId: 101 }, 'installationId'],
+      [{ newInstallation: 'yes' }, 'newInstallation'],
+      [{ installationId: '101', newInstallation: true }, 'newInstallation'],
+      [{ installation: '101' }, 'installation'],
+    ] as const) {
+      const res = await call(app, 'ana', 'POST', path, body);
+      expect(res.status).toBe(400);
+      expect(res.json.error).toMatchObject({ code: 'bad-input', details: { field } });
+    }
+    const notAnObject = await call(app, 'ana', 'POST', path, ['101']);
+    expect(notAnObject.status).toBe(400);
+    expect(calls.startRequest).toBeUndefined();
   });
 
   test('whoever started it finishes it: the request and the new connection', async () => {

@@ -37,6 +37,7 @@ import type {
   CreateConnectRequestBody,
   CreateConnectionAppBody,
   FinishConnectBody,
+  StartConnectBody,
   UpdateConnectionAppBody,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
@@ -51,6 +52,7 @@ export type Connection = ConnectionWire;
 export type ConnectionPage = ConnectionPageWire;
 export type ConnectRequest = ConnectRequestWire;
 export type ConnectInput = CreateConnectRequestBody;
+export type StartConnectInput = StartConnectBody;
 export type FinishConnectInput = FinishConnectBody;
 export type ConnectFinish = ConnectFinishWire;
 export type ConnectionStartResult = ConnectStart;
@@ -110,8 +112,15 @@ export interface ConnectionsClient {
   connect(input: ConnectInput, options?: MutationOptions): Promise<ConnectRequest>;
   /** @wire GET /v1/connections/requests/:requestId */
   getRequest(requestId: string): Promise<ConnectRequest>;
-  /** @wire POST /v1/connections/requests/:requestId/start — the app's consent page to send the person to. */
-  startRequest(requestId: string, options?: MutationOptions): Promise<ConnectionStartResult>;
+  /**
+   * @wire POST /v1/connections/requests/:requestId/start — the app's consent page to send the person to.
+   * A GitHub App's takes the installation to attach (`installationId`), or a new one (`newInstallation`).
+   */
+  startRequest(
+    requestId: string,
+    input?: StartConnectInput,
+    options?: MutationOptions,
+  ): Promise<ConnectionStartResult>;
   /** @wire POST /v1/connections/finish — what the app sent back to the callback page. */
   finish(input: FinishConnectInput, options?: MutationOptions): Promise<ConnectFinish>;
 }
@@ -226,10 +235,11 @@ export function makeConnectionsClient(transport: Transport): ConnectionsClient {
         path: `/v1/connections/requests/${encodeURIComponent(requestId)}`,
       });
     },
-    async startRequest(requestId, options) {
+    async startRequest(requestId, input, options) {
       return transport.request<ConnectionStartResult>({
         method: 'POST',
         path: `/v1/connections/requests/${encodeURIComponent(requestId)}/start`,
+        body: input ?? {},
         ...idempotency(options),
       });
     },

@@ -354,6 +354,7 @@ export type {
   ListConnectionsFilter,
   RemoveConnectionAppOptions,
   RemoveConnectionAppResult,
+  StartConnectInput,
   UpdateConnectionAppInput,
 } from './resources/connections.js';
 export type {

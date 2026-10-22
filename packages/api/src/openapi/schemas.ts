@@ -14006,6 +14006,12 @@ export const ConnectRequestSchema: JsonSchema = {
       items: { type: 'string' },
       description: 'The permissions the app granted less than asked.',
     },
+    installations: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ConnectRequestInstallation' },
+      description:
+        "A GitHub App's, while it's `pending`: the app's installations the person's GitHub account reaches, when the finish found several and none was picked. They pick one and start again with `installationId`, or install the app on another account with `newInstallation`.",
+    },
     connectionId: { type: 'string', format: 'uuid', description: 'The connection it made.' },
     connectUrl: { type: 'string', format: 'uri', description: 'Where the owner starts.' },
     expiresAt: { type: 'string', format: 'date-time' },
@@ -14043,6 +14049,40 @@ export const CreateConnectRequestBodySchema: JsonSchema = {
       default: 'me',
       description:
         "`me`: the caller's own account (signed in as a person). `company`: the company's account; a tenant admin only.",
+    },
+  },
+};
+
+export const ConnectRequestInstallationSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['installationId', 'account'],
+  description: 'A GitHub App installation the person can reach.',
+  properties: {
+    installationId: { type: 'string' },
+    account: {
+      $ref: '#/components/schemas/ConnectionAccount',
+      description: "The account it's on: its login, or the enterprise's slug.",
+    },
+  },
+};
+
+export const StartConnectBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Optional, and a GitHub App's only: the installation to attach, or a new one. Leave it out for any other app.",
+  properties: {
+    installationId: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 64,
+      description: "The installation to attach: one of the request's `installations`.",
+    },
+    newInstallation: {
+      type: 'boolean',
+      description:
+        "`true`: go to the app's install page to install it on another account, even when it has installations. Not with `installationId`.",
     },
   },
 };
@@ -15151,6 +15191,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ConnectionPage', ConnectionPageSchema],
   ['ConnectRequest', ConnectRequestSchema],
   ['CreateConnectRequestBody', CreateConnectRequestBodySchema],
+  ['ConnectRequestInstallation', ConnectRequestInstallationSchema],
+  ['StartConnectBody', StartConnectBodySchema],
   ['FinishConnectBody', FinishConnectBodySchema],
   ['ConnectFinish', ConnectFinishSchema],
   ['ConnectStart', ConnectStartSchema],

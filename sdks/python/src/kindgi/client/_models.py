@@ -10608,71 +10608,6 @@ class ConnectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class ConnectRequest(BaseModel):
-    """
-    A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    request_id: Annotated[UUID, Field(alias="requestId")]
-    env_name: Annotated[str, Field(alias="envName")]
-    app_id: Annotated[UUID, Field(alias="appId")]
-    app: str
-    """
-    The app's entry id.
-    """
-    owner: ConnectionOwner
-    permissions: list[str]
-    """
-    The permissions asked for: the ones needed, and the ones already granted.
-    """
-    says: list[str]
-    """
-    What each asks for, in plain words.
-    """
-    reconnects: UUID | None = None
-    """
-    The connection it connects again; the same account is required.
-    """
-    run_id: Annotated[str | None, Field(alias="runId")] = None
-    """
-    The run that waits for it.
-    """
-    name: str | None = None
-    """
-    The tool's name for the connection, when a run waits.
-    """
-    started_by: Annotated[str | None, Field(alias="startedBy")] = None
-    """
-    Who started it last: `<kind>:<id>`. Only they may finish it.
-    """
-    state: Annotated[
-        Literal["pending", "connected", "declined", "expired", "failed"] | str, _open.OPEN
-    ]
-    failure: str | None = None
-    """
-    Why it failed: `account-mismatch`, `app-refused`, `store-write-failed`.
-    """
-    missing: list[str] | None = None
-    """
-    The permissions the app granted less than asked.
-    """
-    connection_id: Annotated[UUID | None, Field(alias="connectionId")] = None
-    """
-    The connection it made.
-    """
-    connect_url: Annotated[AnyUrl, Field(alias="connectUrl")]
-    """
-    Where the owner starts.
-    """
-    expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    created_by: Annotated[str, Field(alias="createdBy")]
-
-
 class CreateConnectRequestBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -10700,6 +10635,43 @@ class CreateConnectRequestBody(BaseModel):
     """
 
 
+class ConnectRequestInstallation(BaseModel):
+    """
+    A GitHub App installation the person can reach.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    installation_id: Annotated[str, Field(alias="installationId")]
+    account: ConnectionAccount
+    """
+    The account it's on: its login, or the enterprise's slug.
+    """
+
+
+class StartConnectBody(BaseModel):
+    """
+    Optional, and a GitHub App's only: the installation to attach, or a new one. Leave it out for any other app.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    installation_id: Annotated[
+        str | None, Field(alias="installationId", max_length=64, min_length=1)
+    ] = None
+    """
+    The installation to attach: one of the request's `installations`.
+    """
+    new_installation: Annotated[bool | None, Field(alias="newInstallation")] = None
+    """
+    `true`: go to the app's install page to install it on another account, even when it has installations. Not with `installationId`.
+    """
+
+
 class FinishConnectBody(BaseModel):
     """
     What the app sent back to the callback page, each as a string. Only whoever started the request may finish it.
@@ -10724,26 +10696,6 @@ class FinishConnectBody(BaseModel):
     error_description: Annotated[
         str | None, Field(alias="errorDescription", max_length=2048, min_length=1)
     ] = None
-
-
-class ConnectFinish(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Annotated[Literal["connected", "declined"] | str, _open.OPEN]
-    """
-    `declined`: the person declined, or granted less than asked (`request.missing`).
-    """
-    request: ConnectRequest
-    connection: Connection | None = None
-    """
-    Present when `kind` is `connected`.
-    """
-    reviewer_seat: Annotated[bool | None, Field(alias="reviewerSeat")] = None
-    """
-    On a server with approvals, for a member who connected: whether they have a reviewer seat, which approving a send from their own account needs.
-    """
 
 
 class ConnectStart(BaseModel):
@@ -15167,6 +15119,95 @@ class WebhookEndpointCollectionPage(BaseModel):
     data: list[WebhookEndpoint]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class ConnectRequest(BaseModel):
+    """
+    A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    request_id: Annotated[UUID, Field(alias="requestId")]
+    env_name: Annotated[str, Field(alias="envName")]
+    app_id: Annotated[UUID, Field(alias="appId")]
+    app: str
+    """
+    The app's entry id.
+    """
+    owner: ConnectionOwner
+    permissions: list[str]
+    """
+    The permissions asked for: the ones needed, and the ones already granted.
+    """
+    says: list[str]
+    """
+    What each asks for, in plain words.
+    """
+    reconnects: UUID | None = None
+    """
+    The connection it connects again; the same account is required.
+    """
+    run_id: Annotated[str | None, Field(alias="runId")] = None
+    """
+    The run that waits for it.
+    """
+    name: str | None = None
+    """
+    The tool's name for the connection, when a run waits.
+    """
+    started_by: Annotated[str | None, Field(alias="startedBy")] = None
+    """
+    Who started it last: `<kind>:<id>`. Only they may finish it.
+    """
+    state: Annotated[
+        Literal["pending", "connected", "declined", "expired", "failed"] | str, _open.OPEN
+    ]
+    failure: str | None = None
+    """
+    Why it failed: `account-mismatch`, `app-refused`, `store-write-failed`.
+    """
+    missing: list[str] | None = None
+    """
+    The permissions the app granted less than asked.
+    """
+    installations: list[ConnectRequestInstallation] | None = None
+    """
+    A GitHub App's, while it's `pending`: the app's installations the person's GitHub account reaches, when the finish found several and none was picked. They pick one and start again with `installationId`, or install the app on another account with `newInstallation`.
+    """
+    connection_id: Annotated[UUID | None, Field(alias="connectionId")] = None
+    """
+    The connection it made.
+    """
+    connect_url: Annotated[AnyUrl, Field(alias="connectUrl")]
+    """
+    Where the owner starts.
+    """
+    expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    created_by: Annotated[str, Field(alias="createdBy")]
+
+
+class ConnectFinish(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Annotated[Literal["connected", "declined"] | str, _open.OPEN]
+    """
+    `declined`: the person declined, or granted less than asked (`request.missing`).
+    """
+    request: ConnectRequest
+    connection: Connection | None = None
+    """
+    Present when `kind` is `connected`.
+    """
+    reviewer_seat: Annotated[bool | None, Field(alias="reviewerSeat")] = None
+    """
+    On a server with approvals, for a member who connected: whether they have a reviewer seat, which approving a send from their own account needs.
+    """
 
 
 class Data1(BaseModel):

@@ -47,6 +47,7 @@ const MAX_SLUG_LENGTH = 100;
 const MAX_PROJECTS = 500;
 const MAX_PERMISSIONS = 64;
 const MAX_FINISH_FIELD_LENGTH = 2048;
+const MAX_INSTALLATION_ID_LENGTH = 64;
 const MINUTE_MS = 60_000;
 
 const CONNECTION_STATES: ReadonlySet<string> = new Set([
@@ -354,7 +355,11 @@ export function connectionsRouter(
     if (request === null || !(await mayAct(c, request.owner))) {
       return requestNotFound(c, requestId);
     }
-    const outcome = await binding.startRequest({ tenantId, requestId, caller });
+    const body = await readJsonObject(c, { allowEmpty: true });
+    if (body.kind === 'err') return badInput(c, body.message);
+    const parsed = parseStartBody(body.value);
+    if (parsed.kind === 'err') return badInput(c, parsed.message, parsed.field);
+    const outcome = await binding.startRequest({ tenantId, requestId, caller, ...parsed.value });
     if (outcome.kind !== 'ok') return bindingRefused(c, outcome.error);
     return c.json({ authorizeUrl: outcome.value.authorizeUrl });
   });
@@ -721,6 +726,42 @@ function parsePermissions(raw: unknown): Parsed<readonly string[]> {
   return { kind: 'ok', value: raw as string[] };
 }
 
+/** A GitHub App's pick: an installation to attach, or a new one. The body is optional. */
+function parseStartBody(
+  body: Record<string, unknown>,
+): Parsed<{ readonly installationId?: string; readonly newInstallation?: true }> {
+  const unknown = unknownField(body, new Set(['installationId', 'newInstallation']), '');
+  if (unknown !== undefined) return unknown;
+  const { installationId, newInstallation } = body;
+  if (
+    installationId !== undefined &&
+    (typeof installationId !== 'string' ||
+      installationId.length === 0 ||
+      installationId.length > MAX_INSTALLATION_ID_LENGTH)
+  ) {
+    return bad(
+      `\`installationId\` must be a non-empty string of at most ${MAX_INSTALLATION_ID_LENGTH} characters`,
+      'installationId',
+    );
+  }
+  if (newInstallation !== undefined && typeof newInstallation !== 'boolean') {
+    return bad('`newInstallation` must be `true` or `false`', 'newInstallation');
+  }
+  if (newInstallation === true && installationId !== undefined) {
+    return bad(
+      '`newInstallation` installs the app on another account: leave out `installationId`',
+      'newInstallation',
+    );
+  }
+  return {
+    kind: 'ok',
+    value: {
+      ...(installationId !== undefined && { installationId }),
+      ...(newInstallation === true && { newInstallation }),
+    },
+  };
+}
+
 const FINISH_FIELDS = [
   'state',
   'code',
@@ -833,10 +874,20 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-async function readJsonObject(c: Context<AppEnv>): Promise<Parsed<Record<string, unknown>>> {
+async function readJsonObject(
+  c: Context<AppEnv>,
+  opts: { readonly allowEmpty?: boolean } = {},
+): Promise<Parsed<Record<string, unknown>>> {
   let body: unknown;
   try {
-    body = await c.req.json();
+    if (opts.allowEmpty === true) {
+      // An optional body: none, or an empty one, reads as `{}`.
+      const text = await c.req.text();
+      if (text.trim().length === 0) return { kind: 'ok', value: {} };
+      body = JSON.parse(text);
+    } else {
+      body = await c.req.json();
+    }
   } catch {
     return bad('Request body must be valid JSON');
   }
@@ -982,6 +1033,12 @@ function serializeRequest(request: ConnectRequestRecord): Record<string, unknown
     state: request.state,
     ...(request.failure !== undefined && { failure: request.failure }),
     ...(request.missing !== undefined && { missing: [...request.missing] }),
+    ...(request.installations !== undefined && {
+      installations: request.installations.map(({ installationId, account }) => ({
+        installationId,
+        account: { id: account.id, label: account.label },
+      })),
+    }),
     ...(request.connectionId !== undefined && { connectionId: request.connectionId }),
     connectUrl: request.connectUrl,
     expiresAt: request.expiresAt,

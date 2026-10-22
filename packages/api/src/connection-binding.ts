@@ -116,6 +116,13 @@ export interface ConnectionRecord {
 
 export type ConnectRequestState = 'pending' | 'connected' | 'declined' | 'expired' | 'failed';
 
+/** A GitHub App installation a person can reach, offered to pick from. */
+export interface ConnectRequestInstallation {
+  readonly installationId: string;
+  /** The account it's on: its login, or the enterprise's slug. */
+  readonly account: ConnectionAccount;
+}
+
 /** A connect: the owner goes to `connectUrl`, consents at the app, and comes back. */
 export interface ConnectRequestRecord {
   readonly requestId: string;
@@ -146,6 +153,14 @@ export interface ConnectRequestRecord {
   readonly failure?: string;
   /** The permissions the app granted less than asked. */
   readonly missing?: readonly string[];
+  /**
+   * A GitHub App's, while it's `pending`: the app's installations the
+   * person's GitHub account reaches, when the finish found several and
+   * none was picked. They pick one and start again (`startRequest`'s
+   * `installationId`), or install the app on another account
+   * (`newInstallation`).
+   */
+  readonly installations?: readonly ConnectRequestInstallation[];
   readonly connectionId?: string;
   /** Absolute: the server's public URL. */
   readonly connectUrl: string;
@@ -317,11 +332,19 @@ export interface ConnectionBinding {
    * The owner (a member's), or a tenant admin (the company's), starts it:
    * a fresh state and PKCE verifier, good for 10 minutes, and the app's
    * consent page to send them to. Records who started it.
+   *
+   * A GitHub App's goes to the app's install page while the app has no
+   * installation, or with `newInstallation`; otherwise to GitHub's user
+   * authorization. Either field on another app's request is `bad-input`.
    */
   startRequest(input: {
     readonly tenantId: TenantId;
     readonly requestId: string;
     readonly caller: PrincipalRef;
+    /** A GitHub App's: the installation to attach, one of the request's `installations`. */
+    readonly installationId?: string;
+    /** A GitHub App's: install the app on another account, even when it has installations. */
+    readonly newInstallation?: true;
   }): Promise<Result<{ readonly authorizeUrl: string }, ConnectionError>>;
   /**
    * Only whoever started it may finish it (`connection-not-yours`). Checks
@@ -333,6 +356,14 @@ export interface ConnectionBinding {
    * after it was made, finishes as a reconnect of that connection: the
    * same account is required (`connection-account-mismatch`), and the
    * permissions are both sets.
+   *
+   * A GitHub App's attaches an installation only if the person's GitHub
+   * account reaches it: the one GitHub sent back, the one they picked, or
+   * the only one they reach. None they reach is `connection-not-yours`,
+   * and the way on is installing the app on their account
+   * (`newInstallation`). Several and none picked is `bad-input` (field
+   * `installationId`): the request stays `pending` with its
+   * `installations`, and no `failure`.
    */
   finishRequest(input: ConnectFinishInput): Promise<Result<ConnectFinishOutcome, ConnectionError>>;
 

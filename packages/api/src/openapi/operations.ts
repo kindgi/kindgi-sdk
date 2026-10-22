@@ -10842,7 +10842,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.finish',
     summary: 'Finish a connect',
     description:
-      "Takes what the app sent back to the callback page (`state` and `code`, or `installationId` and `setupAction` for a GitHub App, or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions.",
+      "Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, the request stays `pending` with its `installations` to pick from (start it again with `installationId`).",
     tags: ['connections'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -10851,10 +10851,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The outcome.', schema: ref('ConnectFinish') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        'Malformed body, unknown field or no `state` (`bad-input`, `details.field`).',
+        "Malformed body, unknown field or no `state` (`bad-input`, `details.field`); or a GitHub App's person reaches several installations and picked none (`bad-input`, `details.field` `installationId`): the request's `installations` lists them.",
       ),
       '403': ErrorResponse(
-        'Someone other than whoever started the request (`connection-not-yours`).',
+        "Someone other than whoever started the request; or a GitHub App's person reaches no installation of the app, and installs it on their account with a start's `newInstallation` (`connection-not-yours`).",
       ),
       '404': ErrorResponse('No request for that state (`connection-request-not-found`).'),
       '409': ErrorResponse(
@@ -10898,14 +10898,17 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.requests.start',
     summary: 'Start a connect request',
     description:
-      "Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`.",
+      "Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [ConnectRequestIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('StartConnectBody') },
     responses: {
       '200': { description: 'Where to send the person.', schema: ref('ConnectStart') },
       ...CommonMutationErrors,
-      '400': ErrorResponse('`requestId` is not a UUID (`bad-input`).'),
+      '400': ErrorResponse(
+        '`requestId` is not a UUID; a malformed body or unknown field; both `installationId` and `newInstallation`; or either on a request whose app is not a GitHub App (`bad-input`, `details.field`).',
+      ),
       '404': ErrorResponse(
         "No request with that id, or not the caller's (`connection-request-not-found`).",
       ),

@@ -10155,20 +10155,23 @@ class ConnectionsRequestsResource:
     def start(
         self,
         request_id: str | UUID,
+        body: _models.StartConnectBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
+        **fields: Any,
     ) -> _models.ConnectStart:
         """Start a connect request. `POST /v1/connections/requests/{requestId}/start`
 
-        Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`.
+        Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`.
         """
         return self._client._request(
             _OPERATIONS["connections.requests.start"],
             path={"requestId": request_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.StartConnectBody, body, fields),
             response=_models.ConnectStart,
             timeout=timeout,
         )
@@ -10249,7 +10252,7 @@ class ConnectionsResource:
     ) -> _models.ConnectFinish:
         """Finish a connect. `POST /v1/connections/finish`
 
-        Takes what the app sent back to the callback page (`state` and `code`, or `installationId` and `setupAction` for a GitHub App, or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions.
+        Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, the request stays `pending` with its `installations` to pick from (start it again with `installationId`).
         """
         return self._client._request(
             _OPERATIONS["connections.finish"],
@@ -19255,20 +19258,23 @@ class AsyncConnectionsRequestsResource:
     async def start(
         self,
         request_id: str | UUID,
+        body: _models.StartConnectBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
+        **fields: Any,
     ) -> _models.ConnectStart:
         """Start a connect request. `POST /v1/connections/requests/{requestId}/start`
 
-        Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`.
+        Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`.
         """
         return await self._client._request(
             _OPERATIONS["connections.requests.start"],
             path={"requestId": request_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.StartConnectBody, body, fields),
             response=_models.ConnectStart,
             timeout=timeout,
         )
@@ -19349,7 +19355,7 @@ class AsyncConnectionsResource:
     ) -> _models.ConnectFinish:
         """Finish a connect. `POST /v1/connections/finish`
 
-        Takes what the app sent back to the callback page (`state` and `code`, or `installationId` and `setupAction` for a GitHub App, or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions.
+        Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, the request stays `pending` with its `installations` to pick from (start it again with `installationId`).
         """
         return await self._client._request(
             _OPERATIONS["connections.finish"],

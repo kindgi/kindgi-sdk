@@ -23821,6 +23821,13 @@
             },
             "description": "The permissions the app granted less than asked."
           },
+          "installations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectRequestInstallation"
+            },
+            "description": "A GitHub App's, while it's `pending`: the app's installations the person's GitHub account reaches, when the finish found several and none was picked. They pick one and start again with `installationId`, or install the app on another account with `newInstallation`."
+          },
           "connectionId": {
             "type": "string",
             "format": "uuid",
@@ -23884,6 +23891,41 @@
             ],
             "default": "me",
             "description": "`me`: the caller's own account (signed in as a person). `company`: the company's account; a tenant admin only."
+          }
+        }
+      },
+      "ConnectRequestInstallation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "installationId",
+          "account"
+        ],
+        "description": "A GitHub App installation the person can reach.",
+        "properties": {
+          "installationId": {
+            "type": "string"
+          },
+          "account": {
+            "$ref": "#/components/schemas/ConnectionAccount",
+            "description": "The account it's on: its login, or the enterprise's slug."
+          }
+        }
+      },
+      "StartConnectBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Optional, and a GitHub App's only: the installation to attach, or a new one. Leave it out for any other app.",
+        "properties": {
+          "installationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The installation to attach: one of the request's `installations`."
+          },
+          "newInstallation": {
+            "type": "boolean",
+            "description": "`true`: go to the app's install page to install it on another account, even when it has installations. Not with `installationId`."
           }
         }
       },
@@ -60952,7 +60994,7 @@
             }
           },
           "400": {
-            "description": "Malformed body, unknown field or no `state` (`bad-input`, `details.field`).",
+            "description": "Malformed body, unknown field or no `state` (`bad-input`, `details.field`); or a GitHub App's person reaches several installations and picked none (`bad-input`, `details.field` `installationId`): the request's `installations` lists them.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60972,7 +61014,7 @@
             }
           },
           "403": {
-            "description": "Someone other than whoever started the request (`connection-not-yours`).",
+            "description": "Someone other than whoever started the request; or a GitHub App's person reaches no installation of the app, and installs it on their account with a start's `newInstallation` (`connection-not-yours`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -61052,7 +61094,7 @@
             }
           }
         },
-        "description": "Takes what the app sent back to the callback page (`state` and `code`, or `installationId` and `setupAction` for a GitHub App, or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions.",
+        "description": "Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, the request stays `pending` with its `installations` to pick from (start it again with `installationId`).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -61170,7 +61212,7 @@
             }
           },
           "400": {
-            "description": "`requestId` is not a UUID (`bad-input`).",
+            "description": "`requestId` is not a UUID; a malformed body or unknown field; both `installationId` and `newInstallation`; or either on a request whose app is not a GitHub App (`bad-input`, `details.field`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -61219,6 +61261,16 @@
               }
             }
           },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
             "content": {
@@ -61230,7 +61282,7 @@
             }
           }
         },
-        "description": "Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`.",
+        "description": "Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`.",
         "parameters": [
           {
             "name": "requestId",
@@ -61253,6 +61305,16 @@
             "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartConnectBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []
