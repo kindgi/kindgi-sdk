@@ -78,6 +78,22 @@ docker login registry.kindgi.com --username kindgi --password-stdin < kindgi-lic
 Never pass the key with `--password` (`-p`): a command line can end up in your
 shell's history and in the list of running processes.
 
+In GitHub Actions, `docker/login-action` logs in the same way, with the key in
+a repository or organization secret. It passes the key on standard input, and
+logs out when the job ends:
+
+```yaml excerpt
+- uses: docker/login-action@v4
+  with:
+    registry: registry.kindgi.com
+    username: kindgi
+    password: ${{ secrets.KINDGI_LICENSE_KEY }}
+```
+
+A runner that starts clean pulls the image on every run, so CI is where an
+old key shows up first. When you get a renewed key, replace the CI secret
+too: from 14 days after the old key's expiry, its pulls are refused.
+
 Other clients log in the same way, with `--password-stdin`:
 
 - **Podman:** `podman login registry.kindgi.com --username kindgi --password-stdin`.
@@ -150,4 +166,5 @@ Docker prints the registry's reason after `unauthorized:`:
 
 After many failed logins from one IP address in a minute, the registry answers
 `429 Too Many Requests` for a while. Wait a minute and try again with the
-right key.
+right key. Only failed key checks count, so a good key still pulls from an
+address that others share, such as a hosted CI runner's.
