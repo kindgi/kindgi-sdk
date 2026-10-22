@@ -5,7 +5,9 @@ import { describe, expect, test } from 'vitest';
 
 import {
   ConnectionRejectedError,
+  ConnectionRenewError,
   isConnectionRejectedError,
+  isConnectionRenewError,
   toolSecretNames,
   validateToolManifest,
 } from '../src/index.js';
@@ -125,5 +127,27 @@ describe('ConnectionRejectedError', () => {
     expect(isConnectionRejectedError(fromAnotherCopy)).toBe(true);
     expect(isConnectionRejectedError(new Error('x'))).toBe(false);
     expect(isConnectionRejectedError(null)).toBe(false);
+  });
+});
+
+describe('ConnectionRenewError', () => {
+  test('names the connection and carries its code', () => {
+    const error = new ConnectionRenewError('mail');
+    expect(error.connection).toBe('mail');
+    expect(error.code).toBe('connection-renew-failed');
+    expect(error.name).toBe('ConnectionRenewError');
+    expect(error.message).toBe('the app couldn\'t renew the connection "mail" just now');
+  });
+
+  test('is recognized from another copy of the package, and is not a rejection', () => {
+    const error = new ConnectionRenewError('mail', 'the token endpoint timed out');
+    expect(isConnectionRenewError(error)).toBe(true);
+    expect(isConnectionRejectedError(error)).toBe(false);
+    expect(isConnectionRenewError(new ConnectionRejectedError('mail'))).toBe(false);
+    const fromAnotherCopy = Object.assign(new Error('x'), {
+      [Symbol.for('kindgi.tools.connection-renew-failed')]: true,
+    });
+    expect(isConnectionRenewError(fromAnotherCopy)).toBe(true);
+    expect(isConnectionRenewError(undefined)).toBe(false);
   });
 });

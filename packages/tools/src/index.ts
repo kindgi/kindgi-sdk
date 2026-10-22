@@ -26,7 +26,12 @@ export { invokeToolForTest, toolContextForTest } from './test-context.js';
 export { toolSecretNames } from './secret-names.js';
 export { toolOptionalSecretNames, toolRequiredEnvNames } from './env-names.js';
 export { ToolPreconditionError, isToolPreconditionError } from './precondition.js';
-export { ConnectionRejectedError, isConnectionRejectedError } from './connections.js';
+export {
+  ConnectionRejectedError,
+  ConnectionRenewError,
+  isConnectionRejectedError,
+  isConnectionRenewError,
+} from './connections.js';
 export type {
   ConnectionAccount,
   ConnectionNeed,
