@@ -88,8 +88,8 @@ In the console, open your workspace's **App registrations** page, choose
   stored them under in Kindgi's secrets.
 - **Which projects' runs may use it:** leave it empty for all of them.
 
-Then choose **Register**. Kindgi shows what to give GitHub, including a
-**Webhook URL**. Back on GitHub, in the app's **General** settings, tick
+Then choose **Register**. Kindgi shows what to give GitHub: the
+**Callback URL** you entered in step 1, and a **Webhook URL**. Back on GitHub, in the app's **General** settings, tick
 **Webhook → Active**, enter that address as the **Webhook URL** and the
 webhook secret from step 2 as the **Secret**, and save. GitHub then sends Kindgi a signed notice when the app
 is uninstalled or suspended
