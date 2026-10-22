@@ -132,6 +132,12 @@ export interface ConnectRequestRecord {
   readonly runId?: string;
   /** The run's waitpoint token, when a run waits for it. */
   readonly waitToken?: string;
+  /**
+   * The tool's name for the connection (its `needsSpec.connections` key),
+   * when a run waits for it. Needs that share the request: the first of
+   * their names in sorted order, the one its `waitToken` is made from.
+   */
+  readonly name?: string;
   /** Who started it last: `<kind>:<id>`. Only they may finish it. */
   readonly startedBy?: string;
   readonly state: ConnectRequestState;
@@ -163,12 +169,13 @@ export type ConnectionErrorCode =
   | 'connection-app-refused'
   | 'connection-notice-invalid'
   | 'connection-notice-unavailable'
-  | 'connection-store-failed';
+  | 'connection-store-failed'
+  | 'bad-input';
 
 export interface ConnectionError {
   readonly code: ConnectionErrorCode;
   readonly message: string;
-  /** The input field at fault (`connection-app-invalid`). */
+  /** The input field at fault (`connection-app-invalid`, `bad-input`). */
   readonly field?: string;
 }
 
@@ -297,6 +304,14 @@ export interface ConnectionBinding {
     readonly tenantId: TenantId;
     readonly requestId: string;
   }): Promise<ConnectRequestRecord | null>;
+  /**
+   * Every request a run made, in any state. A run's `waitingFor` keeps
+   * the pending ones whose `waitToken` is one of its open waits.
+   */
+  requestsForRun(input: {
+    readonly tenantId: TenantId;
+    readonly runId: string;
+  }): Promise<readonly ConnectRequestRecord[]>;
   /**
    * The owner (a member's), or a tenant admin (the company's), starts it:
    * a fresh state and PKCE verifier, good for 10 minutes, and the app's

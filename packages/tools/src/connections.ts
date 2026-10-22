@@ -111,6 +111,9 @@ export type ResolveConnectionsOutcome =
  *   (`connection-app-missing`), a person's connection in a run with no
  *   person (`connection-needs-a-person`), or a missing one the call can't
  *   wait for (`connection-missing`).
+ *
+ * When the app can't give a token just now, it throws
+ * `ConnectionRenewError` and the connection stays as it is.
  */
 export interface ConnectionResolver {
   resolveConnections(input: ResolveConnectionsInput): Promise<ResolveConnectionsOutcome>;
@@ -149,5 +152,43 @@ export function isConnectionRejectedError(value: unknown): value is ConnectionRe
     typeof value === 'object' &&
     value !== null &&
     (value as { readonly [CONNECTION_REJECTED]?: unknown })[CONNECTION_REJECTED] === true
+  );
+}
+
+const CONNECTION_RENEW_FAILED = Symbol.for('kindgi.tools.connection-renew-failed');
+
+/**
+ * The app couldn't give a connection's token just now: it didn't answer,
+ * it answered with an error that doesn't withdraw the grant, or the
+ * registration's client secret couldn't be read. A `ConnectionResolver`
+ * throws it, and the call fails with `code`. The connection stays as it
+ * is, so a later call tries again.
+ *
+ * Recognized by a registered symbol, not `instanceof`, like
+ * `ConnectionRejectedError`.
+ */
+export class ConnectionRenewError extends Error {
+  readonly [CONNECTION_RENEW_FAILED] = true;
+  readonly code = 'connection-renew-failed';
+
+  /**
+   * @param connection The tool's name for the connection.
+   * @param message What went wrong; never a token or a secret.
+   */
+  constructor(
+    readonly connection: string,
+    message?: string,
+  ) {
+    super(message ?? `the app couldn't renew the connection "${connection}" just now`);
+    this.name = 'ConnectionRenewError';
+  }
+}
+
+/** Is `value` a `ConnectionRenewError` (from any copy of this package)? */
+export function isConnectionRenewError(value: unknown): value is ConnectionRenewError {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { readonly [CONNECTION_RENEW_FAILED]?: unknown })[CONNECTION_RENEW_FAILED] === true
   );
 }
