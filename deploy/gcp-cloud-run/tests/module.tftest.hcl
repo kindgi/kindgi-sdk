@@ -863,6 +863,21 @@ run "unset_the_server_serves_from_its_own_instance" {
   }
 }
 
+# The grant's condition keeps the title and description earlier releases
+# applied: the Google provider replaces the grant when either changes.
+run "the_sql_grant_keeps_its_condition_text" {
+  command = plan
+
+  assert {
+    condition     = google_project_iam_member.server_sql_client[0].condition[0].title == "kindgi-instance-only"
+    error_message = "The server's Cloud SQL grant keeps its condition's title, kindgi-instance-only."
+  }
+  assert {
+    condition     = google_project_iam_member.server_sql_client[0].condition[0].description == "Kindgi's own Cloud SQL instance only."
+    error_message = "The server's Cloud SQL grant keeps its condition's description, \"Kindgi's own Cloud SQL instance only.\""
+  }
+}
+
 run "database_instance_moves_the_server_and_keeps_its_own_instance" {
   command = plan
 
