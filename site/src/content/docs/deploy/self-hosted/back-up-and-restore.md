@@ -119,7 +119,7 @@ server has them:
 
 ```sh
 docker run --rm --network kindgi --env-file kindgi.env \
-  quay.io/kindgi/runtime:<version> check stored-secrets
+  registry.kindgi.com/kindgi/runtime:<version> check stored-secrets
 ```
 
 It decrypts each live version of every stored secret, and prints ids and
@@ -304,7 +304,7 @@ with Docker:
 ```sh
 docker run --rm --network kindgi --env-file kindgi.env \
   -v /var/lib/kindgi/erasure-ledger:/erasure-ledger:ro \
-  quay.io/kindgi/runtime:<version> erasures replay --from local:/erasure-ledger
+  registry.kindgi.com/kindgi/runtime:<version> erasures replay --from local:/erasure-ledger
 ```
 
 - **`--from`** takes a directory (`local:<dir>`, mounted into the container
