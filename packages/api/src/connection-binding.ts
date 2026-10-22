@@ -77,7 +77,7 @@ export interface ConnectionAppRecord {
   };
   /** The projects whose runs may use its connections. Absent: every project. */
   readonly projects?: readonly ProjectId[];
-  /** `<publicUrl>/console/connect/callback`: the admin gives it to the app (a GitHub App's Setup URL too). */
+  /** `<publicUrl>/console/connect/callback`: the admin gives it to the app (a GitHub App's Callback URL, with user authorization during installation). */
   readonly redirectUrl: string;
   /** `<publicUrl>/v1/connection-notices/<tenantId>/<appId>`: where the app reports removals. */
   readonly noticesUrl: string;

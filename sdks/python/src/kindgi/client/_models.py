@@ -10451,7 +10451,7 @@ class ConnectionApp(BaseModel):
     """
     redirect_url: Annotated[AnyUrl, Field(alias="redirectUrl")]
     """
-    Give this to the app as its redirect URL (a GitHub App also as its Setup URL).
+    Give this to the app as its redirect URL: a GitHub App's Callback URL, with "Request user authorization (OAuth) during installation" ticked.
     """
     notices_url: Annotated[AnyUrl, Field(alias="noticesUrl")]
     """

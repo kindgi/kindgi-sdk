@@ -13795,7 +13795,8 @@ export const ConnectionAppSchema: JsonSchema = {
     redirectUrl: {
       type: 'string',
       format: 'uri',
-      description: 'Give this to the app as its redirect URL (a GitHub App also as its Setup URL).',
+      description:
+        'Give this to the app as its redirect URL: a GitHub App\'s Callback URL, with "Request user authorization (OAuth) during installation" ticked.',
     },
     noticesUrl: {
       type: 'string',
