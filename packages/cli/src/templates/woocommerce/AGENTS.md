@@ -27,10 +27,15 @@ README.md explains the whole design; keep it true when you change the pack.
   that changes the store or moves money, unless the person you work for
   asks for exactly that.
 - **The refund limit is two tools.** Approval rules key on the tool, not
-  its arguments. `woo.refund` (no approval) is capped by its input schema
-  and its handler (`REFUND_LIMIT`, counting earlier refunds); larger
-  refunds go through `woo.refund-large` (always approved). Keep both caps
-  when you change one.
+  its arguments. `woo.refund` (no approval when a person starts the turn)
+  is capped by its input schema and its handler (`REFUND_LIMIT`, counting
+  earlier refunds); larger refunds go through `woo.refund-large` (always
+  approved). Keep both caps when you change one.
+- **Tools that move money or change the store declare
+  `needsApprovalWhenUnattended: true`** (`woo.refund`, `woo.refund-large`,
+  `woo.set-price`, `woo.publish-product`): in a run no person started, each
+  call waits for a person, and no agent's policy lifts that. Keep it on
+  them, and add it to any such tool you write.
 - **Order events are untrusted.** `woo.check-order-event` runs before
   any model sees an event and keeps typed fields only; the agent that
   reads events (`order-reviewer`) has read-only tools. Keep it that way:
@@ -53,6 +58,8 @@ pack's code), append an entry to `FEEDBACK.md` at the pack root via
 `kindgi feedback write` — see the `kindgi-framework-feedback` skill. Mark
 items fixed by adding a `> **Fixed:** <note>` line right after their
 header; the file is a plain markdown list you edit directly.
+Send entries to Kindgi only after the person has seen the preview and said
+yes: `kindgi feedback submit --preview`, then `--yes=<its digest>`.
 
 ## Commands for the person's own terminal
 

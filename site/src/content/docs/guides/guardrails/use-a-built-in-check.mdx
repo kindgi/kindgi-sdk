@@ -22,7 +22,11 @@ shipping a check you [write yourself](../write-a-guardrail/).
 ## Name a built-in
 
 A built-in check needs no code of yours. The guardrail names the built-in as
-its `check`, gives its `config`, and ships no check implementation:
+its `check`, gives its `config`, and ships no check implementation. Ask your
+coding agent: "I want a guardrail, with a built-in check, that stops an
+answer promising a guarantee." Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+guardrail looks like this:
 
 ```ts
 // guardrails/no-guarantees/index.ts

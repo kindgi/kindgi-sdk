@@ -24,7 +24,17 @@ whether it should be a fallback.
 
 ## The provider
 
-Write the provider as a spec, and save it in the pack as `acme-llm.json`:
+Ask your coding agent to write the provider. Kindgi's skills in your pack
+tell it how ([How it knows Kindgi](../../../start/coding-agents/)):
+
+```text
+I want to use llama3.1 with Ollama on this machine as a model provider.
+```
+
+For reference, the spec it writes looks like this. This guide calls the
+provider `acme-llm`, and saves its spec in the pack as `acme-llm.json`. Its
+`extraBody.` line turns thinking off, as
+[Extra request fields](#extra-request-fields) explains:
 
 ```json
 {
@@ -48,8 +58,8 @@ Register it, then start a turn. `--spec=@acme-llm.json` reads the spec from
 that file. `--agent` is the agent, and `--input` its input:
 
 ```sh
-kindgi providers register --spec=@acme-llm.json
-kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1002?"}'
+pnpm exec kindgi providers register --spec=@acme-llm.json
+pnpm exec kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1002?"}'
 ```
 
 `register` prints the provider's id, as JSON. The turn's run shows which
@@ -76,8 +86,9 @@ provider answered:
 - **`contextWindow`** is the context your server serves the model with, which
   can be less than the model's own.
 
-To have `kindgi dev` register it on every boot, put the spec in the pack's
-config instead, as `{ spec: { … } }` in `providers`.
+To have `kindgi dev` register it on every boot, ask your coding agent to put
+the spec in the pack's config instead. It goes there as `{ spec: { … } }` in
+`providers`.
 [Declare them in your pack's config](../#declare-them-in-your-packs-config)
 shows how.
 
@@ -87,9 +98,9 @@ Some servers need fields the OpenAI API doesn't have. A thinking model, such
 as Qwen 3, writes its reasoning before its answer unless it's asked not to.
 An agent with a [typed answer](../../agents/typed-answer/) then gets an
 answer that isn't JSON. If you can't change the server's defaults, send the field
-with every request.
+with every request. Ask your coding agent, for example: "Turn thinking off for my Ollama model."
 
-`adapter_config` is flat: each extra field is one key that starts with
+For reference, `adapter_config` is flat: each extra field is one key that starts with
 `extraBody.`, and the dots nest. The provider in
 [The provider](#the-provider) sends, with every call:
 
@@ -111,7 +122,8 @@ turn tool calling on in its settings, and serve a model that supports it.
 ## Keep it as a fallback
 
 A model of your own can be the one that answers only when nothing else fits,
-the way `dev-echo` does. Add `"fallback": true` to `metadata`:
+the way `dev-echo` does. Ask your coding agent: "Use my Ollama model only
+when no other model fits." For reference, it adds `"fallback": true` to `metadata`:
 
 ```json
 {

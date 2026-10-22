@@ -20,7 +20,15 @@ vLLM, LiteLLM and OpenRouter among them. Kindgi reaches them with one adapter,
 
 ## Ollama on your machine
 
-Write the provider as a spec, and save it in the pack as `ollama.json`:
+Ask your coding agent to write the provider. Kindgi's skills in your pack
+tell it how ([How it knows Kindgi](../../../start/coding-agents/)):
+
+```text
+I want to use llama3.1 with Ollama on this machine as a model provider.
+```
+
+For reference, the spec it writes looks like this. This guide calls the
+provider `ollama`, and saves its spec in the pack as `ollama.json`:
 
 ```json
 {
@@ -40,7 +48,7 @@ Write the provider as a spec, and save it in the pack as `ollama.json`:
 Register it. `--spec=@ollama.json` reads the spec from that file:
 
 ```sh
-kindgi providers register --spec=@ollama.json
+pnpm exec kindgi providers register --spec=@ollama.json
 ```
 
 ```text
@@ -49,9 +57,10 @@ kindgi providers register --spec=@ollama.json
 }
 ```
 
-To have `kindgi dev` register it on every boot, put the spec in the pack's
-config instead: `{ spec: { … } }` in `kindgi.config.ts`'s `providers`, or
-`spec = { … }` in a `[[tool.kindgi.providers]]` table in `pyproject.toml`.
+To have `kindgi dev` register it on every boot, ask your coding agent to put
+the spec in the pack's config instead. It goes there as `{ spec: { … } }` in
+`kindgi.config.ts`'s `providers`, or `spec = { … }` in a
+`[[tool.kindgi.providers]]` table in `pyproject.toml`.
 [Declare them in your pack's config](../#declare-them-in-your-packs-config)
 shows how.
 
@@ -59,7 +68,7 @@ Then run an agent. With no other provider registered, Ollama answers.
 `--agent` is the agent, and `--input` its input:
 
 ```sh
-kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
+pnpm exec kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
 ```
 
 ```json
@@ -91,9 +100,17 @@ There's no `secret_ref`: Ollama takes no key.
 
 ## An endpoint with a key
 
-A hosted endpoint takes a key. Name the secret that holds it in `secret_ref`,
-and store the key as a secret, as [Keys](../#keys) shows. The endpoint's
-documentation gives its base URL and its model names:
+A hosted endpoint takes a key. The spec names the secret that holds it in
+`secret_ref`. The key itself stays with you: store it as a secret, as
+[Keys](../#keys) shows. The endpoint's documentation gives its base URL and
+its model names. Ask your coding agent to write the spec:
+
+```text
+I want to use llama3.1 through our LLM gateway. It takes an API key.
+```
+
+For reference, the spec it writes looks like this. Its `secret_ref` names
+the secret, `ACME_GATEWAY_KEY`:
 
 ```json
 {
@@ -177,6 +194,10 @@ bills that way. The `openai` preset fills them in:
   the multipliers apply to the long prompt rate;
 - **`dataResidencyMultiplier`**: applied to every rate when `baseURL` is a
   data-residency host such as `eu.api.openai.com`.
+
+Ask your coding agent, for example: "Add my vendor's cached-prompt and
+long-prompt prices to the model." For reference, the model's `cost` then
+looks like this:
 
 ```json excerpt
 "cost": {

@@ -67,6 +67,10 @@ function harness(
   logLines?: string[],
 ) {
   const secretsBinding = {
+    // The POST route reads for an `add-version` to decide whether the name is
+    // being created (and so held to the grammar); `stripe-key` is in-grammar,
+    // so a null read lets the configured `set` answer stand.
+    get: async () => null,
     set: async () => answers.set ?? { kind: 'ok', record: RECORD, versionId: 1 },
     rotate: async () =>
       answers.rotate ?? { kind: 'ok', value: { kind: 'ok', newVersionId: 3, oldVersionId: 2 } },

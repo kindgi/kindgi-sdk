@@ -24,7 +24,12 @@ sends a credential with it.
 
 A tool that is a single HTTP request needs no handler. You declare the
 request. Kindgi makes it on every call, fills the URL from the tool's input
-and adds the credential:
+and adds the credential.
+
+Ask your coding agent: "I want a tool that adds a note to an order with one
+HTTP request, no code." Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+tool looks like this. This guide calls it `my-pack.add-order-note`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -214,6 +219,10 @@ counted after it's decompressed, fails the call:
 
 `authorization` names a secret. Kindgi resolves it on every call and sends
 it as a header. Your code never holds the value.
+
+Ask your coding agent: "I want a tool that checks the API accepts my token."
+For reference, the tool looks like this. It sends the secret
+`HTTPBIN_TOKEN`, which you store below:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

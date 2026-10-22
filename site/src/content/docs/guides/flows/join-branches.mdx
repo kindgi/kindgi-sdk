@@ -22,8 +22,11 @@ runs once if at least one fired.
 
 ## Join two branches
 
-`acme.handle-order` holds a large order, then emails the customer either way.
-It adds one tool, `acme.email-customer`. Write the tool and the flow:
+Ask your coding agent: "I want a flow that holds a large order, then emails
+the customer either way." Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+tool and the flow look like this. This guide calls the flow
+`acme.handle-order`, and it adds one tool, `acme.email-customer`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -323,10 +326,40 @@ runs once, at the end of it.
 
 Run it for a small order and a large one:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}'
-kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-200"}'
+pnpm exec kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}'
+pnpm exec kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-200"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}'
+uv run kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.handle-order --input='{"orderId":"A-100"}'
+./kindgiw runs start --flow=acme.handle-order --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.handle-order --input='{"orderId":"A-100"}'
+./kindgiw runs start --flow=acme.handle-order --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--flow` is the flow, and `--input` its input. The two runs return:
 

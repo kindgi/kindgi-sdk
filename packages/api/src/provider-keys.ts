@@ -78,7 +78,7 @@ export interface SecretUsersDeps {
 const PAGE = 100;
 const MAX_PAGES = 100;
 
-async function* pages<T>(
+export async function* pages<T>(
   read: (cursor: Cursor | undefined) => Promise<{
     readonly data: readonly T[];
     readonly nextCursor?: Cursor;

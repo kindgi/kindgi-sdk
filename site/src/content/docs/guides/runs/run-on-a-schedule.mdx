@@ -31,7 +31,7 @@ Or have the other system [start a run](../start-a-run/) with `POST /v1/runs`.
 The schedule says what to run, with what input, and when:
 
 ```sh
-kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" --timezone=America/Toronto \
+pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" --timezone=America/Toronto \
   --input='{"userMessage":"List the orders still open from yesterday."}' --label="weekday digest"
 ```
 
@@ -54,7 +54,7 @@ It prints the schedule, with its `id`. To see the next three times it runs,
 where `<schedule-id>` is that `id`:
 
 ```sh
-kindgi schedules get <schedule-id> --upcoming=3
+pnpm exec kindgi schedules get <schedule-id> --upcoming=3
 ```
 
 From your app, the clients have the same calls on `schedules`: `register`,
@@ -69,7 +69,7 @@ as a service account instead, with the account's grants rather than yours,
 and keep running after you leave, name it with `--run-as`:
 
 ```sh
-kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" --timezone=America/Toronto \
+pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" --timezone=America/Toronto \
   --input='{"userMessage":"List the orders still open from yesterday."}' --run-as=<service-account-id>
 ```
 
@@ -109,7 +109,7 @@ each time still fires once.
   `--catch-up=skip` fires none of them. A time is missed when the fire would
   start more than `--starting-deadline` seconds late, 600 by default.
 - **Its owner may no longer run it,** such as when they lost their role on
-  the project, or were removed from the tenant (runtime 0.1.8.1 or later).
+  the project, or were removed from the tenant (runtime 0.1.9 or later).
   The fire is `refused`, with why. Whoever holds `admin` on the project can
   make themselves its owner: `kindgi schedules take-ownership <schedule-id>`,
   or hand it to a service account
@@ -119,14 +119,17 @@ each time still fires once.
 
 After 5 fires in a row that were refused or failed, the schedule pauses
 itself, with the reason in its `statusReason`. Skipped fires don't count.
-`kindgi schedules resume <schedule-id>` clears it.
+Nor does a fire refused for a limit, its note starting `rate-limited:`,
+or one the database was too busy to start (runtime 0.1.9 or later), its
+note starting `database-busy:`. Neither starts the count over.
+`kindgi schedules resume <schedule-id>` clears the pause.
 
 ## See what it did
 
 The schedule's history says what each fire did:
 
 ```sh
-kindgi schedules fires <schedule-id> --table
+pnpm exec kindgi schedules fires <schedule-id> --table
 ```
 
 `--table` prints a table. Without it, the same fires come as JSON. The
@@ -147,13 +150,13 @@ history is newest first, kept for 30 days. Each row has:
 [Improve on a schedule](#improve-on-a-schedule) shows a history.
 `kindgi runs list --trigger=<schedule-id>` lists the runs it started. Each
 fire also logs one `[schedules]` record, with its outcome and run, as
-[Logs](../../../deploy/logs/) describes.
+[Logs](../../../deploy/self-hosted/logs/) describes.
 
 ## Find your schedules
 
 ```sh
-kindgi schedules list --status=active
-kindgi schedules list --project=<project-id>
+pnpm exec kindgi schedules list --status=active
+pnpm exec kindgi schedules list --project=<project-id>
 ```
 
 - `--status=active` lists the active ones.
@@ -257,7 +260,7 @@ instead of runs, when enough new trusted judgments have come in on an
 agent's runs:
 
 ```sh
-kindgi schedules create --cron="0 3 * * *" --improve=acme.rank.scorer --project=<project-id> --segment=company:acme \
+pnpm exec kindgi schedules create --cron="0 3 * * *" --improve=acme.rank.scorer --project=<project-id> --segment=company:acme \
   --input='{"tiers": ["settings"], "threshold": {"judgments": 5, "runs": 3, "judges": 2}, "monthlyCapUsd": 20}' --label="acme improve"
 ```
 
@@ -318,14 +321,14 @@ That schedule's first fire, started with `run-now`, was skipped: one judge
 short. Then the threshold was lowered to one judge:
 
 ```sh
-kindgi schedules update <schedule-id> --input='{"tiers": ["settings"], "threshold": {"judgments": 5, "runs": 3, "judges": 1}, "monthlyCapUsd": 20}'
+pnpm exec kindgi schedules update <schedule-id> --input='{"tiers": ["settings"], "threshold": {"judgments": 5, "runs": 3, "judges": 1}, "monthlyCapUsd": 20}'
 ```
 
 It prints the schedule, with its new input. The next fire started a pass, and
 the third came while that pass was still running. Its history, newest first:
 
 ```sh
-kindgi schedules fires <schedule-id> --table
+pnpm exec kindgi schedules fires <schedule-id> --table
 ```
 
 ```text

@@ -27,7 +27,10 @@ limit it hit.
 
 ## Set the budget
 
-Add `budget` to the agent's definition:
+Ask your coding agent: "Limit what each turn of my agent can spend, and how
+long it can take." Kindgi's skills in your pack tell it how ([How it knows
+Kindgi](../../../start/coding-agents/)). For reference, it adds `budget` to
+the agent's definition:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -125,7 +128,9 @@ calls.
 ## Handle it in your app
 
 Your app can tell a turn that ran out from other failures. The failed turn
-comes back as an error, with the limit in its fields:
+comes back as an error, with the limit in its fields. Ask your coding agent:
+"I want my app to tell when a turn ran out of budget, and which limit it
+hit." For reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -256,9 +261,36 @@ instead, with `reason` `timeout`.
 An agent step whose turn runs out fails, and the flow run fails with it. The
 run carries the reason:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
+pnpm exec kindgi runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--flow` is the flow to run, and `--input` its input. It prints the failed
 run:

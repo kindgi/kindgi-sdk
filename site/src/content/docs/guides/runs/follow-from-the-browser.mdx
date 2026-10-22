@@ -60,7 +60,9 @@ signing key,
 [`KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH`](../../../reference/env-vars/#kindgi_public_token_signing_key_path).
 
 In your backend, pass the token on with the run's id when a run starts, and
-mint a fresh one when the page asks:
+mint a fresh one when the page asks. Ask your coding agent: "When my backend
+starts a run, I want it to give my web page a token to follow it, and a
+fresh one when that expires." For reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -202,7 +204,9 @@ minted token can name up to 50 runs. It lives from a second to a day, as
 
 The page shows each step as the run takes it.
 
-Use `subscribeToRun` from `@kindgi/sdk/client`, which runs in the browser:
+Ask your coding agent: "I want my web page to show the run's progress as it
+happens." For reference, the page's code looks like this. It uses
+`subscribeToRun` from `@kindgi/sdk/client`, which runs in the browser:
 
 ```ts
 // web/progress.ts

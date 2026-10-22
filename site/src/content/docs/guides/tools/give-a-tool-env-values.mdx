@@ -25,8 +25,10 @@ tool declares these **env values** by name. You set them for the whole
 tenant, an org or a single project. On every call, Kindgi hands the tool
 the most specific value in the call's context.
 
-This tool looks up an order in a system whose address and region differ per
-project:
+Ask your coding agent: "I want a tool that looks up an order in our order
+system. Its address and region differ per project." Kindgi's skills in your
+pack tell it how ([How it knows Kindgi](../../../start/coding-agents/)). For
+reference, the tool looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -287,7 +289,9 @@ env files. Those files are the pack service's process environment, not
 
 ## Test it
 
-A test passes the values in the context it builds.
+A test passes the values in the context it builds. Ask your coding agent:
+"Add a test for the order lookup tool." For reference, the test looks like
+this.
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

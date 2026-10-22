@@ -57,6 +57,12 @@ gates skip it. Left unset, a tool counts as one that writes: a dry run skips it
 and approval gates apply. Leave it unset for a tool that writes, sends or
 charges.
 
+`needsApprovalWhenUnattended(true)` makes each call wait for a person's approval
+in a run no person started (a webhook, a schedule, an event, or a service
+account's key). A flow's tool step that calls it is refused there, since a
+step can't wait. A run a person starts is unaffected. Left unset, nothing
+changes.
+
 ## The pack
 
 A pack is a directory with a `kindgi.config.json`, usually the root of your

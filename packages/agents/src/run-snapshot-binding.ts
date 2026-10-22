@@ -3,7 +3,7 @@
 
 import type { ProjectId, Result, RunId, Semver, TenantId, Timestamp } from '@kindgi/types';
 
-import type { RunReplayRef } from '@kindgi/runtime';
+import type { RunReplayRef, RunStartedBy } from '@kindgi/runtime';
 
 import type { PersistenceError } from './errors.js';
 import type { AgentId, ConversationId } from './types.js';
@@ -41,6 +41,12 @@ export interface RunSnapshotWriteInput {
   readonly authz?: unknown;
   /** The turn's replay marker (`InvokeAgentInput.replay`): a resumed replay stays one. */
   readonly replay?: RunReplayRef;
+  /**
+   * How the turn's run started (`InvokeAgentInput.startedBy`). A store
+   * that keeps it with the run's record instead may ignore it here, as
+   * long as `read` answers the run's.
+   */
+  readonly startedBy?: RunStartedBy;
 }
 
 /**
@@ -65,6 +71,12 @@ export interface RunSnapshotRecord {
   readonly authz?: unknown;
   /** The turn's replay marker (`InvokeAgentInput.replay`): a resumed replay stays one. */
   readonly replay?: RunReplayRef;
+  /**
+   * How the turn's run started, as recorded when it started: a resumed
+   * turn gets it from here, never from whoever resumes it. Absent (a run
+   * from before runs recorded it): the resumed turn counts as unattended.
+   */
+  readonly startedBy?: RunStartedBy | null;
   readonly createdAt: Timestamp;
 }
 

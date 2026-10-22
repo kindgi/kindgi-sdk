@@ -7,7 +7,23 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-client`: **`SignedExports.verify` checks a signed export** (an approval's audit bundle, a run's provenance, compliance evidence) — its `ed25519` or `ecdsa-p256-sha256` signature over the exact bytes shipped, and, when you pass the keys you trust, that the signing key is one of them. It returns a `SignedExportVerification`, with the signed body when it checks out, and never throws for an export that doesn't verify. The Java counterpart of `verifySignedExport` in the TypeScript client and `verify_signed_export` in Python; it checks with the JDK's own crypto, so there's nothing extra to install.
+- `kindgi-client`: **a comparison eval run's result, typed.** `Comparisons.comparisonOf(run)` reads a `judged` `EvalRun`'s open `result` as the OpenAPI `JudgedComparisonResult` — its summary and each case — and is empty for another kind of run, a dry run, or one that hasn't finished. The same reading as the TypeScript `comparisonOf` and Python `comparison_of`.
+- `kindgi-client`: **verify the webhooks Kindgi sends, or sign them.** `Webhooks.verify(secret, headers, body)` checks a Standard Webhooks `v1` signature — HMAC-SHA256, a constant-time compare, a 300-second timestamp tolerance, and a message signed by several secrets during a rotation (any signature that matches yours passes) — and returns the `VerifiedWebhook`, or throws `WebhookVerificationException` naming which check failed. `Webhooks.parseEvent(body)` reads the typed `WebhookEvent`, keeping a type the client doesn't know yet as `WebhookEvent.Unrecognized`. `sign`, `signedHeaders`, `generateSecret` and `isStrongSecret` round out the helper, matching the TypeScript `@kindgi/crypto` and Python `kindgi.webhooks`.
+- `kindgi-pack`, `kindgi-pack-scala`: **an agent's `conversationPolicy` can't set `autoCloseAfterInactiveSeconds`.** It was accepted and never acted on: a conversation never closes by itself, only when someone closes it. The indexer refuses an agent that sets it, as a file error at `/conversationPolicy/autoCloseAfterInactiveSeconds`; the rest of the pack still indexes, and `kindgi build` stops on it.
+
+## 0.1.9
+
+No JVM changes; the version moves with the npm packages.
+
+## 0.1.9-rc.1
+
+No JVM changes; the version moves with the npm packages.
+
+## 0.1.9-rc.0
+
 - `kindgi-models`: **a server's retention limit.** `RetentionScheduledItem`'s `policyId` and `policyVersion` can be `null`: a record that a server's limit decides, in a domain no policy covers, has neither. `limitApplied`, on `RetentionScheduledItem` and `RetentionSweepResult.PerDomainItem`, is `true` when the limit decides; `null` otherwise.
+- `kindgi-pack`, `kindgi-pack-scala`: **a tool can say `needsApprovalWhenUnattended`.** `Tool.define(...).needsApprovalWhenUnattended(true)` (Scala: `.needsApprovalWhenUnattended(true)`) makes each call wait for a person's approval in a run no person started (a webhook, a schedule, an event, or a service account's key). A flow's tool step that calls it is refused there. A run a person starts is unaffected. The pack's index carries it; left out, nothing changes.
 
 ## 0.1.8
 

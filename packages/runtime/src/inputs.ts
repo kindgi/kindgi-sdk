@@ -90,6 +90,26 @@ export interface RunTriggerRef {
   readonly scheduledFor?: Timestamp;
 }
 
+/** Every value of `RunStartedBy`. */
+export const RUN_STARTED_BY = ['person', 'key', 'schedule', 'webhook', 'event'] as const;
+
+/**
+ * How a run started, recorded with it and never changed: a person
+ * (`person`), a service account's key (`key`), or the kind of trigger
+ * that fired it (`schedule`, `webhook`, `event`). A child run takes its
+ * parent's. A person's own API key starts runs as that person.
+ *
+ * Only `person` counts as attended (`runIsAttended`): a run with any other
+ * value, or with none, is one no person is watching, so a tool that
+ * declares `needsApprovalWhenUnattended` waits for a person's yes in it.
+ */
+export type RunStartedBy = (typeof RUN_STARTED_BY)[number];
+
+/** Whether a person is watching the run: only when it says a person started it. */
+export function runIsAttended(startedBy: RunStartedBy | undefined): boolean {
+  return startedBy === 'person';
+}
+
 /**
  * The idempotency key of a run start: a start with a key a run of the
  * tenant already has starts nothing and answers that run (`existing`), so
@@ -153,6 +173,11 @@ export interface RunFlowInput {
   readonly idempotencyKey?: RunIdempotencyKey;
   /** Set when a trigger started the run; see `RunTriggerRef`. */
   readonly trigger?: RunTriggerRef;
+  /**
+   * How the run started; see `RunStartedBy`. Absent: the run records none,
+   * and counts as unattended.
+   */
+  readonly startedBy?: RunStartedBy;
   /**
    * The W3C trace id of the request that started the run (32 lowercase
    * hex), kept on the run so its later turns and resumes can name the
@@ -251,6 +276,8 @@ export interface StartRunParams {
   readonly idempotencyKey?: RunIdempotencyKey;
   /** Set when a trigger started the run; see `RunTriggerRef`. */
   readonly trigger?: RunTriggerRef;
+  /** How the run started; see `RunFlowInput.startedBy`. */
+  readonly startedBy?: RunStartedBy;
   /** The trace id of the request that started the run; see `RunFlowInput.traceId`. */
   readonly traceId?: string;
   /** The versions the run swaps in over its flow version's pins; see `RunFlowInput.versions`. */

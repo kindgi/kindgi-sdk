@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
 import type {
   Conversation,
@@ -10,7 +10,7 @@ import type {
   ConversationMessage,
   ConversationPageCursor,
 } from '@kindgi/agents';
-import { type ResourceRef, ref } from '@kindgi/authz';
+import { type ResourceRef, denyPayload, ref } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
 import type { RunBinding } from '@kindgi/runtime';
 import type { AgentId, ProjectId, Semver, TenantId } from '@kindgi/types';
@@ -18,6 +18,7 @@ import type { AgentId, ProjectId, Semver, TenantId } from '@kindgi/types';
 import type { AgentRegistryBinding } from '../agent-binding.js';
 import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
+import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import {
@@ -30,6 +31,7 @@ import { deniedBy } from './denied.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
 import { participantRefusal } from './participant-access.js';
 import { parseListScope } from './scope-params.js';
+import { conversationNotFound, hiddenOr, unreadable } from './turn-access.js';
 import { refuseMalformedUuidParam } from './uuid-param.js';
 
 const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -60,15 +62,26 @@ export function conversationsRouter(
    */
   projectBinding?: ProjectBinding,
   /**
-   * With one (T243 A): reading a conversation or its messages needs `read`
-   * on its project (its agent, for one from before projects); opening or
-   * closing one needs `execute` on its agent, as starting a run does.
+   * With one: reading a conversation or its messages needs `read` on its
+   * project (its agent, for one from before projects); opening or closing
+   * one needs `execute` on its agent, as starting a run does; unregistering
+   * one needs `write` on its project (or agent). A caller refused on a
+   * conversation they can't read gets the answer for one that doesn't
+   * exist (`hiddenOr`); one who can read it keeps the 403.
    */
   authorizer?: Authorizer,
   /** What a conversation's project may run (`reference-scope.ts`); absent → as named. */
   referenceScope?: ReferenceScopeBinding,
   /** Where an agent is filed: a conversation opened without `projectId` goes there. */
   agentRegistry?: AgentRegistryBinding,
+  /**
+   * Rights on an agent more than one project serves (`item-rights.ts`):
+   * opening or closing a conversation in one of its projects is that
+   * project's `call`, and a project-scoped key's conversation opened
+   * without `projectId` goes to the key's project. Absent: every agent has
+   * one project.
+   */
+  itemRights?: ItemRights,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -204,11 +217,10 @@ export function conversationsRouter(
     if (got.kind === 'err') {
       const busy = databaseBusyAnswer(got.error, c);
       if (busy !== undefined) return busy;
-      c.status(statusFor(got.error.code) as never);
-      return c.json(toWireError(got.error as never, requestId));
+      return lookupFailed(c, conversationId, got.error, requestId);
     }
-    const refused = await deniedBy(authorizer, c, 'read', conversationRef(got.value));
-    if (refused !== undefined) return refused;
+    // One the caller can't read is answered as if it didn't exist.
+    if (await unreadable(c, authorizer, got.value)) return conversationNotFound(c, conversationId);
     return c.json(serializeConversation(got.value));
   });
 
@@ -232,6 +244,51 @@ export function conversationsRouter(
       return c.json(toWireError(parsed.error, requestId));
     }
     const supplied = parsed.value.projectId;
+    const agentId = parsed.value.agentId as unknown as string;
+    // The agent's projects when more than one serves it (`item-rights.ts`).
+    const served =
+      authorizer === undefined ? undefined : await itemRights?.multi(c, 'agent', agentId);
+    // Opening it in a project the caller names needs `write` there, as a run
+    // naming one outside its agent's projects does: its turns land there.
+    // Named one of its projects, for an agent more than one project serves,
+    // `call` there is the whole check instead (`openIn`), as for a run.
+    // Checked first, so a caller without it learns nothing of which projects
+    // exist.
+    if (authorizer !== undefined && supplied !== undefined && served?.includes(supplied) !== true) {
+      const named = ref('project', supplied as unknown as string);
+      const decision = await authorizer.check(c, 'write', named);
+      if (!decision.allowed) {
+        const deny = denyPayload('write', named.type, named.id, decision.reason);
+        c.status(403);
+        return c.json(
+          toWireError(
+            {
+              code: deny.code,
+              message: `Permission denied: opening a conversation in project ${named.id} needs write on it; omit \`projectId\` to open it in the agent's own project`,
+              action: deny.action,
+              resource: deny.resource,
+              reason: deny.reason,
+            },
+            requestId,
+          ),
+        );
+      }
+    }
+    // Omitted: the agent's own project, as for a run. An agent the registry
+    // doesn't place (or from before projects): the tenant's Default. No
+    // Default (or no project binding): no project, never a refusal.
+    const own = async () =>
+      (
+        await agentRegistry?.getVersion({
+          tenantId,
+          agentId: parsed.value.agentId,
+          version: parsed.value.agentVersion,
+        })
+      )?.projectId ?? (await projectBinding?.getDefault(tenantId))?.id;
+    // Also before the named project's existence: a caller refused there gets
+    // the same answer whether it exists or not.
+    const open = await openIn(c, authorizer, itemRights, served, agentId, supplied, own);
+    if (open.refused !== undefined) return open.refused;
     if (
       supplied !== undefined &&
       projectBinding !== undefined &&
@@ -248,30 +305,17 @@ export function conversationsRouter(
         ),
       );
     }
-    const refused = await deniedBy(
-      authorizer,
-      c,
-      'execute',
-      ref('agent', parsed.value.agentId as unknown as string),
-    );
-    if (refused !== undefined) return refused;
-    // Omitted: the agent's own project, as for a run. An agent the registry
-    // doesn't place (or from before projects): the tenant's Default. No
-    // Default (or no project binding): no project, never a refusal.
-    const projectId =
-      supplied ??
-      (
-        await agentRegistry?.getVersion({
-          tenantId,
-          agentId: parsed.value.agentId,
-          version: parsed.value.agentVersion,
-        })
-      )?.projectId ??
-      (await projectBinding?.getDefault(tenantId))?.id;
-    // Its agent must be its project's to reach (`reference-scope.ts`).
+    const projectId = open.projectId;
+    // Its agent, at the version its turns run, must be its project's to
+    // reach (`reference-scope.ts`).
     if (projectId !== undefined) {
       const outOfScope = await referencesOutOfScope(referenceScope, tenantId, projectId, [
-        { path: '/agentId', kind: 'agent', id: parsed.value.agentId as unknown as string },
+        {
+          path: '/agentId',
+          kind: 'agent',
+          id: parsed.value.agentId as unknown as string,
+          version: parsed.value.agentVersion as unknown as string,
+        },
       ]);
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
@@ -312,17 +356,31 @@ export function conversationsRouter(
     const conversationId = c.req.param('conversationId') as ConversationId;
 
     const existing = await conversationBinding.getConversation(tenantId, conversationId);
-    if (existing.kind === 'err') {
-      c.status(statusFor(existing.error.code) as never);
-      return c.json(toWireError(existing.error as never, requestId));
+    if (existing.kind === 'err') return lookupFailed(c, conversationId, existing.error, requestId);
+    // An agent more than one project serves: closing a conversation in one
+    // of its projects is that project's `call`.
+    const agentId = existing.value.agentId as unknown as string;
+    const served =
+      authorizer === undefined ? undefined : await itemRights?.multi(c, 'agent', agentId);
+    const own = existing.value.projectId as unknown as string | undefined;
+    const refused =
+      served !== undefined &&
+      itemRights !== undefined &&
+      own !== undefined &&
+      served.includes(own as ProjectId)
+        ? await runIn(
+            c,
+            itemRights,
+            { kind: 'agent', id: agentId },
+            own,
+            `closing a conversation with agent "${agentId}"`,
+          )
+        : await deniedBy(authorizer, c, 'execute', ref('agent', agentId));
+    // Refused: as if it didn't exist, unless the caller can read it. Read
+    // isn't needed to close one: a project's `call` closes what it opens.
+    if (refused !== undefined) {
+      return hiddenOr(c, authorizer, conversationId, existing.value, refused);
     }
-    const refused = await deniedBy(
-      authorizer,
-      c,
-      'execute',
-      ref('agent', existing.value.agentId as unknown as string),
-    );
-    if (refused !== undefined) return refused;
     // Close is idempotent — closing an already-closed conversation
     // returns 200 with the current row, no error and no timestamp bump.
     if (existing.value.closedAt !== undefined) {
@@ -346,7 +404,8 @@ export function conversationsRouter(
   // removes it after the tenant's grace. Unregistered already, or never: 404.
   // It needs `write` on the conversation's project (its agent, for one from
   // before projects): an editor or above. Reading it isn't enough, nor is
-  // `execute`, which opening and closing one take.
+  // `execute`, which opening and closing one take. A caller who can't read
+  // it is answered as if it didn't exist; one who can, 403.
   r.post('/:conversationId/unregister', refuseMalformedConversationId, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -364,12 +423,11 @@ export function conversationsRouter(
       );
     }
     const existing = await conversationBinding.getConversation(tenantId, conversationId);
-    if (existing.kind === 'err') {
-      c.status(statusFor(existing.error.code) as never);
-      return c.json(toWireError(existing.error as never, requestId));
-    }
+    if (existing.kind === 'err') return lookupFailed(c, conversationId, existing.error, requestId);
     const refused = await deniedBy(authorizer, c, 'write', conversationRef(existing.value));
-    if (refused !== undefined) return refused;
+    if (refused !== undefined) {
+      return hiddenOr(c, authorizer, conversationId, existing.value, refused);
+    }
     const unregistered = await conversationBinding.unregisterConversation(tenantId, conversationId);
     if (unregistered.kind === 'err') {
       c.status(statusFor(unregistered.error.code) as never);
@@ -405,11 +463,11 @@ export function conversationsRouter(
       if (got.kind === 'err') {
         const busy = databaseBusyAnswer(got.error, c);
         if (busy !== undefined) return busy;
-        c.status(statusFor(got.error.code) as never);
-        return c.json(toWireError(got.error as never, requestId));
+        return lookupFailed(c, conversationId, got.error, requestId);
       }
-      const refused = await deniedBy(authorizer, c, 'read', conversationRef(got.value));
-      if (refused !== undefined) return refused;
+      if (await unreadable(c, authorizer, got.value)) {
+        return conversationNotFound(c, conversationId);
+      }
     }
     const result = await conversationBinding.readMessages({
       tenantId,
@@ -437,6 +495,64 @@ export function conversationsRouter(
   });
 
   return r;
+}
+
+/**
+ * Where a conversation opens, and whether the caller may open it there:
+ * `execute` on its agent, or, for an agent more than one project serves
+ * (`served`, its projects) opened in one of its projects, that project's
+ * `call` alone (`item-rights.ts`). Unnamed, a project-scoped key's
+ * conversation goes to the key's project when it serves the agent, as its
+ * unnamed run does; else to `own()`. A refused caller is never placed.
+ */
+async function openIn(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  itemRights: ItemRights | undefined,
+  served: readonly ProjectId[] | undefined,
+  agentId: string,
+  supplied: ProjectId | undefined,
+  own: () => Promise<ProjectId | undefined>,
+): Promise<{ readonly projectId?: ProjectId | undefined; readonly refused?: Response }> {
+  if (served === undefined || itemRights === undefined) {
+    const refused = await deniedBy(authorizer, c, 'execute', ref('agent', agentId));
+    if (refused !== undefined) return { refused };
+    return { projectId: supplied ?? (await own()) };
+  }
+  const keyProject = c.get('tokenProjectId') as ProjectId | undefined;
+  const placed =
+    supplied === undefined && keyProject !== undefined && served.includes(keyProject)
+      ? keyProject
+      : undefined;
+  const projectId = supplied ?? placed ?? (await own());
+  const refused =
+    projectId !== undefined && served.includes(projectId)
+      ? await runIn(
+          c,
+          itemRights,
+          { kind: 'agent', id: agentId },
+          projectId,
+          `opening a conversation with agent "${agentId}"`,
+        )
+      : await deniedBy(authorizer, c, 'execute', ref('agent', agentId));
+  return refused !== undefined ? { refused } : { projectId };
+}
+
+/**
+ * A failed lookup by id, answered: a conversation that isn't there as
+ * `conversationNotFound`, the answer one the caller can't read gets too, so
+ * the two stay the same whatever the binding's message; any other error as
+ * the binding gave it.
+ */
+function lookupFailed(
+  c: Context<AppEnv>,
+  conversationId: string,
+  error: { readonly code: string },
+  requestId: string,
+): Response {
+  if (error.code === 'conversation-not-found') return conversationNotFound(c, conversationId);
+  c.status(statusFor(error.code) as never);
+  return c.json(toWireError(error as never, requestId));
 }
 
 /**

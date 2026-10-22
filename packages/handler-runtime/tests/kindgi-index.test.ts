@@ -617,6 +617,38 @@ describe('runIndexer — Zod schemas', () => {
     expect(byId.get('acme.plain')).not.toHaveProperty('mutating');
   });
 
+  test("a tool's `needsApprovalWhenUnattended` is carried into the index, true or false", async () => {
+    const fixture = await makeFixture({
+      files: {
+        'kindgi.config.mjs': config(),
+        'tools/refund.mjs': toolModule({ id: 'acme.refund', needsApprovalWhenUnattended: true }),
+        'tools/note.mjs': toolModule({ id: 'acme.note', needsApprovalWhenUnattended: false }),
+        'tools/plain.mjs': toolModule({ id: 'acme.plain' }),
+      },
+    });
+
+    const outcome = await runIndexer({
+      packDir: fixture.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      importModule: fixture.importModule,
+    });
+    expect(outcome.kind).toBe('ok');
+    if (outcome.kind !== 'ok') return;
+
+    // Lost here, a pack's tool would never wait for a person in a run no
+    // person started: nothing downstream would know it asks to.
+    const parsed = await readValidIndex(outcome.value.outputPath);
+    const byId = new Map(
+      (parsed.tools as { id: string; needsApprovalWhenUnattended?: boolean }[]).map((t) => [
+        t.id,
+        t,
+      ]),
+    );
+    expect(byId.get('acme.refund')?.needsApprovalWhenUnattended).toBe(true);
+    expect(byId.get('acme.note')?.needsApprovalWhenUnattended).toBe(false);
+    expect(byId.get('acme.plain')).not.toHaveProperty('needsApprovalWhenUnattended');
+  });
+
   test("the pack's declared env is carried, sorted; a pack that declares none has no `env`", async () => {
     const declared = await makeFixture({
       files: {
@@ -1392,7 +1424,7 @@ describe('runIndexer — a build (bundleMap)', () => {
           content: "export default { pack: { id: 'acme.pack', version: '1.0.0' } };\n",
         },
         'tools/ok.mjs': { module: undefined, content: tool('acme.ok') },
-        // A package the image doesn't have (a devDependency its prune dropped).
+        // A package the image doesn't have (a devDependency: production ones only).
         'tools/broken.mjs': {
           module: undefined,
           content: tool('acme.broken', "import 'acme-package-not-installed';\n"),

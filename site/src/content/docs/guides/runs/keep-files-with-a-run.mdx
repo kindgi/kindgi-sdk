@@ -27,7 +27,7 @@ Google Cloud Storage bucket.
 Uploading the file keeps it with its run:
 
 ```sh
-kindgi artifacts upload report.pdf --run=<run-id> --content-type=application/pdf --tag=kind=summary
+pnpm exec kindgi artifacts upload report.pdf --run=<run-id> --content-type=application/pdf --tag=kind=summary
 ```
 
 - `report.pdf` is the file to upload.
@@ -58,9 +58,9 @@ Listing a run's artifacts gives each one's id, which you read and download
 it by:
 
 ```sh
-kindgi artifacts list --run=<run-id> --table
-kindgi artifacts get <blob-id>
-kindgi artifacts download <blob-id> -o report.pdf
+pnpm exec kindgi artifacts list --run=<run-id> --table
+pnpm exec kindgi artifacts get <blob-id>
+pnpm exec kindgi artifacts download <blob-id> -o report.pdf
 ```
 
 - `list` is newest first. `--run`, `--project` and `--content-type` narrow
@@ -79,7 +79,7 @@ there, and lists leave it out.
 ## Delete one
 
 ```sh
-kindgi artifacts delete <blob-id>
+pnpm exec kindgi artifacts delete <blob-id>
 ```
 
 `<blob-id>` is the artifact's `blobId`. It's gone from lists and downloads

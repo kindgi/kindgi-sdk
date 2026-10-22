@@ -17,6 +17,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
+import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import type { AppEnv } from '../types.js';
 import {
   WEBHOOK_DELIVERY_STATUSES,
@@ -48,15 +49,29 @@ const MAX_FLOW_ID_LENGTH = 200;
 export function webhookEndpointsRouter(
   binding: WebhookEndpointBinding,
   authorizer?: Authorizer,
-  options: { readonly providerKeys?: ProviderKeys } = {},
+  options: {
+    readonly providerKeys?: ProviderKeys;
+    /**
+     * On a runtime that refuses other envs: a `secretRef` under another env
+     * answers `409 env-not-served` (`refuseUnservedReference`). Absent: any env.
+     */
+    readonly servedEnv?: ServedEnvRule;
+  } = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
-  // A model provider's key is never a webhook endpoint's signing secret.
-  const providerKey = (tenantId: TenantId, name: string | undefined) =>
+  // A model provider's key is never a webhook endpoint's signing secret, and
+  // on a runtime that refuses other envs the secret is named under its env.
+  const providerKey = async (
+    tenantId: TenantId,
+    secretRef: WebhookSecretRef | undefined,
+  ): Promise<{ readonly code: string; readonly message: string } | undefined> =>
+    (secretRef === undefined
+      ? undefined
+      : refuseUnservedReference(options.servedEnv, secretRef, '`secretRef`')) ??
     refuseProviderKeys(
       options.providerKeys,
       tenantId,
-      name === undefined ? [] : [name],
+      secretRef === undefined ? [] : [secretRef.name],
       'a webhook endpoint',
     );
   // Deliveries carry every project's runs: all of it is an admin's.
@@ -74,7 +89,7 @@ export function webhookEndpointsRouter(
     if (url === undefined || events === undefined || secretRef === undefined) {
       return badInput(c, requestId, '`url`, `events` and `secretRef` are required');
     }
-    const refusal = await providerKey(tenantId, secretRef.name);
+    const refusal = await providerKey(tenantId, secretRef);
     if (refusal !== undefined) {
       c.status(statusFor(refusal.code) as never);
       return c.json(toWireError(refusal, requestId));
@@ -137,7 +152,7 @@ export function webhookEndpointsRouter(
     const parsed = parseEndpointBody(body.value, 'update');
     if (parsed.kind === 'err') return wireError(c, requestId, parsed.code, parsed.message);
     const { url, events, filter, secretRef, description } = parsed.value;
-    const refusal = await providerKey(tenantId, secretRef?.name);
+    const refusal = await providerKey(tenantId, secretRef);
     if (refusal !== undefined) {
       c.status(statusFor(refusal.code) as never);
       return c.json(toWireError(refusal, requestId));

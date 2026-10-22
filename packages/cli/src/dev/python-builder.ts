@@ -25,7 +25,12 @@ import {
   scanSignature,
   startScanBackstop,
 } from './scan-backstop.js';
-import { SHARE_WATCH_BY_DEFAULT, type WatchEvents, directoryWatches } from './shared-watch.js';
+import {
+  SHARE_WATCH_BY_DEFAULT,
+  type WatchEvents,
+  directoryWatches,
+  mayHideChange,
+} from './shared-watch.js';
 
 const SKIPPED_DIRS = ['__pycache__', 'node_modules', 'venv', 'site-packages'];
 const DEFAULT_DEBOUNCE_MS = 150;
@@ -93,10 +98,17 @@ export function pythonSourcesSignature(packDir: string): Promise<string> {
 /** Whether a change to `relPath` (relative to the pack root) is a change to the pack's code. */
 export function isPythonSourceChange(relPath: string): boolean {
   const segments = relPath.split(/[\\/]/);
-  const dirs = segments.slice(0, -1);
-  if (dirs.some((s) => s.startsWith('.') || SKIPPED_DIRS.includes(s))) return false;
+  if (isSkippedFolder(segments.slice(0, -1).join('/'))) return false;
   const name = segments[segments.length - 1] ?? '';
   return relPath === 'pyproject.toml' || (name.endsWith('.py') && !name.startsWith('.'));
+}
+
+/**
+ * Whether `folder` (relative to the pack root, `/`-separated) is one no build
+ * reads, or in one: a dot folder (a `.venv`), or one in `SKIPPED_DIRS`.
+ */
+function isSkippedFolder(folder: string): boolean {
+  return folder.split('/').some((s) => s.startsWith('.') || SKIPPED_DIRS.includes(s));
 }
 
 export function createPythonPackBuilder(options: PythonPackBuilderOptions): PackBuilder {
@@ -174,6 +186,14 @@ export function createPythonPackBuilder(options: PythonPackBuilderOptions): Pack
         watcher = watchFs(options.packDir, { recursive: true }, (_event, filename) => {
           if (filename === null || !isPythonSourceChange(filename.toString())) return;
           schedule();
+        });
+        // The watch failed: build, as when shared. An 'error' nothing
+        // listens for would end `kindgi dev`. On Linux, Node's recursive
+        // watch goes on after one, and some hide no change to the code: a
+        // folder removed while it read it, or a path in a folder no build
+        // reads (`mayHideChange`). Those build nothing.
+        watcher.on('error', (error) => {
+          if (mayHideChange(error, options.packDir, isSkippedFolder)) schedule();
         });
       }
       backstop = await startScanBackstop({

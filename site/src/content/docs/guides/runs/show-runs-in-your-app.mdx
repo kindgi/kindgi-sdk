@@ -58,8 +58,9 @@ Each thing your app shows has its own read:
 | Where an agent's answer came from: its model calls and tool results | `GET /v1/provenance/{runId}` | `provenance.get` | [Trace an answer](../../observability/trace-an-answer/) |
 | What it cost: each model call's tokens and cost, its agent steps' included | `GET /v1/cost/records?rootRunId={runId}` | `cost.usage.query`, or `cost.records.list` in Python | [Cost per run and per customer](../../observability/cost-per-run/) |
 
-Read the run from your app's server, with the id from your record. This
-function reads what a ticket's page shows:
+Read the run from your app's server, with the id from your record. Ask your
+coding agent: "I want my app to show the status and output of the run behind
+each record." For reference, this function reads what a ticket's page shows:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

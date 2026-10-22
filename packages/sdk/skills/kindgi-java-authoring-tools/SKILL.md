@@ -14,7 +14,7 @@ description: >
   by kindgi-java-getting-started.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.2"
+version: "0.1.3"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -246,6 +246,23 @@ review, so declare what the tool really does.
 
 Java has no HTTP-tool form (TypeScript's `kind: 'http'`). A tool that calls
 an HTTP API is a handler with `java.net.http.HttpClient`, as above.
+
+## A person's yes when no one is watching: `needsApprovalWhenUnattended`
+
+`needsApprovalWhenUnattended(true)` declares that a person must say yes to every call of the tool in a run no person started: one a schedule, a webhook, an event or a service account's key started. In such a run:
+
+- **An agent's call waits** for a person's yes, whatever the agent's `conversationPolicy.hitl.tools` says. The agent's rules can't lift it: agents are reused, and the tool's author knows what it does.
+- **A flow's tool step that calls it is refused.** Put the tool behind an agent step instead, whose call waits.
+
+In a run a person started (signed in, or with their own API key), the agent's rules decide, as for any tool. Left unset, it counts as `false`. Declare it on a tool that moves money or changes something people rely on:
+
+```java
+      .effect("writes", "acme:refunds")
+      .mutating(true)
+      .needsApprovalWhenUnattended(true)
+```
+
+Docs: https://docs.kindgi.com/v0.1/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
 
 ## Testing
 
