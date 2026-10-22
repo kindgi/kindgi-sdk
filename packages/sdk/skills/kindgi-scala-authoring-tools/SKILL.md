@@ -229,8 +229,50 @@ effect. `set(field, value)` sets the index entry's other fields (`needs`,
 `needsSpec`, `sandbox`, `limits`, `network`), with Scala maps and lists. They
 are recorded for policy and review, so declare what the tool really does.
 
-There is no HTTP-tool form (TypeScript's `kind: 'http'`). A tool that calls
-an HTTP API is a handler with `java.net.http.HttpClient`, as above.
+A tool that calls an HTTP API can be a handler with `java.net.http.HttpClient`,
+as above, or the request declared as data with no handler — see **HTTP tool (as
+data)** below.
+
+## HTTP tool (as data)
+
+A tool that calls an HTTP API can be the request itself, declared as data,
+instead of a handler: `.http(spec)` in place of `.handler(...)`. The Kindgi
+runtime makes the request from the spec — the SDK only builds and validates it,
+so calling such a tool in this JVM throws. The spec types are Java's, from
+`com.kindgi.pack.http`:
+
+```scala
+import com.kindgi.pack.scaladsl._
+import com.kindgi.pack.http._
+
+object FetchOrder {
+  final case class Input(orderId: String)
+  final case class Output(id: String, status: String, total: Double)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("shop.fetch-order")
+    .description("Fetch an order by id from the storefront API.")
+    .version("0.1.0")
+    .readOnly
+    .http(
+      HttpToolSpec.builder()
+        .method(HttpMethod.GET)
+        .urlTemplate("https://api.shop.example/orders/{orderId}")
+        .authorization(new HttpAuthSpec.Bearer(new ToolSecretRef("production", "shop-api-token")))
+        .successStatus(200, 299)
+        .build())
+}
+```
+
+Every `{placeholder}` in the URL — in the path and query only, never in the
+host or port — is a field of the input, and so is one in a
+`HttpRequestBodySpec.Text` body; `.http(...)` throws if it isn't. Authorization
+is a `secretRef` (`HttpAuthSpec.Bearer` or `HttpAuthSpec.Header`), named for the
+runtime to resolve, never a literal credential. A request body is
+`HttpRequestBodySpec.JsonInput` (the input as JSON), `InputPassthrough` or
+`Text`. `timeoutMs` (default 30 seconds) covers the whole call, the response
+read included, and a run's cancel does too; a response body over 10 MiB,
+measured decompressed, fails the call — so point a tool at an endpoint that
+pages or filters, not one that returns everything.
 
 ## A person's yes when no one is watching: `needsApprovalWhenUnattended`
 
