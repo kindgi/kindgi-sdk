@@ -17807,6 +17807,51 @@
           }
         }
       },
+      "JudgingQueueRecentInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "description": "Which recent runs to catch the rule up on. Give `last`, `since`, or both.",
+        "properties": {
+          "last": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "This many of the project's most recent top-level runs (newest first)."
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Runs completed at or after this time."
+          }
+        }
+      },
+      "JudgingRecentQueued": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "queued",
+          "alreadyQueued",
+          "alreadyReviewed"
+        ],
+        "properties": {
+          "queued": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Matching recent runs this call newly queued for the rule: a new queue item, or the rule added to one already waiting for another rule."
+          },
+          "alreadyQueued": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Matching recent runs this rule had already queued and that are still open (deduped per `(rule, run)`)."
+          },
+          "alreadyReviewed": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Matching recent runs whose run was already judged or dismissed: left as they are, not re-queued. An already-erased run is no longer a match and is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed` together are the matches."
+          }
+        }
+      },
       "AccessRole": {
         "type": "string",
         "enum": [
@@ -52747,6 +52792,122 @@
         ]
       }
     },
+    "/v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent": {
+      "post": {
+        "operationId": "projects.judgingRules.queueRecent",
+        "summary": "Queue a rule's recent matches",
+        "tags": [
+          "judging"
+        ],
+        "responses": {
+          "200": {
+            "description": "The matches, split into queued, already queued and already reviewed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgingRecentQueued"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such rule (`judging-rule-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already judged or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "ruleId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JudgingQueueRecentInput"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/projects/{projectId}/judging-queue": {
       "get": {
         "operationId": "projects.judgingQueue.list",
@@ -52877,7 +53038,7 @@
             "in": "query",
             "schema": {
               "type": "integer",
-              "minimum": 1,
+              "minimum": 0,
               "maximum": 100,
               "default": 25
             },
