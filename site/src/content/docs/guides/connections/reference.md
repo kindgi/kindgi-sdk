@@ -19,6 +19,9 @@ Each person or company has one live connection per registration and
 environment. A person's connection serves every project the registration
 allows.
 
+Only a connection's owner and your workspace's admins can see it or remove
+it. Registering an app is for workspace admins only.
+
 ## Where the token is kept
 
 - **The long-lived token** (a refresh token) is one secret in your
@@ -85,12 +88,26 @@ If a disconnect stops part way, disconnecting again finishes it.
 An app can tell Kindgi when access ends on its side, at the notices address
 its registration shows. Each notice is checked by its signature.
 
-- **GitHub:** an uninstall removes the connection; a suspension makes it
-  need reconnecting, and lifting it makes it work again; new permissions
-  accepted on GitHub are read again.
-- **Google:** if you set up Cross-Account Protection, a person removing
-  access, or their account being disabled, removes the connection at once.
-  Without it, Kindgi finds out at the next call.
+- **GitHub:**
+  - the app uninstalled from your organization: its connection is removed;
+  - the app suspended: its connection needs reconnecting, and works again
+    when the suspension is lifted;
+  - any other event changes nothing.
+- **Google,** if you set up Cross-Account Protection:
+  - the person removing your client's access, or their Google account
+    disabled: their connections are removed;
+  - one token withdrawn: the connection that held it is removed;
+  - the person's sessions ended at Google: their connections need
+    reconnecting;
+  - any other event changes nothing.
+
+  Without Cross-Account Protection, Kindgi finds out the next time it
+  renews the token: Google refuses, and the connection then needs
+  reconnecting.
+
+A notice changes only what was connected before it, so someone who has
+connected again since keeps working. A connection a notice removes is
+already gone at the app, so Kindgi only destroys the stored token.
 
 ## Errors when a call uses a connection
 

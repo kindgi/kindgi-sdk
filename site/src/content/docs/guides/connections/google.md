@@ -109,5 +109,6 @@ doesn't withdraw at Google, and only destroys this connection's token.
 To hear about it at once, Google can send a notice to Kindgi
 ([Cross-Account Protection](https://developers.google.com/identity/protocols/risc)).
 It needs the runtime's public address to be reachable from the internet
-over HTTPS. Point it at the notices address the **App registrations** page
-shows for the client.
+over HTTPS. Register the notices address the **App registrations** page
+shows for the client as your receiver
+([Notices from the app](../reference/#notices-from-the-app)).

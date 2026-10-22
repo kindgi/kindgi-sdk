@@ -93,7 +93,8 @@ The registration then shows its **notices address**. Back on GitHub, in
 the app's **General** settings, tick **Webhook → Active**, enter that
 address as the **Webhook URL** and the webhook secret from step 2 as the
 **Secret**, and save. GitHub then sends Kindgi a signed notice when the app
-is uninstalled, suspended, or given new permissions.
+is uninstalled or suspended
+([Notices from the app](../reference/#notices-from-the-app)).
 
 ## 4. Install it for the company
 
