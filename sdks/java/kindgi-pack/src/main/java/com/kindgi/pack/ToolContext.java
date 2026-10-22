@@ -118,6 +118,160 @@ public record ToolContext(
         new Cancellation(), log);
   }
 
+  /**
+   * A context for a unit test, from a {@link Builder}: its tenant, run, env, secrets, config and
+   * logger as the builder set them, each unset one a test default ({@code "t-test"}, {@code
+   * "run-test"}, nothing, a logger that writes nothing).
+   *
+   * @param builder the builder
+   * @return the context
+   */
+  public static ToolContext forTest(Builder builder) {
+    return new ToolContext(builder.tenantId, builder.runId, builder.requestId, builder.projectId,
+        builder.orgId, builder.env, builder.secrets, builder.config, builder.settings,
+        builder.cancellation, builder.log, builder.idempotencyKey);
+  }
+
+  /**
+   * A context for a unit test of a handler whose tool declares {@code needsSpec.env}: every env
+   * name the tool declares, taken from {@code env} or the schema's string default and checked
+   * against its schema, so a test exercises the same env resolution the runtime does. A name the
+   * tool doesn't declare is dropped. Secrets are passed through as given — the SDK doesn't check
+   * them (the runtime does).
+   *
+   * @param tool the tool whose {@code needsSpec} to read
+   * @param env the env a test offers, by name; {@code null} for none
+   * @param secrets the secrets to pass through, by name; {@code null} for none
+   * @return the context
+   * @throws IllegalStateException when a declared env value is missing (no given value and no
+   *     string default), doesn't match its schema, or is declared with a schema that doesn't
+   *     compile
+   */
+  public static ToolContext forTest(
+      Tool<?, ?> tool, @Nullable Map<String, String> env, @Nullable Map<String, Object> secrets) {
+    Map<String, Object> resolved = Needs.resolveEnv(tool.id(), tool.extra().get("needsSpec"), env);
+    return new ToolContext("t-test", "run-test", null, null, null, resolved,
+        secrets != null ? secrets : Map.of(), Map.of(), Map.of(), new Cancellation(), Logger.noop());
+  }
+
+  /**
+   * Builds a {@link ToolContext} for a unit test, overriding only what a test cares about; pass it
+   * to {@link #forTest(Builder)}.
+   */
+  public static final class Builder {
+    private String tenantId = "t-test";
+    private String runId = "run-test";
+    private @Nullable String requestId;
+    private @Nullable String projectId;
+    private @Nullable String orgId;
+    private Map<String, Object> env = Map.of();
+    private Map<String, Object> secrets = Map.of();
+    private Map<String, Object> config = Map.of();
+    private Map<String, Map<String, Object>> settings = Map.of();
+    private Cancellation cancellation = new Cancellation();
+    private Logger log = Logger.noop();
+    private @Nullable String idempotencyKey;
+
+    /**
+     * @param tenantId the tenant the call runs for
+     * @return this
+     */
+    public Builder withTenantId(String tenantId) {
+      this.tenantId = tenantId;
+      return this;
+    }
+
+    /**
+     * @param runId the run the call belongs to
+     * @return this
+     */
+    public Builder withRunId(String runId) {
+      this.runId = runId;
+      return this;
+    }
+
+    /**
+     * @param requestId the individual call's id
+     * @return this
+     */
+    public Builder withRequestId(String requestId) {
+      this.requestId = requestId;
+      return this;
+    }
+
+    /**
+     * @param projectId the run's project
+     * @return this
+     */
+    public Builder withProjectId(String projectId) {
+      this.projectId = projectId;
+      return this;
+    }
+
+    /**
+     * @param orgId the project's org
+     * @return this
+     */
+    public Builder withOrgId(String orgId) {
+      this.orgId = orgId;
+      return this;
+    }
+
+    /**
+     * @param env resolved environment values for the call, by name
+     * @return this
+     */
+    public Builder withEnv(Map<String, String> env) {
+      this.env = new LinkedHashMap<>(env);
+      return this;
+    }
+
+    /**
+     * @param secrets resolved secrets for the call, by name
+     * @return this
+     */
+    public Builder withSecrets(Map<String, Object> secrets) {
+      this.secrets = new LinkedHashMap<>(secrets);
+      return this;
+    }
+
+    /**
+     * @param config resolved configuration for the call
+     * @return this
+     */
+    public Builder withConfig(Map<String, Object> config) {
+      this.config = new LinkedHashMap<>(config);
+      return this;
+    }
+
+    /**
+     * @param settings the settings blocks the calling agent version pins, by block id
+     * @return this
+     */
+    public Builder withSettings(Map<String, Map<String, Object>> settings) {
+      this.settings = new LinkedHashMap<>(settings);
+      return this;
+    }
+
+    /**
+     * @param log the logger the handler's {@link ToolContext#log()} writes to
+     * @return this
+     */
+    public Builder withLog(Logger log) {
+      this.log = log;
+      return this;
+    }
+
+    /**
+     * @param idempotencyKey a key for the call's side effects
+     * @return this
+     */
+    public Builder withIdempotencyKey(String idempotencyKey) {
+      this.idempotencyKey = idempotencyKey;
+      return this;
+    }
+  }
+
   /** @return the secrets, without their values (a context may be logged) */
   @Override
   public String toString() {

@@ -26,6 +26,15 @@ same version, and the CLI's own changes are in
   signs them in. Refused (`site-person-restore-refused`) for someone who
   isn't removed, someone their site said left, and someone who also signs
   in another way. Tenant admins only.
+- `kindgi`: **a tool's `needs_spec` is checked, and a test can fill its
+  `env`.** `@tool(..., needs_spec=...)` is refused at definition
+  (`DefinitionError`) when a schema under `env` or `secrets` doesn't compile,
+  or an `env` default isn't a string. `ToolContext.for_test(tool=...)` builds
+  a context whose `env` is what the tool declares under `needs_spec["env"]` —
+  each name from the `env=` you pass or its schema's string default, checked
+  against its schema — so a handler test resolves env the way the runtime
+  does; names the tool doesn't declare are dropped and `secrets=` pass through.
+  Matches the TypeScript `@kindgi/tools` definition check and test context.
 
 ## 0.1.9
 
