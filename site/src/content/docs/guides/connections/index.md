@@ -71,6 +71,9 @@ secret), its runs act as them from then on, with their connections
     ([Add a model, and run a flow](../../deploy/self-hosted/self-host/#8-add-a-model-and-run-a-flow)),
     or your own secret manager
     ([Keep secrets in your own secret manager](../../deploy/self-hosted/secret-manager/)).
+
+  Without all three, the runtime logs at startup what it's missing:
+  `connections to other apps are off: they need …`.
 - **An admin of the workspace,** to register each app.
 - **To approve what's sent from your own account, a reviewer seat**
   ([The Reviewers page](../approvals/approvals-reference/#the-reviewers-page)).
