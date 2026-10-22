@@ -57711,9 +57711,19 @@
                 }
               }
             }
+          },
+          "501": {
+            "description": "`trigger-operation-unsupported`: the change would move the schedule's owner, and this deployment's schedules can't change owner. Nothing changes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
-        "description": "Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it.",
+        "description": "Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule runs as whoever created it, or last changed what it runs: when anyone but the person who owns it changes its target or version, its input or `toolsAllowedUnattended`, the caller becomes its owner, as `POST /v1/schedules/{triggerId}/owner` would make them, and the change is audited as `trigger-owner-set`. A label, the cron line or the policies don't move it, nor does the same value sent again. A schedule a service account owns keeps its owner. The answer shows the owner after the change.",
         "parameters": [
           {
             "name": "triggerId",
@@ -58677,9 +58687,19 @@
                 }
               }
             }
+          },
+          "501": {
+            "description": "`trigger-operation-unsupported`: the change would move the trigger's owner, and this deployment's webhook triggers can't change owner. Nothing changes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
-        "description": "Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited.",
+        "description": "Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited. A trigger runs as whoever created it, or last changed what it runs: when anyone but the person who owns it changes its flow version, its input, its `toolsAllowedUnattended` or `hmacSecretName`, the caller becomes its owner, as `POST /v1/webhooks/{triggerId}/owner` would make them, and the change is audited as `trigger-owner-set`. The label, the delivery settings or the same value sent again don't move it. A trigger a service account owns keeps its owner. The answer shows the owner after the change.",
         "parameters": [
           {
             "name": "triggerId",
