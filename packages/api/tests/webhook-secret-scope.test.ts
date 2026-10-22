@@ -569,8 +569,8 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
     const endpoint = (endpointId: string, name: string) => ({
       endpointId,
       name: 'Docs',
-      transport: 'stdio',
-      config: { transport: 'stdio', command: '/usr/local/bin/docs-mcp', args: [] },
+      transport: 'streamable-http',
+      config: { transport: 'streamable-http', url: 'https://mcp.acme.test/docs' },
       secretRef: { envName: ENV, name },
       scopeKind: 'project',
       scopeId: P,
@@ -591,6 +591,33 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
       secretScopes: { P_TOKEN: { kind: 'tenant' } },
     });
     expect(sent.status).toBe(400);
+  });
+
+  test("a stdio MCP endpoint's secretEnv: each variable's secret, recorded as a bearer secret is", async () => {
+    const h = items();
+    h.stored.set(keyOf(tenant, ENV, 'TENANT_TOKEN'), 'x');
+    h.stored.set(keyOf(project, ENV, 'P_TOKEN'), 'y');
+    const res = await h.post('p-admin', '/v1/mcp/endpoints', {
+      endpointId: 'acme-files',
+      name: 'Files',
+      transport: 'stdio',
+      config: {
+        transport: 'stdio',
+        command: '/usr/local/bin/files-mcp',
+        env: { LOG_LEVEL: 'info' },
+      },
+      secretEnv: {
+        GITHUB_TOKEN: { envName: ENV, name: 'TENANT_TOKEN' },
+        FILES_TOKEN: { envName: ENV, name: 'P_TOKEN' },
+      },
+      scopeKind: 'project',
+      scopeId: P,
+    });
+    expect(res.status).toBe(201);
+    expect(h.endpoints.get('acme-files')?.secretScopes).toEqual({
+      TENANT_TOKEN: { kind: 'project', projectId: P },
+      P_TOKEN: { kind: 'project', projectId: P },
+    });
   });
 
   test("an MCP endpoint's header auth: each header's secret, recorded as a bearer secret is", async () => {

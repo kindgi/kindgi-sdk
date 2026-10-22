@@ -590,6 +590,21 @@ describe('a runtime that refuses other envs: a registration naming its secret un
         'endpoint "acme-docs" names `DOCS_TOKEN` under `staging`. Name it under `prod`, and store the secret there',
       ),
     ]);
+    // A stdio server's variable, too.
+    const stdio = await h.call('POST', '/v1/mcp/endpoints', {
+      endpointId: 'acme-files',
+      name: 'Files MCP',
+      transport: 'stdio',
+      config: { transport: 'stdio', command: '/usr/local/bin/files-mcp' },
+      secretEnv: { FILES_TOKEN: { envName: 'staging', name: 'FILES_TOKEN' } },
+      scopeKind: 'tenant',
+    });
+    expect([stdio.status, stdio.body.error?.message]).toEqual([
+      409,
+      REFUSAL(
+        'endpoint "acme-files" names `FILES_TOKEN` under `staging`. Name it under `prod`, and store the secret there',
+      ),
+    ]);
     const created = await h.call('POST', '/v1/webhook-endpoints', {
       url: 'https://app.acme.example/hooks',
       events: ['run.finished'],

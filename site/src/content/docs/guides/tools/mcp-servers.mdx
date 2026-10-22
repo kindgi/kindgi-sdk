@@ -484,6 +484,10 @@ Store the secret with
 unregister the endpoint and register it again, as
 [When the server changes](#when-the-server-changes) shows.
 
+A `stdio` server gets no headers, so `secretRef` and `auth` aren't for it:
+it's given its secrets as variables
+([Give a stdio server a secret](#give-a-stdio-server-a-secret)).
+
 ### Sign in with a user name and password
 
 For a server that takes HTTP Basic, use `auth` instead of `secretRef`. A
@@ -717,6 +721,118 @@ To move one: store each header's value as a secret
 (`kindgi secrets set INVENTORY_KEY --env=local --scope=tenant`),
 [unregister the endpoint](#when-the-server-changes), and register it again
 with `auth` in place of the header.
+
+## Give a stdio server a secret
+
+A `stdio` server reads its credentials from its environment. Ask your coding
+agent: "My stdio MCP server reads its token from `INVENTORY_TOKEN`." You
+store the token itself, with
+`kindgi secrets set INVENTORY_TOKEN --env=local --scope=tenant`. For
+reference, it adds `secretEnv` to the registration (runtime 0.1.12 or
+later): each variable's name, with the secret its value is read from when
+the runtime starts the server, at the scope recorded when the endpoint was
+registered. The value is never stored with the endpoint, and never read back:
+
+```json excerpt
+"config": { "transport": "stdio", "command": "inventory-mcp", "args": ["--stdio"], "env": { "LOG_LEVEL": "info" } },
+"secretEnv": { "INVENTORY_TOKEN": { "envName": "local", "name": "INVENTORY_TOKEN" } }
+```
+
+The server's process gets the variables in `config.env` and `secretEnv`, and
+from the runtime's own environment only `HOME`, `LOGNAME`, `PATH`, `SHELL`,
+`TERM` and `USER`.
+
+- **1 to 16 variables.** Each name has no `=` or NUL, and isn't in
+  `config.env` too (`invalid-mcp-endpoint`, reason `secret-env-twice`).
+  Otherwise the reason is `invalid-secret-env`.
+- **`stdio` only.** On an HTTP endpoint it's refused (`secret-env-on-http`):
+  send the secret in a header, with `secretRef` or `auth`.
+- **Not `secretRef`.** On a `stdio` endpoint it's refused, since it's sent as
+  a bearer header:
+
+  ```json
+  {"error":{"code":"invalid-mcp-endpoint","message":"endpoint \"inventory-local\" secretRef needs an HTTP transport: it's sent as a bearer header, and a stdio server gets no headers. Give the server its secret as a variable: secretEnv: { <NAME>: { envName, name } }.","details":{"reason":"secret-ref-on-stdio"},…}}
+  ```
+- **Never a model provider's key,** as for `secretRef`
+  (`provider-key-refused`).
+- **A secret that isn't set** fails the endpoint's sync with
+  `mcp-auth-unresolved`, naming the variable and the secret, and the server
+  isn't started:
+
+  ```text
+  12:34:22.054 WARN  [mcp] MCP endpoint "inventory-eu" sync failed: mcp-auth-unresolved: MCP endpoint "inventory-eu": its secretEnv INVENTORY_TOKEN local/INVENTORY_EU_TOKEN at the tenant did not resolve: … endpointId=inventory-eu
+  ```
+
+  Store it, then unregister the endpoint and register it again.
+- **A new value** reaches the server the next time the runtime starts it.
+- **If you roll back** to a runtime older than 0.1.12, an endpoint
+  registered with `secretEnv` before the rollback starts without those
+  variables. The server fails its own calls, and no value is exposed.
+  Registering one with `secretEnv` there is refused (`invalid-mcp-endpoint`,
+  reason `unknown-field`): that runtime doesn't know the field.
+
+### Not in `config.env`
+
+`config.env` is for plain variables: they're stored as given. A variable
+whose name says it holds a credential is refused (runtime 0.1.12 or later;
+`invalid-mcp-endpoint`, reason `credential-in-env`). The refusal names the
+variable, never its value, and shows the `secretEnv` that gives it by
+reference:
+
+```json
+{"error":{"code":"invalid-mcp-endpoint","message":"endpoint \"inventory-local\" puts a credential in config.env (\"INVENTORY_TOKEN\"), where it's stored as given. Store each value as a secret and give it by reference: secretEnv: { INVENTORY_TOKEN: { envName, name } }.","details":{"reason":"credential-in-env"},…}}
+```
+
+The names that count are the ones
+[`config.headers` refuses](#not-in-configheaders), with parts split on `_`
+as well as `-`: `GITHUB_TOKEN`, `OPENAI_API_KEY`, `AWS_SECRET_ACCESS_KEY`,
+`AWS_ACCESS_KEY_ID`, `SLACK_BOT_TOKEN`, `DB_PASSWORD`,
+`GOOGLE_APPLICATION_CREDENTIALS`. `LOG_LEVEL`, `PORT`, `CACHE_KEY` and
+`PARTITION_KEY` are plain: a lone `KEY` doesn't count. The rule doesn't
+catch every secret, such as `DATABASE_URL` with a password in it,
+`PGPASSWORD` or `MYSQL_PWD`: put those in `secretEnv` too.
+
+Every value in `config.env` reads back as `[redacted]` (runtime 0.1.12 or
+later), its name kept, so a tenant's export holds the names, not the values:
+
+```json excerpt
+"config":{"env":{"LOG_LEVEL":"[redacted]"},"args":["--stdio"],"command":"inventory-mcp","transport":"stdio"},"secretEnv":{"INVENTORY_TOKEN":{"name":"INVENTORY_TOKEN","envName":"local"}}
+```
+
+A value of `[redacted]` is refused at registration (runtime 0.1.12 or
+later; `invalid-stdio-env`), so a copy of what `GET` answers can't register
+it by mistake. So is what a process's environment can't carry: an empty
+name, `=` or a NUL in a name, or a NUL in a value.
+
+#### An endpoint registered with one by an earlier runtime
+
+It keeps working, and:
+- **reads back `[redacted]`** for every value in `config.env` (runtime
+  0.1.12 or later):
+
+  ```json excerpt
+  "config":{"env":{"LOG_LEVEL":"[redacted]","INVENTORY_TOKEN":"[redacted]"},"args":["--stdio"],"command":"inventory-mcp","transport":"stdio"}
+  ```
+- **is named, never its value:** by the runtime at every start (runtime
+  0.1.12 or later; `WARN` `mcp-env-credential`), by its
+  [`check mcp-env-credentials`](../../../deploy/self-hosted/operate/#checks-you-can-run-before-upgrading)
+  (runtime 0.1.12 or later), and by `kindgi doctor` against the runtime it
+  points at (the check MCP endpoint env, `mcp-env`):
+
+  ```text
+    ! MCP endpoint env: 2 stdio MCP endpoints keep a credential in plaintext config.env, or a secretRef a stdio server isn't sent, from before that was refused. They still work, but a value in config.env is stored as given, not as a secret.
+        ✗ files-legacy: secretRef (never sent)
+        ✗ inventory-legacy: INVENTORY_TOKEN
+        Fix: Store each value as a secret (kindgi secrets set <NAME> --env=<name> --scope=tenant), then unregister the endpoint and register it again with the variable in secretEnv: { <NAME>: { envName, name } }, and without secretRef.
+  ```
+
+A `stdio` endpoint registered with a `secretRef` is named the same way: a
+stdio server is never sent it, and the runtime (0.1.12 or later) doesn't read
+it.
+
+To move one: store each variable's value as a secret,
+[unregister the endpoint](#when-the-server-changes), and register it again
+with `secretEnv` in place of the variable.
 
 ## Send the run's trace
 
@@ -960,7 +1076,9 @@ above.
 - **`http-sse`**: the older HTTP and Server-Sent Events transport,
   `{ transport: 'http-sse', url, sseUrl?, headers? }`, with `url` the
   server's SSE endpoint (`http://localhost:8793/sse` for the Python SDK).
-- **`stdio`**: `{ transport: 'stdio', command, args?, env? }`. The runtime
+- **`stdio`**: `{ transport: 'stdio', command, args?, env? }`. `env` is for
+  plain variables: a secret goes in `secretEnv`
+  ([Give a stdio server a secret](#give-a-stdio-server-a-secret)). The runtime
   runs the command in its own container, as its own user, under
   `kindgi dev` too. A deployment refuses it, because
   `KINDGI_TENANT_HOST_ACCESS` is `deployed` outside development:
