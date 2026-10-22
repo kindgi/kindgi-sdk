@@ -227,7 +227,9 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
         no: 1,
         yesWeight: 3,
         totalWeight: 4,
-        restricted: { yesWeight: 0, totalWeight: 0 },
+        restricted: { yesWeight: 0, totalWeight: 0, judgmentIds: [] },
+        // Every judgment summed into the item, newest first: u2's no, then the expert's yes.
+        judgmentIds: ['j-3', 'j-2'],
         // Newest first; a classified judgment's reason names its class.
         reasons: [
           { verdict: 'no', reason: 'wrong city' },
@@ -241,7 +243,9 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
         no: 1,
         yesWeight: 0,
         totalWeight: 1,
-        restricted: { yesWeight: 0, totalWeight: 0 },
+        restricted: { yesWeight: 0, totalWeight: 0, judgmentIds: [] },
+        // A judgment without a reason is named too.
+        judgmentIds: ['j-1'],
         reasons: [],
       },
     ]);
@@ -253,7 +257,8 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
         no: 0,
         yesWeight: 1,
         totalWeight: 1,
-        restricted: { yesWeight: 0, totalWeight: 0 },
+        restricted: { yesWeight: 0, totalWeight: 0, judgmentIds: [] },
+        judgmentIds: ['j-4'],
         reasons: [],
       },
     ]);
@@ -444,7 +449,9 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
         no: 0,
         yesWeight: 3,
         totalWeight: 3,
-        restricted: { yesWeight: 0, totalWeight: 0 },
+        restricted: { yesWeight: 0, totalWeight: 0, judgmentIds: [] },
+        // Only the kept class's judgment is named: u2's unclassified no isn't counted.
+        judgmentIds: ['j-2'],
         reasons: [{ verdict: 'yes', reason: 'right', judgeClassId: h.expertId }],
       },
     ]);
@@ -479,14 +486,17 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
       key: 'c1',
       yesWeight: 3,
       totalWeight: 4,
-      restricted: { yesWeight: 0, totalWeight: 0 },
+      restricted: { yesWeight: 0, totalWeight: 0, judgmentIds: [] },
+      judgmentIds: ['j-3', 'j-2'],
     });
     // c2: the senior expert's yes (3) is restricted; the unclassified no (1) isn't.
+    // Both are named on the item, only the restricted one under `restricted`.
     expect(run1.items[1]).toMatchObject({
       key: 'c2',
       yesWeight: 3,
       totalWeight: 4,
-      restricted: { yesWeight: 3, totalWeight: 3 },
+      restricted: { yesWeight: 3, totalWeight: 3, judgmentIds: ['j-6'] },
+      judgmentIds: ['j-6', 'j-1'],
     });
     // Its reason says it was restricted; the expert's earlier one on c1 doesn't.
     expect(run1.items[1].reasons).toContainEqual({

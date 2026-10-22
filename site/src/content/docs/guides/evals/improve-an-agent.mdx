@@ -166,6 +166,16 @@ or in a different project, doesn't count. Set it with the `--class-weights`
 flag, or `classWeights` in the API or the clients, to choose either,
 whatever classes exist.
 
+The proposal a pass writes names the judgments it learned from on the
+search part, never the hold-out: the ones its comparisons counted and, for
+a prompt pass, the ones its drafter was shown. Its `evidence.judgmentIds`
+lists up to 100 of them: first the ones the drafter was shown, then the
+ones behind items judged wrong, then the rest. When there are more,
+`evidence.judgmentCount` gives how many. A correction's calls (what the
+agent should have done) aren't among what a pass learns from: its
+comparisons grade them and show the result without choosing by them, and
+its drafter is shown a correction's verdict and reason, not its calls.
+
 ## Draft a prompt instead
 
 A pass can also draft prompt templates. The agent version must take its

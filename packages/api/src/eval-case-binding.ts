@@ -38,7 +38,17 @@ export interface JudgedItemSummary extends JudgedItem {
    * `restricted-only`. Absent from a test set built before restrictions:
    * no restricted evidence.
    */
-  readonly restricted?: { readonly yesWeight: number; readonly totalWeight: number };
+  readonly restricted?: {
+    readonly yesWeight: number;
+    readonly totalWeight: number;
+    /** The judgments behind these two. Absent from a test set built before judgment ids. */
+    readonly judgmentIds?: readonly string[];
+  };
+  /**
+   * The judgments summed into the item, by id: what a comparison on this case
+   * counts. Absent from a test set built before judgment ids.
+   */
+  readonly judgmentIds?: readonly string[];
   /** The reasons given, newest first. */
   readonly reasons: readonly JudgedReason[];
 }

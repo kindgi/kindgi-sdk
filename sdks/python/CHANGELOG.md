@@ -10,6 +10,11 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **a test set's cases name their judgments, and a proposal says
+  how many it rests on.** A judged case's items gain `judgment_ids`, and their
+  `restricted` gains `judgment_ids` too. A proposal's `evidence` is now the
+  `ProposalEvidence` model, with `judgment_count` beside `judgment_ids`. The
+  create body's `Evidence1` is unchanged.
 - `kindgi`: **`deployments.pack_env` shows where each name a deployment's
   pack declares is set** (`project`, `org` or `tenant`) and why it can't be
   given to its pack service, if it can't, on a server that runs a pack

@@ -4948,7 +4948,22 @@ export const JudgedItemSummarySchema: JsonSchema = {
       required: ['yesWeight', 'totalWeight'],
       description:
         'The same weights, counting only judgments recorded while their class was restricted (`Judgment.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.',
-      properties: { yesWeight: { type: 'number' }, totalWeight: { type: 'number' } },
+      properties: {
+        yesWeight: { type: 'number' },
+        totalWeight: { type: 'number' },
+        judgmentIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'The judgments behind these two. Absent from a test set built before judgment ids.',
+        },
+      },
+    },
+    judgmentIds: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'The judgments summed into the item, by id: what a comparison on this case counts. Absent from a test set built before judgment ids.',
     },
     reasons: {
       type: 'array',
@@ -5833,6 +5848,26 @@ export const ProposalDrafterSchema: JsonSchema = {
   },
 };
 
+export const ProposalEvidenceSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'What a proposal rests on.',
+  properties: {
+    judgmentIds: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        "The judgments that motivated it. An improvement pass's proposal names the judgments it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items judged wrong, then the rest.",
+    },
+    judgmentCount: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'How many judgments it rests on, when `judgmentIds` names only the first of them. Absent when `judgmentIds` names them all.',
+    },
+  },
+};
+
 export const ProposalCandidateSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -5929,11 +5964,7 @@ export const FixProposalSchema: JsonSchema = {
     tier: { $ref: '#/components/schemas/ProposalTier' },
     change: { $ref: '#/components/schemas/ProposalChange' },
     hypothesis: { type: 'string', description: 'What the change should improve, and why.' },
-    evidence: {
-      type: 'object',
-      additionalProperties: false,
-      properties: { judgmentIds: { type: 'array', items: { type: 'string' } } },
-    },
+    evidence: { $ref: '#/components/schemas/ProposalEvidence' },
     drafter: { $ref: '#/components/schemas/ProposalDrafter' },
     status: { $ref: '#/components/schemas/FixProposalStatus' },
     candidate: { $ref: '#/components/schemas/ProposalCandidate' },
@@ -14170,6 +14201,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['FixProposalStatus', FixProposalStatusSchema],
   ['ProposalChange', ProposalChangeSchema],
   ['ProposalDrafter', ProposalDrafterSchema],
+  ['ProposalEvidence', ProposalEvidenceSchema],
   ['ProposalCandidate', ProposalCandidateSchema],
   ['ProposalEvaluation', ProposalEvaluationSchema],
   ['ProposalPromotion', ProposalPromotionSchema],
