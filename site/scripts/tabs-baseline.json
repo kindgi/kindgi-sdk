@@ -11,9 +11,6 @@
     "Java": 1,
     "Scala": 1
   },
-  "guides/evals/compare-an-agent-version": {
-    "Scala": 1
-  },
   "guides/evals/release-an-agent-version": {
     "Java": 2,
     "Scala": 2
