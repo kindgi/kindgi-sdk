@@ -1326,3 +1326,96 @@ run "an_idle_backstop_in_part_milliseconds_is_refused" {
 
   expect_failures = [var.database_idle_in_transaction_timeout_ms]
 }
+
+
+# ---- README step 1: the first apply, with only its targets -----------------
+# Step 3 reads `terraform output -raw sql_connection_name`: an output is only
+# written by a targeted apply when every resource it reads is in the targets'
+# graph.
+
+run "the_first_apply_gives_the_connection_name_on_a_host" {
+  command = apply
+  # Without KMS: the key's prevent_destroy would stop the teardown.
+  variables {
+    database_host_instance  = "acme-app-db"
+    secrets_backend         = "none"
+    secrets_aad_key_version = null
+  }
+  override_data {
+    target = data.google_sql_database_instance.host
+    values = {
+      connection_name  = "acme-app-dev:northamerica-northeast2:acme-app-db"
+      database_version = "POSTGRES_16"
+      settings         = [{ ip_configuration = [{ ipv4_enabled = true }] }]
+    }
+  }
+  plan_options {
+    target = [
+      google_project_service.apis,
+      google_compute_router_nat.nat,
+      google_artifact_registry_repository_iam_member.server_reads_images,
+      google_kms_crypto_key_iam_member.server_wraps,
+      google_sql_database.kindgi,
+      google_secret_manager_secret_iam_member.server_reads,
+      google_secret_manager_secret_iam_member.pack_reads_token,
+      google_project_iam_member.server_sql_client,
+    ]
+  }
+
+  assert {
+    condition     = output.sql_connection_name == "acme-app-dev:northamerica-northeast2:acme-app-db"
+    error_message = "README step 1's apply leaves sql_connection_name in state (the host's), for step 3."
+  }
+}
+
+run "the_first_apply_gives_the_connection_name_of_the_own_instance" {
+  command = apply
+  variables {
+    secrets_backend         = "none"
+    secrets_aad_key_version = null
+  }
+  plan_options {
+    target = [
+      google_project_service.apis,
+      google_compute_router_nat.nat,
+      google_artifact_registry_repository_iam_member.server_reads_images,
+      google_kms_crypto_key_iam_member.server_wraps,
+      google_sql_database.kindgi,
+      google_secret_manager_secret_iam_member.server_reads,
+      google_secret_manager_secret_iam_member.pack_reads_token,
+      google_project_iam_member.server_sql_client,
+    ]
+  }
+
+  assert {
+    condition     = output.sql_connection_name == google_sql_database_instance.kindgi[0].connection_name
+    error_message = "README step 1's apply leaves sql_connection_name in state (the module's own instance's), for step 3."
+  }
+}
+
+run "the_first_apply_checks_the_host" {
+  command = plan
+  variables {
+    database_host_instance = "acme-app-db"
+  }
+  override_data {
+    target = data.google_sql_database_instance.host
+    values = {
+      database_version = "POSTGRES_15"
+      settings         = [{ ip_configuration = [{ ipv4_enabled = true }] }]
+    }
+  }
+  plan_options {
+    target = [
+      google_project_service.apis,
+      google_compute_router_nat.nat,
+      google_artifact_registry_repository_iam_member.server_reads_images,
+      google_kms_crypto_key_iam_member.server_wraps,
+      google_sql_database.kindgi,
+      google_secret_manager_secret_iam_member.server_reads,
+      google_secret_manager_secret_iam_member.pack_reads_token,
+      google_project_iam_member.server_sql_client,
+    ]
+  }
+  expect_failures = [data.google_sql_database_instance.host]
+}

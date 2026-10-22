@@ -98,8 +98,11 @@ data "google_sql_database_instance" "host" {
 }
 
 resource "google_sql_database" "kindgi" {
-  name     = var.database_name
-  instance = var.database_host_instance != null ? var.database_host_instance : google_sql_database_instance.kindgi[0].name
+  name = var.database_name
+  # A host's name from its read, not from the variable: README's first apply
+  # targets this database, so the host is read in that apply too. Its checks
+  # run there, and sql_connection_name is in the state for step 3.
+  instance = var.database_host_instance != null ? data.google_sql_database_instance.host[0].name : google_sql_database_instance.kindgi[0].name
 
   # With a host instance the database lives on the app's own instance, so a
   # destroy or a database_name change must not drop it unless the operator
