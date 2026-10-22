@@ -51,7 +51,9 @@ name when it starts, so the name is chosen to be safe in shared logs:
   touching anyone else's.
 - **An address at a public email service:** the address with everything
   before the `@` cut to its first character, such as `a***@gmail.com`.
-- **GitHub, with a public address:** your GitHub login.
+- **GitHub, with a public address:** your GitHub login. If you signed in
+  with that address by email first, it's that same key, so it keeps the
+  address cut short.
 
 If your company had one shared key before, your next sign-in gives you your
 own, which still names the company. The shared key keeps working where it's
@@ -150,6 +152,8 @@ a key's expiry never stops it. See
   key, or renew a production key through contact@kindgi.com, and log in again
   with the new key.
 - **Not once it's revoked.** A revoked key stops pulling within a few minutes.
+  If your access is revoked, signing in again, with GitHub or the same email
+  address, doesn't give you a new key: write to contact@kindgi.com.
 
 `kindgi dev` pulls the image only when it isn't on your machine yet. So an
 expired key shows up when a new CLI pins a new image, not every day.
