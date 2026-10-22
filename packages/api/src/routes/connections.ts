@@ -143,7 +143,7 @@ export function connectionAppsRouter(
       ...(projects !== undefined && projects !== null && { projects }),
       by,
     });
-    if (outcome.kind !== 'ok') return bindingRefused(c, outcome.error);
+    if (outcome.kind !== 'ok') return bindingRefused(c, authorizer, outcome.error);
     c.status(201);
     return c.json(serializeApp(outcome.value));
   });
@@ -168,7 +168,7 @@ export function connectionAppsRouter(
       ...(body.projects !== undefined && { projects: body.projects }),
       by,
     });
-    if (outcome.kind !== 'ok') return bindingRefused(c, outcome.error);
+    if (outcome.kind !== 'ok') return bindingRefused(c, authorizer, outcome.error);
     return c.json(serializeApp(outcome.value));
   });
 
@@ -187,7 +187,7 @@ export function connectionAppsRouter(
       withConnections: raw === 'true',
       by,
     });
-    if (outcome.kind !== 'ok') return bindingRefused(c, outcome.error);
+    if (outcome.kind !== 'ok') return bindingRefused(c, authorizer, outcome.error);
     return c.json({ connectionsRemoved: outcome.value.connectionsRemoved });
   });
 
@@ -311,7 +311,7 @@ export function connectionsRouter(
       permissions,
       by,
     });
-    if (outcome.kind !== 'ok') return bindingRefused(c, outcome.error);
+    if (outcome.kind !== 'ok') return bindingRefused(c, authorizer, outcome.error);
     c.status(201);
     return c.json(serializeRequest(outcome.value));
   });
@@ -325,7 +325,7 @@ export function connectionsRouter(
     const parsed = parseFinishBody(body.value);
     if (parsed.kind === 'err') return badInput(c, parsed.message, parsed.field);
     const outcome = await binding.finishRequest({ tenantId, caller, ...parsed.value });
-    if (outcome.kind !== 'ok') return bindingRefused(c, outcome.error);
+    if (outcome.kind !== 'ok') return bindingRefused(c, authorizer, outcome.error);
     const reviewerSeat = await hasReviewerSeat(c, tenantId, outcome.value);
     return c.json({
       ...serializeFinish(outcome.value),
@@ -360,7 +360,7 @@ export function connectionsRouter(
     const parsed = parseStartBody(body.value);
     if (parsed.kind === 'err') return badInput(c, parsed.message, parsed.field);
     const outcome = await binding.startRequest({ tenantId, requestId, caller, ...parsed.value });
-    if (outcome.kind !== 'ok') return bindingRefused(c, outcome.error);
+    if (outcome.kind !== 'ok') return bindingRefused(c, authorizer, outcome.error);
     return c.json({ authorizeUrl: outcome.value.authorizeUrl });
   });
 
@@ -384,7 +384,7 @@ export function connectionsRouter(
       return connectionNotFound(c, connectionId);
     }
     const outcome = await binding.disconnect({ tenantId, connectionId, by });
-    if (outcome.kind !== 'ok') return bindingRefused(c, outcome.error);
+    if (outcome.kind !== 'ok') return bindingRefused(c, authorizer, outcome.error);
     return c.json(serializeConnection(outcome.value));
   });
 
@@ -1074,7 +1074,27 @@ function badInput(c: Context<AppEnv>, message: string, field?: string): Response
   return answer(c, 'bad-input', message, field === undefined ? {} : { field });
 }
 
-function bindingRefused(c: Context<AppEnv>, error: ConnectionError): Response {
+/**
+ * The binding's refusal, answered with its own code. One that refuses the
+ * caller (a 403: someone else's sign-in, or a GitHub installation their
+ * account doesn't reach) is recorded in the access audit, as the route's
+ * own refusals are.
+ */
+function bindingRefused(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  error: ConnectionError,
+): Response {
+  if (statusFor(error.code) === 403) {
+    return refused(c, authorizer, {
+      action: 'write',
+      resource: ref('tenant', c.get('tenantId') as unknown as string),
+      message: error.message,
+      failing: 'actor',
+      code: error.code,
+      ...(error.field !== undefined && { details: { field: error.field } }),
+    });
+  }
   return answer(
     c,
     error.code,

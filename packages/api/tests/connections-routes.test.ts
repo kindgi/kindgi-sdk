@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import { github } from '@kindgi/connections/github';
 import { google } from '@kindgi/connections/google';
 import type { EnvName, TenantId, UserId } from '@kindgi/types';
@@ -232,7 +233,11 @@ function memoryBinding() {
 const runHandler = {} as RunHandlerBinding;
 
 function makeApp(
-  options: { reviewers?: ReviewerBinding; clientAddress?: (r: Request) => string | undefined } = {},
+  options: {
+    reviewers?: ReviewerBinding;
+    clientAddress?: (r: Request) => string | undefined;
+    authzCheckBinding?: AuthzCheckBinding;
+  } = {},
 ) {
   const memory = memoryBinding();
   const app = createApp({
@@ -244,6 +249,9 @@ function makeApp(
     ...(options.reviewers !== undefined && {
       reviewerBinding: options.reviewers,
       hitlBinding: {} as HitlBinding,
+    }),
+    ...(options.authzCheckBinding !== undefined && {
+      authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: options.authzCheckBinding },
     }),
   });
   return { app, ...memory };
@@ -569,6 +577,37 @@ describe('a connect request: read, start and finish', () => {
     const other = await call(app, 'ben', 'POST', '/v1/connections/finish', { state: 's-1' });
     expect(other.status).toBe(403);
     expect(other.json.error.code).toBe('connection-not-yours');
+  });
+
+  test('a finish by someone else is refused, and the access audit records it', async () => {
+    const recorded: { action: Action; resource: string; decision: Decision }[] = [];
+    const grant = (action: Action, r: ResourceRef): Decision => ({
+      allowed: true,
+      reason: 'test: granted',
+      evidence: { action, relation: '', resource: `${r.type}:${r.id}`, actorSubject: '' },
+    });
+    const { app } = makeApp({
+      authzCheckBinding: {
+        check: async (_p, action, r) => grant(action, r),
+        checkBatch: async (_p, action, rs) => rs.map((r) => grant(action, r)),
+        recordDecision: (_p, action, r, decision) => {
+          recorded.push({ action, resource: `${r.type}:${r.id}`, decision });
+        },
+      },
+    });
+    const requestId = await requested(app, 'ana');
+    await call(app, 'ana', 'POST', `/v1/connections/requests/${requestId}/start`);
+    expect(recorded).toEqual([]);
+    const other = await call(app, 'ben', 'POST', '/v1/connections/finish', { state: 's-1' });
+    expect(other.status).toBe(403);
+    expect(other.json.error.code).toBe('connection-not-yours');
+    expect(recorded).toEqual([
+      {
+        action: 'write',
+        resource: `tenant:${tenantA}`,
+        decision: expect.objectContaining({ allowed: false, failing: 'actor' }),
+      },
+    ]);
   });
 
   test('a finish needs the state the app sent back, and takes only what the app sends', async () => {

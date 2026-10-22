@@ -47,6 +47,7 @@ const ID = '00000000-0000-4000-8000-0000000000ff';
  */
 const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'permission-denied',
+  'connection-not-yours',
   'identity-providers-operator-managed',
   'token-sign-in-not-allowed',
   'token-sign-in-off',
