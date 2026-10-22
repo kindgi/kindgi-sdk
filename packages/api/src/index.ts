@@ -949,6 +949,7 @@ export type {
   ProposalEvaluationRef,
   ProposalEvidence,
   ProposalObjective,
+  ProposalRule,
   ProposalStep,
   ProposalTier,
   ProposedChange,
@@ -1009,7 +1010,9 @@ export {
 export type {
   FixProposalStatus,
   ProposalAction,
+  ProposalDecisions,
   ProposalEvaluationOutcome,
+  ProposalNotKept,
 } from './proposal-status.js';
 export {
   PACK_SERVICE_NAME_PREFIX,

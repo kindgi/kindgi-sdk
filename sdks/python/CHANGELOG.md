@@ -26,6 +26,13 @@ same version, and the CLI's own changes are in
   signs them in. Refused (`site-person-restore-refused`) for someone who
   isn't removed, someone their site said left, and someone who also signs
   in another way. Tenant admins only.
+- `kindgi`: **a proposal says how it was kept, what the replays cost and
+  which decisions held.** A proposal's `evaluation` gains `rule` (`better` or
+  `cheaper`), `cost_usd` (`ProposalCost`) and `decisions`
+  (`ProposalDecisions`). A proposal kept as `cheaper` is `evaluated` with
+  `better` false. A judged comparison's summary gains `cost_usd`
+  (`JudgedComparisonCost`) and `corrections.judgments`, and each case result
+  gains `cost_usd`, one per repetition.
 
 ## 0.1.9
 
