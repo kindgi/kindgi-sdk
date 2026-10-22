@@ -99,10 +99,33 @@ is uninstalled or suspended
 
 An admin connects the app for the company. In a project, open
 **Connections**, choose **Connect an app**, pick GitHub, and under **For**
-choose **The company**. GitHub
-asks where to install the app: pick your organization and the repositories
-the tools should reach. GitHub sends you back to Kindgi, and the connection
-shows your organization.
+choose **The company**. What GitHub shows depends on whether the app is
+installed yet:
+
+- **Not installed anywhere yet:** GitHub asks where to install the app.
+  Pick your organization and the repositories the tools should reach.
+- **Already installed:** GitHub asks you to authorize the app. If your
+  GitHub account reaches more than one of its installations, Kindgi asks
+  you to **Choose the account to connect**: pick the one this connection
+  uses, such as **Use acme**.
+
+GitHub sends you back to Kindgi, and the connection shows your
+organization. Kindgi keeps an installation only if your own GitHub account
+reaches it.
+
+**To install the app on another account,** such as a second
+organization, choose **Install on another account**. Kindgi offers it
+beside the installations to choose from. Once the app is installed
+anywhere, connecting never shows GitHub's install page by itself, so this
+is the way there.
+
+- **When your GitHub account reaches none of the app's installations,**
+  Kindgi says **The app isn't installed where you can reach it**
+  (`connection-installation-unreachable`). Choose **Install on another
+  account**, and install it on an account of yours.
+- **Only whoever started a connect can finish it,** signed in to Kindgi
+  as themselves. Anyone else sees **Someone else started this sign-in**
+  (`connection-not-yours`).
 
 Calls then use short-lived tokens limited to the tool's permissions, over
 the repositories you picked when you installed the app.
