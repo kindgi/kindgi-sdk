@@ -1,0 +1,122 @@
+---
+title: Use a connection in a tool
+description: Declare the app and the permissions a tool needs, read the call's token in its handler, and know which runs can use whose connection.
+sidebar:
+  order: 30
+  label: Use a connection in a tool
+---
+
+A tool that acts in another app declares the connection it needs, the way
+it declares a secret. Kindgi finds the connection before each call, gets a
+short-lived token, and hands it to that call only. The handler never sees a
+stored token, and the token never goes into the run's journal, a log or an
+approval.
+
+## Before you start
+
+- **The app is registered** for your workspace ([Google](../google/),
+  [GitHub](../github/)).
+- **A pack,** on a runtime that offers connections
+  ([What you need](../#what-you-need)).
+
+## Declare the connection
+
+`needsSpec.connections` names each connection the tool needs, with its app,
+the permissions it needs, and whose connection it uses:
+
+```ts excerpt
+needsSpec: {
+  connections: {
+    mail: { app: 'google', permissions: ['gmail.send'], as: 'person' },
+  },
+},
+```
+
+- **`mail`** is the name the handler reads it by.
+- **`app`** is the app's id, such as `google` or `github`.
+- **`permissions`** are the app's permissions the call needs, by the names
+  its entry gives them ([Add an app](../add-an-app/#permissions)).
+- **`as`** says whose connection:
+  - `'person'`: the connection of the person the run acts as. That's whoever
+    started the run, or the owner of the schedule or webhook that started
+    it.
+  - `'company'`: the company's connection for the project.
+
+## Read the token
+
+The handler gets the connection in the call's context:
+
+```ts excerpt
+handler: async (input, ctx) => {
+  const { accessToken, account } = ctx.connections.mail;
+  // call the app with `Authorization: Bearer ${accessToken}`
+},
+```
+
+- **`accessToken`** is good for this call. Don't keep it: the next call
+  gets its own.
+- **`account`** is whose account it is, such as `ana@acme.com`.
+
+If the app refuses the token (`401`), throw `ConnectionRejectedError`.
+Kindgi gets a new token and calls the tool once more. If that's refused
+too, the call fails with `connection-rejected`.
+
+## In an HTTP tool
+
+An HTTP tool sends the token as a bearer header, with no code:
+
+```ts excerpt
+auth: { kind: 'connection', connection: 'mail' },
+```
+
+A `401` from the API counts as a refused token, as above.
+
+## Which runs can use whose connection
+
+Kindgi picks the connection from the run, never from the model or the
+input:
+
+- **`as: 'person'`** uses the connection of the person the run acts as:
+  - in a run you start, from the console, the CLI, or your own API key:
+    yours;
+  - in a run of a schedule or a webhook: its owner's. A schedule or webhook
+    is owned by whoever created it, or last changed what it runs.
+  - in a run a service account started, or an event's run: none. The call
+    fails with `connection-needs-a-person`.
+- **`as: 'company'`** uses the company's connection, in any run in a
+  project the registration allows.
+
+## When the connection is missing
+
+- **In a run a person started,** the run waits for them to connect, or to
+  reconnect, or to allow a permission the connection lacks. Its page shows
+  a **Connect** button, and the run goes on when they have. If they decline
+  on the app's page, the call fails with `connection-declined`. If nobody
+  connects in time, it fails with `connection-timed-out`.
+- **In any other run,** the call fails with `connection-missing`, naming
+  the app and what's missing.
+- **A flow's tool step can't wait,** so it fails with `connection-missing`
+  the same way.
+
+## Approvals
+
+A call that uses a connection is approved as any other call is, and the
+approval shows the account it acts as.
+
+- **In a run you started,** the agent's own approval settings decide
+  ([Ask before a tool runs](../../approvals/ask-before-a-tool-runs/)).
+- **In a run no person started,** such as a schedule's or a webhook's, a
+  tool that changes something as a person waits for that person's yes. A
+  tool counts as one when it uses an `as: 'person'` connection and isn't
+  marked `mutating: false`. The agent's rules can't lift it; only the
+  schedule's or webhook's own list of tools allowed unattended can.
+
+**For a person's connection, only that person decides.** They need a
+reviewer seat at the approval's rank
+([The Reviewers page](../../approvals/approvals-reference/#the-reviewers-page)).
+Without one, the call fails at once with
+`connection-approver-not-a-reviewer`, rather than waiting for nobody.
+
+A rule that asks for a second person to approve (`separateApprover`) can't
+be met for a person's connection yet, so such a call fails with
+`connection-approval-conflict`.
