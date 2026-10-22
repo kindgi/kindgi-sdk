@@ -26,12 +26,39 @@ shows. To judge a run, follow [Judge a run's output](../judge-a-runs-output/).
 - **A judgment keeps copies** of the run's input and output, so it outlives
   the run's own retention.
 - **Judging a run takes write access** to its project, as cancelling it does.
+- **What it should have done** (runtime 0.1.11 or later): a correction of
+  an agent's run can say it, in `correction: { calls, notCalled }`. Each of
+  `calls` is `{ tool, args }`, and each of `notCalled` is a tool id. Both
+  lists are required, and one of them can be empty. It's about the whole
+  run, so it's recorded under the item `kindgi:correction`, with `pointer`
+  `""` or none. Its verdict says whether the run's decisions were right,
+  `yes` or `no`, and its reason is optional, as for any correction.
+- **How it's checked,** on a replay: only the tools it names are compared.
+  Each tool in `calls` must be called as many times as it's listed, each
+  call matching one listed call, in any order. A listed call's `args` match
+  when each field given equals the call's top-level argument of that name,
+  compared whole, and `{}` matches any arguments. A tool in `notCalled`
+  must not be called. A call the replay refused still counts as called.
+- **Its limits:** up to 50 `calls` and 50 `notCalled`, tool ids up to 200
+  characters, and each `args` up to 100 fields and 4,000 characters of JSON.
 
 Only a finished run can be judged, and the pointer must find something:
 
 ```text
 Run "fc26b436-611b-4962-9913-2f2669ade7e1" has no output to judge yet (status suspended).
 Nothing at "/no/such" in run "bc6d1b53-3562-48c9-9f29-719779e3d110"'s output.
+```
+
+When what it should have done breaks a rule, the correction is refused with
+`400 bad-input`, such as:
+
+```text
+correction needs at least one of calls or notCalled.
+each correction call needs an args object ({} asks only that the tool was called).
+"acme-store.refund" can't be in both correction.calls and correction.notCalled.
+a correction is recorded under the item "kindgi:correction", not "answer".
+the item "kindgi:correction" is reserved for corrections; judge an item of the output instead.
+The judged version has no tool "acme-store.refunds".
 ```
 
 ## Judge classes
