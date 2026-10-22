@@ -174,7 +174,7 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   tenant's audit log, by `system`, which the tenant's admins can read:
   making them admin and what that gives them carry your `--reason`.
 - **A tenant created without `firstAdmin` whose admin key is lost** (runtime
-  0.1.11 or later): `kindgi-runtime tenants admin-key` mints it again. The
+  0.2.0 or later): `kindgi-runtime tenants admin-key` mints it again. The
   live keys of the tenant's "First admin" service account are revoked, and
   the console sessions they opened end. Then one key is minted for it,
   carrying what the first one did: tenant admin, and the tenant's root
