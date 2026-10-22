@@ -17,8 +17,8 @@ provider.
 - **Someone who can create a SAML app in your identity provider.**
 - **`openssl`,** if your identity provider wants signed sign-in requests
   ([When your identity provider wants signed requests](#when-your-identity-provider-wants-signed-requests)).
-- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## 1. Get the SAML URLs
@@ -26,7 +26,7 @@ provider.
 `start` with `--kind=saml` gives you the URLs a SAML app asks for:
 
 ```sh
-npx --yes @kindgi/cli@0.1 sso providers start acme-saml --kind=saml
+npx --yes @kindgi/cli@0.2 sso providers start acme-saml --kind=saml
 ```
 
 - `acme-saml` is the provider's id in your workspace.
@@ -74,7 +74,7 @@ Save the identity provider's metadata XML to a file, such as
 your domains:
 
 ```sh
-npx --yes @kindgi/cli@0.1 sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain>
+npx --yes @kindgi/cli@0.2 sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain>
 ```
 
 - `--kind=saml` says the provider speaks SAML.
@@ -101,7 +101,7 @@ name:
 
 ```sh
 openssl req -x509 -newkey rsa:2048 -nodes -keyout acme-sp-key.pem -out acme-sp-cert.pem -days 730 -subj "/CN=Kindgi SAML (acme.test)"
-npx --yes @kindgi/cli@0.1 secrets set ACME_SAML_SIGNING_KEY --env=production --scope=tenant --from-stdin < acme-sp-key.pem
+npx --yes @kindgi/cli@0.2 secrets set ACME_SAML_SIGNING_KEY --env=production --scope=tenant --from-stdin < acme-sp-key.pem
 ```
 
 - `req -x509` makes a self-signed certificate, and `-newkey rsa:2048` a new
@@ -140,7 +140,7 @@ carry the certificate, so they add it by hand. Then run `finish` again with
 the key's name:
 
 ```sh
-npx --yes @kindgi/cli@0.1 sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain> \
+npx --yes @kindgi/cli@0.2 sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain> \
   --sp-signing-key-ref=ACME_SAML_SIGNING_KEY
 ```
 

@@ -21,7 +21,7 @@ Use the scoped name, `@kindgi/cli`: there is no unscoped `kindgi` package.
 **Requirements:** Node 22.12 or later, and Docker for `kindgi dev` (Docker
 Desktop, or a Docker engine on Linux). A Python pack needs Python and the
 [`kindgi` Python SDK](../../sdks/python), and gets this CLI from PyPI as
-`kindgi-cli`, with its own Node: `uv add --dev "kindgi-cli>=0.1,<0.2"`, then
+`kindgi-cli`, with its own Node: `uv add --dev "kindgi-cli>=0.2,<0.3"`, then
 `uv run kindgi <command>`.
 
 ## The pack lifecycle
@@ -415,11 +415,11 @@ data. `kindgi dev` runs it the same way, with the pack's own interpreter:
 - **Watch:** any `.py` file under the pack root (shared modules included)
   and `pyproject.toml`.
 - **The CLI:** a Python pack runs `kindgi-cli` from PyPI, the same CLI with
-  its own Node, pinned in its dev group (`kindgi-cli>=0.1,<0.2`), so it needs
+  its own Node, pinned in its dev group (`kindgi-cli>=0.2,<0.3`), so it needs
   no Node install. Run as `uv run kindgi <command>` (Poetry: `poetry run kindgi
   <command>`), which is what the startup hints and the `.mcp.json` entries
   `kindgi mcp add` writes say. The npm CLI still runs a Python pack:
-  `npx --yes @kindgi/cli@0.1 <command>`.
+  `npx --yes @kindgi/cli@0.2 <command>`.
 
 ### Stopping
 
