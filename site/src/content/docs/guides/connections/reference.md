@@ -126,6 +126,6 @@ already gone at the app, so Kindgi only destroys the stored token.
 - **`connection-approver-not-a-reviewer`:** the person whose connection it
   is would approve the call, and has no reviewer seat at its rank.
 - **`connection-approval-conflict`:** a rule asks for a second person to
-  approve a call that uses a person's connection, which can't be met yet.
+  approve a call that uses a person's connection, which can't be met.
 
 The HTTP API reference lists the errors each route answers.

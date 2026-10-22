@@ -40,8 +40,8 @@ GitHub Apps → New GitHub App**
 - **Request user authorization (OAuth) during installation:** ticked. GitHub
   then sends whoever installs the app back to that page, and Kindgi checks
   the installation is theirs before it keeps it.
-- **Webhook:** untick **Active** for now. You turn it on in step 3, with
-  the address Kindgi gives you.
+- **Webhook:** untick **Active**. You turn it on in step 3, with the
+  address Kindgi gives you.
 - **Permissions:** what your tools need, such as **Repository → Issues:
   Read and write**. **Metadata: Read-only** comes with every app.
 - **Where can this GitHub App be installed? Only on this account.** Only
