@@ -59,7 +59,8 @@ handler: async (input, ctx) => {
 
 If the app refuses the token (`401`), throw `ConnectionRejectedError`.
 Kindgi gets a new token and calls the tool once more. If that's refused
-too, the call fails with `connection-rejected`.
+too, the call fails with `connection-rejected`, and the connection stays
+as it is.
 
 ## In an HTTP tool
 

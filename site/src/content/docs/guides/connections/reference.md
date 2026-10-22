@@ -40,6 +40,12 @@ connection and account a call used.
 
 - **Only when a call needs it.** Nothing renews a connection in the
   background, so a connection nobody uses isn't kept alive.
+- **If the app can't give a token just now,** because it doesn't answer
+  or answers with an error that doesn't end the grant, the call fails with
+  `connection-renew-failed`. The connection stays as it is, and a later
+  call tries again.
+- **If the app has ended the grant** (it answers `invalid_grant`), the
+  connection needs reconnecting, and its stored token is destroyed.
 - **An idle connection lapses** when the app says so: Google ends access
   unused for six months. The next call that needs it asks its owner to
   connect again ([When the connection is missing](../use-a-connection/#when-the-connection-is-missing)).
@@ -122,7 +128,10 @@ already gone at the app, so Kindgi only destroys the stored token.
   permission the call needs.
 - **`connection-timed-out`:** nobody connected before the wait ran out.
 - **`connection-rejected`:** the app refused the token, after one renewal
-  and one more try.
+  and one more try. The connection stays as it is: a refusal can mean the
+  call lacks a permission.
+- **`connection-renew-failed`:** the app couldn't give a new token just
+  now. The connection stays as it is, and a later call tries again.
 - **`connection-approver-not-a-reviewer`:** the person whose connection it
   is would approve the call, and has no reviewer seat at its rank.
 - **`connection-approval-conflict`:** a rule asks for a second person to

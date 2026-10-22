@@ -29,7 +29,7 @@ export const acmeCrm = defineApp({
     revokeUrl: 'https://crm.acme.com/oauth/revoke',
     pkce: 'S256',
   },
-  owners: ['person'],
+  owners: ['member'],
   permissions: {
     'contacts.read': { grants: 'contacts:read', says: 'Read your contacts', changes: false },
     'notes.write': { grants: 'notes:write', says: 'Add notes as you', changes: true },
@@ -45,8 +45,9 @@ export const acmeCrm = defineApp({
 - **`signIn`:** how people sign in. `oauth2` takes the app's authorize,
   token and revoke addresses, and any extra parameters its authorize page
   needs (`authorizeParams`).
-- **`owners`:** who can own a connection to it: a person, the company, or
-  both.
+- **`owners`:** who can own a connection to it: `'member'`, a person in
+  your workspace, for their own account; `'company'`, for the company's;
+  or both.
 - **`account`:** how Kindgi learns whose account it is, so lists and
   approvals can show it.
 - **`removal`:** how a token is withdrawn at the app, and how the app
@@ -60,7 +61,8 @@ export const acmeCrm = defineApp({
 Each permission has a name your tools use, the app's own scope or
 permission it grants, plain words people see when they connect and when
 they approve, and whether it changes anything (`changes: false` is read
-only).
+only). Where the app reviews what its permissions reach, such as Google's
+sensitive and restricted scopes, `review` gives that permission's class.
 
 Name what a tool needs, and nothing more: a tool that only reads asks only
 for read permissions. A person can allow less than what's asked on the
