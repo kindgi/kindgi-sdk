@@ -760,7 +760,11 @@ A new grant can take a minute or two to apply.
   than `secrets_aad_key_version`, add it to `prod.tfvars` first, set to the
   version your server reads, normally `1`
   (`gcloud secrets versions list $N-secrets-aad-key` lists them). Without
-  it, `terraform plan` stops and asks for it.
+  it, `terraform plan` stops and asks for it. A small dev deployment
+  (`network_mode = "none"`) can run the module's `upgrade.sh` instead: it
+  runs the upgrade checks first, and applies only when you type `yes`. See
+  the module's README, under
+  [Upgrading](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading).
 - **Restore Cloud SQL:** a point-in-time recovery always makes a new
   instance, and a backup can go into one too (restored into the serving
   instance, it overwrites everything on it). `database_instance` moves the
