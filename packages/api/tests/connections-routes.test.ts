@@ -35,6 +35,13 @@ const TOKENS: Record<string, Awaited<ReturnType<TokenResolver>>> = {
   ana: { tenantId: tenantA, userId: ANA as UserId },
   ben: { tenantId: tenantA, userId: BEN as UserId },
   admin: { tenantId: tenantA, userId: ADMIN as UserId, scopes: ['tenant-admin'] },
+  /** The admin's `member` key: no admin action through it. */
+  'admin-member-key': {
+    tenantId: tenantA,
+    userId: ADMIN as UserId,
+    scopes: ['tenant-admin'],
+    tokenRole: 'member',
+  },
   bot: { tenantId: tenantA, serviceAccountId: 'sa-bot' },
   other: { tenantId: tenantB, userId: 'user-other' as UserId, scopes: ['tenant-admin'] },
 };
@@ -340,6 +347,38 @@ describe('/v1/connection-apps', () => {
     expect(read.json.appId).toBe(res.json.appId);
     const listed = await call(app, 'admin', 'GET', '/v1/connection-apps');
     expect(listed.json).toMatchObject({ data: [{ appId: res.json.appId }], hasMore: false });
+  });
+
+  test("without an authorizer, a key's tenant-admin scope decides: a member key neither registers nor re-points an app", async () => {
+    const { app, calls } = makeApp();
+    const body = {
+      app: 'google',
+      oauth2: { clientId: 'acme-client.apps.googleusercontent.com', clientSecret: SECRET },
+    };
+    for (const who of ['ana', 'admin-member-key']) {
+      const res = await call(app, who, 'POST', '/v1/connection-apps', body);
+      expect(res.status).toBe(403);
+      expect(res.json.error.code).toBe('permission-denied');
+    }
+    expect(calls.createApp).toBeUndefined();
+    const created = await call(app, 'admin', 'POST', '/v1/connection-apps', body);
+    expect(created.status).toBe(201);
+    const path = `/v1/connection-apps/${created.json.appId}`;
+    const repoint = {
+      oauth2: { clientId: 'elsewhere.apps.googleusercontent.com', clientSecret: SECRET },
+    };
+    for (const [method, sent] of [
+      ['PATCH', repoint],
+      ['GET', undefined],
+      ['DELETE', undefined],
+    ] as const) {
+      const res = await call(app, 'admin-member-key', method, path, sent);
+      expect(res.status).toBe(403);
+    }
+    expect((await call(app, 'ana', 'GET', '/v1/connection-apps')).status).toBe(403);
+    expect(calls.updateApp).toBeUndefined();
+    expect(calls.removeApp).toBeUndefined();
+    expect((await call(app, 'admin', 'PATCH', path, repoint)).status).toBe(200);
   });
 
   test.each([
