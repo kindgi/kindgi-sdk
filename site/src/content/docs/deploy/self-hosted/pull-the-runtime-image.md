@@ -28,10 +28,11 @@ pulls the image too.
 2. The code is 6 digits, from `no-reply@access.kindgi.com`. It works for 10
    minutes. The email has no link: you type the code in the same browser
    where you asked for it.
-3. Enter the code. After 5 wrong tries, that code stops working; ask for a new
-   one.
+3. Enter the code. After 5 wrong tries, that code stops working; start again
+   for a new one.
 
-- **Use a work or personal address.** A throwaway address is refused.
+- **Use a work or personal address.** A throwaway address is refused, and so
+  is one whose domain takes no mail.
 - **One address is one person.** If your address is your GitHub account's
   primary verified email, signing in with either one gives you the same key,
   whichever you used first.
@@ -106,7 +107,8 @@ for `amd64` and `arm64`, and Docker pulls the one for your machine.
 
 ## Copy it into your own registry
 
-Cloud Run and Azure Container Apps can't pull with a password. Their pages
+Cloud Run can't pull with a password, and the Azure Container Apps module
+pulls with managed identities, never a password. So both deployment pages
 copy the image into your own registry first, by digest, with every platform
 it was built for:
 
