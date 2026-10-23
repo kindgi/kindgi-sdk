@@ -109,6 +109,9 @@ export interface AppRateLimit {
   /** Whole units allowed per `perSeconds`. */
   readonly units: number;
   readonly perSeconds: number;
-  /** Units a call costs, by tool id. A tool not listed costs 1. */
+  /**
+   * Units a call costs, by the operation's own name (`gmail.send`), never
+   * the id a pack gives a tool that makes it. One not listed costs 1.
+   */
   readonly costs?: Readonly<Record<string, number>>;
 }

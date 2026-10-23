@@ -631,6 +631,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'connection-state-expired': 410,
   /** A reconnect signed in to an account other than the connection's. */
   'connection-account-mismatch': 409,
+  /**
+   * A connect, or its finish, for a connection still being disconnected:
+   * disconnect it again to finish, then connect.
+   */
+  'connection-removing': 409,
   /** The app wouldn't give a token for the code: its client id, secret or redirect URL. */
   'connection-app-refused': 502,
   'connection-store-failed': 503,

@@ -10676,7 +10676,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'App registered.', schema: ref('ConnectionApp') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body or unknown field (`bad-input`, `details.field`); a registration that doesn't fit its entry (`connection-app-invalid`, `details.field`); no such app (`connection-app-unknown-entry`); or a model provider's key named as a secret (`provider-key-refused`).",
+        "Malformed body or unknown field (`bad-input`, `details.field`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (`connection-app-invalid`, `details.field`); no such app (`connection-app-unknown-entry`); or a model provider's key named as a secret (`provider-key-refused`).",
       ),
       '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
       '409': conflictOrEnvNotServed(ENV_NOT_SERVED_REFERENCE),
@@ -10715,7 +10715,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The updated registration.', schema: ref('ConnectionApp') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body, unknown field or an `app` (`bad-input`, `details.field`); a registration that doesn't fit its entry (`connection-app-invalid`); or a model provider's key named as a secret (`provider-key-refused`).",
+        "Malformed body, unknown field or an `app` (`bad-input`, `details.field`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (`oauth2.clientId`, `githubApp.appNumber` or `githubApp.clientId`) while it has live connections: disconnect them first (`connection-app-invalid`, `details.field`); or a model provider's key named as a secret (`provider-key-refused`).",
       ),
       '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
       '404': ErrorResponse('No registration with that id (`connection-app-not-found`).'),
@@ -10833,6 +10833,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "`for: 'company'` from a caller who is not a tenant admin (`permission-denied`).",
       ),
       '404': ErrorResponse('No registration with that `appId` (`connection-app-not-found`).'),
+      '409': ErrorResponse(
+        'Idempotency-Key was reused with a different body; or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).',
+      ),
     },
   },
   {
@@ -10858,7 +10861,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse('No request for that state (`connection-request-not-found`).'),
       '409': ErrorResponse(
-        'Idempotency-Key was reused with a different body; the request was finished already (`connection-request-used`); or a reconnect signed in to another account (`connection-account-mismatch`).',
+        'Idempotency-Key was reused with a different body; the request was finished already (`connection-request-used`); a reconnect signed in to another account (`connection-account-mismatch`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).',
       ),
       '410': ErrorResponse(
         'The request expired (`connection-request-expired`), or the sign-in took longer than its state lives: start again (`connection-state-expired`).',
