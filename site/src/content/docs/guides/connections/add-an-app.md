@@ -69,6 +69,8 @@ sensitive and restricted scopes, `review` gives that permission's class.
 Name what a tool needs, and nothing more: a tool that only reads asks only
 for read permissions. A person can allow less than what's asked on the
 app's page, and Kindgi keeps only what they allowed. A reconnect never
-takes away what a connection already has: if they allow less when they
-reconnect, the reconnect is declined, naming what's missing, and the
-connection stays as it was.
+takes away what a connection already has. If they allow less than it
+has, the connection stays as it was. If they allow at least that, Kindgi
+keeps the new grant, and a connection that needed reconnecting works
+again. Either way, if they don't allow everything asked, the reconnect
+is declined, naming what's missing.
