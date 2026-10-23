@@ -145,17 +145,21 @@ away from it on GitHub, the next call that needs that permission finds
 out, and the connection needs reconnecting. Until an admin connects it
 again, the company's calls fail with `connection-missing`.
 
-- **A reconnect keeps the connection's installation.** Kindgi uses it
-  without asking, even when your GitHub account reaches several, and
-  doesn't show the **Connect GitHub** page. If your account can't reach
-  it, the reconnect fails with `connection-installation-unreachable`.
-  Choosing an installation on another account fails with
-  `connection-account-mismatch`. To connect another account instead,
-  disconnect, then connect again.
-- **A reconnect takes the permissions the app has now,** so give the app
-  back what it lost on GitHub first. A call that needs a permission the
-  app still lacks fails with `connection-missing`, naming the
-  permission.
+- **A reconnect stays on the connection's account.** Kindgi uses the
+  app's installation there without asking, even when your GitHub account
+  reaches several, and doesn't show the **Connect GitHub** page. If the
+  app was uninstalled and installed again on that account, reconnecting
+  picks up the new installation. If your account can't reach an
+  installation on that account, the reconnect fails with
+  `connection-installation-unreachable`. Choosing an installation on
+  another account fails with `connection-account-mismatch`. To connect
+  another account instead, disconnect, then connect again.
+- **A reconnect checks the permissions the app has now,** so have an
+  owner give the app back what it lost on GitHub first. If the app lacks
+  one the reconnect asks for, the reconnect is declined, naming it, and
+  the connection still needs reconnecting. If the reconnect asks only for
+  what's left, the connection works again with less, and a call that
+  needs more fails with `connection-missing`, naming the permission.
 
 ## Disconnecting
 
