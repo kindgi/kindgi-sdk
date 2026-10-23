@@ -114,6 +114,7 @@ describe('ConnectionRejectedError', () => {
     const error = new ConnectionRejectedError('mail');
     expect(error.connection).toBe('mail');
     expect(error.name).toBe('ConnectionRejectedError');
+    expect(error.code).toBe('connection-rejected');
     expect(error.message).toBe('the app refused the connection "mail"');
     expect(new ConnectionRejectedError('mail', 'got status 401').message).toBe('got status 401');
   });

@@ -136,6 +136,8 @@ const CONNECTION_REJECTED = Symbol.for('kindgi.tools.connection-rejected');
  */
 export class ConnectionRejectedError extends Error {
   readonly [CONNECTION_REJECTED] = true;
+  /** The code the call fails with when the renewed token is refused too. */
+  readonly code = 'connection-rejected';
 
   /**
    * @param connection The tool's name for the connection (its
