@@ -329,7 +329,7 @@ Secrets manager probe failed at boot: unauthorized: Vault probe failed: Vault's 
 
 ## Revoking for good
 
-`kindgi secrets revoke <NAME> --env=<runtime env> --scope=<kind> --hard`
+`kindgi secrets revoke <NAME> --env=<runtime env> --scope=<kind>[:id] --hard`
 (`DELETE /v1/secrets/{name}?hard=true`) erases a secret's values at Kindgi.
 It needs the `secrets:revoke:hard` capability
 ([Who can do what](../../people-and-keys/#who-can-do-what)), and it can't be
