@@ -51,9 +51,9 @@ export const acmeCrm = defineApp({
   as Microsoft, set `tenant` (`{}`, or with a `default`), and `{tenant}` in
   its addresses is filled from each registration's directory. For an app
   that may give no refresh token, such as LinkedIn, set `refreshToken:
-  'optional'`. A connect that brings none then works until its access
-  token ends, which the app's token answer must say (`expires_in`), and
-  needs reconnecting from then. A refresh token the app gives anyway is
+  'optional'`. A connect that brings none then works until just before
+  its access token ends, which the app's token answer must say
+  (`expires_in`), and needs reconnecting from then. A refresh token the app gives anyway is
   used as usual. By default, a connect that brings no refresh token, with
   none kept from before, is refused.
 - **`owners`:** who can own a connection to it: `'member'`, a person in
