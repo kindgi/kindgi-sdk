@@ -29,7 +29,7 @@ import asyncio
 import time
 from typing import Any
 from pydantic import BaseModel, field_validator
-from kindgi import ToolContext, tool
+from kindgi import ConnectionRejected, ToolContext, tool
 
 EVENTS: list[str] = []
 
@@ -82,6 +82,14 @@ def not_json(input: dict[str, Any]) -> Any:
 def raw(input: dict[str, Any]) -> dict[str, Any]:
     "Takes the raw input."
     return {"type": type(input).__name__, "n": input.get("n")}
+
+@tool(id="t.mail")
+def mail(input: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    "Reads its connection; a 401 from the app is a rejection."
+    if input.get("reject"):
+        raise ConnectionRejected("mail", "the app answered 401")
+    connection = ctx.connections["mail"]
+    return {"label": connection.account.label, "length": len(connection.access_token)}
 """
 
 CHECKS = """
@@ -170,6 +178,40 @@ def check_call(check_id: str, config: dict[str, Any], output: str) -> dict[str, 
         "config": config,
         "trace": trace,
     }
+
+
+@pytest.mark.anyio
+async def test_a_tool_reads_its_connections_and_a_rejection_names_the_connection(
+    client: Any,
+) -> None:
+    http, log = client
+    token = "ya29.acme-token"
+    connections = {
+        "mail": {
+            "connectionId": "c-1",
+            "app": "google",
+            "appName": "Google",
+            "accessToken": token,
+            "account": {"id": "g-1", "label": "ana@acme.example"},
+        }
+    }
+
+    def with_connections(input: dict[str, Any]) -> dict[str, Any]:
+        message = tool_call("t.mail", input)
+        return {**message, "ctx": {**message["ctx"], "connections": connections}}
+
+    used = await call(http, with_connections({}))
+    assert used["output"] == {"label": "ana@acme.example", "length": len(token)}
+    rejected = await call(http, with_connections({"reject": True}))
+    assert rejected == {
+        "v": 2,
+        "kind": "error",
+        "code": "connection-rejected",
+        "message": 'Tool "t.mail": the app answered 401',
+        "toolId": "t.mail",
+        "connection": "mail",
+    }
+    assert token not in json.dumps(log, default=str)
 
 
 @pytest.mark.anyio

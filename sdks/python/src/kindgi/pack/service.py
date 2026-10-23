@@ -43,7 +43,7 @@ from pydantic import ValidationError as PydanticError
 from .._json import compact_dumps
 from .._schema import Issue, SchemaValidator, apply_defaults, issues_from_pydantic
 from ..log import Logger, child_span, noop_logger, parse_traceparent
-from .context import Cancellation, ToolContext
+from .context import Cancellation, ConnectionRejected, ToolContext
 from .define import Guardrail, Tool, check_result_to_wire
 from .loader import import_pack_module, mount_pack, primitives_of
 from .protocol import (
@@ -505,6 +505,13 @@ class PackService:
             )
         except asyncio.CancelledError:
             raise
+        except ConnectionRejected as rejected:
+            return pack_error(
+                "connection-rejected",
+                f'Tool "{tool_id}": {rejected}',
+                toolId=tool_id,
+                connection=rejected.connection,
+            )
         except BaseException as cause:
             if isinstance(cause, KeyboardInterrupt):
                 raise
