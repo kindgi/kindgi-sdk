@@ -400,7 +400,10 @@ describe('a request made before its connection gained a permission', () => {
   async function widened() {
     const made = setup({
       exchange: ({ code }) => ({
-        account: { id: 'g-ana', label: 'ana@acme.example' },
+        account:
+          code === 'other'
+            ? { id: 'g-other', label: 'other@acme.example' }
+            : { id: 'g-ana', label: 'ana@acme.example' },
         granted: code === 'both' ? ['gmail.send', 'gmail.readonly'] : ['gmail.send'],
       }),
       notice: () => ({
@@ -447,6 +450,19 @@ describe('a request made before its connection gained a permission', () => {
       },
     });
     expect(await made.binding.get({ tenantId, connectionId })).toMatchObject({
+      permissions: ['gmail.send', 'gmail.readonly'],
+      state: 'working',
+    });
+  });
+
+  test('another account is refused before its grant is weighed, and the connection stays as it was', async () => {
+    const { made, connectionId, finish } = await widened();
+    expect(await finish('other')).toMatchObject({
+      kind: 'err',
+      error: { code: 'connection-account-mismatch' },
+    });
+    expect(await made.binding.get({ tenantId, connectionId })).toMatchObject({
+      account: { id: 'g-ana' },
       permissions: ['gmail.send', 'gmail.readonly'],
       state: 'working',
     });
