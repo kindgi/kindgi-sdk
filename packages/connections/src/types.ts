@@ -43,7 +43,8 @@ export type ConnectionOwnerKind = 'member' | 'company';
  *   `authorizeParams` are sent on the consent page's URL as given.
  *   - `scopes` are asked for at every sign-in, besides the permissions'
  *     and the account lookup's: Microsoft gives a refresh token only when
- *     `'offline_access'` is asked for.
+ *     `'offline_access'` is asked for. Each is one, with no space or comma,
+ *     as a permission's `grants` is.
  *   - `scopeResource`: the app may name a granted scope with this prefix,
  *     which ends in `/`, or without it, in any case (Microsoft answers
  *     `https://graph.microsoft.com/mail.read` for `Mail.Read`). The server
@@ -115,7 +116,8 @@ export interface AppPermission {
  *   that holds a non-empty string winning (Microsoft's `mail` is empty for
  *   some accounts, so `userPrincipalName` follows it). A field that isn't
  *   a non-empty string counts as not there: with no id, the connect fails.
- *   `scopes` are asked for besides the permissions' own. `url` can't hold
+ *   `scopes` are asked for besides the permissions' own; each is one, with
+ *   no space or comma, as a permission's `grants` is. `url` can't hold
  *   `{tenant}`.
  */
 export type AccountLookup =

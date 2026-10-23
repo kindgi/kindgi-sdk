@@ -89,7 +89,7 @@ function checkSignIn(signIn: SignIn, at: At): void {
       throw new TypeError(at(`signIn.authorizeParams.${name} must be a string`));
     }
   }
-  if (signIn.scopes !== undefined) requireTexts(signIn.scopes, at('signIn.scopes'));
+  if (signIn.scopes !== undefined) requireScopes(signIn.scopes, at('signIn.scopes'));
   if (signIn.scopeResource !== undefined) {
     requireHttps(signIn.scopeResource, at('signIn.scopeResource'));
     // Dropped from a granted scope through its `/`, or what's left would never match a permission.
@@ -219,7 +219,7 @@ function checkProfile(
   if (account.url.includes(TENANT_PLACEHOLDER)) {
     throw new TypeError(at(`account.url can't hold ${TENANT_PLACEHOLDER}`));
   }
-  requireTexts(account.scopes, at('account.scopes'));
+  requireScopes(account.scopes, at('account.scopes'));
   requireText(account.id, at('account.id'));
   if (!Array.isArray(account.label) || account.label.length === 0) {
     throw new TypeError(at('account.label must name at least one field'));
@@ -279,11 +279,6 @@ function requireText(value: unknown, field: string): asserts value is string {
   }
 }
 
-function requireTexts(values: unknown, field: string): void {
-  if (!Array.isArray(values)) throw new TypeError(`${field} must be a list of strings`);
-  values.forEach((value, i) => requireText(value, `${field}[${i}]`));
-}
-
 /** One scope: the scopes an app answers it granted are read split on spaces and commas. */
 function requireScope(value: unknown, field: string): asserts value is string {
   requireText(value, field);
@@ -292,6 +287,11 @@ function requireScope(value: unknown, field: string): asserts value is string {
       `${field} must be one scope, with no space or comma: the scopes an app grants are read split on both`,
     );
   }
+}
+
+function requireScopes(values: unknown, field: string): void {
+  if (!Array.isArray(values)) throw new TypeError(`${field} must be a list of strings`);
+  values.forEach((value, i) => requireScope(value, `${field}[${i}]`));
 }
 
 function requireHttps(value: unknown, field: string): void {

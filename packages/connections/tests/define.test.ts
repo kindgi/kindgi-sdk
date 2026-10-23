@@ -193,6 +193,24 @@ describe('defineApp', () => {
       /account.scopes\[1\] must be one scope, with no space or comma/,
     ],
     [
+      'a sign-in scope holding a space',
+      { signIn: { ...acme.signIn, scopes: ['offline_access openid'] } },
+      /signIn.scopes\[0\] must be one scope, with no space or comma/,
+    ],
+    [
+      'a profile lookup scope holding a comma',
+      {
+        account: {
+          kind: 'profile',
+          url: 'https://api.acme.example/me',
+          scopes: ['me.read,mail.read'],
+          id: 'id',
+          label: ['email'],
+        },
+      },
+      /account.scopes\[0\] must be one scope, with no space or comma/,
+    ],
+    [
       'an unknown review class',
       { permissions: { 'notes.read': { ...acme.permissions['notes.read'], review: 'secret' } } },
       /permissions\["notes.read"\].review must be/,
