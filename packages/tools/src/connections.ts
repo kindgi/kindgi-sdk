@@ -118,7 +118,10 @@ export type ResolveConnectionsOutcome =
  *   wait for (`connection-missing`).
  *
  * When the app can't give a token just now, it throws
- * `ConnectionRenewError` and the connection stays as it is.
+ * `ConnectionRenewError` and the connection stays as it is. One the app
+ * can't renew at all (it gave no refresh token, or withdrew the grant) is
+ * marked as needing reconnecting, and the call waits or is refused as for
+ * any connection that needs reconnecting.
  */
 export interface ConnectionResolver {
   resolveConnections(input: ResolveConnectionsInput): Promise<ResolveConnectionsOutcome>;

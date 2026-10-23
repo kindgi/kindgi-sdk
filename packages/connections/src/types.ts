@@ -56,6 +56,13 @@ export type ConnectionOwnerKind = 'member' | 'company';
  *     `revokeUrl` may too. The registration's `tenant` fills it, else
  *     `default`; with no `default`, each registration must give its own.
  *     The server fills it in the text before reading it as a URL.
+ *   `refreshToken` says whether a connect needs one:
+ *   - `'required'` (the default): a grant without one, and none kept from
+ *     before, is refused.
+ *   - `'optional'`: the app may give none (some give them only to the apps
+ *     they approve). The connection then works until its access token
+ *     ends, which the token answer must say, and then needs reconnecting.
+ *     One the app gives anyway is used as under `'required'`.
  * - `github-app`: a GitHub App's installation, with its tokens made from
  *   the app's private key.
  */
@@ -70,6 +77,7 @@ export type SignIn =
       readonly scopes?: readonly string[];
       readonly scopeResource?: string;
       readonly tenant?: { readonly default?: string };
+      readonly refreshToken?: 'required' | 'optional';
     }
   | { readonly kind: 'github-app' };
 

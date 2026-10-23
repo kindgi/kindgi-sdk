@@ -115,11 +115,18 @@ export interface ConnectionRecord {
    * stored at the connect), `'installation-missing'` (the GitHub App was
    * uninstalled from the account), `'installation-permissions'` (an owner took
    * permissions from the installation), `'suspended'` (the installation was
-   * suspended), `'sessions-revoked'` (Google revoked the person's sessions).
-   * Other values may be added; `state` says what to do.
+   * suspended), `'sessions-revoked'` (Google revoked the person's sessions),
+   * `'access-expired'` (its access token ended, and the app gave no refresh
+   * token). Other values may be added; `state` says what to do.
    */
   readonly stateReason?: string;
   readonly installationId?: string;
+  /**
+   * When its access token ends, for a connection the app gave no refresh
+   * token (an entry whose `signIn.refreshToken` is `'optional'`): then it
+   * needs reconnecting. Absent for one that renews.
+   */
+  readonly accessEndsAt?: string;
   /** When its current grant was stored: the connect, or the last reconnect. */
   readonly connectedAt: string;
   /** When a run last used it, to the hour. */
