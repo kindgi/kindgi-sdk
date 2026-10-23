@@ -48,7 +48,8 @@ connection and account a call used.
 - **If the app has ended the grant** (it answers `invalid_grant`), the
   connection needs reconnecting, and its stored token is destroyed.
 - **An idle connection lapses** when the app says so: Google ends access
-  unused for six months, and the connection then needs reconnecting
+  unused for six months, and Microsoft after 90 days by default. The
+  connection then needs reconnecting
   ([When the connection is missing](../use-a-connection/#when-the-connection-is-missing)).
 - **The connection's page shows when it was last used,** so you can
   disconnect what nobody uses.
@@ -72,6 +73,9 @@ console's **Connections** page. Kindgi then:
      within the hour, when GitHub expires it. The app stays installed on
      your organization until you uninstall it on GitHub
      ([GitHub](../github/#disconnecting)).
+   - **Microsoft:** withdraws nothing. Your app keeps what the person
+     allowed until it's removed at Microsoft
+     ([Microsoft](../microsoft/#disconnecting)).
    - If the app doesn't answer, Kindgi records that and goes on.
 3. **Destroys the stored token** in your secret store (below).
 4. **Records the removal,** with a signed audit event that names the app
