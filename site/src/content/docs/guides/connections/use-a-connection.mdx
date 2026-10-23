@@ -17,17 +17,21 @@ approval.
 ## Before you start
 
 - **The app is registered** for your workspace ([Google](../google/),
-  [GitHub](../github/)).
+  [Microsoft](../microsoft/), [GitHub](../github/)).
 - **A pack,** on a runtime that offers connections
   ([What you need](../#what-you-need)).
 
 ## Ready-made tools
 
-For Gmail and GitHub, `@kindgi/connections` has tools a pack can include
-instead of writing its own:
+For Gmail, Outlook and GitHub, `@kindgi/connections` has tools a pack can
+include instead of writing its own:
 
 - **`gmailSend`,** from `@kindgi/connections/google/tools`, sends a
   plain-text mail from the Gmail account of the person the run acts as.
+- **`outlookSend`, `outlookMessagesList` and `outlookMessageGet`,** from
+  `@kindgi/connections/microsoft/tools`, send a plain-text mail from the
+  Outlook mailbox of the person the run acts as, list its messages, newest
+  first or by a search, and read one.
 - **`githubIssuesList`, `githubLabelsList` and `githubIssuesAddLabels`,**
   from `@kindgi/connections/github/tools`, list a repository's issues and
   its labels, and add labels it already has to an issue, through your
@@ -48,8 +52,8 @@ agent lists the tool by that id, as `{ id: 'acme.gmail.send', version:
 '^1.0.0' }`, and its approval settings name it the same way.
 
 Sending mail and adding labels change things, so in a run no person
-started, each of their calls waits for a person's yes. The two listing tools
-only read.
+started, each of their calls waits for a person's yes. The others only
+read.
 
 To start from a working pack, `kindgi init <pack-name> --template=follow-up`
 makes one whose agent writes a follow-up mail from your notes and sends it

@@ -44,18 +44,25 @@ export const acmeCrm = defineApp({
 
 - **`id`** and **`name`:** how tools and people refer to the app.
 - **`signIn`:** how people sign in. `oauth2` takes the app's authorize,
-  token and revoke addresses, and any extra parameters its authorize page
-  needs (`authorizeParams`).
+  token and revoke addresses, any extra parameters its authorize page
+  needs (`authorizeParams`), scopes it asks for at every sign-in
+  (`scopes`), and the resource the app may name its granted scopes with
+  (`scopeResource`). For an app that signs people in at a directory, such
+  as Microsoft, set `tenant` (`{}`, or with a `default`), and `{tenant}` in
+  its addresses is filled from each registration's directory.
 - **`owners`:** who can own a connection to it: `'member'`, a person in
   your workspace, for their own account; `'company'`, for the company's;
   or both.
 - **`account`:** how Kindgi learns whose account it is, so lists and
-  approvals can show it.
+  approvals can show it. `openid` reads the sign-in's ID token; `profile`
+  asks a URL with the new token, and reads the account's id and a label
+  from named fields of the answer.
 - **`removal`:** how a token is withdrawn at the app, and how the app
   reports an uninstall, if it does.
 - **`rateLimits`:** the app's limits for each connection: how many units
   it allows in how many seconds, and in `costs`, how many units a call
-  takes, by its operation's name. One not listed takes 1.
+  takes, by its operation's name. One not listed takes 1, and a cost of 0
+  leaves the call out of that limit.
 - **`setupGuide`:** the page in these docs that tells an admin how to
   register the app, as a path such as `/guides/connections/acme-crm/`.
 
