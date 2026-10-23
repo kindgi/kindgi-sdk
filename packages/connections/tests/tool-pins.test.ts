@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { githubIssuesAddLabels, githubIssuesList, githubLabelsList } from '../src/github-tools.js';
 import { gmailSend } from '../src/google-tools.js';
+import { linkedinPost } from '../src/linkedin-tools.js';
 import { outlookMessageGet, outlookMessagesList, outlookSend } from '../src/microsoft-tools.js';
 
 const TOOLS = {
@@ -18,6 +19,7 @@ const TOOLS = {
   outlookSend,
   outlookMessagesList,
   outlookMessageGet,
+  linkedinPost,
 };
 
 /**
@@ -41,6 +43,7 @@ const PINS: Record<keyof typeof TOOLS, Record<string, string>> = {
   outlookMessageGet: {
     '1.0.0': '8f108ce8482dad5c396bb98a5fd31cb4fae748b5844440025e81716c9feee7ce',
   },
+  linkedinPost: { '1.0.0': '67bff01e1b26f3bff67d26d4fb568285c797518bbe5dd762691479a389f2e2ca' },
 };
 
 /** JSON with each object's keys in order: the hash is of what's declared, not of the order it's written in. */
