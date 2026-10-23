@@ -250,6 +250,16 @@ service is, and checks it. It never creates or deletes one.
    named, else the tenant's Default), and its image: the digest-pinned
    `imageRef`, its digest, the artifact version and when it went live. It
    has nothing else of the tenant.
+
+   A deployment that ships no tools and no guardrail checks of its own, only
+   agents and flows, has nothing to route. It gets no endpoint, so it's never
+   listed, and the routes on its endpoint (`PUT` and `DELETE …/endpoint`,
+   `PUT …/endpoint/problem` and `PUT …/suspended`) answer `404`. Its agents
+   and flows reach its project's runs without a pack service. One registered
+   by an earlier runtime may still hold a `pending` endpoint from then, never
+   listed or shown. Leave it: clearing it retires the deployment, and a
+   version that reaches the project's runs only through it, as a promoted
+   one does, stops reaching them.
 2. **Run the image as a service** whose host begins with the deployment's own
    service name, `packServiceName(tenantId, deploymentId)` from `@kindgi/api`
    (`kp-` and 20 characters), then `-` or `.`. Give it a token of its own,

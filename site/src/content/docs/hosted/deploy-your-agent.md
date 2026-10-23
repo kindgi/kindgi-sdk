@@ -134,13 +134,15 @@ pnpm exec kindgi deploy --hosted --env=prod
 ```
 
 - `--hosted` builds the pack on Kindgi Cloud, deploys what it built, and
-  waits up to 5 minutes for the pack service to be ready.
+  waits up to 5 minutes for its pack service to be ready, if it has one.
 - `--env=prod` picks the `prod` environment: its signing key.
 - With no `--project`, the pack goes into the Default project.
   `--project=<id-or-slug>` names another.
 
 The deploy prints what it registered, with each agent's version. It ends
 with `Deploy complete.`, then `Waiting for the pack service` and `✓ ready`.
+A pack with no tools and no guardrail checks of its own, only agents and
+flows, has no pack service: its deploy ends at `Deploy complete.`.
 
 ## Try it
 
