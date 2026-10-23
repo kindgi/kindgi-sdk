@@ -164,13 +164,15 @@ describe('the LinkedIn entry', () => {
     expect(Object.isFrozen(linkedin)).toBe(true);
   });
 
-  it("is a member's own profile, signed in with OAuth and PKCE", () => {
+  it("is a member's own profile, signed in with OAuth and PKCE, with no refresh token needed", () => {
     expect(linkedin.owners).toEqual(['member']);
     expect(linkedin.signIn).toEqual({
       kind: 'oauth2',
       authorizeUrl: 'https://www.linkedin.com/oauth/v2/authorization',
       tokenUrl: 'https://www.linkedin.com/oauth/v2/accessToken',
       pkce: 'S256',
+      // LinkedIn gives refresh tokens only to the partners it approves.
+      refreshToken: 'optional',
     });
   });
 

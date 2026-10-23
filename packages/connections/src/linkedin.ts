@@ -13,10 +13,12 @@ import { defineApp } from './define.js';
  *
  * - **Sign-in:** OAuth 2.0 with PKCE. LinkedIn's access token lasts 60
  *   days, and it gives refresh tokens only to the partners it approves, so
- *   a connection asks its person to connect again after that. Connecting
- *   again skips LinkedIn's consent page while they're signed in there and
- *   the old token is still live. An app that asks for other scopes later
- *   ends the tokens it gave before.
+ *   a connect that brings none is taken (`refreshToken: 'optional'`): the
+ *   connection works until just before its access token ends, then asks
+ *   its person to connect again. A refresh token LinkedIn gives anyway is
+ *   used. Connecting again skips LinkedIn's consent page while they're
+ *   signed in there and the old token is still live. An app that asks for
+ *   other scopes later ends the tokens it gave before.
  * - **Whose account:** OpenID Connect's ID token: `sub`, the member's id,
  *   which is also their posts' author (`urn:li:person:{sub}`), labelled
  *   with its `email`, there with the `email` scope. Its `iss` is
@@ -38,6 +40,7 @@ export const linkedin = defineApp({
     authorizeUrl: 'https://www.linkedin.com/oauth/v2/authorization',
     tokenUrl: 'https://www.linkedin.com/oauth/v2/accessToken',
     pkce: 'S256',
+    refreshToken: 'optional',
   },
   owners: ['member'],
   permissions: {
