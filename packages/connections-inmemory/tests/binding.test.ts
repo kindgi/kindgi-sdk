@@ -203,6 +203,101 @@ describe('app registrations', () => {
       'removedAt',
     );
   });
+
+  test('a project uses one registration of an app', async () => {
+    const made = setup();
+    const p1 = 'p-1' as ProjectId;
+    const p2 = 'p-2' as ProjectId;
+    const create = (projects?: ProjectId[]) =>
+      made.binding.createApp({
+        tenantId,
+        app: 'google',
+        oauth2: { clientId: 'other.apps.googleusercontent.com', clientSecret: SECRET },
+        ...(projects !== undefined && { projects }),
+        by: admin,
+      });
+    const move = (appId: string, projects: ProjectId[] | null) =>
+      made.binding.updateApp({ tenantId, appId, projects, by: admin });
+    const overlaps = { kind: 'err', error: { code: 'connection-app-invalid', field: 'projects' } };
+    // The seeded one serves every project, so another overlaps it wherever it serves.
+    expect(await create()).toMatchObject(overlaps);
+    expect(await create([p2])).toMatchObject(overlaps);
+    expect(await move(made.googleApp.appId, [p1])).toMatchObject({ kind: 'ok' });
+    expect(await create([p1, p2])).toMatchObject(overlaps);
+    const second = await create([p2]);
+    if (second.kind !== 'ok') throw new Error(second.error.message);
+    // Neither moves onto the other's project, nor to every project.
+    expect(await move(made.googleApp.appId, [p2])).toMatchObject(overlaps);
+    expect(await move(made.googleApp.appId, null)).toMatchObject(overlaps);
+    expect(await move(second.value.appId, [p1, p2])).toMatchObject(overlaps);
+    // Another app's registration, and a removed one, don't count.
+    expect(await move(made.githubApp.appId, [p1])).toMatchObject({ kind: 'ok' });
+    const removed = await made.binding.removeApp({
+      tenantId,
+      appId: second.value.appId,
+      withConnections: false,
+      by: admin,
+    });
+    expect(removed).toMatchObject({ kind: 'ok' });
+    expect(await move(made.googleApp.appId, null)).toMatchObject({ kind: 'ok' });
+  });
+
+  test("a registration's client changes only while no connection was granted to it", async () => {
+    const made = setup();
+    const google1 = made.seed.connection({
+      tenantId,
+      envName,
+      app: 'google',
+      owner: { kind: 'member', userId: ana.id },
+      account: { id: 'g-ana', label: 'ana@acme.example' },
+      permissions: ['gmail.send'],
+    });
+    made.seed.connection({
+      tenantId,
+      envName,
+      app: 'github',
+      owner: { kind: 'company' },
+      account: { id: '1', label: 'acme' },
+      permissions: ['issues.read'],
+      installationId: '101',
+    });
+    const googleClient = (clientId: string, name = 'ACME_CLIENT_SECRET') => ({
+      oauth2: { clientId, clientSecret: { envName, name } },
+    });
+    const updateGoogle = (change: ReturnType<typeof googleClient>) =>
+      made.binding.updateApp({ tenantId, appId: made.googleApp.appId, ...change, by: admin });
+    const githubApp = made.githubApp.githubApp;
+    if (githubApp === undefined) throw new Error('the GitHub registration has no githubApp');
+    const updateGitHub = (change: Partial<typeof githubApp>) =>
+      made.binding.updateApp({
+        tenantId,
+        appId: made.githubApp.appId,
+        githubApp: { ...githubApp, ...change },
+        by: admin,
+      });
+    const changed = (field: string) => ({
+      kind: 'err',
+      error: { code: 'connection-app-invalid', field },
+    });
+    expect(await updateGoogle(googleClient('other.apps.googleusercontent.com'))).toMatchObject(
+      changed('oauth2.clientId'),
+    );
+    expect(await updateGitHub({ appNumber: 8 })).toMatchObject(changed('githubApp.appNumber'));
+    expect(await updateGitHub({ clientId: 'Iv1.other' })).toMatchObject(
+      changed('githubApp.clientId'),
+    );
+    // The same client with another secret, slug or key isn't another client.
+    expect(
+      await updateGoogle(googleClient('acme.apps.googleusercontent.com', 'ACME_CLIENT_SECRET_2')),
+    ).toMatchObject({ kind: 'ok' });
+    expect(await updateGitHub({ slug: 'acme-kindgi-2' })).toMatchObject({ kind: 'ok' });
+    // Once its connection is disconnected, Google's client changes.
+    await made.binding.disconnect({ tenantId, connectionId: google1.connectionId, by: ana });
+    expect(await updateGoogle(googleClient('other.apps.googleusercontent.com'))).toMatchObject({
+      kind: 'ok',
+      value: { oauth2: { clientId: 'other.apps.googleusercontent.com' } },
+    });
+  });
 });
 
 describe('a connect, without a browser', () => {
