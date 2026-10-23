@@ -6154,6 +6154,43 @@ export const ImproveBodySchema: JsonSchema = {
   },
 };
 
+export const ImprovementPassEstimateSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "What a pass this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.",
+  required: ['maxCostUsd', 'basis'],
+  properties: {
+    estimatedCostUsd: {
+      type: 'string',
+      description:
+        'The estimate (US dollars): `min(maxCostUsd, basis.replays × basis.meanRunCostUsd)`. Absent when the version has no cost history.',
+    },
+    maxCostUsd: {
+      type: 'string',
+      description: 'The budget cap the estimate is clamped to (`budget.maxCostUsd`, US dollars).',
+    },
+    basis: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['replays'],
+      description: 'What the estimate is built from.',
+      properties: {
+        replays: {
+          type: 'integer',
+          minimum: 0,
+          description: "How many replay runs the pass's comparisons would make.",
+        },
+        meanRunCostUsd: {
+          type: 'string',
+          description:
+            "The version's mean cost over its recent completed runs (US dollars). Absent with no cost history.",
+        },
+      },
+    },
+  },
+};
+
 export const CreateProposalBodySchema: JsonSchema = {
   description:
     'A hand-written proposal: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one proposal (answered with `X-Proposal-Deduped: true`).',
@@ -14215,6 +14252,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ImprovementPass', ImprovementPassSchema],
   ['ImprovementPassCollectionPage', ImprovementPassCollectionPageSchema],
   ['ImproveBody', ImproveBodySchema],
+  ['ImprovementPassEstimate', ImprovementPassEstimateSchema],
   ['CreateProposalBody', CreateProposalBodySchema],
   ['EvaluateProposalBody', EvaluateProposalBodySchema],
   ['ProposalReasonBody', ProposalReasonBodySchema],

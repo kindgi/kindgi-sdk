@@ -412,6 +412,9 @@ OPERATIONS: dict[str, Operation] = {
     "proposals.improve": Operation(
         "proposals.improve", "POST", "/v1/proposals/improve", "json", True
     ),
+    "proposals.improveEstimate": Operation(
+        "proposals.improveEstimate", "POST", "/v1/proposals/improve/estimate", "json", False
+    ),
     "proposals.get": Operation("proposals.get", "GET", "/v1/proposals/{proposalId}", "json", False),
     "proposals.evaluate": Operation(
         "proposals.evaluate", "POST", "/v1/proposals/{proposalId}/evaluate", "json", True
@@ -4294,6 +4297,28 @@ class ProposalsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ImproveBody, body, fields),
             response=_models.ImprovementPass,
+            timeout=timeout,
+        )
+
+    def improve_estimate(
+        self,
+        body: _models.ImproveBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ImprovementPassEstimate:
+        """Estimate an improvement pass. `POST /v1/proposals/improve/estimate`
+
+        What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the agent's project doesn't reach answers `400 reference-out-of-scope`, exactly as `improve` would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count × the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt pass's one-off drafting of its templates — a pass can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the pass is expected to spend its whole budget; the pass checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.
+        """
+        return self._client._request(
+            _OPERATIONS["proposals.improveEstimate"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.ImproveBody, body, fields),
+            response=_models.ImprovementPassEstimate,
             timeout=timeout,
         )
 
@@ -13080,6 +13105,28 @@ class AsyncProposalsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ImproveBody, body, fields),
             response=_models.ImprovementPass,
+            timeout=timeout,
+        )
+
+    async def improve_estimate(
+        self,
+        body: _models.ImproveBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ImprovementPassEstimate:
+        """Estimate an improvement pass. `POST /v1/proposals/improve/estimate`
+
+        What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the agent's project doesn't reach answers `400 reference-out-of-scope`, exactly as `improve` would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count × the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt pass's one-off drafting of its templates — a pass can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the pass is expected to spend its whole budget; the pass checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.
+        """
+        return await self._client._request(
+            _OPERATIONS["proposals.improveEstimate"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.ImproveBody, body, fields),
+            response=_models.ImprovementPassEstimate,
             timeout=timeout,
         )
 

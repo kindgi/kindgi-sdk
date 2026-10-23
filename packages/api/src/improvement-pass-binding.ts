@@ -40,6 +40,13 @@ export interface ImprovementPassBinding {
     | { readonly kind: 'not-found' }
     | { readonly kind: 'finished'; readonly pass: ImprovementPass }
   >;
+  /**
+   * The basis for a cost estimate of a pass this input would start: how many
+   * replay runs its comparisons make, and the version's mean cost over its
+   * recent completed runs. Optional: without it, `POST
+   * /v1/proposals/improve/estimate` answers `501 improve-unsupported`.
+   */
+  estimateBasis?(input: EstimateImprovementPassInput): Promise<ImprovementPassEstimateBasis>;
 }
 
 /** What a pass tunes: settings values, or (drafted by a model) a prompt template. */
@@ -79,6 +86,41 @@ export interface StartImprovementPassInput {
   readonly candidates?: number;
   readonly budget: ImprovementBudget;
   readonly requestedBy: PromotionActor;
+}
+
+/**
+ * What a cost estimate reads: the pass's shape, without a budget or requester.
+ * The budget cap is applied by the route (it clamps the estimate); the basis
+ * doesn't need it.
+ */
+export interface EstimateImprovementPassInput {
+  readonly tenantId: TenantId;
+  readonly agentId: string;
+  /**
+   * The resolved version whose cost history the estimate reads. The route
+   * resolves it from the body (the one serving `scope` when the body names
+   * none) and 404s an unknown or inactive one, so the binding always gets a
+   * real version.
+   */
+  readonly fromVersion: string;
+  readonly scope: LiveScope;
+  readonly suiteId: string;
+  readonly tiers: readonly ImprovementTier[];
+  /** For a prompt pass: what drafts the templates. */
+  readonly model?: ImprovementModel;
+  /** For a prompt pass: how many templates it drafts. */
+  readonly candidates?: number;
+}
+
+/** What the route turns into a cost estimate. */
+export interface ImprovementPassEstimateBasis {
+  /** How many replay runs the pass's comparisons would make (from the comparison code). */
+  readonly replays: number;
+  /**
+   * The version's mean cost over its recent completed runs (US dollars, a
+   * decimal string); absent when the version has no cost history.
+   */
+  readonly meanRunCostUsd?: string;
 }
 
 /**

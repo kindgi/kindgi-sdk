@@ -952,6 +952,7 @@ export type {
   SupervisorQueryObservationsOutcome,
 } from './supervisor-binding.js';
 export type {
+  EstimateImprovementPassInput,
   ImproveScheduleInput,
   ImproveThreshold,
   ImprovementBudget,
@@ -959,6 +960,7 @@ export type {
   ImprovementPass,
   ImprovementPassBinding,
   ImprovementPassComparison,
+  ImprovementPassEstimateBasis,
   ImprovementPassOutcome,
   ImprovementPassStatus,
   ImprovementTier,

@@ -4584,6 +4584,48 @@ class Budget2(BaseModel):
     max_candidates: Annotated[int | None, Field(alias="maxCandidates", ge=1, le=200)] = None
 
 
+class Basis(BaseModel):
+    """
+    What the estimate is built from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    replays: Annotated[int, Field(ge=0)]
+    """
+    How many replay runs the pass's comparisons would make.
+    """
+    mean_run_cost_usd: Annotated[str | None, Field(alias="meanRunCostUsd")] = None
+    """
+    The version's mean cost over its recent completed runs (US dollars). Absent with no cost history.
+    """
+
+
+class ImprovementPassEstimate(BaseModel):
+    """
+    What a pass this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    estimated_cost_usd: Annotated[str | None, Field(alias="estimatedCostUsd")] = None
+    """
+    The estimate (US dollars): `min(maxCostUsd, basis.replays × basis.meanRunCostUsd)`. Absent when the version has no cost history.
+    """
+    max_cost_usd: Annotated[str, Field(alias="maxCostUsd")]
+    """
+    The budget cap the estimate is clamped to (`budget.maxCostUsd`, US dollars).
+    """
+    basis: Basis
+    """
+    What the estimate is built from.
+    """
+
+
 class Content1(BaseModel):
     """
     `{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.

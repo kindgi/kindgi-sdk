@@ -35,6 +35,7 @@ import type {
   AgentRegistryBinding,
   AgentReleaseBindings,
   AgentVersionRecord,
+  EstimateImprovementPassInput,
   EvalRun,
   EvalRunBinding,
   EvalRunStartInput,
@@ -42,6 +43,7 @@ import type {
   GatePolicySpec,
   ImprovementPass,
   ImprovementPassBinding,
+  ImprovementPassEstimateBasis,
   JudgedComparisonSummary,
   LivePin,
   Promotion,
@@ -74,7 +76,7 @@ const resolveToken: TokenResolver = async (token) =>
   token === TOKEN ? { tenantId, userId: 'user-1' as UserId } : null;
 
 /** The agent registry in memory, recording each version's project. */
-function agentBinding(): AgentRegistryBinding {
+function agentBinding(unregistered: ReadonlySet<string> = new Set()): AgentRegistryBinding {
   const registry = createAgentRegistry();
   // Where a version was made, when it's not the agent's project (an environment order's first).
   const madeIn = new Map<string, ProjectId>();
@@ -94,6 +96,7 @@ function agentBinding(): AgentRegistryBinding {
         ...got.value,
         projectId,
         ...(made !== undefined && { madeInProjectId: made }),
+        ...(unregistered.has(version as unknown as string) && { unregisteredAt: NOW }),
       };
       return record;
     },
@@ -460,6 +463,8 @@ async function harness(
     grants?: readonly string[];
     readOnly?: boolean;
     tunable?: boolean;
+    /** Versions `getVersion` returns as unregistered (an inactive version). */
+    unregisteredVersions?: readonly string[];
     passes?: ImprovementPassBinding;
     /** Instructions inline, not from a pinned prompt block. */
     inlineInstructions?: boolean;
@@ -473,7 +478,7 @@ async function harness(
     items?: ItemRow[];
   } = {},
 ) {
-  const agents = agentBinding();
+  const agents = agentBinding(new Set(opts.unregisteredVersions ?? []));
   const blocks = inMemoryBlocks([projectId, ...(opts.orders ?? []).flat()], {}, opts.orders);
   await blocks.publish({
     tenantId,
@@ -1670,6 +1675,174 @@ describe('improvement passes', () => {
     expect((await h.call('GET', `/v1/improvement-passes/${pass.id}`)).status).toBe(404);
     expect((await h.call('GET', '/v1/improvement-passes')).body.data).toEqual([]);
   });
+});
+
+describe('POST /v1/proposals/improve/estimate', () => {
+  const IMPROVE = { agentId: AGENT, scope: SEGMENT_WIRE, suiteId: 'acme.scoring-judged' };
+
+  /** The in-memory passes binding plus an `estimateBasis` stub, and the inputs it saw. */
+  function withEstimate(basis: ImprovementPassEstimateBasis) {
+    const passes = inMemoryPasses();
+    const seen: EstimateImprovementPassInput[] = [];
+    const binding: ImprovementPassBinding = {
+      ...passes.binding,
+      async estimateBasis(input) {
+        seen.push(input);
+        return basis;
+      },
+    };
+    return { binding, seen };
+  }
+
+  test('estimates min(cap, replays × the version mean) and reports the basis', async () => {
+    const { binding, seen } = withEstimate({ replays: 10, meanRunCostUsd: '0.2' });
+    const h = await harness({ tunable: true, passes: binding });
+    // No tenant-wide pin: a cost preview is lighter than a start.
+    const res = await h.call('POST', '/v1/proposals/improve/estimate', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    // 10 × $0.20 = $2.00, under the default $5 cap.
+    expect(res.body).toEqual({
+      estimatedCostUsd: '2',
+      maxCostUsd: '5',
+      basis: { replays: 10, meanRunCostUsd: '0.2' },
+    });
+    expect(seen).toHaveLength(1);
+    const got = seen[0];
+    if (got === undefined) throw new Error('no estimate input captured');
+    expect(got).toMatchObject({
+      tenantId,
+      agentId: AGENT,
+      suiteId: 'acme.scoring-judged',
+      tiers: ['settings'],
+    });
+    expect(got.scope).toBeDefined();
+    // No fromVersion given: the route resolves the serving version (here the
+    // agent's latest, 1.0.0) and forwards it, so the basis always gets a real version.
+    expect(got.fromVersion).toBe('1.0.0');
+  });
+
+  test('clamps the estimate to the budget cap: it never exceeds maxCostUsd', async () => {
+    const { binding } = withEstimate({ replays: 1000, meanRunCostUsd: '1' });
+    const h = await harness({ tunable: true, passes: binding });
+    const res = await h.call('POST', '/v1/proposals/improve/estimate', {
+      ...IMPROVE,
+      budget: { maxCostUsd: 20 },
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    // 1000 × $1 = $1000, clamped to the $20 cap.
+    expect(res.body.estimatedCostUsd).toBe('20');
+    expect(res.body.maxCostUsd).toBe('20');
+  });
+
+  test('leaves estimatedCostUsd absent when the version has no cost history', async () => {
+    const { binding } = withEstimate({ replays: 10 });
+    const h = await harness({ tunable: true, passes: binding });
+    const res = await h.call('POST', '/v1/proposals/improve/estimate', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toEqual({ maxCostUsd: '5', basis: { replays: 10 } });
+    expect('estimatedCostUsd' in res.body).toBe(false);
+  });
+
+  test('forwards the prompt options (model, candidates) to the basis', async () => {
+    const { binding, seen } = withEstimate({ replays: 4, meanRunCostUsd: '0.5' });
+    const h = await harness({ passes: binding });
+    const model = { providerId: 'acme-llm', model: 'm-1' };
+    const res = await h.call('POST', '/v1/proposals/improve/estimate', {
+      ...IMPROVE,
+      tiers: ['prompt'],
+      model,
+      candidates: 4,
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(seen[0]).toMatchObject({ tiers: ['prompt'], model, candidates: 4 });
+  });
+
+  test('a malformed body is bad input (400) and asks the basis for nothing', async () => {
+    const { binding, seen } = withEstimate({ replays: 1, meanRunCostUsd: '1' });
+    const h = await harness({ tunable: true, passes: binding });
+    const res = await h.call('POST', '/v1/proposals/improve/estimate', { ...IMPROVE, extra: 1 });
+    expect(res.status).toBe(400);
+    expect(seen).toEqual([]);
+  });
+
+  test('needs publish on the agent: a read-only caller is 403', async () => {
+    const { binding } = withEstimate({ replays: 1, meanRunCostUsd: '1' });
+    const h = await harness({ tunable: true, passes: binding, grants: [`read agent:${AGENT}`] });
+    expect((await h.call('POST', '/v1/proposals/improve/estimate', IMPROVE)).status).toBe(403);
+  });
+
+  test('without an estimate basis in the runtime: 501 improve-unsupported', async () => {
+    // The passes binding has no `estimateBasis`.
+    const withPasses = await harness({ tunable: true, passes: inMemoryPasses().binding });
+    const res = await withPasses.call('POST', '/v1/proposals/improve/estimate', IMPROVE);
+    expect(res.status).toBe(501);
+    expect(res.body.error.code).toBe('improve-unsupported');
+    // And with no improvement-passes binding at all.
+    const none = await harness({ tunable: true });
+    expect((await none.call('POST', '/v1/proposals/improve/estimate', IMPROVE)).status).toBe(501);
+  });
+
+  // `/improve` and `/improve/estimate` take the same body and resolve +
+  // reach-check it through the one shared helper (`resolveImproveTarget`), so
+  // a bad body is refused identically. One case per branch of that helper,
+  // each asserting the absolute (status, code) on both routes: a mutation in
+  // the shared check breaks both and is caught here.
+  const parity: {
+    readonly label: string;
+    readonly opts: Parameters<typeof harness>[0];
+    readonly body: Record<string, unknown>;
+    readonly status: number;
+    readonly code: string;
+  }[] = [
+    {
+      label: 'an unknown fromVersion',
+      opts: {},
+      body: { ...IMPROVE, fromVersion: '9.9.9' },
+      status: 404,
+      code: 'agent-version-not-found',
+    },
+    {
+      label: 'an inactive fromVersion',
+      opts: { unregisteredVersions: ['1.0.0'] },
+      body: { ...IMPROVE, fromVersion: '1.0.0' },
+      status: 404,
+      code: 'agent-version-not-found',
+    },
+    {
+      label: 'a missing suiteId',
+      opts: {},
+      body: { agentId: AGENT, scope: SEGMENT_WIRE },
+      status: 400,
+      code: 'bad-input',
+    },
+    {
+      label: 'a suite the project does not reach',
+      opts: { referenceScope: reach(new Set(['acme.scoring-judged'])) },
+      body: { ...IMPROVE, fromVersion: '1.0.0' },
+      status: 400,
+      code: 'reference-out-of-scope',
+    },
+    {
+      label: 'a scope in another project',
+      opts: { referenceScope: reach(new Set()) },
+      body: { ...IMPROVE, scope: OTHER_SEGMENT, fromVersion: '1.0.0' },
+      status: 400,
+      code: 'reference-out-of-scope',
+    },
+  ];
+
+  test.each(parity)(
+    'refuses $label identically on /improve and /improve/estimate ($status $code)',
+    async ({ opts, body, status, code }) => {
+      const binding = withEstimate({ replays: 1, meanRunCostUsd: '1' }).binding;
+      const h = await harness({ tunable: true, passes: binding, ...opts });
+      for (const path of ['/v1/proposals/improve', '/v1/proposals/improve/estimate'] as const) {
+        const res = await h.call('POST', path, body);
+        expect(res.status, `${path}: ${JSON.stringify(res.body)}`).toBe(status);
+        expect(res.body.error.code, path).toBe(code);
+      }
+    },
+  );
 });
 
 describe('an agent an order carries from its project to prod', () => {
