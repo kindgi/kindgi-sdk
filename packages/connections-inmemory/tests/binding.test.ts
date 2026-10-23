@@ -395,6 +395,89 @@ describe('a connect, without a browser', () => {
   });
 });
 
+describe('a request made before its connection gained a permission', () => {
+  /** Ana's connection, widened to both permissions after two requests that ask for sending only. */
+  async function widened() {
+    const made = setup({
+      exchange: ({ code }) => ({
+        account: { id: 'g-ana', label: 'ana@acme.example' },
+        granted: code === 'both' ? ['gmail.send', 'gmail.readonly'] : ['gmail.send'],
+      }),
+      notice: () => ({
+        handled: 'sessions-revoked',
+        accountId: 'g-ana',
+        action: 'needs-reconnecting',
+      }),
+    });
+    const earlier = [
+      await request(made, { permissions: ['gmail.send'] }),
+      await request(made, { permissions: ['gmail.send'] }),
+    ];
+    const wider = await request(made, { permissions: ['gmail.send', 'gmail.readonly'] });
+    const state = (await start(made, wider.requestId)).searchParams.get('state') as string;
+    const finished = await made.binding.finishRequest({
+      tenantId,
+      caller: ana,
+      state,
+      code: 'both',
+    });
+    if (finished.kind !== 'ok' || finished.value.kind !== 'connected') {
+      throw new Error('expected a connect');
+    }
+    const finish = async (code: string, which = 0) =>
+      made.binding.finishRequest({
+        tenantId,
+        caller: ana,
+        state: (await start(made, earlier[which]?.requestId as string)).searchParams.get(
+          'state',
+        ) as string,
+        code,
+      });
+    return { made, connectionId: finished.value.connection.connectionId, finish };
+  }
+
+  test('its grant, lacking the new permission, leaves the connection, and connects to it while it works', async () => {
+    const { made, connectionId, finish } = await widened();
+    expect(await finish('send')).toMatchObject({
+      kind: 'ok',
+      value: {
+        kind: 'connected',
+        request: { state: 'connected', connectionId },
+        connection: { connectionId },
+      },
+    });
+    expect(await made.binding.get({ tenantId, connectionId })).toMatchObject({
+      permissions: ['gmail.send', 'gmail.readonly'],
+      state: 'working',
+    });
+  });
+
+  test('while it needs reconnecting: a grant lacking the new permission declines for it; one with it is stored', async () => {
+    const { made, connectionId, finish } = await widened();
+    await made.binding.receiveNotice({
+      tenantId,
+      appId: made.googleApp.appId,
+      headers: {},
+      rawBody: new TextEncoder().encode('{}'),
+    });
+    expect(await finish('send')).toMatchObject({
+      kind: 'ok',
+      value: { kind: 'declined', request: { state: 'declined', missing: ['gmail.readonly'] } },
+    });
+    expect(await made.binding.get({ tenantId, connectionId })).toMatchObject({
+      state: 'needs-reconnecting',
+    });
+    expect(await finish('both', 1)).toMatchObject({
+      kind: 'ok',
+      value: { kind: 'connected', request: { state: 'connected', connectionId } },
+    });
+    expect(await made.binding.get({ tenantId, connectionId })).toMatchObject({
+      permissions: ['gmail.send', 'gmail.readonly'],
+      state: 'working',
+    });
+  });
+});
+
 describe("a GitHub App's connect", () => {
   const one = [{ installationId: '101', account: { id: '1', label: 'acme' } }];
   const two = [...one, { installationId: '102', account: { id: '2', label: 'acme-labs' } }];
