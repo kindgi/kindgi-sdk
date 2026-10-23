@@ -64,7 +64,7 @@ pnpm exec kindgi runs start --flow=my-pack.echo-flow --input='{"name":"Ada"}' --
 ## `kindgi init`
 
 ```sh
-kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|python] [--path=<dir>]
+kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|follow-up|python|java|scala] [--path=<dir>]
             [--force] [--link-local] [--new-repo] [--pack-id=<id>]
 ```
 
@@ -110,12 +110,13 @@ Three modes:
 
 A Node project gets `@kindgi/sdk` (a dependency) and `@kindgi/cli` (a
 devDependency) at the running CLI's own version, or linked from a checkout
-(`--link-local`); never `latest`.
+(`--link-local`); never `latest`. The `follow-up` template's
+`@kindgi/connections` comes the same way.
 
 | Flag | Purpose |
 |---|---|
 | `<pack-name>` | The pack id: lowercase kebab-case, optionally dot-namespaced (`my-pack`, `acme.legal-basics`). |
-| `--template=<name>` | `minimal` (the default: the folders, no examples), `sample` (three tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store: typed store tools, approvals for large refunds and store changes, and a review of each new order), `drupal` (agents for a Drupal site through its MCP Server: house-style fixes as drafts, each change approved, and a review of each saved article), or `python` (the sample as a Python pack). |
+| `--template=<name>` | `minimal` (the default: the folders, no examples), `sample` (three tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store: typed store tools, approvals for large refunds and store changes, and a review of each new order), `drupal` (agents for a Drupal site through its MCP Server: house-style fixes as drafts, each change approved, and a review of each saved article), `follow-up` (an agent that writes a follow-up mail from your notes and sends it from your Gmail once you approve it; its send tool comes from `@kindgi/connections`, under the pack's id), `python` (the sample as a Python pack), `java` (a Java pack, built with Maven; preview) or `scala` (a Scala pack, built with sbt; preview). |
 | `--path=<dir>` | Where to scaffold. Default: `<pack-name>` under the current directory (for a dot-namespaced id, its last segment). |
 | `--force` | Write into a non-empty directory. Default: refuse. |
 | `--link-local` | Link `@kindgi/*` from the checkout the CLI runs from. |

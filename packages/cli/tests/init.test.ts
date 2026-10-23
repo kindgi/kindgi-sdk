@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { type Agent, renderInstructions } from '@kindgi/agents';
+import { runIndexer } from '@kindgi/handler-runtime/kindgi-index';
 import { build } from 'esbuild';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { collectPackEntries } from '../src/build/bundle.js';
 import { defaultTemplatesRoot } from '../src/commands/init.js';
 import { JVM_PREVIEW } from '../src/init/dependency-specs.js';
 import { substitute } from '../src/init/template-files.js';
@@ -168,7 +170,7 @@ describe('kindgi init — minimal template', () => {
     expect(pkg.dependencies?.zod).toBeTruthy();
   });
 
-  test.each(['minimal', 'sample', 'woocommerce', 'drupal'])(
+  test.each(['minimal', 'sample', 'woocommerce', 'drupal', 'follow-up'])(
     "the %s template decides esbuild's install script for npm and pnpm alike: off (T277)",
     async (template) => {
       await runCli(baseInputs({ argv: ['init', 'my-pack', `--template=${template}`] }));
@@ -266,6 +268,106 @@ describe('kindgi init --template=woocommerce', () => {
     for (const tool of ['find-orders', 'check-order-event']) {
       expect(await declares(tool), tool).toBe(false);
     }
+  });
+});
+
+describe('kindgi init --template=follow-up', () => {
+  test("scaffolds the follow-up pack under the pack's id, with @kindgi/connections beside @kindgi/sdk", async () => {
+    const out = await runCli(baseInputs({ argv: ['init', 'acme-mail', '--template=follow-up'] }));
+    expect(out.exitCode).toBe(0);
+    const root = join(cwd, 'acme-mail');
+    const files = await listRecursive(root);
+    for (const rel of [
+      'tools/gmail-send/index.ts',
+      'tools/gmail-send/index.test.ts',
+      'agents/follow-up/index.ts',
+      'agents/follow-up/index.test.ts',
+      'README.md',
+      'AGENTS.md',
+      '.gitignore',
+    ]) {
+      expect(files, rel).toContain(rel);
+    }
+    for (const rel of files) {
+      const raw = await readFile(join(root, rel), 'utf8');
+      expect(raw, `${rel} still contains an unsubstituted placeholder`).not.toMatch(
+        /\{\{[A-Z_]+\}\}/,
+      );
+    }
+    // The pack names the tool's id: a tool id is filed under the first project that publishes it.
+    expect(await readFile(join(root, 'tools/gmail-send/index.ts'), 'utf8')).toContain(
+      "export default gmailSend({ id: 'acme-mail.gmail.send' });",
+    );
+    const agent = await readFile(join(root, 'agents/follow-up/index.ts'), 'utf8');
+    expect(agent).toContain("default: 'always_ask'");
+    expect(agent).toContain("'acme-mail.gmail.send': 'always_ask'");
+    const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>;
+    };
+    expect(pkg.dependencies?.['@kindgi/connections']).toMatch(/^link:.*\/packages\/connections$/);
+    expect(pkg.dependencies?.['@kindgi/sdk']).toMatch(/^link:.*\/packages\/sdk$/);
+  });
+
+  test("the build's discovery finds the tool folder's default export as the pack's tool, and the agent that uses it", async () => {
+    const out = await runCli(baseInputs({ argv: ['init', 'acme-mail', '--template=follow-up'] }));
+    expect(out.exitCode).toBe(0);
+    const root = join(cwd, 'acme-mail');
+    // Installed as an install of the scaffold links them: the checkout's packages.
+    const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as {
+      dependencies: Record<string, string>;
+    };
+    await mkdir(join(root, 'node_modules', '@kindgi'), { recursive: true });
+    for (const name of ['@kindgi/sdk', '@kindgi/connections']) {
+      const target = pkg.dependencies[name]?.replace(/^link:/, '') ?? '';
+      await symlink(target, join(root, 'node_modules', name), 'dir');
+    }
+    // Bundled as `kindgi build` bundles a pack, then indexed by the build's own indexer.
+    const entries = await collectPackEntries(root, [
+      'tools/**/*.ts',
+      'guardrails/**/*.ts',
+      'agents/**/*.ts',
+      'flows/**/*.ts',
+    ]);
+    const bundles = join(root, '.kindgi', 'bundles');
+    await build({
+      absWorkingDir: root,
+      entryPoints: [
+        ...entries.map((e) => ({ in: e.abs, out: e.outRel })),
+        { in: join(root, 'kindgi.config.ts'), out: 'kindgi.config' },
+      ],
+      outdir: bundles,
+      outExtension: { '.js': '.mjs' },
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      packages: 'external',
+      logLevel: 'silent',
+    });
+    const outputPath = join(bundles, 'index.json');
+    const report = await runIndexer({
+      packDir: root,
+      configPath: join(bundles, 'kindgi.config.mjs'),
+      bundleMap: Object.fromEntries(entries.map((e) => [e.sourceRel, `${e.outRel}.mjs`])),
+      moduleRoot: bundles,
+      outputPath,
+    });
+    expect(report.kind === 'ok' ? report.value.fileErrors : report.error).toEqual([]);
+    const index = JSON.parse(await readFile(outputPath, 'utf8')) as {
+      tools: { id: string; version?: string; needsSpec?: unknown }[];
+      agents: { id: string; tools: { id: string; version: string }[] }[];
+    };
+    expect(index.tools).toEqual([
+      expect.objectContaining({
+        id: 'acme-mail.gmail.send',
+        version: '1.0.0',
+        needsSpec: {
+          connections: { mail: { app: 'google', permissions: ['gmail.send'], as: 'person' } },
+        },
+      }),
+    ]);
+    expect(index.agents.map((a) => [a.id, a.tools])).toEqual([
+      ['acme-mail.follow-up', [{ id: 'acme-mail.gmail.send', version: '^1.0.0' }]],
+    ]);
   });
 });
 
@@ -951,6 +1053,15 @@ describe('kindgi init --template in an existing app (augment mode)', () => {
     const out = await runCli(baseInputs({ argv: ['init', '--template=drupal'] }));
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('--template=drupal --new-repo');
+    expect(await readdir(cwd)).toEqual(['package.json']);
+  });
+
+  test('--template=follow-up is refused, pointing at --new-repo', async () => {
+    await writeFile(join(cwd, 'package.json'), '{"name":"acme-app"}\n');
+    const out = await runCli(baseInputs({ argv: ['init', '--template=follow-up'] }));
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('@kindgi/connections');
+    expect(out.stderr).toContain('--template=follow-up --new-repo');
     expect(await readdir(cwd)).toEqual(['package.json']);
   });
 
