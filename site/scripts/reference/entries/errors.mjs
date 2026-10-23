@@ -3674,6 +3674,11 @@ export const ERROR_ENTRIES = {
       "A reconnect signed in to an account other than the connection's. Sign in with the same account; to connect another account instead, disconnect, then connect again.",
     details: [],
   },
+  'connection-removing': {
+    description:
+      "A connect, or its finish, for a connection that's still being disconnected: an earlier disconnect didn't get to the end. Disconnect it again to finish, then connect.",
+    details: [],
+  },
   'connection-app-refused': {
     description:
       "The app refused or failed a call the connect needed, or didn't give what a connection needs (a refresh token, or which account signed in). Often the registration's client id, client secret or redirect URL doesn't match the app's settings. On GitHub, an install still waiting for an owner's approval is refused too, until an owner approves it. Start the connect again.",
@@ -3681,7 +3686,7 @@ export const ERROR_ENTRIES = {
   },
   'connection-store-failed': {
     description:
-      "The server couldn't read or write its connections (registrations, connect requests, connections or their tokens) just now. Try again; if it keeps failing, an operator checks the database and the secrets store. A connect to a connection that's still being disconnected answers it too: disconnect it again to finish, then connect.",
+      "The server couldn't read or write its connections (registrations, connect requests, connections or their tokens) just now. Try again; if it keeps failing, an operator checks the database and the secrets store.",
     details: [],
   },
   'connection-notice-invalid': {
