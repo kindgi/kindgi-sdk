@@ -33,7 +33,7 @@ docker rm kindgi-server
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.9
+  quay.io/kindgi/runtime:0.1.10
 ```
 
 - `-t 30` gives the runtime 30 seconds to stop before Docker kills it.
