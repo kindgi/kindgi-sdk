@@ -47,7 +47,12 @@ export function defineApp(entry: AppEntry): AppEntry {
 type At = (field: string) => string;
 
 function checkSignIn(signIn: SignIn, at: At): void {
-  if (signIn?.kind === 'github-app') return;
+  if (signIn?.kind === 'github-app') {
+    if ('refreshToken' in signIn) {
+      throw new TypeError(at('signIn.refreshToken is for an "oauth2" sign-in'));
+    }
+    return;
+  }
   if (signIn?.kind !== 'oauth2') {
     throw new TypeError(at('signIn.kind must be "oauth2" or "github-app"'));
   }
@@ -55,6 +60,13 @@ function checkSignIn(signIn: SignIn, at: At): void {
   requireHttps(signIn.tokenUrl, at('signIn.tokenUrl'));
   if (signIn.revokeUrl !== undefined) requireHttps(signIn.revokeUrl, at('signIn.revokeUrl'));
   if (signIn.pkce !== 'S256') throw new TypeError(at('signIn.pkce must be "S256"'));
+  if (
+    signIn.refreshToken !== undefined &&
+    signIn.refreshToken !== 'required' &&
+    signIn.refreshToken !== 'optional'
+  ) {
+    throw new TypeError(at('signIn.refreshToken must be "required" or "optional"'));
+  }
   for (const [name, value] of Object.entries(signIn.authorizeParams ?? {})) {
     if (typeof value !== 'string') {
       throw new TypeError(at(`signIn.authorizeParams.${name} must be a string`));
