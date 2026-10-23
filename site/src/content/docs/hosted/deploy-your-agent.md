@@ -141,8 +141,10 @@ pnpm exec kindgi deploy --hosted --env=prod
 
 The deploy prints what it registered, with each agent's version. It ends
 with `Deploy complete.`, then `Waiting for the pack service` and `✓ ready`.
-A pack with no tools and no guardrail checks of its own, only agents and
-flows, has no pack service: its deploy ends at `Deploy complete.`.
+A pack with no tools and no guardrail checks of its own, such as one of
+agents and flows whose guardrails use only built-in checks, has no pack
+service. Its deploy doesn't wait for one, and prints no `Waiting for the pack
+service`.
 
 ## Try it
 
