@@ -99,7 +99,8 @@ is uninstalled or suspended
 
 An admin connects the app for the company. In a project, open
 **Connections**, choose **Connect an app**, pick GitHub, and under **For**
-choose **The company**. What GitHub shows depends on whether the app is
+choose **The company**. Kindgi shows **Connect GitHub**: choose
+**Continue at GitHub**. What GitHub shows depends on whether the app is
 installed yet:
 
 - **Not installed anywhere yet:** GitHub asks where to install the app.
@@ -107,15 +108,17 @@ installed yet:
 - **Already installed:** GitHub asks you to authorize the app. If your
   GitHub account reaches more than one of its installations, Kindgi asks
   you to **Choose the account to connect**: pick the one this connection
-  uses, such as **Use acme**.
+  uses, such as **Use acme**. If it reaches only one, Kindgi uses that
+  one without asking.
 
 GitHub sends you back to Kindgi, and the connection shows your
 organization. Kindgi keeps an installation only if your own GitHub account
 reaches it.
 
 **To install the app on another account,** such as a second
-organization, choose **Install on another account**. Kindgi offers it
-beside the installations to choose from. Once the app is installed
+organization, choose **Install on another account**. Kindgi offers it on
+the **Connect GitHub** page, before you go to GitHub, and beside the
+installations to choose from. Once the app is installed
 anywhere, connecting never shows GitHub's install page by itself, so this
 is the way there.
 
