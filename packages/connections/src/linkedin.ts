@@ -17,10 +17,12 @@ import { defineApp } from './define.js';
  *   again skips LinkedIn's consent page while they're signed in there and
  *   the old token is still live. An app that asks for other scopes later
  *   ends the tokens it gave before.
- * - **Whose account:** OpenID Connect's userinfo: `sub`, the member's id,
- *   which is also their posts' author (`urn:li:person:{sub}`); the label is
- *   their name. The ID token can't say it for every member: its `email` is
- *   there only with the `email` scope, which isn't asked for.
+ * - **Whose account:** OpenID Connect's ID token: `sub`, the member's id,
+ *   which is also their posts' author (`urn:li:person:{sub}`), labelled
+ *   with its `email`, there with the `email` scope. Its `iss` is
+ *   `https://www.linkedin.com/oauth`, as LinkedIn's discovery document
+ *   gives it; LinkedIn's docs still show `https://www.linkedin.com`, which
+ *   is taken too.
  * - **Withdrawing:** LinkedIn has no revoke endpoint for one app's tokens,
  *   so a disconnect deletes Kindgi's, and the person removes the app at
  *   LinkedIn (the setup guide says where).
@@ -46,11 +48,9 @@ export const linkedin = defineApp({
     },
   },
   account: {
-    kind: 'profile',
-    url: 'https://api.linkedin.com/v2/userinfo',
-    scopes: ['openid', 'profile'],
-    id: 'sub',
-    label: ['name'],
+    kind: 'openid',
+    issuers: ['https://www.linkedin.com/oauth', 'https://www.linkedin.com'],
+    scopes: ['openid', 'email'],
   },
   removal: {},
   rateLimits: [{ per: 'connection', units: 150, perSeconds: 86_400 }],

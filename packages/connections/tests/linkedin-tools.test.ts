@@ -26,7 +26,7 @@ function profile(id = '782bbtaQ'): ToolConnection {
     app: 'linkedin',
     appName: 'LinkedIn',
     accessToken: TOKEN,
-    account: { id, label: 'Ana Silva' },
+    account: { id, label: 'ana@acme.test' },
   };
 }
 

@@ -185,13 +185,11 @@ describe('the LinkedIn entry', () => {
     });
   });
 
-  it("learns whose profile it is from OpenID Connect's userinfo, without asking for the email", () => {
+  it("learns whose profile it is from the ID token, at LinkedIn's live issuer first and its documented one too", () => {
     expect(linkedin.account).toEqual({
-      kind: 'profile',
-      url: 'https://api.linkedin.com/v2/userinfo',
-      scopes: ['openid', 'profile'],
-      id: 'sub',
-      label: ['name'],
+      kind: 'openid',
+      issuers: ['https://www.linkedin.com/oauth', 'https://www.linkedin.com'],
+      scopes: ['openid', 'email'],
     });
   });
 

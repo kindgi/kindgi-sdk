@@ -25,7 +25,7 @@ const POSTS_URL = 'https://api.linkedin.com/rest/posts';
  * one it has retired, so this moves to a newer one within that year.
  */
 const LINKEDIN_VERSION = '202610';
-/** A member's id, as LinkedIn's userinfo gives it (`sub`). */
+/** A member's id, as LinkedIn's ID token gives it (`sub`). */
 const MEMBER_ID = /^[A-Za-z0-9_-]{1,64}$/;
 /** A post's id, as LinkedIn's `x-restli-id` gives it. */
 const POST_ID = /^urn:li:(share|ugcPost):[0-9]{1,32}$/;
