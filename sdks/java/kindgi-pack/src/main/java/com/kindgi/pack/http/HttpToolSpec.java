@@ -126,6 +126,9 @@ public final class HttpToolSpec {
     if (auth instanceof HttpAuthSpec.Bearer bearer) {
       m.put("kind", "bearer");
       m.put("secretRef", secretRefMap(bearer.secretRef()));
+    } else if (auth instanceof HttpAuthSpec.Connection connection) {
+      m.put("kind", "connection");
+      m.put("connection", connection.connection());
     } else {
       HttpAuthSpec.Header header = (HttpAuthSpec.Header) auth;
       m.put("kind", "header");
