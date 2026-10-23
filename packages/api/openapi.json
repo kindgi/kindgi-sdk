@@ -37,6 +37,14 @@
       "description": "The operator's tenants on a runtime serving many: create, list, read, close and suspend them (a project too), and what the control plane sets on each (production, limits, the image prefix), plus the admins' contacts for service notices. System keys only, each route under its own scope."
     },
     {
+      "name": "system-usage",
+      "description": "Usage across tenants, aggregated (counts, sums, first and last times): the control plane's pull for statements. System keys only."
+    },
+    {
+      "name": "usage",
+      "description": "Your workspace's usage, aggregated: runs, approvals, model calls and projects put in production, counted and summed by project, agent, kind, class, state or day, over the projects you may read. Model-call cost is on `cost`."
+    },
+    {
       "name": "system-deployments",
       "description": "Per-deployment routing, on a runtime serving many tenants: whatever runs each deployment's own pack service (an orchestrator) lists the deployments that need one or should lose theirs, and records where each runs, under `system:deployments`. Support suspends a pack under `system:suspend`. No tenant input ever names a pack's URL."
     },
@@ -389,12 +397,20 @@
           "system-key-on-tenant-route": 403,
           "system-principal-required": 403,
           "system-scope-missing": 403,
+          "system-key-scope-not-served": 403,
           "system-key-not-found": 404,
           "system-key-expiry-required": 403,
           "access-record-unavailable": 503,
           "pack-env-unavailable": 503,
           "tenant-closing": 409,
           "tenant-suspended": 409,
+          "tenant-slug-mismatch": 400,
+          "tenant-not-closing": 409,
+          "tenant-export-window-open": 409,
+          "purge-record-unset": 409,
+          "purge-setting-missing": 409,
+          "authz-store-delete-failed": 502,
+          "tenant-purge-unsupported": 501,
           "project-suspended": 409,
           "pack-suspended": 409,
           "endpoint-url-invalid": 400,
@@ -407,6 +423,8 @@
           "endpoint-retired": 409,
           "pack-env-conflict": 409,
           "tenant-slug-taken": 409,
+          "tenant-slug-in-config": 409,
+          "tenant-setup-pending": 409,
           "image-not-allowed": 409,
           "image-prefix-unset": 409,
           "image-prefix-taken": 409,
@@ -451,6 +469,7 @@
           "identity-provider-already-registered": 409,
           "identity-provider-invalid": 422,
           "identity-providers-operator-managed": 403,
+          "identity-providers-need-secrets-store": 409,
           "license-operator-only": 403,
           "invalid-provider-config": 400,
           "auth-not-session-token": 400,
@@ -471,6 +490,8 @@
           "site-sign-in-refused": 401,
           "site-request-too-large": 413,
           "site-person-grants-managed": 403,
+          "site-person-not-found": 404,
+          "site-person-restore-refused": 409,
           "token-sign-in-needs-an-api-token": 400,
           "redirect-uri-not-allowed": 400,
           "redirect-uri-mismatch": 400,
@@ -2550,6 +2571,7 @@
                 "system:suspend",
                 "system:deployments",
                 "system:pack-env",
+                "system:usage:read",
                 "system:license",
                 "kindgi:system"
               ],
@@ -2598,6 +2620,7 @@
                 "system:suspend",
                 "system:deployments",
                 "system:pack-env",
+                "system:usage:read",
                 "system:license",
                 "kindgi:system"
               ],
@@ -2652,6 +2675,7 @@
                 "system:suspend",
                 "system:deployments",
                 "system:pack-env",
+                "system:usage:read",
                 "system:license",
                 "kindgi:system"
               ],
@@ -2723,6 +2747,7 @@
                       "system:suspend",
                       "system:deployments",
                       "system:pack-env",
+                      "system:usage:read",
                       "system:license",
                       "kindgi:system"
                     ],
@@ -2785,6 +2810,7 @@
                 "system:suspend",
                 "system:deployments",
                 "system:pack-env",
+                "system:usage:read",
                 "system:license",
                 "kindgi:system"
               ],
@@ -3602,6 +3628,103 @@
                 }
               }
             }
+          }
+        }
+      },
+      "PurgeTenantBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "confirm"
+        ],
+        "properties": {
+          "confirm": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The tenant's slug, a second check on the id."
+          }
+        }
+      },
+      "TenantTableRows": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A tenant's rows in one table: the table's name and a count.",
+        "required": [
+          "table",
+          "rows"
+        ],
+        "properties": {
+          "table": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "SystemTenantPurge": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenantId",
+          "complete",
+          "alreadyPurged",
+          "deleted",
+          "objectsDeleted",
+          "authzStoreDeleted",
+          "left",
+          "objectsLeft"
+        ],
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "complete": {
+            "type": "boolean",
+            "description": "`true`: nothing of the tenant is left, its purge record is written, and it's marked purged. `false`: `left` and `objectsLeft` say what is; run it again."
+          },
+          "alreadyPurged": {
+            "type": "boolean",
+            "description": "It was marked purged before this run: what this run deleted was written after its mark. Its mark and its record stay as they were."
+          },
+          "purgedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was marked purged. Absent while something of it from before the mark is left."
+          },
+          "deleted": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenantTableRows"
+            },
+            "description": "Rows this run deleted, per table with any: table names and counts, never the rows' content."
+          },
+          "objectsDeleted": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Objects this run deleted from the artifacts' store."
+          },
+          "authzStoreDeleted": {
+            "type": "boolean",
+            "description": "Whether this run deleted its authorization store."
+          },
+          "left": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenantTableRows"
+            },
+            "description": "Rows of it still there afterwards, per table; empty when none are. A table the purge doesn't delete from is named too: report it."
+          },
+          "objectsLeft": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Objects still under its prefix in the artifacts' store."
+          },
+          "leftBecause": {
+            "type": "string",
+            "description": "Why what's left wasn't deleted, when it's a setting the runtime lacks."
           }
         }
       },
@@ -4564,7 +4687,7 @@
             "enum": [
               "me"
             ],
-            "description": "`me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all."
+            "description": "`me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.9, which ignores `decidedBy` and lists them all."
           }
         }
       },
@@ -4910,6 +5033,91 @@
           },
           "preview": {
             "$ref": "#/components/schemas/LicensePreview"
+          }
+        }
+      },
+      "UsageGroup": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "count",
+          "quantity",
+          "firstAt",
+          "lastAt"
+        ],
+        "description": "One group: the dimensions it's grouped by (only those), then its count, the sum of its quantities, and its first and last times.",
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The tenant, on the operator's read across tenants."
+          },
+          "projectId": {
+            "type": "string",
+            "description": "Absent for a record with no project; a tenant admin's read includes those, and the CLI shows them as `(none)`."
+          },
+          "agentId": {
+            "type": "string",
+            "description": "Absent for a record with no agent; the CLI shows those as `(none)`."
+          },
+          "kind": {
+            "type": "string",
+            "description": "What was counted: `run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`. A runtime may count more kinds later: show one you don't know as it is."
+          },
+          "class": {
+            "type": "string",
+            "description": "The class of the run a record counts or belongs to, fixed when the run was created: `production`, `staging`, `dry-run`, `replay`, `eval`, `child`. A record with no counted run has none. A runtime may add classes later: show one you don't know as it is."
+          },
+          "state": {
+            "type": "string",
+            "description": "The record's state, by kind: `on`, `off` (`project.production`); `completed`, `failed`, `cancelled` (`run.ended`); `escalation` (`approval.requested`, an escalation's next tier); `approved`, `rejected`, `withdrawn`, `escalated`, `expired` (`approval.decided`). Other kinds have none."
+          },
+          "day": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "The UTC date, `YYYY-MM-DD`."
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Records in the group."
+          },
+          "quantity": {
+            "type": "number",
+            "description": "The sum of their quantities: milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count."
+          },
+          "firstAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "UsagePage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "watermark"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UsageGroup"
+            }
+          },
+          "watermark": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Every record at or before this time is in the answer; a later one may not be yet. Re-read a window until its watermark is past the window's end. Every page of one read carries the same watermark."
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "More groups: pass it as `cursor`. Absent on the last page."
           }
         }
       },
@@ -6415,10 +6623,6 @@
         "additionalProperties": false,
         "properties": {
           "historyLimit": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "autoCloseAfterInactiveSeconds": {
             "type": "integer",
             "minimum": 1
           },
@@ -8839,7 +9043,7 @@
             "enum": [
               "me"
             ],
-            "description": "`me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's."
+            "description": "`me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.9, which ignores `openedBy` and lists everyone's."
           }
         }
       },
@@ -9890,7 +10094,7 @@
           "rolled-back",
           "withdrawn"
         ],
-        "description": "Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn."
+        "description": "Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn."
       },
       "ProposalChange": {
         "type": "object",
@@ -10085,6 +10289,71 @@
           "better": {
             "type": "boolean",
             "description": "Set once the comparison finished."
+          },
+          "rule": {
+            "type": "string",
+            "enum": [
+              "better",
+              "cheaper"
+            ],
+            "description": "How the candidate is kept. `better`: it beats the recorded outputs by more than the noise. `cheaper`: it's no worse than the current version replayed on the same cases (beyond that run's spread) and costs less (beyond the cost's own spread), with no errored case; `better` may then be false while the status is `evaluated`. Absent: `better`."
+          },
+          "costUsd": {
+            "$ref": "#/components/schemas/ProposalCost"
+          },
+          "decisions": {
+            "$ref": "#/components/schemas/ProposalDecisions"
+          }
+        }
+      },
+      "ProposalCost": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "current",
+          "candidate"
+        ],
+        "description": "What the replays cost in model calls on the same cases, in US dollars, averaged over the repetitions: the current version's and the candidate's. Set for a change held to the current version once both comparisons finished, when both reported a cost.",
+        "properties": {
+          "current": {
+            "type": "number",
+            "minimum": 0
+          },
+          "candidate": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      },
+      "ProposalDecisions": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "checked",
+          "held",
+          "broken",
+          "stillWrong"
+        ],
+        "description": "The corrections the current version was checked on, replayed on the same cases, against the candidate's. A model-settings change is kept only with at least one checked and none broken. Set once both comparisons finished.",
+        "properties": {
+          "checked": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "held": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The current version passed them, and so did the candidate."
+          },
+          "broken": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The current version passed them; the candidate didn't."
+          },
+          "stillWrong": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Neither passed them. The rest of `checked` the candidate fixed."
           }
         }
       },
@@ -10460,7 +10729,7 @@
           },
           "comparisons": {
             "type": "array",
-            "description": "Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.",
+            "description": "Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.",
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -10678,6 +10947,44 @@
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 200
+              }
+            }
+          }
+        }
+      },
+      "ImprovementPassEstimate": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What a pass this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.",
+        "required": [
+          "maxCostUsd",
+          "basis"
+        ],
+        "properties": {
+          "estimatedCostUsd": {
+            "type": "string",
+            "description": "The estimate (US dollars): `min(maxCostUsd, basis.replays × basis.meanRunCostUsd)`. Absent when the version has no cost history."
+          },
+          "maxCostUsd": {
+            "type": "string",
+            "description": "The budget cap the estimate is clamped to (`budget.maxCostUsd`, US dollars)."
+          },
+          "basis": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "replays"
+            ],
+            "description": "What the estimate is built from.",
+            "properties": {
+              "replays": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "How many replay runs the pass's comparisons would make."
+              },
+              "meanRunCostUsd": {
+                "type": "string",
+                "description": "The version's mean cost over its recent completed runs (US dollars). Absent with no cost history."
               }
             }
           }
@@ -11430,6 +11737,14 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "bucket": {
+            "type": "string",
+            "description": "The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key."
+          },
+          "key": {
+            "type": "string",
+            "description": "The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one."
           }
         }
       },
@@ -11506,6 +11821,14 @@
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
+                },
+                "bucket": {
+                  "type": "string",
+                  "description": "The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key."
+                },
+                "key": {
+                  "type": "string",
+                  "description": "The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one."
                 }
               }
             }
@@ -14291,7 +14614,7 @@
           "seed",
           "holdOutShare"
         ],
-        "description": "Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified by judgment (the cases with a \"no\" and the others are split on their own, a stratum of two or more giving each part at least one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).",
+        "description": "Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a \"no\" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).",
         "properties": {
           "part": {
             "type": "string",
@@ -14797,8 +15120,57 @@
                 "type": "integer",
                 "minimum": 0,
                 "description": "How many passed (every repetition passed)."
+              },
+              "judgments": {
+                "type": "array",
+                "description": "Each correction graded, by its judgment: whether it passed (every repetition did). What an improvement pass compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "judgmentId",
+                    "pass"
+                  ],
+                  "properties": {
+                    "judgmentId": {
+                      "type": "string"
+                    },
+                    "pass": {
+                      "type": "boolean"
+                    }
+                  }
+                }
               }
             }
+          },
+          "costUsd": {
+            "$ref": "#/components/schemas/JudgedComparisonCost"
+          }
+        }
+      },
+      "JudgedComparisonCost": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "candidate",
+          "cases"
+        ],
+        "description": "What the candidate's replays cost in model calls, as the runtime reported it. Absent from a summary when no case's replays reported a cost.",
+        "properties": {
+          "candidate": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Each repetition's total over `cases`, averaged over the repetitions, in US dollars."
+          },
+          "spread": {
+            "type": "number",
+            "minimum": 0,
+            "description": "With more than one repetition: the totals' max − min."
+          },
+          "cases": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The cases whose every repetition reported a cost: the ones totalled."
           }
         }
       },
@@ -15284,6 +15656,14 @@
                   }
                 }
               }
+            }
+          },
+          "costUsd": {
+            "type": "array",
+            "description": "What each repetition's replay cost in model calls, as the runtime reported it, in US dollars: one per repetition. Absent when a repetition reported none.",
+            "items": {
+              "type": "number",
+              "minimum": 0
             }
           },
           "diverged": {
@@ -16553,12 +16933,12 @@
           },
           "invite": {
             "$ref": "#/components/schemas/UserInvite",
-            "description": "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1)."
+            "description": "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.9)."
           },
           "firstSignedInAt": {
             "type": "string",
             "format": "date-time",
-            "description": "Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1)."
+            "description": "Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9)."
           },
           "metadata": {
             "type": "object",
@@ -16658,12 +17038,12 @@
           },
           "invite": {
             "$ref": "#/components/schemas/UserInvite",
-            "description": "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1)."
+            "description": "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.9)."
           },
           "firstSignedInAt": {
             "type": "string",
             "format": "date-time",
-            "description": "Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1)."
+            "description": "Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9)."
           },
           "metadata": {
             "type": "object",
@@ -17608,6 +17988,51 @@
             "type": "integer",
             "minimum": 0,
             "description": "Those the rule would have queued, with its `sample` (`maxOpen` isn't applied)."
+          }
+        }
+      },
+      "JudgingQueueRecentInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "description": "Which recent runs to catch the rule up on. Give `last`, `since`, or both.",
+        "properties": {
+          "last": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "This many of the project's most recent top-level runs (newest first)."
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Runs completed at or after this time."
+          }
+        }
+      },
+      "JudgingRecentQueued": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "queued",
+          "alreadyQueued",
+          "alreadyReviewed"
+        ],
+        "properties": {
+          "queued": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Matching recent runs this call newly queued for the rule: a new queue item, or the rule added to one already waiting for another rule."
+          },
+          "alreadyQueued": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Matching recent runs this rule had already queued and that are still open (deduped per `(rule, run)`)."
+          },
+          "alreadyReviewed": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Matching recent runs whose run was already judged or dismissed: left as they are, not re-queued. An already-erased run is no longer a match and is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed` together are the matches."
           }
         }
       },
@@ -19042,11 +19467,11 @@
           },
           "projectId": {
             "type": "string",
-            "description": "The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `projectId` and lists them all."
+            "description": "The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `projectId` and lists them all."
           },
           "packId": {
             "type": "string",
-            "description": "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `packId` and lists them all."
+            "description": "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `packId` and lists them all."
           }
         }
       },
@@ -20678,6 +21103,24 @@
           },
           "egress": {
             "$ref": "#/components/schemas/EgressAddresses"
+          }
+        }
+      },
+      "TenantPatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A new name, a new slug, or both; a field left out stays as it is. The id stays, so whatever names the tenant by its id keeps working.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "slug": {
+            "type": "string",
+            "maxLength": 63,
+            "pattern": "^[a-z0-9](?:-?[a-z0-9])*$",
+            "description": "Lowercase letters, digits and single hyphens, unique across tenants. The console's addresses carry it, so links with the old one stop opening the tenant; nothing else is keyed by it."
           }
         }
       },
@@ -24041,6 +24484,19 @@
           }
         }
       },
+      "SitePersonRestoreResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "user"
+        ],
+        "description": "A site's person let back in after a removal made in Kindgi (`POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`).",
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/UserRecord"
+          }
+        }
+      },
       "EnrollSiteBody": {
         "type": "object",
         "additionalProperties": false,
@@ -24237,7 +24693,7 @@
             }
           },
           "403": {
-            "description": "No `execute` on the agent or flow; or, for one more than one project serves run in one of its projects (the one named, else the conversation's, else a project-scoped key's when it is one of them, else its first), no `call` there for an agent (`caller` or `editor`) or `execute` there for a flow (`executor` or `editor`), asked in place of its own `execute` and of `write` on a named project; otherwise, naming a `projectId` without `write` on it; or a turn run as a participant whose memory the caller may not read (`participant-not-allowed`). A turn runs with its participant's memory (the conversation's stored participant, else `input.participantId`), so running as one takes being them (a person, by their user id) or `write` on the turn's project, as reading their memory does. A turn into a conversation with no participant takes having opened it (the caller `?openedBy=me` names) or `write` on its project (on its agent, for a conversation from before projects): `permission-denied`, with `details.resource` the conversation.",
+            "description": "No `execute` on the agent or flow; or, for one more than one project serves run in one of its projects (the one named, else the conversation's, else a project-scoped key's when it is one of them, else its first), no `call` there for an agent (`caller` or `editor`) or `execute` there for a flow (`executor` or `editor`), asked in place of its own `execute` and of `write` on a named project; otherwise, naming a `projectId` without `write` on it; or a turn run as a participant whose memory the caller may not read (`participant-not-allowed`; for a conversation's stored participant, only to a caller who can read the conversation). A turn runs with its participant's memory (the conversation's stored participant, else `input.participantId`), so running as one takes being them (a person, by their user id) or `write` on the turn's project, as reading their memory does. A turn into a conversation with no participant takes having opened it (the caller `?openedBy=me` names) or `write` on its project (on its agent, for a conversation from before projects): `permission-denied`, with `details.resource` the conversation, to a caller who can read it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -24247,7 +24703,7 @@
             }
           },
           "404": {
-            "description": "Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`); or `input.conversationId` names no conversation of this tenant (`conversation-not-found`), answered before any turn starts, with `options.wait: false` too. A caller who can't read the conversation gets the same answer, byte for byte, in place of the 409 for a turn naming another project, or of the 403 for a conversation with no participant.",
+            "description": "Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`); or `input.conversationId` names no conversation of this tenant (`conversation-not-found`), answered before any turn starts, with `options.wait: false` too. A caller who can't read the conversation gets the same answer, byte for byte, in place of the 409 for a turn naming another project, of the 403 for a turn into it they may not add (a conversation with no participant, or `participant-not-allowed` for its stored participant), or of the 409 for a closed conversation they may not add a turn to.",
             "content": {
               "application/json": {
                 "schema": {
@@ -24257,7 +24713,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body; or `projectId` names a project other than `input.conversationId`'s (`conversation-project-mismatch`, with `details.projectId` and `details.conversationProjectId`): a conversation belongs to one project, so name its own or omit `projectId`; or an erasure of the turn's person (its conversation or its `participantId`) is in progress (`erasure-in-progress`): no new turn starts for them until it completes; or the run's project is suspended (`project-suspended`): no run starts in it until it's restored.",
+            "description": "Idempotency-Key was reused with a different body; or `projectId` names a project other than `input.conversationId`'s (`conversation-project-mismatch`, with `details.projectId` and `details.conversationProjectId`): a conversation belongs to one project, so name its own or omit `projectId`; or an erasure of the turn's person (its conversation or its `participantId`) is in progress (`erasure-in-progress`): no new turn starts for them until it completes; or the run's project is suspended (`project-suspended`): no run starts in it until it's restored; or `input.conversationId` names a closed conversation (`conversation-closed`, with `details.conversationId`): it takes no new turns, so start a new one. It's answered before a run is made, with `options.wait: false` too, and only once the caller may add the turn: the 404 and 403 rules come first.",
             "content": {
               "application/json": {
                 "schema": {
@@ -26055,7 +26511,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body: no scopes, one that is not a system scope, a scope twice, `kindgi:system` beside another, a past `expiresAt`, or an empty label.",
+            "description": "Malformed request body: no scopes, one that is not a system scope, a scope twice, `kindgi:system` beside another, a past `expiresAt`, or an empty label; on a runtime serving one tenant, any scope but `system:license`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -26075,7 +26531,7 @@
             }
           },
           "403": {
-            "description": "A tenant's key or session (`system-principal-required`); a scoped system key (`system-scope-missing`, `details.scope` `kindgi:system`); a key that would outlive the key minting it (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a full key minted by another system key without `expiresAt` (`system-key-expiry-required`: only the deployment's own token mints one that never expires).",
+            "description": "A tenant's key or session (`system-principal-required`); a scoped system key (`system-scope-missing`, `details.scope` `kindgi:system`; on a runtime serving one tenant, `system-key-scope-not-served` for one holding anything but `system:license`); a key that would outlive the key minting it (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a full key minted by another system key without `expiresAt` (`system-key-expiry-required`: only the deployment's own token mints one that never expires).",
             "content": {
               "application/json": {
                 "schema": {
@@ -26125,7 +26581,7 @@
             }
           }
         },
-        "description": "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. A runtime serving one tenant has no system keys: there, the deployment's own token is that tenant's, and this route isn't mounted.",
+        "description": "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. On a runtime serving one tenant, only the deployment's own token reaches the system keys, and a key holds `system:license` alone: it reads `GET /v1/license` and `GET /v1/license/usage`, for the license renewal, and every other route refuses it.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -26182,7 +26638,7 @@
             }
           },
           "403": {
-            "description": "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`).",
+            "description": "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`; on a runtime serving one tenant, `system-key-scope-not-served` for one holding anything but `system:license`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -26192,7 +26648,7 @@
             }
           }
         },
-        "description": "The operator's system keys (`kgi_sy_…`) on a runtime serving many tenants: each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them.",
+        "description": "The operator's system keys (`kgi_sy_…`): each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them; on a runtime serving one tenant, the deployment's own token alone.",
         "security": [
           {
             "bearerAuth": []
@@ -26239,7 +26695,7 @@
             }
           },
           "403": {
-            "description": "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`).",
+            "description": "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`; on a runtime serving one tenant, `system-key-scope-not-served` for one holding anything but `system:license`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -26289,7 +26745,7 @@
             }
           }
         },
-        "description": "Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.",
+        "description": "Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them; on a runtime serving one tenant, the deployment's own token alone.",
         "parameters": [
           {
             "name": "keyId",
@@ -26578,6 +27034,136 @@
             "description": "The tenant's id."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "systemTenants.update",
+        "summary": "Rename a tenant",
+        "tags": [
+          "system-tenants"
+        ],
+        "responses": {
+          "204": {
+            "description": "Renamed, or already so. No body."
+          },
+          "400": {
+            "description": "A malformed body or a field out of its rules (`bad-input`), or a field other than `name` and `slug` (`unknown-field`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No tenant with that id, or a purged one (`tenant-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another tenant has the slug (`tenant-slug-taken`); the server's verified sign-in domains name the tenant by its current slug, or name the new one (`tenant-slug-in-config`); the tenant is closing (`tenant-closing`); its setup hasn't finished (`tenant-setup-pending`); or an Idempotency-Key reused with another body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Changes its name, its slug, or both, as the tenant's own admins can (`PATCH /v1/tenant`); a field left out stays as it is. Its id stays. The same values again change nothing. Takes `system:tenants`. A closing tenant is refused (`409 tenant-closing`). A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantPatch"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []
@@ -27200,6 +27786,165 @@
         ]
       }
     },
+    "/v1/system/tenants/{tenantId}/purge": {
+      "post": {
+        "operationId": "systemTenants.purge",
+        "summary": "Purge a closed tenant, for good",
+        "tags": [
+          "system-tenants"
+        ],
+        "responses": {
+          "200": {
+            "description": "What it deleted, and what of it is left.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemTenantPurge"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No `confirm`, or one that isn't the tenant's slug (`tenant-slug-mismatch`). Nothing was changed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:purge` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No tenant with that id (`tenant-not-found`). A purged one is found, for a run again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Nothing was changed: the tenant isn't closing (`tenant-not-closing`), or its export window is still open (`tenant-export-window-open`); the runtime has nowhere set to keep purge records (`purge-record-unset`), or lacks the setting that reaches what the tenant holds (`purge-setting-missing`); or an Idempotency-Key reused with another body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "This runtime doesn't purge tenants (`tenant-purge-unsupported`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Deleting the tenant's authorization store failed (`authz-store-delete-failed`): the message says what that left. Run it again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Deletes a `closing` tenant whose 30-day export window has passed: every row of it, its artifacts' bytes and its authorization store. Once nothing of it is left, its purge record is written, so a restore from an older backup purges it again, and it's marked purged: its tenants row stays, and nothing of it signs in or is served. Then, once each server has seen the mark, it deletes again what work under way at the mark wrote meanwhile. Irreversible. `confirm` is the tenant's slug, a second check on the id. It answers when done. Safe to run again: a run that stopped part-way (`complete: false`, or a request that ended before its answer) is finished by the next, and on a tenant already purged it deletes what was written after its mark, leaving its mark and its record as they were. A run again is a new request: a new Idempotency-Key, or none. Takes its own scope, `system:tenants:purge`, which no other scope includes, or `kindgi:system`.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurgeTenantBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/system/whoami": {
       "get": {
         "operationId": "systemKeys.whoami",
@@ -27229,7 +27974,7 @@
             }
           },
           "403": {
-            "description": "A tenant's key or session (`system-principal-required`).",
+            "description": "A tenant's key or session (`system-principal-required`). On a runtime serving one tenant, the deployment's own token too (`system-principal-required`), a system key (`system-scope-missing`), and one holding anything but `system:license` (`system-key-scope-not-served`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -27239,7 +27984,7 @@
             }
           }
         },
-        "description": "A system key's own id, scopes and expiry, for a service checking its key. Any system principal; a tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key.",
+        "description": "A system key's own id, scopes and expiry, for a service checking its key: any system principal, on a runtime serving many tenants. A tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key. A runtime serving one tenant answers no one here: its own token is that tenant's outside `/v1/system/keys`, and a system key reads the license routes alone.",
         "security": [
           {
             "bearerAuth": []
@@ -27565,6 +28310,296 @@
             }
           }
         },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/usage": {
+      "get": {
+        "operationId": "systemUsage.read",
+        "summary": "Read usage across tenants",
+        "tags": [
+          "system-usage"
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of groups.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsagePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A window, filter, `limit` or `cursor` this route can't read (`bad-input`), naming which.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:usage:read` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Records are counted when the counted thing happens, exactly once (the kinds `kind` lists, each run with its class). `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A test tenant's usage, and one whose setup is pending, are never in the answer, even when `tenantId` names one. Takes `system:usage:read`; the access record marks a read across every tenant, or of the one named. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404.",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": true,
+            "description": "Records at or after this time: a time with a zone, such as `2026-11-01T00:00:00Z`."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": true,
+            "description": "Records before this time. At most 92 days after `from`."
+          },
+          {
+            "name": "groupBy",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Comma-separated, each once: `tenant`, `project`, `agent`, `kind`, `class`, `state`, `day` (the UTC date). Default `tenant,kind`."
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Only these kinds, comma-separated (`run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`)."
+          },
+          {
+            "name": "class",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Only these run classes, comma-separated (`production`, `staging`, `dry-run`, `replay`, `eval`, `child`)."
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Only these states, comma-separated: `on`, `off` (`project.production`); `completed`, `failed`, `cancelled` (`run.ended`); `escalation` (`approval.requested`, an escalation's next tier); `approved`, `rejected`, `withdrawn`, `escalated`, `expired` (`approval.decided`)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000
+            },
+            "required": false,
+            "description": "Groups a page: 1 to 10000, default 1000."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "The previous page's `nextCursor`."
+          },
+          {
+            "name": "tenantId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "Only this tenant."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/usage": {
+      "get": {
+        "operationId": "usage.read",
+        "summary": "Read your workspace's usage",
+        "tags": [
+          "usage"
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of groups.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsagePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A window, filter, `limit` or `cursor` this route can't read (`bad-input`), naming which.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The projects you may read can't be listed on this deployment, so usage across projects can't be limited to them (`permission-denied`): ask for one with `projectId`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Your workspace's usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Over the projects you may read: a tenant admin's covers every project and the records with none; anyone else's, only the projects they may read, and one they can't read is absent rather than an error. `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404. Model-call cost is on `/v1/cost`.",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": true,
+            "description": "Records at or after this time: a time with a zone, such as `2026-11-01T00:00:00Z`."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": true,
+            "description": "Records before this time. At most 92 days after `from`."
+          },
+          {
+            "name": "groupBy",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Comma-separated, each once: `project`, `agent`, `kind`, `class`, `state`, `day` (the UTC date). Default `project,kind`."
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Only these kinds, comma-separated (`run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`)."
+          },
+          {
+            "name": "class",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Only these run classes, comma-separated (`production`, `staging`, `dry-run`, `replay`, `eval`, `child`)."
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Only these states, comma-separated: `on`, `off` (`project.production`); `completed`, `failed`, `cancelled` (`run.ended`); `escalation` (`approval.requested`, an escalation's next tier); `approved`, `rejected`, `withdrawn`, `escalated`, `expired` (`approval.decided`)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000
+            },
+            "required": false,
+            "description": "Groups a page: 1 to 10000, default 1000."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "The previous page's `nextCursor`."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "Only this project. One you can't read gives an empty answer."
+          }
+        ],
         "security": [
           {
             "bearerAuth": []
@@ -34740,7 +35775,7 @@
             }
           },
           "404": {
-            "description": "No conversation with that id under this tenant.",
+            "description": "No conversation with that id under this tenant, or one the caller can't read (`read` on its project, or on its agent for one from before projects): the same answer, byte for byte.",
             "content": {
               "application/json": {
                 "schema": {
@@ -34807,8 +35842,18 @@
               }
             }
           },
+          "403": {
+            "description": "The caller can read the conversation, and has no `execute` on its agent or, for an agent more than one project serves, no `call` on the conversation's project (`caller` or `editor`). Closing one doesn't take reading it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
-            "description": "No conversation with that id under this tenant.",
+            "description": "No conversation with that id under this tenant, or one the caller may not close and can't read: the same answer, byte for byte.",
             "content": {
               "application/json": {
                 "schema": {
@@ -34906,8 +35951,18 @@
               }
             }
           },
+          "403": {
+            "description": "The caller can read the conversation, and has no `write` on its project (on its agent, for one from before projects).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
-            "description": "No conversation with that id under this tenant, or it is unregistered already.",
+            "description": "No conversation with that id under this tenant, or it is unregistered already, or the caller may not unregister it and can't read it: the same answer, byte for byte.",
             "content": {
               "application/json": {
                 "schema": {
@@ -35016,7 +36071,7 @@
             }
           },
           "404": {
-            "description": "No conversation with that id under this tenant.",
+            "description": "No conversation with that id under this tenant, or one the caller can't read (`read` on its project, or on its agent for one from before projects): the same answer, byte for byte.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36859,6 +37914,93 @@
         ]
       }
     },
+    "/v1/proposals/improve/estimate": {
+      "post": {
+        "operationId": "proposals.improveEstimate",
+        "summary": "Estimate an improvement pass",
+        "tags": [
+          "proposals"
+        ],
+        "responses": {
+          "200": {
+            "description": "The estimated cost.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImprovementPassEstimate"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body (`bad-input`). Or `reference-out-of-scope`: the test set isn't registered in the agent's project, its org or the tenant, or a project or segment scope doesn't reach the agent (`details.issues`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`fromVersion` (or the version serving the scope) is not an active version (`agent-version-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`improve-unsupported`: this runtime runs no improvement passes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the agent's project doesn't reach answers `400 reference-out-of-scope`, exactly as `improve` would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count × the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt pass's one-off drafting of its templates — a pass can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the pass is expected to spend its whole budget; the pass checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImproveBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/proposals/{proposalId}": {
       "get": {
         "operationId": "proposals.get",
@@ -37985,7 +39127,7 @@
             }
           },
           "403": {
-            "description": "Not the deployment's own token, a system key holding `system:license`, or an admin of the one tenant it serves (`license-operator-only`).",
+            "description": "Not the deployment's own token, a system key holding `system:license`, or an admin of the one tenant it serves (`license-operator-only`). On a runtime serving one tenant, a system key holding anything but `system:license` (`system-key-scope-not-served`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -38042,7 +39184,7 @@
             }
           },
           "403": {
-            "description": "Not the deployment's own token or a system key holding `system:license` (`license-operator-only`).",
+            "description": "Not the deployment's own token or a system key holding `system:license` (`license-operator-only`). On a runtime serving one tenant, a system key holding anything but `system:license` (`system-key-scope-not-served`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -45161,7 +46303,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict (`identity-provider-already-registered`: a provider with this id is registered). Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.",
             "content": {
               "application/json": {
                 "schema": {
@@ -45468,7 +46610,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or this deployment has no secrets store (`identity-providers-need-secrets-store`, `KINDGI_SECRETS_BACKEND`): a provider's client secret and keys are references into one, so no provider is added or changed until it has one.",
             "content": {
               "application/json": {
                 "schema": {
@@ -45760,7 +46902,7 @@
             }
           }
         },
-        "description": "Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+        "description": "Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).",
         "security": [
           {
             "bearerAuth": []
@@ -45845,7 +46987,7 @@
             }
           }
         },
-        "description": "Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+        "description": "Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -46140,7 +47282,7 @@
               "type": "boolean"
             },
             "required": false,
-            "description": "With `true`, only people with an open invitation (`invite`: pending or expired), who haven't signed in yet. An older runtime ignores it and lists everyone (from 0.1.8.1)."
+            "description": "With `true`, only people with an open invitation (`invite`: pending or expired), who haven't signed in yet. An older runtime ignores it and lists everyone (from 0.1.9)."
           },
           {
             "name": "include",
@@ -46592,7 +47734,7 @@
             }
           }
         },
-        "description": "For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).",
+        "description": "For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.9).",
         "parameters": [
           {
             "name": "userId",
@@ -46660,7 +47802,7 @@
             }
           }
         },
-        "description": "Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+        "description": "Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.9).",
         "security": [
           {
             "bearerAuth": []
@@ -46755,7 +47897,7 @@
             }
           }
         },
-        "description": "A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+        "description": "A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -46874,7 +48016,7 @@
             }
           }
         },
-        "description": "A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+        "description": "A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -46993,7 +48135,7 @@
             }
           }
         },
-        "description": "10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+        "description": "10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -47112,7 +48254,7 @@
             }
           }
         },
-        "description": "Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+        "description": "Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -47191,7 +48333,7 @@
             }
           }
         },
-        "description": "Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).",
+        "description": "Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).",
         "parameters": [
           {
             "name": "userId",
@@ -47289,7 +48431,7 @@
             }
           }
         },
-        "description": "For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.8.1).",
+        "description": "For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.9).",
         "parameters": [
           {
             "name": "userId",
@@ -47893,7 +49035,7 @@
             }
           },
           "400": {
-            "description": "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. When `image-unverifiable` comes from a failed registry read, `details.cause` names why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't a readable archive), or `image-limit-exceeded`, with the bound in `details.limit` (`manifest`, `file`, `layer`, `read` or `unpack`: the image's own, so the same image is refused again; `tenant-unpack-hour`: the tenant's, which passes). A tool that declares or sends a model provider's key is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered.",
+            "description": "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. When `image-unverifiable` comes from a failed registry read, `details.cause` names why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't a readable archive), or `image-limit-exceeded`, with the bound in `details.limit` (`manifest`, `file`, `layer`, `read` or `unpack`: the image's own, so the same image is refused again). The tenant's hour of image reads passes, so it answers `429`. A tool that declares or sends a model provider's key is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47953,7 +49095,7 @@
             }
           },
           "429": {
-            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi Cloud): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
+            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi Cloud): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again. Or `details.limit: \"tenant-unpack-hour\"`, on a server that bounds each tenant's image reads (Kindgi Cloud): this tenant's image reads unpacked as much as they may in an hour. Nothing was deployed; `Retry-After` says when there's room again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -51921,6 +53063,122 @@
         ]
       }
     },
+    "/v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent": {
+      "post": {
+        "operationId": "projects.judgingRules.queueRecent",
+        "summary": "Queue a rule's recent matches",
+        "tags": [
+          "judging"
+        ],
+        "responses": {
+          "200": {
+            "description": "The matches, split into queued, already queued and already reviewed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgingRecentQueued"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such rule (`judging-rule-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already judged or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "ruleId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JudgingQueueRecentInput"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/projects/{projectId}/judging-queue": {
       "get": {
         "operationId": "projects.judgingQueue.list",
@@ -52051,7 +53309,7 @@
             "in": "query",
             "schema": {
               "type": "integer",
-              "minimum": 1,
+              "minimum": 0,
               "maximum": 100,
               "default": 25
             },
@@ -53455,6 +54713,116 @@
           }
         },
         "description": "Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the tenant's `limits`, and a deployment that publishes where its calls come from adds `egress`.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "tenant.update",
+        "summary": "Rename the caller's tenant",
+        "tags": [
+          "tenant"
+        ],
+        "responses": {
+          "204": {
+            "description": "Renamed, or already so. No body."
+          },
+          "400": {
+            "description": "A malformed body or a field out of its rules (`bad-input`), or a field other than `name` and `slug` (`unknown-field`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant id on the token does not resolve to a stored row.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another tenant has the slug (`tenant-slug-taken`); the server's verified sign-in domains name the tenant by its current slug, or name the new one (`tenant-slug-in-config`); the tenant is closing (`tenant-closing`); its setup hasn't finished (`tenant-setup-pending`); or an Idempotency-Key reused with another body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Changes its name, its slug, or both; a field left out stays as it is. Its id stays, so whatever names it by its id keeps working. The console's addresses carry the slug: after a new one, links with the old one stop opening the tenant, and another tenant may take the old one. The same values again change nothing. Takes `admin` on the tenant. A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantPatch"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []
@@ -59499,6 +60867,133 @@
             },
             "required": true,
             "description": "The key's id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore": {
+      "post": {
+        "operationId": "projects.sites.restorePerson",
+        "summary": "Let a person removed in Kindgi back in, through their site",
+        "tags": [
+          "sites"
+        ],
+        "responses": {
+          "200": {
+            "description": "The person, in the tenant again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SitePersonRestoreResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No site with that id in this project (`site-not-found`), or the site has no link to that person (`site-person-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Refused, with nothing changed (`site-person-restore-refused`, `details.reason`: `not-removed`, `left` or `linked-elsewhere`), or an idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "For one of the site's people removed in Kindgi (`POST /v1/identity/users/{userId}/unregister`) while the site still knows them: they're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` for someone in the tenant whose site still knows them; `left` when their site said they left it, removed in Kindgi too or not: a site forgets a person who leaves, and signs them in as a new person if they come back; `linked-elsewhere` when they also sign in another way (through another site, or the tenant's own sign-in), which letting them back in would open too: add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "siteId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The site id (a UUID)."
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "The person's id."
           },
           {
             "name": "Idempotency-Key",

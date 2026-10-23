@@ -904,7 +904,14 @@ describe('corrections graded on the replay', () => {
         ],
       },
     ]);
-    expect(summary.corrections).toEqual({ checked: 2, passed: 1 });
+    expect(summary.corrections).toEqual({
+      checked: 2,
+      passed: 1,
+      judgments: [
+        { judgmentId: 'j-amount', pass: false },
+        { judgmentId: 'j-no-email', pass: true },
+      ],
+    });
     // The new fields are exactly what the clients read: the wire schema accepts them.
     expect(wireErrors({ summary, perCase })).toEqual([]);
     expect(out.error).toBeUndefined();
@@ -941,7 +948,11 @@ describe('corrections graded on the replay', () => {
         differences: [{ tool: 'acme.refund', kind: 'count', expected: 1, actual: 2, refused: 1 }],
       },
     ]);
-    expect(summary.corrections).toEqual({ checked: 1, passed: 0 });
+    expect(summary.corrections).toEqual({
+      checked: 1,
+      passed: 0,
+      judgments: [{ judgmentId: 'j-amount', pass: false }],
+    });
   });
 
   test('a correction passes only when every repetition passes (k of n)', async () => {
@@ -977,7 +988,12 @@ describe('corrections graded on the replay', () => {
         ],
       },
     ]);
-    expect(summary.corrections).toEqual({ checked: 1, passed: 0 });
+    // Failed on one repetition: failed, by its judgment too.
+    expect(summary.corrections).toEqual({
+      checked: 1,
+      passed: 0,
+      judgments: [{ judgmentId: 'j-amount', pass: false }],
+    });
   });
 
   test('restricted-only grades only the corrections recorded under a restricted class', async () => {
@@ -1006,7 +1022,11 @@ describe('corrections graded on the replay', () => {
     expect(perCase[0]?.corrections).toEqual([
       { judgmentId: 'j-restricted', pass: true, repetitionsPassed: 1, repetitions: 1 },
     ]);
-    expect(summary.corrections).toEqual({ checked: 1, passed: 1 });
+    expect(summary.corrections).toEqual({
+      checked: 1,
+      passed: 1,
+      judgments: [{ judgmentId: 'j-restricted', pass: true }],
+    });
   });
 
   test('a case with no corrections has no correction fields and no summary tally', async () => {
@@ -1017,5 +1037,54 @@ describe('corrections graded on the replay', () => {
     expect(perCase[0]?.corrections).toBeUndefined();
     expect(perCase[0]?.correctionDifferences).toBeUndefined();
     expect(summary.corrections).toBeUndefined();
+  });
+});
+
+describe('what the replays cost', () => {
+  /** Each case's cost per repetition, as its replays report it (`undefined`: none). */
+  const costing = (costs: Record<string, readonly (number | undefined)[]>) => {
+    const seen = new Map<string, number>();
+    return (input: EvalRunSubjectInvokeInput): EvalRunSubjectInvokeOutcome => {
+      const caseId = input.replay?.of as unknown as string;
+      const rep = seen.get(caseId) ?? 0;
+      seen.set(caseId, rep + 1);
+      const costUsd = costs[caseId]?.[rep];
+      return {
+        ...(answers[caseId] as EvalRunSubjectInvokeOutcome),
+        ...(costUsd !== undefined && { costUsd }),
+      };
+    };
+  };
+
+  test('each case keeps one per repetition; the summary averages the repetition totals, with their spread', async () => {
+    const { summary, perCase } = await compare({
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 2 },
+      answer: costing({ 'case-a': [0.1, 0.14], 'case-b': [0.2, 0.2] }),
+    });
+    expect(perCase.find((c) => c.caseId === 'case-a')?.costUsd).toEqual([0.1, 0.14]);
+    expect(perCase.find((c) => c.caseId === 'case-b')?.costUsd).toEqual([0.2, 0.2]);
+    // Totals 0.30 and 0.34: averaged 0.32, spread 0.04.
+    expect(summary.costUsd?.candidate).toBeCloseTo(0.32, 10);
+    expect(summary.costUsd?.spread).toBeCloseTo(0.04, 10);
+    expect(summary.costUsd?.cases).toBe(2);
+    expect(wireErrors({ summary, perCase })).toEqual([]);
+  });
+
+  test('a case with a repetition that reported none has none, and is not totalled', async () => {
+    const { summary, perCase } = await compare({
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 2 },
+      answer: costing({ 'case-a': [0.1, 0.3], 'case-b': [0.2, undefined] }),
+    });
+    expect(perCase.find((c) => c.caseId === 'case-b')?.costUsd).toBeUndefined();
+    expect(summary.costUsd).toEqual({ candidate: 0.2, spread: expect.closeTo(0.2, 10), cases: 1 });
+  });
+
+  test('one repetition has no spread; replays that report no cost leave the summary without one', async () => {
+    const one = await compare({ answer: costing({ 'case-a': [0.1], 'case-b': [0.2] }) });
+    expect(one.summary.costUsd?.candidate).toBeCloseTo(0.3, 10);
+    expect(one.summary.costUsd).not.toHaveProperty('spread');
+    const none = await compare({});
+    expect(none.summary.costUsd).toBeUndefined();
+    expect(none.perCase.every((c) => c.costUsd === undefined)).toBe(true);
   });
 });

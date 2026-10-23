@@ -68,6 +68,13 @@ const IMAGE_LIMIT_HINTS: Readonly<Record<string, string>> = {
     "The pack's index, /app/index.json, is past the size the server reads. Every tool, " +
     'agent, flow and guardrail in the pack is in it with its schemas: make the largest ' +
     'schemas smaller, or split the pack into two.',
+};
+
+/**
+ * `rate-limit-exceeded`'s hint by its `details.limit`, for a wait longer
+ * than the command waits out.
+ */
+const RATE_LIMIT_HINTS: Readonly<Record<string, string>> = {
   'tenant-unpack-hour':
     "This tenant's image reads unpacked as much as the server allows in an hour. " +
     'Deploy again after the wait the message names; an image `kindgi build` made unpacks ' +
@@ -78,12 +85,19 @@ const IMAGE_LIMIT_HINTS: Readonly<Record<string, string>> = {
 const own = (table: Readonly<Record<string, string>>, key: string | undefined) =>
   key !== undefined && Object.hasOwn(table, key) ? table[key] : undefined;
 
-/** The hint for a refusal: by its code, or for `image-unverifiable` by its cause. */
+/**
+ * The hint for a refusal: by its code, for `image-unverifiable` by its
+ * cause, or for `rate-limit-exceeded` by its limit.
+ */
 function hintFor(error: {
   readonly code: string;
   readonly cause?: string;
   readonly limit?: string;
 }): string | undefined {
+  if (error.code === 'rate-limit-exceeded') {
+    const byLimit = own(RATE_LIMIT_HINTS, error.limit);
+    if (byLimit !== undefined) return byLimit;
+  }
   if (error.code === 'image-unverifiable') {
     const byLimit =
       error.cause === 'image-limit-exceeded' ? own(IMAGE_LIMIT_HINTS, error.limit) : undefined;

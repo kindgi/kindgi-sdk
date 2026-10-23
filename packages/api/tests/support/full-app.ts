@@ -361,6 +361,10 @@ const noopJudgingQueue: JudgingQueueBinding = {
     kind: 'err',
     error: { code: 'judging-rule-not-found', message: 'noop' },
   }),
+  queueRecent: async () => ({
+    kind: 'err',
+    error: { code: 'judging-rule-not-found', message: 'noop' },
+  }),
   unregisterRule: async () => ({ unregistered: false }),
   getRule: async () => null,
   listRules: async () => ({ data: [], hasMore: false }),
@@ -757,6 +761,15 @@ export function fullAppInput(): CreateAppInput {
       setLimits: async () => {
         throw new Error('not used: no system principal in the sweeps');
       },
+    },
+    usage: {
+      acrossTenants: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
+      ofTenant: async () => ({
+        kind: 'ok',
+        page: { data: [], watermark: '2026-10-01T00:00:00.000Z' },
+      }),
     },
   };
 }

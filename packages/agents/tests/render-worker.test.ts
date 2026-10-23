@@ -256,9 +256,10 @@ describe('the built renderer', () => {
 
   test('close() settles after an idle render, so a top-level await on it doesn’t hang', async () => {
     // The fixture renders, then `await`s close() and prints DONE. An idle
-    // worker is unref'd, so without stop() re-refing it before the kill the
-    // process would exit before close() settled — execFile would then see a
-    // non-zero exit (an unsettled top-level await) and no DONE.
+    // worker is unref'd, so unless stop() holds the loop with its own ref'd
+    // timer while it waits, the process could exit before close() settled —
+    // execFile would then see a non-zero exit (an unsettled top-level await)
+    // and no DONE.
     const { stdout } = await promisify(execFile)(
       process.execPath,
       [

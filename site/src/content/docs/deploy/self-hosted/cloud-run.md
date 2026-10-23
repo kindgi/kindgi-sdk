@@ -134,8 +134,8 @@ built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.1.8" \
-  quay.io/kindgi/runtime:0.1.8@sha256:48b81defe532ec284abb2a9cd8fac5ff7543dea998e7cbf67704a163ce183358
+docker buildx imagetools create --tag "$REPO/runtime:0.1.9" \
+  quay.io/kindgi/runtime:0.1.9@sha256:604e283abed492f5bd50c88dcf582d13e38e19534ee7ddad817ba08012f99523
 ```
 
 - `REPO` is the repository's address, from the foundation's output.
@@ -767,6 +767,21 @@ A new grant can take a minute or two to apply.
   see the caller. Behind an external Application Load Balancer, set `"2"`:
   it adds the client and then its own address
   ([Google: X-Forwarded-For header](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).
+- **Database timeouts** (they need runtime 0.1.9 or later): the server's
+  connections carry their own, 60 s a statement, 30 s waiting for a lock,
+  and 30 s idle in a transaction, and a query waits at most 10 s for
+  one of the server's pooled connections. `KINDGI_DB_STATEMENT_TIMEOUT_MS`,
+  `KINDGI_DB_LOCK_TIMEOUT_MS`, `KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` and
+  `KINDGI_DB_POOL_WAIT_TIMEOUT_MS` in `server_env` change them; `0` turns
+  one off. A GET or HEAD the statement or lock timeout or the pool wait
+  ends answers 503 `database-busy` with `Retry-After: 5` (under `/auth/`, a
+  browser signing in is sent back to the sign-in page instead), any other
+  request 500, and the log has a `db` warning naming the setting, its value
+  and its variable. The instance itself ends any other session left idle in a
+  transaction for 10 minutes (`database_idle_in_transaction_timeout_ms`, `0`
+  for off). An instance from before that variable gets the flag at the next
+  apply, in place: Cloud SQL lists it as needing no restart
+  ([Cloud SQL: configure database flags](https://docs.cloud.google.com/sql/docs/postgres/flags)).
 - **Erasures, after a restore:** a memory erasure keeps a keyed hash of whom
   it erased, so it can be replayed after you restore a backup. The key goes
   in Secret Manager, named in `server_secret_env`:

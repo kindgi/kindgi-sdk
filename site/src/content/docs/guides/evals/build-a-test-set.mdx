@@ -368,6 +368,12 @@ One of them:
   `judgmentIds` names every judgment counted in the item, and
   `restricted.judgmentIds` the restricted ones. A test set built before
   judgment ids has neither.
+- **`corrections`** (runtime 0.1.11 or later) has the run's corrections
+  that say [what it should have done](../judge-a-runs-output/#say-what-it-should-have-done),
+  whatever their verdict: each one's `calls` and `notCalled`, its
+  `judgmentId`, its `judgeClassId` when it had a class, and
+  `restricted: true` when that class was restricted. A case without them
+  has no `corrections`.
 - **`output`** is the run's output, as it was judged.
 - **`context`**, for an agent turn, is what the turn had before it answered:
   the conversation so far, up to 200 messages, and what it retrieved. A

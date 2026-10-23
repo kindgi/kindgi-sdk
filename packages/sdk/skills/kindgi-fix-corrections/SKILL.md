@@ -22,6 +22,7 @@ sources:
   - packages/cli/src/commands/runs.ts
   - packages/cli/src/commands/blocks.ts
   - packages/cli/src/commands/agents.ts
+  - packages/cli/src/commands/eval-runs.ts
   - packages/cli/src/commands/test.ts
 ---
 
@@ -61,8 +62,8 @@ corrections and the tools to change each layer.
    out a rule the agent got wrong, tighten a rule, or change how the agent talks
    — never loosen the policy.
 2. **Making a version live is the person's.** You publish a new version and
-   *ask* for it with `kindgi agents promote … --reason`. When the scope's gate
-   policy has `approvals`, the promotion waits for a second person
+   *ask* for it with `kindgi agents promote … --reason`. When the scope's
+   release gate policy has `approvals`, the promotion waits for a second person
    (`pending-approval`) — don't try to get around it.
 3. **The pulled runs hold real conversations.** A run you pull is a real
    customer's. Keep it out of git. Write every pack test with invented data
@@ -112,6 +113,13 @@ step by step, where the agent's tool calls and their arguments are. Between
 the correction's reason and the run, you have what the agent did and what it
 should have done.
 
+An expert can also have said exactly what the run should have done (runtime
+0.1.11 or later): the judgment then has a `correction`, with `calls` (each
+`{ tool, args }`, with only the argument fields that matter) and `notCalled`
+(the tools it shouldn't have called). Take those as what the pack test
+asserts. It's the expert's: never record or change a correction yourself.
+Test cases built from the run check each new version against it.
+
 ## Step 2 — Sort each correction to its layer
 
 | The expert wrote | Where it belongs | How you change it |
@@ -119,7 +127,7 @@ should have done.
 | "Never refund shipping", "final sale: no refund", "over 50 on a first order, ask a person" | a rule in **code** — the tool checks it every time; a cap sends the case to a tool that always asks | edit the tool and add a test (your language's `kindgi-authoring-tools`), then `kindgi deploy` |
 | "Our return window is 14 days, not 30" | a **setting** the owner can change | publish the settings block, derive a version that pins it (Step 4) |
 | "Always have a person approve a refund" | an **approval rule** — a tenant policy that makes a tool always ask; it keys on the tool, not its arguments | a person sets it (the owner or the approver); point them to it, don't change it in code |
-| "Store credit before cash", "too stiff", "say when the money arrives" | the agent's **instructions** | leave it to Improve, run on the test set (`kindgi proposals improve`, the improve guide) |
+| "Store credit before cash", "too stiff", "say when the money arrives" | the agent's **instructions** | leave it to Improve, run on the test cases (`kindgi proposals improve`, the improve guide) |
 
 If a correction fits none of these, treat it as a code rule when it must
 hold every time, and as instructions when it's a matter of judgment.
@@ -140,9 +148,9 @@ correction** so the mistake can't come back:
   settings block (Step 4). Add a test that the tool reads the setting and
   acts on it.
 - **Instructions for Improve:** you don't write the prompt — you make sure the
-  corrected cases are in a test set, then let a pass try wordings on them
-  (`kindgi proposals improve`). The pass writes a *suggested* change — a
-  proposal — only when a wording does better on those cases, and a person
+  corrected cases are in the test cases, then let an Improve run try wordings
+  on them (`kindgi proposals improve`). It writes a *suggested* change only
+  when a wording does better on those cases, and a person
   decides whether to take it; nothing is applied on its own.
 
 Write tests with invented data (Step 1, rule 3). A correction that belongs
@@ -181,8 +189,21 @@ Deriving needs `publish` on the agent, `blocks publish` needs `write` on the
 project, and promoting needs `promote` — the permission that makes a version
 live, which an agent's admins hold.
 
+If the person keeps test cases built from the corrected runs, try the new
+version on them first:
+
+```sh
+kindgi eval-runs start <test-set-id> --project=<project-id> \
+  --agent=acme-store.refunds --agent-version=1.0.4 --wait
+```
+
+Where an expert said what the run should have done, its summary's
+`corrections` says how many of those the version now passes (`passed` of
+`checked`). No release gate policy checks it: quote it in the promote
+`--reason`.
+
 Either way, ask a person to make the new version live, naming the
-corrections it fixes. Check first what will happen, then promote:
+corrections it fixes. Check first what will happen, then ask:
 
 ```sh
 kindgi agents promote acme-store.refunds 1.0.4 --project=<project-id> --check
@@ -192,14 +213,14 @@ kindgi agents promote acme-store.refunds 1.0.4 --project=<project-id> \
 
 - The scope is `--tenant` (every project), `--org=<org-id>`, or
   `--project=<project-id> [--segment=<key:value>]…` (one project).
-- `--check` changes nothing and answers whether it *would* promote, needs an
-  approval, or fails a gate.
+- `--check` changes nothing and answers whether it *would* make it live,
+  needs an approval, or fails the release gate policy.
 - `--reason` is kept on the record — write what the corrections were, so the
   approver reads the change in plain words.
-- The outcome is `promoted`, or `pending-approval` when the scope's gate policy
-  has `approvals` and a second person must approve — the "a second person
-  checks it" step, working as it should. (Whoever asked can't approve their own
-  request, unless the policy sets `separateApprover: false`.)
+- The outcome is `promoted`, or `pending-approval` when the scope's release
+  gate policy has `approvals` and a second person must approve — the "a
+  second person checks it" step, working as it should. (Whoever asked can't
+  approve their own request, unless the policy sets `separateApprover: false`.)
 
 ## A worked example: the return window
 
@@ -222,7 +243,7 @@ policy, not a one-off.
   version with the new reference. (`agents derive` only re-pins a block the
   version already references, so it can't introduce this one — the deploy
   does.) The schema and value live outside the pack and outside code review, so
-  show them to the person and name them in the promote reason.
+  show them to the person and name them in the `--reason`.
 
 Then ask to make it live: `kindgi agents promote … --reason="Fixes 1
 correction: our return window is 14 days"`. The refund limit — the most a
@@ -235,7 +256,7 @@ tool's code, and the large-refund tool still always asks.
   `kindgi judgments add --run=<run-id> --item=<key> --no --reason=<text>`.
 - The guide for a person:
   <https://docs.kindgi.com/v0.1/guides/evals/fix-what-experts-corrected/>
-- Letting a pass try wordings:
+- Letting Improve try wordings:
   <https://docs.kindgi.com/v0.1/guides/evals/improve-an-agent/>
 - Changing a setting or a prompt by hand:
   <https://docs.kindgi.com/v0.1/guides/evals/change-a-prompt-or-setting/>

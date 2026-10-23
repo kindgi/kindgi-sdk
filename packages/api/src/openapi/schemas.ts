@@ -1481,6 +1481,94 @@ export const TenantAdminContactsSchema: JsonSchema = {
   },
 };
 
+export const PurgeTenantBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['confirm'],
+  properties: {
+    confirm: {
+      type: 'string',
+      minLength: 1,
+      description: "The tenant's slug, a second check on the id.",
+    },
+  },
+};
+
+export const TenantTableRowsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A tenant's rows in one table: the table's name and a count.",
+  required: ['table', 'rows'],
+  properties: {
+    table: { type: 'string' },
+    rows: { type: 'integer', minimum: 1 },
+  },
+};
+
+export const SystemTenantPurgeSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'tenantId',
+    'complete',
+    'alreadyPurged',
+    'deleted',
+    'objectsDeleted',
+    'authzStoreDeleted',
+    'left',
+    'objectsLeft',
+  ],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    complete: {
+      type: 'boolean',
+      description:
+        "`true`: nothing of the tenant is left, its purge record is written, and it's marked purged. `false`: `left` and `objectsLeft` say what is; run it again.",
+    },
+    alreadyPurged: {
+      type: 'boolean',
+      description:
+        'It was marked purged before this run: what this run deleted was written after its mark. Its mark and its record stay as they were.',
+    },
+    purgedAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When it was marked purged. Absent while something of it from before the mark is left.',
+    },
+    deleted: {
+      type: 'array',
+      items: ref('TenantTableRows'),
+      description:
+        "Rows this run deleted, per table with any: table names and counts, never the rows' content.",
+    },
+    objectsDeleted: {
+      type: 'integer',
+      minimum: 0,
+      description: "Objects this run deleted from the artifacts' store.",
+    },
+    authzStoreDeleted: {
+      type: 'boolean',
+      description: 'Whether this run deleted its authorization store.',
+    },
+    left: {
+      type: 'array',
+      items: ref('TenantTableRows'),
+      description:
+        "Rows of it still there afterwards, per table; empty when none are. A table the purge doesn't delete from is named too: report it.",
+    },
+    objectsLeft: {
+      type: 'integer',
+      minimum: 0,
+      description: "Objects still under its prefix in the artifacts' store.",
+    },
+    leftBecause: {
+      type: 'string',
+      description: "Why what's left wasn't deleted, when it's a setting the runtime lacks.",
+    },
+  },
+};
+
 export const SystemWhoamiSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -2187,7 +2275,7 @@ export const ApprovalCollectionPageSchema: JsonSchema = {
       type: 'string',
       enum: ['me'],
       description:
-        '`me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.',
+        '`me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.9, which ignores `decidedBy` and lists them all.',
     },
   },
 };
@@ -2439,6 +2527,17 @@ export const SiteEnrollmentCodeSchema: JsonSchema = {
   properties: {
     code: { type: 'string' },
     expiresAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const SitePersonRestoreResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['user'],
+  description:
+    "A site's person let back in after a removal made in Kindgi (`POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`).",
+  properties: {
+    user: { $ref: '#/components/schemas/UserRecord' },
   },
 };
 
@@ -2912,7 +3011,6 @@ export const ConversationPolicySchema: JsonSchema = {
   additionalProperties: false,
   properties: {
     historyLimit: { type: 'integer', minimum: 1 },
-    autoCloseAfterInactiveSeconds: { type: 'integer', minimum: 1 },
     hitlAfterTurns: { type: 'integer', minimum: 1 },
   },
 };
@@ -4240,7 +4338,7 @@ export const ConversationCollectionPageSchema: JsonSchema = {
       type: 'string',
       enum: ['me'],
       description:
-        "`me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.",
+        "`me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.9, which ignores `openedBy` and lists everyone's.",
     },
   },
 };
@@ -5798,7 +5896,7 @@ export const FixProposalStatusSchema: JsonSchema = {
     'withdrawn',
   ],
   description:
-    "Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.",
+    "Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.",
 };
 
 export const ProposalChangeSchema: JsonSchema = {
@@ -5916,6 +6014,52 @@ export const ProposalEvaluationSchema: JsonSchema = {
     },
     cases: { type: 'integer' },
     better: { type: 'boolean', description: 'Set once the comparison finished.' },
+    rule: {
+      type: 'string',
+      enum: ['better', 'cheaper'],
+      description:
+        "How the candidate is kept. `better`: it beats the recorded outputs by more than the noise. `cheaper`: it's no worse than the current version replayed on the same cases (beyond that run's spread) and costs less (beyond the cost's own spread), with no errored case; `better` may then be false while the status is `evaluated`. Absent: `better`.",
+    },
+    costUsd: { $ref: '#/components/schemas/ProposalCost' },
+    decisions: { $ref: '#/components/schemas/ProposalDecisions' },
+  },
+};
+
+export const ProposalCostSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['current', 'candidate'],
+  description:
+    "What the replays cost in model calls on the same cases, in US dollars, averaged over the repetitions: the current version's and the candidate's. Set for a change held to the current version once both comparisons finished, when both reported a cost.",
+  properties: {
+    current: { type: 'number', minimum: 0 },
+    candidate: { type: 'number', minimum: 0 },
+  },
+};
+
+export const ProposalDecisionsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['checked', 'held', 'broken', 'stillWrong'],
+  description:
+    "The corrections the current version was checked on, replayed on the same cases, against the candidate's. A model-settings change is kept only with at least one checked and none broken. Set once both comparisons finished.",
+  properties: {
+    checked: { type: 'integer', minimum: 0 },
+    held: {
+      type: 'integer',
+      minimum: 0,
+      description: 'The current version passed them, and so did the candidate.',
+    },
+    broken: {
+      type: 'integer',
+      minimum: 0,
+      description: "The current version passed them; the candidate didn't.",
+    },
+    stillWrong: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Neither passed them. The rest of `checked` the candidate fixed.',
+    },
   },
 };
 
@@ -6114,7 +6258,7 @@ export const ImprovementPassSchema: JsonSchema = {
     comparisons: {
       type: 'array',
       description:
-        'Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.',
+        'Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.',
       items: {
         type: 'object',
         additionalProperties: false,
@@ -6228,6 +6372,43 @@ export const ImproveBodySchema: JsonSchema = {
       properties: {
         maxCostUsd: { type: 'number', exclusiveMinimum: 0, maximum: 100 },
         maxCandidates: { type: 'integer', minimum: 1, maximum: 200 },
+      },
+    },
+  },
+};
+
+export const ImprovementPassEstimateSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "What a pass this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.",
+  required: ['maxCostUsd', 'basis'],
+  properties: {
+    estimatedCostUsd: {
+      type: 'string',
+      description:
+        'The estimate (US dollars): `min(maxCostUsd, basis.replays × basis.meanRunCostUsd)`. Absent when the version has no cost history.',
+    },
+    maxCostUsd: {
+      type: 'string',
+      description: 'The budget cap the estimate is clamped to (`budget.maxCostUsd`, US dollars).',
+    },
+    basis: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['replays'],
+      description: 'What the estimate is built from.',
+      properties: {
+        replays: {
+          type: 'integer',
+          minimum: 0,
+          description: "How many replay runs the pass's comparisons would make.",
+        },
+        meanRunCostUsd: {
+          type: 'string',
+          description:
+            "The version's mean cost over its recent completed runs (US dollars). Absent with no cost history.",
+        },
       },
     },
   },
@@ -6550,6 +6731,16 @@ export const BlobMetaSchema: JsonSchema = {
       description: 'Who uploaded it: `user:<id>` or `service_account:<id>`.',
     },
     createdAt: { type: 'string', format: 'date-time' },
+    bucket: {
+      type: 'string',
+      description:
+        "The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.",
+    },
+    key: {
+      type: 'string',
+      description:
+        "The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one.",
+    },
   },
 };
 
@@ -8442,7 +8633,7 @@ export const EvalSampleSchema: JsonSchema = {
   additionalProperties: false,
   required: ['part', 'seed', 'holdOutShare'],
   description:
-    'Only part of the test set\'s cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified by judgment (the cases with a "no" and the others are split on their own, a stratum of two or more giving each part at least one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).',
+    'Only part of the test set\'s cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a "no" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).',
   properties: {
     part: { type: 'string', enum: ['search', 'hold-out'] },
     seed: { type: 'string', minLength: 1, maxLength: 200 },
@@ -8742,7 +8933,48 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
           minimum: 0,
           description: 'How many passed (every repetition passed).',
         },
+        judgments: {
+          type: 'array',
+          description:
+            'Each correction graded, by its judgment: whether it passed (every repetition did). What an improvement pass compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['judgmentId', 'pass'],
+            properties: {
+              judgmentId: { type: 'string' },
+              pass: { type: 'boolean' },
+            },
+          },
+        },
       },
+    },
+    costUsd: { $ref: '#/components/schemas/JudgedComparisonCost' },
+  },
+};
+
+export const JudgedComparisonCostSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['candidate', 'cases'],
+  description:
+    "What the candidate's replays cost in model calls, as the runtime reported it. Absent from a summary when no case's replays reported a cost.",
+  properties: {
+    candidate: {
+      type: 'number',
+      minimum: 0,
+      description:
+        "Each repetition's total over `cases`, averaged over the repetitions, in US dollars.",
+    },
+    spread: {
+      type: 'number',
+      minimum: 0,
+      description: "With more than one repetition: the totals' max − min.",
+    },
+    cases: {
+      type: 'integer',
+      minimum: 1,
+      description: 'The cases whose every repetition reported a cost: the ones totalled.',
     },
   },
 };
@@ -8911,6 +9143,12 @@ export const ComparisonCaseResultSchema: JsonSchema = {
           differences: { type: 'array', items: correctionDifference },
         },
       },
+    },
+    costUsd: {
+      type: 'array',
+      description:
+        "What each repetition's replay cost in model calls, as the runtime reported it, in US dollars: one per repetition. Absent when a repetition reported none.",
+      items: { type: 'number', minimum: 0 },
     },
     diverged: { type: 'boolean' },
     refusedWrites: { type: 'integer', minimum: 0 },
@@ -9629,13 +9867,13 @@ const USER_PROPERTIES: Record<string, JsonSchema> = {
   invite: {
     $ref: '#/components/schemas/UserInvite',
     description:
-      "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).",
+      "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.9).",
   },
   firstSignedInAt: {
     type: 'string',
     format: 'date-time',
     description:
-      'Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).',
+      'Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).',
   },
   metadata: { type: 'object', additionalProperties: true },
 };
@@ -10486,6 +10724,52 @@ export const JudgingRulePreviewSchema: JsonSchema = {
   },
 };
 
+export const JudgingQueueRecentInputSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  minProperties: 1,
+  description: 'Which recent runs to catch the rule up on. Give `last`, `since`, or both.',
+  properties: {
+    last: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 1000,
+      description: "This many of the project's most recent top-level runs (newest first).",
+    },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description: 'Runs completed at or after this time.',
+    },
+  },
+};
+
+export const JudgingRecentQueuedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['queued', 'alreadyQueued', 'alreadyReviewed'],
+  properties: {
+    queued: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Matching recent runs this call newly queued for the rule: a new queue item, or the rule added to one already waiting for another rule.',
+    },
+    alreadyQueued: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Matching recent runs this rule had already queued and that are still open (deduped per `(rule, run)`).',
+    },
+    alreadyReviewed: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Matching recent runs whose run was already judged or dismissed: left as they are, not re-queued. An already-erased run is no longer a match and is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed` together are the matches.',
+    },
+  },
+};
+
 export const PersonProjectRoleSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -11146,12 +11430,12 @@ export const DeploymentCollectionPageSchema: JsonSchema = {
     projectId: {
       type: 'string',
       description:
-        "The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `projectId` and lists them all.",
+        "The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `projectId` and lists them all.",
     },
     packId: {
       type: 'string',
       description:
-        "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `packId` and lists them all.",
+        "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `packId` and lists them all.",
     },
   },
 };
@@ -11938,6 +12222,23 @@ export const TenantSchema: JsonSchema = {
     },
     limits: ref('TenantLimits'),
     egress: ref('EgressAddresses'),
+  },
+};
+
+export const TenantPatchSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'A new name, a new slug, or both; a field left out stays as it is. The id stays, so whatever names the tenant by its id keeps working.',
+  properties: {
+    name: { type: 'string', minLength: 1, maxLength: 100 },
+    slug: {
+      type: 'string',
+      maxLength: 63,
+      pattern: '^[a-z0-9](?:-?[a-z0-9])*$',
+      description:
+        "Lowercase letters, digits and single hyphens, unique across tenants. The console's addresses carry it, so links with the old one stop opening the tenant; nothing else is keyed by it.",
+    },
   },
 };
 
@@ -13947,6 +14248,77 @@ export const MintPublicRunTokenResultSchema: JsonSchema = {
   },
 };
 
+export const UsageGroupSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['count', 'quantity', 'firstAt', 'lastAt'],
+  description:
+    "One group: the dimensions it's grouped by (only those), then its count, the sum of its quantities, and its first and last times.",
+  properties: {
+    tenantId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The tenant, on the operator's read across tenants.",
+    },
+    projectId: {
+      type: 'string',
+      description:
+        "Absent for a record with no project; a tenant admin's read includes those, and the CLI shows them as `(none)`.",
+    },
+    agentId: {
+      type: 'string',
+      description: 'Absent for a record with no agent; the CLI shows those as `(none)`.',
+    },
+    kind: {
+      type: 'string',
+      description:
+        "What was counted: `run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`. A runtime may count more kinds later: show one you don't know as it is.",
+    },
+    class: {
+      type: 'string',
+      description:
+        "The class of the run a record counts or belongs to, fixed when the run was created: `production`, `staging`, `dry-run`, `replay`, `eval`, `child`. A record with no counted run has none. A runtime may add classes later: show one you don't know as it is.",
+    },
+    state: {
+      type: 'string',
+      description:
+        "The record's state, by kind: `on`, `off` (`project.production`); `completed`, `failed`, `cancelled` (`run.ended`); `escalation` (`approval.requested`, an escalation's next tier); `approved`, `rejected`, `withdrawn`, `escalated`, `expired` (`approval.decided`). Other kinds have none.",
+    },
+    day: {
+      type: 'string',
+      pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+      description: 'The UTC date, `YYYY-MM-DD`.',
+    },
+    count: { type: 'integer', minimum: 0, description: 'Records in the group.' },
+    quantity: {
+      type: 'number',
+      description:
+        'The sum of their quantities: milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count.',
+    },
+    firstAt: { type: 'string', format: 'date-time' },
+    lastAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const UsagePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'watermark'],
+  properties: {
+    data: { type: 'array', items: ref('UsageGroup') },
+    watermark: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "Every record at or before this time is in the answer; a later one may not be yet. Re-read a window until its watermark is past the window's end. Every page of one read carries the same watermark.",
+    },
+    nextCursor: {
+      type: 'string',
+      description: 'More groups: pass it as `cursor`. Absent on the last page.',
+    },
+  },
+};
+
 export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WireError', WireErrorSchema],
   ['HealthResult', HealthResultSchema],
@@ -14026,6 +14398,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SetTenantImagePrefixBody', SetTenantImagePrefixBodySchema],
   ['ProjectSuspension', ProjectSuspensionSchema],
   ['TenantAdminContacts', TenantAdminContactsSchema],
+  ['PurgeTenantBody', PurgeTenantBodySchema],
+  ['TenantTableRows', TenantTableRowsSchema],
+  ['SystemTenantPurge', SystemTenantPurgeSchema],
   ['SystemWhoami', SystemWhoamiSchema],
   ['ApiToken', ApiTokenSchema],
   ['ApiTokenPage', ApiTokenPageSchema],
@@ -14065,6 +14440,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ExportSigningKey', ExportSigningKeySchema],
   ['ExportSigningKeyList', ExportSigningKeyListSchema],
   ['LicenseStatus', LicenseStatusSchema],
+  ['UsageGroup', UsageGroupSchema],
+  ['UsagePage', UsagePageSchema],
   ['LicenseUsage', LicenseUsageSchema],
   ['ExportAuditBundleBody', ExportAuditBundleBodySchema],
   ['ExportAuditBundleResult', ExportAuditBundleResultSchema],
@@ -14204,6 +14581,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ProposalEvidence', ProposalEvidenceSchema],
   ['ProposalCandidate', ProposalCandidateSchema],
   ['ProposalEvaluation', ProposalEvaluationSchema],
+  ['ProposalCost', ProposalCostSchema],
+  ['ProposalDecisions', ProposalDecisionsSchema],
   ['ProposalPromotion', ProposalPromotionSchema],
   ['FixProposal', FixProposalSchema],
   ['FixProposalCollectionPage', FixProposalCollectionPageSchema],
@@ -14212,6 +14591,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ImprovementPass', ImprovementPassSchema],
   ['ImprovementPassCollectionPage', ImprovementPassCollectionPageSchema],
   ['ImproveBody', ImproveBodySchema],
+  ['ImprovementPassEstimate', ImprovementPassEstimateSchema],
   ['CreateProposalBody', CreateProposalBodySchema],
   ['EvaluateProposalBody', EvaluateProposalBodySchema],
   ['ProposalReasonBody', ProposalReasonBodySchema],
@@ -14324,6 +14704,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ComparisonMetric', ComparisonMetricSchema],
   ['ComparisonCandidate', ComparisonCandidateSchema],
   ['JudgedComparisonSummary', JudgedComparisonSummarySchema],
+  ['JudgedComparisonCost', JudgedComparisonCostSchema],
   ['ComparisonCaseResult', ComparisonCaseResultSchema],
   ['JudgedComparisonResult', JudgedComparisonResultSchema],
   ['EvalRun', EvalRunSchema],
@@ -14392,6 +14773,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['JudgingResultGroup', JudgingResultGroupSchema],
   ['JudgingRuleResults', JudgingRuleResultsSchema],
   ['JudgingRulePreview', JudgingRulePreviewSchema],
+  ['JudgingQueueRecentInput', JudgingQueueRecentInputSchema],
+  ['JudgingRecentQueued', JudgingRecentQueuedSchema],
   ['AccessRole', AccessRoleSchema],
   ['AccessPathDirect', AccessPathDirectSchema],
   ['AccessPathTeam', AccessPathTeamSchema],
@@ -14488,6 +14871,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateProjectMembershipBody', UpdateProjectMembershipBodySchema],
   ['AddProjectMembershipResult', AddProjectMembershipResultSchema],
   ['Tenant', TenantSchema],
+  ['TenantPatch', TenantPatchSchema],
   ['TenantLimits', TenantLimitsSchema],
   ['EgressAddresses', EgressAddressesSchema],
   ['ProductionAllowedBody', ProductionAllowedBodySchema],
@@ -14593,6 +14977,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateSiteBody', UpdateSiteBodySchema],
   ['SiteEnrollmentCode', SiteEnrollmentCodeSchema],
   ['RegisterSiteResult', RegisterSiteResultSchema],
+  ['SitePersonRestoreResult', SitePersonRestoreResultSchema],
   ['EnrollSiteBody', EnrollSiteBodySchema],
   ['EnrollSiteResult', EnrollSiteResultSchema],
   ['SiteSignInBody', SiteSignInBodySchema],

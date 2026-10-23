@@ -47,6 +47,8 @@ const SITE = {
 };
 const KEY = { kid: 'k1', thumbprint: 'thumb-1', addedAt: '2026-10-10T00:01:00.000Z' };
 const CODE = { code: 'acme-code-1', expiresAt: '2026-10-10T00:15:00.000Z' };
+const PERSON_ID = '44444444-4444-4444-8444-444444444444';
+const PERSON = { userId: PERSON_ID, displayName: 'Jane', createdAt: '2026-10-10T00:02:00.000Z' };
 
 async function sites(argv: readonly string[]) {
   const calls: unknown[][] = [];
@@ -85,6 +87,7 @@ async function sites(argv: readonly string[]) {
             }),
             newEnrollmentCode: record('newEnrollmentCode', CODE),
             revokeKey: record('revokeKey', SITE),
+            restorePerson: record('restorePerson', { user: PERSON }),
           },
         },
       }) as never,
@@ -230,5 +233,22 @@ describe('kindgi sites: the rest of the group', () => {
     const revoked = await sites(['revoke-key', SITE_ID, 'k1', `--project=${PROJECT}`]);
     expect(revoked.out.exitCode, revoked.out.stderr).toBe(0);
     expect(revoked.calls).toEqual([['revokeKey', PROJECT, SITE_ID, 'k1']]);
+  });
+
+  test('restore-person: the site and the person by id, in the project given or the Default one', async () => {
+    const restored = await sites(['restore-person', SITE_ID, PERSON_ID, `--project=${PROJECT}`]);
+    expect(restored.out.exitCode, restored.out.stderr).toBe(0);
+    expect(restored.calls).toEqual([['restorePerson', PROJECT, SITE_ID, PERSON_ID]]);
+    expect(JSON.parse(restored.out.stdout)).toEqual({ user: PERSON });
+    const inDefault = await sites(['restore-person', SITE_ID, PERSON_ID]);
+    expect(inDefault.out.exitCode, inDefault.out.stderr).toBe(0);
+    expect(inDefault.calls).toEqual([
+      ['getDefault'],
+      ['restorePerson', DEFAULT_PROJECT, SITE_ID, PERSON_ID],
+    ]);
+    // The person's id is required: nothing is asked without it.
+    const noPerson = await sites(['restore-person', SITE_ID, `--project=${PROJECT}`]);
+    expect(noPerson.out.exitCode).not.toBe(0);
+    expect(noPerson.calls).toEqual([]);
   });
 });

@@ -109,7 +109,7 @@ each time still fires once.
   `--catch-up=skip` fires none of them. A time is missed when the fire would
   start more than `--starting-deadline` seconds late, 600 by default.
 - **Its owner may no longer run it,** such as when they lost their role on
-  the project, or were removed from the tenant (runtime 0.1.8.1 or later).
+  the project, or were removed from the tenant (runtime 0.1.9 or later).
   The fire is `refused`, with why. Whoever holds `admin` on the project can
   make themselves its owner: `kindgi schedules take-ownership <schedule-id>`,
   or hand it to a service account
@@ -119,7 +119,10 @@ each time still fires once.
 
 After 5 fires in a row that were refused or failed, the schedule pauses
 itself, with the reason in its `statusReason`. Skipped fires don't count.
-`kindgi schedules resume <schedule-id>` clears it.
+Nor does a fire refused for a limit, its note starting `rate-limited:`,
+or one the database was too busy to start (runtime 0.1.9 or later), its
+note starting `database-busy:`. Neither starts the count over.
+`kindgi schedules resume <schedule-id>` clears the pause.
 
 ## See what it did
 
@@ -338,7 +341,9 @@ judgments and the skip note names them. Without one, it would count every
   month.
 - **A monthly cap:** once the schedule's passes this month, in UTC, have
   cost `monthlyCapUsd`, its fires are skipped until the next month. A pass's
-  budget is never more than what's left of it.
+  budget is never more than what's left of it. Its cost counts the
+  comparisons that prove its best candidate, which its budget doesn't stop,
+  so a month's passes can cost more than the cap.
 - **One pass at a time:** while the schedule's previous pass still runs, a
   fire is `skipped-overlap`.
 - **At most once an hour.** Registering needs `publish` on the agent.

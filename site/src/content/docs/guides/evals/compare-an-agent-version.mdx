@@ -276,6 +276,37 @@ restricted afterwards:
   read ran live. Here, 0.2.0 left the final period off the customer's
   question when it searched, so the call wasn't the same as 0.1.0's.
 
+### What it should have done
+
+When the test cases' runs have corrections that say
+[what the run should have done](../judge-a-runs-output/#say-what-it-should-have-done)
+(runtime 0.1.11 or later), each one is checked against what the version
+did on that case:
+
+```text
+CAPTURE: one perCase entry with "corrections": [{ "judgmentId": …, "pass": false, "repetitionsPassed": 0, "repetitions": 1 }] and "correctionDifferences": [{ "judgmentId": …, "repetition": 1, "differences": [ … ] }]
+```
+
+- **`corrections`:** for each one, whether it passed, and in how many of
+  the case's repetitions (`repetitionsPassed` of `repetitions`). It passes
+  only when every repetition did.
+- **`correctionDifferences`:** for one that failed, what differed in the
+  first repetition that failed it, and that repetition's number. A
+  difference is a call count (`count`), a call that shouldn't have been
+  made (`must-not-call`), or an argument that's missing (`missing-field`)
+  or has another value (`field-value`). `refused` marks a call the replay
+  refused.
+- **The summary's `corrections`** counts the ones `checked`, and how many
+  `passed`:
+
+```text
+CAPTURE: "corrections": { "checked": …, "passed": … } from the same run's summary
+```
+
+With `--class-weights=restricted-only`, only the ones made under a
+restricted judge class are checked. No release gate policy checks them: read them
+before you [make the version live](../release-an-agent-version/#check-before-you-promote).
+
 ## What a replay does
 
 A replay does nothing the past run didn't do. "The same call" means the same
@@ -298,6 +329,13 @@ tool with the same arguments.
   `replay: this call changes things and has no recorded result`, or that the
   call needs an approval, or reaches outside. The case shows what it would
   have done, and `refusedWrites` counts these calls.
+- **A case with a correction that says what the run should have done
+  replays strictly** (runtime 0.1.11 or later): no tool runs live, even
+  with `--reads=live`, or when the version pins other settings blocks. A
+  read gets the past run's result for the same call, or doesn't run: the
+  model is told
+  `replay: this read has no recorded result`, and `refusedWrites` counts
+  it. So the version is checked on the results the expert saw.
 - **A replay never waits for an approval.** Where the past run's conversation
   was approved or rejected, the replay follows that decision. Where there's
   no decision, the case says `approvalSkipped`.
@@ -306,7 +344,7 @@ tool with the same arguments.
   `kindgi_remember` included, which stores nothing in a replay. A replay's
   conversation is never recalled later as an earlier conversation.
 - **A replay of a run a webhook or an event started reads its message as
-  data** (it needs runtime 0.1.8.1 or later). Its model reads the turn's
+  data** (it needs runtime 0.1.9 or later). Its model reads the turn's
   message, or a flow's agent step's, as an
   [`<event>` block](../../webhooks/start-runs-from-webhooks/#what-its-agents-read),
   data and not instructions, even when the past run was on an earlier runtime

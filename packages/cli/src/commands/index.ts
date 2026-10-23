@@ -28,6 +28,8 @@ import { guardrailsCommand } from './guardrails.js';
 import { healthCommand } from './health.js';
 import { initCommand } from './init.js';
 import { judgeClassesCommand } from './judge-classes.js';
+import { judgingQueueCommand } from './judging-queue.js';
+import { judgingRulesCommand } from './judging-rules.js';
 import { judgmentsCommand } from './judgments.js';
 import { keyCommand } from './key.js';
 import { licenseCommand } from './license.js';
@@ -49,11 +51,13 @@ import { signInCommand } from './sign-in.js';
 import { sitesCommand } from './sites.js';
 import { skillsCommand } from './skills.js';
 import { ssoCommand } from './sso.js';
+import { tenantCommand } from './tenant.js';
 import { testCommand } from './test.js';
 import { tokensCommand } from './tokens.js';
 import { toolsCommand } from './tools.js';
 import type { Command } from './types.js';
 import { upgradeCommand } from './upgrade.js';
+import { usageCommand } from './usage.js';
 import { versionCommand } from './version.js';
 import { webhooksCommand } from './webhooks.js';
 
@@ -79,6 +83,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   mcpCommand,
   mcpLaunchCommand,
   projectsCommand,
+  tenantCommand,
   runsCommand,
   agentsCommand,
   conversationsCommand,
@@ -97,6 +102,8 @@ export const ROOT_COMMANDS: readonly Command[] = [
   observationsCommand,
   judgmentsCommand,
   judgeClassesCommand,
+  judgingRulesCommand,
+  judgingQueueCommand,
   evalRunsCommand,
   evalSuitesCommand,
   blocksCommand,
@@ -104,6 +111,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   tokensCommand,
   serviceAccountsCommand,
   peopleCommand,
+  usageCommand,
   capabilitiesCommand,
   providersCommand,
   adaptersCommand,

@@ -1047,3 +1047,48 @@ flow, as above.
 
 [Write an agent](../../agents/write-an-agent/) covers the rest of the agent
 file.
+
+## A CommonJS package in TypeScript
+
+A pack's code runs as ES modules, the app modules its tools import
+included. `kindgi build` bundles it into `.mjs` files and leaves out the
+packages it imports from `node_modules`: the image installs them, and Node
+loads them by name. `kindgi dev` and a deployed pack load that code with
+Node's own `import()`, with no loader in between.
+
+That shows with a package that ships only CommonJS and puts its class on
+`exports.default`, as TypeScript's CommonJS output does for
+`export default`. Node gives `import OrdersClient from '@acme/orders-client'`
+the package's whole `module.exports`, with the class on its `default`.
+Vitest, Next.js, and tsx in an app without `"type": "module"` give the class
+itself. So a tool can pass `kindgi test`, and app code it imports can work in
+your app, while under `kindgi dev`, and once deployed, the tool fails with
+`TypeError: OrdersClient is not a constructor`. With
+`"moduleResolution": "NodeNext"`, as a new pack's `tsconfig.json` has,
+TypeScript types the import as Node loads it and doesn't compile
+`new OrdersClient()`. With `"bundler"`, as Next.js apps have, it compiles.
+
+Take the class either way:
+
+```ts excerpt
+import OrdersClientExport from '@acme/orders-client';
+
+type DefaultOf<T> = T extends { default: infer C } ? C : T;
+
+// The class itself under Vitest and Next.js; under Node, the package's
+// whole module.exports, with the class on `default`.
+function defaultOf<T>(loaded: T): DefaultOf<T> {
+  const value = typeof loaded === 'function' ? loaded : (loaded as { default: unknown }).default;
+  return value as DefaultOf<T>;
+}
+
+const OrdersClient = defaultOf(OrdersClientExport);
+```
+
+A dynamic import is the same: `(await import('@acme/orders-client')).default`
+is the class under Vitest and, under Node, the package's whole
+`module.exports`. Take it with `defaultOf` too:
+
+```ts excerpt
+const OrdersClient = defaultOf((await import('@acme/orders-client')).default);
+```
