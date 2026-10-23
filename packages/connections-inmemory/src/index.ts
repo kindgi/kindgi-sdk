@@ -434,17 +434,29 @@ export function createInMemoryConnections(
     app: ConnectionAppRecord,
     input: ConnectionAppUpdateInput,
   ): string | undefined {
-    if (
-      app.oauth2 !== undefined &&
-      input.oauth2 !== undefined &&
-      app.oauth2.clientId !== input.oauth2.clientId
-    ) {
-      return 'oauth2.clientId';
+    if (app.oauth2 !== undefined && input.oauth2 !== undefined) {
+      return changedOAuth2Field(app.app, app.oauth2, input.oauth2);
     }
     if (app.githubApp === undefined || input.githubApp === undefined) return undefined;
     if (app.githubApp.appNumber !== input.githubApp.appNumber) return 'githubApp.appNumber';
     if (app.githubApp.clientId !== input.githubApp.clientId) return 'githubApp.clientId';
     return undefined;
+  }
+
+  /**
+   * The directory counts as the client: the connections' refresh tokens
+   * belong to it. It's compared as the sign-in uses it, the entry's default
+   * standing in for none, so leaving `tenant` out can't move it quietly.
+   */
+  function changedOAuth2Field(
+    app: string,
+    was: NonNullable<ConnectionAppRecord['oauth2']>,
+    now: NonNullable<ConnectionAppUpdateInput['oauth2']>,
+  ): string | undefined {
+    if (was.clientId !== now.clientId) return 'oauth2.clientId';
+    const entry = entries.get(app);
+    const fallback = entry?.signIn.kind === 'oauth2' ? entry.signIn.tenant?.default : undefined;
+    return (was.tenant ?? fallback) === (now.tenant ?? fallback) ? undefined : 'oauth2.tenant';
   }
 
   /** A change of the client while connections granted to it live: they're disconnected first. */
@@ -457,9 +469,15 @@ export function createInMemoryConnections(
     if (field === undefined || granted === 0) return undefined;
     return refuse(
       'connection-app-invalid',
-      `${granted} connection(s) were granted to this registration's current ${field === 'githubApp.appNumber' ? 'GitHub App' : 'client'}: disconnect them first, then change it and connect again`,
+      `${granted} connection(s) were granted to this registration's current ${grantedTo(field)}: disconnect them first, then change it and connect again`,
       { field },
     );
+  }
+
+  /** What the connections were granted to, named by the changed field, for the refusal. */
+  function grantedTo(field: string): string {
+    if (field === 'githubApp.appNumber') return 'GitHub App';
+    return field === 'oauth2.tenant' ? 'directory' : 'client';
   }
 
   /** The registration's connections that aren't removed. */

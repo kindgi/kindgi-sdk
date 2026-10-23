@@ -298,6 +298,85 @@ describe('app registrations', () => {
       value: { oauth2: { clientId: 'other.apps.googleusercontent.com' } },
     });
   });
+
+  test("a registration's directory changes only while no connection was granted in it", async () => {
+    const made = createInMemoryConnections({
+      entries: [microsoft],
+      publicUrl: 'https://kindgi.acme.example/',
+    });
+    const oauth2 = { clientId: '00000000-0000-4000-8000-0000000000c1', clientSecret: SECRET };
+    const app = made.seed.app({
+      tenantId,
+      app: 'microsoft',
+      oauth2: { ...oauth2, tenant: 'acme.onmicrosoft.com' },
+      by: admin,
+    });
+    const mail = made.seed.connection({
+      tenantId,
+      envName,
+      app: 'microsoft',
+      owner: { kind: 'member', userId: ana.id },
+      account: { id: 'ms-ana', label: 'ana@acme.example' },
+      permissions: ['mail.send'],
+    });
+    const move = (tenant: string) =>
+      made.binding.updateApp({
+        tenantId,
+        appId: app.appId,
+        oauth2: { ...oauth2, tenant },
+        by: admin,
+      });
+    expect(await move('other.onmicrosoft.com')).toMatchObject({
+      kind: 'err',
+      error: {
+        code: 'connection-app-invalid',
+        field: 'oauth2.tenant',
+        message: expect.stringContaining("this registration's current directory"),
+      },
+    });
+    expect(await move('acme.onmicrosoft.com')).toMatchObject({ kind: 'ok' });
+    await made.binding.disconnect({ tenantId, connectionId: mail.connectionId, by: ana });
+    expect(await move('other.onmicrosoft.com')).toMatchObject({
+      kind: 'ok',
+      value: { oauth2: { tenant: 'other.onmicrosoft.com' } },
+    });
+  });
+
+  test("a directory left out is the entry's default, so naming the default doesn't move it", async () => {
+    const signIn = microsoft.signIn as Extract<AppEntry['signIn'], { kind: 'oauth2' }>;
+    const acmeMail = defineApp({
+      ...microsoft,
+      id: 'acme-mail',
+      signIn: { ...signIn, tenant: { default: 'organizations' } },
+    });
+    const made = createInMemoryConnections({
+      entries: [acmeMail],
+      publicUrl: 'https://kindgi.acme.example/',
+    });
+    const oauth2 = { clientId: '00000000-0000-4000-8000-0000000000c1', clientSecret: SECRET };
+    const app = made.seed.app({ tenantId, app: 'acme-mail', oauth2, by: admin });
+    made.seed.connection({
+      tenantId,
+      envName,
+      app: 'acme-mail',
+      owner: { kind: 'member', userId: ana.id },
+      account: { id: 'ms-ana', label: 'ana@acme.example' },
+      permissions: ['mail.send'],
+    });
+    const update = (tenant?: string) =>
+      made.binding.updateApp({
+        tenantId,
+        appId: app.appId,
+        oauth2: { ...oauth2, ...(tenant !== undefined && { tenant }) },
+        by: admin,
+      });
+    expect(await update('organizations')).toMatchObject({ kind: 'ok' });
+    expect(await update()).toMatchObject({ kind: 'ok' });
+    expect(await update('common')).toMatchObject({
+      kind: 'err',
+      error: { code: 'connection-app-invalid', field: 'oauth2.tenant' },
+    });
+  });
 });
 
 describe('a connect, without a browser', () => {
