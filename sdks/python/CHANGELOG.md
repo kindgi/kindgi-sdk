@@ -10,6 +10,11 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **`SecretRevokeResult` gains `recoverable_until`**: when a hard
+  revoke left a copy your secret manager can still recover (Azure Key Vault's
+  soft delete, when the vault doesn't allow a purge or the runtime may not
+  purge), the time the secret manager purges it on its own. It's `None` when
+  nothing recoverable is left.
 - `kindgi`: **`ScheduleRecord`, `WebhookTriggerRecord`, their register and
   patch bodies, and `Run` gain `tools_allowed_unattended`**: the tools whose
   calls in a webhook's or a schedule's runs needn't wait for a person's yes.
