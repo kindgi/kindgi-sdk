@@ -161,6 +161,46 @@ describe('a connection the app gave no refresh token', () => {
       }),
     ).toThrow(/Google gives refresh tokens/);
   });
+  test('a get says it needs reconnecting from a minute before its token ends, with no run', async () => {
+    const made = setup();
+    const connection = made.seedPost(false);
+    made.advance(58 * 60_000);
+    expect(
+      await made.binding.get({ tenantId, connectionId: connection.connectionId }),
+    ).toMatchObject({ state: 'working' });
+    made.advance(60_000);
+    expect(
+      await made.binding.get({ tenantId, connectionId: connection.connectionId }),
+    ).toMatchObject({ state: 'needs-reconnecting', stateReason: 'access-expired' });
+    expect(made.calls).toEqual([]);
+  });
+
+  test('so does a list, and its state filter goes by it', async () => {
+    const made = setup();
+    const connection = made.seedPost(false);
+    const byState = async (state: 'working' | 'needs-reconnecting') =>
+      (await made.binding.list({ tenantId, state, limit: 10 })).data.map((c) => c.connectionId);
+    made.advance(58 * 60_000);
+    expect(await byState('working')).toEqual([connection.connectionId]);
+    made.advance(60_000);
+    expect(await byState('working')).toEqual([]);
+    expect(await byState('needs-reconnecting')).toEqual([connection.connectionId]);
+    expect(made.calls).toEqual([]);
+  });
+
+  test('asked to renew in its last minute, it needs reconnecting as access-expired', async () => {
+    const made = setup();
+    const connection = made.seedPost(false);
+    made.advance(59 * 60_000);
+    expect(await made.resolve({ renew: ['post'], waitMs: 0 })).toMatchObject({
+      kind: 'refused',
+      code: 'connection-missing',
+    });
+    expect(
+      await made.binding.get({ tenantId, connectionId: connection.connectionId }),
+    ).toMatchObject({ state: 'needs-reconnecting', stateReason: 'access-expired' });
+    expect(made.calls).toEqual([]);
+  });
 });
 
 describe('a finish whose code gives no refresh token', () => {
@@ -220,5 +260,33 @@ describe('a finish whose code gives no refresh token', () => {
     const mail: ConnectionNeed = { app: 'google', permissions: ['gmail.send'], as: 'person' };
     expect(await made.resolve({ need: mail })).toMatchObject({ kind: 'ready' });
     expect(made.calls.map((c) => c.op)).toEqual(['exchange', 'exchange', 'renew']);
+  });
+
+  test("where it's optional but the answer doesn't say when the token ends, it's refused", async () => {
+    const made = setup({
+      exchange: () => ({
+        account: { id: ana.id, label: 'ana' },
+        refreshToken: false,
+        expiresIn: false,
+      }),
+    });
+    const { requestId, finished } = await made.connect('acme');
+    expect(finished).toMatchObject({
+      kind: 'err',
+      error: { code: 'connection-app-refused', message: expect.stringContaining('expires_in') },
+    });
+    expect(await made.binding.getRequest({ tenantId, requestId })).toMatchObject({
+      state: 'failed',
+      failure: 'app-refused',
+    });
+    expect((await made.binding.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
+  test('one that gives a refresh token needs no expires_in', async () => {
+    const made = setup({
+      exchange: () => ({ account: { id: ana.id, label: 'ana' }, expiresIn: false }),
+    });
+    const { finished } = await made.connect('acme');
+    expect(finished).toMatchObject({ kind: 'ok', value: { kind: 'connected' } });
   });
 });

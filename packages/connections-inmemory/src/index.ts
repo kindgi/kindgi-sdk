@@ -54,6 +54,12 @@ const STATE_LIFE_MS = 10 * 60_000;
 const DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 3600;
 /** A token is renewed this close to its expiry: min(60 s, a fifth of its life), as a server's. */
 const MAX_RENEW_MARGIN_MS = 60_000;
+/**
+ * A connection without a refresh token needs reconnecting this long before
+ * its access token ends: a fixed minute, so a read can tell from
+ * `accessEndsAt` alone.
+ */
+const ACCESS_END_MARGIN_MS = 60_000;
 const HOUR_MS = 60 * 60_000;
 
 /** What the fake app answers a code with. */
@@ -66,11 +72,18 @@ export interface FakeAppExchange {
    * Whether it gave a refresh token. Default `true`. Without one, a finish
    * keeps one the connection had before; else an entry whose
    * `signIn.refreshToken` is `'optional'` makes a connection that works
-   * until its token ends (`accessEndsAt`), and any other refuses it
-   * (`connection-app-refused`). A GitHub App's tokens come from its key,
-   * so this is ignored there.
+   * until one minute before its token ends (`accessEndsAt`), and any other
+   * refuses it (`connection-app-refused`). A GitHub App's tokens come from
+   * its key, so this is ignored there.
    */
   readonly refreshToken?: boolean;
+  /**
+   * Whether its token answer said when the access token ends
+   * (`expires_in`). Default `true`. Read only where it gave no refresh
+   * token: a finish without either is refused (`connection-app-refused`),
+   * since the connection couldn't tell when it ends.
+   */
+  readonly expiresIn?: boolean;
 }
 
 /** A notice the fake app sends, as `receiveNotice` reads it. */
@@ -175,9 +188,9 @@ export interface SeedConnectionInput {
   readonly state?: ConnectionState;
   readonly installationId?: string;
   /**
-   * `false`: the app gave no refresh token, so it works until its token
-   * ends (`accessEndsAt`). Only for an entry whose `signIn.refreshToken` is
-   * `'optional'`. Default `true`.
+   * `false`: the app gave no refresh token, so it works until one minute
+   * before its token ends (`accessEndsAt`). Only for an entry whose
+   * `signIn.refreshToken` is `'optional'`. Default `true`.
    */
   readonly refreshToken?: boolean;
 }
@@ -581,6 +594,26 @@ export function createInMemoryConnections(
     if (signIn?.kind !== 'oauth2' || gaveRefresh) return 'renews';
     if (live !== undefined && live.noRefresh !== true) return 'renews';
     return signIn.refreshToken === 'optional' ? 'ends' : 'refused';
+  }
+
+  /**
+   * Why a finish can't keep the connection, if it can't: no refresh token
+   * where the entry requires one, or none and no word on when the access
+   * token ends.
+   */
+  function unkeepable(
+    request: ConnectRequestRecord,
+    renews: 'renews' | 'ends' | 'refused',
+    saidEnd: boolean,
+  ): string | undefined {
+    const name = entries.get(request.app)?.name ?? request.app;
+    if (renews === 'refused') {
+      return `${name} gave no refresh token, so the connection couldn't keep working: start again`;
+    }
+    if (renews === 'ends' && !saidEnd) {
+      return `${name} gave no refresh token and didn't say when its access token ends (expires_in), so the connection couldn't tell when to stop: start again`;
+    }
+    return undefined;
   }
 
   function withdrawAtApp(stored: StoredConnection): ConnectionWithdrawn {
@@ -1103,7 +1136,7 @@ export function createInMemoryConnections(
     stored: StoredRequest,
     granted: readonly string[] | undefined,
     signedIn: SignedIn,
-    gaveRefresh: boolean,
+    gave: { readonly refreshToken: boolean; readonly expiresIn: boolean },
   ): Promise<Outcome<ConnectFinishOutcome>> {
     const request = stored.record;
     const live = landsOn(request);
@@ -1132,14 +1165,11 @@ export function createInMemoryConnections(
         ),
       });
     }
-    const renews = renewal(request, live, gaveRefresh);
-    if (renews === 'refused') {
+    const renews = renewal(request, live, gave.refreshToken);
+    const refused = unkeepable(request, renews, gave.expiresIn);
+    if (refused !== undefined) {
       await settle(stored, { state: 'failed', failure: 'app-refused' });
-      const name = entries.get(request.app)?.name ?? request.app;
-      return refuse(
-        'connection-app-refused',
-        `${name} gave no refresh token, so the connection couldn't keep working: start again`,
-      );
+      return refuse('connection-app-refused', refused);
     }
     const connection = storeConnection(request, live, { ...signedIn, granted: kept });
     issueFirstToken(connection, renews === 'renews');
@@ -1188,7 +1218,10 @@ export function createInMemoryConnections(
     const signedIn = accountFor(stored, exchanged, input.installationId ?? picked);
     if (signedIn.kind === 'err') return signedIn;
     if ('kind' in signedIn.value) return ok(signedIn.value);
-    return connect(stored, exchanged.granted, signedIn.value, exchanged.refreshToken !== false);
+    return connect(stored, exchanged.granted, signedIn.value, {
+      refreshToken: exchanged.refreshToken !== false,
+      expiresIn: exchanged.expiresIn !== false,
+    });
   }
 
   /** The list's own filters: app, state and owner. */
@@ -1315,7 +1348,7 @@ export function createInMemoryConnections(
 
     async list(input: ConnectionListInput) {
       const data = [...connections.values()]
-        .map((s) => s.record)
+        .map(current)
         .filter((c) => listed(c, input))
         .sort(
           (a, b) =>
@@ -1327,7 +1360,7 @@ export function createInMemoryConnections(
     async get(input) {
       const stored = connections.get(input.connectionId);
       return stored !== undefined && stored.record.tenantId === input.tenantId
-        ? stored.record
+        ? current(stored)
         : null;
     },
 
@@ -1397,10 +1430,28 @@ export function createInMemoryConnections(
     return 'needs-reconnecting';
   }
 
+  /** Whether a connection without a refresh token is within a minute of its access token's end. */
+  function accessEnding(stored: StoredConnection): boolean {
+    const ends = stored.record.accessEndsAt;
+    return ends !== undefined && now() >= Date.parse(ends) - ACCESS_END_MARGIN_MS;
+  }
+
+  /**
+   * The connection as a read finds it: a working one whose access is ending
+   * reads as needing reconnecting (`access-expired`), with no call to the app.
+   */
+  function current(stored: StoredConnection): ConnectionRecord {
+    if (stored.record.state === 'working' && accessEnding(stored)) {
+      needsReconnecting(stored, 'access-expired');
+    }
+    return stored.record;
+  }
+
   /**
    * The connection's token for one call, renewed first when asked or near
-   * its expiry. One without a refresh token can't be renewed: asked to, or
-   * near its token's end, it needs reconnecting, with no call to the app.
+   * its expiry. One without a refresh token can't be renewed: within a
+   * minute of its token's end it needs reconnecting (`access-expired`), and
+   * asked to renew before then (`invalid-grant`), with no call to the app.
    */
   function tokenFor(
     stored: StoredConnection,
@@ -1411,10 +1462,10 @@ export function createInMemoryConnections(
     const token = stored.token;
     const margin = Math.min(MAX_RENEW_MARGIN_MS, ttlMs / 5);
     if (stored.noRefresh === true) {
-      if (renewFirst) return needsReconnecting(stored, 'invalid-grant');
-      if (token === undefined || now() >= token.expiresAtMs - margin) {
+      if (token === undefined || accessEnding(stored)) {
         return needsReconnecting(stored, 'access-expired');
       }
+      if (renewFirst) return needsReconnecting(stored, 'invalid-grant');
     } else if (renewFirst || token === undefined || now() >= token.expiresAtMs - margin) {
       const answer = fake.renew?.({ connectionId: c.connectionId }) ?? 'ok';
       calls.push({ op: 'renew', connectionId: c.connectionId, outcome: answer });
