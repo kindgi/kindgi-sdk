@@ -9,6 +9,9 @@ export const APP_ID_PATTERN = /^[a-z][a-z0-9-]{1,31}$/;
 /** A key in an entry's `permissions`. */
 export const PERMISSION_KEY_PATTERN = /^[a-z][a-z0-9_.-]{0,63}$/;
 
+/** What the scopes an app answers it granted are split on. */
+const SCOPE_SEPARATOR = /[\s,]/;
+
 const OWNER_KINDS: ReadonlySet<string> = new Set(['member', 'company']);
 const REVIEW_CLASSES: ReadonlySet<string> = new Set(['none', 'sensitive', 'restricted']);
 const REVOKE_KINDS: ReadonlySet<string> = new Set(['oauth2-revoke', 'github-installation-token']);
@@ -19,8 +22,8 @@ const NOTICE_KINDS: ReadonlySet<string> = new Set(['google-risc', 'github-webhoo
  * wrong throws a `TypeError` naming it: an id or a permission key that
  * doesn't match its pattern, a URL that isn't `https:`, an owner, review
  * class, revoke or notice kind outside its set, a revoke or an account
- * lookup that doesn't fit the sign-in kind, a rate limit that isn't a
- * positive whole number.
+ * lookup that doesn't fit the sign-in kind, a scope holding a space or a
+ * comma, a rate limit that isn't a positive whole number.
  */
 export function defineApp(entry: AppEntry): AppEntry {
   if (typeof entry !== 'object' || entry === null) {
@@ -96,7 +99,7 @@ function checkPermissions(permissions: AppEntry['permissions'], at: At): void {
     if (!PERMISSION_KEY_PATTERN.test(key)) {
       throw new TypeError(at(`${field}: the key must match ${PERMISSION_KEY_PATTERN.source}`));
     }
-    requireText(permission?.grants, at(`${field}.grants`));
+    requireScope(permission?.grants, at(`${field}.grants`));
     requireText(permission.says, at(`${field}.says`));
     if (typeof permission.changes !== 'boolean') {
       throw new TypeError(at(`${field}.changes must be true or false`));
@@ -128,7 +131,7 @@ function checkAccount(account: AccountLookup, signIn: SignIn, at: At): void {
   if (!Array.isArray(account.scopes) || !account.scopes.includes('openid')) {
     throw new TypeError(at('account.scopes must include "openid"'));
   }
-  account.scopes.forEach((scope, i) => requireText(scope, at(`account.scopes[${i}]`)));
+  account.scopes.forEach((scope, i) => requireScope(scope, at(`account.scopes[${i}]`)));
 }
 
 function checkRemoval(removal: AppRemoval, signIn: SignIn, at: At): void {
@@ -176,6 +179,16 @@ function checkRateLimits(rateLimits: AppEntry['rateLimits'], at: At): void {
 function requireText(value: unknown, field: string): asserts value is string {
   if (typeof value !== 'string' || value.trim() === '') {
     throw new TypeError(`${field} must be a non-empty string`);
+  }
+}
+
+/** One scope: the scopes an app answers it granted are read split on spaces and commas. */
+function requireScope(value: unknown, field: string): asserts value is string {
+  requireText(value, field);
+  if (SCOPE_SEPARATOR.test(value)) {
+    throw new TypeError(
+      `${field} must be one scope, with no space or comma: the scopes an app grants are read split on both`,
+    );
   }
 }
 
