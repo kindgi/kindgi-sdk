@@ -48,8 +48,8 @@ export const acmeCrm = defineApp({
   needs (`authorizeParams`), scopes it asks for at every sign-in
   (`scopes`), and the resource the app may name its granted scopes with
   (`scopeResource`). For an app that signs people in at a directory, such
-  as Microsoft, `{tenant}` in its addresses is filled from each
-  registration's directory, and `tenant` can give a default.
+  as Microsoft, set `tenant` (`{}`, or with a `default`), and `{tenant}` in
+  its addresses is filled from each registration's directory.
 - **`owners`:** who can own a connection to it: `'member'`, a person in
   your workspace, for their own account; `'company'`, for the company's;
   or both.

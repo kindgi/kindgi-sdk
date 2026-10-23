@@ -58,13 +58,15 @@ In the [Microsoft Entra admin center](https://entra.microsoft.com):
    people recognize when they connect, and pick the **Supported account
    types** from step 1
    ([Microsoft: Register an application](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app)).
-2. **Authentication → Add a platform → Web,** with the console's connect
-   page as its redirect URI:
+2. **Authentication → Redirect URI configuration → Add Redirect URI →
+   Web,** with the console's connect page as the **Redirect URI**:
 
    ```text
    https://kindgi.acme.com/console/connect/callback
    ```
 
+   Then choose **Configure**
+   ([Microsoft: Add a redirect URI](https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-redirect-uri)).
    Pick **Web**, not **Single-page application**: Kindgi finishes the
    sign-in on its server.
 3. **API permissions → Add a permission → Microsoft Graph → Delegated
@@ -83,9 +85,9 @@ In the [Microsoft Entra admin center](https://entra.microsoft.com):
 ### Admin consent
 
 Whether people may allow these permissions themselves is your directory's
-setting. Where it doesn't let them, Microsoft tells them only an admin can
-grant it, and the connect ends as declined. So a declined connect can mean
-the directory needs an admin's consent first.
+setting. Where it doesn't let them, Microsoft tells them to ask an admin,
+and if they go back from there, the connect ends as declined. So a declined
+connect can mean the directory needs an admin's consent first.
 
 An admin can allow the app once for everyone in the directory, with the
 Cloud Application Administrator or Application Administrator role:
@@ -125,8 +127,9 @@ Then choose **Register**. Kindgi shows the **Redirect URI** you entered in
 step 2.
 
 The directory can't change while people have connections through the
-registration, since their access belongs to it: disconnect them first, then
-change it and connect again.
+registration, since their access belongs to that directory. Kindgi refuses
+the change (`connection-app-invalid`): disconnect them first, then change
+it and connect again.
 
 ## 5. Connect
 
@@ -138,10 +141,10 @@ accounts to use.
 The connection shows your Microsoft account, what it allows, and when it
 was last used. Reconnecting later needs the same Microsoft account.
 
-If you leave Microsoft's page without allowing it, or your directory needs
-an admin's consent first ([Admin consent](#admin-consent)), the connect is
-declined. If a tool's call asked you to connect, that call fails with
-`connection-declined`.
+If you turn it down on Microsoft's page, or go back from it because your
+directory needs an admin's consent first ([Admin consent](#admin-consent)),
+the connect is declined. If a tool's call asked you to connect, that call
+fails with `connection-declined`.
 
 ## Disconnecting
 
