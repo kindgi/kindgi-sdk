@@ -322,6 +322,8 @@ export function createInMemoryConnections(
     }
     const checked = checkSignIn(entry, input, 'create');
     if (checked.kind === 'err') return checked;
+    const overlap = overlapping(entry, input.tenantId, input.projects, undefined);
+    if (overlap !== undefined) return overlap;
     const appId = randomUUID();
     const at = iso();
     const record: ConnectionAppRecord = {
@@ -351,6 +353,85 @@ export function createInMemoryConnections(
   function allows(app: ConnectionAppRecord, projectId: ProjectId | undefined): boolean {
     return (
       projectId === undefined || app.projects === undefined || app.projects.includes(projectId)
+    );
+  }
+
+  /**
+   * A project uses one registration of an app, so a run's connect is never a
+   * guess: another live registration of the app may not serve a project
+   * this one would (every project, without `projects`).
+   */
+  function overlapping(
+    entry: AppEntry,
+    tenantId: TenantId,
+    projects: readonly ProjectId[] | undefined,
+    exceptId: string | undefined,
+  ): Outcome<never> | undefined {
+    for (const other of apps.values()) {
+      if (
+        other.tenantId !== tenantId ||
+        other.app !== entry.id ||
+        other.removedAt !== undefined ||
+        other.appId === exceptId
+      ) {
+        continue;
+      }
+      if (other.projects === undefined || projects === undefined) {
+        return refuse(
+          'connection-app-invalid',
+          `Registration ${other.appId} of ${entry.name} already serves every project this one would; a project uses one registration of an app, so name projects that don't overlap`,
+          { field: 'projects' },
+        );
+      }
+      const shared = projects.find((p) => other.projects?.includes(p));
+      if (shared !== undefined) {
+        return refuse(
+          'connection-app-invalid',
+          `Registration ${other.appId} of ${entry.name} already serves project ${shared}; a project uses one registration of an app`,
+          { field: 'projects' },
+        );
+      }
+    }
+    return undefined;
+  }
+
+  /** The field naming a change of the client the registration's connections were granted to, if any. */
+  function changedClientField(
+    app: ConnectionAppRecord,
+    input: ConnectionAppUpdateInput,
+  ): string | undefined {
+    if (
+      app.oauth2 !== undefined &&
+      input.oauth2 !== undefined &&
+      app.oauth2.clientId !== input.oauth2.clientId
+    ) {
+      return 'oauth2.clientId';
+    }
+    if (app.githubApp === undefined || input.githubApp === undefined) return undefined;
+    if (app.githubApp.appNumber !== input.githubApp.appNumber) return 'githubApp.appNumber';
+    if (app.githubApp.clientId !== input.githubApp.clientId) return 'githubApp.clientId';
+    return undefined;
+  }
+
+  /** A change of the client while connections granted to it live: they're disconnected first. */
+  function clientInUse(
+    app: ConnectionAppRecord,
+    input: ConnectionAppUpdateInput,
+  ): Outcome<never> | undefined {
+    const field = changedClientField(app, input);
+    const granted = field === undefined ? 0 : connectionsOf(app).length;
+    if (field === undefined || granted === 0) return undefined;
+    return refuse(
+      'connection-app-invalid',
+      `${granted} connection(s) were granted to this registration's current ${field === 'githubApp.appNumber' ? 'GitHub App' : 'client'}: disconnect them first, then change it and connect again`,
+      { field },
+    );
+  }
+
+  /** The registration's connections that aren't removed. */
+  function connectionsOf(app: ConnectionAppRecord): StoredConnection[] {
+    return [...connections.values()].filter(
+      (c) => c.record.appId === app.appId && c.record.state !== 'removed',
     );
   }
 
@@ -834,6 +915,37 @@ export function createInMemoryConnections(
     return connection;
   }
 
+  /**
+   * A grant that lacks some of what the connection holds is let go. The
+   * request is connected to the connection when it works and holds all the
+   * request asks; otherwise it declines for all it would have needed.
+   */
+  async function keepAsItWas(
+    stored: StoredRequest,
+    live: StoredConnection,
+    kept: readonly string[],
+  ): Promise<Outcome<ConnectFinishOutcome>> {
+    const request = stored.record;
+    const held = live.record.permissions;
+    const connectionId = live.record.connectionId;
+    if (live.record.state === 'working' && request.permissions.every((p) => held.includes(p))) {
+      return ok({
+        kind: 'connected',
+        request: await settle(
+          stored,
+          { state: 'connected', connectionId },
+          { kind: 'connected', connectionId },
+        ),
+        connection: live.record,
+      });
+    }
+    const missing = union(request.permissions, held).filter((p) => !kept.includes(p));
+    return ok({
+      kind: 'declined',
+      request: await settle(stored, { state: 'declined', missing }, { kind: 'declined', missing }),
+    });
+  }
+
   /** The working connection a finish lands on: the one it reconnects, or the owner's. */
   function landsOn(request: ConnectRequestRecord): StoredConnection | undefined {
     const target =
@@ -869,10 +981,11 @@ export function createInMemoryConnections(
 
   /**
    * Makes the connection with what the person granted, declining for what's
-   * missing; or reconnects it. A reconnect never narrows: one that keeps all
-   * the connection had is stored (so one that needs reconnecting works
-   * again), and one granted less than that leaves the connection as it was.
-   * Either way it declines for what's missing.
+   * missing; or reconnects it. A reconnect never narrows: a grant that covers
+   * all the connection holds now is stored (so one that needs reconnecting
+   * works again); one that lacks any of it leaves the connection as it was,
+   * and the request is connected to it only if it works and holds all asked.
+   * A decline always names what's missing.
    */
   async function connect(
     stored: StoredRequest,
@@ -880,8 +993,6 @@ export function createInMemoryConnections(
     signedIn: SignedIn,
   ): Promise<Outcome<ConnectFinishOutcome>> {
     const request = stored.record;
-    const kept = (granted ?? request.permissions).filter((p) => request.permissions.includes(p));
-    const missing = request.permissions.filter((p) => !kept.includes(p));
     const live = landsOn(request);
     if (live !== undefined && live.record.account.id !== signedIn.account.id) {
       await settle(stored, { state: 'failed', failure: 'account-mismatch' });
@@ -890,8 +1001,15 @@ export function createInMemoryConnections(
         `That's another account: reconnect ${live.record.account.label}`,
       );
     }
-    const narrows = live !== undefined && !live.record.permissions.every((p) => kept.includes(p));
-    if (kept.length === 0 || narrows) {
+    // What the connection holds now: it may have gained permissions since the request was made.
+    const held = live?.record.permissions ?? [];
+    const known = union(request.permissions, held);
+    const kept = (granted ?? request.permissions).filter((p) => known.includes(p));
+    if (live !== undefined && !held.every((p) => kept.includes(p))) {
+      return keepAsItWas(stored, live, kept);
+    }
+    const missing = request.permissions.filter((p) => !kept.includes(p));
+    if (kept.length === 0) {
       return ok({
         kind: 'declined',
         request: await settle(
@@ -1034,17 +1152,21 @@ export function createInMemoryConnections(
     async updateApp(input: ConnectionAppUpdateInput) {
       const app = liveApp(input.tenantId, input.appId);
       if (app === undefined) return refuse('connection-app-not-found', 'No such registration');
-      const checked = checkSignIn(entries.get(app.app) as AppEntry, input, 'update');
+      const entry = entries.get(app.app) as AppEntry;
+      const checked = checkSignIn(entry, input, 'update');
       if (checked.kind === 'err') return checked;
+      const inUse = clientInUse(app, input);
+      if (inUse !== undefined) return inUse;
+      const projects = input.projects === undefined ? app.projects : (input.projects ?? undefined);
+      const overlap = overlapping(entry, app.tenantId, projects, app.appId);
+      if (overlap !== undefined) return overlap;
       const { projects: _projects, ...rest } = app;
       const updated: ConnectionAppRecord = {
         ...rest,
         ...(input.label !== undefined && { label: input.label }),
         ...(input.oauth2 !== undefined && { oauth2: input.oauth2 }),
         ...(input.githubApp !== undefined && { githubApp: input.githubApp }),
-        ...(input.projects === undefined
-          ? app.projects !== undefined && { projects: app.projects }
-          : input.projects !== null && { projects: [...input.projects] }),
+        ...(projects !== undefined && { projects: [...projects] }),
         updatedAt: iso(),
       };
       apps.set(app.appId, updated);
@@ -1054,9 +1176,7 @@ export function createInMemoryConnections(
     async removeApp(input) {
       const app = liveApp(input.tenantId, input.appId);
       if (app === undefined) return refuse('connection-app-not-found', 'No such registration');
-      const live = [...connections.values()].filter(
-        (c) => c.record.appId === app.appId && c.record.state !== 'removed',
-      );
+      const live = connectionsOf(app);
       if (!input.withConnections && live.length > 0) {
         return refuse(
           'connection-app-in-use',

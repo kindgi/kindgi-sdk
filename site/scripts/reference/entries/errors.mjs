@@ -3587,6 +3587,128 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'connection-app-not-found': {
+    description:
+      'No app registration with that id in the tenant, or it was removed. On a connect, no registration of the app is set up, or none serves the project: a tenant admin adds one. A connect request whose registration has been removed since answers it too: start a new connect once a tenant admin sets the app up again. `GET /v1/connection-apps` lists the registrations.',
+    details: [
+      {
+        key: 'appId',
+        meaning: 'the registration id that was not found, when the call named it in its path',
+      },
+      {
+        key: 'field',
+        meaning:
+          'on a connect, the field that names the app (`app`, or `appId` when it named a registration)',
+      },
+    ],
+  },
+  'connection-not-found': {
+    description:
+      "No connection with that id that the caller can reach. A person's connection is reachable by that person and a tenant admin; the company's, by a tenant admin. It may have been disconnected.",
+    details: [
+      {
+        key: 'connectionId',
+        meaning: 'the connection id that was not found',
+      },
+    ],
+  },
+  'connection-request-not-found': {
+    description:
+      "No connect request with that id that the caller can act on, or none for the sign-in that came back from the app. A person's connect request is that person's alone; the company's, a tenant admin's. Start a new connect.",
+    details: [
+      {
+        key: 'requestId',
+        meaning: 'the connect request id that was not found, when the call named one',
+      },
+      {
+        key: 'field',
+        meaning: '`state`, when the sign-in came back with no state',
+      },
+    ],
+  },
+  'connection-app-invalid': {
+    description:
+      "An app registration that doesn't fit its app's entry, or no registration that fits a connect. A project uses one registration of an app, so a registration that would serve a project another registration of the app serves answers it too (field `projects`). So does changing a registration's client (its client id, or its GitHub App) while it has live connections: disconnect them first, then change it and connect again. The message says what's wrong.",
+    details: [
+      {
+        key: 'field',
+        meaning: 'the input field at fault, when there is one',
+      },
+    ],
+  },
+  'connection-app-unknown-entry': {
+    description:
+      'A registration or a connect names an app this server has no entry for, or no longer has. `GET /v1/connection-entries` lists the apps it knows.',
+    details: [
+      {
+        key: 'field',
+        meaning: 'the input field that names the app (`app`)',
+      },
+    ],
+  },
+  'connection-app-in-use': {
+    description:
+      'Removing an app registration that still has live connections. Remove it with `withConnections=true` to remove those connections too, or disconnect them first.',
+    details: [],
+  },
+  'connection-not-yours': {
+    description:
+      'Finishing a connect that someone else started: only whoever started it can finish it, signed in as themselves.',
+    details: [],
+  },
+  'connection-installation-unreachable': {
+    description:
+      "A GitHub App's connect whose person's GitHub account doesn't reach the installation, or any installation of the app. Start that request again with `newInstallation` to install the app on an account they manage, or ask an owner of the account it's installed on.",
+    details: [
+      {
+        key: 'connectRequestId',
+        meaning: 'the connect request to start again',
+      },
+    ],
+  },
+  'connection-request-expired': {
+    description: 'The connect request expired before it was used. Start a new connect.',
+    details: [],
+  },
+  'connection-request-used': {
+    description:
+      'The connect request was finished already: each one is used once. Start a new connect to connect again.',
+    details: [],
+  },
+  'connection-state-expired': {
+    description:
+      'The sign-in at the app took longer than its state lives. Start the connect again.',
+    details: [],
+  },
+  'connection-account-mismatch': {
+    description:
+      "A reconnect signed in to an account other than the connection's. Sign in with the same account; to connect another account instead, disconnect, then connect again.",
+    details: [],
+  },
+  'connection-removing': {
+    description:
+      "A connect, or its finish, for a connection that's still being disconnected: an earlier disconnect didn't get to the end. Disconnect it again to finish, then connect.",
+    details: [],
+  },
+  'connection-app-refused': {
+    description:
+      "The app refused or failed a call the connect needed, or didn't give what a connection needs (a refresh token, or which account signed in). Often the registration's client id, client secret or redirect URL doesn't match the app's settings. On GitHub, an install still waiting for an owner's approval is refused too, until an owner approves it. Start the connect again.",
+    details: [],
+  },
+  'connection-store-failed': {
+    description:
+      "The server couldn't read or write its connections (registrations, connect requests, connections or their tokens) just now. Try again; if it keeps failing, an operator checks the database and the secrets store.",
+    details: [],
+  },
+  'connection-notice-invalid': {
+    description:
+      "An app's notice to `POST /v1/connection-notices/{tenantId}/{appId}` wasn't accepted. It's one answer for every reason, such as a signature or token that doesn't check out, so the sender learns nothing from it.",
+    details: [],
+  },
+  'connection-notice-unavailable': {
+    description: "The server couldn't handle an app's notice just now. The app sends it again.",
+    details: [],
+  },
   'token-mint-failed': {
     description:
       "The runtime couldn't sign a public run token, for example because it has no usable signing key. Report it to an admin of the deployment.",

@@ -597,6 +597,7 @@
           "connection-request-used": 409,
           "connection-state-expired": 410,
           "connection-account-mismatch": 409,
+          "connection-removing": 409,
           "connection-app-refused": 502,
           "connection-store-failed": 503,
           "connection-notice-invalid": 400,
@@ -60327,7 +60328,7 @@
             }
           },
           "400": {
-            "description": "Malformed body or unknown field (`bad-input`, `details.field`); a registration that doesn't fit its entry (`connection-app-invalid`, `details.field`); no such app (`connection-app-unknown-entry`); or a model provider's key named as a secret (`provider-key-refused`).",
+            "description": "Malformed body or unknown field (`bad-input`, `details.field`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (`connection-app-invalid`, `details.field`); no such app (`connection-app-unknown-entry`); or a model provider's key named as a secret (`provider-key-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -60512,7 +60513,7 @@
             }
           },
           "400": {
-            "description": "Malformed body, unknown field or an `app` (`bad-input`, `details.field`); a registration that doesn't fit its entry (`connection-app-invalid`); or a model provider's key named as a secret (`provider-key-refused`).",
+            "description": "Malformed body, unknown field or an `app` (`bad-input`, `details.field`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (`oauth2.clientId`, `githubApp.appNumber` or `githubApp.clientId`) while it has live connections: disconnect them first (`connection-app-invalid`, `details.field`); or a model provider's key named as a secret (`provider-key-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -60918,7 +60919,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body; or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -61037,7 +61038,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body; the request was finished already (`connection-request-used`); or a reconnect signed in to another account (`connection-account-mismatch`).",
+            "description": "Idempotency-Key was reused with a different body; the request was finished already (`connection-request-used`); a reconnect signed in to another account (`connection-account-mismatch`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
             "content": {
               "application/json": {
                 "schema": {

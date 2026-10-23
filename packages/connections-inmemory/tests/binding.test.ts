@@ -162,6 +162,110 @@ describe('app registrations', () => {
       'removedAt',
     );
   });
+
+  test('a project uses one registration of an app', async () => {
+    const made = setup();
+    const p1 = 'p-1' as ProjectId;
+    const p2 = 'p-2' as ProjectId;
+    const create = (projects?: ProjectId[]) =>
+      made.binding.createApp({
+        tenantId,
+        app: 'google',
+        oauth2: { clientId: 'other.apps.googleusercontent.com', clientSecret: SECRET },
+        ...(projects !== undefined && { projects }),
+        by: admin,
+      });
+    const move = (appId: string, projects: ProjectId[] | null) =>
+      made.binding.updateApp({ tenantId, appId, projects, by: admin });
+    const overlaps = { kind: 'err', error: { code: 'connection-app-invalid', field: 'projects' } };
+    // The seeded one serves every project, so another overlaps it wherever it serves.
+    expect(await create()).toMatchObject(overlaps);
+    // Another company's registration of the app doesn't count.
+    const otherTenantId = '00000000-0000-4000-8000-0000000000bb' as TenantId;
+    const theirs = await made.binding.createApp({
+      tenantId: otherTenantId,
+      app: 'google',
+      oauth2: { clientId: 'other.apps.googleusercontent.com', clientSecret: SECRET },
+      by: { ...admin, tenantId: otherTenantId },
+    });
+    expect(theirs).toMatchObject({ kind: 'ok' });
+    expect(await create([p2])).toMatchObject(overlaps);
+    expect(await move(made.googleApp.appId, [p1])).toMatchObject({ kind: 'ok' });
+    expect(await create([p1, p2])).toMatchObject(overlaps);
+    const second = await create([p2]);
+    if (second.kind !== 'ok') throw new Error(second.error.message);
+    // Neither moves onto the other's project, nor to every project.
+    expect(await move(made.googleApp.appId, [p2])).toMatchObject(overlaps);
+    expect(await move(made.googleApp.appId, null)).toMatchObject(overlaps);
+    expect(await move(second.value.appId, [p1, p2])).toMatchObject(overlaps);
+    // Another app's registration, and a removed one, don't count.
+    expect(await move(made.githubApp.appId, [p1])).toMatchObject({ kind: 'ok' });
+    const removed = await made.binding.removeApp({
+      tenantId,
+      appId: second.value.appId,
+      withConnections: false,
+      by: admin,
+    });
+    expect(removed).toMatchObject({ kind: 'ok' });
+    expect(await move(made.googleApp.appId, null)).toMatchObject({ kind: 'ok' });
+  });
+
+  test("a registration's client changes only while no connection was granted to it", async () => {
+    const made = setup();
+    const google1 = made.seed.connection({
+      tenantId,
+      envName,
+      app: 'google',
+      owner: { kind: 'member', userId: ana.id },
+      account: { id: 'g-ana', label: 'ana@acme.example' },
+      permissions: ['gmail.send'],
+    });
+    made.seed.connection({
+      tenantId,
+      envName,
+      app: 'github',
+      owner: { kind: 'company' },
+      account: { id: '1', label: 'acme' },
+      permissions: ['issues.read'],
+      installationId: '101',
+    });
+    const googleClient = (clientId: string, name = 'ACME_CLIENT_SECRET') => ({
+      oauth2: { clientId, clientSecret: { envName, name } },
+    });
+    const updateGoogle = (change: ReturnType<typeof googleClient>) =>
+      made.binding.updateApp({ tenantId, appId: made.googleApp.appId, ...change, by: admin });
+    const githubApp = made.githubApp.githubApp;
+    if (githubApp === undefined) throw new Error('the GitHub registration has no githubApp');
+    const updateGitHub = (change: Partial<typeof githubApp>) =>
+      made.binding.updateApp({
+        tenantId,
+        appId: made.githubApp.appId,
+        githubApp: { ...githubApp, ...change },
+        by: admin,
+      });
+    const changed = (field: string) => ({
+      kind: 'err',
+      error: { code: 'connection-app-invalid', field },
+    });
+    expect(await updateGoogle(googleClient('other.apps.googleusercontent.com'))).toMatchObject(
+      changed('oauth2.clientId'),
+    );
+    expect(await updateGitHub({ appNumber: 8 })).toMatchObject(changed('githubApp.appNumber'));
+    expect(await updateGitHub({ clientId: 'Iv1.other' })).toMatchObject(
+      changed('githubApp.clientId'),
+    );
+    // The same client with another secret, slug or key isn't another client.
+    expect(
+      await updateGoogle(googleClient('acme.apps.googleusercontent.com', 'ACME_CLIENT_SECRET_2')),
+    ).toMatchObject({ kind: 'ok' });
+    expect(await updateGitHub({ slug: 'acme-kindgi-2' })).toMatchObject({ kind: 'ok' });
+    // Once its connection is disconnected, Google's client changes.
+    await made.binding.disconnect({ tenantId, connectionId: google1.connectionId, by: ana });
+    expect(await updateGoogle(googleClient('other.apps.googleusercontent.com'))).toMatchObject({
+      kind: 'ok',
+      value: { oauth2: { clientId: 'other.apps.googleusercontent.com' } },
+    });
+  });
 });
 
 describe('a connect, without a browser', () => {
@@ -392,6 +496,105 @@ describe('a connect, without a browser', () => {
       account: { label: 'ana' },
     });
     expect(revived).not.toHaveProperty('stateReason');
+  });
+});
+
+describe('a request made before its connection gained a permission', () => {
+  /** Ana's connection, widened to both permissions after two requests that ask for sending only. */
+  async function widened() {
+    const made = setup({
+      exchange: ({ code }) => ({
+        account:
+          code === 'other'
+            ? { id: 'g-other', label: 'other@acme.example' }
+            : { id: 'g-ana', label: 'ana@acme.example' },
+        granted: code === 'both' ? ['gmail.send', 'gmail.readonly'] : ['gmail.send'],
+      }),
+      notice: () => ({
+        handled: 'sessions-revoked',
+        accountId: 'g-ana',
+        action: 'needs-reconnecting',
+      }),
+    });
+    const earlier = [
+      await request(made, { permissions: ['gmail.send'] }),
+      await request(made, { permissions: ['gmail.send'] }),
+    ];
+    const wider = await request(made, { permissions: ['gmail.send', 'gmail.readonly'] });
+    const state = (await start(made, wider.requestId)).searchParams.get('state') as string;
+    const finished = await made.binding.finishRequest({
+      tenantId,
+      caller: ana,
+      state,
+      code: 'both',
+    });
+    if (finished.kind !== 'ok' || finished.value.kind !== 'connected') {
+      throw new Error('expected a connect');
+    }
+    const finish = async (code: string, which = 0) =>
+      made.binding.finishRequest({
+        tenantId,
+        caller: ana,
+        state: (await start(made, earlier[which]?.requestId as string)).searchParams.get(
+          'state',
+        ) as string,
+        code,
+      });
+    return { made, connectionId: finished.value.connection.connectionId, finish };
+  }
+
+  test('its grant, lacking the new permission, leaves the connection, and connects to it while it works', async () => {
+    const { made, connectionId, finish } = await widened();
+    expect(await finish('send')).toMatchObject({
+      kind: 'ok',
+      value: {
+        kind: 'connected',
+        request: { state: 'connected', connectionId },
+        connection: { connectionId },
+      },
+    });
+    expect(await made.binding.get({ tenantId, connectionId })).toMatchObject({
+      permissions: ['gmail.send', 'gmail.readonly'],
+      state: 'working',
+    });
+  });
+
+  test('another account is refused before its grant is weighed, and the connection stays as it was', async () => {
+    const { made, connectionId, finish } = await widened();
+    expect(await finish('other')).toMatchObject({
+      kind: 'err',
+      error: { code: 'connection-account-mismatch' },
+    });
+    expect(await made.binding.get({ tenantId, connectionId })).toMatchObject({
+      account: { id: 'g-ana' },
+      permissions: ['gmail.send', 'gmail.readonly'],
+      state: 'working',
+    });
+  });
+
+  test('while it needs reconnecting: a grant lacking the new permission declines for it; one with it is stored', async () => {
+    const { made, connectionId, finish } = await widened();
+    await made.binding.receiveNotice({
+      tenantId,
+      appId: made.googleApp.appId,
+      headers: {},
+      rawBody: new TextEncoder().encode('{}'),
+    });
+    expect(await finish('send')).toMatchObject({
+      kind: 'ok',
+      value: { kind: 'declined', request: { state: 'declined', missing: ['gmail.readonly'] } },
+    });
+    expect(await made.binding.get({ tenantId, connectionId })).toMatchObject({
+      state: 'needs-reconnecting',
+    });
+    expect(await finish('both', 1)).toMatchObject({
+      kind: 'ok',
+      value: { kind: 'connected', request: { state: 'connected', connectionId } },
+    });
+    expect(await made.binding.get({ tenantId, connectionId })).toMatchObject({
+      permissions: ['gmail.send', 'gmail.readonly'],
+      state: 'working',
+    });
   });
 });
 
