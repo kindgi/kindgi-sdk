@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { github } from '../src/github.js';
 import { google } from '../src/google.js';
 import { SIGN_IN_TENANT_PATTERN, defineApp } from '../src/index.js';
+import { linkedin } from '../src/linkedin.js';
 import { microsoft } from '../src/microsoft.js';
 
 describe('the Google entry', () => {
@@ -154,5 +155,52 @@ describe('the Microsoft entry', () => {
       },
     ]);
     expect(microsoft.setupGuide).toBe('/guides/connections/microsoft/');
+  });
+});
+
+describe('the LinkedIn entry', () => {
+  it('is a checked, frozen entry', () => {
+    expect(defineApp(linkedin)).toEqual(linkedin);
+    expect(Object.isFrozen(linkedin)).toBe(true);
+  });
+
+  it("is a member's own profile, signed in with OAuth and PKCE", () => {
+    expect(linkedin.owners).toEqual(['member']);
+    expect(linkedin.signIn).toEqual({
+      kind: 'oauth2',
+      authorizeUrl: 'https://www.linkedin.com/oauth/v2/authorization',
+      tokenUrl: 'https://www.linkedin.com/oauth/v2/accessToken',
+      pkce: 'S256',
+    });
+  });
+
+  it('says in plain words all that posting as the person allows', () => {
+    // LinkedIn's one self-serve grant for a member covers comments and reactions too.
+    expect(linkedin.permissions).toEqual({
+      'posts.write': {
+        grants: 'w_member_social',
+        says: 'Post, comment and react on LinkedIn as you',
+        changes: true,
+      },
+    });
+  });
+
+  it("learns whose profile it is from OpenID Connect's userinfo, without asking for the email", () => {
+    expect(linkedin.account).toEqual({
+      kind: 'profile',
+      url: 'https://api.linkedin.com/v2/userinfo',
+      scopes: ['openid', 'profile'],
+      id: 'sub',
+      label: ['name'],
+    });
+  });
+
+  it('withdraws nothing at LinkedIn, which has no revoke for one app', () => {
+    expect(linkedin.removal).toEqual({});
+  });
+
+  it("paces every call by LinkedIn's daily limit per member", () => {
+    expect(linkedin.rateLimits).toEqual([{ per: 'connection', units: 150, perSeconds: 86_400 }]);
+    expect(linkedin.setupGuide).toBe('/guides/connections/linkedin/');
   });
 });

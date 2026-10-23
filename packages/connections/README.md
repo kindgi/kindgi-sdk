@@ -44,6 +44,11 @@ Ready-made tools that act with a connection, one subpath per app:
 - `@kindgi/connections/github/tools`, on the company's GitHub connection:
   `githubIssuesList`, `githubLabelsList`, and `githubIssuesAddLabels`, which
   adds only labels the repository has.
+- `@kindgi/connections/linkedin/tools`: `linkedinPost` posts text on
+  LinkedIn as the person whose LinkedIn connection the call has, to anyone
+  or to their connections only. The text is posted as written: a `#` that
+  starts a word is a hashtag, and LinkedIn's markup is escaped, so a post
+  mentions no one.
 
 Each is a factory: a pack includes one under an id it names, in a tool
 folder whose `index.ts` is one line.
@@ -55,7 +60,7 @@ export default gmailSend({ id: 'acme.gmail.send' });
 ```
 
 The id is the pack's because a tool id is the tenant's, filed under the
-first project that publishes it. Sending and labelling are `mutating`, and
+first project that publishes it. Sending, labelling and posting are `mutating`, and
 wait for a person's yes in a run no person started.
 
 Each calls its app's API with `appFetch(ctx, call)`, from
