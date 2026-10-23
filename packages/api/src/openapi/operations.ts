@@ -10833,6 +10833,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "`for: 'company'` from a caller who is not a tenant admin (`permission-denied`).",
       ),
       '404': ErrorResponse('No registration with that `appId` (`connection-app-not-found`).'),
+      '409': ErrorResponse(
+        'Idempotency-Key was reused with a different body; or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).',
+      ),
     },
   },
   {
@@ -10858,7 +10861,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse('No request for that state (`connection-request-not-found`).'),
       '409': ErrorResponse(
-        'Idempotency-Key was reused with a different body; the request was finished already (`connection-request-used`); or a reconnect signed in to another account (`connection-account-mismatch`).',
+        'Idempotency-Key was reused with a different body; the request was finished already (`connection-request-used`); a reconnect signed in to another account (`connection-account-mismatch`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).',
       ),
       '410': ErrorResponse(
         'The request expired (`connection-request-expired`), or the sign-in took longer than its state lives: start again (`connection-state-expired`).',

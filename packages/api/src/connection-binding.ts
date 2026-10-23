@@ -192,6 +192,7 @@ export type ConnectionErrorCode =
   | 'connection-request-used'
   | 'connection-state-expired'
   | 'connection-account-mismatch'
+  | 'connection-removing'
   | 'connection-app-refused'
   | 'connection-notice-invalid'
   | 'connection-notice-unavailable'

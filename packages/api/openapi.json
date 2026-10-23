@@ -596,6 +596,7 @@
           "connection-request-used": 409,
           "connection-state-expired": 410,
           "connection-account-mismatch": 409,
+          "connection-removing": 409,
           "connection-app-refused": 502,
           "connection-store-failed": 503,
           "connection-notice-invalid": 400,
@@ -60917,7 +60918,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "Idempotency-Key was reused with a different body; or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -61036,7 +61037,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body; the request was finished already (`connection-request-used`); or a reconnect signed in to another account (`connection-account-mismatch`).",
+            "description": "Idempotency-Key was reused with a different body; the request was finished already (`connection-request-used`); a reconnect signed in to another account (`connection-account-mismatch`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
             "content": {
               "application/json": {
                 "schema": {
