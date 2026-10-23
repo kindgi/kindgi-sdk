@@ -490,15 +490,21 @@ export const CLI_DEFAULTS = {
   },
   'proposals improve': {
     agent: 'required',
+    'class-weights':
+      "none (counts everyone until the test set's project, its tenant, or the agent improved there has a restricted judge class, then only those)",
+    drafts: '`3` (`1` to `5`; a prompt pass only)',
     'from-version': 'the version serving the scope',
     'idempotency-key': 'none',
     'max-candidates': '`30`',
     'max-cost': '`5` (US dollars)',
+    model: 'none (needed with `--tier=prompt`, with `--provider`)',
     objective: '`weightedYesShare`',
     org: 'none',
     project: 'none',
+    provider: 'none (needed with `--tier=prompt`, with `--model`)',
     segment: 'none',
     'test-set': 'required',
+    tier: '`settings`',
   },
   'proposals passes list': {
     agent: 'none',
@@ -729,6 +735,7 @@ export const CLI_DEFAULTS = {
   },
   'judgments add': {
     class: 'none (the judgment is unclassified)',
+    correction: 'none (an ordinary judgment, with no correction)',
     item: 'required',
     no: 'off (exactly one of `--yes` or `--no` is required)',
     participant: 'none',

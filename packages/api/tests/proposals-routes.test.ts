@@ -28,6 +28,7 @@ import type {
   UserId,
 } from '@kindgi/types';
 
+import type { EvalSuiteRecord, EvalSuiteRegistryBinding } from '../src/eval-suite-binding.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp, createProposalService } from '../src/index.js';
@@ -43,6 +44,7 @@ import type {
   ImprovementPass,
   ImprovementPassBinding,
   JudgedComparisonSummary,
+  JudgmentRegistryBinding,
   LivePin,
   Promotion,
   ReferenceScopeBinding,
@@ -53,6 +55,7 @@ import type {
 import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
+import { inMemoryJudgments } from './support/in-memory-judgments.js';
 import { inMemoryProposals } from './support/in-memory-proposals.js';
 import { type ItemRow, itemProjects } from './support/order-items.js';
 
@@ -471,6 +474,13 @@ async function harness(
     orders?: readonly (readonly ProjectId[])[];
     /** The projects that serve each item (an order carries it); absent: one each. */
     items?: ItemRow[];
+    judgmentRegistry?: JudgmentRegistryBinding;
+    /** The project the pass's suite reads judgments from. Default: the agent's project. */
+    suiteProjectId?: ProjectId;
+    /** A full suite record `evalSuites.get` returns (or `null` for a missing suite), overriding the default judged stub. */
+    suiteRecord?: EvalSuiteRecord | null;
+    /** When true, `evalSuites.get` throws — the route must not read the suite. */
+    suiteGetThrows?: boolean;
   } = {},
 ) {
   const agents = agentBinding();
@@ -558,6 +568,23 @@ async function harness(
   const releases = releasesFake(agents);
   const proposals = inMemoryProposals();
   const grants = opts.grants;
+  // The improve route resolves the `classWeights` default against the suite's
+  // project. The stub makes every suite a judged one in `suiteProjectId`
+  // (default: the agent's project), so a pass reads from there.
+  const suiteProject = opts.suiteProjectId ?? projectId;
+  const evalSuites = {
+    get: async (input: { tenantId: TenantId; suiteId: string }) => {
+      if (opts.suiteGetThrows === true) throw new Error('the route must not read the suite here');
+      if (opts.suiteRecord !== undefined) return opts.suiteRecord;
+      return {
+        id: input.suiteId,
+        tenantId: input.tenantId,
+        version: '1.0.0',
+        kind: 'judged',
+        spec: { projectId: suiteProject },
+      } as unknown as EvalSuiteRecord;
+    },
+  } as unknown as EvalSuiteRegistryBinding;
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -575,6 +602,8 @@ async function harness(
     ...(opts.projectSuspended !== undefined && { projectSuspended: opts.projectSuspended }),
     ...(opts.orders !== undefined && { environmentOrders: environmentOrders(opts.orders) }),
     ...(opts.items !== undefined && { itemProjects: itemProjects(opts.items) }),
+    ...(opts.judgmentRegistry !== undefined && { judgmentRegistry: opts.judgmentRegistry }),
+    evalSuiteRegistry: evalSuites,
     ...(grants !== undefined && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -1481,7 +1510,7 @@ describe('improvement passes', () => {
     expect(passes.started[0]).toMatchObject({
       projectId,
       fromVersion: '1.0.0',
-      // K4: a pass learns from trusted judgments only, by default.
+      // With no judge-class registry wired, the default stays restricted-only (K4).
       classWeights: 'restricted-only',
     });
     expect(res.body.classWeights).toBe('restricted-only');
@@ -1494,6 +1523,351 @@ describe('improvement passes', () => {
     const again = await h.call('POST', `/v1/improvement-passes/${res.body.id}/cancel`, {});
     expect(again.status).toBe(409);
     expect(again.body.error.code).toBe('improvement-pass-finished');
+  });
+
+  test("counts everyone's judgments until the project names a restricted judge class", async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    // No expert (restricted) judge class is named, so every judgment counts.
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
+    expect(res.body.classWeights).toBe('as-recorded');
+  });
+
+  test('switches to trusted judgments once the project names a restricted judge class', async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'project', projectId },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+    expect(res.body.classWeights).toBe('restricted-only');
+  });
+
+  test('a tenant-wide restricted judge class names experts for every project', async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'tenant' },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+  });
+
+  test('a restricted class on the agent being improved switches to trusted', async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'agent', projectId, agentId: AGENT },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+  });
+
+  test("a restricted class on another agent doesn't count: still counts everyone", async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'agent', projectId, agentId: 'acme.other' },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
+  });
+
+  test("a restricted class in another project doesn't count: still counts everyone", async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'project', projectId: randomUUID() as ProjectId },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
+  });
+
+  test("a restricted class on this agent in another project doesn't count: still counts everyone", async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    // Same agent id, but scoped to another project: the agent clause must match
+    // the pass's own project, so this must not flip the pass to trusted.
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'agent', projectId: randomUUID() as ProjectId, agentId: AGENT },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
+  });
+
+  test('finds a restricted judge class past the first page of its scope', async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    // The restricted judge class is the oldest, so it falls on the second page once 100
+    // newer open classes are listed ahead of it: the resolver must read on.
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'project', projectId },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    for (let i = 0; i < 100; i++) {
+      await judgments.createClass({
+        tenantId,
+        scope: { kind: 'project', projectId },
+        name: `open-${i}`,
+        weight: 1,
+      });
+    }
+    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+  });
+
+  test("resolves against the suite's project, not where the agent is made", async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    const suiteProjectId = randomUUID() as ProjectId;
+    // The agent is made in `projectId`, but its suite reads judgments from
+    // another environment's project, where the restricted judge class lives: the pass
+    // counts trusted only, keying off the suite's project.
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'project', projectId: suiteProjectId },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      judgmentRegistry: judgments,
+      suiteProjectId,
+    });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+  });
+
+  test("a restricted judge class only where the agent is made, not in the suite's project, doesn't count", async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    const suiteProjectId = randomUUID() as ProjectId;
+    // The inverse: the restricted judge class is in the agent's own project, but the
+    // suite reads from another, so the default must NOT flip — the pass
+    // counts the suite project's judgments, not `from.projectId`'s.
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'project', projectId },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      judgmentRegistry: judgments,
+      suiteProjectId,
+    });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
+  });
+
+  test('a non-judged suite keys off its row project, not its spec project', async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    const rowProjectId = randomUUID() as ProjectId;
+    const specProjectId = randomUUID() as ProjectId;
+    // A non-judged suite records its project on the row, not in `spec`. The
+    // restricted judge class is in the row project, so the default flips. Reading
+    // `spec.projectId` regardless of kind would miss it; dropping the
+    // `?? row project` fallback would read the agent's project instead.
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'project', projectId: rowProjectId },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      judgmentRegistry: judgments,
+      suiteRecord: {
+        id: 'acme.scoring-judged',
+        tenantId,
+        version: '1.0.0',
+        kind: 'accuracy',
+        projectId: rowProjectId,
+        spec: { projectId: specProjectId },
+      } as unknown as EvalSuiteRecord,
+    });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+  });
+
+  test('a missing suite falls back to the project the agent is made in', async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    // The suite binding finds no record; the default then keys off the agent
+    // version's project, where this restricted judge class lives. Dropping the
+    // `?? from.projectId` fallback would ask only the tenant scope.
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'project', projectId },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      judgmentRegistry: judgments,
+      suiteRecord: null,
+    });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+  });
+
+  test("a restricted judge class on the agent in the suite's project flips the default", async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    const suiteProjectId = randomUUID() as ProjectId;
+    // The agent-scope restricted judge class is in the SUITE's project, not the agent's
+    // own. Keying off the suite's project, the agent clause finds it; keying
+    // off `from.projectId` would miss it.
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'agent', projectId: suiteProjectId, agentId: AGENT },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      judgmentRegistry: judgments,
+      suiteProjectId,
+    });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+  });
+
+  test('an explicit classWeights skips the suite read', async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    // With `classWeights` set, the default isn't resolved, so the route must
+    // not read the suite at all — the stub throws if it does.
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      judgmentRegistry: judgments,
+      suiteGetThrows: true,
+    });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', {
+      ...IMPROVE,
+      classWeights: 'as-recorded',
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
+  });
+
+  test('with no judge-class registry wired, the suite read is skipped', async () => {
+    const passes = inMemoryPasses();
+    // No judgmentRegistry, so there are no judge classes to resolve a default
+    // from: the route must not read the suite — the stub throws if it does.
+    const h = await harness({ tunable: true, passes: passes.binding, suiteGetThrows: true });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+    expect(res.body.classWeights).toBe('restricted-only');
+  });
+
+  test('an unrestricted class is not a restricted judge class: still counts everyone', async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    await judgments.createClass({
+      tenantId,
+      scope: { kind: 'project', projectId },
+      name: 'user',
+      weight: 1,
+    });
+    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
+  });
+
+  test('an explicit classWeights always wins over the project default', async () => {
+    const passes = inMemoryPasses();
+    const judgments = inMemoryJudgments();
+    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    // No restricted judge class named, but the caller asks for restricted-only outright.
+    const res = await h.call('POST', '/v1/proposals/improve', {
+      ...IMPROVE,
+      classWeights: 'restricted-only',
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+    expect(res.body.classWeights).toBe('restricted-only');
   });
 
   test('no pass starts for an agent whose project is suspended: 409 project-suspended; restored, it starts', async () => {

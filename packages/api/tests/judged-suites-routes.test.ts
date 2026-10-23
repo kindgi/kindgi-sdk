@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 
 import { beforeEach, describe, expect, test } from 'vitest';
 
-import type { ProjectId, TenantId, UserId } from '@kindgi/types';
+import { CORRECTION_ITEM, type ProjectId, type TenantId, type UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -258,6 +258,110 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
       },
     ]);
     expect(cases.body.data[1].context).toBeUndefined();
+  });
+
+  test('a kept judgment with a correction rides onto its case, with its judge class and restriction', async () => {
+    const corrected = await h.judgments.record({
+      tenantId,
+      projectId: project,
+      runId: 'run-corr',
+      run: { subject: subject(), input: { query: 'delta' }, output: { matches: [{ id: 'd1' }] } },
+      item: { key: CORRECTION_ITEM.key },
+      verdict: 'no',
+      assertedBy: { kind: 'user', id: 'u5' },
+      judgeClassId: h.expertId,
+      restricted: true,
+      correction: {
+        calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+        notCalled: ['acme.email'],
+      },
+    });
+    expect((await h.call('POST', BUILD, base)).status).toBe(201);
+
+    const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
+    const built = cases.body.data.find((c: { caseId: string }) => c.caseId === 'run-corr');
+    expect(built.corrections).toEqual([
+      {
+        judgmentId: corrected.id,
+        judgeClassId: h.expertId,
+        restricted: true,
+        calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+        notCalled: ['acme.email'],
+      },
+    ]);
+    // A run whose kept judgments carry no correction has none.
+    const plain = cases.body.data.find((c: { caseId: string }) => c.caseId === 'run-2');
+    expect(plain.corrections).toBeUndefined();
+  });
+
+  test('a re-saved correction replaces the first, so its case carries one (counts once)', async () => {
+    const recordAt = (amount: number) =>
+      h.judgments.record({
+        tenantId,
+        projectId: project,
+        runId: 'run-once',
+        run: { subject: subject(), input: { query: 'omega' }, output: { matches: [{ id: 'o1' }] } },
+        item: { key: CORRECTION_ITEM.key },
+        verdict: 'no',
+        assertedBy: { kind: 'user', id: 'u6' },
+        judgeClassId: h.expertId,
+        correction: { calls: [{ tool: 'acme.refund', args: { amount } }], notCalled: [] },
+      });
+    await recordAt(25);
+    await recordAt(40);
+    expect((await h.call('POST', BUILD, base)).status).toBe(201);
+
+    const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
+    const built = cases.body.data.find((c: { caseId: string }) => c.caseId === 'run-once');
+    // The first was superseded, so only the second rides onto the case.
+    expect(built.corrections).toHaveLength(1);
+    expect(built.corrections[0]).toMatchObject({
+      calls: [{ tool: 'acme.refund', args: { amount: 40 } }],
+      notCalled: [],
+    });
+  });
+
+  test("a correction and an ordinary verdict on a caller's own 'decision' item stay apart", async () => {
+    // The reserved key is Kindgi's own, so a caller's item named 'decision'
+    // never shares it: the correction rides on `corrections`, and the caller's
+    // verdict rides on `items` — neither drops the other. The same expert makes
+    // both, so this pins the original same-expert collision, not supersession.
+    const common = {
+      tenantId,
+      projectId: project,
+      runId: 'run-apart',
+      run: { subject: subject(), input: { query: 'sigma' }, output: { decision: 'refund' } },
+    };
+    await h.judgments.record({
+      ...common,
+      item: { key: CORRECTION_ITEM.key },
+      verdict: 'no',
+      assertedBy: { kind: 'user', id: 'u7' },
+      judgeClassId: h.expertId,
+      correction: { calls: [{ tool: 'acme.refund', args: { amount: 25 } }], notCalled: [] },
+    });
+    await h.judgments.record({
+      ...common,
+      item: { key: 'decision', pointer: '/decision' },
+      verdict: 'yes',
+      assertedBy: { kind: 'user', id: 'u7' },
+      judgeClassId: h.expertId,
+    });
+    expect((await h.call('POST', BUILD, base)).status).toBe(201);
+
+    const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
+    const built = cases.body.data.find((c: { caseId: string }) => c.caseId === 'run-apart');
+    // The correction survives (before the reserved key, a 'decision' judgment
+    // sharing its key would have merged and dropped it), and the caller's own
+    // 'decision' item stays a separate item from the reserved whole-output one.
+    expect(built.corrections).toHaveLength(1);
+    expect(built.corrections[0]).toMatchObject({
+      calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+    });
+    const keys = built.items.map((i: { key: string }) => i.key);
+    expect(keys).toContain('decision');
+    expect(keys).toContain(CORRECTION_ITEM.key);
+    expect(new Set(keys).size).toBe(keys.length);
   });
 
   test('segments keep only runs started in that segment or below it: a judgment in globex never counts for acme', async () => {

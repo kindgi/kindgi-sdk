@@ -3,6 +3,7 @@
 
 import type { Cursor, TenantId } from '@kindgi/types';
 
+import type { Correction } from './corrections.js';
 import type { JudgedItem, JudgedRunContext, JudgedSubject } from './judgment-binding.js';
 
 /**
@@ -52,6 +53,16 @@ export interface JudgedReason {
   readonly restricted?: true;
 }
 
+/** A correction carried onto a case from one of its judgments. */
+export interface JudgedCaseCorrection extends Correction {
+  /** The judgment the correction was recorded on. */
+  readonly judgmentId: string;
+  /** The judgment's class, when it had one. */
+  readonly judgeClassId?: string;
+  /** Set when the judgment was recorded while its class was restricted (`Judgment.restricted`). */
+  readonly restricted?: true;
+}
+
 /** One case of a `judged` suite: a copy of a judged run and what people said about it. */
 export interface JudgedEvalCase {
   /** The judged run's id. */
@@ -65,9 +76,15 @@ export interface JudgedEvalCase {
   readonly output: unknown;
   readonly items: readonly JudgedItemSummary[];
   /**
+   * Experts' corrections carried onto this case, each graded on the
+   * replay. Absent when none; `restricted-only` keeps only the entries
+   * whose judgment was restricted.
+   */
+  readonly corrections?: readonly JudgedCaseCorrection[];
+  /**
    * An erasure cleared this case (a person's words were erased): its
-   * `input`, `output` and `context` are gone and its items empty. Eval
-   * runs leave it out and count it (`erased`).
+   * `input`, `output` and `context` are gone, its items empty and its
+   * corrections dropped. Eval runs leave it out and count it (`erased`).
    */
   readonly erased?: true;
 }

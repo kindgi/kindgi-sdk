@@ -256,8 +256,8 @@ list filtered to that schedule.
 ## Improve on a schedule
 
 A schedule can start [improvement passes](../../evals/improve-an-agent/)
-instead of runs, when enough new trusted judgments have come in on an
-agent's runs:
+instead of runs, when enough new judgments have come in on an agent's runs,
+counted the way the pass will count them:
 
 ```sh
 pnpm exec kindgi schedules create --cron="0 3 * * *" --improve=acme.rank.scorer --project=<project-id> --segment=company:acme \
@@ -308,14 +308,16 @@ It prints the schedule, with the defaults applied to its input:
 }
 ```
 
-At each fire, it counts the trusted "no" judgments on the agent's runs in
-its scope since the agent's last pass there. A trusted judgment is one
-recorded under a
-[restricted judge class](../../evals/judge-a-runs-output/#restrict-who-may-judge-as-a-class).
-The last pass is one that didn't fail or get cancelled, whoever started it.
-With enough of them, across enough runs, from enough judges, it starts a
-pass on a fresh test set of those runs, `improve.<pass-id>`. Otherwise the
-fire is `skipped`, and its note says which count was short.
+At each fire, it counts the "no" judgments on the agent's runs in its scope
+since the agent's last pass there, the way the pass will count them:
+everyone's until the tenant, the project, or the agent being improved has a
+[restricted judge class](../../evals/judge-a-runs-output/#restrict-who-may-judge-as-a-class),
+then only the ones recorded under one. With `classWeights` in the schedule's
+input, it counts the way that value says. The last pass is one that didn't
+fail or get cancelled, whoever started it. With enough of them, across enough
+runs, from enough judges, it starts a pass on a fresh test set of those runs,
+`improve.<pass-id>`. Otherwise the fire is `skipped`, and its note says which
+count was short.
 
 That schedule's first fire, started with `run-now`, was skipped: one judge
 short. Then the threshold was lowered to one judge:
@@ -338,6 +340,10 @@ FIRED                     FOR      OUTCOME          STARTED                     
 2026-10-09T13:25:40.341Z  run-now  started          pass 3599f4ab-8788-433f-af66-7990ddfa9f47
 2026-10-09T13:25:39.201Z  run-now  skipped                                                     Not enough new trusted judgments so far: 1 of 2 judges (trusted "no" judgments met: 10, runs met: 10).
 ```
+
+This project has a restricted judge class, so the pass counts trusted
+judgments and the skip note names them. Without one, it would count every
+"no", and the note would drop "trusted".
 
 - **Its scope** is the schedule's project, `--project`, or a segment of it,
   `--segment=<key:value>`, repeated for a path. It's never the tenant or an

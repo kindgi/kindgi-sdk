@@ -71,7 +71,7 @@ describe('root-level flags and help', () => {
   test('unknown top-level command exits 2 with root help on stderr', async () => {
     const out = await runCli(baseInputs({ argv: ['bogus'] }));
     expect(out.exitCode).toBe(2);
-    expect(out.stderr).toContain('Unknown command: bogus');
+    expect(out.stderr).toContain('Unknown command "bogus"');
   });
 
   test('an unknown subcommand exits 2, naming it and the nearest one, with the group help on stderr', async () => {
@@ -93,6 +93,56 @@ describe('root-level flags and help', () => {
     const far = await runCli(baseInputs({ argv: ['runs', 'zzzzzz'] }));
     expect(far.exitCode).toBe(2);
     expect(far.stderr.split('\n')[0]).toBe('Unknown subcommand "zzzzzz" for kindgi runs.');
+  });
+
+  test('a near-miss top-level command points to the real one', async () => {
+    const improve = await runCli(baseInputs({ argv: ['improve', '--agent=acme.x', '--tenant'] }));
+    expect(improve.exitCode).toBe(2);
+    expect(improve.stdout).toBe('');
+    // Only the command word is quoted (like unknown-subcommand), so a trailing
+    // flag can't blur into the message's own full stop.
+    expect(improve.stderr).toMatch(
+      /^Unknown command "improve"\. Did you mean "kindgi proposals improve"\?\n\n/,
+    );
+    expect(improve.stderr).toContain('Usage: kindgi <command>');
+
+    const evalCmd = await runCli(baseInputs({ argv: ['eval'] }));
+    expect(evalCmd.exitCode).toBe(2);
+    expect(evalCmd.stderr).toContain(
+      'Unknown command "eval". Did you mean "kindgi eval-runs" or "kindgi eval-suites"?',
+    );
+
+    // A word that is no near-miss keeps the plain message, with no hint.
+    const plain = await runCli(baseInputs({ argv: ['bogus'] }));
+    expect(plain.stderr).toContain('Unknown command "bogus".');
+    expect(plain.stderr).not.toContain('Did you mean');
+  });
+
+  test('the commands a near-miss points to are real', async () => {
+    for (const argv of [
+      ['proposals', 'improve', '--help'],
+      ['eval-runs', '--help'],
+      ['eval-suites', '--help'],
+    ]) {
+      const out = await runCli(baseInputs({ argv }));
+      expect(out.exitCode, argv.join(' ')).toBe(0);
+    }
+  });
+
+  test('a prototype property name is an ordinary unknown word, not a crash', async () => {
+    // The near-miss and synonym maps are plain objects; "constructor" (and the
+    // like) must read them with no prototype member, so it stays a clean exit 2.
+    const topLevel = await runCli(baseInputs({ argv: ['constructor'] }));
+    expect(topLevel.exitCode).toBe(2);
+    expect(topLevel.stderr.split('\n')[0]).toBe('Unknown command "constructor".');
+    expect(topLevel.stderr).not.toContain('Did you mean');
+
+    const subcommand = await runCli(baseInputs({ argv: ['runs', 'constructor'] }));
+    expect(subcommand.exitCode).toBe(2);
+    expect(subcommand.stderr.split('\n')[0]).toBe(
+      'Unknown subcommand "constructor" for kindgi runs.',
+    );
+    expect(subcommand.stderr).not.toContain('Did you mean');
   });
 
   test('a group with only a flag still prints its help', async () => {

@@ -11,6 +11,7 @@ import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.
 import type { BlockRegistryBinding } from '../block-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { EvalClassWeights } from '../eval-run-binding.js';
+import type { EvalSuiteRegistryBinding } from '../eval-suite-binding.js';
 import {
   IMPROVE_SCHEDULE_DEFAULTS,
   type ImproveScheduleInput,
@@ -22,6 +23,7 @@ import {
   type ImprovementTier,
 } from '../improvement-pass-binding.js';
 import { type ItemRights, writeWhereMade } from '../item-rights.js';
+import type { JudgeClassScope, JudgmentRegistryBinding } from '../judgment-binding.js';
 import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
@@ -48,6 +50,106 @@ export interface ImproveDeps {
   readonly referenceScope?: ReferenceScopeBinding;
   /** Whether a project is suspended: no pass starts for an agent in one. Absent: no check. */
   readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
+  /**
+   * The tenant's judge classes. The `classWeights` default counts everyone
+   * (`as-recorded`) until a restricted judge class (one with `assertableBy`) is named
+   * in the tenant, the project the pass reads its judgments from, or on the
+   * agent improved, then it's `restricted-only`. Absent: the default stays
+   * `restricted-only`. Only `listClasses` is used.
+   */
+  readonly judgeClasses?: Pick<JudgmentRegistryBinding, 'listClasses'>;
+  /**
+   * Eval suites, to resolve the project a pass reads its judgments from: a
+   * judged suite's own `spec.projectId`, else the suite's recorded project.
+   * That's the project the `classWeights` default keys off, not where the
+   * agent is made — the two differ when the suite is an earlier environment's.
+   * Absent, or the suite records no project: the default keys off the agent
+   * version's project. Only `get` is used.
+   */
+  readonly suites?: Pick<EvalSuiteRegistryBinding, 'get'>;
+}
+
+/**
+ * The pass default for `classWeights` when the caller doesn't set one.
+ * Until a restricted judge class (one with `assertableBy`) is named — in the
+ * tenant, the project the pass reads its judgments from (`projectId`), or on
+ * the agent being improved — Improve counts *everyone's* judgments
+ * (`as-recorded`); once one is, the default is trusted judgments only
+ * (`restricted-only`). An explicit `classWeights` always wins. With no
+ * judge-class binding wired, the default stays `restricted-only` (the prior
+ * behavior).
+ */
+async function resolveClassWeights(
+  deps: ImproveDeps,
+  tenantId: TenantId,
+  projectId: ProjectId | undefined,
+  agentId: string | undefined,
+  explicit: EvalClassWeights | undefined,
+): Promise<EvalClassWeights> {
+  if (explicit !== undefined) return explicit;
+  if (deps.judgeClasses === undefined) return 'restricted-only';
+  return (await projectHasExpertClass(deps.judgeClasses, tenantId, projectId, agentId))
+    ? 'restricted-only'
+    : 'as-recorded';
+}
+
+/**
+ * Whether a restricted judge class — one restricted to named asserters
+ * (`assertableBy` set) — applies to this pass: one in tenant scope, in the
+ * pass's project, or on the agent being improved (that agent, in that
+ * project). A tenant-wide restricted judge class names experts for every project;
+ * another agent's class, or another project's, doesn't count.
+ *
+ * Exported so a caller that resolves the default outside the improve route
+ * — a pass started from a schedule — decides it exactly the same way.
+ */
+export async function projectHasExpertClass(
+  registry: Pick<JudgmentRegistryBinding, 'listClasses'>,
+  tenantId: TenantId,
+  projectId: ProjectId | undefined,
+  agentId?: string,
+): Promise<boolean> {
+  const scopes: JudgeClassScope[] = [
+    ...(projectId !== undefined ? [{ kind: 'project', projectId } as const] : []),
+    ...(projectId !== undefined && agentId !== undefined
+      ? [{ kind: 'agent', projectId, agentId } as const]
+      : []),
+    { kind: 'tenant' } as const,
+  ];
+  for (const scope of scopes) {
+    let cursor: Cursor | undefined;
+    do {
+      const page = await registry.listClasses({
+        tenantId,
+        scope,
+        limit: 100,
+        ...(cursor !== undefined && { cursor }),
+      });
+      if (page.data.some((c) => c.assertableBy !== undefined)) return true;
+      cursor = page.nextCursor;
+    } while (cursor !== undefined);
+  }
+  return false;
+}
+
+/**
+ * The project a pass reads its judgments from, which the `classWeights`
+ * default keys off: a judged suite's own `spec.projectId`, else the suite's
+ * recorded project. Undefined when no suite binding is wired or the suite
+ * records no project — the caller then falls back to the agent version's
+ * project. (The two differ when the suite is an earlier environment's.)
+ */
+async function suiteProjectId(
+  deps: ImproveDeps,
+  tenantId: TenantId,
+  suiteId: string,
+): Promise<ProjectId | undefined> {
+  if (deps.suites === undefined) return undefined;
+  const suite = await deps.suites.get({ tenantId, suiteId });
+  if (suite === null) return undefined;
+  const specProject =
+    suite.kind === 'judged' ? (suite.spec as { projectId?: ProjectId }).projectId : undefined;
+  return specProject ?? suite.projectId;
 }
 
 export const DEFAULT_BUDGET: ImprovementBudget = { maxCostUsd: 5, maxCandidates: 30 };
@@ -139,6 +241,16 @@ export function mountImproveRoute(
         message: `${parsed.agentId} has no live version for the whole tenant, so the version a pass proposes would serve every scope nothing is pinned for. Promote its current version for the tenant first (scope { "kind": "tenant" }), then start the pass.`,
       });
     }
+    // The `classWeights` default keys off the project the pass READS its
+    // judgments from — its suite's project — not where the agent is made;
+    // the two differ when the suite is an earlier environment's. Only the
+    // default needs it, so skip the suite read when `classWeights` is
+    // explicit, or when no judge-class registry is wired (the default is
+    // fixed at `restricted-only` either way).
+    const readProjectId =
+      parsed.classWeights === undefined && deps.judgeClasses !== undefined
+        ? ((await suiteProjectId(deps, tenantId, parsed.suiteId)) ?? from.projectId)
+        : from.projectId;
     const pass = await deps.passes.start({
       tenantId,
       ...(from.projectId !== undefined && { projectId: from.projectId }),
@@ -148,7 +260,13 @@ export function mountImproveRoute(
       suiteId: parsed.suiteId,
       tiers: parsed.tiers,
       objective: parsed.objective,
-      classWeights: parsed.classWeights,
+      classWeights: await resolveClassWeights(
+        deps,
+        tenantId,
+        readProjectId,
+        parsed.agentId,
+        parsed.classWeights,
+      ),
       ...(parsed.model !== undefined && { model: parsed.model }),
       ...(parsed.candidates !== undefined && { candidates: parsed.candidates }),
       budget: parsed.budget,
@@ -341,7 +459,7 @@ interface ImproveBody {
   readonly suiteId: string;
   readonly tiers: readonly ImprovementTier[];
   readonly objective: ProposalObjective;
-  readonly classWeights: EvalClassWeights;
+  readonly classWeights?: EvalClassWeights;
   readonly model?: ImprovementModel;
   readonly candidates?: number;
   readonly budget: ImprovementBudget;
@@ -458,9 +576,13 @@ function parsePassOptions(b: Record<string, unknown>): PassOptions | string {
   if (b.objective !== undefined && !OBJECTIVES.includes(b.objective as ProposalObjective)) {
     return `\`objective\` must be one of ${OBJECTIVES.join(', ')}`;
   }
-  const classWeights = b.classWeights ?? 'restricted-only';
-  if (classWeights !== 'restricted-only' && classWeights !== 'as-recorded') {
-    return "`classWeights` is 'restricted-only' (trusted judgments, the default) or 'as-recorded'";
+  const classWeights = b.classWeights;
+  if (
+    classWeights !== undefined &&
+    classWeights !== 'restricted-only' &&
+    classWeights !== 'as-recorded'
+  ) {
+    return "`classWeights` is 'restricted-only' (trusted judgments) or 'as-recorded' (everyone); omit it for the project's default";
   }
   const prompt = parsePromptOptions(b, tier);
   if (typeof prompt === 'string') return prompt;
@@ -469,7 +591,7 @@ function parsePassOptions(b: Record<string, unknown>): PassOptions | string {
   return {
     tiers: [tier],
     objective: (b.objective as ProposalObjective | undefined) ?? 'weightedYesShare',
-    classWeights,
+    ...(classWeights !== undefined && { classWeights }),
     ...prompt,
     budget,
   };

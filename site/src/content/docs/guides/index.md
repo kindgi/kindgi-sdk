@@ -43,4 +43,5 @@ Kindgi these docs describe.
 - [Evals](evals/judge-a-runs-output/): judge runs' answers, build a test set
   from them, change a prompt or a setting without a deploy, compare the new
   version on the test set, and release it. You can also propose a change
-  through review, or let a pass look for a better setting or prompt.
+  through review, let a pass look for a better setting or prompt, or fix what
+  the experts corrected, each correction at the layer where it belongs.
