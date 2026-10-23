@@ -46,8 +46,9 @@ const buckets = new Map<string, Bucket>();
  *   in this process, holding `units` and refilled over `perSeconds`. The
  *   call takes `costs[toolId]` (1 when not listed) from each before it goes
  *   out, waiting until there's enough.
- * - **Busy:** a 429, a 403 that says the rate limit is spent, or a 503 to a
- *   GET is tried again, up to 3 tries in all, after the app's `Retry-After`
+ * - **Busy:** a 429, a 403 that says a rate limit is spent (in GitHub's
+ *   headers, or Google's `rateLimitExceeded` or `userRateLimitExceeded`), or
+ *   a 503 to a GET is tried again, up to 3 tries in all, after the app's `Retry-After`
  *   (or GitHub's `x-ratelimit-reset`), else after 1 s, then 2 s. A wait the
  *   app asks for past 30 s isn't waited out: the answer goes back to the
  *   tool. A 503 to anything but a GET isn't tried again: the app may have
@@ -90,7 +91,7 @@ export async function appFetch(
         `${call.entry.name} refused the connection's token.`,
       );
     }
-    if (attempt >= MAX_TRIES || !busy(res, method)) return res;
+    if (attempt >= MAX_TRIES || !(await busy(res, method))) return res;
     const waitMs = retryAfterMs(res) ?? BACKOFF_MS * 2 ** (attempt - 1);
     if (waitMs > MAX_WAIT_MS) return res;
     await res.body?.cancel();
@@ -114,14 +115,40 @@ function withToken(
 }
 
 /** The app asks for the call again later, and nothing was done. */
-function busy(res: Response, method: string): boolean {
+async function busy(res: Response, method: string): Promise<boolean> {
   if (res.status === 429) return true;
   if (res.status === 503) return method === 'GET';
+  if (res.status !== 403) return false;
   // GitHub answers a spent rate limit with a 403 that says so in its headers.
-  return (
-    res.status === 403 &&
-    (res.headers.has('retry-after') || res.headers.get('x-ratelimit-remaining') === '0')
-  );
+  if (res.headers.has('retry-after') || res.headers.get('x-ratelimit-remaining') === '0')
+    return true;
+  // Google says so in the 403's body, read from a copy so that any other 403 reaches the tool unread.
+  const body = await res
+    .clone()
+    .text()
+    .catch(() => '');
+  return googleRateLimited(body);
+}
+
+/** Google's 403 reasons for a rate limit that waiting ends (a daily quota isn't one). */
+const GOOGLE_RATE_LIMITS: ReadonlySet<string> = new Set([
+  'rateLimitExceeded',
+  'userRateLimitExceeded',
+]);
+
+function googleRateLimited(body: string): boolean {
+  try {
+    const errors = (JSON.parse(body) as { error?: { errors?: unknown } } | null)?.error?.errors;
+    return (
+      Array.isArray(errors) &&
+      errors.some((e: { reason?: unknown } | null) => {
+        const reason = e?.reason;
+        return typeof reason === 'string' && GOOGLE_RATE_LIMITS.has(reason);
+      })
+    );
+  } catch {
+    return false;
+  }
 }
 
 /** How long the app asks to wait: `Retry-After` (seconds or a date), else GitHub's reset time. */

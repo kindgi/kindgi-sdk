@@ -209,6 +209,66 @@ describe('appFetch', () => {
     expect(refused).toHaveLength(1);
   });
 
+  it("GitHub's secondary rate limit (a 403 with Retry-After) waits as it asks", async () => {
+    vi.useFakeTimers();
+    const calls = fetchAnswering(
+      () =>
+        new Response('{"message":"You have exceeded a secondary rate limit."}', {
+          status: 403,
+          headers: { 'retry-after': '2' },
+        }),
+      ok,
+    );
+    const p = appFetch(
+      toolContextForTest({ connections: { github: connection('github') } }),
+      call({
+        entry: github,
+        connection: 'github',
+        url: 'https://api.github.com/repos/acme/widgets',
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await p).status).toBe(200);
+    expect(calls).toHaveLength(2);
+  });
+
+  it("Google's rate limit in a 403's body is tried again; its other 403s go back to the tool, readable", async () => {
+    vi.useFakeTimers();
+    const googleSays = (reason: string) => () =>
+      Response.json(
+        {
+          error: {
+            code: 403,
+            status: 'PERMISSION_DENIED',
+            errors: [{ domain: 'usageLimits', reason }],
+          },
+        },
+        { status: 403 },
+      );
+    for (const reason of ['rateLimitExceeded', 'userRateLimitExceeded']) {
+      const calls = fetchAnswering(googleSays(reason), ok);
+      const p = appFetch(toolContextForTest({ connections: { mail: connection() } }), call());
+      await vi.advanceTimersByTimeAsync(999);
+      expect(calls).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect((await p).status).toBe(200);
+      expect(calls).toHaveLength(2);
+    }
+
+    for (const reason of ['dailyLimitExceeded', 'insufficientPermissions']) {
+      const calls = fetchAnswering(googleSays(reason), ok);
+      const res = await appFetch(
+        toolContextForTest({ connections: { mail: connection() } }),
+        call(),
+      );
+      expect(res.status).toBe(403);
+      expect(calls).toHaveLength(1);
+      expect(await res.json()).toMatchObject({ error: { errors: [{ reason }] } });
+    }
+  });
+
   it("paces calls by the entry's rate limit, per connection, charging each tool its cost", async () => {
     vi.useFakeTimers();
     const app = defineApp({
