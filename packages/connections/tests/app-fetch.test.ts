@@ -76,6 +76,23 @@ describe('appFetch', () => {
     });
   });
 
+  it("the connection's token is the only Authorization sent, whatever case a caller's own had", async () => {
+    const calls = fetchAnswering(ok);
+    await appFetch(
+      toolContextForTest({ connections: { mail: connection() } }),
+      call({
+        headers: {
+          Authorization: 'Bearer other',
+          AUTHORIZATION: 'Basic b3RoZXI=',
+          accept: 'text/plain',
+        },
+      }),
+    );
+    const sent = new Headers(calls[0]?.init.headers);
+    expect(sent.get('authorization')).toBe(`Bearer ${TOKEN}`);
+    expect(sent.get('accept')).toBe('text/plain');
+  });
+
   it("a 401 throws ConnectionRejectedError naming the tool's connection, never the token", async () => {
     fetchAnswering(() => new Response('{"error":"invalid_token"}', { status: 401 }));
     const err = await appFetch(

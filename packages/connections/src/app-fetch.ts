@@ -15,7 +15,7 @@ export interface AppCall {
   readonly toolId: string;
   readonly url: string;
   readonly method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
-  /** Sent as given. The connection's token goes in `Authorization`; never set it here. */
+  /** Sent as given, but for any `Authorization`: the connection's token goes there. */
   readonly headers?: Readonly<Record<string, string>>;
   readonly body?: string;
 }
@@ -79,7 +79,7 @@ export async function appFetch(
     await take(call.entry, connection.connectionId, call.toolId, ctx.abortSignal);
     const res = await fetch(call.url, {
       method,
-      headers: { ...call.headers, authorization: `Bearer ${connection.accessToken}` },
+      headers: withToken(call.headers, connection.accessToken),
       ...(call.body !== undefined && { body: call.body }),
       signal: ctx.abortSignal,
     });
@@ -96,6 +96,21 @@ export async function appFetch(
     await res.body?.cancel();
     await sleep(waitMs, ctx.abortSignal);
   }
+}
+
+/**
+ * The call's headers with the connection's token as the only `Authorization`:
+ * a caller's own, in any case, would be sent joined to it.
+ */
+function withToken(
+  headers: Readonly<Record<string, string>> | undefined,
+  token: string,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers ?? {}))
+    if (name.toLowerCase() !== 'authorization') out[name] = value;
+  out.authorization = `Bearer ${token}`;
+  return out;
 }
 
 /** The app asks for the call again later, and nothing was done. */
