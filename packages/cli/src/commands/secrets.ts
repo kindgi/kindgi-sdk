@@ -748,7 +748,7 @@ const revokeCmd: LeafCommand = {
       const recoverable =
         out.recoverableUntil === undefined
           ? ''
-          : `  Your secret manager keeps a recoverable copy until ${out.recoverableUntil}, then purges it on its own.\n\n`;
+          : `  Your secret manager keeps a recoverable copy until ${out.recoverableUntil}, then purges it on its own. If you set this name again before then, the copy stays, disabled, until you hard-revoke it again.\n\n`;
       return {
         kind: 'ok',
         rendered: {

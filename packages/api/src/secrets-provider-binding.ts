@@ -192,8 +192,10 @@ export interface SecretProviderDeleteOutput {
    * A hard delete left a copy the secret manager can still recover (for
    * example Azure Key Vault's soft delete, when the vault doesn't allow a
    * purge or the runtime isn't permitted to purge): when the secret manager
-   * purges it on its own, as an ISO 8601 time. Absent on every soft delete,
-   * and when a hard delete left nothing recoverable.
+   * purges it on its own, as an ISO 8601 time. A later write to the same
+   * name before then can keep that copy, its versions disabled, until the
+   * next hard delete. Absent on every soft delete, and when a hard delete
+   * left nothing recoverable.
    */
   readonly recoverableUntil?: string;
 }
