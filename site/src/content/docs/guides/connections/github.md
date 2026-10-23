@@ -85,8 +85,11 @@ In the console, open your workspace's **App registrations** page, choose
 **Register an app**, and pick **GitHub** as the **App**:
 
 - **App id**, **Slug** and **Client id:** from the app's page on GitHub.
-- **Client secret**, **Private key** and **Webhook secret:** the names you
-  stored them under in Kindgi's secrets.
+- **Client secret**, **Private key** and **Webhook secret:** the
+  environment and name you stored each under in Kindgi's secrets:
+  `production/ACME_GITHUB_CLIENT_SECRET`,
+  `production/ACME_GITHUB_PRIVATE_KEY` and
+  `production/ACME_GITHUB_WEBHOOK_SECRET`.
 - **Which projects' runs may use it:** leave it empty for all of them.
 
 Then choose **Register**. Kindgi shows what to give GitHub: the

@@ -73,8 +73,8 @@ In the console, open your workspace's **App registrations** page, choose
 **Register an app**, and pick **Google** as the **App**:
 
 - **Client id:** the one Google gave you.
-- **Client secret: its name in Kindgi's secrets:** the name you stored it
-  under, `ACME_GOOGLE_CONNECT_SECRET`.
+- **Client secret: its name in Kindgi's secrets:** the environment and name
+  you stored it under, `production/ACME_GOOGLE_CONNECT_SECRET`.
 - **Which projects' runs may use it:** leave it empty for all of them.
 
 Then choose **Register**. Kindgi shows what to give Google: the
