@@ -867,7 +867,11 @@ export function createInMemoryConnections(
     });
   }
 
-  /** Makes or reconnects the connection with what the person granted. */
+  /**
+   * Makes the connection with what the person granted, declining for what's
+   * missing; or reconnects it. A reconnect never narrows: one granted less
+   * than asked leaves the connection as it was.
+   */
   async function connect(
     stored: StoredRequest,
     granted: readonly string[] | undefined,
@@ -884,7 +888,7 @@ export function createInMemoryConnections(
         `That's another account: reconnect ${live.record.account.label}`,
       );
     }
-    if (kept.length === 0) {
+    if (kept.length === 0 || (live !== undefined && missing.length > 0)) {
       return ok({
         kind: 'declined',
         request: await settle(
