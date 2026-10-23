@@ -297,6 +297,7 @@ export type {
   JudgingQueueListInput,
   JudgingQueuePage,
   JudgingQueueState,
+  JudgingRecentQueued,
   JudgingRule,
   JudgingRulePage,
   JudgingRulePatch,
@@ -948,6 +949,7 @@ export type {
   ProposalEvaluationRef,
   ProposalEvidence,
   ProposalObjective,
+  ProposalRule,
   ProposalStep,
   ProposalTier,
   ProposedChange,
@@ -961,6 +963,7 @@ export type {
   SupervisorQueryObservationsOutcome,
 } from './supervisor-binding.js';
 export type {
+  EstimateImprovementPassInput,
   ImproveScheduleInput,
   ImproveThreshold,
   ImprovementBudget,
@@ -968,6 +971,7 @@ export type {
   ImprovementPass,
   ImprovementPassBinding,
   ImprovementPassComparison,
+  ImprovementPassEstimateBasis,
   ImprovementPassOutcome,
   ImprovementPassStatus,
   ImprovementTier,
@@ -1008,7 +1012,9 @@ export {
 export type {
   FixProposalStatus,
   ProposalAction,
+  ProposalDecisions,
   ProposalEvaluationOutcome,
+  ProposalNotKept,
 } from './proposal-status.js';
 export {
   PACK_SERVICE_NAME_PREFIX,

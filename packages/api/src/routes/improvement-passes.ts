@@ -3,7 +3,7 @@
 
 import { type Context, Hono } from 'hono';
 
-import { type AgentId, tunableKeys } from '@kindgi/agents';
+import { type AgentId, modelSettingsTunableKeys, tunableKeys } from '@kindgi/agents';
 import { type Action, ref } from '@kindgi/authz';
 import type { Cursor, ProjectId, Semver, TenantId } from '@kindgi/types';
 
@@ -190,32 +190,9 @@ export function mountImproveRoute(
         message: deps.agents.readOnly.reason,
       });
     }
-    const fromVersion =
-      parsed.fromVersion ?? (await servingVersion(deps, tenantId, parsed.agentId, parsed.scope));
-    const from =
-      fromVersion === undefined
-        ? null
-        : await deps.agents.getVersion({
-            tenantId,
-            agentId: parsed.agentId as AgentId,
-            version: fromVersion as Semver,
-          });
-    if (from === null || from.unregisteredAt !== undefined) {
-      return fail(c, 'agent-version-not-found', {
-        code: 'agent-version-not-found',
-        message: `${parsed.agentId} has no active version ${fromVersion ?? '(none is registered)'}`,
-      });
-    }
-    // The suite must be the agent's project's to reach, and the scope must
-    // reach the agent (`reference-scope.ts`).
-    const outOfScope =
-      (from.projectId === undefined
-        ? undefined
-        : await referencesOutOfScope(deps.referenceScope, tenantId, from.projectId, [
-            { path: '/suiteId', kind: 'suite', id: parsed.suiteId },
-          ])) ??
-      (await liveScopeOutOfScope(deps.referenceScope, tenantId, parsed.agentId, parsed.scope));
-    if (outOfScope !== undefined) return outOfScopeResponse(c, c.get('requestId'), outOfScope);
+    const resolved = await resolveImproveTarget(c, deps, tenantId, parsed);
+    if (resolved instanceof Response) return resolved;
+    const from = resolved;
     if (
       from.projectId !== undefined &&
       deps.projectSuspended !== undefined &&
@@ -274,6 +251,45 @@ export function mountImproveRoute(
     });
     c.status(202);
     return c.json(serializePass(pass));
+  });
+
+  r.post('/improve/estimate', async (c) => {
+    const tenantId = c.get('tenantId') as TenantId;
+    const body = await readBody(c);
+    if (body === undefined) return badInput(c, 'Request body must be a JSON object');
+    const parsed = parseImproveBody(body);
+    if (typeof parsed === 'string') return badInput(c, parsed);
+    const denied = await deny(c, authorizer, 'publish', parsed.agentId, itemRights);
+    if (denied !== undefined) return denied;
+    const passes = deps.passes;
+    if (passes === undefined || passes.estimateBasis === undefined) return unsupported(c);
+    // Resolve and reach-check the same body `/improve` would, so a bad body
+    // fails the same way here; the estimate is a read, so it stops there and
+    // doesn't take `/improve`'s run-gating refusals.
+    const resolved = await resolveImproveTarget(c, deps, tenantId, parsed);
+    if (resolved instanceof Response) return resolved;
+    const basis = await passes.estimateBasis({
+      tenantId,
+      agentId: parsed.agentId,
+      fromVersion: resolved.version as string,
+      scope: parsed.scope,
+      suiteId: parsed.suiteId,
+      tiers: parsed.tiers,
+      ...(parsed.model !== undefined && { model: parsed.model }),
+      ...(parsed.candidates !== undefined && { candidates: parsed.candidates }),
+    });
+    const estimatedCostUsd =
+      basis.meanRunCostUsd === undefined
+        ? undefined
+        : usd(Math.min(parsed.budget.maxCostUsd, basis.replays * Number(basis.meanRunCostUsd)));
+    return c.json({
+      ...(estimatedCostUsd !== undefined && { estimatedCostUsd }),
+      maxCostUsd: usd(parsed.budget.maxCostUsd),
+      basis: {
+        replays: basis.replays,
+        ...(basis.meanRunCostUsd !== undefined && { meanRunCostUsd: basis.meanRunCostUsd }),
+      },
+    });
   });
 }
 
@@ -384,6 +400,49 @@ export function improvementPassesRouter(
   return r;
 }
 
+/**
+ * Resolve and reach-check an improve body the way `/improve` does before it
+ * runs — so `/improve` and `/improve/estimate`, which take the same body,
+ * fail it the same way. Resolves the from-version (given, or the one serving
+ * the scope), 404s an unknown or inactive one, then checks the suite's and
+ * the live scope's reach and 400s one out of scope. Returns the resolved
+ * version, or the response to send.
+ */
+async function resolveImproveTarget(
+  c: Ctx,
+  deps: ImproveDeps,
+  tenantId: TenantId,
+  parsed: ImproveBody,
+): Promise<AgentVersionRecord | Response> {
+  const fromVersion =
+    parsed.fromVersion ?? (await servingVersion(deps, tenantId, parsed.agentId, parsed.scope));
+  const from =
+    fromVersion === undefined
+      ? null
+      : await deps.agents.getVersion({
+          tenantId,
+          agentId: parsed.agentId as AgentId,
+          version: fromVersion as Semver,
+        });
+  if (from === null || from.unregisteredAt !== undefined) {
+    return fail(c, 'agent-version-not-found', {
+      code: 'agent-version-not-found',
+      message: `${parsed.agentId} has no active version ${fromVersion ?? '(none is registered)'}`,
+    });
+  }
+  // The suite must be the agent's project's to reach, and the scope must
+  // reach the agent (`reference-scope.ts`).
+  const outOfScope =
+    (from.projectId === undefined
+      ? undefined
+      : await referencesOutOfScope(deps.referenceScope, tenantId, from.projectId, [
+          { path: '/suiteId', kind: 'suite', id: parsed.suiteId },
+        ])) ??
+    (await liveScopeOutOfScope(deps.referenceScope, tenantId, parsed.agentId, parsed.scope));
+  if (outOfScope !== undefined) return outOfScopeResponse(c, c.get('requestId'), outOfScope);
+  return from;
+}
+
 /** What serves the scope now: its live version, else the agent's latest. */
 async function servingVersion(
   deps: ImproveDeps,
@@ -412,14 +471,20 @@ async function nothingToTune(
       ? undefined
       : `${named} doesn't take its instructions from a pinned prompt block: there's no template for a prompt pass to draft. Move the instructions into a prompt block and publish the agent again.`;
   }
+  // Why the model-settings block's model keys aren't tried, if they aren't.
+  let skipped: string | undefined;
   for (const [blockId, pinned] of Object.entries(version.pins?.settings ?? {})) {
-    if (version.modelSettings?.id === blockId) continue;
     const block = await blocks.getVersion({ tenantId, blockId, version: pinned });
-    if (block?.kind === 'settings' && tunableKeys(block.content.schema).length > 0) {
-      return undefined;
-    }
+    if (block?.kind !== 'settings') continue;
+    const tunable: { readonly keys: readonly unknown[]; readonly skipped?: string } =
+      version.modelSettings?.id === blockId
+        ? modelSettingsTunableKeys(block.content.schema, version)
+        : { keys: tunableKeys(block.content.schema) };
+    if (tunable.keys.length > 0) return undefined;
+    skipped ??= tunable.skipped;
   }
-  return `${named} pins no settings block with keys marked "x-kindgi-tunable": there's nothing for a pass to tune. Mark the keys it may tune in the block's schema (a number or integer with a minimum and maximum, or an enum) and publish it.`;
+  const why = skipped === undefined ? '' : ` In its model-settings block, ${skipped}.`;
+  return `${named} pins no settings block with keys marked "x-kindgi-tunable": there's nothing for a pass to tune. Mark the keys it may tune in the block's schema (a number or integer with a minimum and maximum, or an enum) and publish it.${why}`;
 }
 
 export function serializePass(p: ImprovementPass): Record<string, unknown> {
@@ -735,4 +800,9 @@ function fail(
 
 function badInput(c: Ctx, message: string) {
   return fail(c, 'bad-input', { code: 'bad-input', message });
+}
+
+/** A US-dollar amount as a decimal string: rounded to the millionth, trailing zeros dropped. */
+function usd(n: number): string {
+  return String(Math.round(n * 1e6) / 1e6);
 }

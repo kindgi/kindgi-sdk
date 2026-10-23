@@ -2411,7 +2411,7 @@ function unpinnableResponse(
     toWireError(
       {
         code: 'validation-failed',
-        message: `The deployment's agents or flows use tool or agent versions that aren't published (${issues.length} issue${issues.length === 1 ? '' : 's'}); nothing was deployed`,
+        message: `The deployment's agents or flows use tool, agent or block versions that aren't published (${issues.length} issue${issues.length === 1 ? '' : 's'}); nothing was deployed`,
         issues: issues as unknown as Record<string, unknown>[],
       },
       requestId,
