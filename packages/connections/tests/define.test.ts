@@ -59,6 +59,14 @@ describe('defineApp', () => {
     expect(entry.signIn.kind).toBe('github-app');
   });
 
+  it.each(['required', 'optional'] as const)(
+    'takes an oauth2 refreshToken of %s',
+    (refreshToken) => {
+      const entry = defineApp(withAcme({ signIn: { ...acme.signIn, refreshToken } }));
+      expect(entry.signIn).toMatchObject({ kind: 'oauth2', refreshToken });
+    },
+  );
+
   it.each([
     ['an id that is not a slug', { id: 'Acme' }, /id must match/],
     ['a one-letter id', { id: 'a' }, /id must match/],
@@ -80,6 +88,20 @@ describe('defineApp', () => {
       /signIn.tokenUrl must be an https URL/,
     ],
     ['plain PKCE', { signIn: { ...acme.signIn, pkce: 'plain' } }, /signIn.pkce must be "S256"/],
+    [
+      'an unknown refreshToken',
+      { signIn: { ...acme.signIn, refreshToken: 'reconnect' } },
+      /signIn.refreshToken must be "required" or "optional"/,
+    ],
+    [
+      'a refreshToken on a github-app sign-in',
+      {
+        signIn: { kind: 'github-app', refreshToken: 'optional' },
+        account: { kind: 'github-installation' },
+        removal: { revoke: 'github-installation-token', notices: 'github-webhooks' },
+      },
+      /signIn.refreshToken is for an "oauth2" sign-in/,
+    ],
     [
       'an authorize param that is not a string',
       { signIn: { ...acme.signIn, authorizeParams: { prompt: true } } },
