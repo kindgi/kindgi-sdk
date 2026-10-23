@@ -15,6 +15,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import * as z from 'zod';
 
+import { ConnectionRejectedError } from '@kindgi/tools';
+
 import type { HandlerContext, HandlerModule, ToolInvocationSpec } from '../src/handler-runner.js';
 import { runCheck, runHandler } from '../src/handler-runner.js';
 
@@ -238,6 +240,44 @@ describe('runHandler — handler failures', () => {
       expect(outcome.error.code).toBe('handler-throw');
       expect(outcome.error.cause).toBe('string-error');
     }
+  });
+
+  test('a handler that throws ConnectionRejectedError → connection-rejected, naming the connection', async () => {
+    const outcome = await runHandler({
+      tool: tool(),
+      input: { message: 'x' },
+      ctx: ctx(),
+      importHandler: wrap(() => {
+        throw new ConnectionRejectedError('mail', 'the app answered 401');
+      }),
+    });
+    expect(outcome).toEqual({
+      kind: 'err',
+      error: {
+        code: 'connection-rejected',
+        message: 'Tool "test.echo": the app answered 401',
+        toolId: 'test.echo',
+        connection: 'mail',
+      },
+    });
+  });
+
+  test("one from the pack's own copy of @kindgi/tools is recognized too", async () => {
+    const outcome = await runHandler({
+      tool: tool(),
+      input: { message: 'x' },
+      ctx: ctx(),
+      importHandler: wrap(() => {
+        throw Object.assign(new Error('the app answered 401'), {
+          [Symbol.for('kindgi.tools.connection-rejected')]: true,
+          connection: 'repos',
+        });
+      }),
+    });
+    expect(outcome.kind === 'err' && outcome.error).toMatchObject({
+      code: 'connection-rejected',
+      connection: 'repos',
+    });
   });
 
   test('importHandler that throws → handler-import-failed', async () => {

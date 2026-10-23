@@ -17,6 +17,8 @@
  * are HTTP statuses, never messages.
  */
 
+import type { ToolConnection } from '@kindgi/tools';
+
 /** Wire version of every v2 message. */
 export const PACK_PROTOCOL_VERSION = 2 as const;
 export type PackProtocolVersion = typeof PACK_PROTOCOL_VERSION;
@@ -44,6 +46,13 @@ export interface PackCallContext {
    */
   readonly env?: Readonly<Record<string, unknown>>;
   readonly secrets?: Readonly<Record<string, unknown>>;
+  /**
+   * The connections the tool declares (`needsSpec.connections`), resolved
+   * for this call, by the tool's name for each: an account at another app
+   * and a short-lived token for it (protocol 2.7.0). Like `secrets`, never
+   * logged. Absent when the tool declares none, and from an older runtime.
+   */
+  readonly connections?: Readonly<Record<string, ToolConnection>>;
   /** Reserved: no runtime sends it yet. */
   readonly config?: Readonly<Record<string, unknown>>;
   /** The calling agent version's settings blocks' values, by block id (protocol 2.4.0). */
@@ -95,6 +104,7 @@ export type PackErrorCode =
   | 'handler-import-failed'
   | 'handler-shape-invalid'
   | 'handler-throw'
+  | 'connection-rejected'
   | 'check-shape-invalid'
   | 'malformed-message'
   | 'unknown-protocol-version'
@@ -115,6 +125,12 @@ export interface PackErrorMessage {
   readonly cause?: unknown;
   /** Schema-validation issues (Ajv-style), for the validation codes. */
   readonly issues?: readonly unknown[];
+  /**
+   * For `connection-rejected` (protocol 2.7.0): the tool's name for the
+   * connection whose token the app refused. The runtime renews that token
+   * once and runs the call again.
+   */
+  readonly connection?: string;
 }
 
 export type PackRequest = ToolInvokeMessage | CheckInvokeMessage;

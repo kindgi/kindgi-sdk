@@ -59,6 +59,22 @@ const MODULES: Record<string, string> = {
   return { echoed: 'v2:' + input.message };
 }`,
   'tools/throws.mjs': "export async function handler() { throw new Error('boom'); }",
+  // Reads its connection; a 401 from the app is thrown as @kindgi/tools'
+  // ConnectionRejectedError would be, by its registered symbol.
+  'tools/mail.mjs': `export async function handler(input, ctx) {
+  if (input.message === 'reject') {
+    throw Object.assign(new Error('the app answered 401'), {
+      [Symbol.for('kindgi.tools.connection-rejected')]: true,
+      connection: 'mail',
+    });
+  }
+  const mail = ctx.connections.mail;
+  const shown = JSON.stringify(ctx) + Object.keys(ctx).join(',');
+  return {
+    echoed: mail.account.label + ':' + mail.accessToken.length,
+    runId: shown.includes(mail.accessToken) || shown.includes('connections') ? 'shown' : 'hidden',
+  };
+}`,
   // The sample template's shape: a default guardrail plus the named check.
   'guardrails/ok.mjs': `const check = {
   id: 'pack.checks.ok',
@@ -101,6 +117,7 @@ const INDEX: Index = {
     tool('pack.slow', 'tools/slow.mjs'),
     tool('pack.bad-output', 'tools/bad-output.mjs'),
     tool('pack.throws', 'tools/throws.mjs'),
+    tool('pack.mail', 'tools/mail.mjs'),
     tool('pack.versioned', 'tools/versioned-v1.mjs', '1.0.0'),
     tool('pack.versioned', 'tools/versioned-v2.mjs', '2.0.0'),
   ],
@@ -312,6 +329,41 @@ describe('pack service — running tools and checks', () => {
     const res = await invoke(message);
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ v: 2, kind: 'error', code });
+  });
+
+  test("a tool gets the call's connections, never enumerable; a rejected one answers connection-rejected", async () => {
+    const token = 'ya29.acme-token';
+    const connections = {
+      mail: {
+        connectionId: 'c-1',
+        app: 'google',
+        appName: 'Google',
+        accessToken: token,
+        account: { id: 'g-1', label: 'ana@acme.example' },
+        expiresAt: '2026-10-23T01:00:00.000Z',
+      },
+    };
+    const withConnections = (message: string) => ({
+      ...call('pack.mail', { message }),
+      ctx: { tenantId: 't-1', runId: 'run-1', requestId: 'call-1', connections },
+    });
+    const used = await invoke(withConnections('hi'));
+    expect(used.body).toEqual({
+      v: 2,
+      kind: 'result',
+      output: { echoed: `ana@acme.example:${token.length}`, runId: 'hidden' },
+    });
+    const rejected = await invoke(withConnections('reject'));
+    expect(rejected.status).toBe(200);
+    expect(rejected.body).toEqual({
+      v: 2,
+      kind: 'error',
+      code: 'connection-rejected',
+      message: 'Tool "pack.mail": the app answered 401',
+      toolId: 'pack.mail',
+      connection: 'mail',
+    });
+    expect(JSON.stringify(events)).not.toContain(token);
   });
 
   test('a body that is not JSON is a malformed-message error', async () => {

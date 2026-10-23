@@ -977,6 +977,9 @@ importers:
       '@kindgi/schema':
         specifier: workspace:*
         version: link:../schema
+      '@kindgi/tools':
+        specifier: workspace:*
+        version: link:../tools
       '@kindgi/types':
         specifier: workspace:*
         version: link:../types
