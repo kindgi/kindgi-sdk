@@ -3617,7 +3617,7 @@ export const ERROR_ENTRIES = {
   },
   'connection-app-invalid': {
     description:
-      "An app registration that doesn't fit its app's entry, or no registration that fits a connect. The message says what's wrong.",
+      "An app registration that doesn't fit its app's entry, or no registration that fits a connect. A project uses one registration of an app, so a registration that would serve a project another registration of the app serves answers it too (field `projects`). So does changing a registration's client (its client id, or its GitHub App) while it has live connections: disconnect them first, then change it and connect again. The message says what's wrong.",
     details: [
       {
         key: 'field',
