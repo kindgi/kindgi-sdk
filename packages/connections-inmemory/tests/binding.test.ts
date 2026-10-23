@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import type { ConnectRequestRecord } from '@kindgi/api';
 import type { PrincipalRef } from '@kindgi/authz';
+import { type AppEntry, defineApp } from '@kindgi/connections';
 import { github } from '@kindgi/connections/github';
 import { google } from '@kindgi/connections/google';
 import { microsoft } from '@kindgi/connections/microsoft';
@@ -468,6 +469,43 @@ describe('a Microsoft connect', () => {
     );
     expect(url.searchParams.get('scope')).toBe('offline_access User.Read Mail.Send');
     expect(url.searchParams.get('prompt')).toBe('select_account');
+  });
+
+  test('a scope the sign-in and the account lookup both ask for is asked for once', async () => {
+    const signIn = google.signIn as Extract<AppEntry['signIn'], { kind: 'oauth2' }>;
+    const acmeMail = defineApp({
+      ...google,
+      id: 'acme-mail',
+      signIn: { ...signIn, scopes: ['openid'] },
+    });
+    const made = createInMemoryConnections({
+      entries: [acmeMail],
+      publicUrl: 'https://kindgi.acme.example/',
+    });
+    made.seed.app({
+      tenantId,
+      app: 'acme-mail',
+      oauth2: { clientId: 'acme.apps.googleusercontent.com', clientSecret: SECRET },
+      by: admin,
+    });
+    const created = await made.binding.createRequest({
+      tenantId,
+      envName,
+      app: 'acme-mail',
+      owner: { kind: 'member', userId: ana.id },
+      permissions: ['gmail.send'],
+      by: ana,
+    });
+    if (created.kind !== 'ok') throw new Error(created.error.message);
+    const started = await made.binding.startRequest({
+      tenantId,
+      requestId: created.value.requestId,
+      caller: ana,
+    });
+    if (started.kind !== 'ok') throw new Error(started.error.message);
+    expect(new URL(started.value.authorizeUrl).searchParams.get('scope')).toBe(
+      'openid email https://www.googleapis.com/auth/gmail.send',
+    );
   });
 });
 

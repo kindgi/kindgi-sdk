@@ -44,8 +44,8 @@ export type ConnectionOwnerKind = 'member' | 'company';
  *   - `scopes` are asked for at every sign-in, besides the permissions'
  *     and the account lookup's: Microsoft gives a refresh token only when
  *     `'offline_access'` is asked for.
- *   - `scopeResource`: the app may name a granted scope with this prefix
- *     or without it, in any case (Microsoft answers
+ *   - `scopeResource`: the app may name a granted scope with this prefix,
+ *     which ends in `/`, or without it, in any case (Microsoft answers
  *     `https://graph.microsoft.com/mail.read` for `Mail.Read`). The server
  *     compares both sides lowercase with the prefix dropped: each
  *     permission's `grants` and each scope the app answers. The app may

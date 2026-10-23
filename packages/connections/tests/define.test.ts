@@ -276,6 +276,23 @@ describe('defineApp', () => {
       /signIn.tenant must be an object/,
     ],
     [
+      'a signIn.tenant that is a list',
+      {
+        signIn: {
+          ...acme.signIn,
+          authorizeUrl: 'https://auth.acme.example/{tenant}/authorize',
+          tokenUrl: 'https://auth.acme.example/{tenant}/token',
+          tenant: [],
+        },
+      },
+      /signIn.tenant must be an object/,
+    ],
+    [
+      'a scopeResource without its closing slash',
+      { signIn: { ...acme.signIn, scopeResource: 'https://api.acme.example' } },
+      /signIn.scopeResource must end in "\/"/,
+    ],
+    [
       'a revokeUrl with {tenant} without signIn.tenant',
       { signIn: { ...acme.signIn, revokeUrl: 'https://auth.acme.example/{tenant}/revoke' } },
       /signIn.revokeUrl has \{tenant\}, so signIn.tenant is needed/,

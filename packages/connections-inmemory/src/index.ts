@@ -648,15 +648,15 @@ export function createInMemoryConnections(
     const url = new URL(
       tenant === undefined ? signIn.authorizeUrl : signIn.authorizeUrl.replace('{tenant}', tenant),
     );
-    const scopes = [
+    const scopes = new Set([
       ...(signIn.scopes ?? []),
       ...(entry.account.kind === 'github-installation' ? [] : entry.account.scopes),
       ...request.permissions.map((p) => entry.permissions[p]?.grants ?? p),
-    ];
+    ]);
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('client_id', app.oauth2?.clientId ?? '');
     url.searchParams.set('redirect_uri', app.redirectUrl);
-    url.searchParams.set('scope', scopes.join(' '));
+    url.searchParams.set('scope', [...scopes].join(' '));
     url.searchParams.set('code_challenge', challengeOf(randomBytes(32).toString('base64url')));
     url.searchParams.set('code_challenge_method', 'S256');
     for (const [key, value] of Object.entries(signIn.authorizeParams ?? {})) {

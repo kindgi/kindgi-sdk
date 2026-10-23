@@ -76,6 +76,10 @@ function checkSignIn(signIn: SignIn, at: At): void {
   if (signIn.scopes !== undefined) requireTexts(signIn.scopes, at('signIn.scopes'));
   if (signIn.scopeResource !== undefined) {
     requireHttps(signIn.scopeResource, at('signIn.scopeResource'));
+    // Dropped from a granted scope through its `/`, or what's left would never match a permission.
+    if (!signIn.scopeResource.endsWith('/')) {
+      throw new TypeError(at('signIn.scopeResource must end in "/"'));
+    }
   }
   checkTenant(signIn, at);
 }
@@ -100,7 +104,7 @@ function checkTenant(signIn: Extract<SignIn, { kind: 'oauth2' }>, at: At): void 
     }
     return;
   }
-  if (typeof signIn.tenant !== 'object' || signIn.tenant === null) {
+  if (typeof signIn.tenant !== 'object' || signIn.tenant === null || Array.isArray(signIn.tenant)) {
     throw new TypeError(at('signIn.tenant must be an object'));
   }
   const fallback: unknown = signIn.tenant.default;
