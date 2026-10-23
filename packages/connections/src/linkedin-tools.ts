@@ -150,11 +150,12 @@ export function linkedinPost(options: AppToolOptions): Tool<LinkedinPostInput, L
 
 /**
  * A `#` that starts a word, with its word (letters and digits, and the
- * marks some scripts' letters carry), or else one of the characters
- * LinkedIn's post text ("little text") reads as its markup: mentions,
- * hashtags, templates.
+ * marks some scripts' letters carry, with at least one letter, so `#1` is
+ * text), or else one of the characters LinkedIn's post text ("little
+ * text") reads as its markup: mentions, hashtags, templates.
  */
-const LITTLE_TEXT = /(?<=^|\s)#([\p{L}\p{N}][\p{L}\p{M}\p{N}]*)|[|{}@[\]()<>#\\*_~]/gu;
+const LITTLE_TEXT =
+  /(?<=^|\s)#((?=[\p{N}\p{M}]*\p{L})[\p{L}\p{N}][\p{L}\p{M}\p{N}]*)|[|{}@[\]()<>#\\*_~]/gu;
 
 /**
  * Plain text as LinkedIn's post text: a `#` that starts a word is written

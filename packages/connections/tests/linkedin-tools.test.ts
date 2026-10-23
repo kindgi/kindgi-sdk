@@ -139,11 +139,9 @@ describe('linkedin.post', () => {
       ['Hello @[Bo Lee](urn:li:person:abc123)', 'Hello \\@\\[Bo Lee\\]\\(urn:li:person:abc123\\)'],
       ['{hashtag|\\#|kindgi}', '\\{hashtag\\|\\\\\\#\\|kindgi\\}'],
       ['<b>*bold*</b> _x_ ~y~', '\\<b\\>\\*bold\\*\\</b\\> \\_x\\_ \\~y\\~'],
-      [
-        'Ship it #agents #1 and #día',
-        'Ship it {hashtag|\\#|agents} {hashtag|\\#|1} and {hashtag|\\#|día}',
-      ],
+      ['Ship it #agents #1 and #día', 'Ship it {hashtag|\\#|agents} \\#1 and {hashtag|\\#|día}'],
       ['#launch day', '{hashtag|\\#|launch} day'],
+      ['We are #1, #2026plans', 'We are \\#1, {hashtag|\\#|2026plans}'],
       [
         '#ai, #ml. #foo_bar #हिन्दी',
         '{hashtag|\\#|ai}, {hashtag|\\#|ml}. {hashtag|\\#|foo}\\_bar {hashtag|\\#|हिन्दी}',
