@@ -133,16 +133,23 @@ describe('linkedin.post', () => {
     expect(sent[0]?.body.visibility).toBe('CONNECTIONS');
   });
 
-  it('posts the text as written: markup is escaped, so it mentions no one, and a # that starts a word stays a hashtag', async () => {
+  it('posts the text as written: a # that starts a word is a hashtag, and the rest of the markup is escaped, so it mentions no one', async () => {
     const sent = linkedinAnswering();
     const cases: [string, string][] = [
       ['Hello @[Bo Lee](urn:li:person:abc123)', 'Hello \\@\\[Bo Lee\\]\\(urn:li:person:abc123\\)'],
       ['{hashtag|\\#|kindgi}', '\\{hashtag\\|\\\\\\#\\|kindgi\\}'],
       ['<b>*bold*</b> _x_ ~y~', '\\<b\\>\\*bold\\*\\</b\\> \\_x\\_ \\~y\\~'],
-      ['Ship it #agents #1 and #día', 'Ship it #agents #1 and #día'],
-      ['#launch day', '#launch day'],
+      [
+        'Ship it #agents #1 and #día',
+        'Ship it {hashtag|\\#|agents} {hashtag|\\#|1} and {hashtag|\\#|día}',
+      ],
+      ['#launch day', '{hashtag|\\#|launch} day'],
+      [
+        '#ai, #ml. #foo_bar #हिन्दी',
+        '{hashtag|\\#|ai}, {hashtag|\\#|ml}. {hashtag|\\#|foo}\\_bar {hashtag|\\#|हिन्दी}',
+      ],
       ['C# and F#, # alone, a#b, #', 'C\\# and F\\#, \\# alone, a\\#b, \\#'],
-      ['Line one\n#two', 'Line one\n#two'],
+      ['Line one\n#two', 'Line one\n{hashtag|\\#|two}'],
     ];
     for (const [text, commentary] of cases) {
       const r = await invokeToolForTest(post, { text }, { connections: { linkedin: profile() } });

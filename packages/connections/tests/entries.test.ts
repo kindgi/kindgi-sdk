@@ -179,7 +179,7 @@ describe('the LinkedIn entry', () => {
     expect(linkedin.permissions).toEqual({
       'posts.write': {
         grants: 'w_member_social',
-        says: 'Post, comment and react on LinkedIn as you',
+        says: 'Post, comment and react on LinkedIn as you, and edit or delete what you posted',
         changes: true,
       },
     });

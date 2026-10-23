@@ -148,23 +148,25 @@ export function linkedinPost(options: AppToolOptions): Tool<LinkedinPostInput, L
   return appTool(LINKEDIN_POST, options);
 }
 
-/** The characters LinkedIn's post text reads as its markup ("little text"): mentions, hashtags, templates. */
-const RESERVED = /[|{}@[\]()<>#\\*_~]/g;
+/**
+ * A `#` that starts a word, with its word (letters and digits, and the
+ * marks some scripts' letters carry), or else one of the characters
+ * LinkedIn's post text ("little text") reads as its markup: mentions,
+ * hashtags, templates.
+ */
+const LITTLE_TEXT = /(?<=^|\s)#([\p{L}\p{N}][\p{L}\p{M}\p{N}]*)|[|{}@[\]()<>#\\*_~]/gu;
 
 /**
- * Plain text as LinkedIn's post text: every character it would read as
- * markup is escaped with a backslash, but for a `#` that starts a word,
- * which LinkedIn makes a hashtag. So the text can mention no one: a
- * mention, `@[Name](urn:li:person:…)`, tells that member they were named.
+ * Plain text as LinkedIn's post text: a `#` that starts a word is written
+ * as LinkedIn's hashtag, `{hashtag|\#|word}`, and every other character it
+ * reads as markup is escaped with a backslash, since a raw one can cut the
+ * post's text short. So the text can mention no one: a mention,
+ * `@[Name](urn:li:person:…)`, tells that member they were named.
  */
 function littleText(text: string): string {
-  return text.replace(RESERVED, (c: string, at: number) =>
-    c === '#' && startsHashtag(text, at) ? c : `\\${c}`,
+  return text.replace(LITTLE_TEXT, (c: string, word: string | undefined) =>
+    word !== undefined ? `{hashtag|\\#|${word}}` : `\\${c}`,
   );
-}
-
-function startsHashtag(text: string, at: number): boolean {
-  return (at === 0 || /\s/u.test(text.charAt(at - 1))) && /^#[\p{L}\p{N}]/u.test(text.slice(at));
 }
 
 /** What LinkedIn's error says (its code and message), else the HTTP status. */

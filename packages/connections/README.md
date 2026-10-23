@@ -60,8 +60,8 @@ export default gmailSend({ id: 'acme.gmail.send' });
 ```
 
 The id is the pack's because a tool id is the tenant's, filed under the
-first project that publishes it. Sending, labelling and posting are `mutating`, and
-wait for a person's yes in a run no person started.
+first project that publishes it. Sending, labelling and posting are
+`mutating`, and wait for a person's yes in a run no person started.
 
 Each calls its app's API with `appFetch(ctx, call)`, from
 `@kindgi/connections/app-fetch`, which a tool of your own can use too. It
