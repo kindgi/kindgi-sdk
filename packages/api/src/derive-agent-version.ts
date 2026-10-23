@@ -5,6 +5,7 @@ import {
   type Agent,
   type AgentId,
   type AgentPins,
+  modelNamedTwice,
   modelSettingsIssues,
   pinsDigest,
 } from '@kindgi/agents';
@@ -245,6 +246,8 @@ async function blockProblem(
     if (issues.length > 0) {
       return `${what} isn't model settings: ${issues.map((i) => `${i.path} ${i.message}`).join('; ')}`;
     }
+    const twice = modelNamedTwice(from, block.content.values);
+    if (twice !== undefined) return `${what}: ${twice}`;
   }
   return undefined;
 }

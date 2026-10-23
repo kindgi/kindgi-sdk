@@ -73,6 +73,13 @@ pnpm exec kindgi runs journal <run-id>
 by step, where the agent's tool calls and their arguments are. Between the
 reason and the run you have what the agent did and what it should have done.
 
+An expert can also have said exactly what the run should have done (runtime
+0.1.11 or later): the judgment then has a
+[`correction`](../judge-a-runs-output/#say-what-it-should-have-done), with
+the calls it should have made and the tools it shouldn't have called. Take
+those as what the test checks. Leave it on the run: test cases built from
+these runs check each new version against it.
+
 Kindgi doesn't hand out corrections: two people's coding agents can pull the
 same "no" judgments, so agree who takes which before you start.
 
@@ -137,6 +144,12 @@ that one.
 
 For a **code** change, `kindgi deploy` publishes the new version with the
 changed tool.
+
+If you keep test cases built from the corrected runs,
+[try the new version on them](../compare-an-agent-version/#what-it-should-have-done)
+first. Where an expert said what the run should have done, the summary's
+`corrections` says how many of those the version now passes, `passed` of
+`checked`. No release gate policy checks it, so put it in the `--reason`.
 
 Then ask a person to make it live, naming the corrections. Check first what
 will happen, then promote:
