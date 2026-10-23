@@ -39,7 +39,7 @@ import {
   isZodSchema,
   parseWithSchema,
 } from '@kindgi/schema';
-import { type ToolConnection, isConnectionRejectedError } from '@kindgi/tools';
+import { type ToolConnection, connectionRejectionOf } from '@kindgi/tools';
 import type { Result } from '@kindgi/types';
 
 /**
@@ -63,9 +63,9 @@ export interface HandlerContext {
    * The declared connections (`needsSpec.connections`), by the tool's name
    * for each, with a short-lived token (protocol 2.7.0). Not enumerable,
    * like `secrets`. When the app refuses a token, throw
-   * `ConnectionRejectedError` (`@kindgi/tools`) with the name: the call
-   * answers `connection-rejected`, and the runtime renews the token once
-   * and runs the call again.
+   * `ConnectionRejectedError` (`@kindgi/tools`) with the name, or an error
+   * whose `cause` is one: the call answers `connection-rejected`, and the
+   * runtime renews the token once and runs the call again.
    */
   readonly connections?: Readonly<Record<string, ToolConnection>>;
   readonly config?: Readonly<Record<string, unknown>>;
@@ -322,14 +322,15 @@ export async function runHandler(
   try {
     output = await handler(prepared, ctx);
   } catch (cause) {
-    if (isConnectionRejectedError(cause)) {
+    const rejection = connectionRejectionOf(cause);
+    if (rejection !== undefined) {
       return {
         kind: 'err',
         error: {
           code: 'connection-rejected',
-          message: `Tool "${tool.id}": ${cause.message}`,
+          message: `Tool "${tool.id}": ${rejection.message}`,
           toolId: tool.id,
-          connection: cause.connection,
+          connection: rejection.connection,
         },
       };
     }

@@ -162,6 +162,50 @@ export function isConnectionRejectedError(value: unknown): value is ConnectionRe
   );
 }
 
+/** A refused connection, as a thrown error names it. */
+export interface ConnectionRejection {
+  /** The tool's name for the connection. */
+  readonly connection: string;
+  /** What the app said; never the token. */
+  readonly message: string;
+}
+
+/** How many errors deep a refusal is looked for: the error and three causes. */
+const REJECTION_DEPTH = 4;
+
+/**
+ * The refused connection a thrown error is or wraps: a
+ * `ConnectionRejectedError` (from any copy of this package), or an error
+ * with `code: 'connection-rejected'` naming its `connection`. A tool may
+ * wrap the app's refusal in its own error, and a dispatcher wraps the
+ * tool's, so it looks through up to three `cause`s. `undefined` when there
+ * is none, or the first it finds names no connection.
+ */
+export function connectionRejectionOf(error: unknown): ConnectionRejection | undefined {
+  let at: unknown = error;
+  for (let depth = 0; depth < REJECTION_DEPTH; depth += 1) {
+    if (typeof at !== 'object' || at === null) return undefined;
+    const { code, connection, message, cause } = at as {
+      readonly code?: unknown;
+      readonly connection?: unknown;
+      readonly message?: unknown;
+      readonly cause?: unknown;
+    };
+    if (isConnectionRejectedError(at) || code === 'connection-rejected') {
+      if (typeof connection !== 'string') return undefined;
+      return {
+        connection,
+        message:
+          typeof message === 'string' && message !== ''
+            ? message
+            : `the app refused the connection "${connection}"`,
+      };
+    }
+    at = cause;
+  }
+  return undefined;
+}
+
 const CONNECTION_RENEW_FAILED = Symbol.for('kindgi.tools.connection-renew-failed');
 
 /**
