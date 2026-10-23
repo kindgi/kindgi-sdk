@@ -10,6 +10,7 @@ import {
   menu,
   plan,
   redirects,
+  robots,
   snapshotKey,
 } from './versions-plan.mjs';
 
@@ -483,5 +484,21 @@ test("without a lockfile change, the lockfiles aren't read", () => {
       lockfiles: { tag: LOCKFILE_TEXT, branch: lockfileWith(['sha512-f1', 'sha512-f2']) },
     }),
     { ref: 'origin/release-docs/0.1.4' },
+  );
+});
+
+test('robots.txt: nothing disallowed, and the sitemap that / was built with', () => {
+  const index =
+    '<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><sitemap><loc>https://docs.kindgi.com/sitemap-0.xml</loc></sitemap></sitemapindex>';
+  assert.equal(
+    robots(index),
+    'User-agent: *\nAllow: /\n\nSitemap: https://docs.kindgi.com/sitemap-index.xml\n',
+  );
+  assert.doesNotMatch(robots(index), /Disallow/);
+  // No sitemap built for /: robots.txt would name a missing one, so the build stops.
+  assert.throws(() => robots(undefined), /no sitemap-index\.xml naming a sitemap/);
+  assert.throws(
+    () => robots('<sitemapindex></sitemapindex>'),
+    /no sitemap-index\.xml naming a sitemap/,
   );
 });
