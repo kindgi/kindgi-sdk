@@ -869,8 +869,10 @@ export function createInMemoryConnections(
 
   /**
    * Makes the connection with what the person granted, declining for what's
-   * missing; or reconnects it. A reconnect never narrows: one granted less
-   * than asked leaves the connection as it was.
+   * missing; or reconnects it. A reconnect never narrows: one that keeps all
+   * the connection had is stored (so one that needs reconnecting works
+   * again), and one granted less than that leaves the connection as it was.
+   * Either way it declines for what's missing.
    */
   async function connect(
     stored: StoredRequest,
@@ -888,7 +890,8 @@ export function createInMemoryConnections(
         `That's another account: reconnect ${live.record.account.label}`,
       );
     }
-    if (kept.length === 0 || (live !== undefined && missing.length > 0)) {
+    const narrows = live !== undefined && !live.record.permissions.every((p) => kept.includes(p));
+    if (kept.length === 0 || narrows) {
       return ok({
         kind: 'declined',
         request: await settle(

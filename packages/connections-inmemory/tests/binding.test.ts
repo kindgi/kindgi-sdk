@@ -318,7 +318,7 @@ describe('a connect, without a browser', () => {
     });
   });
 
-  test('a reconnect granted less than asked is declined, and leaves the connection as it was', async () => {
+  test('a reconnect granted less than the connection had is declined, and leaves it as it was', async () => {
     const made = setup({
       exchange: () => ({ account: { id: 'g-ana', label: 'ana' }, granted: ['gmail.send'] }),
     });
@@ -342,6 +342,56 @@ describe('a connect, without a browser', () => {
     expect(await made.binding.get({ tenantId, connectionId: existing.connectionId })).toMatchObject(
       { permissions: ['gmail.readonly'], state: 'needs-reconnecting' },
     );
+  });
+
+  test('a reconnect that keeps all the connection had is stored, and declines for the rest', async () => {
+    const made = setup({
+      exchange: () => ({ account: { id: 'g-ana', label: 'ana' }, granted: ['gmail.readonly'] }),
+      notice: () => ({
+        handled: 'sessions-revoked',
+        accountId: 'g-ana',
+        action: 'needs-reconnecting',
+      }),
+    });
+    const existing = made.seed.connection({
+      tenantId,
+      envName,
+      app: 'google',
+      owner: { kind: 'member', userId: ana.id },
+      account: { id: 'g-ana', label: 'ana@acme.example' },
+      permissions: ['gmail.readonly'],
+    });
+    await made.binding.receiveNotice({
+      tenantId,
+      appId: made.googleApp.appId,
+      headers: {},
+      rawBody: new TextEncoder().encode('{}'),
+    });
+    expect(await made.binding.get({ tenantId, connectionId: existing.connectionId })).toMatchObject(
+      { state: 'needs-reconnecting', stateReason: 'sessions-revoked' },
+    );
+    const again = await request(made, { permissions: ['gmail.send'] });
+    const state = (await start(made, again.requestId)).searchParams.get('state') as string;
+    expect(
+      await made.binding.finishRequest({ tenantId, caller: ana, state, code: 'ok' }),
+    ).toMatchObject({
+      kind: 'ok',
+      value: {
+        kind: 'declined',
+        request: {
+          state: 'declined',
+          missing: ['gmail.send'],
+          connectionId: existing.connectionId,
+        },
+      },
+    });
+    const revived = await made.binding.get({ tenantId, connectionId: existing.connectionId });
+    expect(revived).toMatchObject({
+      permissions: ['gmail.readonly'],
+      state: 'working',
+      account: { label: 'ana' },
+    });
+    expect(revived).not.toHaveProperty('stateReason');
   });
 });
 
