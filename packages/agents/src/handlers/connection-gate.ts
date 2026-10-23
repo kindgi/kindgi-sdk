@@ -6,7 +6,7 @@ import type { ModelToolCall } from '@kindgi/capabilities';
 import type { NodeContext } from '@kindgi/handler';
 import { WaitpointCancelledError } from '@kindgi/handler';
 import { runIsAttended } from '@kindgi/runtime';
-import { isConnectionRejectedError, isConnectionRenewError } from '@kindgi/tools';
+import { connectionRejectionOf, isConnectionRenewError } from '@kindgi/tools';
 import type {
   ConnectionAccount,
   ConnectionNeed,
@@ -197,22 +197,11 @@ export async function freshConnections(
 export function rejectedConnectionOf(error: unknown, tool: Tool): string | undefined {
   const needs = connectionNeedsOf(tool);
   if (needs === undefined) return undefined;
-  let at: unknown = error;
   // A thrown error comes wrapped: dispatch's error, then the tool's.
-  for (let depth = 0; depth < 4 && typeof at === 'object' && at !== null; depth += 1) {
-    const { code, connection, cause } = at as {
-      readonly code?: unknown;
-      readonly connection?: unknown;
-      readonly cause?: unknown;
-    };
-    if (isConnectionRejectedError(at) || code === 'connection-rejected') {
-      return typeof connection === 'string' && Object.hasOwn(needs, connection)
-        ? connection
-        : undefined;
-    }
-    at = cause;
-  }
-  return undefined;
+  const rejection = connectionRejectionOf(error);
+  return rejection !== undefined && Object.hasOwn(needs, rejection.connection)
+    ? rejection.connection
+    : undefined;
 }
 
 /**
@@ -282,7 +271,7 @@ export function approverNotAReviewerOf(
   return {
     code: 'connection-approver-not-a-reviewer',
     ...(name !== undefined && { connection: name }),
-    message: `Only user ${approval.approver?.userId} can approve ${call.name}, as it acts with ${as}, and they have no reviewer seat at ${rank} or above: a tenant admin adds them to the reviewers. The call didn't run.`,
+    message: `Only user ${approval.approver?.userId} can approve ${call.name}, as it acts with ${as}, and they have no reviewer seat at ${rank} or above, the rank the approval needs: a tenant admin adds them to the reviewers. The call didn't run.`,
   };
 }
 
@@ -353,6 +342,9 @@ function resolve(
     projectId: ctx.input.projectId,
     envName: served.envName,
     runId: kctx.runId as unknown as string,
+    // With the call id, names the call across the run: a model's call id
+    // is unique only within one answer.
+    ...(kctx.stepScope !== undefined && { stepScope: kctx.stepScope }),
     callId: call.id,
     toolId: tool.id as unknown as string,
     needs,

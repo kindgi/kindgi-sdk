@@ -11,6 +11,7 @@ import {
   invokeTool,
   toolCallRecordKey,
   toolIdempotencyKey,
+  withoutConnectionTokens,
 } from '@kindgi/tools';
 import type { Tool, ToolConnection, ToolContext } from '@kindgi/tools';
 
@@ -540,6 +541,7 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
       // The app refused a connection's token: renewed, the call runs once more.
       const rejected =
         dispatched.kind === 'err' ? rejectedConnectionOf(dispatched.error, tool) : undefined;
+      let renewedTokens: Readonly<Record<string, ToolConnection>> | undefined;
       if (rejected !== undefined) {
         const renewed = await freshConnections(ctx, kctx, call, tool, [rejected]);
         if (renewed.kind === 'failed') {
@@ -550,26 +552,28 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
           });
           continue;
         }
+        renewedTokens = renewed.connections;
         dispatched = await dispatchOne(ctx, tool, call, kctx, replayEnv, renewed.connections);
       }
       if (dispatched.kind === 'err') {
+        // A token the tool echoed in what it threw goes no further: not to
+        // the run's events, its record or the model.
+        const error = withoutConnectionTokens(dispatched.error, [tokens, renewedTokens]);
         await emitTurnEvent(ctx.bindings.onEvent, {
           kind: 'tool.failed',
           step: partial.step,
           toolId: call.name,
           invocationId: call.id,
           error: {
-            code: dispatched.error.code,
-            message: dispatched.error.message,
+            code: error.code,
+            message: error.message,
           },
         });
-        nextMessages = await retryOrFail(
-          ctx,
-          call,
-          dispatched.error,
-          dispatched.error.validationIssues,
-          { toolId: tool.id as unknown as string, nextMessages, iterationAppended },
-        );
+        nextMessages = await retryOrFail(ctx, call, error, error.validationIssues, {
+          toolId: tool.id as unknown as string,
+          nextMessages,
+          iterationAppended,
+        });
         continue;
       }
 

@@ -112,6 +112,15 @@ interface TurnOptions {
   /** A wait's answer. Absent: connects connect, approvals approve. */
   readonly waitForToken?: (token: string) => Promise<unknown>;
   readonly records?: Map<string, unknown>;
+  /** The step's scope. */
+  readonly stepScope?: string;
+}
+
+/** Every string a value holds as its own (an error's message and stack too), down its causes. */
+function stringsOf(value: unknown, depth = 0): string[] {
+  if (typeof value === 'string') return [value];
+  if (typeof value !== 'object' || value === null || depth > 10) return [];
+  return Reflect.ownKeys(value).flatMap((key) => stringsOf(Reflect.get(value, key), depth + 1));
 }
 
 async function turn(o: TurnOptions = {}) {
@@ -212,6 +221,7 @@ async function turn(o: TurnOptions = {}) {
     testNodeContext(
       {
         runId: RUN,
+        ...(o.stepScope !== undefined && { stepScope: o.stepScope }),
         waitForToken: (async (token: string, options?: { timeoutMs?: number }) => {
           waits.push({ token, ...(options?.timeoutMs !== undefined && options) });
           if (o.waitForToken !== undefined) return o.waitForToken(token);
@@ -276,6 +286,8 @@ describe('a call gets its connections before it runs', () => {
     expect(first?.waitMs).toBeGreaterThan(0);
     expect(fresh?.waitMs).toBe(0);
     expect(fresh).not.toHaveProperty('renew');
+    // A step with no scope sends none.
+    expect(first).not.toHaveProperty('stepScope');
 
     // No person started the run: nothing may wait.
     const scheduled = await turn({ startedBy: 'schedule', mutating: false });
@@ -551,6 +563,45 @@ describe('the app refuses a token: renewed once, the call runs once more', () =>
   });
 });
 
+describe('the step the call is in', () => {
+  test("every ask names it: with the call id, it's the call across the run", async () => {
+    const t = await turn({
+      stepScope: 'loop-1:2',
+      run: async (_ctx, attempt) => {
+        if (attempt === 1) throw new ConnectionRejectedError('mail');
+        return { ok: true };
+      },
+    });
+    expect(t.asked).toHaveLength(3);
+    expect(t.asked.map((a) => a.stepScope)).toEqual(['loop-1:2', 'loop-1:2', 'loop-1:2']);
+  });
+});
+
+describe('a token the tool echoes in what it throws goes no further', () => {
+  test("the event, the model and the turn's failure see it redacted, the renewed one too", async () => {
+    let firstToken = '';
+    const t = await turn({
+      run: async (ctx, attempt) => {
+        const token = ctx.connections?.mail?.accessToken ?? '';
+        if (attempt === 1) {
+          firstToken = token;
+          throw new ConnectionRejectedError('mail', `Acme refused ${token}.`);
+        }
+        throw new Error(`send failed with ${token}`, {
+          cause: new Error(`the first was ${firstToken}`),
+        });
+      },
+    });
+    expect(t.ran).toHaveLength(2);
+    expect(firstToken).toBe('secret-token-mail-2');
+    expect(t.failed[0]?.error.message).toMatch(/send failed with \[redacted\]$/);
+    const seen = [JSON.stringify(t.events), JSON.stringify(t.results), ...stringsOf(t.thrown)].join(
+      '\n',
+    );
+    expect(seen).not.toContain('secret-token');
+  });
+});
+
 describe("a call that acts with a person's connection is theirs to approve", () => {
   const ask = { hitl: { tools: { overrides: { 'pack.send': 'always_ask' } } } };
 
@@ -614,7 +665,8 @@ describe("a call that acts with a person's connection is theirs to approve", () 
       code: 'connection-approver-not-a-reviewer',
       message:
         'Only user user-owner can approve pack.send, as it acts with their Acme account owner@acme.example, ' +
-        'and they have no reviewer seat at senior or above: a tenant admin adds them to the reviewers. ' +
+        'and they have no reviewer seat at senior or above, the rank the approval needs: ' +
+        'a tenant admin adds them to the reviewers. ' +
         "The call didn't run.",
     });
   });

@@ -133,8 +133,9 @@ export interface ApprovalsRouterOptions {
  * An approval addressed to one member (`approver`: a call that acts with
  * that member's own connection) is theirs alone to decide, and among the
  * reviewers only they see it. A person who is the tenant's admin still
- * reads it, but can't decide it. That check is made only when a read holds
- * an approval addressed to someone else.
+ * reads it, but can't decide it (`403 named-approver-required`); to anyone
+ * else it doesn't exist. That check is made only when a read holds an
+ * approval addressed to someone else.
  *
  * Visibility filter: a caller with role `R` sees approvals whose
  * `requiredRole` rank ≤ their rank (standard < senior < admin). The
@@ -620,12 +621,12 @@ export function approvalsRouter(
       return c.json(toWireError(found.error as never, requestId));
     }
     const approval = found.value;
-    // One addressed to a member is theirs alone to decide: anyone else,
-    // the tenant's admin too, finds no such approval.
+    // One addressed to a member is hidden from the other reviewers, as in
+    // the list: they find no such approval.
     if (
       REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role] ||
-      !decidesAddressed(c, approval) ||
-      !(await mayRead(c, approval))
+      !(await mayRead(c, approval)) ||
+      !(await seesAddressed(c, approval))
     ) {
       c.status(statusFor('approval-not-found') as never);
       return c.json(
@@ -633,6 +634,22 @@ export function approvalsRouter(
           {
             code: 'approval-not-found',
             message: `No approval with id ${approvalId as unknown as string}`,
+            approvalId: approvalId as unknown as string,
+          },
+          requestId,
+        ),
+      );
+    }
+    // The tenant's admin reads it, but only its approver decides it.
+    if (!decidesAddressed(c, approval)) {
+      const account =
+        approval.connection === undefined ? 'account' : `${approval.connection.appName} account`;
+      c.status(statusFor('named-approver-required') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'named-approver-required',
+            message: `Only user ${approval.approver?.userId} can decide approval ${approvalId as unknown as string}: the call it gates acts with their own ${account}.`,
             approvalId: approvalId as unknown as string,
           },
           requestId,
