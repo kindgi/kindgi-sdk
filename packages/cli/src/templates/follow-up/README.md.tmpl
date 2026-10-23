@@ -42,6 +42,11 @@ and its instructions all refer to `{{PACK_ID}}.gmail.send`.
   the send as well, so it stays held if you loosen the default for a tool
   you add. You approve or reject in the console's approvals inbox. A
   rejection is recorded, and the agent says the mail wasn't sent.
+- **Your own reviewer seat.** A send acts with your Google connection, so
+  only you can approve it, and approving takes a reviewer seat. A tenant
+  admin adds you on the console's **Reviewers** page, or with
+  `kindgi reviewers register`. Without a seat, the send fails with
+  `connection-approver-not-a-reviewer` and nothing goes.
 - **A run no person started** (on a schedule, say): the tool itself is
   `needsApprovalWhenUnattended`, so each send waits for a person's yes
   whatever the agent's policy says.
@@ -79,6 +84,15 @@ every tool that sends or changes something waiting for a person.
 {{KINDGI}} test
 {{KINDGI}} dev  # runs the Kindgi runtime (Docker) + hot-reloads this pack
 ```
+
+`kindgi test` and this pack's own tests run without Google. Under
+`kindgi dev`, connections are off, because dev keeps secrets in `.env`
+files and connections need a store of their own. A send there fails at
+once with `connection-app-missing`, before any approval, and the agent
+says the mail wasn't sent. To send for real, run the pack on a Kindgi
+server that serves connections (a public address, its env name, and a
+Postgres or secret-manager secrets store), with Google set up there as
+Kindgi's guide to connecting Google describes.
 
 The agent needs a real model: `kindgi dev`'s `dev-echo` fallback only
 calls the first tool. For Claude, with `kindgi dev` running:
