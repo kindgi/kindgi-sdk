@@ -66,7 +66,17 @@ export interface ConnectionAppRecord {
   /** The app's entry id: `'google'`. */
   readonly app: string;
   readonly label?: string;
-  readonly oauth2?: { readonly clientId: string; readonly clientSecret: SecretRefInput };
+  readonly oauth2?: {
+    readonly clientId: string;
+    readonly clientSecret: SecretRefInput;
+    /**
+     * The directory the app signs people in at, for an entry whose sign-in
+     * names one (`signIn.tenant`): Microsoft's tenant id or domain,
+     * `organizations`, `common` or `consumers`. Required when the entry has
+     * no default, refused for an entry without one (`connection-app-invalid`).
+     */
+    readonly tenant?: string;
+  };
   readonly githubApp?: {
     readonly appNumber: number;
     readonly slug: string;

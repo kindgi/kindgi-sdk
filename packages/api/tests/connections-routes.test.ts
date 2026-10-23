@@ -73,7 +73,7 @@ function memoryBinding() {
     },
     async createApp(input) {
       seen('createApp', input);
-      if (input.app !== 'google' && input.app !== 'github') {
+      if (input.app !== 'google' && input.app !== 'github' && input.app !== 'microsoft') {
         return refuse('connection-app-unknown-entry', `No entry "${input.app}"`);
       }
       const appId = randomUUID();
@@ -349,6 +349,18 @@ describe('/v1/connection-apps', () => {
     expect(listed.json).toMatchObject({ data: [{ appId: res.json.appId }], hasMore: false });
   });
 
+  test("passes a registration's directory to the binding, and shows it", async () => {
+    const { app, calls } = makeApp();
+    const oauth2 = { clientId: 'c-1', clientSecret: SECRET, tenant: 'acme.onmicrosoft.com' };
+    const res = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'microsoft',
+      oauth2,
+    });
+    expect(res.status).toBe(201);
+    expect(res.json.oauth2).toEqual(oauth2);
+    expect(calls.createApp?.[0]).toMatchObject({ oauth2: { tenant: 'acme.onmicrosoft.com' } });
+  });
+
   test("without an authorizer, a key's tenant-admin scope decides: a member key neither registers nor re-points an app", async () => {
     const { app, calls } = makeApp();
     const body = {
@@ -389,6 +401,21 @@ describe('/v1/connection-apps', () => {
       'a client secret that is not a reference',
       { app: 'google', oauth2: { clientId: 'c', clientSecret: 'plain' } },
       'oauth2.clientSecret',
+    ],
+    [
+      'a field oauth2 does not know',
+      { app: 'google', oauth2: { clientId: 'c', clientSecret: SECRET, region: 'eu' } },
+      'oauth2.region',
+    ],
+    [
+      "a tenant that isn't a string",
+      { app: 'microsoft', oauth2: { clientId: 'c', clientSecret: SECRET, tenant: 7 } },
+      'oauth2.tenant',
+    ],
+    [
+      'an empty tenant',
+      { app: 'microsoft', oauth2: { clientId: 'c', clientSecret: SECRET, tenant: '' } },
+      'oauth2.tenant',
     ],
     ['a project twice', { app: 'google', projects: ['p-1', 'p-1'] }, 'projects'],
     ['every project spelled as null on a create', { app: 'google', projects: null }, 'projects'],

@@ -104,7 +104,9 @@ describe('the Microsoft entry', () => {
       scopes: ['offline_access'],
       // Microsoft may answer `https://graph.microsoft.com/mail.send` for `Mail.Send`.
       scopeResource: 'https://graph.microsoft.com/',
-      tenant: { default: 'organizations' },
+      // No default: Microsoft signs a single-tenant app in only at its own
+      // directory, so each registration names it.
+      tenant: {},
     });
     for (const directory of [
       'organizations',
@@ -115,7 +117,7 @@ describe('the Microsoft entry', () => {
     ]) {
       expect(SIGN_IN_TENANT_PATTERN.test(directory)).toBe(true);
     }
-    for (const notOne of ['', 'acme/../common', 'acme?x=1', 'a b']) {
+    for (const notOne of ['', '.', '..', '-acme', 'acme/../common', 'acme?x=1', 'a b']) {
       expect(SIGN_IN_TENANT_PATTERN.test(notOne)).toBe(false);
     }
   });

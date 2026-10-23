@@ -60,17 +60,19 @@ describe('defineApp', () => {
   });
 
   it("takes a sign-in in the app's own directory, a profile lookup, and a limit a call costs 0 in", () => {
+    const signIn = {
+      kind: 'oauth2',
+      authorizeUrl: 'https://auth.acme.example/{tenant}/authorize',
+      tokenUrl: 'https://auth.acme.example/{tenant}/token',
+      revokeUrl: 'https://auth.acme.example/{tenant}/revoke',
+      pkce: 'S256',
+      scopes: ['offline_access'],
+      scopeResource: 'https://api.acme.example/',
+      tenant: {},
+    } as const;
     const entry = defineApp(
       withAcme({
-        signIn: {
-          kind: 'oauth2',
-          authorizeUrl: 'https://auth.acme.example/{tenant}/authorize',
-          tokenUrl: 'https://auth.acme.example/{tenant}/token',
-          pkce: 'S256',
-          scopes: ['offline_access'],
-          scopeResource: 'https://api.acme.example/',
-          tenant: { default: 'organizations' },
-        },
+        signIn,
         account: {
           kind: 'profile',
           url: 'https://api.acme.example/me',
@@ -85,7 +87,11 @@ describe('defineApp', () => {
       }),
     );
     expect(entry.account.kind).toBe('profile');
-    expect(entry.signIn.kind === 'oauth2' && entry.signIn.tenant).toEqual({
+    expect(entry.signIn.kind === 'oauth2' && entry.signIn.tenant).toEqual({});
+    const withDefault = defineApp(
+      withAcme({ signIn: { ...signIn, tenant: { default: 'organizations' } }, removal: {} }),
+    );
+    expect(withDefault.signIn.kind === 'oauth2' && withDefault.signIn.tenant).toEqual({
       default: 'organizations',
     });
   });
@@ -246,17 +252,65 @@ describe('defineApp', () => {
       /signIn.tenant.default must match/,
     ],
     [
-      'a revokeUrl with {tenant}',
+      'a tenant default that is a dot path segment',
       {
         signIn: {
           ...acme.signIn,
           authorizeUrl: 'https://auth.acme.example/{tenant}/authorize',
           tokenUrl: 'https://auth.acme.example/{tenant}/token',
-          revokeUrl: 'https://auth.acme.example/{tenant}/revoke',
-          tenant: { default: 'common' },
+          tenant: { default: '..' },
         },
       },
-      /signIn.revokeUrl can't hold \{tenant\}/,
+      /signIn.tenant.default must match/,
+    ],
+    [
+      "a signIn.tenant that isn't an object",
+      {
+        signIn: {
+          ...acme.signIn,
+          authorizeUrl: 'https://auth.acme.example/{tenant}/authorize',
+          tokenUrl: 'https://auth.acme.example/{tenant}/token',
+          tenant: 'common',
+        },
+      },
+      /signIn.tenant must be an object/,
+    ],
+    [
+      'a revokeUrl with {tenant} without signIn.tenant',
+      { signIn: { ...acme.signIn, revokeUrl: 'https://auth.acme.example/{tenant}/revoke' } },
+      /signIn.revokeUrl has \{tenant\}, so signIn.tenant is needed/,
+    ],
+    [
+      'a revokeUrl that holds {tenant} twice',
+      {
+        signIn: {
+          ...acme.signIn,
+          authorizeUrl: 'https://auth.acme.example/{tenant}/authorize',
+          tokenUrl: 'https://auth.acme.example/{tenant}/token',
+          revokeUrl: 'https://auth.acme.example/{tenant}/{tenant}/revoke',
+          tenant: {},
+        },
+      },
+      /signIn.revokeUrl can hold \{tenant\} once at most/,
+    ],
+    [
+      'a profile lookup whose URL holds {tenant}',
+      {
+        signIn: {
+          ...acme.signIn,
+          authorizeUrl: 'https://auth.acme.example/{tenant}/authorize',
+          tokenUrl: 'https://auth.acme.example/{tenant}/token',
+          tenant: {},
+        },
+        account: {
+          kind: 'profile',
+          url: 'https://api.acme.example/{tenant}/me',
+          scopes: [],
+          id: 'id',
+          label: ['mail'],
+        },
+      },
+      /account.url can't hold \{tenant\}/,
     ],
     [
       'an empty sign-in scope',

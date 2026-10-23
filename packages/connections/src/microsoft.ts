@@ -8,13 +8,15 @@ import { defineApp } from './define.js';
  * sent as them through Outlook, their mail read. Each tenant registers its
  * own app in Microsoft Entra (the setup guide says how).
  *
- * - **Sign-in:** OAuth 2.0 with PKCE, in the registration's directory:
- *   its tenant id or domain for a single-tenant app (a company's own, the
- *   usual one), `organizations` (the default) for any work or school
- *   account, `common` to take personal accounts too, `consumers` for
- *   personal ones only. `offline_access` gets a refresh token, and
- *   `prompt=select_account` lets a person signed in to several accounts
- *   choose.
+ * - **Sign-in:** OAuth 2.0 with PKCE, in the directory the registration
+ *   names: its tenant id or domain for a single-tenant app (a company's
+ *   own, the usual one), `organizations` for any work or school account,
+ *   `common` to take personal accounts too, `consumers` for personal ones
+ *   only. There's no default: Microsoft signs in a single-tenant app only
+ *   at its own directory, and refuses it at `organizations` or `common` on
+ *   its own page, where the server never hears of it. `offline_access`
+ *   gets a refresh token, and `prompt=select_account` lets a person signed
+ *   in to several accounts choose.
  * - **Granted scopes:** Microsoft may name one with its resource and in
  *   lowercase (`https://graph.microsoft.com/mail.send`), so the server
  *   compares them without the resource, in any case.
@@ -41,7 +43,7 @@ export const microsoft = defineApp({
     authorizeParams: { prompt: 'select_account' },
     scopes: ['offline_access'],
     scopeResource: 'https://graph.microsoft.com/',
-    tenant: { default: 'organizations' },
+    tenant: {},
   },
   owners: ['member'],
   permissions: {

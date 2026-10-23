@@ -35,7 +35,7 @@ import type {
   ConnectionWithdrawn,
 } from '@kindgi/api';
 import type { PrincipalRef } from '@kindgi/authz';
-import type { AppEntry } from '@kindgi/connections';
+import { type AppEntry, SIGN_IN_TENANT_PATTERN } from '@kindgi/connections';
 import {
   type ConnectionAccount,
   ConnectionRenewError,
@@ -310,7 +310,41 @@ export function createInMemoryConnections(
         field: 'githubApp',
       });
     }
-    return ok(true);
+    return input.oauth2 === undefined ? ok(true) : checkTenant(entry, input.oauth2.tenant);
+  }
+
+  /**
+   * A registration's directory: refused for an entry whose sign-in names
+   * none, needed when it has no default, and a name its URLs can hold.
+   */
+  function checkTenant(entry: AppEntry, tenant: string | undefined): Outcome<true> {
+    const named = entry.signIn.kind === 'oauth2' ? entry.signIn.tenant : undefined;
+    const at = { field: 'oauth2.tenant' };
+    if (named === undefined) {
+      return tenant === undefined
+        ? ok(true)
+        : refuse(
+            'connection-app-invalid',
+            `${entry.name} signs in at no directory: leave out \`oauth2.tenant\``,
+            at,
+          );
+    }
+    if (tenant === undefined) {
+      return named.default !== undefined
+        ? ok(true)
+        : refuse(
+            'connection-app-invalid',
+            `${entry.name} needs \`oauth2.tenant\`: the directory its app signs people in at`,
+            at,
+          );
+    }
+    return SIGN_IN_TENANT_PATTERN.test(tenant)
+      ? ok(true)
+      : refuse(
+          'connection-app-invalid',
+          `\`oauth2.tenant\` must match ${SIGN_IN_TENANT_PATTERN.source}`,
+          at,
+        );
   }
 
   function createApp(input: ConnectionAppCreateInput): Outcome<ConnectionAppRecord> {
@@ -598,16 +632,25 @@ export function createInMemoryConnections(
     return ok(true);
   }
 
-  /** An OAuth app's authorize page: the account's scopes and each permission's grants, with PKCE. */
+  /**
+   * An OAuth app's authorize page, in the registration's directory when the
+   * sign-in names one: the sign-in's and the account's scopes and each
+   * permission's grants, with PKCE.
+   */
   function oauth2Url(
     entry: AppEntry,
     signIn: Extract<AppEntry['signIn'], { kind: 'oauth2' }>,
     app: ConnectionAppRecord,
     request: ConnectRequestRecord,
   ): URL {
-    const url = new URL(signIn.authorizeUrl);
+    // Filled in the text: `new URL` would percent-encode the braces.
+    const tenant = app.oauth2?.tenant ?? signIn.tenant?.default;
+    const url = new URL(
+      tenant === undefined ? signIn.authorizeUrl : signIn.authorizeUrl.replace('{tenant}', tenant),
+    );
     const scopes = [
-      ...(entry.account.kind === 'openid' ? entry.account.scopes : []),
+      ...(signIn.scopes ?? []),
+      ...(entry.account.kind === 'github-installation' ? [] : entry.account.scopes),
       ...request.permissions.map((p) => entry.permissions[p]?.grants ?? p),
     ];
     url.searchParams.set('response_type', 'code');

@@ -10410,6 +10410,10 @@ class ConnectionOAuth2App(BaseModel):
     )
     client_id: Annotated[str, Field(alias="clientId")]
     client_secret: Annotated[ConnectionSecretRef, Field(alias="clientSecret")]
+    tenant: Annotated[str | None, Field(max_length=253, min_length=1)] = None
+    """
+    The directory the app signs people in at, for an app whose sign-in names one: Microsoft's tenant id or domain for a single-tenant app, `organizations`, `common` or `consumers` for a multi-tenant one. Required when the app's entry has no default, refused for an app without one (`connection-app-invalid`, `details.field` `oauth2.tenant`).
+    """
 
 
 class ConnectionGitHubApp(BaseModel):

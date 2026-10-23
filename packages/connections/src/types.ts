@@ -47,11 +47,15 @@ export type ConnectionOwnerKind = 'member' | 'company';
  *   - `scopeResource`: the app may name a granted scope with this prefix
  *     or without it, in any case (Microsoft answers
  *     `https://graph.microsoft.com/mail.read` for `Mail.Read`). The server
- *     compares granted scopes lowercase, the prefix dropped.
+ *     compares both sides lowercase with the prefix dropped: each
+ *     permission's `grants` and each scope the app answers. The app may
+ *     answer more than was asked (scopes consented to earlier).
  *   - `tenant`: the sign-in happens in a directory of the app's own
- *     (Microsoft's tenant, not a Kindgi tenant), named in the URLs. Each of
- *     `authorizeUrl` and `tokenUrl` holds `{tenant}` once; the
- *     registration's `tenant` fills it, else `default`.
+ *     (Microsoft's tenant, not a Kindgi tenant), named in the URLs:
+ *     `authorizeUrl` and `tokenUrl` each hold `{tenant}` once, and
+ *     `revokeUrl` may too. The registration's `tenant` fills it, else
+ *     `default`; with no `default`, each registration must give its own.
+ *     The server fills it in the text before reading it as a URL.
  * - `github-app`: a GitHub App's installation, with its tokens made from
  *   the app's private key.
  */
@@ -65,7 +69,7 @@ export type SignIn =
       readonly authorizeParams?: Readonly<Record<string, string>>;
       readonly scopes?: readonly string[];
       readonly scopeResource?: string;
-      readonly tenant?: { readonly default: string };
+      readonly tenant?: { readonly default?: string };
     }
   | { readonly kind: 'github-app' };
 
@@ -95,8 +99,10 @@ export interface AppPermission {
  *   JSON object. `id` names its field that holds the app's stable id for
  *   the account; `label` names the fields for what people see, the first
  *   that holds a non-empty string winning (Microsoft's `mail` is empty for
- *   some accounts, so `userPrincipalName` follows it). `scopes` are asked
- *   for besides the permissions' own.
+ *   some accounts, so `userPrincipalName` follows it). A field that isn't
+ *   a non-empty string counts as not there: with no id, the connect fails.
+ *   `scopes` are asked for besides the permissions' own. `url` can't hold
+ *   `{tenant}`.
  */
 export type AccountLookup =
   | {

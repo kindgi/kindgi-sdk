@@ -43,6 +43,8 @@ import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
 
 const MAX_LABEL_LENGTH = 200;
 const MAX_CLIENT_ID_LENGTH = 512;
+/** A DNS name's longest. */
+const MAX_TENANT_LENGTH = 253;
 const MAX_SLUG_LENGTH = 100;
 const MAX_PROJECTS = 500;
 const MAX_PERMISSIONS = 64;
@@ -530,7 +532,7 @@ const APP_FIELDS: ReadonlySet<string> = new Set([
   'githubApp',
   'projects',
 ]);
-const OAUTH2_FIELDS: ReadonlySet<string> = new Set(['clientId', 'clientSecret']);
+const OAUTH2_FIELDS: ReadonlySet<string> = new Set(['clientId', 'clientSecret', 'tenant']);
 const GITHUB_APP_FIELDS: ReadonlySet<string> = new Set([
   'appNumber',
   'slug',
@@ -608,7 +610,20 @@ function parseOAuth2(raw: unknown): Parsed<NonNullable<ConnectionAppRecord['oaut
   if (clientId.kind === 'err') return clientId;
   const clientSecret = parseRef(raw.clientSecret, 'oauth2.clientSecret');
   if (clientSecret.kind === 'err') return clientSecret;
-  return { kind: 'ok', value: { clientId: clientId.value, clientSecret: clientSecret.value } };
+  // Its shape only: whether the entry takes one, and its pattern, are the binding's to check.
+  const tenant =
+    raw.tenant === undefined
+      ? undefined
+      : parseText(raw.tenant, 'oauth2.tenant', MAX_TENANT_LENGTH);
+  if (tenant?.kind === 'err') return tenant;
+  return {
+    kind: 'ok',
+    value: {
+      clientId: clientId.value,
+      clientSecret: clientSecret.value,
+      ...(tenant !== undefined && { tenant: tenant.value }),
+    },
+  };
 }
 
 function parseGitHubApp(raw: unknown): Parsed<NonNullable<ConnectionAppRecord['githubApp']>> {
@@ -978,6 +993,7 @@ function serializeApp(app: ConnectionAppRecord): Record<string, unknown> {
       oauth2: {
         clientId: app.oauth2.clientId,
         clientSecret: serializeRef(app.oauth2.clientSecret),
+        ...(app.oauth2.tenant !== undefined && { tenant: app.oauth2.tenant }),
       },
     }),
     ...(app.githubApp !== undefined && {

@@ -12,9 +12,10 @@ export const PERMISSION_KEY_PATTERN = /^[a-z][a-z0-9_.-]{0,63}$/;
 /**
  * A directory an `oauth2` sign-in's URLs name (`signIn.tenant`): its
  * `default`, and a registration's own. Microsoft's take a tenant id or
- * domain, `organizations`, `common` or `consumers`.
+ * domain, `organizations`, `common` or `consumers`. It starts with a letter
+ * or digit, so it can't be `.` or `..` in the URL's path.
  */
-export const SIGN_IN_TENANT_PATTERN = /^[A-Za-z0-9.-]{1,253}$/;
+export const SIGN_IN_TENANT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/;
 
 const TENANT_PLACEHOLDER = '{tenant}';
 
@@ -29,9 +30,10 @@ const NOTICE_KINDS: ReadonlySet<string> = new Set(['google-risc', 'github-webhoo
  * doesn't match its pattern, a URL that isn't `https:`, an owner, review
  * class, revoke or notice kind outside its set, a revoke or an account
  * lookup that doesn't fit the sign-in kind, a `{tenant}` in the sign-in's
- * URLs without a `signIn.tenant` (or one with it, missing from a URL), a
- * rate limit that isn't a positive whole number, a cost that isn't a whole
- * number.
+ * URLs without a `signIn.tenant` (or with one, not once in each of the
+ * authorize and token URLs, or more than once in the revoke URL), a
+ * `{tenant}` in the profile lookup's URL, a rate limit that isn't a positive
+ * whole number, a cost that isn't a whole number.
  */
 export function defineApp(entry: AppEntry): AppEntry {
   if (typeof entry !== 'object' || entry === null) {
@@ -78,36 +80,49 @@ function checkSignIn(signIn: SignIn, at: At): void {
   checkTenant(signIn, at);
 }
 
-/** `{tenant}` is in the sign-in's URLs exactly when `signIn.tenant` fills it, once in each. */
+/**
+ * `{tenant}` is in the sign-in's URLs exactly when `signIn.tenant` fills
+ * it: once in each of the authorize and token URLs, at most once in the
+ * revoke URL.
+ */
 function checkTenant(signIn: Extract<SignIn, { kind: 'oauth2' }>, at: At): void {
   const urls = [
-    ['authorizeUrl', signIn.authorizeUrl],
-    ['tokenUrl', signIn.tokenUrl],
+    ['authorizeUrl', signIn.authorizeUrl, 1],
+    ['tokenUrl', signIn.tokenUrl, 1],
+    ...(signIn.revokeUrl === undefined ? [] : [['revokeUrl', signIn.revokeUrl, 0] as const]),
   ] as const;
   if (signIn.tenant === undefined) {
-    for (const [name, url] of urls) {
-      if (url.includes(TENANT_PLACEHOLDER)) {
-        throw new TypeError(
-          at(`signIn.${name} has ${TENANT_PLACEHOLDER}, so signIn.tenant is needed`),
-        );
-      }
+    const holding = urls.find(([, url]) => url.includes(TENANT_PLACEHOLDER));
+    if (holding !== undefined) {
+      throw new TypeError(
+        at(`signIn.${holding[0]} has ${TENANT_PLACEHOLDER}, so signIn.tenant is needed`),
+      );
     }
     return;
   }
-  const fallback = signIn.tenant?.default;
-  if (typeof fallback !== 'string' || !SIGN_IN_TENANT_PATTERN.test(fallback)) {
+  if (typeof signIn.tenant !== 'object' || signIn.tenant === null) {
+    throw new TypeError(at('signIn.tenant must be an object'));
+  }
+  const fallback: unknown = signIn.tenant.default;
+  if (fallback !== undefined && !isTenant(fallback)) {
     throw new TypeError(at(`signIn.tenant.default must match ${SIGN_IN_TENANT_PATTERN.source}`));
   }
-  for (const [name, url] of urls) {
-    if (url.split(TENANT_PLACEHOLDER).length !== 2) {
+  for (const [name, url, least] of urls) {
+    const count = url.split(TENANT_PLACEHOLDER).length - 1;
+    if (count > 1 || count < least) {
       throw new TypeError(
-        at(`signIn.${name} must hold ${TENANT_PLACEHOLDER} once, for signIn.tenant`),
+        at(
+          least === 1
+            ? `signIn.${name} must hold ${TENANT_PLACEHOLDER} once, for signIn.tenant`
+            : `signIn.${name} can hold ${TENANT_PLACEHOLDER} once at most`,
+        ),
       );
     }
   }
-  if (signIn.revokeUrl?.includes(TENANT_PLACEHOLDER) === true) {
-    throw new TypeError(at(`signIn.revokeUrl can't hold ${TENANT_PLACEHOLDER}`));
-  }
+}
+
+function isTenant(value: unknown): boolean {
+  return typeof value === 'string' && SIGN_IN_TENANT_PATTERN.test(value);
 }
 
 function checkOwners(owners: AppEntry['owners'], at: At): void {
@@ -151,16 +166,7 @@ function checkAccount(account: AccountLookup, signIn: SignIn, at: At): void {
     return;
   }
   if (account?.kind === 'profile') {
-    if (signIn.kind !== 'oauth2') {
-      throw new TypeError(at('account.kind "profile" needs an "oauth2" sign-in'));
-    }
-    requireHttps(account.url, at('account.url'));
-    requireTexts(account.scopes, at('account.scopes'));
-    requireText(account.id, at('account.id'));
-    if (!Array.isArray(account.label) || account.label.length === 0) {
-      throw new TypeError(at('account.label must name at least one field'));
-    }
-    account.label.forEach((field, i) => requireText(field, at(`account.label[${i}]`)));
+    checkProfile(account, signIn, at);
     return;
   }
   if (account?.kind !== 'openid') {
@@ -178,6 +184,27 @@ function checkAccount(account: AccountLookup, signIn: SignIn, at: At): void {
     throw new TypeError(at('account.scopes must include "openid"'));
   }
   account.scopes.forEach((scope, i) => requireText(scope, at(`account.scopes[${i}]`)));
+}
+
+function checkProfile(
+  account: Extract<AccountLookup, { kind: 'profile' }>,
+  signIn: SignIn,
+  at: At,
+): void {
+  if (signIn.kind !== 'oauth2') {
+    throw new TypeError(at('account.kind "profile" needs an "oauth2" sign-in'));
+  }
+  requireHttps(account.url, at('account.url'));
+  // The server fills the directory into the sign-in's URLs only.
+  if (account.url.includes(TENANT_PLACEHOLDER)) {
+    throw new TypeError(at(`account.url can't hold ${TENANT_PLACEHOLDER}`));
+  }
+  requireTexts(account.scopes, at('account.scopes'));
+  requireText(account.id, at('account.id'));
+  if (!Array.isArray(account.label) || account.label.length === 0) {
+    throw new TypeError(at('account.label must name at least one field'));
+  }
+  account.label.forEach((field, i) => requireText(field, at(`account.label[${i}]`)));
 }
 
 function checkRemoval(removal: AppRemoval, signIn: SignIn, at: At): void {
