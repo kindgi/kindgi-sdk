@@ -15,6 +15,17 @@ same version, and the CLI's own changes are in
   calls in a webhook's or a schedule's runs needn't wait for a person's yes.
   Naming it takes `admin` on the trigger's project, and each id must be a tool
   the trigger's flow or agent calls. A take-over keeps it.
+
+## 0.1.10
+
+No Python changes; the version moves with the npm packages.
+
+## 0.1.10rc1
+
+No Python changes; the version moves with the npm packages.
+
+## 0.1.10rc0
+
 - `kindgi`: **`system_keys.mint`, `list`, `revoke` and `whoami` say what a
   runtime serving one tenant answers.** Its own token mints, lists and revokes
   keys holding `system:license` alone, for the license renewal, and such a key
