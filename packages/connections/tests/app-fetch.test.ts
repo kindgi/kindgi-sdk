@@ -209,6 +209,32 @@ describe('appFetch', () => {
     expect(refused).toHaveLength(1);
   });
 
+  it('an answer that spends the last of the rate limit goes back at once, never sent again: only a 403 or 429 says to wait', async () => {
+    // GitHub sends these on the call that spent the last unit; that call was done.
+    const calls = fetchAnswering(
+      () =>
+        new Response('[{"name":"bug"}]', {
+          status: 200,
+          headers: {
+            'x-ratelimit-remaining': '0',
+            'x-ratelimit-reset': String(Math.floor(Date.now() / 1000)),
+          },
+        }),
+    );
+    const res = await appFetch(
+      toolContextForTest({ connections: { github: connection('github') } }),
+      call({
+        entry: github,
+        connection: 'github',
+        method: 'POST',
+        url: 'https://api.github.com/repos/acme/widgets/issues/12/labels',
+        body: '{"labels":["bug"]}',
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(1);
+  });
+
   it("GitHub's secondary rate limit (a 403 with Retry-After) waits as it asks", async () => {
     vi.useFakeTimers();
     const calls = fetchAnswering(
