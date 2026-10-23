@@ -127,7 +127,9 @@ already gone at the app, so Kindgi only destroys the stored token.
 ## Errors when a call uses a connection
 
 - **`connection-app-missing`:** no registration of that app allows the
-  run's project. An admin registers it.
+  run's project, and an admin registers it. Or the runtime doesn't offer
+  connections at all, as under `kindgi dev`
+  ([What you need](../#what-you-need)).
 - **`connection-needs-a-person`:** the tool needs a person's connection,
   and the run acts as nobody: a service account's run, or an event's.
 - **`connection-missing`:** the connection isn't there, lacks a

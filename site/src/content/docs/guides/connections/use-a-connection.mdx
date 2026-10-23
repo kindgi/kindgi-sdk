@@ -219,7 +219,7 @@ import { github } from '@kindgi/connections/github';
 const res = await appFetch(ctx, {
   entry: github,
   connection: 'github',
-  toolId: 'issues.comment',
+  toolId: 'github.issues.comment',
   url: `https://api.github.com/repos/${input.owner}/${input.repo}/issues/${input.issueNumber}/comments`,
   method: 'POST',
   headers: { 'content-type': 'application/json' },

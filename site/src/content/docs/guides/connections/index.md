@@ -74,6 +74,11 @@ secret), its runs act as them from then on, with their connections
 
   Without all three, the runtime logs at startup what it's missing:
   `connections to other apps are off: they need …`.
+
+  `kindgi dev` keeps secrets in .env files, so it doesn't offer
+  connections: a call to a tool that uses one fails at once with
+  `connection-app-missing`. Try them on a deployed runtime that has all
+  three.
 - **An admin of the workspace,** to register each app. Without
   [authorization](../../deploy/authorization/), Kindgi still keeps these to
   an admin: registering and changing apps, connecting the company's account,
