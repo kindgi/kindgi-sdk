@@ -486,9 +486,11 @@ unregister the endpoint and register it again, as
 
 Whichever way it's sent, a credential the server quotes back in an error
 shows as `[redacted]`: in the tool call's result, the run's events, the
-endpoint's resource and prompt reads, and the logs
-([what's looked for](../give-a-tool-a-secret/#store-the-secret)). A `stdio`
-server is sent no credential, and what's in its `env` isn't looked for.
+endpoint's
+[resource and prompt reads](../../../reference/api/operations/tags/mcp/),
+and the logs ([what's looked for](../give-a-tool-a-secret/#store-the-secret)).
+A `stdio` server gets no headers or `auth`, and what's in its `env` isn't
+looked for.
 
 ### Sign in with a user name and password
 
