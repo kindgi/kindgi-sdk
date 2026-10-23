@@ -43,6 +43,16 @@ in a secret manager already, Kindgi can keep them there instead.
 - **Tools, providers and endpoints still name a secret the same way,** by
   its name in an env ([Store a secret](../../../guides/secrets/store-a-secret/)).
   Only where its values live changes.
+- **A name outside the rule for new names**
+  ([Store a secret](../../../guides/secrets/store-a-secret/)) isn't sent to
+  your secret manager. A secret stored under one can't be read or rotated:
+  it's refused with `secret-store-error`, and `kindgi secrets set` refuses
+  the name with `secret-name-invalid`. Store its value again under a name
+  that fits, point what uses it at the new name, then revoke the old one.
+  Revoking it leaves its value in your secret manager, so delete it there
+  too. `--hard` can't erase it either: the old name is revoked as without
+  it, so `kindgi secrets list --include-revoked` still shows it, and the
+  answer is `secret-store-error` to say the value is left there.
 
 ## Choose the backend
 
