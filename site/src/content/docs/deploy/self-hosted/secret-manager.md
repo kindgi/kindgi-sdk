@@ -329,13 +329,15 @@ Secrets manager probe failed at boot: unauthorized: Vault probe failed: Vault's 
 
 ## Revoking for good
 
-`kindgi secrets revoke <name> --hard` (`DELETE /v1/secrets/{name}?hard=true`)
-erases a secret's values at Kindgi. It needs the `secrets:revoke:hard`
-capability ([Who can do what](../../people-and-keys/#who-can-do-what)), and
-it can't be undone:
+`kindgi secrets revoke <NAME> --env=<runtime env> --scope=<kind> --hard`
+(`DELETE /v1/secrets/{name}?hard=true`) erases a secret's values at Kindgi.
+It needs the `secrets:revoke:hard` capability
+([Who can do what](../../people-and-keys/#who-can-do-what)), and it can't be
+undone:
 
-- No read, list or version shows the secret again. A read answers
-  `secret-not-found`, as for a name that was never used.
+- No read, list or version shows the secret again. A read answers as for a
+  name never used there: `secret-not-found`, or the same name's value at a
+  wider scope.
 - Its name and the revoke stay on record for the audit trail.
 - Setting the name again later stores a new value under it.
 
@@ -347,8 +349,11 @@ What's left after that follows where the values were:
   - Copies made before then stay in Postgres's write-ahead log, its replicas
     and its backups, until your backup retention ages them out.
   - The KMS key isn't destroyed, since it wraps every secret's key. So a
-    backup from before the revoke, with that key, still decrypts the value
-    until the backup ages out.
+    backup from before the revoke, with the KMS key and the AAD key
+    ([Back up and restore](../back-up-and-restore/)), still decrypts the
+    value until the backup ages out.
+  - Restoring a backup from before the revoke brings the secret back as it
+    was, so revoke it again after the restore.
 - **AWS Secrets Manager:** the secret is deleted with no recovery window, so
   it can't be restored.
 - **Google Secret Manager:** the secret is deleted with all its versions,
