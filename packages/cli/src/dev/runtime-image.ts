@@ -11,7 +11,9 @@
  *
  * The image is on Quay. A pull credential (a robot name and a token) comes
  * from signing in with GitHub at access.kindgi.com (`KINDGI_ACCESS_ORIGIN`),
- * then `kindgi auth registry --username <name>`.
+ * then `kindgi auth registry --username <name>`. On Kindgi's own registry
+ * (`KINDGI_REGISTRY`), the license key from signing in there pulls it:
+ * `kindgi auth registry` logs in with the key.
  */
 export const DEFAULT_RUNTIME_IMAGE =
   'quay.io/kindgi/runtime:0.1.10@sha256:b6bdf6bcc6fb86fd1e16a2fce7d37dc066b766a0b4313dd3f19e2c904b3b01b3';
@@ -33,6 +35,16 @@ export function registryOf(image: string): string {
 
 /** The registry `DEFAULT_RUNTIME_IMAGE` is pulled from: `kindgi auth registry` logs in to it. */
 export const RUNTIME_IMAGE_REGISTRY = registryOf(DEFAULT_RUNTIME_IMAGE);
+
+/**
+ * Kindgi's own registry. It takes Basic auth with a license key as the
+ * password: the username is ignored, and is `KINDGI_REGISTRY_USERNAME` by
+ * convention.
+ */
+export const KINDGI_REGISTRY = 'registry.kindgi.com';
+
+/** The username `kindgi auth registry` logs in to `KINDGI_REGISTRY` as. */
+export const KINDGI_REGISTRY_USERNAME = 'kindgi';
 
 /**
  * The same image on another registry: its repository path, tag and digest
