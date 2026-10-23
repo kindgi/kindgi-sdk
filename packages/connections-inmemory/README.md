@@ -27,8 +27,9 @@ a decline. Tokens are `fake-<connectionId>-<n>`.
 hook says otherwise:
 
 - `exchange`: the account and the permissions granted for a code, or
-  `'refused'`. `refreshToken: false` gives no refresh token: a finish then
-  keeps one the connection had before; else, for an app whose
+  `'refused'`. `refreshToken: false` gives no refresh token (a GitHub App
+  ignores it): a finish then keeps one the connection had before; else, for
+  an app whose
   `signIn.refreshToken` is `'optional'`, the connection works until one
   minute before its token ends (`accessEndsAt`), and any other app's finish
   refuses it. `expiresIn: false` leaves out when the token ends, which a

@@ -65,7 +65,11 @@ export type SignIn =
   | { readonly kind: 'github-app' };
 
 export interface AppPermission {
-  /** The app's own scope or permission: a Google scope URL, `'issues:write'`. */
+  /**
+   * The app's own scope or permission: a Google scope URL, `'issues:write'`.
+   * One, with no space or comma: the scopes an app grants are read split on
+   * both.
+   */
   readonly grants: string;
   /** Plain words for the person asked: `'Send mail as you'`. */
   readonly says: string;
@@ -83,7 +87,8 @@ export interface AppPermission {
  *   id and `email` the label. Its `iss` must be one of `issuers` and its
  *   `aud` the registration's client id. The first issuer is the one the
  *   server discovers keys from. `scopes` are asked for besides the
- *   permissions' own, and include `'openid'`.
+ *   permissions' own, and include `'openid'`; each is one scope, as a
+ *   permission's `grants` is.
  * - `github-installation`: the installation's account. Its id is the id
  *   and its login the label.
  */
