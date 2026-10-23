@@ -154,12 +154,11 @@ again, the company's calls fail with `connection-missing`.
   `connection-installation-unreachable`. Choosing an installation on
   another account fails with `connection-account-mismatch`. To connect
   another account instead, disconnect, then connect again.
-- **A reconnect checks the permissions the app has now,** so have an
-  owner give the app back what it lost on GitHub first. If the app lacks
-  one the reconnect asks for, the reconnect is declined, naming it, and
-  the connection still needs reconnecting. If the reconnect asks only for
-  what's left, the connection works again with less, and a call that
-  needs more fails with `connection-missing`, naming the permission.
+- **A reconnect asks again for every permission the connection had,** so
+  have an owner give the app back what it lost on GitHub first. Until
+  then the reconnect is declined, naming what's missing, and the
+  connection still needs reconnecting. To go on with less, disconnect,
+  then connect again for what's left.
 
 ## Disconnecting
 

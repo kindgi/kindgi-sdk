@@ -197,8 +197,8 @@ const defined = defineTool({
 - **The token:** `accessToken` is current for this call only. Never keep, print, log or return it; it never reaches the journal. `account.label` says whose account it is (`ana@acme.com`).
 - **A 401 from the app:** throw `new ConnectionRejectedError('mail')`, with the connection's name (a second argument can say what the app answered, never the token). The runtime renews the token once and runs the call again; refused again, the call fails with `connection-rejected`.
 - **An HTTP tool** sends the token with no code: `authorization: { kind: 'connection', connection: 'mail' }`.
-- **Unattended runs:** in a run no person started, a tool that uses an `as: 'person'` connection waits for that person's yes, unless it's marked `mutating: false`. Mark read-only tools so.
-- **In a unit test:** `ctx.connections` is optional in the type; pass your own, `{ mail: { accessToken: 'test', account: { id: '1', label: 'ana@acme.com' }, … } }`.
+- **Unattended runs:** in a run no person started, a tool that uses an `as: 'person'` connection waits for that person's yes, unless it's marked `mutating: false` (mark read-only tools so). The agent's `conversationPolicy.hitl` can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needsApprovalWhenUnattended` (below).
+- **In a unit test:** `ctx.connections` is optional in the type; build a context with `toolContextForTest({ connections: { mail: { accessToken: 'test', account: { id: '1', label: 'ana@acme.com' }, … } } })` (`@kindgi/sdk/define`).
 
 Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
 
