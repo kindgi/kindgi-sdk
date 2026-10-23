@@ -6,6 +6,8 @@ sidebar:
   label: Use a connection in a tool
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 A tool that acts in another app declares the connection it needs, the way
 it declares a secret. Kindgi finds the connection before each call, and
 hands that call the connection's current short-lived token. The handler
@@ -24,6 +26,9 @@ approval.
 `needsSpec.connections` names each connection the tool needs, with its app,
 the permissions it needs, and whose connection it uses:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```ts excerpt
 needsSpec: {
   connections: {
@@ -31,6 +36,38 @@ needsSpec: {
   },
 },
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+needs_spec={
+    "connections": {
+        "mail": {"app": "google", "permissions": ["gmail.send"], "as": "person"},
+    },
+},
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+.set("needsSpec", Map.of(
+    "connections", Map.of(
+        "mail", Map.of("app", "google", "permissions", List.of("gmail.send"), "as", "person"))))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+.set("needsSpec", Map(
+  "connections" -> Map(
+    "mail" -> Map("app" -> "google", "permissions" -> List("gmail.send"), "as" -> "person"))))
+```
+
+</TabItem>
+</Tabs>
 
 - **`mail`** is the name the handler reads it by.
 - **`app`** is the app's id, such as `google` or `github`.
@@ -47,6 +84,9 @@ needsSpec: {
 The handler gets each connection the tool declares in `ctx.connections`,
 by its name:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```ts excerpt
 import { ConnectionRejectedError } from '@kindgi/sdk/define';
 
@@ -60,33 +100,184 @@ handler: async (input, ctx) => {
 },
 ```
 
-- **`accessToken`** is the connection's current short-lived token. Don't
-  keep it, log it or return it: Kindgi renews it shortly before it
-  expires, and each call gets the one that's current.
-- **`account`** is whose account it is: `account.label` is what people
-  see, such as `ana@acme.com`, and `account.id` is its stable id at the
-  app.
-- **`ctx.connections` is optional in the type,** because a unit test
-  builds its own context. In a call the runtime makes, it holds every
-  connection the tool declares: without one, the call waits or fails
-  before the handler runs
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+import httpx
+
+from kindgi import ConnectionRejected, ToolContext
+
+
+def send_mail(message: Message, ctx: ToolContext) -> Sent:
+    mail = ctx.connections["mail"]
+    res = httpx.get(url, headers={"authorization": f"Bearer {mail.access_token}"})
+    if res.status_code == 401:
+        raise ConnectionRejected("mail")
+    # …
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+.handler((input, ctx) -> {
+  ToolConnection mail = ctx.connections().get("mail");
+  HttpResponse<String> res = http.send(
+      HttpRequest.newBuilder(uri).header("authorization", "Bearer " + mail.accessToken()).build(),
+      HttpResponse.BodyHandlers.ofString());
+  if (res.statusCode() == 401) throw new ConnectionRejectedException("mail");
+  // …
+})
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+.handler { (in, ctx) =>
+  val mail = ctx.connections.get("mail")
+  val res = http.send(
+    HttpRequest.newBuilder(uri).header("authorization", s"Bearer ${mail.accessToken}").build(),
+    HttpResponse.BodyHandlers.ofString())
+  if (res.statusCode == 401) throw new ConnectionRejectedException("mail")
+  // …
+}
+```
+
+</TabItem>
+</Tabs>
+
+- **`accessToken`** (`access_token` in Python) is the connection's current
+  short-lived token. Don't keep it, log it or return it: Kindgi renews it
+  shortly before it expires, and each call gets the one that's current.
+- **`account`** is whose account it is: its `label` is what people see,
+  such as `ana@acme.com`, and its `id` is its stable id at the app.
+- **In TypeScript, `ctx.connections` is optional in the type,** because a
+  unit test builds its own context ([Test it](#test-it)). In Python, Java
+  and Scala, it's a map, empty when the tool declares none. In a call the
+  runtime makes, it holds every connection the tool declares: without one,
+  the call waits or fails before the handler runs
   ([When the connection is missing](#when-the-connection-is-missing)).
 
-If the app refuses the token (`401`), throw `ConnectionRejectedError` with
-the connection's name. A second argument can say what the app answered,
-never the token. Kindgi gets a new token and calls the tool once more. If
-that's refused too, the call fails with `connection-rejected`, and the
-connection stays as it is.
+If the app refuses the token (`401`), throw a refusal with the
+connection's name: `ConnectionRejectedError` in TypeScript,
+`ConnectionRejected` in Python, `ConnectionRejectedException` in Java and
+Scala. A second argument can say what the app answered, never the token.
+Kindgi gets a new token and calls the tool once more. If that's refused
+too, the call fails with `connection-rejected`, and the connection stays
+as it is.
+
+To throw your own error instead, give it the refusal as its cause: Kindgi
+looks for one up to three causes deep.
 
 ## In an HTTP tool
 
 An HTTP tool sends the token as a bearer header, with no code:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```ts excerpt
 authorization: { kind: 'connection', connection: 'mail' },
 ```
 
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+authorization={"kind": "connection", "connection": "mail"},
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+.authorization(new HttpAuthSpec.Connection("mail"))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+.authorization(new HttpAuthSpec.Connection("mail"))
+```
+
+</TabItem>
+</Tabs>
+
 A `401` from the API counts as a refused token, as above.
+
+## Test it
+
+A unit test builds a context with the connections the handler reads, and
+a made-up token:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+import { toolContextForTest } from '@kindgi/sdk/define';
+
+const ctx = toolContextForTest({
+  connections: {
+    mail: {
+      connectionId: 'c-1',
+      app: 'google',
+      appName: 'Google',
+      accessToken: 'test-token',
+      account: { id: 'g-1', label: 'ana@acme.com' },
+    },
+  },
+});
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+from kindgi import ConnectionAccount, ToolConnection, ToolContext
+
+ctx = ToolContext.for_test(
+    connections={
+        "mail": ToolConnection(
+            connection_id="c-1",
+            app="google",
+            app_name="Google",
+            access_token="test-token",
+            account=ConnectionAccount(id="g-1", label="ana@acme.com"),
+        ),
+    },
+)
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+ToolContext ctx = ToolContext.forTest(Map.of("mail", new ToolConnection("c-1", "google", "Google",
+    "test-token", new ConnectionAccount("g-1", "ana@acme.com"), null)));
+```
+
+The last argument is when the token expires, which a test can leave
+`null`.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+import com.kindgi.pack.{ConnectionAccount, ToolConnection, ToolContext}
+import java.util.Map as JMap
+
+val ctx = ToolContext.forTest(JMap.of("mail", new ToolConnection("c-1", "google", "Google",
+  "test-token", new ConnectionAccount("g-1", "ana@acme.com"), null)))
+```
+
+The last argument is when the token expires, which a test can leave
+`null`.
+
+</TabItem>
+</Tabs>
 
 ## Which runs can use whose connection
 
@@ -110,7 +301,8 @@ input:
   them to connect, or to reconnect, or to allow a permission the
   connection lacks. Its page shows
   a **Connect** button, and the run goes on when they have. If they decline
-  on the app's page, the call fails with `connection-declined`. If nobody
+  on the app's page, or allow less than the call needs, the call fails
+  with `connection-declined`, naming what they didn't allow. If nobody
   connects in time, it fails with `connection-timed-out`.
 - **Anything else** fails the call with `connection-missing`, naming the
   app and what's missing: a person's connection in a run they didn't

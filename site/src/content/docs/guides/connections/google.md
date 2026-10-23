@@ -89,8 +89,10 @@ The connection shows your Google account, what it allows, and when it was
 last used. Reconnecting later needs the same Google account.
 
 If you untick a permission on Google's page, Kindgi keeps what you allowed.
-A tool that needs the rest makes a run you started wait for you to allow
-it. In any other run, its call fails with `connection-missing`.
+If a tool's call asked you to connect, that call fails with
+`connection-declined`, naming what you didn't allow. After that, a tool
+that needs the rest makes a run you started wait for you to allow it. In
+any other run, its call fails with `connection-missing`.
 
 ## Disconnecting
 

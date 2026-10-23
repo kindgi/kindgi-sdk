@@ -217,6 +217,34 @@ every variable it doesn't declare is dropped before your code loads
 (`kindgi dev` keeps them), so an undeclared one works locally and is unset
 once deployed. `KINDGI_*` names are Kindgi's own: a pack can't declare one.
 
+### Connections to other apps
+
+A tool that acts in another app as a person or as the company (sending mail, opening an issue) declares a **connection**, never a secret holding someone's token, and reads the call's short-lived token from `ctx.connections()` (runtime 0.1.12 or later):
+
+```java
+public static final Tool<Input, Output> TOOL = Tool.define("my-pack.send-mail")
+    // …description, version, input, output, effects…
+    .set("needsSpec", Map.of("connections", Map.of(
+        "mail", Map.of("app", "google", "permissions", List.of("gmail.send"), "as", "person"))))
+    .handler((input, ctx) -> {
+      ToolConnection mail = ctx.connections().get("mail");
+      HttpResponse<String> res = http.send(
+          HttpRequest.newBuilder(uri).header("authorization", "Bearer " + mail.accessToken()).build(),
+          HttpResponse.BodyHandlers.ofString());
+      if (res.statusCode() == 401) throw new ConnectionRejectedException("mail");
+      // …
+    });
+```
+
+- **Whose connection:** `"as", "person"` is the connection of the person the run acts as (whoever started it, or the owner of the schedule or webhook that did); `"as", "company"` is the company's. The runtime picks it from the run, never from the input or the model. A run that acts as nobody (a service account's, an event's) fails a `"person"` call with `connection-needs-a-person`.
+- **The token:** `accessToken()` is current for this call only. Never keep, print, log or return it; it never reaches the journal. `account().label()` says whose account it is (`ana@acme.com`).
+- **A 401 from the app:** `throw new ConnectionRejectedException("mail")`, with the connection's name (a second argument can say what the app answered, never the token), or your own exception with it as the cause. The runtime renews the token once and runs the call again; refused again, the call fails with `connection-rejected`.
+- **An HTTP tool** sends the token with no code: `.authorization(new HttpAuthSpec.Connection("mail"))`.
+- **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, unless it's marked `.mutating(false)` (mark read-only tools so). The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needsApprovalWhenUnattended` (below).
+- **In a unit test:** `ToolContext.forTest(Map.of("mail", new ToolConnection("c-1", "google", "Google", "test", new ConnectionAccount("1", "ana@acme.com"), null)))`; the last argument, when the token expires, can be `null`. `ctx.connections()` is empty when the tool declares none.
+
+Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
+
 ## Errors and output
 
 - Throw for a failure: the call fails with `handler-throw` and the
