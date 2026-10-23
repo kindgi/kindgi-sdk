@@ -27,7 +27,13 @@ a decline. Tokens are `fake-<connectionId>-<n>`.
 hook says otherwise:
 
 - `exchange`: the account and the permissions granted for a code, or
-  `'refused'`;
+  `'refused'`. `refreshToken: false` gives no refresh token (a GitHub App
+  ignores it): a finish then keeps one the connection had before; else, for
+  an app whose
+  `signIn.refreshToken` is `'optional'`, the connection works until one
+  minute before its token ends (`accessEndsAt`), and any other app's finish
+  refuses it. `expiresIn: false` leaves out when the token ends, which a
+  finish left with no refresh token refuses too;
 - `renew`: `'ok'`, `'invalid-grant'` (the connection needs reconnecting), or
   `'unavailable'` (the call fails with `connection-renew-failed`);
 - `withdraw`: a disconnect's revoke, `'ok'` or `'failed'`;
@@ -37,8 +43,9 @@ hook says otherwise:
   refused.
 
 `seed.app` and `seed.connection` put a registration or a connection in
-place directly. `calls` lists every call to the fake app, never a token.
-`onConnectComplete` is told when a run's connect finishes, as a server
-completes the run's wait.
+place directly; `seed.connection` with `refreshToken: false` is one
+without a refresh token (only for an `'optional'` app). `calls` lists every
+call to the fake app, never a token. `onConnectComplete` is told when a
+run's connect finishes, as a server completes the run's wait.
 
 Apache-2.0.
