@@ -41,6 +41,13 @@ README.md explains the whole design; keep it true when you change the pack.
   reads events (`order-reviewer`) has read-only tools. Keep it that way:
   an agent's guardrails check its answer after the turn, so they can't
   stop a tool call.
+- **The store agent's instructions are a prompt block:** their text is
+  `blocks/store-agent-prompt.liquid`, the block's file
+  `blocks/store-agent-prompt.json`. Change them there, and give the block
+  a new version in its file when you do, within the agent's range: a
+  deploy refuses a version whose content changed.
+  `agents/store-agent/index.test.ts` checks they still name every tool
+  that waits for a person.
 - **The store's password is a secret** (`WOO_APP_PASSWORD`, set with
   `kindgi secrets set`): never write it in a file, a test or the chat.
 

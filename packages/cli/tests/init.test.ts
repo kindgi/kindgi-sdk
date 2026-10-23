@@ -6,10 +6,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { type Agent, renderInstructions } from '@kindgi/agents';
+import { type Agent, type PromptBlockContent, renderInstructions } from '@kindgi/agents';
+import { readPackBlocks } from '@kindgi/handler-runtime';
 import { build } from 'esbuild';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { blockProblems } from '../src/build/pack-blocks.js';
 import { defaultTemplatesRoot } from '../src/commands/init.js';
 import { JVM_PREVIEW } from '../src/init/dependency-specs.js';
 import { substitute } from '../src/init/template-files.js';
@@ -251,6 +253,52 @@ describe('kindgi init --template=woocommerce', () => {
     expect(agent).toContain("retryOn: ['invalid-arguments', 'unknown-tool', 'tool-error']");
     const reviewer = await readFile(join(root, 'agents/order-reviewer/index.ts'), 'utf8');
     expect(reviewer).toContain('{{ input.order.orderNumber }}');
+  });
+
+  test("the store agent's instructions are a prompt block the pack brings, and it holds up", async () => {
+    const out = await runCli(baseInputs({ argv: ['init', 'acme-shop', '--template=woocommerce'] }));
+    expect(out.exitCode).toBe(0);
+    const root = join(cwd, 'acme-shop');
+    const agent = await readFile(join(root, 'agents/store-agent/index.ts'), 'utf8');
+    expect(agent).toContain(
+      "instructions: { prompt: 'acme-shop.store-agent-prompt', version: '^0.1.0' },",
+    );
+    // Read and checked as `kindgi build` reads and checks a pack's blocks.
+    const read = await readPackBlocks(root, 'blocks/**/*.json');
+    expect(read.errors).toEqual([]);
+    expect(read.files).toEqual([
+      'blocks/store-agent-prompt.json',
+      'blocks/store-agent-prompt.liquid',
+    ]);
+    expect(read.blocks.map(({ id, version, kind }) => ({ id, version, kind }))).toEqual([
+      { id: 'acme-shop.store-agent-prompt', version: '0.1.0', kind: 'prompt' },
+    ]);
+    expect(blockProblems(read.blocks)).toEqual([]);
+    // The agent, bundled as the Drupal reviewer is below, and its
+    // instructions rendered from the block as a turn renders them: strictly,
+    // so a variable the template reads and nobody passes fails here.
+    const nodeModules = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules');
+    const bundles = await mkdtemp(join(nodeModules, '.woocommerce-template-test-'));
+    try {
+      const outfile = join(bundles, 'store-agent.mjs');
+      await build({
+        entryPoints: [join(root, 'agents/store-agent/index.ts')],
+        bundle: true,
+        platform: 'node',
+        format: 'esm',
+        packages: 'external',
+        outfile,
+        logLevel: 'silent',
+      });
+      const storeAgent = ((await import(pathToFileURL(outfile).href)) as { default: Agent })
+        .default;
+      const prompt = read.blocks[0]?.content as PromptBlockContent | undefined;
+      const rendered = renderInstructions(storeAgent, { parameters: {} }, prompt);
+      if (!rendered.ok) throw new Error(rendered.error.message);
+      expect(rendered.value.rendered).toContain('Otherwise use acme-shop.woo.refund-large.');
+    } finally {
+      await rm(bundles, { recursive: true, force: true });
+    }
   });
 
   test('the tools that move money or change the store wait for a person when no person started the run', async () => {
