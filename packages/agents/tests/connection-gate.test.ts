@@ -600,6 +600,22 @@ describe('a token the tool echoes in what it throws goes no further', () => {
     );
     expect(seen).not.toContain('secret-token');
   });
+
+  test("in a plain object the tool throws, the turn's failure sees it redacted", async () => {
+    const t = await turn({
+      run: async (ctx) => {
+        const token = ctx.connections?.mail?.accessToken ?? '';
+        throw { message: 'send failed', details: { header: `Bearer ${token}` } };
+      },
+    });
+    expect(t.ran).toHaveLength(1);
+    expect(t.thrown).toBeDefined();
+    const seen = [JSON.stringify(t.events), JSON.stringify(t.results), ...stringsOf(t.thrown)].join(
+      '\n',
+    );
+    expect(seen).toContain('Bearer [redacted]');
+    expect(seen).not.toContain('secret-token');
+  });
 });
 
 describe("a call that acts with a person's connection is theirs to approve", () => {

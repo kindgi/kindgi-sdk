@@ -94,3 +94,94 @@ describe("a failed call's error, without its connections' tokens", () => {
     expect(out.cause).toBe(`echo ${REDACTED_TOKEN}`);
   });
 });
+
+describe('in the errors, arrays and plain objects it holds', () => {
+  test("in a pack error's issues, an array that stays one", () => {
+    const issues = [{ path: ['to'], message: 'Bearer tok-first-1234 is not an address' }];
+    const answer = { code: 'tool-invocation-failed', message: 'invalid', issues };
+
+    const out = withoutConnectionTokens(answer, [first]);
+
+    expect(Array.isArray(out.issues)).toBe(true);
+    expect(out.issues).toEqual([
+      { path: ['to'], message: `Bearer ${REDACTED_TOKEN} is not an address` },
+    ]);
+    expect(issues[0]?.message).toBe('Bearer tok-first-1234 is not an address');
+  });
+
+  test('two levels down a plain object, which stays one', () => {
+    const thrown = Object.assign(new Error('send failed'), {
+      details: { request: { header: 'Bearer tok-renewed-5678' } },
+    });
+
+    const out = withoutConnectionTokens(thrown, [renewed]);
+
+    expect(out.details.request.header).toBe(`Bearer ${REDACTED_TOKEN}`);
+    expect(Object.getPrototypeOf(out.details)).toBe(Object.prototype);
+    expect(thrown.details.request.header).toBe('Bearer tok-renewed-5678');
+  });
+
+  test('in the errors an AggregateError holds, each still an error', () => {
+    const thrown = new AggregateError([new Error('Acme said 401 to tok-first-1234')], 'all failed');
+
+    const out = withoutConnectionTokens(thrown, [first]);
+
+    expect(out).toBeInstanceOf(AggregateError);
+    expect(out.errors[0]).toBeInstanceOf(Error);
+    expect((out.errors[0] as Error).message).toBe(`Acme said 401 to ${REDACTED_TOKEN}`);
+    expect(stringsOf(out).join('\n')).not.toContain('tok-first-1234');
+  });
+
+  test('any other object it holds is kept as it is', () => {
+    const at = new Date(0);
+    const thrown = Object.assign(new Error('send failed with tok-first-1234'), { at });
+
+    const out = withoutConnectionTokens(thrown, [first]);
+
+    expect(out.at).toBe(at);
+  });
+
+  test('an object or an array that holds itself ends at the depth looked at', () => {
+    const loop: Record<string, unknown> = { message: 'echo tok-first-1234' };
+    loop.self = loop;
+    const list: unknown[] = ['echo tok-first-1234'];
+    list.push(list);
+
+    const out = withoutConnectionTokens({ loop, list }, [first]);
+
+    expect((out.loop as Record<string, unknown>).message).toBe(`echo ${REDACTED_TOKEN}`);
+    expect(out.loop.self).not.toBe(loop);
+    expect(out.list[0]).toBe(`echo ${REDACTED_TOKEN}`);
+    expect(stringsOf(out).join('\n')).not.toContain('tok-first-1234');
+  });
+});
+
+describe('what it reads and how it replaces', () => {
+  test('a property that throws when read is left out, and the rest is copied', () => {
+    const thrown = new Error('send failed with tok-first-1234');
+    Object.defineProperty(thrown, 'response', {
+      enumerable: true,
+      get() {
+        throw new Error('read after close');
+      },
+    });
+
+    const out = withoutConnectionTokens(thrown, [first]);
+
+    expect(Object.hasOwn(out, 'response')).toBe(false);
+    expect(out.message).toBe(`send failed with ${REDACTED_TOKEN}`);
+  });
+
+  test('a token inside another, or overlapping one, leaves no part of either', () => {
+    const short = { a: connection('tok-ab') };
+    const long = { b: connection('tok-abcdef') };
+    const tail = { c: connection('cdef-tail') };
+
+    expect(withoutConnectionTokens({ message: 'x tok-abcdef y' }, [short, long]).message).toBe(
+      `x ${REDACTED_TOKEN} y`,
+    );
+    expect(withoutConnectionTokens({ message: 'x tok-abcdef-tail y' }, [long, tail]).message).toBe(
+      `x ${REDACTED_TOKEN} y`,
+    );
+  });
+});
