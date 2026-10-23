@@ -4736,6 +4736,29 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/proposals/improve/estimate',
+    openapiPath: '/v1/proposals/improve/estimate',
+    operationId: 'proposals.improveEstimate',
+    summary: 'Estimate an improvement pass',
+    description:
+      "What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the agent's project doesn't reach answers `400 reference-out-of-scope`, exactly as `improve` would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count × the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt pass's one-off drafting of its templates — a pass can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the pass is expected to spend its whole budget; the pass checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+    tags: ['proposals'],
+    security: 'bearer',
+    requestBody: { required: true, schema: ref('ImproveBody') },
+    responses: {
+      '200': { description: 'The estimated cost.', schema: ref('ImprovementPassEstimate') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "Malformed request body (`bad-input`). Or `reference-out-of-scope`: the test set isn't registered in the agent's project, its org or the tenant, or a project or segment scope doesn't reach the agent (`details.issues`).",
+      ),
+      '404': ErrorResponse(
+        '`fromVersion` (or the version serving the scope) is not an active version (`agent-version-not-found`).',
+      ),
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/proposals/:proposalId',
     openapiPath: '/v1/proposals/{proposalId}',
@@ -8830,6 +8853,36 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/judging-rules/:ruleId/queue-recent',
+    openapiPath: '/v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent',
+    operationId: 'projects.judgingRules.queueRecent',
+    summary: "Queue a rule's recent matches",
+    description:
+      "Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already judged or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.",
+    tags: ['judging'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'projectId',
+        in: 'path',
+        required: true,
+        description: 'ProjectId — opaque branded string.',
+        schema: { type: 'string' },
+      },
+      { name: 'ruleId', in: 'path', required: true, schema: { type: 'string' } },
+    ],
+    requestBody: { required: true, schema: ref('JudgingQueueRecentInput') },
+    responses: {
+      '200': {
+        description: 'The matches, split into queued, already queued and already reviewed.',
+        schema: ref('JudgingRecentQueued'),
+      },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No such rule (`judging-rule-not-found`).'),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/projects/:projectId/judging-queue',
     openapiPath: '/v1/projects/{projectId}/judging-queue',
@@ -8896,7 +8949,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
         description: 'Closed from this time on.',
         schema: { type: 'string', format: 'date-time' },
       },
-      { ...LimitQueryParam, description: 'Page size; `0` for the `total` alone.' },
+      {
+        ...LimitQueryParam,
+        description: 'Page size; `0` for the `total` alone.',
+        schema: { ...LimitQueryParam.schema, minimum: 0 },
+      },
       CursorQueryParam,
     ],
     responses: {

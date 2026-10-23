@@ -127,12 +127,29 @@ export interface ProposalCandidate {
 /** The metric that says whether a candidate is better. */
 export type ProposalObjective = 'weightedYesShare' | 'weightedPrecisionAtK';
 
+/**
+ * How a candidate is kept: `better`, it beat the recorded outputs on the
+ * objective by more than the noise; `cheaper`, it's no worse than the
+ * current version on the same cases (beyond the spread) and costs less
+ * (beyond the cost's own spread).
+ */
+export type ProposalRule = 'better' | 'cheaper';
+
 /** The comparison a proposal was evaluated with. */
 export interface ProposalEvaluationRef {
   readonly evalRunId: string;
   readonly suiteId: string;
   readonly objective: ProposalObjective;
   readonly startedAt: Timestamp;
+  /** How the candidate is kept. Absent: `better`. */
+  readonly rule?: ProposalRule;
+  /**
+   * The current version replayed on the same cases: the comparison the
+   * candidate's corrections and cost are held to. Set for a change to the
+   * model-settings block an improvement pass proposes: no correction the
+   * current version passes may fail, whichever the rule.
+   */
+  readonly reference?: { readonly evalRunId: string };
 }
 
 /** A proposal as the binding stores it (no status: that's derived). */

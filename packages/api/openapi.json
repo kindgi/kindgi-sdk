@@ -10083,7 +10083,7 @@
           "rolled-back",
           "withdrawn"
         ],
-        "description": "Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn."
+        "description": "Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn."
       },
       "ProposalChange": {
         "type": "object",
@@ -10259,6 +10259,71 @@
           "better": {
             "type": "boolean",
             "description": "Set once the comparison finished."
+          },
+          "rule": {
+            "type": "string",
+            "enum": [
+              "better",
+              "cheaper"
+            ],
+            "description": "How the candidate is kept. `better`: it beats the recorded outputs by more than the noise. `cheaper`: it's no worse than the current version replayed on the same cases (beyond that run's spread) and costs less (beyond the cost's own spread), with no errored case; `better` may then be false while the status is `evaluated`. Absent: `better`."
+          },
+          "costUsd": {
+            "$ref": "#/components/schemas/ProposalCost"
+          },
+          "decisions": {
+            "$ref": "#/components/schemas/ProposalDecisions"
+          }
+        }
+      },
+      "ProposalCost": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "current",
+          "candidate"
+        ],
+        "description": "What the replays cost in model calls on the same cases, in US dollars, averaged over the repetitions: the current version's and the candidate's. Set for a change held to the current version once both comparisons finished, when both reported a cost.",
+        "properties": {
+          "current": {
+            "type": "number",
+            "minimum": 0
+          },
+          "candidate": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      },
+      "ProposalDecisions": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "checked",
+          "held",
+          "broken",
+          "stillWrong"
+        ],
+        "description": "The corrections the current version was checked on, replayed on the same cases, against the candidate's. A model-settings change is kept only with at least one checked and none broken. Set once both comparisons finished.",
+        "properties": {
+          "checked": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "held": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The current version passed them, and so did the candidate."
+          },
+          "broken": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The current version passed them; the candidate didn't."
+          },
+          "stillWrong": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Neither passed them. The rest of `checked` the candidate fixed."
           }
         }
       },
@@ -10643,7 +10708,7 @@
           },
           "comparisons": {
             "type": "array",
-            "description": "Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.",
+            "description": "Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.",
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -10861,6 +10926,44 @@
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 200
+              }
+            }
+          }
+        }
+      },
+      "ImprovementPassEstimate": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What a pass this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.",
+        "required": [
+          "maxCostUsd",
+          "basis"
+        ],
+        "properties": {
+          "estimatedCostUsd": {
+            "type": "string",
+            "description": "The estimate (US dollars): `min(maxCostUsd, basis.replays × basis.meanRunCostUsd)`. Absent when the version has no cost history."
+          },
+          "maxCostUsd": {
+            "type": "string",
+            "description": "The budget cap the estimate is clamped to (`budget.maxCostUsd`, US dollars)."
+          },
+          "basis": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "replays"
+            ],
+            "description": "What the estimate is built from.",
+            "properties": {
+              "replays": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "How many replay runs the pass's comparisons would make."
+              },
+              "meanRunCostUsd": {
+                "type": "string",
+                "description": "The version's mean cost over its recent completed runs (US dollars). Absent with no cost history."
               }
             }
           }
@@ -14490,7 +14593,7 @@
           "seed",
           "holdOutShare"
         ],
-        "description": "Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified by judgment (the cases with a \"no\" and the others are split on their own, a stratum of two or more giving each part at least one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).",
+        "description": "Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a \"no\" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).",
         "properties": {
           "part": {
             "type": "string",
@@ -14996,8 +15099,57 @@
                 "type": "integer",
                 "minimum": 0,
                 "description": "How many passed (every repetition passed)."
+              },
+              "judgments": {
+                "type": "array",
+                "description": "Each correction graded, by its judgment: whether it passed (every repetition did). What an improvement pass compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "judgmentId",
+                    "pass"
+                  ],
+                  "properties": {
+                    "judgmentId": {
+                      "type": "string"
+                    },
+                    "pass": {
+                      "type": "boolean"
+                    }
+                  }
+                }
               }
             }
+          },
+          "costUsd": {
+            "$ref": "#/components/schemas/JudgedComparisonCost"
+          }
+        }
+      },
+      "JudgedComparisonCost": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "candidate",
+          "cases"
+        ],
+        "description": "What the candidate's replays cost in model calls, as the runtime reported it. Absent from a summary when no case's replays reported a cost.",
+        "properties": {
+          "candidate": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Each repetition's total over `cases`, averaged over the repetitions, in US dollars."
+          },
+          "spread": {
+            "type": "number",
+            "minimum": 0,
+            "description": "With more than one repetition: the totals' max − min."
+          },
+          "cases": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The cases whose every repetition reported a cost: the ones totalled."
           }
         }
       },
@@ -15483,6 +15635,14 @@
                   }
                 }
               }
+            }
+          },
+          "costUsd": {
+            "type": "array",
+            "description": "What each repetition's replay cost in model calls, as the runtime reported it, in US dollars: one per repetition. Absent when a repetition reported none.",
+            "items": {
+              "type": "number",
+              "minimum": 0
             }
           },
           "diverged": {
@@ -17807,6 +17967,51 @@
             "type": "integer",
             "minimum": 0,
             "description": "Those the rule would have queued, with its `sample` (`maxOpen` isn't applied)."
+          }
+        }
+      },
+      "JudgingQueueRecentInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "description": "Which recent runs to catch the rule up on. Give `last`, `since`, or both.",
+        "properties": {
+          "last": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "This many of the project's most recent top-level runs (newest first)."
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Runs completed at or after this time."
+          }
+        }
+      },
+      "JudgingRecentQueued": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "queued",
+          "alreadyQueued",
+          "alreadyReviewed"
+        ],
+        "properties": {
+          "queued": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Matching recent runs this call newly queued for the rule: a new queue item, or the rule added to one already waiting for another rule."
+          },
+          "alreadyQueued": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Matching recent runs this rule had already queued and that are still open (deduped per `(rule, run)`)."
+          },
+          "alreadyReviewed": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Matching recent runs whose run was already judged or dismissed: left as they are, not re-queued. An already-erased run is no longer a match and is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed` together are the matches."
           }
         }
       },
@@ -37689,6 +37894,93 @@
         ]
       }
     },
+    "/v1/proposals/improve/estimate": {
+      "post": {
+        "operationId": "proposals.improveEstimate",
+        "summary": "Estimate an improvement pass",
+        "tags": [
+          "proposals"
+        ],
+        "responses": {
+          "200": {
+            "description": "The estimated cost.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImprovementPassEstimate"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body (`bad-input`). Or `reference-out-of-scope`: the test set isn't registered in the agent's project, its org or the tenant, or a project or segment scope doesn't reach the agent (`details.issues`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`fromVersion` (or the version serving the scope) is not an active version (`agent-version-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`improve-unsupported`: this runtime runs no improvement passes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the agent's project doesn't reach answers `400 reference-out-of-scope`, exactly as `improve` would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count × the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt pass's one-off drafting of its templates — a pass can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the pass is expected to spend its whole budget; the pass checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImproveBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/proposals/{proposalId}": {
       "get": {
         "operationId": "proposals.get",
@@ -52751,6 +53043,122 @@
         ]
       }
     },
+    "/v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent": {
+      "post": {
+        "operationId": "projects.judgingRules.queueRecent",
+        "summary": "Queue a rule's recent matches",
+        "tags": [
+          "judging"
+        ],
+        "responses": {
+          "200": {
+            "description": "The matches, split into queued, already queued and already reviewed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgingRecentQueued"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such rule (`judging-rule-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already judged or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "ruleId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JudgingQueueRecentInput"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/projects/{projectId}/judging-queue": {
       "get": {
         "operationId": "projects.judgingQueue.list",
@@ -52881,7 +53289,7 @@
             "in": "query",
             "schema": {
               "type": "integer",
-              "minimum": 1,
+              "minimum": 0,
               "maximum": 100,
               "default": 25
             },
