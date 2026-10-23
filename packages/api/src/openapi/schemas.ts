@@ -10949,7 +10949,7 @@ export const DeploymentEndpointSchema: JsonSchema = {
   additionalProperties: false,
   required: ['status', 'since'],
   description:
-    "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); it carries `waiting` or `retired` to say whether it comes back. Carries no URL and no token.",
+    "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise, and for a deployment that ships nothing a pack service serves (no tool, and no guardrail check but built-in ones: a pack of agents and flows only), which needs none. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); it carries `waiting` or `retired` to say whether it comes back. Carries no URL and no token.",
   properties: {
     status: { type: 'string', enum: ['pending', 'ready', 'cleared'] },
     since: {
@@ -13913,9 +13913,15 @@ export const ConnectionSchema: JsonSchema = {
     stateReason: {
       type: 'string',
       description:
-        "Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions). Other values may be added; `state` says what to do.",
+        "Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions), `access-expired` (its access token ended, and the app gave no refresh token). Other values may be added; `state` says what to do.",
     },
     installationId: { type: 'string', description: "A GitHub App's installation." },
+    accessEndsAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When its access token ends, for a connection the app gave no refresh token: then it needs reconnecting. Absent for one that renews.',
+    },
     connectedAt: {
       type: 'string',
       format: 'date-time',
