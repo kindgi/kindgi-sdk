@@ -500,7 +500,31 @@ as the proxy
 ## Sessions
 
 A session lasts 12 hours (`KINDGI_SESSION_TTL_MS`), and ends after an hour
-without use (`KINDGI_SESSION_IDLE_TIMEOUT_MS`).
+without use (`KINDGI_SESSION_IDLE_TIMEOUT_MS`). Each is in milliseconds, at
+least `60000`, and the idle can't be longer than the lifetime. So a
+lifetime under an hour needs a shorter idle too:
+
+```sh
+KINDGI_SESSION_TTL_MS=1800000
+KINDGI_SESSION_IDLE_TIMEOUT_MS=900000
+```
+
+Set alone, a lifetime under an hour stops the runtime at start, because the
+hour's idle is then longer:
+
+```text
+KINDGI_SESSION_IDLE_TIMEOUT_MS (3600000, the default) can't be longer than KINDGI_SESSION_TTL_MS (1800000).
+```
+
+Both are for people signed in to the console, so they need a way to sign
+in: sign-in [turned on](#1-turn-it-on), or
+`KINDGI_CONSOLE_TOKEN_SIGN_IN=on`. With neither, setting one stops the
+runtime at start too:
+
+```text
+KINDGI_SESSION_TTL_MS is for browser sessions, and nobody can open one here: turn on sign-in with an identity provider (KINDGI_AUTH_SECRET_PATH), or KINDGI_CONSOLE_TOKEN_SIGN_IN=on.
+```
+
 [Sessions](../../../guides/sso/sessions/) has the rest.
 
 ## Next

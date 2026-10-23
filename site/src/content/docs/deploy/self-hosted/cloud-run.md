@@ -324,6 +324,23 @@ the first tool call, 3½ minutes after the warning, worked. If tool calls still
 fail after that, check that the runtime's service account has
 `roles/run.invoker` on the pack's service.
 
+**When the runtime starts with the pack's service at zero**
+(`pack_min_instances = 0`; the default, 1, keeps one instance up), the line
+can read instead:
+
+```text
+⚠ Pack service at https://… didn't answer within 5 s. The server is up; pack tools and checks fail until it answers.
+```
+
+The runtime waits 5 seconds for the pack's service when it starts, and a
+service at zero takes longer than that to start an instance. It's harmless:
+the first tool call waits for the instance, for up to about two minutes (the
+service's startup check), and the runtime gives a call 120 seconds
+(`pack_call_timeout_ms`; raise it if starts run near that). If tool calls keep
+failing, read the pack's service logs: its startup check fails until every
+module has loaded and every `env.required` value is set, and its logs name
+what's missing.
+
 ### Call your app's Cloud Run services from a tool
 
 When a tool calls one of your app's IAM-protected Cloud Run services, list it
@@ -743,7 +760,11 @@ A new grant can take a minute or two to apply.
   than `secrets_aad_key_version`, add it to `prod.tfvars` first, set to the
   version your server reads, normally `1`
   (`gcloud secrets versions list $N-secrets-aad-key` lists them). Without
-  it, `terraform plan` stops and asks for it.
+  it, `terraform plan` stops and asks for it. A small dev deployment
+  (`network_mode = "none"`) can run the module's `upgrade.sh` instead: it
+  runs the upgrade checks first, and applies only when you type `yes`. See
+  the module's README, under
+  [Upgrading](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading).
 - **Restore Cloud SQL:** a point-in-time recovery always makes a new
   instance, and a backup can go into one too (restored into the serving
   instance, it overwrites everything on it). `database_instance` moves the

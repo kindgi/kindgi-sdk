@@ -26,6 +26,11 @@ const ref = process.env.KINDGI_DOCS_REF ?? 'main';
 const version = docsVersion();
 
 const site = 'https://docs.kindgi.com';
+// The picture a shared link shows: one file on kindgi.com, which every version's
+// pages point at.
+const shareImage = 'https://www.kindgi.com/og/kindgi-docs-og-1200x630.png';
+const shareImageAlt =
+  'Kindgi Docs: the fastest way to put reliable, auditable AI agents into production.';
 const description =
   'Build agents and flows in your own code, run them durably, and keep every step on the record.';
 
@@ -164,7 +169,20 @@ export default defineConfig({
           },
         }),
       ],
-      head: [...(indexed ? [] : [{ tag: 'meta', attrs: { name: 'robots', content: 'noindex' } }])],
+      // A shared link's preview picture (Starlight already asks for the large
+      // card), and the icon as ICO and Apple touch icon for clients that don't
+      // read the SVG favicon.
+      head: [
+        { tag: 'meta', attrs: { property: 'og:image', content: shareImage } },
+        { tag: 'meta', attrs: { property: 'og:image:width', content: '1200' } },
+        { tag: 'meta', attrs: { property: 'og:image:height', content: '630' } },
+        { tag: 'meta', attrs: { property: 'og:image:alt', content: shareImageAlt } },
+        { tag: 'meta', attrs: { name: 'twitter:image', content: shareImage } },
+        { tag: 'meta', attrs: { name: 'twitter:image:alt', content: shareImageAlt } },
+        { tag: 'link', attrs: { rel: 'icon', href: `${base}favicon.ico`, sizes: '32x32' } },
+        { tag: 'link', attrs: { rel: 'apple-touch-icon', href: `${base}apple-touch-icon.png` } },
+        ...(indexed ? [] : [{ tag: 'meta', attrs: { name: 'robots', content: 'noindex' } }]),
+      ],
       sidebar: [
         { label: 'Start', items: [{ autogenerate: { directory: 'start' } }] },
         { label: 'Tutorials', items: [{ autogenerate: { directory: 'tutorials' } }] },
@@ -195,6 +213,16 @@ export default defineConfig({
               label: 'Self-hosted',
               items: [{ autogenerate: { directory: 'deploy/self-hosted' } }],
             },
+          ],
+        },
+        // Newest first: each release adds its page's line.
+        {
+          label: 'Release notes',
+          items: [
+            { label: 'Overview', link: '/releases/' },
+            { label: '0.1.10', link: '/releases/0.1.10/' },
+            { label: '0.1.9', link: '/releases/0.1.9/' },
+            { label: '0.1.8', link: '/releases/0.1.8/' },
           ],
         },
         {
