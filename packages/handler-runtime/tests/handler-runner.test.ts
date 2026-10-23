@@ -262,6 +262,28 @@ describe('runHandler — handler failures', () => {
     });
   });
 
+  test("one the tool wraps in its own error is the error's cause, and counts", async () => {
+    const outcome = await runHandler({
+      tool: tool(),
+      input: { message: 'x' },
+      ctx: ctx(),
+      importHandler: wrap(() => {
+        throw new Error('send failed', {
+          cause: new ConnectionRejectedError('mail', 'the app answered 401'),
+        });
+      }),
+    });
+    expect(outcome).toEqual({
+      kind: 'err',
+      error: {
+        code: 'connection-rejected',
+        message: 'Tool "test.echo": the app answered 401',
+        toolId: 'test.echo',
+        connection: 'mail',
+      },
+    });
+  });
+
   test("one from the pack's own copy of @kindgi/tools is recognized too", async () => {
     const outcome = await runHandler({
       tool: tool(),

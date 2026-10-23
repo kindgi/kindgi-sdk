@@ -6,6 +6,7 @@ import { describe, expect, test } from 'vitest';
 import {
   ConnectionRejectedError,
   ConnectionRenewError,
+  connectionRejectionOf,
   isConnectionRejectedError,
   isConnectionRenewError,
   toolSecretNames,
@@ -106,6 +107,42 @@ describe('needsSpec.connections', () => {
         },
       }),
     ).toEqual(['SEARCH_KEY']);
+  });
+});
+
+describe('connectionRejectionOf', () => {
+  test('finds the refusal an error is, or wraps up to three causes deep', () => {
+    const rejected = new ConnectionRejectedError('mail', 'the app answered 401');
+    const found = { connection: 'mail', message: 'the app answered 401' };
+    expect(connectionRejectionOf(rejected)).toEqual(found);
+    let wrapped: unknown = rejected;
+    for (const depth of [1, 2, 3]) {
+      wrapped = new Error(`wrapped ${depth}`, { cause: wrapped });
+      expect(connectionRejectionOf(wrapped)).toEqual(found);
+    }
+    expect(connectionRejectionOf(new Error('wrapped 4', { cause: wrapped }))).toBe(undefined);
+  });
+
+  test("a pack tool's answer counts too, and its default message names the connection", () => {
+    expect(connectionRejectionOf({ code: 'connection-rejected', connection: 'repos' })).toEqual({
+      connection: 'repos',
+      message: 'the app refused the connection "repos"',
+    });
+    const fromAnotherCopy = Object.assign(new Error('x'), {
+      [Symbol.for('kindgi.tools.connection-rejected')]: true,
+      connection: 'mail',
+    });
+    expect(connectionRejectionOf(fromAnotherCopy)?.connection).toBe('mail');
+  });
+
+  test('none: another error, one naming no connection, a non-object, a cycle', () => {
+    expect(connectionRejectionOf(new Error('boom'))).toBe(undefined);
+    expect(connectionRejectionOf({ code: 'connection-rejected' })).toBe(undefined);
+    expect(connectionRejectionOf('connection-rejected')).toBe(undefined);
+    expect(connectionRejectionOf(undefined)).toBe(undefined);
+    const looped: { message: string; cause?: unknown } = { message: 'loop' };
+    looped.cause = looped;
+    expect(connectionRejectionOf(looped)).toBe(undefined);
   });
 });
 

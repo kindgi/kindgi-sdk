@@ -62,11 +62,12 @@ const MODULES: Record<string, string> = {
   // Reads its connection; a 401 from the app is thrown as @kindgi/tools'
   // ConnectionRejectedError would be, by its registered symbol.
   'tools/mail.mjs': `export async function handler(input, ctx) {
-  if (input.message === 'reject') {
-    throw Object.assign(new Error('the app answered 401'), {
+  if (input.message === 'reject' || input.message === 'wrapped') {
+    const rejected = Object.assign(new Error('the app answered 401'), {
       [Symbol.for('kindgi.tools.connection-rejected')]: true,
       connection: 'mail',
     });
+    throw input.message === 'reject' ? rejected : new Error('send failed', { cause: rejected });
   }
   const mail = ctx.connections.mail;
   const shown = JSON.stringify(ctx) + Object.keys(ctx).join(',');
@@ -353,16 +354,18 @@ describe('pack service — running tools and checks', () => {
       kind: 'result',
       output: { echoed: `ana@acme.example:${token.length}`, runId: 'hidden' },
     });
-    const rejected = await invoke(withConnections('reject'));
-    expect(rejected.status).toBe(200);
-    expect(rejected.body).toEqual({
+    const answer = {
       v: 2,
       kind: 'error',
       code: 'connection-rejected',
       message: 'Tool "pack.mail": the app answered 401',
       toolId: 'pack.mail',
       connection: 'mail',
-    });
+    };
+    const rejected = await invoke(withConnections('reject'));
+    expect(rejected.status).toBe(200);
+    expect(rejected.body).toEqual(answer);
+    expect((await invoke(withConnections('wrapped'))).body).toEqual(answer);
     expect(JSON.stringify(events)).not.toContain(token);
   });
 

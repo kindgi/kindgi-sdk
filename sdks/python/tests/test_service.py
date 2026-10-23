@@ -88,6 +88,11 @@ def mail(input: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     "Reads its connection; a 401 from the app is a rejection."
     if input.get("reject"):
         raise ConnectionRejected("mail", "the app answered 401")
+    if input.get("wrapped"):
+        try:
+            raise ConnectionRejected("mail", "the app answered 401")
+        except ConnectionRejected as rejected:
+            raise RuntimeError("send failed") from rejected
     connection = ctx.connections["mail"]
     return {"label": connection.account.label, "length": len(connection.access_token)}
 """
@@ -211,6 +216,7 @@ async def test_a_tool_reads_its_connections_and_a_rejection_names_the_connection
         "toolId": "t.mail",
         "connection": "mail",
     }
+    assert await call(http, with_connections({"wrapped": True})) == rejected
     assert token not in json.dumps(log, default=str)
 
 

@@ -90,9 +90,10 @@ class Cancellation:
 class ConnectionRejected(Exception):
     """The app refused a connection's token: an HTTP 401 from its API.
 
-    Raise it with the tool's name for the connection (its `needs_spec["connections"]` key). The
-    call answers `connection-rejected`, and the runtime renews that token once and runs the call
-    again; it never removes the connection. Say what the app said, never the token.
+    Raise it with the tool's name for the connection (its `needs_spec["connections"]` key), or
+    raise your own error `from` it. The call answers `connection-rejected`, and the runtime renews
+    that token once and runs the call again; it never removes the connection. Say what the app
+    said, never the token.
     """
 
     def __init__(self, connection: str, message: str | None = None) -> None:

@@ -317,6 +317,32 @@ describe('a connect, without a browser', () => {
       },
     });
   });
+
+  test('a reconnect granted less than asked is declined, and leaves the connection as it was', async () => {
+    const made = setup({
+      exchange: () => ({ account: { id: 'g-ana', label: 'ana' }, granted: ['gmail.send'] }),
+    });
+    const existing = made.seed.connection({
+      tenantId,
+      envName,
+      app: 'google',
+      owner: { kind: 'member', userId: ana.id },
+      account: { id: 'g-ana', label: 'ana@acme.example' },
+      permissions: ['gmail.readonly'],
+      state: 'needs-reconnecting',
+    });
+    const again = await request(made, { permissions: ['gmail.send'] });
+    const state = (await start(made, again.requestId)).searchParams.get('state') as string;
+    expect(
+      await made.binding.finishRequest({ tenantId, caller: ana, state, code: 'ok' }),
+    ).toMatchObject({
+      kind: 'ok',
+      value: { kind: 'declined', request: { state: 'declined', missing: ['gmail.readonly'] } },
+    });
+    expect(await made.binding.get({ tenantId, connectionId: existing.connectionId })).toMatchObject(
+      { permissions: ['gmail.readonly'], state: 'needs-reconnecting' },
+    );
+  });
 });
 
 describe("a GitHub App's connect", () => {
