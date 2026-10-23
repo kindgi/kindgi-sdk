@@ -601,21 +601,49 @@ describe('a token the tool echoes in what it throws goes no further', () => {
     expect(seen).not.toContain('secret-token');
   });
 
-  test("in a plain object the tool throws, the turn's failure sees it redacted", async () => {
-    const t = await turn({
-      run: async (ctx) => {
-        const token = ctx.connections?.mail?.accessToken ?? '';
-        throw { message: 'send failed', details: { header: `Bearer ${token}` } };
-      },
-    });
-    expect(t.ran).toHaveLength(1);
-    expect(t.thrown).toBeDefined();
-    const seen = [JSON.stringify(t.events), JSON.stringify(t.results), ...stringsOf(t.thrown)].join(
-      '\n',
-    );
-    expect(seen).toContain('Bearer [redacted]');
-    expect(seen).not.toContain('secret-token');
-  });
+  class Request {
+    readonly header: string;
+    constructor(token: string) {
+      this.header = `Bearer ${token}`;
+    }
+  }
+  /** Headers written out by `toJSON`, as a client's header class does. */
+  class Headers {
+    readonly #authorization: string;
+    constructor(token: string) {
+      this.#authorization = `Bearer ${token}`;
+    }
+    toJSON() {
+      return { authorization: this.#authorization };
+    }
+  }
+
+  test.each([
+    ['a plain object', (token: string) => ({ details: { header: `Bearer ${token}` } })],
+    ["a class's instance", (token: string) => ({ request: new Request(token) })],
+    [
+      'an instance its toJSON writes',
+      (token: string) => ({ config: { headers: new Headers(token) } }),
+    ],
+  ])(
+    "in %s inside a plain object the tool throws, the turn's failure sees it redacted",
+    async (_, holding) => {
+      const t = await turn({
+        run: async (ctx) => {
+          throw { message: 'send failed', ...holding(ctx.connections?.mail?.accessToken ?? '') };
+        },
+      });
+      expect(t.ran).toHaveLength(1);
+      // The run's failure message: the turn's error, written out.
+      expect((t.thrown as Error).message).toContain('Bearer [redacted]');
+      const seen = [
+        JSON.stringify(t.events),
+        JSON.stringify(t.results),
+        ...stringsOf(t.thrown),
+      ].join('\n');
+      expect(seen).not.toContain('secret-token');
+    },
+  );
 });
 
 describe("a call that acts with a person's connection is theirs to approve", () => {

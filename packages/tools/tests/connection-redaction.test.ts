@@ -109,15 +109,18 @@ describe('in the errors, arrays and plain objects it holds', () => {
     expect(issues[0]?.message).toBe('Bearer tok-first-1234 is not an address');
   });
 
-  test('two levels down a plain object, which stays one', () => {
+  test('two levels down a plain object, which stays one, copied', () => {
+    const at = new Date(0);
     const thrown = Object.assign(new Error('send failed'), {
-      details: { request: { header: 'Bearer tok-renewed-5678' } },
+      details: { request: { header: 'Bearer tok-renewed-5678', at } },
     });
 
     const out = withoutConnectionTokens(thrown, [renewed]);
 
     expect(out.details.request.header).toBe(`Bearer ${REDACTED_TOKEN}`);
     expect(Object.getPrototypeOf(out.details)).toBe(Object.prototype);
+    // Copied, not written out: what it holds stays what it was.
+    expect(out.details.request.at).toBe(at);
     expect(thrown.details.request.header).toBe('Bearer tok-renewed-5678');
   });
 
@@ -132,13 +135,25 @@ describe('in the errors, arrays and plain objects it holds', () => {
     expect(stringsOf(out).join('\n')).not.toContain('tok-first-1234');
   });
 
-  test('any other object it holds is kept as it is', () => {
+  test('any other object it holds is kept as it is, when its JSON form holds no token', () => {
     const at = new Date(0);
     const thrown = Object.assign(new Error('send failed with tok-first-1234'), { at });
 
     const out = withoutConnectionTokens(thrown, [first]);
 
     expect(out.at).toBe(at);
+  });
+
+  test('a cause that is another object is kept as it is too, still working', () => {
+    const seen = new Map([['auth', 'Bearer tok-first-1234']]);
+    const thrown = new Error('send failed', { cause: seen });
+
+    const out = withoutConnectionTokens(thrown, [first]);
+
+    expect(out.cause).toBe(seen);
+    expect((out.cause as Map<string, string>).get('auth')).toBe('Bearer tok-first-1234');
+    // What a run writes of it holds no token.
+    expect(JSON.stringify(out.cause)).toBe('{}');
   });
 
   test('an object or an array that holds itself ends at the depth looked at', () => {
@@ -153,6 +168,78 @@ describe('in the errors, arrays and plain objects it holds', () => {
     expect(out.loop.self).not.toBe(loop);
     expect(out.list[0]).toBe(`echo ${REDACTED_TOKEN}`);
     expect(stringsOf(out).join('\n')).not.toContain('tok-first-1234');
+  });
+});
+
+describe('another object whose JSON form holds a token: that form, redacted, in its place', () => {
+  class Request {
+    readonly method = 'POST';
+    readonly header: string;
+    constructor(token: string) {
+      this.header = `Bearer ${token}`;
+    }
+  }
+  /** Headers written out by `toJSON`, as a client's header class does. */
+  class Headers {
+    readonly #values: Record<string, string>;
+    constructor(values: Record<string, string>) {
+      this.#values = values;
+    }
+    toJSON(): Record<string, string> {
+      return { ...this.#values };
+    }
+  }
+
+  test('an instance with the token in its own properties', () => {
+    const request = new Request('tok-first-1234');
+    const thrown = { message: 'send failed', request };
+
+    const out = withoutConnectionTokens(thrown, [first]);
+
+    expect(out.request).toEqual({ method: 'POST', header: `Bearer ${REDACTED_TOKEN}` });
+    expect(Object.getPrototypeOf(out.request)).toBe(Object.prototype);
+    expect(request.header).toBe('Bearer tok-first-1234');
+  });
+
+  test('an instance whose toJSON writes the token', () => {
+    const thrown = {
+      message: 'send failed',
+      config: { headers: new Headers({ Authorization: 'Bearer tok-renewed-5678' }) },
+    };
+
+    const out = withoutConnectionTokens(thrown, [first, renewed]);
+
+    expect(out.config.headers).toEqual({ Authorization: `Bearer ${REDACTED_TOKEN}` });
+    expect(JSON.stringify(out)).not.toContain('tok-renewed-5678');
+  });
+
+  test('a token JSON writes escaped is found as JSON writes it', () => {
+    const odd = { mail: connection('tok"quote\\1') };
+    const thrown = { message: 'send failed', request: new Request('tok"quote\\1') };
+
+    const out = withoutConnectionTokens(thrown, [odd]);
+
+    expect(out.request).toEqual({ method: 'POST', header: `Bearer ${REDACTED_TOKEN}` });
+  });
+
+  test("one that can't be written out is left out, in an object or an array", () => {
+    const broken = {
+      toJSON() {
+        throw new Error('no JSON form');
+      },
+    };
+    const unwritable = Object.setPrototypeOf(broken, Headers.prototype) as Headers;
+    const thrown = {
+      message: 'send failed with tok-first-1234',
+      headers: unwritable,
+      all: [unwritable, 'x'],
+    };
+
+    const out = withoutConnectionTokens(thrown, [first]);
+
+    expect(Object.hasOwn(out, 'headers')).toBe(false);
+    expect(out.all).toEqual([undefined, 'x']);
+    expect(out.message).toBe(`send failed with ${REDACTED_TOKEN}`);
   });
 });
 
@@ -182,6 +269,12 @@ describe('what it reads and how it replaces', () => {
     );
     expect(withoutConnectionTokens({ message: 'x tok-abcdef-tail y' }, [long, tail]).message).toBe(
       `x ${REDACTED_TOKEN} y`,
+    );
+  });
+
+  test('a string that starts with a token', () => {
+    expect(withoutConnectionTokens({ message: 'tok-first-1234 refused' }, [first]).message).toBe(
+      `${REDACTED_TOKEN} refused`,
     );
   });
 });
