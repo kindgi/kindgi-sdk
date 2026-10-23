@@ -130,6 +130,17 @@ describe.skipIf(process.platform === 'win32')('the runtime image pull', () => {
     );
   });
 
+  test("a refused pull from Kindgi's registry: the license key, the login, then kindgi dev again", async () => {
+    vi.stubEnv('FAKE_PULL_DENIED', '1');
+    const phases = createStartPhases({ emit: () => undefined });
+    const result = await ensureRuntimeImage('registry.kindgi.com/kindgi/runtime:1.0', phases);
+    phases.close();
+    const message = result.kind === 'error' ? result.message : '';
+    expect(message).toMatch(
+      /\n {2}The runtime image needs your license key: sign in at https:\/\/access\.kindgi\.com for it, log in \(kindgi auth registry( --registry registry\.kindgi\.com)?\), then run kindgi dev again\.$/,
+    );
+  });
+
   test("a Docker Hub image: no manifest read (it would count against Docker Hub's pull limit)", async () => {
     const { lines, calls } = await pull('acme/runtime:1.0');
     expect(calls.some((c) => c.startsWith('manifest'))).toBe(false);

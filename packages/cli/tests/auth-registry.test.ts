@@ -17,6 +17,7 @@ import type { RegistryAuthSeam } from '../src/commands/auth.js';
 import { type DockerOutcome, type DockerRunOptions, docker } from '../src/dev/runtime-container.js';
 import {
   DEFAULT_RUNTIME_IMAGE,
+  KINDGI_REGISTRY,
   RUNTIME_IMAGE_REGISTRY,
   imageOnRegistry,
   registryOf,
@@ -25,6 +26,7 @@ import {
   credentialHelperFailure,
   credentialHelperHint,
   digestOnly,
+  pullCredentialNeeded,
   registryLoginCommand,
 } from '../src/dev/runtime-registry.js';
 import { runCli } from '../src/main.js';
@@ -404,6 +406,253 @@ describe('--check', () => {
   });
 });
 
+/**
+ * A value shaped like a license key. Its `kid` is one no CLI knows, so it
+ * also shows that a key this CLI can't verify still goes to the registry,
+ * which judges it.
+ */
+const KEY = `kgi_lk_${Buffer.from(
+  JSON.stringify({
+    v: 1,
+    kid: 'test-only',
+    sub: 'gh-acme',
+    name: 'Acme',
+    use: 'non-production',
+    iat: 1_790_000_000,
+    exp: 1_793_888_000,
+  }),
+).toString('base64url')}.${Buffer.alloc(64, 7).toString('base64url')}`;
+
+const ON_KINDGI = ['--registry', KINDGI_REGISTRY];
+const KINDGI_IMAGE = imageOnRegistry(DEFAULT_RUNTIME_IMAGE, KINDGI_REGISTRY);
+
+describe("Kindgi's registry: the license key logs in", () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'kindgi-auth-registry-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test('as kindgi, with no --username: the key from a hidden prompt goes only to docker login', async () => {
+    const fake = fakeDocker();
+    const prompt = fakeTty(KEY);
+    const out = await runRegistry(ON_KINDGI, {
+      docker: fake.run,
+      stdinIsTty: () => true,
+      tty: prompt.tty,
+    });
+    expect(out.exitCode).toBe(0);
+    expect(prompt.state.prompts).toEqual(['License key for registry.kindgi.com: ']);
+    expect(prompt.state.closed).toBe(true);
+    const login = fake.calls.find((c) => c.args[0] === 'login');
+    expect(login?.args).toEqual([
+      'login',
+      'registry.kindgi.com',
+      '--username',
+      'kindgi',
+      '--password-stdin',
+    ]);
+    expect(login?.options).toEqual({ stdin: KEY });
+    for (const call of fake.calls) expect(call.args.join(' ')).not.toContain(KEY);
+    expect(fake.calls.at(-1)?.args).toEqual(['buildx', 'imagetools', 'inspect', KINDGI_IMAGE]);
+    expect(out.stdout + out.stderr).not.toContain(KEY);
+    expect(out.stderr).toContain(
+      '✓ Logged in to registry.kindgi.com with your license key. Docker keeps it in its own credential store; Kindgi stores nothing. When your key renews, log in again with the new one.',
+    );
+  });
+
+  test('--password-stdin reads it, without the whitespace around it', async () => {
+    const fake = fakeDocker();
+    const out = await runRegistry([...ON_KINDGI, '--password-stdin'], {
+      docker: fake.run,
+      readStdin: async () => `  ${KEY}\n`,
+    });
+    expect(out.exitCode).toBe(0);
+    expect(fake.calls.find((c) => c.args[0] === 'login')?.options).toEqual({ stdin: KEY });
+  });
+
+  test('a host is case-insensitive: Registry.Kindgi.com takes the key, logged in as registry.kindgi.com', async () => {
+    const fake = fakeDocker();
+    const out = await runRegistry(['--registry', 'Registry.Kindgi.com', '--password-stdin'], {
+      docker: fake.run,
+      readStdin: async () => KEY,
+    });
+    expect(out.exitCode).toBe(0);
+    expect(fake.calls.find((c) => c.args[0] === 'login')?.args).toEqual([
+      'login',
+      'registry.kindgi.com',
+      '--username',
+      'kindgi',
+      '--password-stdin',
+    ]);
+    expect(fake.calls.at(-1)?.args).toEqual(['buildx', 'imagetools', 'inspect', KINDGI_IMAGE]);
+    expect(out.stderr).toContain('✓ Logged in to registry.kindgi.com with your license key.');
+  });
+
+  test('--key-from reads it from where it is kept, and leaves it there unchanged', async () => {
+    const file = join(dir, 'license-key');
+    const envFile = join(dir, 'kindgi.env');
+    await writeFile(file, `${KEY}\n`);
+    const envText = `KINDGI_API_PORT=4000\nKINDGI_LICENSE_KEY="${KEY}"\n`;
+    await writeFile(envFile, envText);
+    for (const [ref, where] of [
+      [`file:${file}`, `the file ${file}`],
+      [`env-file:${envFile}#KINDGI_LICENSE_KEY`, `KINDGI_LICENSE_KEY in ${envFile}`],
+    ] as const) {
+      const fake = fakeDocker();
+      const out = await runRegistry([...ON_KINDGI, '--key-from', ref], {
+        docker: fake.run,
+        stdinIsTty: () => {
+          throw new Error('--key-from prompts for nothing');
+        },
+        readStdin: async () => {
+          throw new Error('--key-from reads no stdin');
+        },
+      });
+      expect(out.exitCode).toBe(0);
+      expect(fake.calls.find((c) => c.args[0] === 'login')?.options).toEqual({ stdin: KEY });
+      expect(out.stderr).toContain(
+        `✓ Logged in to registry.kindgi.com with your license key from ${where}.`,
+      );
+      expect(out.stdout + out.stderr).not.toContain(KEY);
+    }
+    expect(await readFile(file, 'utf8')).toBe(`${KEY}\n`);
+    expect(await readFile(envFile, 'utf8')).toBe(envText);
+  });
+
+  test('--key-from: no key there, or a reference that names no store', async () => {
+    const missing = join(dir, 'no-such-file');
+    const fake = fakeDocker();
+    const none = await runRegistry([...ON_KINDGI, '--key-from', `file:${missing}`], {
+      docker: fake.run,
+    });
+    expect(none.exitCode).toBe(1);
+    expect(none.stderr).toContain(`There's no license key in the file ${missing}.`);
+    expect(fake.calls.some((c) => c.args[0] === 'login')).toBe(false);
+
+    // The key itself given in place of a reference isn't repeated back.
+    const notStore = await runRegistry([...ON_KINDGI, '--key-from', KEY], { docker: fake.run });
+    expect(notStore.exitCode).toBe(2);
+    expect(notStore.stderr).toContain("--key-from: That isn't a place to keep a secret");
+    expect(notStore.stderr).not.toContain(KEY);
+  });
+
+  test('a value that is not a license key is refused before docker login, and not shown', async () => {
+    const file = join(dir, 'license-key');
+    await writeFile(file, `${TOKEN}\n`);
+    for (const [argv, what] of [
+      [['--password-stdin'], "That isn't a license key"],
+      [['--key-from', `file:${file}`], `The value in the file ${file} isn't a license key`],
+    ] as const) {
+      const fake = fakeDocker();
+      const out = await runRegistry([...ON_KINDGI, ...argv], {
+        docker: fake.run,
+        readStdin: async () => TOKEN,
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `${what} (one starts with kgi_lk_). Sign in at https://access.kindgi.com: the page shows yours.`,
+      );
+      expect(out.stderr).not.toContain(TOKEN);
+      expect(fake.calls.some((c) => c.args[0] === 'login')).toBe(false);
+    }
+  });
+
+  test("--key-from goes with Kindgi's registry only, and not with --password-stdin or --check", async () => {
+    const fake = fakeDocker();
+    for (const [argv, message] of [
+      [
+        ['--key-from', 'file:key'],
+        '--key-from reads a license key, which logs in to registry.kindgi.com only. quay.io takes its own username and token',
+      ],
+      [
+        [...ON_KINDGI, '--key-from', 'file:key', '--password-stdin'],
+        '--key-from and --password-stdin both give the license key: use one.',
+      ],
+      [
+        [...ON_KINDGI, '--check', '--key-from', 'file:key'],
+        '--check only checks access, so it takes no --username, --password-stdin or --key-from.',
+      ],
+    ] as const) {
+      const out = await runRegistry(argv, { docker: fake.run });
+      expect(out.exitCode).toBe(2);
+      expect(out.stderr).toContain(message);
+    }
+    expect(fake.calls).toEqual([]);
+  });
+
+  test('no terminal: the key comes on stdin, or from where it is kept', async () => {
+    const fake = fakeDocker();
+    const out = await runRegistry(ON_KINDGI, { docker: fake.run, stdinIsTty: () => false });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      "No terminal to prompt for the license key on: pass it on stdin with --password-stdin, or say where it's kept with --key-from.\n",
+    );
+    expect(fake.calls.some((c) => c.args[0] === 'login')).toBe(false);
+  });
+
+  test("a refused login: check the key, with the registry's message and the key blanked out", async () => {
+    const fake = fakeDocker({
+      login: {
+        code: 1,
+        stdout: '',
+        stderr: `Error response from daemon: login attempt to https://registry.kindgi.com/v2/ failed with status: 401 Unauthorized: Your key expired on 2026-10-01 (${KEY})\n`,
+      },
+    });
+    const out = await runRegistry([...ON_KINDGI, '--password-stdin'], {
+      docker: fake.run,
+      readStdin: async () => KEY,
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('docker login registry.kindgi.com failed:');
+    expect(out.stderr).toContain('Your key expired on 2026-10-01 (***)');
+    expect(out.stderr).toContain(
+      'Check the license key: signing in at https://access.kindgi.com shows yours.',
+    );
+    expect(out.stderr).not.toContain(KEY);
+  });
+
+  test('no access: the hints name the license key, never a robot', async () => {
+    const refused: DockerOutcome = { code: 1, stdout: '', stderr: 'ERROR: 401 Unauthorized\n' };
+    const check = await runRegistry([...ON_KINDGI, '--check'], {
+      docker: fakeDocker({ 'buildx imagetools inspect': refused }).run,
+    });
+    expect(check.exitCode).toBe(1);
+    expect(check.stderr).toContain(
+      `The runtime image needs your license key: sign in at https://access.kindgi.com for it, then log in: ${registryLoginCommand(KINDGI_IMAGE)}.`,
+    );
+    expect(check.stderr).not.toContain('robot');
+
+    const loggedIn = await runRegistry([...ON_KINDGI, '--password-stdin'], {
+      docker: fakeDocker({ 'buildx imagetools inspect': refused }).run,
+      readStdin: async () => KEY,
+    });
+    expect(loggedIn.exitCode).toBe(1);
+    expect(loggedIn.stderr).toContain(
+      "Your license key logged in to registry.kindgi.com but can't pull it: sign in at https://access.kindgi.com for a current key, then log in again (questions: contact@kindgi.com).",
+    );
+    expect(loggedIn.stderr).not.toContain('robot');
+  });
+
+  test('--json: the summary names the registry and kindgi, never the key', async () => {
+    const out = await runRegistry([...ON_KINDGI, '--password-stdin', '--json'], {
+      docker: fakeDocker().run,
+      readStdin: async () => KEY,
+    });
+    expect(JSON.parse(out.stdout)).toEqual({
+      ok: true,
+      registry: 'registry.kindgi.com',
+      loggedIn: true,
+      username: 'kindgi',
+      image: KINDGI_IMAGE,
+      checkedWith: 'docker buildx imagetools inspect',
+    });
+    expect(out.stdout).not.toContain(KEY);
+  });
+});
+
 describe("a credential helper Docker can't run (T276)", () => {
   const HELPER: DockerOutcome = {
     code: 1,
@@ -604,6 +853,18 @@ describe('the refused-pull hint of kindgi dev', () => {
     );
     expect(registryLoginCommand('registry.example.com/kindgi/runtime:dev')).toBe(
       'kindgi auth registry --username <your robot name> --registry registry.example.com',
+    );
+  });
+
+  test("on Kindgi's registry: the license key, with no username", () => {
+    expect(registryLoginCommand(KINDGI_IMAGE)).toMatch(
+      /^kindgi auth registry( --registry registry\.kindgi\.com)?$/,
+    );
+    expect(pullCredentialNeeded(KINDGI_IMAGE)).toBe(
+      'The runtime image needs your license key: sign in at https://access.kindgi.com for it',
+    );
+    expect(pullCredentialNeeded('quay.io/kindgi/runtime:1.0')).toBe(
+      'The runtime image needs a pull credential: sign in with GitHub at https://access.kindgi.com for one',
     );
   });
 });

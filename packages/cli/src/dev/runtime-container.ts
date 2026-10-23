@@ -19,7 +19,6 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { type Readable, finished } from 'node:stream';
 
-import { KINDGI_ACCESS_ORIGIN } from '../license/protocol.js';
 import { dockerUnreachable } from './blocked.js';
 import { lineReader } from './lines.js';
 import { parseRecord, textLines } from './log-view.js';
@@ -34,6 +33,7 @@ import {
   credentialHelperFailure,
   credentialHelperHint,
   isRegistryAuthFailure,
+  pullCredentialNeeded,
   registryLoginCommand,
 } from './runtime-registry.js';
 import { NO_START_PHASES, type StartPhases, formatSize } from './start-phases.js';
@@ -203,7 +203,7 @@ export async function ensureRuntimeImage(
     helper !== undefined
       ? `\n  ${credentialHelperHint(helper.helper)}`
       : isRegistryAuthFailure(pulled.stderr)
-        ? `\n  The runtime image needs a pull credential: sign in with GitHub at ${KINDGI_ACCESS_ORIGIN} for one, log in (${registryLoginCommand(image)}), then run kindgi dev again.`
+        ? `\n  ${pullCredentialNeeded(image)}, log in (${registryLoginCommand(image)}), then run kindgi dev again.`
         : '';
   return { kind: 'error', message: `Couldn't pull ${image}: ${detail}${auth}` };
 }

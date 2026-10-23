@@ -342,6 +342,20 @@ describe('the machine', () => {
     );
   });
 
+  test("no pull access on Kindgi's registry: the fix is the license key, piped in", async () => {
+    const { check } = await doctor({
+      seam: {
+        ...seam({ docker: dockerThat('no-access') }),
+        image: 'registry.kindgi.com/kindgi/runtime:1.0.0@sha256:abc',
+      },
+    });
+    expect(check('registry')).toMatchObject({ status: 'fail' });
+    expect(check('registry')?.fix).toMatch(
+      /^Log Docker in with your license key: npx @kindgi\/cli@\S+ auth registry (--registry registry\.kindgi\.com )?--password-stdin \(your license key is on https:\/\/access\.kindgi\.com once you sign in; pipe it in, never paste it into a chat\)\. Then run doctor again\.$/,
+    );
+    expect(check('registry')?.fix).not.toContain('robot');
+  });
+
   test("a credential helper Docker can't run: named, with the fix, not a network problem", async () => {
     const { check } = await doctor({ seam: seam({ docker: dockerThat('helper') }) });
     expect(check('registry')).toMatchObject({ status: 'fail' });

@@ -207,10 +207,9 @@ One command runs the whole loop on your machine:
   Default Credentials file (`GOOGLE_APPLICATION_CREDENTIALS`, else the one
   `gcloud auth application-default login` writes) is mounted read-only.
   Kindgi keeps no key files of its own.
-- **The image:** the runtime image is pulled on first use. It needs a pull
-  credential: sign in with GitHub at https://access.kindgi.com for one, then
-  log Docker in with it:
-  `kindgi auth registry --username <your robot name>` (see
+- **The image:** the runtime image is pulled on first use. It needs your
+  license key: sign in at https://access.kindgi.com for it, then log Docker
+  in with it: `kindgi auth registry` (see
   [The runtime image's registry](#the-runtime-images-registry)). `kindgi dev`
   says so when a pull is refused.
 - **Starting:** `kindgi dev` says what the start is doing as it happens,
@@ -974,24 +973,34 @@ whether it's for the API URL.
 
 ### The runtime image's registry
 
-The Kindgi runtime image `kindgi dev` runs needs a pull credential (a robot
-name and a token). Sign in with GitHub at https://access.kindgi.com for one,
-then log Docker in once:
+The Kindgi runtime image `kindgi dev` runs is on Kindgi's registry,
+`registry.kindgi.com`, and pulling it takes your license key. Sign in at
+https://access.kindgi.com for it, then log Docker in once. The username there
+is `kindgi`, so there's no `--username` to give:
 
 ```sh
-kindgi auth registry --username <your robot name>  # prompts for the token, without echoing it
-printf '%s' "$TOKEN" | kindgi auth registry --username <your robot name> --password-stdin
-kindgi auth registry --check                       # only check access, no login
+kindgi auth registry                    # prompts for the key, without echoing it
+printf '%s' "$KEY" | kindgi auth registry --password-stdin
+kindgi auth registry --key-from env-file:kindgi.env#KINDGI_LICENSE_KEY
+kindgi auth registry --check            # only check access, no login
 ```
 
-It runs `docker login` with the token on its stdin, never in its arguments,
-so the credential lives in Docker's own credential store: Kindgi stores
-nothing. Then it checks that Docker can pull the exact image this CLI runs
+`--key-from <store>` reads the key from where it's kept, as
+`kindgi license renew` does (`file:…`, `env-file:…#NAME`, `gcp:…`, `azure:…`
+or `aws:…`), so a deployment's own key logs in without passing through your
+shell. A value that isn't a license key at all is refused before anything
+logs in; whether the key pulls is the registry's to say. When your key
+renews, log in again with the new one.
+
+It runs `docker login` with the key or token on its stdin, never in its
+arguments, so the credential lives in Docker's own credential store: Kindgi
+stores nothing. Then it checks that Docker can pull the exact image this CLI runs
 (pinned by digest; with `docker buildx imagetools inspect`, or
 `docker manifest inspect` by digest where buildx isn't installed), and a
-failure says whether it's access (a pull credential from
-https://access.kindgi.com) or the image or the network. `--registry <host>` logs in
-to a mirror instead and checks for the same image there.
+failure says whether it's access (your license key, from
+https://access.kindgi.com) or the image or the network. `--registry <host>
+--username <name>` logs in to a mirror instead, with that registry's own
+token, and checks for the same image there.
 
 ## Output and global flags
 
