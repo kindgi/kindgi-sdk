@@ -51,6 +51,10 @@ connection and account a call used.
   unused for six months, and Microsoft after 90 days by default. The
   connection then needs reconnecting
   ([When the connection is missing](../use-a-connection/#when-the-connection-is-missing)).
+- **An app that gives no way to renew** ends a connection when its access
+  token ends: LinkedIn's lasts 60 days. Kindgi knows when, and from then
+  the connection needs reconnecting, with no call to the app
+  ([LinkedIn](../linkedin/#when-linkedin-ends-access)).
 - **The connection's page shows when it was last used,** so you can
   disconnect what nobody uses.
 - **Each renewal is logged** at info level as
@@ -76,6 +80,9 @@ console's **Connections** page. Kindgi then:
    - **Microsoft:** withdraws nothing. Your app keeps what the person
      allowed until it's removed at Microsoft
      ([Microsoft](../microsoft/#disconnecting)).
+   - **LinkedIn:** withdraws nothing, since LinkedIn has no way to give a
+     token back. It works until its 60 days end, or until the person
+     removes your app at LinkedIn ([LinkedIn](../linkedin/#disconnecting)).
    - If the app doesn't answer, Kindgi records that and goes on.
 3. **Destroys the stored token** in your secret store (below).
 4. **Records the removal,** with a signed audit event that names the app

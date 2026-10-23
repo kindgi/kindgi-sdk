@@ -9,7 +9,7 @@ sidebar:
 Kindgi knows an app through its entry: data that says how people sign in to
 it, what its permissions mean in plain words, how its tokens are withdrawn,
 and how it reports an uninstall. The app's tools sit next to its entry.
-Google and GitHub have entries in `@kindgi/connections`.
+Google, Microsoft, GitHub and LinkedIn have entries in `@kindgi/connections`.
 
 An app that signs people in with standard OAuth 2.0 (the authorization code
 flow, with PKCE) fits the sign-in Kindgi already has, so adding it takes
@@ -49,7 +49,11 @@ export const acmeCrm = defineApp({
   (`scopes`), and the resource the app may name its granted scopes with
   (`scopeResource`). For an app that signs people in at a directory, such
   as Microsoft, set `tenant` (`{}`, or with a `default`), and `{tenant}` in
-  its addresses is filled from each registration's directory.
+  its addresses is filled from each registration's directory. For an app
+  that may give no refresh token, such as LinkedIn, set `refreshToken:
+  'optional'`: a connection then keeps its access token until it ends,
+  and needs reconnecting from then. By default a connect without a refresh
+  token is refused.
 - **`owners`:** who can own a connection to it: `'member'`, a person in
   your workspace, for their own account; `'company'`, for the company's;
   or both.
