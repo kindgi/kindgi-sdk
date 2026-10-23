@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { type Agent, modelSettingsIssues } from '@kindgi/agents';
+import { type Agent, modelNamedTwice, modelSettingsIssues } from '@kindgi/agents';
 import { pickVersion } from '@kindgi/tools';
 import type { Cursor, TenantId } from '@kindgi/types';
 
@@ -37,7 +37,8 @@ const VERSIONS_PAGE = 200;
  * pack's files are the agent: a newer version published on the runtime
  * isn't picked. A reference that matches no published version (or not
  * the pack's), names a block of the other kind, or names model settings
- * that aren't (`MODEL_SETTINGS_SCHEMA`) is an issue: the caller refuses
+ * that aren't (`MODEL_SETTINGS_SCHEMA`), or that name the model the
+ * agent names too (`modelNamedTwice`), is an issue: the caller refuses
  * the publish. So is any reference on a runtime with no block registry.
  */
 export async function resolveBlockPins(
@@ -71,7 +72,7 @@ export async function resolveBlockPins(
     const problem =
       block === null
         ? `${describe(ref)} version ${pick.version} can't be read`
-        : misfit(ref, block);
+        : misfit(ref, block, agent);
     if (problem !== undefined) {
       issues.push({ path: ref.path, message: problem });
       continue;
@@ -120,15 +121,18 @@ function missed(ref: Ref, available: readonly string[], packVersion: string | un
 function misfit(
   ref: Ref,
   block: { readonly kind: string; readonly version: string; readonly content: unknown },
+  agent: Agent,
 ): string | undefined {
   const wanted = ref.role === 'prompt' ? 'prompt' : 'settings';
   if (block.kind !== wanted) return `${describe(ref)} is a ${block.kind} block`;
   if (ref.role !== 'model-settings') return undefined;
   const values = (block.content as { readonly values?: unknown }).values;
   const issues = modelSettingsIssues(values);
-  return issues.length === 0
-    ? undefined
-    : `${describe(ref)} version ${block.version} isn't model settings: ${issues.map((i) => `${i.path} ${i.message}`).join('; ')}`;
+  if (issues.length > 0) {
+    return `${describe(ref)} version ${block.version} isn't model settings: ${issues.map((i) => `${i.path} ${i.message}`).join('; ')}`;
+  }
+  const twice = modelNamedTwice(agent, values);
+  return twice === undefined ? undefined : `${describe(ref)} version ${block.version}: ${twice}`;
 }
 
 function describe(ref: Ref): string {

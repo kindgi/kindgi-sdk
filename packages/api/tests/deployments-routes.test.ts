@@ -6442,6 +6442,9 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     const res = await deploy(pack([{ ...REPLY, version: '2.0.0' }, STYLE]));
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('validation-failed');
+    expect(res.body.error.message).toContain(
+      "use tool, agent or block versions that aren't published",
+    );
     expect(JSON.stringify(res.body.error.details)).toContain(
       'prompt block \\"acme.reply\\": the pack brings version 2.0.0, which \\"^1.0.0\\" doesn\'t take; change the agent\'s range or the block\'s version',
     );

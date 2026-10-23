@@ -495,6 +495,26 @@ export interface FixProposal {
     readonly spread?: number;
     readonly cases?: number;
     readonly better?: boolean;
+    /**
+     * How the candidate is kept: `better` (it beats the recorded outputs) or
+     * `cheaper` (no worse than the current version on the same cases, and
+     * costing less). A proposal kept as `cheaper` is `evaluated` with
+     * `better` false. Absent: `better`.
+     */
+    readonly rule?: 'better' | 'cheaper';
+    /** What the replays cost in model calls, in US dollars: the current version's and the candidate's. */
+    readonly costUsd?: { readonly current: number; readonly candidate: number };
+    /**
+     * The corrections the current version was checked on, against the
+     * candidate's: both passed (`held`), only the current version did
+     * (`broken`), or neither (`stillWrong`); the rest the candidate fixed.
+     */
+    readonly decisions?: {
+      readonly checked: number;
+      readonly held: number;
+      readonly broken: number;
+      readonly stillWrong: number;
+    };
   };
   /** The promotion its request made. */
   readonly promotion?: {
