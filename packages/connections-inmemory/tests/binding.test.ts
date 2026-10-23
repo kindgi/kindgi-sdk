@@ -423,6 +423,43 @@ describe("a GitHub App's connect", () => {
     expect(picked.kind === 'ok' && picked.value.request.installations).toBe(undefined);
   });
 
+  test('an install waiting for an organization owner fails, code or not, without an exchange', async () => {
+    const made = setup({ installations: () => one });
+    for (const code of [undefined, 'ok']) {
+      const created = await request(made, {
+        app: 'github',
+        owner: 'company',
+        permissions: ['issues.read'],
+      });
+      const state = (await start(made, created.requestId, admin)).searchParams.get('state');
+      expect(
+        await made.binding.finishRequest({
+          tenantId,
+          caller: admin,
+          state: state as string,
+          ...(code !== undefined && { code }),
+          setupAction: 'request',
+        }),
+      ).toMatchObject({ kind: 'err', error: { code: 'connection-app-refused' } });
+      expect(
+        await made.binding.getRequest({ tenantId, requestId: created.requestId }),
+      ).toMatchObject({ state: 'failed', failure: 'app-refused' });
+    }
+    expect(made.calls.filter((c) => c.op === 'exchange')).toEqual([]);
+
+    // Only a GitHub App's finish reads it.
+    const created = await request(made);
+    const state = (await start(made, created.requestId)).searchParams.get('state');
+    expect(
+      await made.binding.finishRequest({
+        tenantId,
+        caller: ana,
+        state: state as string,
+        setupAction: 'request',
+      }),
+    ).toMatchObject({ kind: 'err', error: { code: 'bad-input' } });
+  });
+
   test("the GitHub fields are a GitHub App's only, and never both", async () => {
     const made = setup();
     const mail = await request(made);
@@ -543,6 +580,47 @@ describe('disconnects, notices and lists', () => {
       state: 'removed',
       removedReason: 'uninstalled',
       withdrawn: 'at-app',
+    });
+  });
+
+  test('a notice that needs a reconnect says why: suspended at GitHub, sessions revoked at Google', async () => {
+    const made = setup({
+      notice: ({ appId }) => ({
+        handled: appId === made.githubApp.appId ? 'installation.suspend' : 'sessions-revoked',
+        accountId: '1',
+        action: 'needs-reconnecting',
+      }),
+    });
+    const repo = made.seed.connection({
+      tenantId,
+      envName,
+      app: 'github',
+      owner: { kind: 'company' },
+      account: { id: '1', label: 'acme' },
+      permissions: ['issues.read'],
+      installationId: '101',
+    });
+    const mail = made.seed.connection({
+      tenantId,
+      envName,
+      app: 'google',
+      owner: { kind: 'member', userId: ana.id },
+      account: { id: '1', label: 'ana@acme.example' },
+      permissions: ['gmail.send'],
+    });
+    const body = { headers: {}, rawBody: new TextEncoder().encode('{}') };
+    for (const app of [made.githubApp, made.googleApp]) {
+      expect(
+        await made.binding.receiveNotice({ tenantId, appId: app.appId, ...body }),
+      ).toMatchObject({ kind: 'ok', value: { connections: 1 } });
+    }
+    expect(await made.binding.get({ tenantId, connectionId: repo.connectionId })).toMatchObject({
+      state: 'needs-reconnecting',
+      stateReason: 'suspended',
+    });
+    expect(await made.binding.get({ tenantId, connectionId: mail.connectionId })).toMatchObject({
+      state: 'needs-reconnecting',
+      stateReason: 'sessions-revoked',
     });
   });
 

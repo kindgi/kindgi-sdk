@@ -72,7 +72,10 @@ export interface FakeNotice {
   readonly accountId: string;
   /** What it does to that account's connections through the registration. Absent: nothing. */
   readonly action?: 'remove' | 'needs-reconnecting';
-  /** The `stateReason` a `needs-reconnecting` sets. Default: `'revoked-at-app'`. */
+  /**
+   * The `stateReason` a `needs-reconnecting` sets. Default: `'suspended'` for
+   * a GitHub App, `'sessions-revoked'` for any other app.
+   */
   readonly reason?: string;
 }
 
@@ -710,12 +713,20 @@ export function createInMemoryConnections(
     if (now() >= (stored.signIn?.expiresAtMs ?? 0)) {
       return refuse('connection-state-expired', 'The sign-in took too long: start again');
     }
-    if (input.error === undefined && input.code === undefined) {
+    if (input.error === undefined && input.code === undefined && !awaitsOwner(stored, input)) {
       return refuse('bad-input', 'Give the `code` the app sent back, or its `error`', {
         field: 'code',
       });
     }
     return ok(stored);
+  }
+
+  /** A GitHub App install that waits for an organization owner's approval on GitHub. */
+  function awaitsOwner(stored: StoredRequest, input: ConnectFinishInput): boolean {
+    return (
+      input.setupAction === 'request' &&
+      entries.get(stored.record.app)?.signIn.kind === 'github-app'
+    );
   }
 
   /** The app's `error` instead of a code: declined when the person said no. */
@@ -915,6 +926,13 @@ export function createInMemoryConnections(
     stored.signIn = undefined;
     stored.picked = undefined;
     if (input.error !== undefined) return finishWithError(stored, input.error);
+    if (awaitsOwner(stored, input)) {
+      await settle(stored, { state: 'failed', failure: 'app-refused' });
+      return refuse(
+        'connection-app-refused',
+        'The install waits for an organization owner to approve it on GitHub: start again once they have',
+      );
+    }
     const exchanged = exchangeCode(stored.record, input.code as string);
     if (exchanged === 'refused') {
       await settle(stored, { state: 'failed', failure: 'app-refused' });
@@ -954,10 +972,11 @@ export function createInMemoryConnections(
       remove(stored, `app:${app.appId}`, uninstalled ? 'uninstalled' : 'revoked-at-app', 'at-app');
       return;
     }
+    const github = entries.get(app.app)?.signIn.kind === 'github-app';
     stored.record = {
       ...stored.record,
       state: 'needs-reconnecting',
-      stateReason: notice.reason ?? 'revoked-at-app',
+      stateReason: notice.reason ?? (github ? 'suspended' : 'sessions-revoked'),
       updatedAt: iso(),
     };
     stored.token = undefined;
