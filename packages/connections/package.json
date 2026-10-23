@@ -1,7 +1,7 @@
 {
   "name": "@kindgi/connections",
   "version": "0.1.9",
-  "description": "Kindgi™ connections: the app entries a Kindgi server reads to connect people's and a company's accounts at other apps (how to sign in, each permission in plain words, whose account it is, how access is withdrawn), defineApp to check one, and the Google and GitHub entries.",
+  "description": "Kindgi™ connections: the app entries a Kindgi server reads to connect people's and a company's accounts at other apps (how to sign in, each permission in plain words, whose account it is, how access is withdrawn), defineApp to check one, the Google and GitHub entries, and tools that act with their connections (sending mail as a person; listing and labelling a repository's issues).",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -30,6 +30,21 @@
       "types": "./dist/github.d.ts",
       "import": "./dist/github.js",
       "default": "./dist/github.js"
+    },
+    "./google/tools": {
+      "types": "./dist/google-tools.d.ts",
+      "import": "./dist/google-tools.js",
+      "default": "./dist/google-tools.js"
+    },
+    "./github/tools": {
+      "types": "./dist/github-tools.d.ts",
+      "import": "./dist/github-tools.js",
+      "default": "./dist/github-tools.js"
+    },
+    "./app-fetch": {
+      "types": "./dist/app-fetch.d.ts",
+      "import": "./dist/app-fetch.js",
+      "default": "./dist/app-fetch.js"
     }
   },
   "files": ["dist", "src", "README.md"],
@@ -45,6 +60,10 @@
   "publishConfig": {
     "access": "public",
     "provenance": true
+  },
+  "dependencies": {
+    "@kindgi/tools": "workspace:*",
+    "@kindgi/types": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
