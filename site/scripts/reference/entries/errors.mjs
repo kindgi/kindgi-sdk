@@ -3578,11 +3578,16 @@ export const ERROR_ENTRIES = {
   },
   'connection-app-not-found': {
     description:
-      'No app registration with that id in the workspace, or it was removed. `GET /v1/connection-apps` lists the registrations.',
+      'No app registration with that id in the tenant, or it was removed. On a connect, no registration of the app is set up, or none serves the project: a tenant admin adds one. A connect request whose registration has been removed since answers it too: start a new connect once a tenant admin sets the app up again. `GET /v1/connection-apps` lists the registrations.',
     details: [
       {
         key: 'appId',
-        meaning: 'the registration id that was not found',
+        meaning: 'the registration id that was not found, when the call named it in its path',
+      },
+      {
+        key: 'field',
+        meaning:
+          'on a connect, the field that names the app (`app`, or `appId` when it named a registration)',
       },
     ],
   },
@@ -3598,11 +3603,15 @@ export const ERROR_ENTRIES = {
   },
   'connection-request-not-found': {
     description:
-      'No connect request with that id, or none for the sign-in that came back from the app. Start a new connect.',
+      "No connect request with that id that the caller can act on, or none for the sign-in that came back from the app. A person's connect request is that person's alone; the company's, a tenant admin's. Start a new connect.",
     details: [
       {
         key: 'requestId',
         meaning: 'the connect request id that was not found, when the call named one',
+      },
+      {
+        key: 'field',
+        meaning: '`state`, when the sign-in came back with no state',
       },
     ],
   },
@@ -3618,7 +3627,7 @@ export const ERROR_ENTRIES = {
   },
   'connection-app-unknown-entry': {
     description:
-      'The registration names an app this server has no entry for, or no longer has. `GET /v1/connection-entries` lists the apps it knows.',
+      'A registration or a connect names an app this server has no entry for, or no longer has. `GET /v1/connection-entries` lists the apps it knows.',
     details: [
       {
         key: 'field',
@@ -3667,12 +3676,12 @@ export const ERROR_ENTRIES = {
   },
   'connection-app-refused': {
     description:
-      "The app wouldn't give a token for the sign-in, often because the registration's client id, client secret or redirect URL doesn't match the app's settings. On GitHub, an install still waiting for an owner's approval is refused too, until an owner approves it.",
+      "The app refused or failed a call the connect needed, or didn't give what a connection needs (a refresh token, or which account signed in). Often the registration's client id, client secret or redirect URL doesn't match the app's settings. On GitHub, an install still waiting for an owner's approval is refused too, until an owner approves it. Start the connect again.",
     details: [],
   },
   'connection-store-failed': {
     description:
-      "The server couldn't store a connection, or remove one, in its secrets store just now. Try again; if it keeps failing, an operator checks the secrets store.",
+      "The server couldn't read or write its connections (registrations, connect requests, connections or their tokens) just now. Try again; if it keeps failing, an operator checks the database and the secrets store. A connect to a connection that's still being disconnected answers it too: disconnect it again to finish, then connect.",
     details: [],
   },
   'connection-notice-invalid': {
