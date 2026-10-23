@@ -32,6 +32,7 @@ import type { RunId, TenantId, ToolId } from '@kindgi/types';
 
 import type { TurnContext } from '../src/handlers/context.js';
 import { buildDispatchToolsHandler } from '../src/handlers/dispatch-tools.js';
+import { AgentTurnFailure } from '../src/handlers/errors.js';
 import type { HitlEnqueueInput } from '../src/handlers/public-types.js';
 import { computeConnectWaitToken } from '../src/handlers/tool-hitl.js';
 import { resolveEffectiveHitlPolicy } from '../src/hitl-policy.js';
@@ -50,12 +51,16 @@ const shared: ConnectionNeed = { app: 'acme', permissions: ['notes.read'], as: '
 
 const connectToken = (name: string) => computeConnectWaitToken({ runId: RUN, callId: CALL, name });
 
-function agent(conversationPolicy: Record<string, unknown> = {}): Agent {
+function agent(
+  conversationPolicy: Record<string, unknown> = {},
+  toolErrors?: Record<string, unknown>,
+): Agent {
   return {
     id: 'pack.agent',
     version: '1.0.0',
     name: 'Pack agent',
     conversationPolicy,
+    ...(toolErrors !== undefined && { toolErrors }),
   } as unknown as Agent;
 }
 
@@ -108,6 +113,8 @@ interface TurnOptions {
   readonly principal?: Principal;
   readonly startedBy?: RunStartedBy;
   readonly policy?: Record<string, unknown>;
+  /** The agent's `toolErrors`: which failures the model gets back to retry. */
+  readonly toolErrors?: Record<string, unknown>;
   readonly enqueue?: (input: HitlEnqueueInput) => Promise<unknown>;
   /** A wait's answer. Absent: connects connect, approvals approve. */
   readonly waitForToken?: (token: string) => Promise<unknown>;
@@ -153,7 +160,7 @@ async function turn(o: TurnOptions = {}) {
   });
   if (defined.kind === 'err') throw new Error(defined.error.message);
   const tool = defined.value as unknown as AnyTool;
-  const a = agent(o.policy);
+  const a = agent(o.policy, o.toolErrors);
   const answers = o.answers ?? [];
   const ctx = {
     input: {
@@ -644,6 +651,71 @@ describe('a token the tool echoes in what it throws goes no further', () => {
       expect(seen).not.toContain('secret-token');
     },
   );
+});
+
+describe("a tool's own abort or timeout reaches the turn as the error it is", () => {
+  /** What a fetch given `AbortSignal.timeout(…)` rejects with. */
+  async function timedOut(): Promise<unknown> {
+    const timeout = AbortSignal.timeout(1);
+    await new Promise((resolve) => timeout.addEventListener('abort', resolve));
+    return timeout.reason;
+  }
+
+  /** The first `DOMException` down a value's causes. */
+  function domExceptionIn(value: unknown): unknown {
+    for (let at = value, i = 0; typeof at === 'object' && at !== null && i < 10; i += 1) {
+      if (at instanceof DOMException) return at;
+      at = (at as { cause?: unknown }).cause;
+    }
+    return undefined;
+  }
+
+  test("a fetch it gave up on: the turn fails with the call's failure, its TimeoutError as it was", async () => {
+    let reason: unknown;
+    const t = await turn({
+      run: async () => {
+        reason = await timedOut();
+        throw reason;
+      },
+    });
+    expect(t.thrown).toBeInstanceOf(AgentTurnFailure);
+    const payload = (t.thrown as AgentTurnFailure).payload as { code: string };
+    expect(payload.code).toBe('tool-invocation-failed');
+    expect(domExceptionIn(payload)).toBe(reason);
+    expect((reason as DOMException).code).toBe(DOMException.TIMEOUT_ERR);
+  });
+
+  test("retried: the model gets the call's tool-error back", async () => {
+    const t = await turn({
+      toolErrors: { retryOn: ['tool-error'] },
+      run: async () => {
+        throw await timedOut();
+      },
+    });
+    expect(t.thrown).toBeUndefined();
+    expect(t.failed[0]?.error.code).toBe('tool-invocation-failed');
+    expect(t.results).toEqual([
+      expect.objectContaining({
+        kindgi: 'tool-error-retry',
+        status: 'failed',
+        error: expect.objectContaining({ kind: 'tool-error' }),
+      }),
+    ]);
+  });
+
+  test("a cancelled run's abort: the turn fails with the call's failure, its reason as it was", async () => {
+    const run = new AbortController();
+    run.abort();
+    const t = await turn({
+      run: async () => {
+        throw run.signal.reason;
+      },
+    });
+    expect(t.thrown).toBeInstanceOf(AgentTurnFailure);
+    const payload = (t.thrown as AgentTurnFailure).payload as { code: string };
+    expect(payload.code).toBe('tool-invocation-failed');
+    expect(domExceptionIn(payload)).toBe(run.signal.reason);
+  });
 });
 
 describe("a call that acts with a person's connection is theirs to approve", () => {

@@ -25,9 +25,12 @@ const LEFT_OUT: unique symbol = Symbol('left out');
  * that echoes a token in what it throws then doesn't put it in the run's
  * events, its record or the model's view.
  *
- * Each error, array and plain object is copied, never changed: an error
- * keeps its prototype and every own property, so it's still what it was
- * (a `ConnectionRejectedError` is still one); an array stays an array.
+ * What holds no token comes back as it is: a cancelled run's
+ * `AbortError`, or the `TimeoutError` of a fetch the tool gave up on, is
+ * still the very error it threw. Each error, array and plain object that
+ * does is copied, never changed: an error keeps its prototype and every
+ * own property, so it's still what it was (a `ConnectionRejectedError` is
+ * still one, a `DOMException` is still one); an array stays an array.
  * Any other object it holds (a `Date`, a `Map`, a request) is kept as it
  * is, unless its JSON form, which is what a run writes of it, holds a
  * token: then that form, redacted, stands in for it. A property that
@@ -53,15 +56,16 @@ export function withoutConnectionTokens<E>(
     if (typeof value !== 'object' || value === null) return value;
     if (depth >= DEPTH) return undefined;
     if (Array.isArray(value)) {
-      return value.map((item) => {
+      const items = value.map((item) => {
         const out = held(item, depth + 1);
         return out === LEFT_OUT ? undefined : out;
       });
+      return items.every((item, i) => Object.is(item, value[i])) ? value : items;
     }
     return copyOwn(value, (own) => held(own, depth + 1));
   };
   // What an error, array or plain object holds, its cause included:
-  // another of those is copied in turn; any other object is kept, or
+  // another of those is looked at in turn; any other object is kept, or
   // written out redacted.
   const held = (value: unknown, depth: number): unknown =>
     typeof value === 'object' &&
@@ -115,11 +119,38 @@ function isPlainObject(value: object): boolean {
 }
 
 /**
- * A copy of `value` with its prototype and every own property it can
- * read, each value as `map` gives it; one `map` leaves out isn't copied.
+ * `value` itself when `map` gives back everything it holds as it is; else
+ * a copy with its prototype and every own property it can read, each value
+ * as `map` gives it, one `map` leaves out not copied.
+ *
+ * A `DOMException` (a cancelled run's `AbortError`, an
+ * `AbortSignal.timeout`'s `TimeoutError`) keeps its name and message where
+ * only its prototype's accessors can read them, and those throw on a copy
+ * made on that prototype: they're looked at too, and a copy is built anew
+ * from them.
  */
 function copyOwn(value: object, map: (own: unknown) => unknown): object {
-  const out: object = Object.create(Object.getPrototypeOf(value) as object | null);
+  const { props, changed } = readOwn(value, map);
+  if (value instanceof DOMException) {
+    const name = String(map(value.name));
+    const message = String(map(value.message));
+    if (!changed && name === value.name && message === value.message) return value;
+    return withProps(new DOMException(message, name), props);
+  }
+  if (!changed) return value;
+  return withProps(Object.create(Object.getPrototypeOf(value) as object | null), props);
+}
+
+/**
+ * Every own property of `value` it can read, as `map` gives it, one `map`
+ * leaves out not kept; and whether any isn't what `value` holds.
+ */
+function readOwn(
+  value: object,
+  map: (own: unknown) => unknown,
+): { props: [PropertyKey, PropertyDescriptor][]; changed: boolean } {
+  const props: [PropertyKey, PropertyDescriptor][] = [];
+  let changed = false;
   for (const key of Reflect.ownKeys(value)) {
     const d = Object.getOwnPropertyDescriptor(value, key) as PropertyDescriptor;
     // An accessor (an engine's `stack`) is read once and kept as a value;
@@ -128,16 +159,26 @@ function copyOwn(value: object, map: (own: unknown) => unknown): object {
     try {
       own = 'value' in d ? d.value : Reflect.get(value, key);
     } catch {
+      changed = true;
       continue;
     }
     const mapped = map(own);
+    changed ||= !Object.is(mapped, own);
     if (mapped === LEFT_OUT) continue;
-    Object.defineProperty(out, key, {
-      value: mapped,
-      writable: d.writable ?? true,
-      enumerable: d.enumerable ?? false,
-      configurable: true,
-    });
+    props.push([
+      key,
+      {
+        value: mapped,
+        writable: d.writable ?? true,
+        enumerable: d.enumerable ?? false,
+        configurable: true,
+      },
+    ]);
   }
+  return { props, changed };
+}
+
+function withProps(out: object, props: readonly [PropertyKey, PropertyDescriptor][]): object {
+  for (const [key, d] of props) Object.defineProperty(out, key, d);
   return out;
 }

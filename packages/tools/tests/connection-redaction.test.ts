@@ -95,6 +95,113 @@ describe("a failed call's error, without its connections' tokens", () => {
   });
 });
 
+describe('what holds no token comes back as it is', () => {
+  test('an error, cause chain and all, with what it holds', () => {
+    const error = Object.assign(new Error('send failed'), {
+      cause: new Error('quoted', { cause: { code: 'acme-busy', took: Number.NaN } }),
+      issues: [{ path: ['to'], message: 'not an address' }],
+      when: new Date(0),
+    });
+    expect(withoutConnectionTokens(error, [first, renewed])).toBe(error);
+  });
+
+  test("a cancelled run's reason and a timed-out fetch's: still the very error thrown", async () => {
+    // The kernel cancels a run with a bare `abort()`: a `DOMException`.
+    const run = new AbortController();
+    run.abort();
+    expect(withoutConnectionTokens(run.signal.reason, [first])).toBe(run.signal.reason);
+    // A tool's own fetch, given up on: `AbortSignal.timeout`'s `TimeoutError`.
+    const timeout = AbortSignal.timeout(1);
+    await new Promise((resolve) => timeout.addEventListener('abort', resolve));
+    const thrown = { code: 'tool-invocation-failed', message: 'timed out', cause: timeout.reason };
+    const out = withoutConnectionTokens(thrown, [first]);
+    expect(out).toBe(thrown);
+    expect(out.cause).toBe(timeout.reason);
+    expect((out.cause as DOMException).code).toBe(DOMException.TIMEOUT_ERR);
+  });
+
+  test('inside an error that holds one: each part that holds none is the same object', () => {
+    const issues = [{ path: ['to'], message: 'not an address' }];
+    const cause = new DOMException('The operation timed out.', 'TimeoutError');
+    const thrown = Object.assign(new Error('send failed with tok-first-1234', { cause }), {
+      issues,
+    });
+
+    const out = withoutConnectionTokens(thrown, [first]);
+
+    expect(out).not.toBe(thrown);
+    expect(out.message).toBe(`send failed with ${REDACTED_TOKEN}`);
+    expect(out.issues).toBe(issues);
+    expect(out.cause).toBe(cause);
+    expect((out.cause as DOMException).code).toBe(DOMException.TIMEOUT_ERR);
+  });
+
+  test('one with a property that throws when read is copied without it', () => {
+    const thrown = new Error('send failed');
+    Object.defineProperty(thrown, 'response', {
+      enumerable: true,
+      get() {
+        throw new Error('read after close');
+      },
+    });
+
+    const out = withoutConnectionTokens(thrown, [first]);
+
+    expect(out).not.toBe(thrown);
+    expect(Object.hasOwn(out, 'response')).toBe(false);
+    expect(out.message).toBe('send failed');
+  });
+});
+
+describe('a DOMException that holds a token', () => {
+  test('is built anew: still one, every part readable, without the token', () => {
+    const out = withoutConnectionTokens(new DOMException('bad tok-first-1234', 'AbortError'), [
+      first,
+    ]);
+
+    expect(out).toBeInstanceOf(DOMException);
+    expect(out).toMatchObject({
+      name: 'AbortError',
+      message: `bad ${REDACTED_TOKEN}`,
+      code: DOMException.ABORT_ERR,
+    });
+    expect(String(out)).toBe(`AbortError: bad ${REDACTED_TOKEN}`);
+    expect(out.stack).toMatch(/^AbortError: bad \[redacted\]\n\s+at /);
+    expect(stringsOf(out).join('\n')).not.toContain('tok-first-1234');
+  });
+
+  test('its message is looked at where its stack does not hold it', () => {
+    const restacked = new DOMException('bad tok-first-1234', 'AbortError');
+    restacked.stack = 'AbortError\n    at somewhere';
+
+    const out = withoutConnectionTokens(restacked, [first]);
+
+    expect(out.message).toBe(`bad ${REDACTED_TOKEN}`);
+    expect(out.stack).toBe('AbortError\n    at somewhere');
+  });
+
+  test('its own cause comes along, redacted; the error thrown stays what it was', () => {
+    const thrown = new DOMException('timed out', {
+      name: 'TimeoutError',
+      cause: new Error('Acme said 401 to tok-first-1234'),
+    });
+
+    const out = withoutConnectionTokens(thrown, [first]);
+
+    expect(out).toBeInstanceOf(DOMException);
+    expect(out.code).toBe(DOMException.TIMEOUT_ERR);
+    expect((out.cause as Error).message).toBe(`Acme said 401 to ${REDACTED_TOKEN}`);
+    expect((thrown.cause as Error).message).toBe('Acme said 401 to tok-first-1234');
+  });
+
+  test('in its name too', () => {
+    const out = withoutConnectionTokens(new DOMException('bad', 'tok-first-1234'), [first]);
+    expect(out).toBeInstanceOf(DOMException);
+    expect(out.name).toBe(REDACTED_TOKEN);
+    expect(out.message).toBe('bad');
+  });
+});
+
 describe('in the errors, arrays and plain objects it holds', () => {
   test("in a pack error's issues, an array that stays one", () => {
     const issues = [{ path: ['to'], message: 'Bearer tok-first-1234 is not an address' }];
