@@ -13905,7 +13905,8 @@ export const ConnectionSchema: JsonSchema = {
     state: { $ref: '#/components/schemas/ConnectionState' },
     stateReason: {
       type: 'string',
-      description: "Why it's in its state: `invalid-grant`, `suspended`, `store-write-failed`.",
+      description:
+        "Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions). Other values may be added; `state` says what to do.",
     },
     installationId: { type: 'string', description: "A GitHub App's installation." },
     connectedAt: {

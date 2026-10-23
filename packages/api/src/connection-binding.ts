@@ -98,7 +98,16 @@ export interface ConnectionRecord {
   /** The entry's permission keys the app granted. */
   readonly permissions: readonly string[];
   readonly state: ConnectionState;
-  /** Why it's in its state: `'invalid-grant'`, `'suspended'`, `'store-write-failed'`. */
+  /**
+   * Why it's in its state: `'invalid-grant'` (the app withdrew the grant),
+   * `'no-refresh-token'` (the app gave no way to renew it), `'token-missing'`
+   * (its stored token is gone), `'store-write-failed'` (its token couldn't be
+   * stored at the connect), `'installation-missing'` (the GitHub App was
+   * uninstalled from the account), `'installation-permissions'` (an owner took
+   * permissions from the installation), `'suspended'` (the installation was
+   * suspended), `'sessions-revoked'` (Google revoked the person's sessions).
+   * Other values may be added; `state` says what to do.
+   */
   readonly stateReason?: string;
   readonly installationId?: string;
   /** When its current grant was stored: the connect, or the last reconnect. */
