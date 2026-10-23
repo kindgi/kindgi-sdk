@@ -7,9 +7,10 @@ sidebar:
 ---
 
 When you finish this page, tools in your projects can work on the
-repositories you picked, such as listing issues and adding labels, through
-your company's own GitHub App. You create the app by hand on GitHub,
-register it with Kindgi once, and install it on your organization.
+repositories you picked through your company's own GitHub App, such as the
+[ready-made tools](../use-a-connection/#ready-made-tools) that list issues
+and add labels. You create the app by hand on GitHub, register it with
+Kindgi once, and install it on your organization.
 
 ## Before you start
 

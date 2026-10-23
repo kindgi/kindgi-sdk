@@ -54,7 +54,8 @@ export const acmeCrm = defineApp({
 - **`removal`:** how a token is withdrawn at the app, and how the app
   reports an uninstall, if it does.
 - **`rateLimits`:** the app's limits for each connection: how many units
-  it allows in how many seconds.
+  it allows in how many seconds, and in `costs`, how many units a call
+  takes, by its operation's name. One not listed takes 1.
 - **`setupGuide`:** the page in these docs that tells an admin how to
   register the app, as a path such as `/guides/connections/acme-crm/`.
 

@@ -7,7 +7,9 @@ sidebar:
 ---
 
 When you finish this page, people in your workspace can connect their Google
-account, and a tool can send mail as them, after they approve it. They
+account, and a tool, such as the ready-made
+[`gmailSend`](../use-a-connection/#ready-made-tools), can send mail as
+them, after they approve it. They
 connect through an OAuth client in your organization's Google Cloud project,
 which you register with Kindgi once.
 
