@@ -45,9 +45,10 @@ export type ConnectionOwnerKind = 'member' | 'company';
  *   - `'required'` (the default): a grant without one, and none kept from
  *     before, is refused.
  *   - `'optional'`: the app may give none (some give them only to the apps
- *     they approve). The connection then works until its access token
- *     ends, which the token answer must say, and then needs reconnecting.
- *     One the app gives anyway is used as under `'required'`.
+ *     they approve). The connection then works until one minute before
+ *     its access token ends, and then needs reconnecting. The token answer
+ *     must say when it ends (`expires_in`): a grant without either is
+ *     refused. One the app gives anyway is used as under `'required'`.
  * - `github-app`: a GitHub App's installation, with its tokens made from
  *   the app's private key.
  */
