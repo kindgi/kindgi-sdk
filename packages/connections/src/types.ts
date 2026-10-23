@@ -41,6 +41,14 @@ export type ConnectionOwnerKind = 'member' | 'company';
  * - `oauth2`: the authorization code flow with PKCE (`S256`), with refresh
  *   and, when `revokeUrl` is given, revoke. Every URL is `https:`.
  *   `authorizeParams` are sent on the consent page's URL as given.
+ *   `refreshToken` says whether a connect needs one:
+ *   - `'required'` (the default): a grant without one, and none kept from
+ *     before, is refused.
+ *   - `'optional'`: the app may give none (some give them only to the apps
+ *     they approve). The connection then works until one minute before
+ *     its access token ends, and then needs reconnecting. The token answer
+ *     must say when it ends (`expires_in`): a grant without either is
+ *     refused. One the app gives anyway is used as under `'required'`.
  * - `github-app`: a GitHub App's installation, with its tokens made from
  *   the app's private key.
  */
@@ -52,6 +60,7 @@ export type SignIn =
       readonly revokeUrl?: string;
       readonly pkce: 'S256';
       readonly authorizeParams?: Readonly<Record<string, string>>;
+      readonly refreshToken?: 'required' | 'optional';
     }
   | { readonly kind: 'github-app' };
 

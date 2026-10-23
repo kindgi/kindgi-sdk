@@ -1020,6 +1020,7 @@ function serializeConnection(connection: ConnectionRecord): Record<string, unkno
     ...(connection.installationId !== undefined && {
       installationId: connection.installationId,
     }),
+    ...(connection.accessEndsAt !== undefined && { accessEndsAt: connection.accessEndsAt }),
     connectedAt: connection.connectedAt,
     ...(connection.lastUsedAt !== undefined && { lastUsedAt: connection.lastUsedAt }),
     createdAt: connection.createdAt,

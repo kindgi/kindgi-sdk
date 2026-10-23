@@ -247,8 +247,12 @@ function memoryBinding() {
   }
 
   /** A stored connection, as a finished connect would leave it. */
-  function connected(owner: ConnectionRecord['owner'], tenantId = tenantA): ConnectionRecord {
-    const connection = { ...connectionOf(owner), tenantId };
+  function connected(
+    owner: ConnectionRecord['owner'],
+    tenantId = tenantA,
+    more: Partial<ConnectionRecord> = {},
+  ): ConnectionRecord {
+    const connection = { ...connectionOf(owner), tenantId, ...more };
     connections.set(connection.connectionId, connection);
     return connection;
   }
@@ -792,6 +796,30 @@ describe('the connections themselves', () => {
       expect(res.json.error.code).toBe('connection-not-found');
     }
     expect((await call(app, 'ben', 'DELETE', path)).status).toBe(404);
+  });
+
+  test('one the app gave no refresh token says when its access ends, and why it needs reconnecting', async () => {
+    const { app, connected } = makeApp();
+    const ends = { accessEndsAt: '2026-12-21T12:00:00.000Z' };
+    const anas = connected({ kind: 'member', userId: ANA }, tenantA, {
+      state: 'needs-reconnecting',
+      stateReason: 'access-expired',
+      ...ends,
+    });
+    const res = await call(app, 'ana', 'GET', `/v1/connections/${anas.connectionId}`);
+    expect(res.json).toMatchObject({
+      state: 'needs-reconnecting',
+      stateReason: 'access-expired',
+      ...ends,
+    });
+    const renews = connected({ kind: 'member', userId: BEN });
+    const listed = await call(app, 'admin', 'GET', '/v1/connections');
+    const of = (id: string) =>
+      (listed.json.data as { connectionId: string; accessEndsAt?: string }[]).find(
+        (c) => c.connectionId === id,
+      );
+    expect(of(anas.connectionId)).toMatchObject(ends);
+    expect(of(renews.connectionId)).not.toHaveProperty('accessEndsAt');
   });
 
   test('its owner disconnects it: the removed record, never a token', async () => {
