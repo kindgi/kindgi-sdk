@@ -834,6 +834,37 @@ export function createInMemoryConnections(
     return connection;
   }
 
+  /**
+   * A grant that lacks some of what the connection holds is let go. The
+   * request is connected to the connection when it works and holds all the
+   * request asks; otherwise it declines for all it would have needed.
+   */
+  async function keepAsItWas(
+    stored: StoredRequest,
+    live: StoredConnection,
+    kept: readonly string[],
+  ): Promise<Outcome<ConnectFinishOutcome>> {
+    const request = stored.record;
+    const held = live.record.permissions;
+    const connectionId = live.record.connectionId;
+    if (live.record.state === 'working' && request.permissions.every((p) => held.includes(p))) {
+      return ok({
+        kind: 'connected',
+        request: await settle(
+          stored,
+          { state: 'connected', connectionId },
+          { kind: 'connected', connectionId },
+        ),
+        connection: live.record,
+      });
+    }
+    const missing = union(request.permissions, held).filter((p) => !kept.includes(p));
+    return ok({
+      kind: 'declined',
+      request: await settle(stored, { state: 'declined', missing }, { kind: 'declined', missing }),
+    });
+  }
+
   /** The working connection a finish lands on: the one it reconnects, or the owner's. */
   function landsOn(request: ConnectRequestRecord): StoredConnection | undefined {
     const target =
@@ -869,8 +900,11 @@ export function createInMemoryConnections(
 
   /**
    * Makes the connection with what the person granted, declining for what's
-   * missing; or reconnects it. A reconnect never narrows: one granted less
-   * than asked leaves the connection as it was.
+   * missing; or reconnects it. A reconnect never narrows: a grant that covers
+   * all the connection holds now is stored (so one that needs reconnecting
+   * works again); one that lacks any of it leaves the connection as it was,
+   * and the request is connected to it only if it works and holds all asked.
+   * A decline always names what's missing.
    */
   async function connect(
     stored: StoredRequest,
@@ -878,8 +912,6 @@ export function createInMemoryConnections(
     signedIn: SignedIn,
   ): Promise<Outcome<ConnectFinishOutcome>> {
     const request = stored.record;
-    const kept = (granted ?? request.permissions).filter((p) => request.permissions.includes(p));
-    const missing = request.permissions.filter((p) => !kept.includes(p));
     const live = landsOn(request);
     if (live !== undefined && live.record.account.id !== signedIn.account.id) {
       await settle(stored, { state: 'failed', failure: 'account-mismatch' });
@@ -888,7 +920,15 @@ export function createInMemoryConnections(
         `That's another account: reconnect ${live.record.account.label}`,
       );
     }
-    if (kept.length === 0 || (live !== undefined && missing.length > 0)) {
+    // What the connection holds now: it may have gained permissions since the request was made.
+    const held = live?.record.permissions ?? [];
+    const known = union(request.permissions, held);
+    const kept = (granted ?? request.permissions).filter((p) => known.includes(p));
+    if (live !== undefined && !held.every((p) => kept.includes(p))) {
+      return keepAsItWas(stored, live, kept);
+    }
+    const missing = request.permissions.filter((p) => !kept.includes(p));
+    if (kept.length === 0) {
       return ok({
         kind: 'declined',
         request: await settle(
