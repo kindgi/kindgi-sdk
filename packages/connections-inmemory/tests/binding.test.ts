@@ -180,6 +180,15 @@ describe('app registrations', () => {
     const overlaps = { kind: 'err', error: { code: 'connection-app-invalid', field: 'projects' } };
     // The seeded one serves every project, so another overlaps it wherever it serves.
     expect(await create()).toMatchObject(overlaps);
+    // Another company's registration of the app doesn't count.
+    const otherTenantId = '00000000-0000-4000-8000-0000000000bb' as TenantId;
+    const theirs = await made.binding.createApp({
+      tenantId: otherTenantId,
+      app: 'google',
+      oauth2: { clientId: 'other.apps.googleusercontent.com', clientSecret: SECRET },
+      by: { ...admin, tenantId: otherTenantId },
+    });
+    expect(theirs).toMatchObject({ kind: 'ok' });
     expect(await create([p2])).toMatchObject(overlaps);
     expect(await move(made.googleApp.appId, [p1])).toMatchObject({ kind: 'ok' });
     expect(await create([p1, p2])).toMatchObject(overlaps);

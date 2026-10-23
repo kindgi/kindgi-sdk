@@ -319,7 +319,8 @@ export interface ConnectionBinding {
    * As `createApp` for `projects`. A change of the client its connections
    * were granted to (`oauth2.clientId`, `githubApp.appNumber` or
    * `githubApp.clientId`) while it has live connections is refused
-   * (`connection-app-invalid`, that field): they're disconnected first.
+   * (`connection-app-invalid`, that field): disconnect them first, then
+   * change it and connect again.
    */
   updateApp(input: ConnectionAppUpdateInput): Promise<Result<ConnectionAppRecord, ConnectionError>>;
   /** With `withConnections: false`, a registration that still has live connections is refused (`connection-app-in-use`). */
