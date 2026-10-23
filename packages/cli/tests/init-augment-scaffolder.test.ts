@@ -244,7 +244,12 @@ describe('runInitAugment — end-to-end', () => {
       skillsRoot,
       force: false,
       packageManager: 'pnpm',
-      dependencySpecs: { source: 'local-checkout', sdk: 'link:/k/sdk', cli: 'link:/k/cli' },
+      dependencySpecs: {
+        source: 'local-checkout',
+        sdk: 'link:/k/sdk',
+        cli: 'link:/k/cli',
+        connections: 'link:/k/connections',
+      },
     });
     expect(result.kind).toBe('ok');
     const pkg = JSON.parse(await fileContents(join(root, 'package.json'))) as {
@@ -744,7 +749,7 @@ describe('runInitAugment — pnpm-workspace.yaml', () => {
       skillsRoot,
       force: false,
       packageManager,
-      dependencySpecs: { source: 'published', sdk: '0.1.0', cli: '0.1.0' },
+      dependencySpecs: { source: 'published', sdk: '0.1.0', cli: '0.1.0', connections: '0.1.0' },
     });
     if (result.kind !== 'ok') throw new Error(result.stderr);
     return {
@@ -817,7 +822,7 @@ describe('runInitAugment — pnpm-workspace.yaml', () => {
       skillsRoot,
       force: false,
       packageManager: 'pnpm',
-      dependencySpecs: { source: 'published', sdk: '0.1.0', cli: '0.1.0' },
+      dependencySpecs: { source: 'published', sdk: '0.1.0', cli: '0.1.0', connections: '0.1.0' },
     });
     expect(result.kind).toBe('ok');
     expect(await fileContents(workspaceFile())).toContain('  esbuild: false\n');
@@ -838,7 +843,7 @@ describe("runInitAugment — npm's allowScripts (T277)", () => {
       skillsRoot,
       force: false,
       packageManager,
-      dependencySpecs: { source: 'published', sdk: '0.1.0', cli: '0.1.0' },
+      dependencySpecs: { source: 'published', sdk: '0.1.0', cli: '0.1.0', connections: '0.1.0' },
     });
     if (result.kind !== 'ok') throw new Error(result.stderr);
     const summary = JSON.parse(result.rendered.stdout) as {

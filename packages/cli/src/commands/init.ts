@@ -881,7 +881,8 @@ async function pathExists(path: string): Promise<boolean> {
 
 /**
  * Stamp the resolved specs over the template's `workspace:*` entries
- * for `@kindgi/sdk` (dependencies) and `@kindgi/cli` (devDependencies).
+ * for `@kindgi/sdk` and `@kindgi/connections` (dependencies) and
+ * `@kindgi/cli` (devDependencies).
  */
 async function rewriteTemplateDependencySpecs(
   targetDir: string,
@@ -893,6 +894,9 @@ async function rewriteTemplateDependencySpecs(
     devDependencies?: Record<string, string>;
   };
   if (pkg.dependencies?.['@kindgi/sdk'] !== undefined) pkg.dependencies['@kindgi/sdk'] = specs.sdk;
+  if (pkg.dependencies?.['@kindgi/connections'] !== undefined) {
+    pkg.dependencies['@kindgi/connections'] = specs.connections;
+  }
   if (pkg.devDependencies?.['@kindgi/cli'] !== undefined) {
     pkg.devDependencies['@kindgi/cli'] = specs.cli;
   }
