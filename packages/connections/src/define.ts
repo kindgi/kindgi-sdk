@@ -19,6 +19,9 @@ export const SIGN_IN_TENANT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/;
 
 const TENANT_PLACEHOLDER = '{tenant}';
 
+/** What the scopes an app answers it granted are split on. */
+const SCOPE_SEPARATOR = /[\s,]/;
+
 const OWNER_KINDS: ReadonlySet<string> = new Set(['member', 'company']);
 const REVIEW_CLASSES: ReadonlySet<string> = new Set(['none', 'sensitive', 'restricted']);
 const REVOKE_KINDS: ReadonlySet<string> = new Set(['oauth2-revoke', 'github-installation-token']);
@@ -32,8 +35,9 @@ const NOTICE_KINDS: ReadonlySet<string> = new Set(['google-risc', 'github-webhoo
  * lookup that doesn't fit the sign-in kind, a `{tenant}` in the sign-in's
  * URLs without a `signIn.tenant` (or with one, not once in each of the
  * authorize and token URLs, or more than once in the revoke URL), a
- * `{tenant}` in the profile lookup's URL, a rate limit that isn't a positive
- * whole number, a cost that isn't a whole number.
+ * `{tenant}` in the profile lookup's URL, a scope holding a space or a
+ * comma, a rate limit that isn't a positive whole number, a cost that
+ * isn't a whole number.
  */
 export function defineApp(entry: AppEntry): AppEntry {
   if (typeof entry !== 'object' || entry === null) {
@@ -85,7 +89,7 @@ function checkSignIn(signIn: SignIn, at: At): void {
       throw new TypeError(at(`signIn.authorizeParams.${name} must be a string`));
     }
   }
-  if (signIn.scopes !== undefined) requireTexts(signIn.scopes, at('signIn.scopes'));
+  if (signIn.scopes !== undefined) requireScopes(signIn.scopes, at('signIn.scopes'));
   if (signIn.scopeResource !== undefined) {
     requireHttps(signIn.scopeResource, at('signIn.scopeResource'));
     // Dropped from a granted scope through its `/`, or what's left would never match a permission.
@@ -163,7 +167,7 @@ function checkPermissions(permissions: AppEntry['permissions'], at: At): void {
     if (!PERMISSION_KEY_PATTERN.test(key)) {
       throw new TypeError(at(`${field}: the key must match ${PERMISSION_KEY_PATTERN.source}`));
     }
-    requireText(permission?.grants, at(`${field}.grants`));
+    requireScope(permission?.grants, at(`${field}.grants`));
     requireText(permission.says, at(`${field}.says`));
     if (typeof permission.changes !== 'boolean') {
       throw new TypeError(at(`${field}.changes must be true or false`));
@@ -199,7 +203,7 @@ function checkAccount(account: AccountLookup, signIn: SignIn, at: At): void {
   if (!Array.isArray(account.scopes) || !account.scopes.includes('openid')) {
     throw new TypeError(at('account.scopes must include "openid"'));
   }
-  account.scopes.forEach((scope, i) => requireText(scope, at(`account.scopes[${i}]`)));
+  account.scopes.forEach((scope, i) => requireScope(scope, at(`account.scopes[${i}]`)));
 }
 
 function checkProfile(
@@ -215,7 +219,7 @@ function checkProfile(
   if (account.url.includes(TENANT_PLACEHOLDER)) {
     throw new TypeError(at(`account.url can't hold ${TENANT_PLACEHOLDER}`));
   }
-  requireTexts(account.scopes, at('account.scopes'));
+  requireScopes(account.scopes, at('account.scopes'));
   requireText(account.id, at('account.id'));
   if (!Array.isArray(account.label) || account.label.length === 0) {
     throw new TypeError(at('account.label must name at least one field'));
@@ -275,9 +279,19 @@ function requireText(value: unknown, field: string): asserts value is string {
   }
 }
 
-function requireTexts(values: unknown, field: string): void {
+/** One scope: the scopes an app answers it granted are read split on spaces and commas. */
+function requireScope(value: unknown, field: string): asserts value is string {
+  requireText(value, field);
+  if (SCOPE_SEPARATOR.test(value)) {
+    throw new TypeError(
+      `${field} must be one scope, with no space or comma: the scopes an app grants are read split on both`,
+    );
+  }
+}
+
+function requireScopes(values: unknown, field: string): void {
   if (!Array.isArray(values)) throw new TypeError(`${field} must be a list of strings`);
-  values.forEach((value, i) => requireText(value, `${field}[${i}]`));
+  values.forEach((value, i) => requireScope(value, `${field}[${i}]`));
 }
 
 function requireHttps(value: unknown, field: string): void {

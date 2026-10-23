@@ -164,6 +164,53 @@ describe('defineApp', () => {
       /permissions\["notes.read"\].changes must be true or false/,
     ],
     [
+      'a grant of two scopes',
+      {
+        permissions: {
+          'notes.read': { ...acme.permissions['notes.read'], grants: 'notes:read notes:list' },
+        },
+      },
+      /permissions\["notes.read"\].grants must be one scope, with no space or comma/,
+    ],
+    [
+      'a grant holding a comma',
+      {
+        permissions: {
+          'notes.read': { ...acme.permissions['notes.read'], grants: 'notes:read,notes:list' },
+        },
+      },
+      /permissions\["notes.read"\].grants must be one scope/,
+    ],
+    [
+      'an account scope holding a comma',
+      {
+        account: {
+          kind: 'openid',
+          issuers: ['https://auth.acme.example'],
+          scopes: ['openid', 'email,profile'],
+        },
+      },
+      /account.scopes\[1\] must be one scope, with no space or comma/,
+    ],
+    [
+      'a sign-in scope holding a space',
+      { signIn: { ...acme.signIn, scopes: ['offline_access openid'] } },
+      /signIn.scopes\[0\] must be one scope, with no space or comma/,
+    ],
+    [
+      'a profile lookup scope holding a comma',
+      {
+        account: {
+          kind: 'profile',
+          url: 'https://api.acme.example/me',
+          scopes: ['me.read,mail.read'],
+          id: 'id',
+          label: ['email'],
+        },
+      },
+      /account.scopes\[0\] must be one scope, with no space or comma/,
+    ],
+    [
       'an unknown review class',
       { permissions: { 'notes.read': { ...acme.permissions['notes.read'], review: 'secret' } } },
       /permissions\["notes.read"\].review must be/,
