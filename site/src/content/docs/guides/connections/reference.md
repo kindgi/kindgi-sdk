@@ -51,9 +51,10 @@ connection and account a call used.
   unused for six months, and Microsoft after 90 days by default. The
   connection then needs reconnecting
   ([When the connection is missing](../use-a-connection/#when-the-connection-is-missing)).
-- **An app that gives no way to renew** ends a connection when its access
-  token ends: LinkedIn's lasts 60 days. Kindgi knows when, and from then
-  the connection needs reconnecting, with no call to the app
+- **An app that gives no refresh token** ends a connection when its access
+  token ends: LinkedIn gives them only to partners it approves, and its
+  access lasts 60 days. Kindgi knows when, and just before then the
+  connection needs reconnecting, with no call to the app
   ([LinkedIn](../linkedin/#when-linkedin-ends-access)).
 - **The connection's page shows when it was last used,** so you can
   disconnect what nobody uses.

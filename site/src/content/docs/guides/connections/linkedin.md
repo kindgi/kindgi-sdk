@@ -110,7 +110,9 @@ and when it was last used.
 renews it only for partners it approves
 ([LinkedIn: Authorization Code Flow](https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow)).
 So when the 60 days end, the connection needs reconnecting: connect again
-from **Connections**, or from a run that's waiting for you.
+from **Connections**, or from a run that's waiting for you. If LinkedIn
+gives your app refresh tokens, as it does for partners it approves, Kindgi
+renews the access as it does for other apps.
 
 If you turn it down on LinkedIn's page, the connect is declined. If a
 tool's call asked you to connect, that call fails with
@@ -131,8 +133,9 @@ removes your app
 
 ## When LinkedIn ends access
 
-- **After 60 days,** always. Kindgi knows when, so the connection needs
-  reconnecting from then, with no call to LinkedIn.
+- **After 60 days,** unless LinkedIn gives your app refresh tokens. Kindgi
+  knows when, so the connection needs reconnecting just before then, with
+  no call to LinkedIn.
 - **The person removes your app** at LinkedIn.
 - **The person allows your app a different set of permissions,** through
   Kindgi or anywhere else, and LinkedIn ends the access it gave before
