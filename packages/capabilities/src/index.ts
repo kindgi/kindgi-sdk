@@ -65,6 +65,7 @@ export type {
   ProviderMetadata,
   ProviderModelPick,
   ProviderRegistry,
+  ProviderSetupFailure,
   RejectionReason,
   Requirement,
   RoutingDecision,

@@ -408,6 +408,7 @@ function parseRecordFilter(
     'model',
     'servedModel',
     'rootRunId',
+    'flowId',
   ] as const;
   for (const key of strKeys) {
     const raw = query[key];

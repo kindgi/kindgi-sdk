@@ -145,9 +145,13 @@ const start: LeafCommand = {
   description:
     'Get the URLs to give your identity provider, before registering anything, and a message to send IT.',
   usage:
-    'kindgi sso providers start <provider-id> --kind=oidc|saml [--idp=google|entra|okta|keycloak]',
+    'kindgi sso providers start <provider-id> [--kind=oidc|saml] [--idp=google|entra|okta|keycloak]',
   optionSpec: {
-    ...kindOption,
+    kind: {
+      type: 'string' as const,
+      description:
+        "`oidc` (OpenID Connect) or `saml`. Needed until the provider is registered, unless `--idp` gives it; after that, the registered provider's kind.",
+    },
     idp: {
       type: 'string' as const,
       description:

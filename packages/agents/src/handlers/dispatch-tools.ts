@@ -5,6 +5,7 @@ import type { ModelMessage, ModelToolCall } from '@kindgi/capabilities';
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
 import { WaitpointCancelledError } from '@kindgi/handler';
 import { stricterToolHitlRule } from '@kindgi/policy-contract';
+import { type RunStartedBy, needsPersonsYesUnattended } from '@kindgi/runtime';
 import {
   BUILT_IN_TOOL_PREFIX,
   invokeTool,
@@ -17,7 +18,7 @@ import { REMEMBER_TOOL_ID, rememberStaysInProject } from '../remember.js';
 import { emitTurnEvent } from '../streaming.js';
 import type { ConversationMessage, ToolHitlMode, ToolHitlRule } from '../types.js';
 
-import type { EffectiveHitlPolicy } from '../hitl-policy.js';
+import { type EffectiveHitlPolicy, separateApproverFor } from '../hitl-policy.js';
 
 import type { AgentTurnIterationOutput, TurnContext } from './context.js';
 import {
@@ -29,6 +30,7 @@ import {
 import { TOOL_CALL_GATE_SUBJECT, readGateDecision, withdrawnGateFailure } from './gate-decision.js';
 import type { ToolCallAuthorization } from './public-types.js';
 import { decideReplayTool } from './replay.js';
+import { requestedBy } from './requested-by.js';
 import {
   effectiveToolErrorPolicy,
   toolErrorKindOf,
@@ -42,17 +44,30 @@ import { addStepToolNodes } from './turn-provenance.js';
  * Resolves the effective HITL mode + reviewer role for a specific
  * tool from the pre-resolved effective policy. Mirrors the standalone
  * `resolveToolHitl(agent, tool)` in tool-hitl.ts but consumes the
- * resolver's output.
+ * resolver's output, and adds the floors that sit above the agent's
+ * rules: the tenant's, and in a run no person started, the tool's own
+ * `needsApprovalWhenUnattended`, unless the webhook or schedule that
+ * started the run lists the tool (`needsPersonsYesUnattended`).
  */
-function resolveEffectiveToolHitl(
+export function resolveEffectiveToolHitl(
   effective: EffectiveHitlPolicy,
   tool: Tool,
+  run: {
+    readonly startedBy?: RunStartedBy;
+    readonly toolsAllowedUnattended?: readonly string[];
+  },
 ): { readonly mode: ToolHitlMode; readonly requiredRole: 'standard' | 'senior' | 'admin' } {
   const gate = agentToolHitl(effective, tool);
   // The tenant's floor for this tool, when it names one: the stricter wins.
   const floor = effective.toolFloors?.get(tool.id as unknown as string);
-  if (floor === undefined) return gate;
-  const stricter = stricterToolHitlRule(gate, floor);
+  const floored = floor === undefined ? gate : stricterToolHitlRule(gate, floor);
+  // In a run no person started, a tool that declares it needs a person's
+  // yes waits for one on every call, unless the run's webhook or schedule
+  // lists it. Agents are reused, so their rules can't lift it, the same
+  // as the tenant's floor.
+  const stricter = needsPersonsYesUnattended(tool, run.startedBy, run.toolsAllowedUnattended)
+    ? stricterToolHitlRule(floored, { mode: 'always_ask' })
+    : floored;
   return { mode: stricter.mode, requiredRole: stricter.requiredRole ?? gate.requiredRole };
 }
 
@@ -99,6 +114,8 @@ interface ToolGateRecord {
   readonly waitTokenId: string;
   readonly requiredRole: 'standard' | 'senior' | 'admin';
   readonly timeoutMs: number;
+  /** Four eyes for this call. Absent from a record made before it was kept: `false`. */
+  readonly separateApprover?: boolean;
 }
 
 /**
@@ -122,8 +139,18 @@ async function decideToolGate(
       cause: null,
     });
   }
+  // How the turn's run started, and what its webhook or schedule lists:
+  // both as the run recorded them when it started (a resumed turn's come
+  // from its record, never from whoever resumed it), so an approval
+  // doesn't make the rest of the run attended.
+  const run = {
+    ...(ctx.input.startedBy !== undefined && { startedBy: ctx.input.startedBy }),
+    ...(ctx.input.toolsAllowedUnattended !== undefined && {
+      toolsAllowedUnattended: ctx.input.toolsAllowedUnattended,
+    }),
+  };
   return kctx.record(`${TOOL_GATE_RECORD_PREFIX}${call.id}`, (): ToolGateRecord | undefined => {
-    const resolved = resolveEffectiveToolHitl(effectiveHitl, tool);
+    const resolved = resolveEffectiveToolHitl(effectiveHitl, tool, run);
     if (resolved.mode === 'never_ask') return undefined;
     const argsHash = hashToolArgs(call.arguments);
     return {
@@ -135,6 +162,7 @@ async function decideToolGate(
       }),
       requiredRole: resolved.requiredRole,
       timeoutMs: effectiveHitl.timeoutMs,
+      separateApprover: separateApproverFor(effectiveHitl, tool.id as unknown as string),
     };
   });
 }
@@ -313,6 +341,7 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
       let toolRejectionPayload: { readonly rationale?: string } | null = null;
       if (gate !== undefined) {
         const { argsHash, waitTokenId, timeoutMs } = gate;
+        const asker = requestedBy(ctx.input.principal);
         const expiresAt = new Date(Date.now() + timeoutMs).toISOString();
 
         if (ctx.bindings.hitl?.enqueue !== undefined) {
@@ -332,6 +361,9 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
                 arguments: call.arguments as never,
               },
               requiredRole: gate.requiredRole,
+              // Who asked: the person the turn runs for, whoever resumes it.
+              ...(asker !== undefined && { requestedBy: asker }),
+              separateApprover: gate.separateApprover === true,
               title: `HITL review: ${call.name}`,
               description: `Tool call ${call.name} awaiting reviewer approval before dispatch.`,
               waitTokenId,

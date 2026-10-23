@@ -22,6 +22,7 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
+import { validateAgainst } from './support/openapi-schema.js';
 
 const tenantId = '00000000-0000-4000-8000-0000000000a1' as TenantId;
 const P1 = '00000000-0000-4000-8000-0000000000b1';
@@ -42,12 +43,19 @@ const resolveToken: TokenResolver = async (token) =>
       ? { tenantId, userId: 'alice' as UserId, scopes: [], capabilities: [], tokenProjectId: P1 }
       : null;
 
-function memoryBlobs(): BlobStorageBinding & {
+/**
+ * With `s3Address`, each upload gets an S3-compatible address, as a store
+ * serving `/s3` gives it: bucket `artifacts`, the `blobId` as its key.
+ */
+function memoryBlobs(options: { s3Address?: boolean } = {}): BlobStorageBinding & {
   readonly rows: Map<string, BlobMeta>;
   readonly bytes: Map<string, Uint8Array>;
+  /** Each blob `get` opened, by id. */
+  readonly opened: string[];
 } {
   const rows = new Map<string, BlobMeta>();
   const bytes = new Map<string, Uint8Array>();
+  const opened: string[] = [];
   const read = async (b: ReadableStream<Uint8Array> | Uint8Array) =>
     b instanceof Uint8Array ? b : new Uint8Array(await new Response(b).arrayBuffer());
   const binding: Pick<BlobStorageBinding, 'put' | 'get' | 'head' | 'list' | 'delete'> = {
@@ -66,6 +74,7 @@ function memoryBlobs(): BlobStorageBinding & {
         ...(input.projectId !== undefined && { projectId: input.projectId }),
         ...(input.createdBy !== undefined && { createdBy: input.createdBy }),
         createdAt: '2026-10-07T00:00:00.000Z' as Timestamp,
+        ...(options.s3Address === true && { bucket: 'artifacts', key: blobId }),
       };
       rows.set(blobId, meta);
       bytes.set(blobId, body);
@@ -79,6 +88,7 @@ function memoryBlobs(): BlobStorageBinding & {
       if (meta === undefined) {
         return { kind: 'err', error: { code: 'blob-not-found', message: 'none', blobId: id } };
       }
+      opened.push(id);
       return { kind: 'ok', value: { meta, stream: new Response(bytes.get(id)).body! } };
     },
     async list(_t, filter) {
@@ -93,7 +103,7 @@ function memoryBlobs(): BlobStorageBinding & {
       return { kind: 'ok', value: { deleted: rows.delete(id) } };
     },
   };
-  return Object.assign(binding as BlobStorageBinding, { rows, bytes });
+  return Object.assign(binding as BlobStorageBinding, { rows, bytes, opened });
 }
 
 function decision(user: string, action: Action, resource: ResourceRef): Decision {
@@ -105,9 +115,16 @@ function decision(user: string, action: Action, resource: ResourceRef): Decision
   };
 }
 
-function harness(options: { authz?: boolean; maxBytes?: number; defaultProject?: string } = {}) {
+function harness(
+  options: {
+    authz?: boolean;
+    maxBytes?: number;
+    defaultProject?: string;
+    s3Address?: boolean;
+  } = {},
+) {
   const stubs = createStubAppBindings();
-  const blobs = memoryBlobs();
+  const blobs = memoryBlobs({ s3Address: options.s3Address === true });
   const run = {
     ...stubs.kernelBinding.run,
     getRun: async (_t: TenantId, id: RunId) =>
@@ -145,10 +162,23 @@ function harness(options: { authz?: boolean; maxBytes?: number; defaultProject?:
     });
     return { status: res.status, body: (await res.json()) as Record<string, any> };
   };
-  const call = async (as: string, method: string, path: string) => {
-    const res = await app.request(path, { method, headers: { authorization: `Bearer ${as}` } });
+  const call = async (
+    as: string,
+    method: string,
+    path: string,
+    headers: Record<string, string> = {},
+  ) => {
+    const res = await app.request(path, {
+      method,
+      headers: { authorization: `Bearer ${as}`, ...headers },
+    });
     const text = await res.text();
-    return { status: res.status, text, json: () => JSON.parse(text) as Record<string, any> };
+    return {
+      status: res.status,
+      headers: Object.fromEntries(res.headers.entries()),
+      text,
+      json: () => JSON.parse(text) as Record<string, any>,
+    };
   };
   /** A multipart body sent as the same bytes each time, as a client's retry sends it. */
   const sendBytes = async (as: string, sent: Request, headers: Record<string, string> = {}) => {
@@ -205,6 +235,31 @@ describe('artifacts belong to a project', () => {
   });
 });
 
+describe("an artifact answer carries only BlobMeta's properties", () => {
+  test('from a store that gives a blob an S3-compatible address, the upload and the list carry it', async () => {
+    const h = harness({ s3Address: true });
+    const up = await h.upload('alice');
+    expect(up.status, JSON.stringify(up.body)).toBe(201);
+    expect(up.body).toMatchObject({ bucket: 'artifacts', key: up.body.blobId });
+    expect(validateAgainst('BlobMeta', up.body)).toEqual([]);
+    const list = (await h.call('alice', 'GET', '/v1/artifacts')).json();
+    expect(list.data).toEqual([up.body]);
+    expect(validateAgainst('ArtifactCollectionPage', list)).toEqual([]);
+  });
+
+  test('from a store that gives it none, the upload and the list leave it out', async () => {
+    const h = harness();
+    const up = await h.upload('alice');
+    expect(up.status, JSON.stringify(up.body)).toBe(201);
+    expect(up.body).not.toHaveProperty('bucket');
+    expect(up.body).not.toHaveProperty('key');
+    expect(validateAgainst('BlobMeta', up.body)).toEqual([]);
+    const list = (await h.call('alice', 'GET', '/v1/artifacts')).json();
+    expect(list.data).toEqual([up.body]);
+    expect(validateAgainst('ArtifactCollectionPage', list)).toEqual([]);
+  });
+});
+
 describe('reading and deleting', () => {
   async function seeded() {
     const h = harness({ authz: false });
@@ -224,6 +279,34 @@ describe('reading and deleting', () => {
     expect([bob.status, bob.json().error.code]).toEqual([404, 'blob-not-found']);
     expect((await h.call('bob', 'HEAD', `/v1/artifacts/${inP1}`)).status).toBe(404);
     expect((await h.call('alice', 'HEAD', `/v1/artifacts/${inP1}`)).status).toBe(200);
+  });
+
+  test("a HEAD answers a GET's status and headers from the metadata, and never opens the blob", async () => {
+    const h = harness();
+    const blobId = (await h.upload('alice', { projectId: P1 }, 'the bytes')).body.blobId as string;
+    const absent = '00000000-0000-4000-8000-0000000000ee';
+    for (const [as, id, status] of [
+      ['alice', blobId, 200],
+      ['bob', blobId, 404],
+      ['alice', absent, 404],
+    ] as const) {
+      const path = `/v1/artifacts/${id}`;
+      const sent = { 'x-request-id': `req-${as}-${status}-${id}` };
+      const head = await h.call(as, 'HEAD', path, sent);
+      expect(h.blobs.opened, `HEAD ${as} ${id}`).toEqual([]);
+      const get = await h.call(as, 'GET', path, sent);
+      expect(h.blobs.opened, `GET ${as} ${id}`).toEqual(status === 200 ? [id] : []);
+      // The one GET that opens the blob hands it out as the body.
+      if (status === 200) expect(get.text).toBe('the bytes');
+      expect([head.status, get.status]).toEqual([status, status]);
+      // Each request answers its own span; every other header is the same.
+      const { traceresponse: headSpan, ...headHeaders } = head.headers;
+      const { traceresponse: getSpan, ...getHeaders } = get.headers;
+      expect([headSpan, getSpan]).toEqual([expect.any(String), expect.any(String)]);
+      expect(headHeaders, `${as} ${id}`).toEqual(getHeaders);
+      expect(head.text).toBe('');
+      h.blobs.opened.length = 0;
+    }
   });
 
   test('delete needs write: read-only is 403, no read is 404', async () => {

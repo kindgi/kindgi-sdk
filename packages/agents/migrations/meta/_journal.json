@@ -43,6 +43,13 @@
       "when": 1791379726212,
       "tag": "0005_condemned_hellcat",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791753250161,
+      "tag": "0006_petite_misty_knight",
+      "breakpoints": true
     }
   ]
 }

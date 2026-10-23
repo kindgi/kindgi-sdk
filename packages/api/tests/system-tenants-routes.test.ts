@@ -473,6 +473,14 @@ describe('suspending one project', () => {
   });
 });
 
+/** What a frozen tenant's refused write says: what still changes in it, and nothing else. */
+const FROZEN_MESSAGES = {
+  closing:
+    'This workspace is closing: it can be read and exported until it is deleted, and nothing in it changes but deletes, revocations and erasures.',
+  suspended:
+    'This workspace is suspended: it can be read and exported, and nothing in it changes but deletes, revocations and erasures until it is restored.',
+} as const;
+
 describe('a closing or suspended tenant is frozen, whatever way it comes in', () => {
   /** A tenant principal resolving with nothing about its state, as a session does. */
   function tenantApp(state: 'active' | 'suspended' | 'closing' | 'unreadable') {
@@ -504,7 +512,8 @@ describe('a closing or suspended tenant is frozen, whatever way it comes in', ()
       const send = tenantApp(state);
       const write = await send('POST', '/v1/tokens');
       expect(write.status).toBe(409);
-      expect(await codeOf(write)).toBe(`tenant-${state}`);
+      const { error } = (await write.json()) as { error: { code: string; message: string } };
+      expect([error.code, error.message]).toEqual([`tenant-${state}`, FROZEN_MESSAGES[state]]);
       for (const [method, path] of [
         ['GET', '/v1/tenant'],
         ['DELETE', `/v1/env/${randomUUID()}`],

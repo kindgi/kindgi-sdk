@@ -11,6 +11,7 @@ import type {
   ModelProvider,
   Preference,
   ProviderModelPick,
+  ProviderSetupFailure,
   RejectionReason,
   Requirement,
   RoutingDecision,
@@ -49,6 +50,13 @@ export interface RouteInput {
    * Typical source: `Agent.preferredModel`.
    */
   readonly preferredModel?: string;
+  /**
+   * The tenant's registered providers that couldn't be set up
+   * (`ProviderRegistry.setupFailures`). They're never candidates. When
+   * nothing routes, the error names each under the requirement
+   * `provider set up`, and its message gives the first one's why.
+   */
+  readonly setupFailures?: readonly ProviderSetupFailure[];
 }
 
 /**
@@ -197,7 +205,30 @@ export function matchTuples(
       rejectingProviders: rejecting,
     });
   }
-  return unsatisfiable(perRequirementReasons, input.tenantPolicy);
+  perRequirementReasons.push(...setUpReasons(tuples, input.setupFailures));
+  return unsatisfiable(perRequirementReasons, input.tenantPolicy, input.setupFailures);
+}
+
+/**
+ * The reason for the requirement `provider set up`, when a registered
+ * provider couldn't be set up: the candidates satisfy it, and each provider
+ * that fails it is named by its id alone, since it was never a candidate.
+ */
+function setUpReasons(
+  tuples: readonly ProviderModelPick[],
+  setupFailures: readonly ProviderSetupFailure[] = [],
+): CapabilityUnsatisfiableError['reasons'] {
+  if (setupFailures.length === 0) return [];
+  return [
+    {
+      requirement: 'provider set up',
+      satisfyingProviders: tuples.map(tupleKey),
+      rejectingProviders: setupFailures.map((f) => ({
+        id: f.providerId,
+        reason: { code: 'provider-setup-failed', message: f.message, providerId: f.providerId },
+      })),
+    },
+  ];
 }
 
 /** Stable tuple identifier — `providerId/modelName`. Used in rejection diagnostics. */
@@ -555,14 +586,33 @@ function buildReason(t: ProviderModelPick, input: RouteInput, fallback: boolean)
 function unsatisfiable(
   reasons: CapabilityUnsatisfiableError['reasons'],
   tenantPolicy: TenantPolicy | undefined,
+  setupFailures: readonly ProviderSetupFailure[] = [],
 ): Result<never, CapabilityUnsatisfiableError> {
   return {
     kind: 'err',
     error: {
       code: 'capability-unsatisfiable',
-      message: 'No registered provider satisfies the capability declaration',
+      message: unsatisfiableMessage(setupFailures),
       reasons,
       ...(tenantPolicy !== undefined && { tenantId: tenantPolicy.tenantId }),
     },
   };
+}
+
+/**
+ * The error's message: the first provider that couldn't be set up says why,
+ * since it may be the only one the tenant registered; the rest are counted
+ * (`reasons` names each).
+ */
+function unsatisfiableMessage(setupFailures: readonly ProviderSetupFailure[]): string {
+  const base = 'No registered provider satisfies the capability declaration';
+  const [first, ...rest] = setupFailures;
+  if (first === undefined) return base;
+  const more =
+    rest.length === 0
+      ? ''
+      : rest.length === 1
+        ? " One more registered provider couldn't be set up either."
+        : ` ${rest.length} more registered providers couldn't be set up either.`;
+  return `${base}. ${first.message}${more}`;
 }

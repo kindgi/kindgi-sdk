@@ -25,8 +25,8 @@
  * that's `kindgi deploy`.
  */
 
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
+import { lstat, mkdir, readFile, readlink, realpath, stat, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import {
   type DiscoveryConfig,
@@ -36,7 +36,9 @@ import {
   resolvePackEnv,
 } from '@kindgi/handler-runtime';
 
+import { hostedApiAddress } from '../api-address.js';
 import { checkAptPackages } from '../build/apt.js';
+import type { ComputedImport } from '../build/computed-imports.js';
 import { PACK_SERVICE_COMMAND } from '../build/containerfile.js';
 import { collectIncludeFiles, readBundleConfig } from '../build/context-files.js';
 import { buildEnvelope, canonicaliseSignatureBody, sha256Hex } from '../build/envelope.js';
@@ -45,15 +47,15 @@ import {
   type SkippedScript,
   devOnlyImports,
   resolveHostInstall,
+  whyDevDependencies,
 } from '../build/host-install.js';
 import {
   BuildServiceRefusal,
-  HOSTED_BUILD,
   describeBuildRefusal,
   hostedBuildEndpoint,
   hostedUploadTooLarge,
 } from '../build/hosted.js';
-import { readImageConfig } from '../build/image-config.js';
+import { type ResolvedImage, readImageConfig } from '../build/image-config.js';
 import { checkIntegrity } from '../build/integrity.js';
 import {
   DEFAULT_JAVA_BUILD_IMAGE_REF,
@@ -104,12 +106,39 @@ export interface EnvironmentConfig {
   readonly signerKeyId?: string;
   readonly tenantId?: string;
   readonly buildTarget?: string;
+  /**
+   * The project this environment is, by id or slug — what `prod` means in
+   * `kindgi environments set prod …`, `kindgi promote`, and the deploy /
+   * secrets env resolution. Resolved to a project id the way
+   * `kindgi deploy --project` resolves one.
+   */
+  readonly project?: string;
 }
 
 export interface PackConfig {
   readonly pack?: { readonly id?: string; readonly version?: string };
   readonly environments?: Readonly<Record<string, EnvironmentConfig>>;
   readonly [k: string]: unknown;
+}
+
+/**
+ * The project (id or slug) a pack config names for an environment, or
+ * `undefined` when the environment — or its `project` — is unset. One place
+ * decides what "the prod project" is, so `kindgi environments set`,
+ * `kindgi promote` and the deploy / secrets env resolution agree. The caller
+ * resolves the returned id-or-slug to a project id the same way
+ * `kindgi deploy --project` does.
+ */
+export function projectOfEnv(
+  config: { readonly environments?: unknown } | undefined,
+  name: string,
+): string | undefined {
+  const environments = config?.environments;
+  if (environments === null || typeof environments !== 'object') return undefined;
+  const block = (environments as Record<string, unknown>)[name];
+  if (block === null || typeof block !== 'object') return undefined;
+  const project = (block as { readonly project?: unknown }).project;
+  return typeof project === 'string' && project !== '' ? project : undefined;
 }
 
 export const DEFAULT_OUT_DIR = '.kindgi/build';
@@ -120,7 +149,9 @@ export const buildCommand: LeafCommand = {
   description:
     'Bundle + build + sign a pack image. Emits deploy-envelope.json for `kindgi deploy`. ' +
     "`--local` builds the image with this machine's Docker instead: no build service, no signing; " +
-    'with `--push`, it pushes the image, signs it, and writes the envelope.',
+    'with `--push`, it pushes the image, signs it, and writes the envelope. ' +
+    "`--hosted` (or the env block's `build: 'hosted'`) builds on Kindgi hosted's build service, at the API's address under `/cloud`, with your API key; the image goes to your workspace's own repository.",
+  hostedRun: { defaultEnv: 'staging', buildServerOption: 'endpoint' },
   usage:
     'kindgi build [--local [--push [<repository>]] [--platform <os/arch>]] [--hosted [--project <id>]] [--target <t>] [--endpoint <url>] [--env <name>] [--out <dir>] ' +
     '[--artifact-version <v>] [--published-at <iso>] [--tenant <id>] [--signing-key <path>] ' +
@@ -141,11 +172,6 @@ export const buildCommand: LeafCommand = {
       type: 'string',
       description:
         "With `--local`: the image's platform. Default: `linux/amd64` when pushing, else this machine's.",
-    },
-    hosted: {
-      type: 'boolean',
-      description:
-        "Build on Kindgi hosted's build service, at the API's address under `/cloud`, with your API key; the image goes to your workspace's own repository. Same as the env block's `build: 'hosted'`.",
     },
     project: {
       type: 'string',
@@ -169,7 +195,7 @@ export const buildCommand: LeafCommand = {
     out: {
       type: 'string',
       description:
-        'Where the build output and `deploy-envelope.json` go. Default: `.kindgi/build` under the pack root.',
+        'Where the build output and `deploy-envelope.json` go (default: `.kindgi/build`). It cannot be the pack root or a directory containing it; for a TypeScript pack it must stay under the pack root.',
     },
     'artifact-version': {
       type: 'string',
@@ -251,7 +277,8 @@ interface ResolvedBuildArgs {
   readonly publishedAt: string;
   readonly tenantId: string;
   readonly signingKeyPath: string | undefined;
-  readonly signerKeyId: string;
+  /** `--signer-key-id`, else the env block's; signing falls back to the key file's name. */
+  readonly signerKeyId: string | undefined;
   readonly skipIntegrityGate: boolean;
   readonly skipImagePull: boolean;
   readonly skipSign: boolean;
@@ -351,13 +378,13 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
   lines(`    ✓ POST /v1/build  →  buildJob: ${posted.buildJobId}`);
 
   let terminal: TerminalPayload;
+  const captured: string[] = [];
   if (posted.terminal !== undefined) {
     // Idempotent replay — server returned the terminal payload inline.
     terminal = posted.terminal;
     lines('    ✓ Existing build (idempotent replay)');
   } else {
     lines('    → Streaming build logs');
-    const captured: string[] = [];
     try {
       terminal = await runners.streamBuildLogs({
         endpoint: args.endpoint,
@@ -396,6 +423,7 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
     );
   }
   lines(`    ✓ Build complete (${terminal.imageRef})`);
+  for (const line of closureSummary(captured)) lines(line);
   lines('');
 
   // ---- 7. Local integrity gate ----------------------------------------
@@ -526,6 +554,7 @@ async function runLocalBuild(
   lines('');
 
   lines(`  Building ${tag}`);
+  const buildLog: string[] = [];
   const built = await runners.dockerBuild({
     contextDir: context.contextDir,
     tag,
@@ -533,10 +562,14 @@ async function runLocalBuild(
     ...(args.platform !== undefined && { platform: args.platform }),
     ...(pushTo !== undefined && { push: true }),
     secrets: context.secrets.map(({ id, src }) => ({ id, src })),
-    onLog: (line) => lines(`        ${line}`),
+    onLog: (line) => {
+      buildLog.push(line);
+      lines(`        ${line}`);
+    },
   });
   if (built.kind === 'err')
     return withBanner(failure(`Image build failed: ${built.message}\n`), banner);
+  for (const line of closureSummary(buildLog)) lines(line);
   if (pushTo !== undefined && built.digest === undefined) {
     return withBanner(failure(`The push of ${tag} reported no digest.\n`), banner);
   }
@@ -671,10 +704,7 @@ async function signAndWriteEnvelope(
     lines('  ⚠ Signing SKIPPED — --skip-sign. Emitted envelope is unsigned; deploy will refuse');
     lines('    it. Use only for CI that signs elsewhere.');
   } else if (args.signingKeyPath === undefined) {
-    return failure(
-      'Signing key not configured. Set environments.<env>.signingKey in kindgi.config.ts, ' +
-        'pass --signing-key <path>, or use --skip-sign to emit an unsigned envelope.\n',
-    );
+    return failure(noSigningKey(undefined));
   } else {
     const privateKeyPem = await readFile(args.signingKeyPath, 'utf8');
     const message = canonicaliseSignatureBody({
@@ -685,12 +715,12 @@ async function signAndWriteEnvelope(
       publishedAt: args.publishedAt,
     });
     const signed = await runners.signEnvelope({ privateKeyPem, message });
-    signature = { ...signed, keyId: args.signerKeyId };
+    signature = { ...signed, keyId: args.signerKeyId ?? basenameNoExt(args.signingKeyPath) };
     lines('  Signing locally');
     lines(
       '    ✓ Ed25519 signature over (imageDigest, artifactVersion, indexHash, tenantId, publishedAt)',
     );
-    lines(`      key: ${args.signerKeyId}`);
+    lines(`      key: ${signature.keyId}`);
   }
 
   const envelope = buildEnvelope({
@@ -869,6 +899,7 @@ async function prepareNodeContext(
     discoveryPatterns: discoveryPatternsOf(args.config),
     configPath: configFile.path,
     nodeMajor: base.image.major,
+    dependencies: image.dependencies,
   });
   lines(
     `    ✓ ${Object.keys(bundle.bundleMap).length} pack modules, the config, and the framework entrypoints (kindgi-index + the pack service)`,
@@ -882,6 +913,23 @@ async function prepareNodeContext(
     return failure(
       `The pack imports ${devOnly.join(', ')}, which ${manifest} lists only in devDependencies. The image keeps production dependencies only, so ${one ? 'it' : 'they'} wouldn't load there: move ${one ? 'it' : 'them'} to dependencies.\n`,
     );
+  }
+  const dependencies = dependenciesStep(image, bundle.computedImports, args.packDir);
+  if (dependencies.kind === 'refuse') return failure(dependencies.message);
+  lines(dependencies.lines.join('\n'));
+  // Only what the pack loads: the install cut down to it, or the full one trimmed after, and why.
+  let imageInstall = install;
+  let trimmedBecause: string | undefined;
+  if (image.dependencies === 'loaded') {
+    const loaded = await runners.loadedInstall({
+      install,
+      packDir: args.packDir,
+      externals: bundle.externals,
+      image,
+    });
+    if (loaded.kind === 'err') return failure(`${loaded.message}\n`);
+    if (loaded.kind === 'fallback') trimmedBecause = loaded.reason;
+    else imageInstall = loaded.install;
   }
 
   // ---- 2. Local indexer over the bundles ----------------------------------
@@ -918,7 +966,7 @@ async function prepareNodeContext(
     publishedAt: args.publishedAt,
     baseImageRef: base.image.ref,
     buildTarget: args.buildTarget,
-    install,
+    install: imageInstall,
     image,
     hasIncludes: includeFiles.files.length > 0,
   });
@@ -926,20 +974,21 @@ async function prepareNodeContext(
   await runners.writeContext({
     contextDir,
     packDir: args.packDir,
-    install,
+    install: imageInstall,
     bundleDir,
     containerfilePath,
     includes: includeFiles.files,
     extensionFiles: image.contextFiles,
   });
   lines(
-    `    ✓ Context: ${install.files.length} install file(s), the bundles${includeFiles.files.length > 0 ? `, ${includeFiles.files.length} bundle.include file(s)` : ''}; no pack source`,
+    `    ✓ Context: ${imageInstall.files.length} install file(s), the bundles${includeFiles.files.length > 0 ? `, ${includeFiles.files.length} bundle.include file(s)` : ''}; no pack source`,
   );
   if (install.secrets.length > 0) {
     lines(
       `    ✓ ${install.secrets.map((s) => s.file).join(', ')}: read by the install as a build secret, never in the image`,
     );
   }
+  lines(installLine(imageInstall, image.steps, trimmedBecause));
   for (const line of skippedScriptLines(install.skippedScripts)) lines(line);
   const secrets = install.secrets.map((secret) => ({
     id: secret.id,
@@ -947,6 +996,33 @@ async function prepareNodeContext(
     file: secret.file,
   }));
   return { kind: 'ok', contextDir, counts: localIndex.counts, secrets };
+}
+
+/**
+ * The image's install: production dependencies only, or dev ones too, and
+ * why. With `image.dependencies: 'loaded'`: only what the pack loads, or the
+ * full install trimmed after, and why (`trimmedBecause`).
+ */
+export function installLine(
+  install: Pick<HostInstall, 'manager' | 'yarnBerry' | 'reduced'>,
+  steps: ResolvedImage['steps'],
+  trimmedBecause?: string,
+): string {
+  const why = whyDevDependencies(install, steps);
+  const what =
+    why === undefined
+      ? 'production dependencies only'
+      : `dev dependencies too, ${why}; pruned to production after`;
+  if (install.reduced !== undefined) {
+    const { kept, total, leftOut } = install.reduced;
+    const line = `    ✓ Install: only what the pack loads, ${kept} of the lockfile's ${total} packages; ${what}`;
+    return leftOut.length === 0
+      ? line
+      : `${line}\n      Left out ${leftOut.length} of the pack's own dependencies its tools don't import: ${leftOut.join(', ')}`;
+  }
+  return trimmedBecause === undefined
+    ? `    ✓ Install: ${what}`
+    : `    ✓ Install: ${what}, then trimmed to what the pack loads\n      It downloads the app's whole install first, since ${trimmedBecause}.`;
 }
 
 /**
@@ -1053,6 +1129,8 @@ async function preparePythonContext(
     '[tool.kindgi.image] system-packages',
   );
   if (system.kind === 'err') return failure(`kindgi build: ${system.message}\n`);
+  const trimming = pythonTrimmingRefusal(image);
+  if (trimming !== undefined) return failure(`kindgi build: ${trimming}\n`);
   const containerfilePath = join(args.outDir, 'Containerfile');
   await python.writeContainerfile({
     outputPath: containerfilePath,
@@ -1190,6 +1268,53 @@ async function prepareJvmContext(
   return { kind: 'ok', contextDir, counts: localIndex.counts, secrets: [] };
 }
 
+// Resolve a path to its real location, following symlinks, even when the
+// path (or a leaf of it) does not exist yet: realpath the deepest existing
+// ancestor, then re-append the missing tail. A final dangling symlink (the
+// link exists, its target does not) is followed via readlink, so an in-pack
+// symlink that points outside the pack is caught here, not mistaken for a
+// plain in-pack path (nor surfaced later as an opaque ENOENT). Used so an
+// in-pack symlink can't point the build output outside the pack root.
+async function realpathUnderExisting(target: string, depth = 0): Promise<string> {
+  const abs = resolve(target);
+  try {
+    return await realpath(abs);
+  } catch (error) {
+    if ((error as { code?: string }).code !== 'ENOENT') return abs;
+  }
+  // `abs` is a dangling symlink, or it (or an ancestor) does not exist yet. A
+  // dangling symlink still has a target to follow; cap the chain so a cyclic
+  // one can't loop forever.
+  if (depth < 40) {
+    try {
+      if ((await lstat(abs)).isSymbolicLink()) {
+        return await realpathUnderExisting(resolve(dirname(abs), await readlink(abs)), depth + 1);
+      }
+    } catch {
+      // Not a symlink, or unreadable — fall through to the ancestor walk.
+    }
+  }
+  return realpathDeepestAncestor(abs);
+}
+
+// Walk up to the deepest existing ancestor, realpath it (following symlinks
+// in the ancestors), then re-append the missing tail lexically.
+async function realpathDeepestAncestor(abs: string): Promise<string> {
+  let existing = dirname(abs);
+  const missing: string[] = [basename(abs)];
+  for (;;) {
+    try {
+      return resolve(await realpath(existing), ...missing);
+    } catch (error) {
+      if ((error as { code?: string }).code !== 'ENOENT') return abs;
+      const parent = dirname(existing);
+      if (parent === existing) return abs;
+      missing.unshift(basename(existing));
+      existing = parent;
+    }
+  }
+}
+
 async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   // --path — pack root; auto-detects repo root separately so augment-
   // mode packs (kindgi.config.ts under <repo>/kindgi/, package.json at
@@ -1236,14 +1361,13 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       ? targetFlag
       : (envBlock?.buildTarget ?? envName);
 
-  // --hosted, or the env block's `build: 'hosted'`: the hosted build
-  // service at the API's address, which takes the API key.
+  // --hosted, or the env block's `build: 'hosted'` without --endpoint
+  // (main.ts, `hostedRun`): the hosted build service at the API's
+  // address, which takes the API key.
   const endpointFlag = ctx.options.endpoint;
   const explicitEndpoint =
     typeof endpointFlag === 'string' && endpointFlag !== '' ? endpointFlag : undefined;
-  const hosted =
-    ctx.options.hosted === true ||
-    (explicitEndpoint === undefined && envBlock?.build === HOSTED_BUILD);
+  const hosted = ctx.hosted;
   const projectFlag = ctx.options.project;
   const projectId = typeof projectFlag === 'string' && projectFlag !== '' ? projectFlag : undefined;
   const credsFlag = ctx.options['registry-push-creds'];
@@ -1266,17 +1390,16 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
     if (clash !== undefined) {
       return failure(`--hosted builds on the hosted build service, and ${clash}: leave one out.\n`);
     }
-    // The API: `--url` > the env block's `endpoint` > KINDGI_API_URL or `kindgi auth login`'s.
-    const apiUrl =
-      ctx.config.source.apiUrl === 'flag'
-        ? ctx.config.apiUrl
-        : (envBlock?.endpoint ?? ctx.config.apiUrl);
-    if (apiUrl === undefined || apiUrl === '') {
-      return failure(
-        `kindgi build --hosted builds at the API's address, and none is set. Set environments.${envName}.endpoint in kindgi.config.ts, run \`kindgi auth login --url <url>\`, or export KINDGI_API_URL.\n`,
-      );
-    }
-    const token = ctx.config.token;
+    // The API: the CLI's own address (`--url`, KINDGI_API_URL or the
+    // stored one, never a local runtime's .kindgirc.json), the one the
+    // key is for. The env block's `endpoint` may only repeat it
+    // (api-address.ts).
+    const address = hostedApiAddress('kindgi build --hosted', ctx.config, [
+      { url: envBlock?.endpoint, where: `environments.${envName}.endpoint` },
+    ]);
+    if (address.kind === 'refused') return failure(`${address.message}\n`);
+    const apiUrl = address.url;
+    const token = address.config.token;
     if (token === undefined || token === '') {
       return failure(
         'kindgi build --hosted sends your API key to the build service, and none is set. ' +
@@ -1300,6 +1423,51 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   const outFlag = ctx.options.out;
   const outDirRaw = typeof outFlag === 'string' && outFlag !== '' ? outFlag : DEFAULT_OUT_DIR;
   const outDir = isAbsolute(outDirRaw) ? outDirRaw : resolve(packDir, outDirRaw);
+
+  // The build writes its output — `dist/`, the Containerfile, `context/`
+  // (and `<language>/` for a JVM pack) — under --out. Rules constrain it,
+  // all following symlinks (realpath) so an in-pack symlink can't slip past.
+  // Mirrors the local-dependency refusal in build/host-install.ts.
+  const realPackDir = await realpathUnderExisting(packDir);
+  const realOutDir = await realpathUnderExisting(outDir);
+  // 1. In any language, --out must not BE the pack root: the build would
+  //    write its dist/, Containerfile and context/ over the pack's own files.
+  if (realOutDir === realPackDir) {
+    return failure(
+      `--out ${outDirRaw} is the pack root ${realPackDir}: the build writes dist/, the Containerfile and context/ there, over the pack's own files. Use a subdirectory (default: ${DEFAULT_OUT_DIR}).\n`,
+    );
+  }
+  // 1b. Nor may --out CONTAIN the pack root (an ancestor directory): the
+  //     build would write dist/, the Containerfile and context/ beside the
+  //     pack, over a sibling of the same name — or, when the pack is itself
+  //     named like one of them, over the pack. Same hazard as (1), any
+  //     language. (A TypeScript pack with such an --out is also outside-root,
+  //     caught by (2); this gives every language the clearer reason.)
+  const packRel = relative(realOutDir, realPackDir);
+  if (packRel !== '..' && !packRel.startsWith(`..${sep}`) && !isAbsolute(packRel)) {
+    return failure(
+      `--out ${outDirRaw} resolves to ${realOutDir}, which contains the pack root ${realPackDir}: the build writes dist/, the Containerfile and context/ there, beside the pack — over a sibling of the same name, or the pack itself. Use a path inside the pack (default: ${DEFAULT_OUT_DIR}).\n`,
+    );
+  }
+  // 2. A TypeScript pack's --out must stay UNDER the pack root. Its local
+  //    indexer runs `node <out>/dist/kindgi-index.mjs`, whose bundle keeps
+  //    the pack's dependencies (zod, @kindgi/*) as bare externals that Node
+  //    resolves by walking up from <out>/dist into the pack's node_modules —
+  //    only reachable under the pack root. A Python or JVM pack's indexer
+  //    takes the pack dir and an explicit output path and never walks up from
+  //    <out>, so its output may sit anywhere; only this walk-up is bound to
+  //    the pack root.
+  // 'node' is the one pack language whose indexer walks up from <out>/dist;
+  // naming it positively stays correct if another language is added later.
+  const isTypeScriptPack = language === 'node';
+  if (isTypeScriptPack) {
+    const outRel = relative(realPackDir, realOutDir);
+    if (outRel === '..' || outRel.startsWith(`..${sep}`) || isAbsolute(outRel)) {
+      return failure(
+        `--out ${outDirRaw} resolves to ${realOutDir}, outside the pack root ${realPackDir}: a TypeScript pack's build indexes from <out>/dist and resolves the pack's dependencies by walking up into its node_modules, which only works under the pack root. Use a path inside the pack (default: ${DEFAULT_OUT_DIR}).\n`,
+      );
+    }
+  }
 
   // --artifact-version and --published-at: pinned, else the build time.
   const defaults = buildTimeDefaults(new Date());
@@ -1364,14 +1532,11 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       ? expandHome(signingKeyRaw, ctx.home)
       : undefined;
 
-  // --signer-key-id — derive from key filename basename if not
-  // explicitly configured.
+  // --signer-key-id — flag > env block; signing falls back to the key
+  // file's name. With no key there's no signature to name a key.
   const keyIdFlag = ctx.options['signer-key-id'];
   const signerKeyId =
-    typeof keyIdFlag === 'string' && keyIdFlag !== ''
-      ? keyIdFlag
-      : (envBlock?.signerKeyId ??
-        (signingKeyPath !== undefined ? basenameNoExt(signingKeyPath) : `${envName}-signer`));
+    typeof keyIdFlag === 'string' && keyIdFlag !== '' ? keyIdFlag : envBlock?.signerKeyId;
 
   // --push — the repository: the flag's, else the env block's registry
   // plus the pack id.
@@ -1398,6 +1563,24 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       : push !== undefined
         ? 'linux/amd64'
         : undefined;
+
+  // A build that signs (the build server's, or --local --push) needs its
+  // key before anything is built or sent; the other settings are checked
+  // first.
+  if (!skipSign && (!local || push !== undefined)) {
+    const keyRefusal = await signingKeyRefusal(
+      signingKeyPath,
+      typeof signKeyFlag === 'string' && signKeyFlag !== ''
+        ? '--signing-key'
+        : `environments.${envName}.signingKey`,
+      // The block the key goes in, when one is picked (with no --env and
+      // no `staging` block, the hint doesn't send you to make one).
+      envBlock !== undefined || (typeof envFlag === 'string' && envFlag !== '')
+        ? envName
+        : undefined,
+    );
+    if (keyRefusal !== undefined) return failure(keyRefusal);
+  }
 
   return {
     kind: 'ok',
@@ -1428,6 +1611,41 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       config,
     },
   };
+}
+
+/**
+ * Why a build can't sign, before it starts: no key set, or a key file
+ * that isn't there or isn't a file. `undefined` when the key is there to
+ * read. `envName` is the env block the key goes in, when one is picked.
+ */
+async function signingKeyRefusal(
+  keyPath: string | undefined,
+  from: string,
+  envName: string | undefined,
+): Promise<string | undefined> {
+  if (keyPath === undefined) return noSigningKey(envName);
+  try {
+    if ((await stat(keyPath)).isFile()) return undefined;
+    return `The signing key ${keyPath} (${from}) isn't a file. Name the key's .pem file, as \`kindgi key create <id>\` writes it: ~/.kindgi/keys/<id>.pem.\n`;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    return `The signing key ${keyPath} (${from}) isn't there. ${MAKE_A_KEY} Then ${nameTheKey(envName)}.\n`;
+  }
+}
+
+/** How a signing key comes to be, and to be trusted. */
+const MAKE_A_KEY =
+  "Make a key with `kindgi key create <id>`, and add it to the runtime's trust list with `kindgi key trust <id>` (once).";
+
+function noSigningKey(envName: string | undefined): string {
+  return `No signing key is set. ${MAKE_A_KEY} Then ${nameTheKey(envName)}. (--skip-sign emits an unsigned envelope, which kindgi deploy refuses.)\n`;
+}
+
+/** Where a build finds its key: the picked env block's `signingKey`, or --signing-key. */
+function nameTheKey(envName: string | undefined): string {
+  return envName !== undefined
+    ? `set environments.${envName}.signingKey to ~/.kindgi/keys/<id>.pem in kindgi.config.ts, or pass --signing-key ~/.kindgi/keys/<id>.pem`
+    : 'pass --signing-key ~/.kindgi/keys/<id>.pem, or set signingKey in an env block of kindgi.config.ts and pick that block with --env=<name> (with no --env, the block is `staging`)';
 }
 
 async function loadBuildConfig(
@@ -1539,4 +1757,88 @@ function printIndexWarnings(
   lines: (s: string) => void,
 ): void {
   for (const w of result.warnings ?? []) lines(`    ⚠ ${w.message}`);
+}
+
+/** The image's dependencies, as the build says them (`image.dependencies`). */
+function renderDependenciesMode(image: ResolvedImage): string {
+  if (image.dependencies === 'all') {
+    return "    ✓ Dependencies: all of the app's production dependencies (image.dependencies: 'loaded' keeps only what the pack loads)";
+  }
+  const kept = [...image.keep, ...image.keepIfInstalled];
+  return `    ✓ Dependencies: only what the pack loads (image.dependencies: 'loaded')${kept.length > 0 ? `, and ${kept.join(', ')}` : ''}`;
+}
+
+/** The image's dependencies, said, and with `'loaded'` the computed-import check. */
+function dependenciesStep(
+  image: ResolvedImage,
+  computed: readonly ComputedImport[] | undefined,
+  packDir: string,
+):
+  | { readonly kind: 'refuse'; readonly message: string }
+  | { readonly kind: 'ok'; readonly lines: readonly string[] } {
+  const mode = renderDependenciesMode(image);
+  if (image.dependencies === 'all') return { kind: 'ok', lines: [mode] };
+  const check = computedImportsCheck(computed ?? [], image.keep, packDir);
+  return check.kind === 'refuse' ? check : { kind: 'ok', lines: [mode, ...check.lines] };
+}
+
+/**
+ * With `'loaded'`: a computed `require(x)` / `import(x)` in the pack's
+ * own code loads a package the closure can't see. With no `image.keep`,
+ * the build refuses, naming each call; with one, it names them as a
+ * reminder that `keep` must cover what they load.
+ */
+export function computedImportsCheck(
+  computed: readonly ComputedImport[],
+  keep: readonly string[],
+  packDir: string,
+):
+  | { readonly kind: 'refuse'; readonly message: string }
+  | { readonly kind: 'ok'; readonly lines: readonly string[] } {
+  if (computed.length === 0) return { kind: 'ok', lines: [] };
+  const sites = computed.map((c) => `  ${relative(packDir, c.file)}:${c.line}  ${c.text}`);
+  if (keep.length === 0) {
+    return {
+      kind: 'refuse',
+      message: `The pack's code loads a module by a computed name, and the image keeps only the packages the pack imports by name (image.dependencies: 'loaded'):\n${sites.join('\n')}\nName the packages these load in image.keep, or set image.dependencies: 'all'.\n`,
+    };
+  }
+  return {
+    kind: 'ok',
+    lines: [
+      `    ⚠ Loaded by a computed name; image.keep (${keep.join(', ')}) must cover what these load:`,
+      ...sites.map((s) => `    ${s}`),
+    ],
+  };
+}
+
+/**
+ * A Python pack's `[tool.kindgi.image]` can't ask for an image that keeps
+ * only what the pack loads yet: refused, never silently ignored.
+ */
+export function pythonTrimmingRefusal(image: unknown): string | undefined {
+  if (image === null || typeof image !== 'object') return undefined;
+  const table = image as Record<string, unknown>;
+  const dependencies = table.dependencies;
+  if (dependencies !== undefined && dependencies !== 'all' && dependencies !== 'loaded') {
+    return `[tool.kindgi.image] dependencies is "loaded" or "all". Got ${JSON.stringify(dependencies)}.`;
+  }
+  if (dependencies === 'loaded' || table.keep !== undefined) {
+    return `[tool.kindgi.image] ${dependencies === 'loaded' ? 'dependencies = "loaded"' : 'keep'} isn't available for Python packs yet: a Python pack's image keeps every dependency in its lockfile. Remove it, or set dependencies = "all".`;
+  }
+  return undefined;
+}
+
+/**
+ * The closure's own lines in a build log (`kindgi-closure: …`), as the
+ * summary prints them: what it kept of what's installed, and which of
+ * the pack's own dependencies it dropped.
+ */
+export function closureSummary(logLines: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const line of logLines) {
+    const match = /kindgi-closure: ((?:kept|dropped) .*)$/.exec(line);
+    if (match?.[1] !== undefined) out.push(`    ✓ Dependencies: ${match[1]}`);
+  }
+  return out;
 }

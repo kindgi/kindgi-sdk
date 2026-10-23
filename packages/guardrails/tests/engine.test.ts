@@ -602,6 +602,21 @@ describe('evaluateGuardrail — llm-judge under the tenant policy', () => {
     expect(calls).toEqual([]);
   });
 
+  test("names a registered provider the registry couldn't set up", async () => {
+    const message = `Provider "eu-judge" can't be set up on this runtime.`;
+    const { registry } = createProviderRegistry([]);
+    const outcome = await evaluateGuardrail(judgeGuardrail(), judgeRegistry(), baseTrace(), {
+      providerRegistry: { ...registry, setupFailures: () => [{ providerId: 'eu-judge', message }] },
+    });
+    if (outcome.kind !== 'err' || outcome.error.code !== 'judge-routing-failed') {
+      throw new Error(JSON.stringify(outcome));
+    }
+    // The guardrail's error keeps the judge's code and message (not its cause), so the message says why.
+    expect(outcome.error.message).toBe(
+      `Judge routing failed: No registered provider satisfies the capability declaration. ${message}`,
+    );
+  });
+
   test('an explicit judgeProvider outside the policy is refused', async () => {
     const calls: string[] = [];
     const outcome = await evaluateGuardrail(judgeGuardrail(), judgeRegistry(), baseTrace(), {

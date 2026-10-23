@@ -85,4 +85,14 @@ describe('kindgi runs journal', () => {
     expect((await run('runs', 'journal', RUN_ID, '--since=1', '--table')).exitCode).toBe(0);
     expect(seen).toEqual([{ runId: RUN_ID, filter: { since: '1' } }]);
   });
+
+  test('--limit and --cursor reach the client; a --limit that is not a number is refused', async () => {
+    const out = await run('runs', 'journal', RUN_ID, '--limit=50', '--cursor=c-1');
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(seen).toEqual([{ runId: RUN_ID, filter: { limit: 50, cursor: 'c-1' } }]);
+    const bad = await run('runs', 'journal', RUN_ID, '--limit=many');
+    expect(bad.exitCode).toBe(2);
+    expect(bad.stderr).toContain('--limit must be an integer');
+    expect(seen).toHaveLength(1);
+  });
 });

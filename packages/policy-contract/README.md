@@ -10,7 +10,7 @@ Keep storing policies separate from enforcing them. The registry is a versioned,
 
 - **`PolicyRegistryBinding`** — versioned CRUD with the same shape as the agent and flow registries; opaque cursors.
   - `list(input)` — latest version per policy id, sorted by id; optional `policyKind` (exact) and `nameFilter` (prefix on id).
-  - `get(input)` / `getVersion(input)` — latest active version, or one specific version including tombstoned ones; `null` when unknown.
+  - `get(input)` / `getVersion(input)` — latest active version, or one specific version including tombstoned ones (a `PolicyVersionRow`: a tombstoned one carries `unregisteredAt`); `null` when unknown or purged by retention.
   - `headExists(input)` — whether the id exists at all, so callers can tell a retired policy (no active version) from an unknown one.
   - `listVersions(input)` — versions of one id; active only unless `includeTombstoned: true`, in which case tombstoned rows carry `unregisteredAt`.
   - `publish(input)` — `ok`, or `already-registered` when the same `(policyId, version)` is published again.

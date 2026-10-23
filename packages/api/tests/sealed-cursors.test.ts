@@ -101,7 +101,14 @@ describe('sealed page cursors', () => {
   test('one tampered with is refused; a plain one still passes, as it is', async () => {
     const { get, cursors } = harness();
     const sealed = (await get('/v1/agents')).body.nextCursor as string;
-    const tampered = `${sealed.slice(0, -2)}${sealed.endsWith('A') ? 'B' : 'A'}A`;
+    // Flip a bit of the sealed bytes (`k1.<kid>.<nonce>.<body>`), not of the
+    // text: two base64url texts can decode to the same bytes.
+    const parts = sealed.split('.');
+    expect(parts).toHaveLength(4);
+    const body = Buffer.from(parts[3] as string, 'base64url');
+    body[0] = (body[0] as number) ^ 1;
+    const tampered = [...parts.slice(0, 3), body.toString('base64url')].join('.');
+    expect(tampered).not.toBe(sealed);
     expect((await get(`/v1/agents?cursor=${encodeURIComponent(tampered)}`)).status).toBe(400);
     const plain = await get(`/v1/agents?cursor=${POSITION}`);
     expect(plain.status).toBe(200);

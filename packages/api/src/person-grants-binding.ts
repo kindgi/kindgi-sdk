@@ -58,6 +58,8 @@ export type PersonGrantErrorCode =
   | 'last-tenant-admin'
   /** Removing tenant admin from the seed user, whom the runtime grants it at every boot. */
   | 'seed-user-admin'
+  /** A person a site signs in: they hold only the grants their site's sign-in writes. */
+  | 'site-person-grants-managed'
   /** The runtime has no authorization store to write grants to. */
   | 'person-grants-unsupported';
 

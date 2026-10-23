@@ -250,6 +250,23 @@ describe('kindgi init --template=woocommerce', () => {
     const reviewer = await readFile(join(root, 'agents/order-reviewer/index.ts'), 'utf8');
     expect(reviewer).toContain('{{ input.order.orderNumber }}');
   });
+
+  test('the tools that move money or change the store wait for a person when no person started the run', async () => {
+    const out = await runCli(baseInputs({ argv: ['init', 'acme-shop', '--template=woocommerce'] }));
+    expect(out.exitCode).toBe(0);
+    const root = join(cwd, 'acme-shop');
+    const declares = async (tool: string) =>
+      /^\s*needsApprovalWhenUnattended: true,$/m.test(
+        await readFile(join(root, `tools/${tool}/index.ts`), 'utf8'),
+      );
+    for (const tool of ['refund', 'refund-large', 'set-price', 'publish-product']) {
+      expect(await declares(tool), tool).toBe(true);
+    }
+    // The read-only ones don't: a webhook's run looks orders up unasked.
+    for (const tool of ['find-orders', 'check-order-event']) {
+      expect(await declares(tool), tool).toBe(false);
+    }
+  });
 });
 
 describe('kindgi init --template=drupal', () => {
@@ -753,8 +770,10 @@ describe('kindgi init — scala template', () => {
     expect(out.stderr).toMatch(/\(cd .*sdks\/scala && sbt \+publishLocal\)/);
     expect(out.stderr).toContain('sbt test');
     expect(out.stderr).toContain('./kindgiw dev');
-    // ... and the build reads the local Maven repository, where kindgi-pack went.
-    expect(build).toContain('    resolvers += Resolver.mavenLocal,\n');
+    // ... and the build reads the local Maven repository, where kindgi-pack went, before Central.
+    expect(build).toContain(
+      '    externalResolvers := Resolver.mavenLocal +: externalResolvers.value,\n',
+    );
     expect(out.stderr).toContain(
       `✓ Scala pack scaffolded at ${join(cwd, 'type')}/ (preview)\n  ${JVM_PREVIEW}`,
     );

@@ -17,7 +17,7 @@
 # the URL says sslmode=require, which encrypts and checks no certificate,
 # and the private IP isn't in the server certificate, so the server checks
 # its certificate against the instance's own CAs (KINDGI_DATABASE_SERVER_CA,
-# read from runtime 0.1.8.2 on): the chain and the dates, not the name.
+# read from runtime 0.2.0 on): the chain and the dates, not the name.
 # That's enough with the per-instance CA the instance gets by default,
 # which signs this one instance's certificate alone.
 
@@ -30,6 +30,7 @@ locals {
 }
 
 resource "google_sql_database_instance" "kindgi" {
+  count               = var.database_host_instance == null ? 1 : 0
   name                = var.name_prefix
   region              = var.region
   database_version    = var.database_version
@@ -55,6 +56,13 @@ resource "google_sql_database_instance" "kindgi" {
     database_flags {
       name  = "cloudsql.iam_authentication"
       value = "on"
+    }
+
+    # A backstop for every session on the instance; the server's own
+    # connections set a shorter one of their own.
+    database_flags {
+      name  = "idle_in_transaction_session_timeout"
+      value = tostring(var.database_idle_in_transaction_timeout_ms)
     }
   }
 }
@@ -90,9 +98,41 @@ data "google_sql_database_instance" "served" {
   }
 }
 
+# Kindgi's database and user live on this existing instance when
+# database_host_instance is set (the module makes no instance of its own):
+# read, never managed here.
+data "google_sql_database_instance" "host" {
+  count = var.database_host_instance == null ? 0 : 1
+  name  = var.database_host_instance
+
+  lifecycle {
+    # Public IP: the server reaches it through Cloud Run's /cloudsql volume.
+    postcondition {
+      condition     = try(self.settings[0].ip_configuration[0].ipv4_enabled, false)
+      error_message = "database_host_instance names ${self.name}, which has no public IP: the server reaches its instance through the /cloudsql volume, which needs one."
+    }
+    # Postgres 16 or later keeps Kindgi's and the app's databases apart by
+    # their role rules: before 16, CREATEROLE — which Kindgi's user needs —
+    # could grant itself any other user's role.
+    postcondition {
+      condition     = can(regex("^POSTGRES_(1[6-9]|[2-9][0-9])$", self.database_version))
+      error_message = "database_host_instance names ${self.name}, which runs ${self.database_version}: Kindgi shares an instance only with Postgres 16 or later, whose role rules keep the databases apart."
+    }
+  }
+}
+
 resource "google_sql_database" "kindgi" {
-  name     = var.database_name
-  instance = google_sql_database_instance.kindgi.name
+  name = var.database_name
+  # A host's name from its read, not from the variable: README's first apply
+  # targets this database, so the host is read in that apply too. Its checks
+  # run there, and sql_connection_name is in the state for step 3.
+  instance = var.database_host_instance != null ? data.google_sql_database_instance.host[0].name : google_sql_database_instance.kindgi[0].name
+
+  # With a host instance the database lives on the app's own instance, so a
+  # destroy or a database_name change must not drop it unless the operator
+  # turned deletion protection off. Without a host it's the module's own
+  # instance, deleted with it (DELETE, the provider default).
+  deletion_policy = var.database_host_instance != null && var.database_deletion_protection ? "ABANDON" : "DELETE"
 }
 
 # The database user and its password are created by the operator (README,

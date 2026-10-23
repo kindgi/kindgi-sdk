@@ -14,7 +14,7 @@ description: >
   kindgi-python-authoring-agents; models by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.8"
+version: "0.1.9"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -54,7 +54,7 @@ primitive; `test_*.py`, `*_test.py` and `conftest.py` are skipped.
 ## Scaffold a new pack
 
 ```sh
-uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=python
+uvx --from "kindgi-cli>=0.2,<0.3" kindgi init my-pack --template=python
 cd my-pack
 uv sync            # .venv with the kindgi package and the kindgi CLI
 uv run pytest
@@ -77,7 +77,7 @@ and don't stop theirs.
 In the app's directory (where its `pyproject.toml` is):
 
 ```sh
-uv add --dev "kindgi-cli>=0.1,<0.2"   # the CLI (Poetry: poetry add --group dev …)
+uv add --dev "kindgi-cli>=0.2,<0.3"   # the CLI (Poetry: poetry add --group dev …)
 uv run kindgi init     # --pack-id=<id> if the app's name doesn't make one
 uv sync                # or what it prints for Poetry / pip
 uv run kindgi dev
@@ -151,6 +151,10 @@ worktree and after `--reset`, declare it in `pyproject.toml` instead:
 [[tool.kindgi.providers]]
 preset = "anthropic"   # its key, ANTHROPIC_API_KEY, from the env files
 ```
+
+Commit it: it holds the key's name, never the key, and it's how a
+teammate's `kindgi dev`, or another worktree's, gets the same provider.
+Restart `kindgi dev` after adding it: the config isn't watched.
 
 Details and other providers: `kindgi-authoring-providers`.
 

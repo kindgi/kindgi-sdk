@@ -67,7 +67,11 @@
         "service-account-unregistered",
         "person-added",
         "person-granted",
-        "person-ungranted"
+        "person-ungranted",
+        "trigger-owner-set",
+        "trigger-tools-allowed-unattended-set",
+        "environment-order-set",
+        "deployment-promoted"
       ]
     },
     "timestamp": {

@@ -1,6 +1,6 @@
 [project]
 name = "kindgi-cli"
-version = "0.1.7"
+version = "0.1.10"
 description = "The Kindgi CLI for Python developers: kindgi dev, init, build and deploy, with no Node install."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -18,6 +18,7 @@ dependencies = ["nodejs-wheel-binaries>=22.12"]
 Homepage = "https://kindgi.com"
 Documentation = "https://docs.kindgi.com"
 Source = "https://github.com/kindgi/kindgi-sdk"
+Changelog = "https://github.com/kindgi/kindgi-sdk/blob/main/sdks/python/CHANGELOG.md"
 
 [project.scripts]
 kindgi = "kindgi_cli.__main__:main"

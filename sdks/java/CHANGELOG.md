@@ -7,6 +7,45 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-pack`, `kindgi-pack-scala`: **a tool can be an HTTP request, declared as data.** `Tool.define(...).http(spec)` (Scala: `.http(spec)`) finishes a tool with an `HttpToolSpec` — method, URL template, headers, authorization by secret reference, request body and success-status range — in place of a handler. The Kindgi runtime makes the request; calling the tool in the JVM throws. `{placeholders}` in the URL's path and query, and in a text body, are filled from the input's fields, never from the host. The same declarative form as the TypeScript `kind: 'http'` tool spec and Python's `http_tool`.
+- `kindgi-client`: **the SSO handoff message, for a JVM app that sets up sign-in.** `SsoHandoff.forProvider(urls, preset, version)` builds what an admin sends whoever runs their identity provider — the OIDC or SAML URLs and what to send back, a preset's console steps (`IdentityProviderPreset`: Google, Entra, Okta, Keycloak) and the guide's link (`DocsLinks.docsUrl`). The same text the CLI's `kindgi sso providers start` and the console show. No network and no dependencies, so an app that shows its own setup screen can use it on its own.
+- `kindgi-client`: **`SignedExports.verify` checks a signed export** (an approval's audit bundle, a run's provenance, compliance evidence) — its `ed25519` or `ecdsa-p256-sha256` signature over the exact bytes shipped, and, when you pass the keys you trust, that the signing key is one of them. It returns a `SignedExportVerification`, with the signed body when it checks out, and never throws for an export that doesn't verify. The Java counterpart of `verifySignedExport` in the TypeScript client and `verify_signed_export` in Python; it checks with the JDK's own crypto, so there's nothing extra to install.
+- `kindgi-client`: **a comparison eval run's result, typed.** `Comparisons.comparisonOf(run)` reads a `judged` `EvalRun`'s open `result` as the OpenAPI `JudgedComparisonResult` — its summary and each case — and is empty for another kind of run, a dry run, or one that hasn't finished. The same reading as the TypeScript `comparisonOf` and Python `comparison_of`.
+- `kindgi-client`: **verify the webhooks Kindgi sends, or sign them.** `Webhooks.verify(secret, headers, body)` checks a Standard Webhooks `v1` signature — HMAC-SHA256, a constant-time compare, a 300-second timestamp tolerance, and a message signed by several secrets during a rotation (any signature that matches yours passes) — and returns the `VerifiedWebhook`, or throws `WebhookVerificationException` naming which check failed. `Webhooks.parseEvent(body)` reads the typed `WebhookEvent`, keeping a type the client doesn't know yet as `WebhookEvent.Unrecognized`. `sign`, `signedHeaders`, `generateSecret` and `isStrongSecret` round out the helper, matching the TypeScript `@kindgi/crypto` and Python `kindgi.webhooks`.
+
+## 0.1.10
+
+No JVM changes; the version moves with the npm packages.
+
+## 0.1.10-rc.1
+
+No JVM changes; the version moves with the npm packages.
+
+## 0.1.10-rc.0
+
+- `kindgi-pack`, `kindgi-pack-scala`: **an agent's `conversationPolicy` can't set `autoCloseAfterInactiveSeconds`.** It was accepted and never acted on: a conversation never closes by itself, only when someone closes it. The indexer refuses an agent that sets it, as a file error at `/conversationPolicy/autoCloseAfterInactiveSeconds`; the rest of the pack still indexes, and `kindgi build` stops on it.
+
+## 0.1.9
+
+No JVM changes; the version moves with the npm packages.
+
+## 0.1.9-rc.1
+
+No JVM changes; the version moves with the npm packages.
+
+## 0.1.9-rc.0
+
+- `kindgi-models`: **a server's retention limit.** `RetentionScheduledItem`'s `policyId` and `policyVersion` can be `null`: a record that a server's limit decides, in a domain no policy covers, has neither. `limitApplied`, on `RetentionScheduledItem` and `RetentionSweepResult.PerDomainItem`, is `true` when the limit decides; `null` otherwise.
+- `kindgi-pack`, `kindgi-pack-scala`: **a tool can say `needsApprovalWhenUnattended`.** `Tool.define(...).needsApprovalWhenUnattended(true)` (Scala: `.needsApprovalWhenUnattended(true)`) makes each call wait for a person's approval in a run no person started (a webhook, a schedule, an event, or a service account's key). A flow's tool step that calls it is refused there. A run a person starts is unaffected. The pack's index carries it; left out, nothing changes.
+
+## 0.1.8
+
+No JVM changes; the version moves with the npm packages.
+
+## 0.1.8-rc.0
+
+- `kindgi-client`: **`runs().journal` pages when asked.** `RunsJournalParams` gains `limit` (1 to 100) and `cursor`, `RunJournalPage` gains `nextCursor`, and `journalAll` streams every entry, page after page. Without `limit`, the whole journal is one page, as before; a runtime before 0.1.8 answers it whole either way.
+- `kindgi-client`: **`secrets().list` takes `includeRevoked`.** `SecretsListParams.includeRevoked("true")` lists revoked secrets too, with `revokedAt` and `revokeReason` (metadata only, never a value). A runtime before 0.1.8 ignores it.
 - `kindgi-models`: **where a secret an item names is read**, as the server recorded it when the item was registered: `secretScopes` on a `Tool` and an `MCPEndpoint` (by secret name) and `hmacSecretScope` on a webhook trigger, each a `RecordedSecretScope` (`Tenant`, `Org` or `Project`), `null` when none is usable. `SecretResolveOutcome` gains `scope`. The generator now takes a nullable reference to a tagged union, alone or as a map's values.
 
 ## 0.1.7

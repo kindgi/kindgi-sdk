@@ -10,9 +10,11 @@ import type {
   ModelInfo,
   ModelProvider,
   ModelUsageRecord,
+  ProviderRegistry,
+  RouteInput,
 } from '@kindgi/capabilities';
 import { attemptsOf } from '@kindgi/capabilities/attempts';
-import type { GuardrailId } from '@kindgi/types';
+import type { GuardrailId, TenantId } from '@kindgi/types';
 
 import type { JudgeMissingError, JudgeRoutingError, JudgeUsageError } from './errors.js';
 import type { CheckResult, EvaluationBindings, RunTrace } from './types.js';
@@ -236,6 +238,7 @@ async function resolveJudgeProvider(
   const decision = route({
     capability,
     providers: bindings.providerRegistry.list(trace.tenantId),
+    ...setupFailuresOf(bindings.providerRegistry, trace.tenantId),
     ...(bindings.tenantPolicy !== undefined && { tenantPolicy: bindings.tenantPolicy }),
   });
   if (decision.kind === 'err') {
@@ -252,6 +255,19 @@ async function resolveJudgeProvider(
     model: decision.value.model,
     reason: decision.value.reason,
   };
+}
+
+/**
+ * The tenant's registered providers the registry couldn't set up, for
+ * `route`: `list` leaves them out, so a judge that can't route names them
+ * and why only when the router is told.
+ */
+function setupFailuresOf(
+  registry: ProviderRegistry,
+  tenantId: TenantId,
+): Pick<RouteInput, 'setupFailures'> {
+  const failures = registry.setupFailures?.(tenantId) ?? [];
+  return failures.length > 0 ? { setupFailures: failures } : {};
 }
 
 function buildJudgePrompt(rubric: string, format: 'pass-fail' | 'score', trace: RunTrace): string {

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { saveHomeConfig } from '../config.js';
+import { sameAddress } from '../api-address.js';
+import { type ResolvedConfig, saveHomeConfig } from '../config.js';
 import type { CommandContext } from '../context.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
 import {
@@ -53,6 +54,14 @@ const login: LeafCommand = {
         exitCode: 2,
       };
     }
+    const elsewhere = storedKeyElsewhere(ctx.config, url);
+    if (elsewhere !== undefined) {
+      return {
+        kind: 'error',
+        stderr: `kindgi auth login would save ${elsewhere} as ${url}'s key. A stored key goes only to its own address: give ${url}'s key with --token or KINDGI_API_TOKEN.\n`,
+        exitCode: 2,
+      };
+    }
     const path = await saveHomeConfig({ apiUrl: url, token }, ctx.home);
     return {
       kind: 'ok',
@@ -60,6 +69,23 @@ const login: LeafCommand = {
     };
   },
 };
+
+/**
+ * A key login wasn't given (`--token`, KINDGI_API_TOKEN) is a stored one,
+ * and login saves it only for its own address: `--url B` alone would make
+ * the key for A B's, and send it there from then on. Which key, when it
+ * isn't for `url`; `undefined` when login may save it.
+ */
+function storedKeyElsewhere(config: ResolvedConfig, url: string): string | undefined {
+  if (config.source.token !== 'file') return undefined;
+  const keyAddress = config.keyAddress;
+  if (keyAddress !== undefined && sameAddress(keyAddress, url)) return undefined;
+  const file = config.files?.token;
+  const stored = file === undefined ? 'the API key stored' : `the API key stored in ${file.path}`;
+  return keyAddress === undefined
+    ? `${stored}, which has no address stored with it,`
+    : `${stored}, which is for ${keyAddress},`;
+}
 
 const whoami: LeafCommand = {
   kind: 'leaf',

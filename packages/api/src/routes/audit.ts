@@ -33,6 +33,7 @@ import type { TenantId } from '@kindgi/types';
 import { isTenantAdmin } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { parseTimeInput } from './time-input.js';
@@ -72,6 +73,9 @@ export const SIGN_IN_EVENT_KINDS = [
   'sign-in-link-capped',
   'sessions-revoked',
   'sessions-ended',
+  'second-factor-set-up',
+  'second-factor-removed',
+  'recovery-codes-replaced',
 ] as const;
 type SignInEventKind = (typeof SIGN_IN_EVENT_KINDS)[number];
 
@@ -188,6 +192,8 @@ export function auditRouter(binding: AuditEventBinding, authorizer?: Authorizer)
           ),
         );
       }
+      const busy = databaseBusyAnswer(page.error, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor('persistence-error') as never);
       return c.json(
         toWireError(
@@ -286,6 +292,8 @@ export function auditRouter(binding: AuditEventBinding, authorizer?: Authorizer)
       if (page.error.code === 'invalid-cursor') {
         return bad(`Malformed cursor: ${page.error.message}`);
       }
+      const busy = databaseBusyAnswer(page.error, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor('persistence-error') as never);
       return c.json(
         toWireError(

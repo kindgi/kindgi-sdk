@@ -47,6 +47,13 @@ the runtime.
 skip it. Left out, a tool counts as one that writes. `mutating`, `version`,
 `effect` and `set` say the rest.
 
+`needsApprovalWhenUnattended(true)` makes each call wait for a person's
+approval in a run no person started (a webhook, a schedule, an event, or a
+service account's key). A flow's tool step that calls it is refused there. A
+webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a
+project admin's to set) lifts that, in its own runs only. A run a person
+starts is unaffected.
+
 Unit-test a handler directly:
 
 ```scala
