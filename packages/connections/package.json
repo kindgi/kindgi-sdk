@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/connections",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Kindgi™ connections: the app entries a Kindgi server reads to connect people's and a company's accounts at other apps (how to sign in, each permission in plain words, whose account it is, how access is withdrawn), defineApp to check one, and the Google and GitHub entries.",
   "license": "Apache-2.0",
   "repository": {
