@@ -1,5 +1,103 @@
 # @kindgi/api
 
+## 0.1.10
+
+### Patch Changes
+
+- 2d2ee60: Agent answers carry the agent's `output` and `toolErrors`. The `Agent` schema lists both, and a published agent's typed result and its tool-error retries were applied, but `GET /v1/agents`, `/v1/agents/{id}`, `/versions` and `/versions/{version}`, and the answer to `POST /v1/agents/{id}/versions`, left them out. Each is now in the answer when the agent sets it, as published, and absent when it doesn't. The schema and the clients' types don't change.
+- 997470e: **Fixed: the published artifact answer lists the S3 address it already carried.** `GET /v1/artifacts` and `POST /v1/artifacts` answer a blob's `bucket` and `key` when the server's storage gives it an S3-compatible address (`/s3/{bucket}/{key}`). The `BlobMeta` schema didn't list them, and it allows no other properties, so a client checking an answer against the spec would refuse it. The schema now lists both, optional: present when the storage gives the blob an address, absent otherwise. The answers don't change. The TypeScript and Python clients' `BlobMeta` have `bucket` and `key`.
+- b9a68d5: An agent's `conversationPolicy.autoCloseAfterInactiveSeconds` is refused. It was accepted and never acted on: a conversation never closes by itself, only when someone closes it. `defineAgent` (and an agent registered through `POST /v1/agents`, which answers `400 validation-failed`) now refuses any value at `/conversationPolicy/autoCloseAfterInactiveSeconds`, saying so: `autoCloseAfterInactiveSeconds isn't supported: a conversation never closes by itself. It closes when someone closes it: Close in the console, kindgi conversations close, or POST /v1/conversations/{id}/close. Leave it out.` The field leaves the `ConversationPolicy` type, `agent.schema.json` and the API's `ConversationPolicy` schema. `pack-index.schema.json` refuses it on an agent, so a Java, Scala or Python pack that sets it fails to build. An agent stored before it was refused keeps working: a pack already built still deploys, nothing reads the setting, and agent answers (`GET /v1/agents`, `/v1/agents/{id}`, `/versions`, `/versions/{version}`) leave it out of `conversationPolicy`.
+- 6c5006c: **A retry with the same `Idempotency-Key` now gets its `204` again.** On a route that answers `204`, a retry with the key and body of a request that succeeded was answered `500`, though the change had been made once and wasn't made again. Now it's answered `204` with no body and `X-Idempotent-Replay: true`, as other replays are.
+  - **The routes:** changing or deleting an org, a project or a team (`PATCH` and `DELETE` on `/v1/orgs/{id}`, `/v1/projects/{id}` and `/v1/teams/{id}`), changing or removing a project's or a team's member (`/v1/projects/{id}/memberships/{userId}`, `/v1/teams/{id}/memberships/{userId}`), and changing or removing a team's grant on a project (`/v1/projects/{id}/team-grants/{teamId}`).
+  - **A stored `205` or `304`** is replayed with no body the same way.
+  - **Answers stored before this change** replay correctly too: what the store holds doesn't change.
+- 43eafb2: A deployment without a secrets store (`KINDGI_SECRETS_BACKEND=none`) can say it takes no identity provider of a tenant's own: a provider's client secret and keys are references into a store. The binding's `register` and `update` may answer `{ kind: 'needs-secrets-store' }`, and `POST /v1/auth/providers` and `PATCH /v1/auth/providers/{providerId}` then answer `409 identity-providers-need-secrets-store`: "This deployment has no secrets store (KINDGI_SECRETS_BACKEND), and an identity provider's client secret and keys are references into one: identity providers can't be added or changed here until it has one." Removing a provider still works. The clients read the new code as a conflict, by its status. `KINDGI_SECRETS_BACKEND`'s description in the environment schema says so.
+- 019a6fd: **`POST /v1/deployments` answers a deploy refused by the tenant's hour of image reads as the rate limit it is: `429 rate-limit-exceeded` with `Retry-After` and `details.limit: "tenant-unpack-hour"`,** where it answered `400 image-unverifiable` with the wait only in its message. The hour passes, so it's waited out as the server's other limits are: `kindgi deploy` waits and sends the same request again (up to 10 minutes in all), and the clients map it to their `rate-limited` error with the wait.
+  - `ImageRegistryError`'s `image-limit-exceeded` has an optional `retryAfterMs`: for `tenant-unpack-hour`, how long until the tenant's hour has room again. The route sends it as `Retry-After`; a binding that gives none gets the whole hour.
+  - The image's own bounds (`manifest`, `file`, `layer`, `read` and `unpack`) stay `400 image-unverifiable`: the same image is refused again.
+  - `kindgi deploy`'s hint for the tenant's hour now follows the `429`, shown when the wait is longer than the command waits.
+- d6f844d: **A runtime serving one tenant mints a system key for the license renewal, so the renewal can send the deployment's use.**
+  - `/v1/system/keys` (mint, list, revoke) answers the deployment's own token on a runtime serving one tenant too. There it mints keys holding `system:license` alone: a mint asking for any other scope, or for `kindgi:system`, gets `400 bad-input`. With a `systemAccessAudit`, each mint, list and revoke is on the system access record, as the deployment's own token (`boot`).
+  - Such a key reads `GET /v1/license` and `GET /v1/license/usage`, and nothing else. A tenant's route refuses it (`403 system-key-on-tenant-route`), and so does every `/v1/system/*` route (`403 system-scope-missing`).
+  - A system key holding anything but `system:license` (one minted while the runtime served many tenants, say) is refused on every route with a new code, `403 system-key-scope-not-served`. Its `details` name the key's `scopes` and the ones `served`.
+  - `TokenResolution` takes `systemKeysOperator`, a `SystemPrincipal`. A runtime serving one tenant sets it on its own token, which is then that system principal, with the full system capability, on `/v1/system/keys` alone. Everywhere else the token is the tenant's, as before.
+  - `systemPrincipalFence` applies these rules unless its `tenancy` is `multi`. Among them: the deployment's own token (`boot`) as a system principal is refused outside `/v1/system/keys` (`403 system-principal-required`), whatever the bearer makes of it.
+  - `@kindgi/client`: `SystemKeysClient`'s docs cover a runtime serving one tenant.
+  - `@kindgi/cli`: `kindgi license renew --runtime-token` names a system key holding `system:license` as what it can read, beside the runtime's own token.
+- 8111046: **`POST /v1/runs` refuses a run naming a closed conversation (`input.conversationId`, for an agent or a flow) before a run is made.** It answers `409 conversation-closed`, `Conversation "<id>" is closed`, with `details.conversationId`. With `options.wait: false` too: that used to answer `202`, and its run then failed at turn setup. Waiting, the answer was already that `409`, but a failed run was made for it, with `details.runId`. Now no run is made. Who may add the turn is checked first, as before: a caller who can't read the conversation still gets `404 conversation-not-found`, a viewer the `403`, and for a conversation with a participant, the participant rule's `403`.
+- 01964ed: **A tenant admin lets one of a site's people removed in Kindgi back in, through their site.** `POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore` is for someone removed with `POST /v1/identity/users/{userId}/unregister` while the site still knows them. They're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. It answers `200 { user }`.
+  - It's refused, with nothing changed, as `409 site-person-restore-refused` with `details.reason`:
+    - `not-removed`: they're in the tenant and their site still knows them;
+    - `left`: their site said they left it. A site forgets a person who leaves, so if they come back, it signs them in as a new person;
+    - `linked-elsewhere`: they also sign in another way (through another site, or the tenant's own sign-in), and letting them back in would open that too. Add them again instead, as a new person.
+  - A site with no link to that person is `404 site-person-not-found`.
+  - `SiteBinding` gains an optional `restorePerson` (`SitePersonRestoreInput`, `SitePersonRestoreOutcome`, `SitePersonRestoreRefusal`). The route is mounted only when a deployment's binding has it.
+  - The TypeScript client gains `projects.sites.restorePerson(projectId, siteId, userId)`, and the Python client `projects.sites.restore_person`.
+  - The CLI gains `kindgi sites restore-person <site-id> <user-id> [--project=<project-id>]`.
+- 05b762e: **New system route `POST /v1/system/tenants/{tenantId}/purge`:** purges a closed tenant for good, once its 30-day export window has passed, as `kindgi-runtime tenants purge` does: every row of it, its artifacts' bytes and its authorization store, then its purge record, then the mark. `confirm` is the tenant's slug. It takes `system:tenants:purge`, which no other scope includes, or `kindgi:system`. Until now that scope could be put on a key and reached nothing.
+  
+  - **It answers when done:** `complete`, what it deleted per table (`deleted`, `objectsDeleted`, `authzStoreDeleted`), and what's left (`left`, `objectsLeft`, `leftBecause`). With `complete: false`, or a call that ended before its answer, run it again. On a tenant already purged it deletes what was written after its mark (`alreadyPurged: true`). Every call is on the operator's access record.
+  - **Refused, with nothing changed:** `400 tenant-slug-mismatch`; `409 tenant-not-closing`, `tenant-export-window-open`, `purge-record-unset` and `purge-setting-missing`. A runtime that doesn't purge answers `501 tenant-purge-unsupported`.
+  - **A failed delete of its OpenFGA store** is `502 authz-store-delete-failed`, and its message says what that left. Run it again.
+  - **`SystemTenantsBinding.purge`** is optional. `withSystemTenantContext` takes `admitPurged`, so the purge's route reaches a tenant already purged; every other system route still answers `404 tenant-not-found` for one.
+  - **New runtime setting `KINDGI_TENANT_PURGE_RECORD`** (`local:<absolute dir>` or `gcs:<bucket>[/<prefix>]`): where the server writes purge records. The route refuses every purge while it's unset.
+  - **Clients:** `client.systemTenants.purge(tenantId, confirm, { idempotencyKey, timeoutMs })` in TypeScript (`TenantPurge`), and `client.system_tenants.purge(tenant_id, confirm=…, idempotency_key=…, timeout=…)` in Python.
+- 25a7309: **A tenant can be renamed: its name, its slug, or both.** Its id stays, so whatever names it by its id keeps working.
+  - **`PATCH /v1/tenant`** renames your own tenant. It's for tenant admins. **`PATCH /v1/system/tenants/{tenantId}`** renames any tenant, for an operator's key with `system:tenants`, whose scope now reads "Create, list, read, rename and close tenants." Both take a `TenantPatch` body (`name`, `slug`, each optional; a field left out stays as it is) and an optional `Idempotency-Key`, and answer `204` with no body. The same values again also answer `204` and change nothing.
+  - **A slug follows the rule creating a tenant has:** lowercase letters, digits and single hyphens, at most 63 characters, unique across tenants. A name is non-empty, at most 100 characters.
+  - **Refusals:** `409 tenant-slug-taken` (another tenant has the slug; a purged tenant keeps its own), `409 tenant-closing`, and two new codes. `409 tenant-slug-in-config`: the server's `KINDGI_AUTH_VERIFIED_DOMAINS` names this tenant by its slug, or names the slug asked for. The server's operator names the tenant there by its id and restarts; then rename it. `409 tenant-setup-pending`: the tenant's creation hasn't finished; sending the request that created it again finishes it.
+  - **The clients:** `tenant.update(input)` and `systemTenants.update(tenantId, input)` in TypeScript, both `Promise<void>` (`RenameTenantInput` is the body); `tenant.update` and `system_tenants.update` in Python, sync and async, returning `None`. Read the tenant back with `get()`.
+  - **For a runtime:** `TenantHierarchyBinding.renameTenant` is optional, and the two routes mount only when it's there. A runtime without it answers `404` on both, as before.
+- c90dd53: Tool and MCP endpoint answers carry `secretScopes`, where each secret the item names is read. The `Tool`, `ToolVersionRow` and `MCPEndpoint` schemas list it, and the server recorded it when the item was registered, but `GET /v1/tools`, `/v1/tools/{toolId}`, `/versions` and `/versions/{version}`, and `GET /v1/mcp/endpoints` and `/v1/mcp/endpoints/{endpointId}`, left it out. It's now in the answer as recorded, a `null` kept, and absent on an item that records none. A register body still never carries it: one that does is refused (`400`). Until now an active tool's or an endpoint's read carried no field a register body refuses; one that records secret scopes now does, so a caller that registers from a read drops `secretScopes` first. The schema and the clients' types don't change.
+- 9b6da8a: **Usage reads: a tenant reads its own usage, aggregated, and the operator reads usage across tenants.**
+  
+  - **What's counted:** usage records (`USAGE_KINDS`): runs started and ended, each with its class; approvals requested and decided; model calls, inference and embedding; and a project put in production or taken out. A read answers groups: each group's count, the sum of its quantities (milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count) and its first and last times. It never answers a record's content. Model-call cost stays on `/v1/cost`.
+  - **The query,** the same on both routes:
+    - `from` and `to`: times with a zone, `to` not included, at most 92 days apart. A longer span is read in parts;
+    - `groupBy`, comma-separated;
+    - the filters `kind`, `class` and `state`, each comma-separated. A list naming an unknown value, or one value twice, is `400 bad-input`;
+    - `limit`: groups a page, from 1 to 10000 (default 1000);
+    - `cursor`: the last page's `nextCursor`. A cursor the route didn't give is `400 bad-input`.
+  - **The answer** is `{ data, watermark, nextCursor? }`. Every record at or before `watermark` is in it, so a reader re-reads a window until its watermark is past the window's end. Every page of one read carries the same watermark. A group's `kind`, `class` and `state` are plain strings: a runtime may count more later, and a reader shows a value it doesn't know as it is.
+  - **`GET /v1/usage`:** the caller's tenant's usage. `groupBy` takes `project`, `agent`, `kind`, `class`, `state` and `day` (the UTC date); the default is `project,kind`. `projectId` reads one project.
+    - **Which projects:** a tenant admin, or a deployment without authorization, reads every project and the tenant's records with no project. Anyone else, an admin's API key limited to a project included, reads only the projects they may `read`, and no record without a project.
+    - **A project the caller can't read** is absent from the answer, never an error, so the answer doesn't say it exists.
+    - **When the projects a caller may read can't be listed,** one asked for with `projectId` is still read. A read across projects is refused (`403`), never over-counted.
+  - **`GET /v1/system/usage`** takes the new system capability `system:usage:read` (`kindgi:system` includes it). `groupBy` also takes `tenant`; the default is `tenant,kind`. `tenantId` reads one tenant.
+    - A test tenant's usage, and that of a tenant whose setup is pending, is never in the answer, even when `tenantId` names one.
+    - The access record marks a read across every tenant, or names the one read.
+  - **Mounting:** `createApp` takes `usage`, a `UsageBinding` (`acrossTenants`, `ofTenant`). Without it, neither route is mounted (`404`). `@kindgi/api` exports the binding's types and the lists the query takes (`USAGE_STATES`, `USAGE_GROUP_KEYS`, `TENANT_USAGE_GROUP_KEYS`, `USAGE_WINDOW_MAX_DAYS`).
+  - **The TypeScript client** adds `client.usage.read` (`TenantUsageClient`) and `client.systemUsage.read` (`SystemUsageClient`); lists are sent comma-separated. `@kindgi/sdk` exports `TenantUsageClient`, `UsageQuery`, `UsagePage`, `UsageGroup` and `UsageGroupKey`. `UsageClient` is still `client.cost.usage`'s.
+  - **The Python client** adds `client.usage.read` and `client.system_usage.read`.
+  - **The CLI adds `kindgi usage`:**
+    - **The window:** a calendar month in UTC (`--month=YYYY-MM`, the current one by default), or `--from` and `--to` together;
+    - **The query:** `--project`, `--group-by`, `--kind`, `--class` and `--state` (comma-separated), `--limit` and `--cursor`;
+    - **The output:** the page as JSON. `--table` prints a row per group, with `(none)` for no project or agent, and on stderr the watermark and the next page's `--cursor`.
+- Updated dependencies [b9a68d5]
+- Updated dependencies [2e60ae2]
+- Updated dependencies [72b63e8]
+- Updated dependencies [25a7309]
+  - @kindgi/agents@0.1.10
+  - @kindgi/handler-runtime@0.1.10
+  - @kindgi/platform@0.1.10
+  - @kindgi/capabilities@0.1.10
+  - @kindgi/compliance@0.1.10
+  - @kindgi/flow@0.1.10
+  - @kindgi/guardrails@0.1.10
+  - @kindgi/provenance@0.1.10
+  - @kindgi/schema@0.1.10
+  - @kindgi/tools@0.1.10
+  - @kindgi/blob-binding@0.1.10
+  - @kindgi/audit-events@0.1.10
+  - @kindgi/authz@0.1.10
+  - @kindgi/bounds@0.1.10
+  - @kindgi/crypto@0.1.10
+  - @kindgi/log@0.1.10
+  - @kindgi/memory@0.1.10
+  - @kindgi/policy-contract@0.1.10
+  - @kindgi/runtime@0.1.10
+  - @kindgi/types@0.1.10
+
 ## 0.1.10-rc.1
 
 ### Patch Changes

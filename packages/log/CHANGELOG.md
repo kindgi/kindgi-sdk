@@ -1,5 +1,9 @@
 # @kindgi/log
 
+## 0.1.10
+
+No changes in this release.
+
 ## 0.1.10-rc.1
 
 No changes in this release.
