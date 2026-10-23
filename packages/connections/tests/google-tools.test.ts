@@ -7,6 +7,7 @@ import {
   type ToolConnection,
   type ToolContext,
   invokeToolForTest,
+  toManifest,
   toolContextForTest,
 } from '@kindgi/tools';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -14,6 +15,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { type GmailSendInput, gmailSend, mimeMessage } from '../src/google-tools.js';
 
 const TOKEN = 'ya29.not-a-real-token';
+
+const tool = gmailSend({ id: 'acme.gmail.send' });
 
 function mail(): ToolConnection {
   return {
@@ -63,13 +66,14 @@ const SEND: GmailSendInput = {
 };
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
 describe('gmail.send', () => {
   it("sends as the person, asks before an unattended send, and needs only that person's gmail.send", () => {
-    expect(gmailSend).toMatchObject({
-      id: 'gmail.send',
+    expect(tool).toMatchObject({
+      id: 'acme.gmail.send',
       version: '1.0.0',
       mutating: true,
       needsApprovalWhenUnattended: true,
@@ -78,16 +82,40 @@ describe('gmail.send', () => {
       },
       network: { kind: 'allowlist', hosts: ['gmail.googleapis.com'] },
     });
-    expect(gmailSend.effects?.map((e) => e.kind)).toEqual([
+    expect(tool.effects?.map((e) => e.kind)).toEqual([
       'external-side-effect',
       'sensitive-data-egress',
     ]);
   });
 
+  it('is the tool under the id its pack names: two ids, two tools alike but for the id', () => {
+    const other = gmailSend({ id: 'beta.gmail.send' });
+    expect(other.id).toBe('beta.gmail.send');
+    expect(other).not.toBe(tool);
+    expect({ ...toManifest(other), id: tool.id }).toEqual(toManifest(tool));
+  });
+
+  it("an id that isn't one is refused as the pack builds the tool, naming it", () => {
+    expect(() => gmailSend({ id: '' })).toThrow('The tool "" failed to compile');
+  });
+
+  it("under any id, a send is charged as Gmail's: 60 a minute on a connection, then each waits its turn", async () => {
+    vi.useFakeTimers();
+    const sent = gmailAnswering();
+    const ctx = { connections: { mail: mail() } };
+    for (let i = 0; i < 60; i++) expect((await invokeToolForTest(tool, SEND, ctx)).kind).toBe('ok');
+    const next = invokeToolForTest(tool, SEND, ctx);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(sent).toHaveLength(60);
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await next).kind).toBe('ok');
+    expect(sent).toHaveLength(61);
+  });
+
   it("posts the message to Gmail with the person's token and answers with its id", async () => {
     const sent = gmailAnswering();
     const r = await invokeToolForTest(
-      gmailSend,
+      tool,
       { ...SEND, cc: ['cy@acme.test', 'di@acme.test'] },
       { connections: { mail: mail() } },
     );
@@ -138,12 +166,12 @@ describe('gmail.send', () => {
       { ...SEND, cc: ['"Eve" <eve@evil.test>'] },
       { ...SEND, to: [] },
     ]) {
-      const r = await invokeToolForTest(gmailSend, input, { connections: { mail: mail() } });
+      const r = await invokeToolForTest(tool, input, { connections: { mail: mail() } });
       expect(r.kind === 'err' && r.error.code).toBe('input-validation-failed');
     }
     // The handler refuses them too when called without the schema in front of it.
     await expect(
-      gmailSend.handler(
+      tool.handler(
         { ...SEND, subject: 'Hi\nBcc: eve@evil.test' },
         toolContextForTest({ connections: { mail: mail() } }),
       ),
@@ -158,7 +186,7 @@ describe('gmail.send', () => {
         { status: 400 },
       ),
     );
-    const r = await invokeToolForTest(gmailSend, SEND, { connections: { mail: mail() } });
+    const r = await invokeToolForTest(tool, SEND, { connections: { mail: mail() } });
     expect(r.kind === 'err' && r.error.code).toBe('handler-error');
     const message = r.kind === 'err' ? r.error.message : '';
     expect(message).toContain("Gmail didn't send the message: INVALID_ARGUMENT: Invalid To header");
@@ -173,11 +201,11 @@ describe('gmail.send', () => {
       return journal.get(key) as never;
     };
     const ctx = { connections: { mail: mail() }, record };
-    expect(await invokeToolForTest(gmailSend, SEND, ctx)).toEqual({
+    expect(await invokeToolForTest(tool, SEND, ctx)).toEqual({
       kind: 'ok',
       value: { messageId: 'msg-1' },
     });
-    expect(await invokeToolForTest(gmailSend, SEND, ctx)).toEqual({
+    expect(await invokeToolForTest(tool, SEND, ctx)).toEqual({
       kind: 'ok',
       value: { messageId: 'msg-1' },
     });

@@ -11,7 +11,10 @@ export interface AppCall {
   readonly entry: AppEntry;
   /** The tool's name for the connection: its `needsSpec.connections` key. */
   readonly connection: string;
-  /** The calling tool's id: what the entry's rate limits charge for it (`costs`). */
+  /**
+   * What the entry's rate limits charge the call as (`costs`): the
+   * operation's own name (`gmail.send`), never the id a pack gave the tool.
+   */
   readonly toolId: string;
   readonly url: string;
   readonly method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';

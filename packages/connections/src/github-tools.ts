@@ -4,18 +4,20 @@
 /**
  * `@kindgi/connections/github/tools` — tools that act with the company's
  * GitHub connection, on the repositories its installation can reach. A pack
- * includes one by exporting it as a tool (a tool folder whose `index.ts` is
- * `export { githubIssuesList as default } from
- * '@kindgi/connections/github/tools'`). Their ids are fixed, so include each
- * in one pack per project.
+ * includes one by exporting it as a tool under an id the pack names: a tool
+ * folder whose `index.ts` is
+ * `export default githubIssuesList({ id: 'acme.github.issues.list' })`. The
+ * id is the pack's because a tool id is the tenant's, filed under the first
+ * project that publishes it.
  */
 
-import { type Tool, defineTool } from '@kindgi/tools';
-import type { ToolContext } from '@kindgi/tools';
-import type { ToolId } from '@kindgi/types';
+import type { Tool, ToolContext } from '@kindgi/tools';
 
 import { appFetch } from './app-fetch.js';
+import { type AppToolOptions, appTool } from './app-tool.js';
 import { github } from './github.js';
+
+export type { AppToolOptions } from './app-tool.js';
 
 const API = 'https://api.github.com';
 const HEADERS = {
@@ -91,8 +93,7 @@ const READS = [
 ] as const;
 const NETWORK = { kind: 'allowlist', hosts: ['api.github.com'] } as const;
 
-const issuesListDefined = defineTool<GithubIssuesListInput, GithubIssuesListOutput>({
-  id: 'github.issues.list' as ToolId,
+const ISSUES_LIST: Omit<Tool<GithubIssuesListInput, GithubIssuesListOutput>, 'id'> = {
   description:
     "List a repository's issues, newest first, with the start of each body: open ones unless `state` says otherwise, only those with every label in `labels`, only those updated since `since`. Pull requests aren't listed. Reads only.",
   version: '1.0.0',
@@ -168,15 +169,11 @@ const issuesListDefined = defineTool<GithubIssuesListInput, GithubIssuesListOutp
     }
     return { issues };
   },
-});
-if (issuesListDefined.kind === 'err') {
-  throw new Error(`github.issues.list failed to compile: ${issuesListDefined.error.message}`);
-}
+};
 
-const labelsListDefined = defineTool<GithubRepoInput, GithubLabelsListOutput>({
-  id: 'github.labels.list' as ToolId,
+const LABELS_LIST: Omit<Tool<GithubRepoInput, GithubLabelsListOutput>, 'id'> = {
   description:
-    'List the labels a repository has, with what each is for. github.issues.add-labels takes only these. Reads only.',
+    'List the labels a repository has, with what each is for. Adding labels to an issue takes only these. Reads only.',
   version: '1.0.0',
   input: {
     type: 'object',
@@ -209,15 +206,11 @@ const labelsListDefined = defineTool<GithubRepoInput, GithubLabelsListOutput>({
   handler: async (input, ctx) => ({
     labels: await repoLabels(ctx, 'github.labels.list', input),
   }),
-});
-if (labelsListDefined.kind === 'err') {
-  throw new Error(`github.labels.list failed to compile: ${labelsListDefined.error.message}`);
-}
+};
 
-const addLabelsDefined = defineTool<GithubIssuesAddLabelsInput, GithubIssuesAddLabelsOutput>({
-  id: 'github.issues.add-labels' as ToolId,
+const ADD_LABELS: Omit<Tool<GithubIssuesAddLabelsInput, GithubIssuesAddLabelsOutput>, 'id'> = {
   description:
-    "Add labels to an issue, keeping the ones it has. Only labels the repository already has (github.labels.list): it never makes a new one. Returns every label the issue has now. In a run no person started, each call waits for a person's yes.",
+    "Add labels to an issue, keeping the ones it has. Only labels the repository already has (its label list): it never makes a new one. Returns every label the issue has now. In a run no person started, each call waits for a person's yes.",
   version: '1.0.0',
   input: {
     type: 'object',
@@ -256,7 +249,7 @@ const addLabelsDefined = defineTool<GithubIssuesAddLabelsInput, GithubIssuesAddL
     const unknown = input.labels.filter((l) => !have.has(l.toLowerCase()));
     if (unknown.length > 0) {
       throw new Error(
-        `${input.owner}/${input.repo} has no label ${unknown.map((l) => `"${l}"`).join(', ')}: github.labels.list lists the ones it has.`,
+        `${input.owner}/${input.repo} has no label ${unknown.map((l) => `"${l}"`).join(', ')}: the repository's label list has the ones it can take.`,
       );
     }
     const now = await githubJson(
@@ -269,20 +262,28 @@ const addLabelsDefined = defineTool<GithubIssuesAddLabelsInput, GithubIssuesAddL
     if (!Array.isArray(now)) throw new Error("GitHub's answer wasn't the issue's labels.");
     return { labels: (now as unknown[]).map(labelName).filter((n) => n !== '') };
   },
-});
-if (addLabelsDefined.kind === 'err') {
-  throw new Error(`github.issues.add-labels failed to compile: ${addLabelsDefined.error.message}`);
+};
+
+/** A tool, under the id the pack names, that lists a repository's issues (not its pull requests), with the start of each body. */
+export function githubIssuesList(
+  options: AppToolOptions,
+): Tool<GithubIssuesListInput, GithubIssuesListOutput> {
+  return appTool(ISSUES_LIST, options);
 }
 
-/** Lists a repository's issues (not its pull requests), with the start of each body. */
-export const githubIssuesList: Tool<GithubIssuesListInput, GithubIssuesListOutput> =
-  issuesListDefined.value;
-/** Lists a repository's labels. */
-export const githubLabelsList: Tool<GithubRepoInput, GithubLabelsListOutput> =
-  labelsListDefined.value;
-/** Adds labels the repository already has to an issue. */
-export const githubIssuesAddLabels: Tool<GithubIssuesAddLabelsInput, GithubIssuesAddLabelsOutput> =
-  addLabelsDefined.value;
+/** A tool, under the id the pack names, that lists a repository's labels. */
+export function githubLabelsList(
+  options: AppToolOptions,
+): Tool<GithubRepoInput, GithubLabelsListOutput> {
+  return appTool(LABELS_LIST, options);
+}
+
+/** A tool, under the id the pack names, that adds labels the repository already has to an issue. */
+export function githubIssuesAddLabels(
+  options: AppToolOptions,
+): Tool<GithubIssuesAddLabelsInput, GithubIssuesAddLabelsOutput> {
+  return appTool(ADD_LABELS, options);
+}
 
 interface RawIssue {
   readonly number: number;
@@ -324,7 +325,11 @@ async function repoLabels(
   return labels;
 }
 
-/** A call under the repository, its JSON answer, or an error in GitHub's words. */
+/**
+ * A call under the repository, its JSON answer, or an error in GitHub's
+ * words. `toolId` is the operation's own name (`github.labels.list`),
+ * whatever id the pack gave the tool: the entry's rate limits charge by it.
+ */
 async function githubJson(
   ctx: ToolContext,
   toolId: string,

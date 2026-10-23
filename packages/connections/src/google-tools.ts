@@ -3,17 +3,20 @@
 
 /**
  * `@kindgi/connections/google/tools` — tools that act with a person's Google
- * connection. A pack includes one by exporting it as a tool (a tool folder
- * whose `index.ts` is `export { gmailSend as default } from
- * '@kindgi/connections/google/tools'`). Its id is fixed, so include each in
- * one pack per project.
+ * connection. A pack includes one by exporting it as a tool under an id the
+ * pack names: a tool folder whose `index.ts` is
+ * `export default gmailSend({ id: 'acme.gmail.send' })`. The id is the
+ * pack's because a tool id is the tenant's, filed under the first project
+ * that publishes it.
  */
 
-import { type Tool, defineTool } from '@kindgi/tools';
-import type { ToolId } from '@kindgi/types';
+import type { Tool } from '@kindgi/tools';
 
 import { appFetch } from './app-fetch.js';
+import { type AppToolOptions, appTool } from './app-tool.js';
 import { google } from './google.js';
+
+export type { AppToolOptions } from './app-tool.js';
 
 const SEND_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send';
 
@@ -38,8 +41,7 @@ export interface GmailSendOutput {
   readonly messageId: string;
 }
 
-const gmailSendDefined = defineTool<GmailSendInput, GmailSendOutput>({
-  id: 'gmail.send' as ToolId,
+const GMAIL_SEND: Omit<Tool<GmailSendInput, GmailSendOutput>, 'id'> = {
   description:
     "Send a plain-text email from the person's own Gmail account (the one they connected) to the addresses in `to` and `cc`. Gmail adds the From line: the sender is always that person. Returns the sent message's id. In a run no person started, each send waits for that person's yes.",
   version: '1.0.0',
@@ -86,6 +88,7 @@ const gmailSendDefined = defineTool<GmailSendInput, GmailSendOutput>({
       const res = await appFetch(ctx, {
         entry: google,
         connection: 'mail',
+        // Gmail's own name for the call, whatever the pack's id: the entry's costs use it.
         toolId: 'gmail.send',
         url: SEND_URL,
         method: 'POST',
@@ -100,13 +103,12 @@ const gmailSendDefined = defineTool<GmailSendInput, GmailSendOutput>({
     // Sent once per call: a step run again (resumed or retried) gets the first send's answer.
     return ctx.record !== undefined ? ctx.record('sent', send) : send();
   },
-});
-if (gmailSendDefined.kind === 'err') {
-  throw new Error(`gmail.send failed to compile: ${gmailSendDefined.error.message}`);
-}
+};
 
-/** Sends a plain-text email as the person whose Google connection the call has. */
-export const gmailSend: Tool<GmailSendInput, GmailSendOutput> = gmailSendDefined.value;
+/** A tool, under the id the pack names, that sends a plain-text email as the person whose Google connection the call has. */
+export function gmailSend(options: AppToolOptions): Tool<GmailSendInput, GmailSendOutput> {
+  return appTool(GMAIL_SEND, options);
+}
 
 /** The message as RFC 5322 text: headers folded short, the body base64 in UTF-8. */
 export function mimeMessage(m: GmailSendInput): string {

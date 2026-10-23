@@ -8,6 +8,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { githubIssuesAddLabels, githubIssuesList, githubLabelsList } from '../src/github-tools.js';
 
+const issuesList = githubIssuesList({ id: 'acme.github.issues.list' });
+const labelsList = githubLabelsList({ id: 'acme.github.labels.list' });
+const addLabels = githubIssuesAddLabels({ id: 'acme.github.issues.add-labels' });
+
 const TOKEN = 'ghs_not-a-real-token';
 
 function company(): { connections: { github: ToolConnection } } {
@@ -66,15 +70,15 @@ afterEach(() => {
 
 describe('github.issues.list', () => {
   it("reads only, with the company's issues.read", () => {
-    expect(githubIssuesList).toMatchObject({
-      id: 'github.issues.list',
+    expect(issuesList).toMatchObject({
+      id: 'acme.github.issues.list',
       mutating: false,
       needsSpec: {
         connections: { github: { app: 'github', permissions: ['issues.read'], as: 'company' } },
       },
       network: { kind: 'allowlist', hosts: ['api.github.com'] },
     });
-    expect(githubIssuesList.needsApprovalWhenUnattended).toBeUndefined();
+    expect(issuesList.needsApprovalWhenUnattended).toBeUndefined();
   });
 
   it("lists issues newest first, leaving out pull requests, with each body's start", async () => {
@@ -111,7 +115,7 @@ describe('github.issues.list', () => {
         ]),
     });
     const r = await invokeToolForTest(
-      githubIssuesList,
+      issuesList,
       {
         owner: 'acme',
         repo: 'widgets',
@@ -153,11 +157,7 @@ describe('github.issues.list', () => {
 
   it("a repository the installation can't reach says so, never with the token", async () => {
     githubAnswering({});
-    const r = await invokeToolForTest(
-      githubIssuesList,
-      { owner: 'acme', repo: 'secret' },
-      company(),
-    );
+    const r = await invokeToolForTest(issuesList, { owner: 'acme', repo: 'secret' }, company());
     expect(r.kind === 'err' && r.error.code).toBe('handler-error');
     const message = r.kind === 'err' ? r.error.message : '';
     expect(message).toContain(
@@ -174,7 +174,7 @@ describe('github.issues.list', () => {
       { owner: 'acme/x', repo: 'widgets' },
       { owner: '-acme', repo: 'widgets' },
     ]) {
-      const r = await invokeToolForTest(githubIssuesList, input, company());
+      const r = await invokeToolForTest(issuesList, input, company());
       expect(r.kind === 'err' && r.error.code).toBe('input-validation-failed');
     }
     expect(sent).toHaveLength(0);
@@ -188,11 +188,7 @@ describe('github.labels.list', () => {
       'GET /repos/acme/widgets/labels': (u) =>
         Response.json(u.searchParams.get('page') === '1' ? many : LABELS),
     });
-    const r = await invokeToolForTest(
-      githubLabelsList,
-      { owner: 'acme', repo: 'widgets' },
-      company(),
-    );
+    const r = await invokeToolForTest(labelsList, { owner: 'acme', repo: 'widgets' }, company());
     expect(r.kind).toBe('ok');
     if (r.kind !== 'ok') return;
     expect(r.value.labels).toHaveLength(103);
@@ -207,8 +203,8 @@ describe('github.labels.list', () => {
 
 describe('github.issues.add-labels', () => {
   it("changes issues, with the company's issues.write, and asks first in a run no person started", () => {
-    expect(githubIssuesAddLabels).toMatchObject({
-      id: 'github.issues.add-labels',
+    expect(addLabels).toMatchObject({
+      id: 'acme.github.issues.add-labels',
       mutating: true,
       needsApprovalWhenUnattended: true,
       needsSpec: {
@@ -224,7 +220,7 @@ describe('github.issues.add-labels', () => {
         Response.json([{ name: 'bug' }, { name: 'docs' }]),
     });
     const r = await invokeToolForTest(
-      githubIssuesAddLabels,
+      addLabels,
       { owner: 'acme', repo: 'widgets', issueNumber: 12, labels: ['Docs'] },
       company(),
     );
@@ -239,7 +235,7 @@ describe('github.issues.add-labels', () => {
       'GET /repos/acme/widgets/labels': () => Response.json(LABELS),
     });
     const r = await invokeToolForTest(
-      githubIssuesAddLabels,
+      addLabels,
       { owner: 'acme', repo: 'widgets', issueNumber: 12, labels: ['bug', 'urgent'] },
       company(),
     );
