@@ -138,6 +138,25 @@ is the way there.
 Calls then use short-lived tokens limited to the tool's permissions, over
 the repositories you picked when you installed the app.
 
+## Reconnecting
+
+If an owner of the account the app is installed on takes a permission
+away from it on GitHub, the next call that needs that permission finds
+out, and the connection needs reconnecting. Until an admin connects it
+again, the company's calls fail with `connection-missing`.
+
+- **A reconnect keeps the connection's installation.** Kindgi uses it
+  without asking, even when your GitHub account reaches several, and
+  doesn't show the **Connect GitHub** page. If your account can't reach
+  it, the reconnect fails with `connection-installation-unreachable`.
+  Choosing an installation on another account fails with
+  `connection-account-mismatch`. To connect another account instead,
+  disconnect, then connect again.
+- **A reconnect takes the permissions the app has now,** so give the app
+  back what it lost on GitHub first. A call that needs a permission the
+  app still lacks fails with `connection-missing`, naming the
+  permission.
+
 ## Disconnecting
 
 **Connections → Disconnect** stops Kindgi using the app at once and revokes

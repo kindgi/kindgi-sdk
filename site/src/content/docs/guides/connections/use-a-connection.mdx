@@ -44,24 +44,39 @@ needsSpec: {
 
 ## Read the token
 
-The handler gets the connection in the call's context:
+The handler gets each connection the tool declares in `ctx.connections`,
+by its name:
 
 ```ts excerpt
+import { ConnectionRejectedError } from '@kindgi/sdk/define';
+
 handler: async (input, ctx) => {
-  const { accessToken, account } = ctx.connections.mail;
-  // call the app with `Authorization: Bearer ${accessToken}`
+  const mail = ctx.connections?.mail;
+  const res = await fetch(url, {
+    headers: { authorization: `Bearer ${mail?.accessToken}` },
+  });
+  if (res.status === 401) throw new ConnectionRejectedError('mail');
+  // …
 },
 ```
 
 - **`accessToken`** is the connection's current short-lived token. Don't
-  keep it: Kindgi renews it shortly before it expires, and each call gets
-  the one that's current.
-- **`account`** is whose account it is, such as `ana@acme.com`.
+  keep it, log it or return it: Kindgi renews it shortly before it
+  expires, and each call gets the one that's current.
+- **`account`** is whose account it is: `account.label` is what people
+  see, such as `ana@acme.com`, and `account.id` is its stable id at the
+  app.
+- **`ctx.connections` is optional in the type,** because a unit test
+  builds its own context. In a call the runtime makes, it holds every
+  connection the tool declares: without one, the call waits or fails
+  before the handler runs
+  ([When the connection is missing](#when-the-connection-is-missing)).
 
-If the app refuses the token (`401`), throw `ConnectionRejectedError`.
-Kindgi gets a new token and calls the tool once more. If that's refused
-too, the call fails with `connection-rejected`, and the connection stays
-as it is.
+If the app refuses the token (`401`), throw `ConnectionRejectedError` with
+the connection's name. A second argument can say what the app answered,
+never the token. Kindgi gets a new token and calls the tool once more. If
+that's refused too, the call fails with `connection-rejected`, and the
+connection stays as it is.
 
 ## In an HTTP tool
 
