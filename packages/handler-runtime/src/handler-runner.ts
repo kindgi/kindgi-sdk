@@ -39,6 +39,7 @@ import {
   isZodSchema,
   parseWithSchema,
 } from '@kindgi/schema';
+import { type ToolConnection, connectionRejectionOf } from '@kindgi/tools';
 import type { Result } from '@kindgi/types';
 
 /**
@@ -58,6 +59,15 @@ export interface HandlerContext {
   /** The declared env values: project, else org, else tenant (protocol 2.5.0). */
   readonly env?: Readonly<Record<string, unknown>>;
   readonly secrets?: Readonly<Record<string, unknown>>;
+  /**
+   * The declared connections (`needsSpec.connections`), by the tool's name
+   * for each, with a short-lived token (protocol 2.7.0). Not enumerable,
+   * like `secrets`. When the app refuses a token, throw
+   * `ConnectionRejectedError` (`@kindgi/tools`) with the name, or an error
+   * whose `cause` is one: the call answers `connection-rejected`, and the
+   * runtime renews the token once and runs the call again.
+   */
+  readonly connections?: Readonly<Record<string, ToolConnection>>;
   readonly config?: Readonly<Record<string, unknown>>;
   /**
    * The calling agent version's settings blocks' values, by block id
@@ -122,6 +132,7 @@ export type HandlerErrorCode =
   | 'handler-import-failed'
   | 'handler-shape-invalid'
   | 'handler-throw'
+  | 'connection-rejected'
   | 'check-shape-invalid';
 
 export interface HandlerError {
@@ -130,6 +141,8 @@ export interface HandlerError {
   readonly toolId?: string;
   readonly cause?: unknown;
   readonly issues?: readonly unknown[];
+  /** For `connection-rejected`: the tool's name for the connection the app refused. */
+  readonly connection?: string;
 }
 
 /**
@@ -309,6 +322,18 @@ export async function runHandler(
   try {
     output = await handler(prepared, ctx);
   } catch (cause) {
+    const rejection = connectionRejectionOf(cause);
+    if (rejection !== undefined) {
+      return {
+        kind: 'err',
+        error: {
+          code: 'connection-rejected',
+          message: `Tool "${tool.id}": ${rejection.message}`,
+          toolId: tool.id,
+          connection: rejection.connection,
+        },
+      };
+    }
     return {
       kind: 'err',
       error: {

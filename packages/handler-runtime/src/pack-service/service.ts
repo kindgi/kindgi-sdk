@@ -548,6 +548,7 @@ function fromHandlerError(
     ...ids,
     ...(error.cause !== undefined && { cause: error.cause }),
     ...(error.issues !== undefined && { issues: error.issues }),
+    ...(error.connection !== undefined && { connection: error.connection }),
   });
 }
 
@@ -613,14 +614,18 @@ function toolKey(id: string, version: string | undefined): string {
 
 /**
  * The context a handler gets: the call's own (`PackCallContext`) and its
- * abort signal, with `log` and `secrets` there but not enumerable, so
- * printing, spreading or serializing a context never shows a secret.
+ * abort signal, with `log`, `secrets` and `connections` there but not
+ * enumerable, so printing, spreading or serializing a context never shows
+ * a secret or a token.
  */
 function handlerContext(wire: PackCallContext, signal: AbortSignal, log: Logger): HandlerContext {
-  const { secrets, ...rest } = wire;
+  const { secrets, connections, ...rest } = wire;
   const ctx = { ...rest, abortSignal: signal };
   if (secrets !== undefined) {
     Object.defineProperty(ctx, 'secrets', { value: secrets, enumerable: false });
+  }
+  if (connections !== undefined) {
+    Object.defineProperty(ctx, 'connections', { value: connections, enumerable: false });
   }
   Object.defineProperty(ctx, 'log', { value: log, enumerable: false });
   return ctx as HandlerContext;

@@ -50,7 +50,8 @@ export type ConnectionRemovedReason =
  * - `app-failed`: the app's revoke failed; the token is gone here all the same;
  * - `kept-for-other-connection`: the app's revoke is grant-wide and another
  *   live connection uses the grant, so it wasn't called;
- * - `not-supported`: the app has no revoke.
+ * - `not-supported`: the app has no revoke, or what it has would undo more
+ *   than this connection (a GitHub App's installation stays installed).
  */
 export type ConnectionWithdrawn =
   | 'at-app'
@@ -76,7 +77,7 @@ export interface ConnectionAppRecord {
   };
   /** The projects whose runs may use its connections. Absent: every project. */
   readonly projects?: readonly ProjectId[];
-  /** `<publicUrl>/console/connect/callback`: the admin gives it to the app (a GitHub App's Setup URL too). */
+  /** `<publicUrl>/console/connect/callback`: the admin gives it to the app (a GitHub App's Callback URL, with user authorization during installation). */
   readonly redirectUrl: string;
   /** `<publicUrl>/v1/connection-notices/<tenantId>/<appId>`: where the app reports removals. */
   readonly noticesUrl: string;
@@ -97,7 +98,16 @@ export interface ConnectionRecord {
   /** The entry's permission keys the app granted. */
   readonly permissions: readonly string[];
   readonly state: ConnectionState;
-  /** Why it's in its state: `'invalid-grant'`, `'suspended'`, `'store-write-failed'`. */
+  /**
+   * Why it's in its state: `'invalid-grant'` (the app withdrew the grant),
+   * `'no-refresh-token'` (the app gave no way to renew it), `'token-missing'`
+   * (its stored token is gone), `'store-write-failed'` (its token couldn't be
+   * stored at the connect), `'installation-missing'` (the GitHub App was
+   * uninstalled from the account), `'installation-permissions'` (an owner took
+   * permissions from the installation), `'suspended'` (the installation was
+   * suspended), `'sessions-revoked'` (Google revoked the person's sessions).
+   * Other values may be added; `state` says what to do.
+   */
   readonly stateReason?: string;
   readonly installationId?: string;
   /** When its current grant was stored: the connect, or the last reconnect. */
@@ -114,6 +124,13 @@ export interface ConnectionRecord {
 }
 
 export type ConnectRequestState = 'pending' | 'connected' | 'declined' | 'expired' | 'failed';
+
+/** A GitHub App installation a person can reach, offered to pick from. */
+export interface ConnectRequestInstallation {
+  readonly installationId: string;
+  /** The account it's on: its login, or the enterprise's slug. */
+  readonly account: ConnectionAccount;
+}
 
 /** A connect: the owner goes to `connectUrl`, consents at the app, and comes back. */
 export interface ConnectRequestRecord {
@@ -145,6 +162,14 @@ export interface ConnectRequestRecord {
   readonly failure?: string;
   /** The permissions the app granted less than asked. */
   readonly missing?: readonly string[];
+  /**
+   * A GitHub App's, while it's `pending`: the app's installations the
+   * person's GitHub account reaches, when the finish found several and
+   * none was picked. They pick one and start again (`startRequest`'s
+   * `installationId`), or install the app on another account
+   * (`newInstallation`).
+   */
+  readonly installations?: readonly ConnectRequestInstallation[];
   readonly connectionId?: string;
   /** Absolute: the server's public URL. */
   readonly connectUrl: string;
@@ -162,6 +187,7 @@ export type ConnectionErrorCode =
   | 'connection-app-unknown-entry'
   | 'connection-app-in-use'
   | 'connection-not-yours'
+  | 'connection-installation-unreachable'
   | 'connection-request-expired'
   | 'connection-request-used'
   | 'connection-state-expired'
@@ -177,6 +203,12 @@ export interface ConnectionError {
   readonly message: string;
   /** The input field at fault (`connection-app-invalid`, `bad-input`). */
   readonly field?: string;
+  /**
+   * The connect request it's about, for its starter to go on with
+   * (`connection-installation-unreachable`: start it again with
+   * `newInstallation`).
+   */
+  readonly connectRequestId?: string;
 }
 
 export interface ConnectionPage<T> {
@@ -249,7 +281,13 @@ export type ConnectFinishOutcome =
       readonly connection: ConnectionRecord;
     }
   /** The person declined, or granted less than asked (`request.missing`). */
-  | { readonly kind: 'declined'; readonly request: ConnectRequestRecord };
+  | { readonly kind: 'declined'; readonly request: ConnectRequestRecord }
+  /**
+   * A GitHub App's: the person's GitHub account reaches several
+   * installations and none was picked. The request stays `pending`, with
+   * its `installations` to pick from.
+   */
+  | { readonly kind: 'pick-installation'; readonly request: ConnectRequestRecord };
 
 /**
  * The store behind the connections routes. A runtime implements it; an
@@ -316,11 +354,19 @@ export interface ConnectionBinding {
    * The owner (a member's), or a tenant admin (the company's), starts it:
    * a fresh state and PKCE verifier, good for 10 minutes, and the app's
    * consent page to send them to. Records who started it.
+   *
+   * A GitHub App's goes to the app's install page while the app has no
+   * installation, or with `newInstallation`; otherwise to GitHub's user
+   * authorization. Either field on another app's request is `bad-input`.
    */
   startRequest(input: {
     readonly tenantId: TenantId;
     readonly requestId: string;
     readonly caller: PrincipalRef;
+    /** A GitHub App's: the installation to attach, one of the request's `installations`. */
+    readonly installationId?: string;
+    /** A GitHub App's: install the app on another account, even when it has installations. */
+    readonly newInstallation?: true;
   }): Promise<Result<{ readonly authorizeUrl: string }, ConnectionError>>;
   /**
    * Only whoever started it may finish it (`connection-not-yours`). Checks
@@ -332,6 +378,14 @@ export interface ConnectionBinding {
    * after it was made, finishes as a reconnect of that connection: the
    * same account is required (`connection-account-mismatch`), and the
    * permissions are both sets.
+   *
+   * A GitHub App's attaches an installation only if the person's GitHub
+   * account reaches it: the one GitHub sent back, the one they picked, or
+   * the only one they reach. None they reach is
+   * `connection-installation-unreachable`, with the request's id: the way
+   * on is installing the app on their account (`newInstallation`). Several
+   * and none picked is `pick-installation`: the request stays `pending`
+   * with its `installations`, and no `failure`.
    */
   finishRequest(input: ConnectFinishInput): Promise<Result<ConnectFinishOutcome, ConnectionError>>;
 

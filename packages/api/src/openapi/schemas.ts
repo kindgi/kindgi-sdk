@@ -774,6 +774,8 @@ export const RunWaitingApprovalSchema: JsonSchema = {
         callId: { type: 'string', description: "The model's id for the call." },
       },
     },
+    approver: { $ref: '#/components/schemas/ApprovalApprover' },
+    connection: { $ref: '#/components/schemas/ApprovalConnection' },
   },
 };
 
@@ -785,6 +787,11 @@ export const RunWaitingForSchema: JsonSchema = {
     "Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.",
   properties: {
     approvals: { type: 'array', items: { $ref: '#/components/schemas/RunWaitingApproval' } },
+    connections: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/WaitingForConnection' },
+      description: 'The connects the run waits for. Left out when there are none.',
+    },
     other: {
       type: 'array',
       items: {
@@ -2212,6 +2219,8 @@ export const ApprovalSchema: JsonSchema = {
       format: 'uuid',
       description: 'The approval this one was escalated to.',
     },
+    approver: { $ref: '#/components/schemas/ApprovalApprover' },
+    connection: { $ref: '#/components/schemas/ApprovalConnection' },
   },
 };
 
@@ -3654,7 +3663,43 @@ export const HttpAuthSpecSchema: JsonSchema = {
         secretRef: { $ref: '#/components/schemas/ToolSecretRef' },
       },
     },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'connection'],
+      description:
+        'A connection the tool declares in `needsSpec.connections`, by its name there: sent as `Authorization: Bearer <access token>`.',
+      properties: {
+        kind: { const: 'connection' },
+        connection: { type: 'string', pattern: '^[a-z][a-zA-Z0-9_]{0,63}$' },
+      },
+    },
   ],
+};
+
+export const ConnectionNeedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['app', 'permissions', 'as'],
+  properties: {
+    app: {
+      type: 'string',
+      pattern: '^[a-z][a-z0-9-]{1,31}$',
+      description: "The app's entry id: `google`, `github`.",
+    },
+    permissions: {
+      type: 'array',
+      minItems: 1,
+      uniqueItems: true,
+      items: { type: 'string', pattern: '^[a-z][a-z0-9_.-]{0,63}$' },
+      description: "The entry's permission keys the call needs: `gmail.send`.",
+    },
+    as: {
+      enum: ['person', 'company'],
+      description:
+        "Whose connection: `person`, the run's person (the one it acts for, who started it or owns its trigger); `company`, the tenant's.",
+    },
+  },
 };
 
 export const HttpRequestBodySpecSchema: JsonSchema = {
@@ -3761,13 +3806,20 @@ export const TypedNeedsSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'Typed discriminated needs (env / secrets / config / capabilities / bindings). Optional additive field.',
+    'Typed discriminated needs (env / secrets / config / capabilities / bindings / connections). Optional additive field.',
   properties: {
     env: { type: 'object', additionalProperties: { type: 'object' } },
     secrets: { type: 'object', additionalProperties: { type: 'object' } },
     config: { type: 'object', additionalProperties: { type: 'object' } },
     capabilities: { type: 'array', items: { type: 'string', minLength: 1 } },
     bindings: { type: 'array', items: { type: 'string', minLength: 1 } },
+    connections: {
+      type: 'object',
+      description:
+        "Accounts at other apps the tool acts with, by the tool's own name for each (`mail`). The runtime resolves them per call into the context's `connections`.",
+      propertyNames: { pattern: '^[a-z][a-zA-Z0-9_]{0,63}$' },
+      additionalProperties: { $ref: '#/components/schemas/ConnectionNeed' },
+    },
   },
 };
 
@@ -13601,6 +13653,552 @@ export const WebhookEndpointUnregisterResultSchema: JsonSchema = {
   },
 };
 
+// ---------- connections ----------
+
+export const ConnectionSecretRefSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['envName', 'name'],
+  description:
+    "A secret by name in the deployment's secrets store, resolved at tenant scope. The registration keeps only this reference, never the value.",
+  properties: {
+    envName: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,62}$' },
+    name: { type: 'string', minLength: 1, maxLength: 256 },
+  },
+};
+
+export const ConnectionOwnerSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description:
+    "Who owns a connection: one member (`kind: member`, with their `userId`), or the company (`kind: company`, the tenant's own account).",
+  properties: {
+    kind: { type: 'string', enum: ['member', 'company'] },
+    userId: { type: 'string', description: 'The member. Present when `kind` is `member`.' },
+  },
+};
+
+export const ConnectionAccountSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'label'],
+  description: 'Whose account a connection is at the app.',
+  properties: {
+    id: { type: 'string', description: "The account's stable id at the app." },
+    label: { type: 'string', description: 'What people see: an email address, a login.' },
+  },
+};
+
+export const ConnectionStateSchema: JsonSchema = {
+  type: 'string',
+  enum: ['working', 'needs-reconnecting', 'removing', 'removed'],
+  description:
+    '`working`: runs can use it. `needs-reconnecting`: the app no longer accepts it; connect again. `removing`: a disconnect is under way. `removed`: gone.',
+};
+
+export const ConnectionEntryPermissionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['says', 'changes'],
+  properties: {
+    says: { type: 'string', description: 'In plain words, for the person asked.' },
+    changes: {
+      type: 'boolean',
+      description: 'Whether it changes anything at the app. `false` is read only.',
+    },
+  },
+};
+
+export const ConnectionEntrySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'name', 'owners', 'signIn', 'permissions', 'setupGuide'],
+  description: 'An app this server can connect to.',
+  properties: {
+    id: { type: 'string', description: "The entry id: `'google'`, `'github'`." },
+    name: { type: 'string', description: "The app's name as people know it." },
+    owners: {
+      type: 'array',
+      items: { type: 'string', enum: ['member', 'company'] },
+      description: 'Who may own a connection to this app.',
+    },
+    signIn: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind'],
+      description: 'How a person signs in at the app.',
+      properties: { kind: { type: 'string', enum: ['oauth2', 'github-app'] } },
+    },
+    permissions: {
+      type: 'object',
+      additionalProperties: { $ref: '#/components/schemas/ConnectionEntryPermission' },
+      description: 'What a tool may ask for, by permission key (`gmail.send`).',
+    },
+    setupGuide: {
+      type: 'string',
+      description: 'The docs page an admin follows to register the app.',
+    },
+  },
+};
+
+export const ConnectionEntryListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ConnectionEntry' } },
+  },
+};
+
+export const ConnectionOAuth2AppSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['clientId', 'clientSecret'],
+  properties: {
+    clientId: { type: 'string' },
+    clientSecret: { $ref: '#/components/schemas/ConnectionSecretRef' },
+  },
+};
+
+export const ConnectionGitHubAppSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['appNumber', 'slug', 'clientId', 'clientSecret', 'privateKey', 'webhookSecret'],
+  properties: {
+    appNumber: { type: 'integer', minimum: 1 },
+    slug: { type: 'string', description: "The app's slug." },
+    clientId: { type: 'string' },
+    clientSecret: { $ref: '#/components/schemas/ConnectionSecretRef' },
+    privateKey: { $ref: '#/components/schemas/ConnectionSecretRef' },
+    webhookSecret: { $ref: '#/components/schemas/ConnectionSecretRef' },
+  },
+};
+
+export const ConnectionAppSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['appId', 'app', 'redirectUrl', 'noticesUrl', 'createdAt', 'updatedAt'],
+  description:
+    "A tenant's registration of its own client at an app. Secrets are references, never values.",
+  properties: {
+    appId: { type: 'string', format: 'uuid' },
+    app: { type: 'string', description: "The app's entry id." },
+    label: { type: 'string' },
+    oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
+    githubApp: { $ref: '#/components/schemas/ConnectionGitHubApp' },
+    projects: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The projects whose runs may use its connections. Absent: every project.',
+    },
+    redirectUrl: {
+      type: 'string',
+      format: 'uri',
+      description:
+        'Give this to the app as its redirect URL: a GitHub App\'s Callback URL, with "Request user authorization (OAuth) during installation" ticked.',
+    },
+    noticesUrl: {
+      type: 'string',
+      format: 'uri',
+      description: 'Give this to the app as the place it reports removals.',
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+    removedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const ConnectionAppPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ConnectionApp' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const CreateConnectionAppBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['app'],
+  description: 'Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App.',
+  properties: {
+    app: { type: 'string', pattern: '^[a-z][a-z0-9-]{1,31}$', description: "The app's entry id." },
+    label: { type: 'string', maxLength: 200 },
+    oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
+    githubApp: { $ref: '#/components/schemas/ConnectionGitHubApp' },
+    projects: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 500,
+      items: { type: 'string' },
+      description: 'The projects whose runs may use its connections. Leave out for every project.',
+    },
+  },
+};
+
+export const UpdateConnectionAppBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'Fields to change; absent fields are kept. The app itself cannot change.',
+  properties: {
+    label: { type: 'string', maxLength: 200 },
+    oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
+    githubApp: { $ref: '#/components/schemas/ConnectionGitHubApp' },
+    projects: {
+      type: ['array', 'null'],
+      minItems: 1,
+      maxItems: 500,
+      items: { type: 'string' },
+      description: '`null` allows every project.',
+    },
+  },
+};
+
+export const ConnectionAppRemovedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['connectionsRemoved'],
+  properties: {
+    connectionsRemoved: {
+      type: 'integer',
+      minimum: 0,
+      description: 'How many live connections the removal took with it.',
+    },
+  },
+};
+
+export const ConnectionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'connectionId',
+    'envName',
+    'appId',
+    'app',
+    'owner',
+    'account',
+    'permissions',
+    'state',
+    'connectedAt',
+    'createdAt',
+    'createdBy',
+    'updatedAt',
+  ],
+  description:
+    "One owner's account at an app, through a registration, in one env. Never its token.",
+  properties: {
+    connectionId: { type: 'string', format: 'uuid' },
+    envName: { type: 'string' },
+    appId: { type: 'string', format: 'uuid', description: 'The registration it goes through.' },
+    app: { type: 'string', description: "The app's entry id." },
+    owner: { $ref: '#/components/schemas/ConnectionOwner' },
+    account: { $ref: '#/components/schemas/ConnectionAccount' },
+    permissions: {
+      type: 'array',
+      items: { type: 'string' },
+      description: "The entry's permission keys the app granted.",
+    },
+    state: { $ref: '#/components/schemas/ConnectionState' },
+    stateReason: {
+      type: 'string',
+      description:
+        "Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions). Other values may be added; `state` says what to do.",
+    },
+    installationId: { type: 'string', description: "A GitHub App's installation." },
+    connectedAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When its current grant was stored: the connect, or the last reconnect.',
+    },
+    lastUsedAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When a run last used it, to the hour.',
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    createdBy: { type: 'string' },
+    updatedAt: { type: 'string', format: 'date-time' },
+    removedAt: { type: 'string', format: 'date-time' },
+    removedBy: { type: 'string' },
+    removedReason: {
+      type: 'string',
+      enum: ['disconnected', 'revoked-at-app', 'uninstalled', 'registration-removed', 'replaced'],
+    },
+    withdrawn: {
+      type: 'string',
+      enum: ['at-app', 'app-failed', 'kept-for-other-connection', 'not-supported'],
+      description:
+        'What a removal did at the app. `at-app`: access was withdrawn there. `app-failed`: the app refused the revoke; the token is gone here all the same. `kept-for-other-connection`: another live connection uses the same grant. `not-supported`: the app has no revoke that would touch only this connection.',
+    },
+  },
+};
+
+export const ConnectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/Connection' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const ConnectRequestSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'requestId',
+    'envName',
+    'appId',
+    'app',
+    'owner',
+    'permissions',
+    'says',
+    'state',
+    'connectUrl',
+    'expiresAt',
+    'createdAt',
+    'createdBy',
+  ],
+  description:
+    'A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one.',
+  properties: {
+    requestId: { type: 'string', format: 'uuid' },
+    envName: { type: 'string' },
+    appId: { type: 'string', format: 'uuid' },
+    app: { type: 'string', description: "The app's entry id." },
+    owner: { $ref: '#/components/schemas/ConnectionOwner' },
+    permissions: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The permissions asked for: the ones needed, and the ones already granted.',
+    },
+    says: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'What each asks for, in plain words.',
+    },
+    reconnects: {
+      type: 'string',
+      format: 'uuid',
+      description: 'The connection it connects again; the same account is required.',
+    },
+    runId: { type: 'string', description: 'The run that waits for it.' },
+    name: { type: 'string', description: "The tool's name for the connection, when a run waits." },
+    startedBy: {
+      type: 'string',
+      description: 'Who started it last: `<kind>:<id>`. Only they may finish it.',
+    },
+    state: {
+      type: 'string',
+      enum: ['pending', 'connected', 'declined', 'expired', 'failed'],
+    },
+    failure: {
+      type: 'string',
+      description: 'Why it failed: `account-mismatch`, `app-refused`, `store-write-failed`.',
+    },
+    missing: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The permissions the app granted less than asked.',
+    },
+    installations: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ConnectRequestInstallation' },
+      description:
+        "A GitHub App's, while it's `pending`: the app's installations the person's GitHub account reaches, when the finish found several and none was picked. They pick one and start again with `installationId`, or install the app on another account with `newInstallation`.",
+    },
+    connectionId: { type: 'string', format: 'uuid', description: 'The connection it made.' },
+    connectUrl: { type: 'string', format: 'uri', description: 'Where the owner starts.' },
+    expiresAt: { type: 'string', format: 'date-time' },
+    createdAt: { type: 'string', format: 'date-time' },
+    createdBy: { type: 'string' },
+  },
+};
+
+export const CreateConnectRequestBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['app', 'permissions'],
+  properties: {
+    app: { type: 'string', pattern: '^[a-z][a-z0-9-]{1,31}$', description: "The app's entry id." },
+    appId: {
+      type: 'string',
+      format: 'uuid',
+      description: 'Which registration, when the tenant has more than one for the app.',
+    },
+    projectId: {
+      type: 'string',
+      minLength: 1,
+      description: 'When given, the registration must allow this project.',
+    },
+    permissions: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 64,
+      items: { type: 'string' },
+      description: "The entry's permission keys to ask for.",
+    },
+    for: {
+      type: 'string',
+      enum: ['me', 'company'],
+      default: 'me',
+      description:
+        "`me`: the caller's own account (signed in as a person). `company`: the company's account; a tenant admin only.",
+    },
+  },
+};
+
+export const ConnectRequestInstallationSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['installationId', 'account'],
+  description: 'A GitHub App installation the person can reach.',
+  properties: {
+    installationId: { type: 'string' },
+    account: {
+      $ref: '#/components/schemas/ConnectionAccount',
+      description: "The account it's on: its login, or the enterprise's slug.",
+    },
+  },
+};
+
+export const StartConnectBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Optional, and a GitHub App's only: the installation to attach, or a new one. Leave it out for any other app.",
+  properties: {
+    installationId: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 64,
+      description: "The installation to attach: one of the request's `installations`.",
+    },
+    newInstallation: {
+      type: 'boolean',
+      description:
+        "`true`: go to the app's install page to install it on another account, even when it has installations. Not with `installationId`.",
+    },
+  },
+};
+
+export const FinishConnectBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['state'],
+  description:
+    'What the app sent back to the callback page, each as a string. Only whoever started the request may finish it.',
+  properties: {
+    state: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 2048,
+      description: 'The one the app sent back.',
+    },
+    code: { type: 'string', minLength: 1, maxLength: 2048 },
+    installationId: { type: 'string', minLength: 1, maxLength: 2048 },
+    setupAction: { type: 'string', minLength: 1, maxLength: 2048 },
+    error: { type: 'string', minLength: 1, maxLength: 2048 },
+    errorDescription: { type: 'string', minLength: 1, maxLength: 2048 },
+  },
+};
+
+export const ConnectFinishSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'request'],
+  properties: {
+    kind: {
+      type: 'string',
+      enum: ['connected', 'declined', 'pick-installation'],
+      description:
+        "`declined`: the person declined, or granted less than asked (`request.missing`). `pick-installation`: a GitHub App's person reaches several installations and picked none; the request stays `pending` with its `installations`.",
+    },
+    request: { $ref: '#/components/schemas/ConnectRequest' },
+    connection: {
+      $ref: '#/components/schemas/Connection',
+      description: 'Present when `kind` is `connected`.',
+    },
+    reviewerSeat: {
+      type: 'boolean',
+      description:
+        'On a server with approvals, for a member who connected: whether they have a reviewer seat, which approving a send from their own account needs.',
+    },
+  },
+};
+
+export const ConnectStartSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['authorizeUrl'],
+  properties: {
+    authorizeUrl: {
+      type: 'string',
+      format: 'uri',
+      description:
+        "The app's consent page, with a fresh sign-in state good for 10 minutes. Send the person there.",
+    },
+  },
+};
+
+export const WaitingForConnectionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'requestId', 'waitToken', 'app', 'appName', 'says', 'connectUrl', 'expiresAt'],
+  description:
+    'A connect the run waits for: the person opens `connectUrl`, consents at the app, and the run goes on.',
+  properties: {
+    name: { type: 'string', description: "The tool's name for the connection." },
+    requestId: { type: 'string', format: 'uuid' },
+    waitToken: { type: 'string' },
+    app: { type: 'string', description: "The app's entry id." },
+    appName: { type: 'string' },
+    says: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'What each permission asked for allows, in plain words.',
+    },
+    connectUrl: { type: 'string', format: 'uri' },
+    expiresAt: { type: 'string', format: 'date-time' },
+    reconnects: {
+      type: 'boolean',
+      description: 'The person connected this app before, and connects it again.',
+    },
+  },
+};
+
+export const ApprovalApproverSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'userId'],
+  description: 'The one member who may decide it.',
+  properties: {
+    kind: { type: 'string', enum: ['member'] },
+    userId: { type: 'string' },
+  },
+};
+
+export const ApprovalConnectionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['app', 'appName', 'account'],
+  description: "The person's account the call would use.",
+  properties: {
+    app: { type: 'string', description: "The app's entry id." },
+    appName: { type: 'string' },
+    account: {
+      type: 'string',
+      description: "The account's label at the app: an email address, a login.",
+    },
+  },
+};
+
 /** A run tree's model calls, as `run.finished` carries them. */
 export const RunTreeUsageSchema: JsonSchema = {
   type: 'object',
@@ -14137,6 +14735,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ToolSecretRef', ToolSecretRefSchema],
   ['HttpHeaderSpec', HttpHeaderSpecSchema],
   ['HttpAuthSpec', HttpAuthSpecSchema],
+  ['ConnectionNeed', ConnectionNeedSchema],
   ['HttpRequestBodySpec', HttpRequestBodySpecSchema],
   ['HttpToolSpec', HttpToolSpecSchema],
   ['SandboxMode', SandboxModeSchema],
@@ -14574,6 +15173,33 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CreateWebhookEndpointBody', CreateWebhookEndpointBodySchema],
   ['PatchWebhookEndpointBody', PatchWebhookEndpointBodySchema],
   ['WebhookEndpointUnregisterResult', WebhookEndpointUnregisterResultSchema],
+  // Connections.
+  ['ConnectionSecretRef', ConnectionSecretRefSchema],
+  ['ConnectionOwner', ConnectionOwnerSchema],
+  ['ConnectionAccount', ConnectionAccountSchema],
+  ['ConnectionState', ConnectionStateSchema],
+  ['ConnectionEntryPermission', ConnectionEntryPermissionSchema],
+  ['ConnectionEntry', ConnectionEntrySchema],
+  ['ConnectionEntryList', ConnectionEntryListSchema],
+  ['ConnectionOAuth2App', ConnectionOAuth2AppSchema],
+  ['ConnectionGitHubApp', ConnectionGitHubAppSchema],
+  ['ConnectionApp', ConnectionAppSchema],
+  ['ConnectionAppPage', ConnectionAppPageSchema],
+  ['CreateConnectionAppBody', CreateConnectionAppBodySchema],
+  ['UpdateConnectionAppBody', UpdateConnectionAppBodySchema],
+  ['ConnectionAppRemoved', ConnectionAppRemovedSchema],
+  ['Connection', ConnectionSchema],
+  ['ConnectionPage', ConnectionPageSchema],
+  ['ConnectRequest', ConnectRequestSchema],
+  ['CreateConnectRequestBody', CreateConnectRequestBodySchema],
+  ['ConnectRequestInstallation', ConnectRequestInstallationSchema],
+  ['StartConnectBody', StartConnectBodySchema],
+  ['FinishConnectBody', FinishConnectBodySchema],
+  ['ConnectFinish', ConnectFinishSchema],
+  ['ConnectStart', ConnectStartSchema],
+  ['WaitingForConnection', WaitingForConnectionSchema],
+  ['ApprovalApprover', ApprovalApproverSchema],
+  ['ApprovalConnection', ApprovalConnectionSchema],
   ['RunTreeUsage', RunTreeUsageSchema],
   ['FinishedRun', FinishedRunSchema],
   ['RunFinishedEvent', RunFinishedEventSchema],

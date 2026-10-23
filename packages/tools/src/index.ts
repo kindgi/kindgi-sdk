@@ -29,12 +29,14 @@ export { ToolPreconditionError, isToolPreconditionError } from './precondition.j
 export {
   ConnectionRejectedError,
   ConnectionRenewError,
+  connectionRejectionOf,
   isConnectionRejectedError,
   isConnectionRenewError,
 } from './connections.js';
 export type {
   ConnectionAccount,
   ConnectionNeed,
+  ConnectionRejection,
   ConnectionResolver,
   ResolveConnectionsInput,
   ResolveConnectionsOutcome,

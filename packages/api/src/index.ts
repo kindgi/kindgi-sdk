@@ -853,6 +853,7 @@ export type {
   ConnectFinishInput,
   ConnectFinishOutcome,
   ConnectRequestCreateInput,
+  ConnectRequestInstallation,
   ConnectRequestRecord,
   ConnectRequestState,
   ConnectionAppCreateInput,

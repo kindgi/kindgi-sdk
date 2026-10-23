@@ -43,7 +43,7 @@ from pydantic import ValidationError as PydanticError
 from .._json import compact_dumps
 from .._schema import Issue, SchemaValidator, apply_defaults, issues_from_pydantic
 from ..log import Logger, child_span, noop_logger, parse_traceparent
-from .context import Cancellation, ToolContext
+from .context import Cancellation, ConnectionRejected, ToolContext
 from .define import Guardrail, Tool, check_result_to_wire
 from .loader import import_pack_module, mount_pack, primitives_of
 from .protocol import (
@@ -508,6 +508,14 @@ class PackService:
         except BaseException as cause:
             if isinstance(cause, KeyboardInterrupt):
                 raise
+            rejected = _rejection_of(cause)
+            if rejected is not None:
+                return pack_error(
+                    "connection-rejected",
+                    f'Tool "{tool_id}": {rejected}',
+                    toolId=tool_id,
+                    connection=rejected.connection,
+                )
             return pack_error(
                 "handler-throw",
                 f'Handler for tool "{tool_id}" threw: {_describe_named(cause)}',
@@ -751,6 +759,26 @@ def _first_issue(issues: list[Issue]) -> str:
 
 def _describe(cause: BaseException) -> str:
     return str(cause) or type(cause).__name__
+
+
+_REJECTION_DEPTH = 4
+"""How many errors deep a refusal is looked for: the error and three causes."""
+
+
+def _rejection_of(error: BaseException) -> ConnectionRejected | None:
+    """The refusal an error is, or was raised ``from``, up to three causes deep.
+
+    A tool may wrap the app's refusal in its own error
+    (``raise SendFailed() from rejected``); that still renews the token.
+    """
+    at: BaseException | None = error
+    for _ in range(_REJECTION_DEPTH):
+        if at is None:
+            return None
+        if isinstance(at, ConnectionRejected):
+            return at
+        at = at.__cause__
+    return None
 
 
 def _describe_named(cause: BaseException) -> str:
