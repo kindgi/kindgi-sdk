@@ -14,7 +14,12 @@
 import { KINDGI_ACCESS_ORIGIN } from '../license/protocol.js';
 import { dockerUnreachable } from './blocked.js';
 import type { DockerOutcome, DockerRunner } from './runtime-container.js';
-import { KINDGI_REGISTRY, RUNTIME_IMAGE_REGISTRY, registryOf } from './runtime-image.js';
+import {
+  KINDGI_REGISTRY,
+  RUNTIME_IMAGE_REGISTRY,
+  isKindgiRegistry,
+  registryOf,
+} from './runtime-image.js';
 
 /** How a registry, or Docker relaying it, refuses credentials or access. */
 const AUTH_FAILURE =
@@ -56,8 +61,9 @@ export function credentialHelperHint(helper: string | undefined): string {
  * `--registry` only when it isn't the pinned image's.
  */
 export function registryLoginArgs(registry: string): readonly string[] {
-  const other = registry === RUNTIME_IMAGE_REGISTRY ? [] : ['--registry', registry];
-  return registry === KINDGI_REGISTRY
+  const host = isKindgiRegistry(registry) ? KINDGI_REGISTRY : registry;
+  const other = host === RUNTIME_IMAGE_REGISTRY ? [] : ['--registry', host];
+  return host === KINDGI_REGISTRY
     ? ['auth', 'registry', ...other]
     : ['auth', 'registry', '--username', '<your robot name>', ...other];
 }
@@ -69,7 +75,7 @@ export function registryLoginCommand(image: string): string {
 
 /** What pulling `image` takes, and where it comes from: a hint's first words. */
 export function pullCredentialNeeded(image: string): string {
-  return registryOf(image) === KINDGI_REGISTRY
+  return isKindgiRegistry(registryOf(image))
     ? `The runtime image needs your license key: sign in at ${KINDGI_ACCESS_ORIGIN} for it`
     : `The runtime image needs a pull credential: sign in with GitHub at ${KINDGI_ACCESS_ORIGIN} for one`;
 }
@@ -113,7 +119,7 @@ export type RegistryLogin =
 
 /** What to check when `registry` refuses a login. */
 function loginRefusedHint(registry: string): string {
-  if (registry === KINDGI_REGISTRY) {
+  if (isKindgiRegistry(registry)) {
     return `Check the license key: signing in at ${KINDGI_ACCESS_ORIGIN} shows yours.`;
   }
   return `Check the username and the token.${registry === RUNTIME_IMAGE_REGISTRY ? ` Signing in at ${KINDGI_ACCESS_ORIGIN} shows both.` : ''}`;

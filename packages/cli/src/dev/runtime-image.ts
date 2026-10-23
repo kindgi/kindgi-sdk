@@ -46,6 +46,11 @@ export const KINDGI_REGISTRY = 'registry.kindgi.com';
 /** The username `kindgi auth registry` logs in to `KINDGI_REGISTRY` as. */
 export const KINDGI_REGISTRY_USERNAME = 'kindgi';
 
+/** Whether `host` is `KINDGI_REGISTRY`, in any case: a hostname is case-insensitive. */
+export function isKindgiRegistry(host: string): boolean {
+  return host.toLowerCase() === KINDGI_REGISTRY;
+}
+
 /**
  * The same image on another registry: its repository path, tag and digest
  * under `registry`, the way a mirror carries it.

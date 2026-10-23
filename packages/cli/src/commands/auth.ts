@@ -11,6 +11,7 @@ import {
   KINDGI_REGISTRY_USERNAME,
   RUNTIME_IMAGE_REGISTRY,
   imageOnRegistry,
+  isKindgiRegistry,
   registryOf,
 } from '../dev/runtime-image.js';
 import {
@@ -229,7 +230,10 @@ function registryArgs(ctx: CommandContext): RegistryArgs | (CommandResult & { ki
       `--registry takes a registry host, such as ${RUNTIME_IMAGE_REGISTRY} or 127.0.0.1:5000, not "${registryFlag}".`,
     );
   }
-  const host = typeof registryFlag === 'string' ? registryFlag : RUNTIME_IMAGE_REGISTRY;
+  const given = typeof registryFlag === 'string' ? registryFlag : RUNTIME_IMAGE_REGISTRY;
+  // Kindgi's registry, however it was typed, is logged in to by its own
+  // name: the host the pinned image names, so its pull finds the login.
+  const host = isKindgiRegistry(given) ? KINDGI_REGISTRY : given;
   const withKey = host === KINDGI_REGISTRY;
   const conflict = flagConflict({ check, fromStdin, username, keyFrom, host });
   if (conflict !== undefined) return conflict;

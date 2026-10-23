@@ -50,7 +50,7 @@ import {
 } from '../dev/google-credentials.js';
 import { javaMajor } from '../dev/pack-code.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
-import { DEFAULT_RUNTIME_IMAGE, KINDGI_REGISTRY, registryOf } from '../dev/runtime-image.js';
+import { DEFAULT_RUNTIME_IMAGE, isKindgiRegistry, registryOf } from '../dev/runtime-image.js';
 import {
   checkDocker,
   checkImageAccess,
@@ -739,7 +739,7 @@ async function registryCheck(
 ): Promise<DoctorCheck> {
   const access = await checkImageAccess(run, image);
   const host = registryOf(image);
-  const withKey = host === KINDGI_REGISTRY;
+  const withKey = isKindgiRegistry(host);
   const command = kindgi(...registryLoginArgs(host), '--password-stdin');
   const login = withKey
     ? `${command} (your license key is on ${KINDGI_ACCESS_ORIGIN} once you sign in; pipe it in, never paste it into a chat)`

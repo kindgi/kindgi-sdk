@@ -473,6 +473,24 @@ describe("Kindgi's registry: the license key logs in", () => {
     expect(fake.calls.find((c) => c.args[0] === 'login')?.options).toEqual({ stdin: KEY });
   });
 
+  test('a host is case-insensitive: Registry.Kindgi.com takes the key, logged in as registry.kindgi.com', async () => {
+    const fake = fakeDocker();
+    const out = await runRegistry(['--registry', 'Registry.Kindgi.com', '--password-stdin'], {
+      docker: fake.run,
+      readStdin: async () => KEY,
+    });
+    expect(out.exitCode).toBe(0);
+    expect(fake.calls.find((c) => c.args[0] === 'login')?.args).toEqual([
+      'login',
+      'registry.kindgi.com',
+      '--username',
+      'kindgi',
+      '--password-stdin',
+    ]);
+    expect(fake.calls.at(-1)?.args).toEqual(['buildx', 'imagetools', 'inspect', KINDGI_IMAGE]);
+    expect(out.stderr).toContain('✓ Logged in to registry.kindgi.com with your license key.');
+  });
+
   test('--key-from reads it from where it is kept, and leaves it there unchanged', async () => {
     const file = join(dir, 'license-key');
     const envFile = join(dir, 'kindgi.env');
