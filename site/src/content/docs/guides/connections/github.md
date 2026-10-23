@@ -123,7 +123,11 @@ is the way there.
   installations, or not the one you picked,** Kindgi says **The app isn't
   reachable from your GitHub account**
   (`connection-installation-unreachable`). Choose **Install on another
-  account**, and install it on an account of yours.
+  account** and install it on an account you manage, or ask an owner of
+  the account it's installed on.
+- **When your organization makes installs wait for an owner's
+  approval,** the connect fails with `connection-app-refused` until an
+  owner approves the install on GitHub. Connect again once they have.
 - **Only whoever started a connect can finish it,** signed in to Kindgi
   as themselves. Anyone else sees **Someone else started this sign-in**
   (`connection-not-yours`).
@@ -134,8 +138,10 @@ the repositories you picked when you installed the app.
 ## Disconnecting
 
 **Connections → Disconnect** stops Kindgi using the app at once and revokes
-its live token
-([How connections work](../reference/#disconnecting)).
+the short-lived tokens it holds
+([How connections work](../reference/#disconnecting)). Connecting again
+later goes through GitHub's authorization and gets the same installation
+back, without installing it again.
 
 **It doesn't uninstall the app from your organization.** The app keeps its
 access to the repositories you picked until you uninstall it on GitHub:

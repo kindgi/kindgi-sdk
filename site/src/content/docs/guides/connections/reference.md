@@ -52,6 +52,11 @@ connection and account a call used.
   ([When the connection is missing](../use-a-connection/#when-the-connection-is-missing)).
 - **The connection's page shows when it was last used,** so you can
   disconnect what nobody uses.
+- **Each renewal is logged** at info level as
+  `a connection was renewed`, with the connection's id, its app and a
+  hash of its account, never a token or an address. A renewal that finds
+  the grant ended logs
+  `a connection renewal found it needs reconnecting`, with the reason.
 
 ## Disconnecting
 
@@ -63,8 +68,9 @@ console's **Connections** page. Kindgi then:
    - **Google:** withdraws the grant, unless another live connection in
      your workspace uses the same Google account. Google's withdrawal
      covers the whole grant, so it would end that connection's access too.
-   - **GitHub:** revokes the live token. The app stays installed on your
-     organization until you uninstall it on GitHub
+   - **GitHub:** revokes the short-lived tokens it holds. Any other ends
+     within the hour, when GitHub expires it. The app stays installed on
+     your organization until you uninstall it on GitHub
      ([GitHub](../github/#disconnecting)).
    - If the app doesn't answer, Kindgi records that and goes on.
 3. **Destroys the stored token** in your secret store (below).
