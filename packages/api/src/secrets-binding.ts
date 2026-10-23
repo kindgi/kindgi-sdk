@@ -534,6 +534,13 @@ export interface SecretRevokeInput {
 export interface SecretRevokeOutcome {
   readonly revoked: boolean;
   readonly hard: boolean;
+  /**
+   * A hard revoke left a copy the secret manager can still recover: when
+   * it purges that copy on its own, as an ISO 8601 time
+   * (`SecretProviderDeleteOutput.recoverableUntil`). Absent when nothing
+   * recoverable is left. Copies in backups aren't counted.
+   */
+  readonly recoverableUntil?: string;
 }
 
 export type SecretError =

@@ -868,6 +868,35 @@ describe('kindgi secrets revoke', () => {
     const call = fixtures.state.revokeCalls[0] as { hard?: boolean; reason?: string };
     expect(call.hard).toBe(true);
     expect(call.reason).toBe('compromised');
+    expect(out.stderr).not.toContain('recoverable copy');
+    expect(JSON.parse(out.stdout)).not.toHaveProperty('recoverableUntil');
+  });
+
+  test('a hard revoke that left a recoverable copy says until when', async () => {
+    const until = '2026-11-22T21:00:00.000Z';
+    const fixtures = makeFixtures();
+    const clientFactory = (): unknown =>
+      makeFakeClient({
+        revoke: async () => ({ revoked: true, hard: true, recoverableUntil: until }),
+      });
+    const out = await runCli({
+      ...baseInputs(fixtures, [
+        'secrets',
+        'revoke',
+        'stripe.key',
+        '--env=staging',
+        '--scope=tenant',
+        '--hard',
+        '--url=https://api.example.com',
+        '--token=t',
+      ]),
+      clientFactory: clientFactory as never,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain(
+      `Your secret manager keeps a recoverable copy until ${until}; the runtime's log says why it wasn't purged.`,
+    );
+    expect(JSON.parse(out.stdout)).toMatchObject({ hard: true, recoverableUntil: until });
   });
 });
 

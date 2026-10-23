@@ -9840,6 +9840,10 @@ class SecretRevokeOutcome(BaseModel):
     )
     revoked: bool
     hard: bool
+    recoverable_until: Annotated[AwareDatetime | None, Field(alias="recoverableUntil")] = None
+    """
+    A hard revoke left a copy your secret manager can still recover (Azure Key Vault's soft delete, when the vault doesn't allow a purge or the runtime may not purge): when the secret manager purges it on its own. Absent when nothing recoverable is left.
+    """
 
 
 class EnvDeleteResult(BaseModel):
@@ -9895,6 +9899,10 @@ class SecretRevokeResult(BaseModel):
     )
     revoked: bool
     hard: bool
+    recoverable_until: Annotated[AwareDatetime | None, Field(alias="recoverableUntil")] = None
+    """
+    A hard revoke left a copy your secret manager can still recover (Azure Key Vault's soft delete, when the vault doesn't allow a purge or the runtime may not purge): when the secret manager purges it on its own. Absent when nothing recoverable is left.
+    """
 
 
 class ToolsAllowedUnattendedItem(RootModel[str]):

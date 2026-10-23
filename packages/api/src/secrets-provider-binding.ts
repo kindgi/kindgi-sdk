@@ -188,6 +188,14 @@ export interface SecretProviderDeleteInput {
 
 export interface SecretProviderDeleteOutput {
   readonly deleted: boolean;
+  /**
+   * A hard delete left a copy the secret manager can still recover (Azure
+   * Key Vault's soft delete, when the vault doesn't allow a purge or the
+   * runtime may not purge): when the secret manager purges it on its own,
+   * as an ISO 8601 time. Absent when nothing recoverable is left, and on
+   * every soft delete.
+   */
+  readonly recoverableUntil?: string;
 }
 
 export interface SecretProviderProbeOutput {
