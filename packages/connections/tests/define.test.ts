@@ -59,6 +59,37 @@ describe('defineApp', () => {
     expect(entry.signIn.kind).toBe('github-app');
   });
 
+  it("takes a sign-in in the app's own directory, a profile lookup, and a limit a call costs 0 in", () => {
+    const entry = defineApp(
+      withAcme({
+        signIn: {
+          kind: 'oauth2',
+          authorizeUrl: 'https://auth.acme.example/{tenant}/authorize',
+          tokenUrl: 'https://auth.acme.example/{tenant}/token',
+          pkce: 'S256',
+          scopes: ['offline_access'],
+          scopeResource: 'https://api.acme.example/',
+          tenant: { default: 'organizations' },
+        },
+        account: {
+          kind: 'profile',
+          url: 'https://api.acme.example/me',
+          scopes: ['me.read'],
+          id: 'id',
+          label: ['mail', 'login'],
+        },
+        removal: {},
+        rateLimits: [
+          { per: 'connection', units: 30, perSeconds: 60, costs: { 'acme.read-note': 0 } },
+        ],
+      }),
+    );
+    expect(entry.account.kind).toBe('profile');
+    expect(entry.signIn.kind === 'oauth2' && entry.signIn.tenant).toEqual({
+      default: 'organizations',
+    });
+  });
+
   it.each([
     ['an id that is not a slug', { id: 'Acme' }, /id must match/],
     ['a one-letter id', { id: 'a' }, /id must match/],
@@ -159,7 +190,137 @@ describe('defineApp', () => {
           { per: 'connection', units: 10, perSeconds: 1, costs: { 'acme.write-note': 0.5 } },
         ],
       },
-      /rateLimits\[0\].costs\["acme.write-note"\] must be a positive whole number/,
+      /rateLimits\[0\].costs\["acme.write-note"\] must be a whole number, 0 or more/,
+    ],
+    [
+      'a negative cost',
+      {
+        rateLimits: [
+          { per: 'connection', units: 10, perSeconds: 1, costs: { 'acme.read-note': -1 } },
+        ],
+      },
+      /rateLimits\[0\].costs\["acme.read-note"\] must be a whole number, 0 or more/,
+    ],
+    [
+      'a {tenant} in a URL without signIn.tenant',
+      { signIn: { ...acme.signIn, authorizeUrl: 'https://auth.acme.example/{tenant}/authorize' } },
+      /signIn.authorizeUrl has \{tenant\}, so signIn.tenant is needed/,
+    ],
+    [
+      'a signIn.tenant with a URL that lacks {tenant}',
+      {
+        signIn: {
+          ...acme.signIn,
+          revokeUrl: undefined,
+          authorizeUrl: 'https://auth.acme.example/{tenant}/authorize',
+          tenant: { default: 'common' },
+        },
+        removal: {},
+      },
+      /signIn.tokenUrl must hold \{tenant\} once, for signIn.tenant/,
+    ],
+    [
+      'a URL that holds {tenant} twice',
+      {
+        signIn: {
+          ...acme.signIn,
+          revokeUrl: undefined,
+          authorizeUrl: 'https://auth.acme.example/{tenant}/{tenant}/authorize',
+          tokenUrl: 'https://auth.acme.example/{tenant}/token',
+          tenant: { default: 'common' },
+        },
+        removal: {},
+      },
+      /signIn.authorizeUrl must hold \{tenant\} once, for signIn.tenant/,
+    ],
+    [
+      "a tenant default that isn't a directory's name",
+      {
+        signIn: {
+          ...acme.signIn,
+          authorizeUrl: 'https://auth.acme.example/{tenant}/authorize',
+          tokenUrl: 'https://auth.acme.example/{tenant}/token',
+          tenant: { default: 'acme/../other' },
+        },
+      },
+      /signIn.tenant.default must match/,
+    ],
+    [
+      'a revokeUrl with {tenant}',
+      {
+        signIn: {
+          ...acme.signIn,
+          authorizeUrl: 'https://auth.acme.example/{tenant}/authorize',
+          tokenUrl: 'https://auth.acme.example/{tenant}/token',
+          revokeUrl: 'https://auth.acme.example/{tenant}/revoke',
+          tenant: { default: 'common' },
+        },
+      },
+      /signIn.revokeUrl can't hold \{tenant\}/,
+    ],
+    [
+      'an empty sign-in scope',
+      { signIn: { ...acme.signIn, scopes: ['offline_access', ''] } },
+      /signIn.scopes\[1\] must be a non-empty string/,
+    ],
+    [
+      "a scopeResource that isn't https",
+      { signIn: { ...acme.signIn, scopeResource: 'http://api.acme.example/' } },
+      /signIn.scopeResource must be an https URL/,
+    ],
+    [
+      'a profile lookup on a github-app sign-in',
+      {
+        signIn: { kind: 'github-app' },
+        account: {
+          kind: 'profile',
+          url: 'https://api.acme.example/me',
+          scopes: [],
+          id: 'id',
+          label: ['email'],
+        },
+        removal: {},
+      },
+      /account.kind "profile" needs an "oauth2" sign-in/,
+    ],
+    [
+      "a profile url that isn't https",
+      {
+        account: {
+          kind: 'profile',
+          url: 'http://api.acme.example/me',
+          scopes: [],
+          id: 'id',
+          label: ['email'],
+        },
+      },
+      /account.url must be an https URL/,
+    ],
+    [
+      'a profile lookup with no label field',
+      {
+        account: {
+          kind: 'profile',
+          url: 'https://api.acme.example/me',
+          scopes: [],
+          id: 'id',
+          label: [],
+        },
+      },
+      /account.label must name at least one field/,
+    ],
+    [
+      'a profile lookup with no id field',
+      {
+        account: {
+          kind: 'profile',
+          url: 'https://api.acme.example/me',
+          scopes: [],
+          id: '',
+          label: ['email'],
+        },
+      },
+      /account.id must be a non-empty string/,
     ],
   ])('refuses %s, naming the field', (_what, patch, message) => {
     expect(() => defineApp(withAcme(patch))).toThrow(TypeError);

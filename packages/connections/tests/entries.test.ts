@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest';
 
 import { github } from '../src/github.js';
 import { google } from '../src/google.js';
-import { defineApp } from '../src/index.js';
+import { SIGN_IN_TENANT_PATTERN, defineApp } from '../src/index.js';
+import { microsoft } from '../src/microsoft.js';
 
 describe('the Google entry', () => {
   it('is a checked, frozen entry', () => {
@@ -82,5 +83,74 @@ describe('the GitHub entry', () => {
       grants: 'issues:write',
       changes: true,
     });
+  });
+});
+
+describe('the Microsoft entry', () => {
+  it('is a checked, frozen entry', () => {
+    expect(defineApp(microsoft)).toEqual(microsoft);
+    expect(Object.isFrozen(microsoft)).toBe(true);
+  });
+
+  it("is a member's own account, signed in with OAuth and PKCE in the registration's directory", () => {
+    expect(microsoft.owners).toEqual(['member']);
+    expect(microsoft.signIn).toEqual({
+      kind: 'oauth2',
+      authorizeUrl: 'https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize',
+      tokenUrl: 'https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token',
+      pkce: 'S256',
+      authorizeParams: { prompt: 'select_account' },
+      // Without it, Microsoft gives no refresh token.
+      scopes: ['offline_access'],
+      // Microsoft may answer `https://graph.microsoft.com/mail.send` for `Mail.Send`.
+      scopeResource: 'https://graph.microsoft.com/',
+      tenant: { default: 'organizations' },
+    });
+    for (const directory of [
+      'organizations',
+      'common',
+      'consumers',
+      'acme.onmicrosoft.com',
+      '9188040d-6c67-4c5b-b112-36a304b66dad',
+    ]) {
+      expect(SIGN_IN_TENANT_PATTERN.test(directory)).toBe(true);
+    }
+    for (const notOne of ['', 'acme/../common', 'acme?x=1', 'a b']) {
+      expect(SIGN_IN_TENANT_PATTERN.test(notOne)).toBe(false);
+    }
+  });
+
+  it('says what mail permissions allow, and which change anything', () => {
+    expect(microsoft.permissions).toEqual({
+      'mail.send': { grants: 'Mail.Send', says: 'Send mail as you', changes: true },
+      'mail.read': { grants: 'Mail.Read', says: 'Read your mail', changes: false },
+    });
+  });
+
+  it("learns whose account it is from Graph's /me, since the ID token can't say", () => {
+    expect(microsoft.account).toEqual({
+      kind: 'profile',
+      url: 'https://graph.microsoft.com/v1.0/me',
+      scopes: ['User.Read'],
+      id: 'id',
+      label: ['mail', 'userPrincipalName'],
+    });
+  });
+
+  it('withdraws nothing at Microsoft, which has no revoke for one app', () => {
+    expect(microsoft.removal).toEqual({});
+  });
+
+  it("paces every call by Graph's mailbox limit, and sends alone by Exchange's", () => {
+    expect(microsoft.rateLimits).toEqual([
+      { per: 'connection', units: 10_000, perSeconds: 600 },
+      {
+        per: 'connection',
+        units: 30,
+        perSeconds: 60,
+        costs: { 'outlook.messages.list': 0, 'outlook.messages.get': 0 },
+      },
+    ]);
+    expect(microsoft.setupGuide).toBe('/guides/connections/microsoft/');
   });
 });

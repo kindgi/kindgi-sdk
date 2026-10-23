@@ -9,6 +9,15 @@ export const APP_ID_PATTERN = /^[a-z][a-z0-9-]{1,31}$/;
 /** A key in an entry's `permissions`. */
 export const PERMISSION_KEY_PATTERN = /^[a-z][a-z0-9_.-]{0,63}$/;
 
+/**
+ * A directory an `oauth2` sign-in's URLs name (`signIn.tenant`): its
+ * `default`, and a registration's own. Microsoft's take a tenant id or
+ * domain, `organizations`, `common` or `consumers`.
+ */
+export const SIGN_IN_TENANT_PATTERN = /^[A-Za-z0-9.-]{1,253}$/;
+
+const TENANT_PLACEHOLDER = '{tenant}';
+
 const OWNER_KINDS: ReadonlySet<string> = new Set(['member', 'company']);
 const REVIEW_CLASSES: ReadonlySet<string> = new Set(['none', 'sensitive', 'restricted']);
 const REVOKE_KINDS: ReadonlySet<string> = new Set(['oauth2-revoke', 'github-installation-token']);
@@ -19,8 +28,10 @@ const NOTICE_KINDS: ReadonlySet<string> = new Set(['google-risc', 'github-webhoo
  * wrong throws a `TypeError` naming it: an id or a permission key that
  * doesn't match its pattern, a URL that isn't `https:`, an owner, review
  * class, revoke or notice kind outside its set, a revoke or an account
- * lookup that doesn't fit the sign-in kind, a rate limit that isn't a
- * positive whole number.
+ * lookup that doesn't fit the sign-in kind, a `{tenant}` in the sign-in's
+ * URLs without a `signIn.tenant` (or one with it, missing from a URL), a
+ * rate limit that isn't a positive whole number, a cost that isn't a whole
+ * number.
  */
 export function defineApp(entry: AppEntry): AppEntry {
   if (typeof entry !== 'object' || entry === null) {
@@ -59,6 +70,43 @@ function checkSignIn(signIn: SignIn, at: At): void {
     if (typeof value !== 'string') {
       throw new TypeError(at(`signIn.authorizeParams.${name} must be a string`));
     }
+  }
+  if (signIn.scopes !== undefined) requireTexts(signIn.scopes, at('signIn.scopes'));
+  if (signIn.scopeResource !== undefined) {
+    requireHttps(signIn.scopeResource, at('signIn.scopeResource'));
+  }
+  checkTenant(signIn, at);
+}
+
+/** `{tenant}` is in the sign-in's URLs exactly when `signIn.tenant` fills it, once in each. */
+function checkTenant(signIn: Extract<SignIn, { kind: 'oauth2' }>, at: At): void {
+  const urls = [
+    ['authorizeUrl', signIn.authorizeUrl],
+    ['tokenUrl', signIn.tokenUrl],
+  ] as const;
+  if (signIn.tenant === undefined) {
+    for (const [name, url] of urls) {
+      if (url.includes(TENANT_PLACEHOLDER)) {
+        throw new TypeError(
+          at(`signIn.${name} has ${TENANT_PLACEHOLDER}, so signIn.tenant is needed`),
+        );
+      }
+    }
+    return;
+  }
+  const fallback = signIn.tenant?.default;
+  if (typeof fallback !== 'string' || !SIGN_IN_TENANT_PATTERN.test(fallback)) {
+    throw new TypeError(at(`signIn.tenant.default must match ${SIGN_IN_TENANT_PATTERN.source}`));
+  }
+  for (const [name, url] of urls) {
+    if (url.split(TENANT_PLACEHOLDER).length !== 2) {
+      throw new TypeError(
+        at(`signIn.${name} must hold ${TENANT_PLACEHOLDER} once, for signIn.tenant`),
+      );
+    }
+  }
+  if (signIn.revokeUrl?.includes(TENANT_PLACEHOLDER) === true) {
+    throw new TypeError(at(`signIn.revokeUrl can't hold ${TENANT_PLACEHOLDER}`));
   }
 }
 
@@ -102,8 +150,21 @@ function checkAccount(account: AccountLookup, signIn: SignIn, at: At): void {
     }
     return;
   }
+  if (account?.kind === 'profile') {
+    if (signIn.kind !== 'oauth2') {
+      throw new TypeError(at('account.kind "profile" needs an "oauth2" sign-in'));
+    }
+    requireHttps(account.url, at('account.url'));
+    requireTexts(account.scopes, at('account.scopes'));
+    requireText(account.id, at('account.id'));
+    if (!Array.isArray(account.label) || account.label.length === 0) {
+      throw new TypeError(at('account.label must name at least one field'));
+    }
+    account.label.forEach((field, i) => requireText(field, at(`account.label[${i}]`)));
+    return;
+  }
   if (account?.kind !== 'openid') {
-    throw new TypeError(at('account.kind must be "openid" or "github-installation"'));
+    throw new TypeError(at('account.kind must be "openid", "github-installation" or "profile"'));
   }
   if (signIn.kind !== 'oauth2') {
     throw new TypeError(at('account.kind "openid" needs an "oauth2" sign-in'));
@@ -156,7 +217,11 @@ function checkRateLimits(rateLimits: AppEntry['rateLimits'], at: At): void {
     requireCount(limit.units, at(`${field}.units`));
     requireCount(limit.perSeconds, at(`${field}.perSeconds`));
     for (const [tool, cost] of Object.entries(limit.costs ?? {})) {
-      requireCount(cost, at(`${field}.costs[${JSON.stringify(tool)}]`));
+      if (typeof cost !== 'number' || !Number.isSafeInteger(cost) || cost < 0) {
+        throw new TypeError(
+          at(`${field}.costs[${JSON.stringify(tool)}] must be a whole number, 0 or more`),
+        );
+      }
     }
   });
 }
@@ -165,6 +230,11 @@ function requireText(value: unknown, field: string): asserts value is string {
   if (typeof value !== 'string' || value.trim() === '') {
     throw new TypeError(`${field} must be a non-empty string`);
   }
+}
+
+function requireTexts(values: unknown, field: string): void {
+  if (!Array.isArray(values)) throw new TypeError(`${field} must be a list of strings`);
+  values.forEach((value, i) => requireText(value, `${field}[${i}]`));
 }
 
 function requireHttps(value: unknown, field: string): void {

@@ -8,8 +8,17 @@ import { describe, expect, it } from 'vitest';
 
 import { githubIssuesAddLabels, githubIssuesList, githubLabelsList } from '../src/github-tools.js';
 import { gmailSend } from '../src/google-tools.js';
+import { outlookMessageGet, outlookMessagesList, outlookSend } from '../src/microsoft-tools.js';
 
-const TOOLS = { gmailSend, githubIssuesList, githubLabelsList, githubIssuesAddLabels };
+const TOOLS = {
+  gmailSend,
+  githubIssuesList,
+  githubLabelsList,
+  githubIssuesAddLabels,
+  outlookSend,
+  outlookMessagesList,
+  outlookMessageGet,
+};
 
 /**
  * Each tool's versions, each with a hash of what it declares (its manifest,
@@ -24,6 +33,13 @@ const PINS: Record<keyof typeof TOOLS, Record<string, string>> = {
   githubLabelsList: { '1.0.0': 'a9cd9f0fa4fc90fdf99eb42e3045f9544363d60beed12658aaf4c6f99a580fc9' },
   githubIssuesAddLabels: {
     '1.0.0': '16695bc00bd696e50c72fe9724c5ff2b790838d58056f80f4c58ee28a60f254c',
+  },
+  outlookSend: { '1.0.0': '880f0c0c96a56415630451dabcef11c7063172c62f3b607fd282f551b47cba7b' },
+  outlookMessagesList: {
+    '1.0.0': '60b02b54dbc3bd8b533b0208e8fad9f3dbe5b74e994da0b18d2a54ef77973861',
+  },
+  outlookMessageGet: {
+    '1.0.0': '8f108ce8482dad5c396bb98a5fd31cb4fae748b5844440025e81716c9feee7ce',
   },
 };
 

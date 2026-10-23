@@ -1,7 +1,7 @@
 {
   "name": "@kindgi/connections",
   "version": "0.1.9",
-  "description": "Kindgi™ connections: the app entries a Kindgi server reads to connect people's and a company's accounts at other apps (how to sign in, each permission in plain words, whose account it is, how access is withdrawn), defineApp to check one, the Google and GitHub entries, and tools that act with their connections (sending mail as a person; listing and labelling a repository's issues).",
+  "description": "Kindgi™ connections: the app entries a Kindgi server reads to connect people's and a company's accounts at other apps (how to sign in, each permission in plain words, whose account it is, how access is withdrawn), defineApp to check one, the Google, GitHub and Microsoft entries, and tools that act with their connections (sending and reading mail as a person; listing and labelling a repository's issues).",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -40,6 +40,16 @@
       "types": "./dist/github-tools.d.ts",
       "import": "./dist/github-tools.js",
       "default": "./dist/github-tools.js"
+    },
+    "./microsoft": {
+      "types": "./dist/microsoft.d.ts",
+      "import": "./dist/microsoft.js",
+      "default": "./dist/microsoft.js"
+    },
+    "./microsoft/tools": {
+      "types": "./dist/microsoft-tools.d.ts",
+      "import": "./dist/microsoft-tools.js",
+      "default": "./dist/microsoft-tools.js"
     },
     "./app-fetch": {
       "types": "./dist/app-fetch.d.ts",
