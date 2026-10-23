@@ -537,8 +537,9 @@ export interface SecretRevokeOutcome {
   /**
    * A hard revoke left a copy the secret manager can still recover: when
    * it purges that copy on its own, as an ISO 8601 time
-   * (`SecretProviderDeleteOutput.recoverableUntil`). Absent when nothing
-   * recoverable is left. Copies in backups aren't counted.
+   * (`SecretProviderDeleteOutput.recoverableUntil`). Absent on a soft
+   * revoke, and when a hard revoke left nothing recoverable. Copies in
+   * backups aren't counted.
    */
   readonly recoverableUntil?: string;
 }

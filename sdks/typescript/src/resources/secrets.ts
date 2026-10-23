@@ -229,9 +229,10 @@ export interface SecretRevokeOutcome {
   readonly hard: boolean;
   /**
    * A hard revoke left a copy your secret manager can still recover
-   * (Azure Key Vault's soft delete, when the vault doesn't allow a purge
-   * or the runtime may not purge): when the secret manager purges it on its own, as an ISO 8601
-   * time. Absent when nothing recoverable is left.
+   * (for example Azure Key Vault's soft delete, when the vault doesn't
+   * allow a purge or the runtime isn't permitted to purge): when the
+   * secret manager purges it on its own, as an ISO 8601 time. Absent on a
+   * soft revoke, and when a hard revoke left nothing recoverable.
    */
   readonly recoverableUntil?: string;
 }

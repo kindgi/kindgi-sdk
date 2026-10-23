@@ -894,7 +894,7 @@ describe('kindgi secrets revoke', () => {
     });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(out.stderr).toContain(
-      `Your secret manager keeps a recoverable copy until ${until}; the runtime's log says why it wasn't purged.`,
+      `Your secret manager keeps a recoverable copy until ${until}, then purges it on its own.`,
     );
     expect(JSON.parse(out.stdout)).toMatchObject({ hard: true, recoverableUntil: until });
   });
