@@ -59,7 +59,8 @@ started, tools, guardrails, agents and flows, model providers, MCP servers,
 framework feedback, and guiding the person in using what you built
 (`kindgi-using`). Claude Code loads `.claude/skills/` on its own; Codex and
 Gemini CLI look in `.agents/skills/`; any other coding agent can read
-either. `kindgi skills sync` refreshes both.
+either. After an upgrade, `kindgi dev` refreshes both as it
+starts; `kindgi skills sync` refreshes them any time.
 
 When you diagnose a framework bug (something in Kindgi itself, not in this
 pack's code), append an entry to `FEEDBACK.md` at the pack root via

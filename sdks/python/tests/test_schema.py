@@ -7,7 +7,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from kindgi._schema import SchemaValidator, issues_from_pydantic, wire_schema
+from kindgi._schema import (
+    SchemaValidator,
+    issues_from_pydantic,
+    strict_schema_problem,
+    wire_schema,
+)
 from kindgi.pack.index import _spec
 
 
@@ -241,3 +246,224 @@ def test_explain_names_the_allowed_values_when_no_alternative_matches() -> None:
 
 def test_explain_is_none_for_a_valid_value() -> None:
     assert _explain_node({"id": "n", "kind": "agent", "ref": "acme.a"}) is None
+
+
+# --- strict_schema_problem: what the runtime's strict compile refuses beyond Draft 2020-12 ----
+# (each expected answer is the runtime's compileInlineSchema's, word for word.)
+
+
+def test_strict_finds_an_unknown_keyword_in_each_subschema_the_runtime_compiles() -> None:
+    typo: dict[str, Any] = {"patern": "x"}
+    for schema in [
+        {"type": "object", "properties": {"a": typo}},
+        {"type": "object", "patternProperties": {"^a": typo}},
+        {"type": "object", "additionalProperties": typo},
+        {"type": "object", "propertyNames": typo},
+        {"type": "object", "dependentSchemas": {"a": typo}},
+        {"type": "object", "dependencies": {"a": typo}},
+        {"type": "object", "unevaluatedProperties": typo},
+        {"type": "array", "items": typo},
+        {"type": "array", "prefixItems": [typo], "minItems": 1, "maxItems": 1},
+        {"type": "array", "contains": typo},
+        {"type": "array", "unevaluatedItems": typo},
+        {"anyOf": [{"type": "string"}, typo]},
+        {"oneOf": [typo]},
+        {"allOf": [typo]},
+        {"type": "string", "if": typo, "then": {"type": "string"}},
+        {"type": "string", "if": {"type": "string"}, "else": typo},
+        {"type": "string", "not": typo},
+        {"$defs": {"a": typo}, "$ref": "#/$defs/a"},
+        {"$defs": {"a/b": typo}, "$ref": "#/$defs/a~1b"},
+    ]:
+        assert strict_schema_problem(schema) == 'strict mode: unknown keyword: "patern"', schema
+
+
+def test_strict_leaves_what_the_runtime_does_not_compile() -> None:
+    # A definition nothing refers to, `contentSchema` (an annotation), and values (enum, const).
+    assert strict_schema_problem({"type": "string", "$defs": {"a": {"patern": "x"}}}) is None
+    assert strict_schema_problem({"type": "string", "contentSchema": {"patern": "x"}}) is None
+    assert strict_schema_problem({"enum": [{"patern": "x"}], "const": {"fromat": 1}}) is None
+    assert strict_schema_problem({"type": "object", "properties": {"a": True}}) is None
+
+
+def test_strict_skips_an_unevaluated_keyword_once_every_property_or_item_is_evaluated() -> None:
+    typo: dict[str, Any] = {"patern": "x"}
+    # Evaluated by the schema's own keyword, an allOf member's, or what a ref reaches.
+    for schema in [
+        {"type": "object", "additionalProperties": False, "unevaluatedProperties": typo},
+        {"type": "array", "items": {}, "unevaluatedItems": typo},
+        {"type": "object", "allOf": [{"additionalProperties": {}}], "unevaluatedProperties": typo},
+        {"type": "array", "allOf": [{"unevaluatedItems": {}}], "unevaluatedItems": typo},
+        {
+            "type": "object",
+            "$defs": {
+                "a": {"$ref": "#/$defs/b"},
+                "b": {"type": "object", "additionalProperties": {}},
+            },
+            "$ref": "#/$defs/a",
+            "unevaluatedProperties": typo,
+        },
+    ]:
+        assert strict_schema_problem(schema) is None, schema
+    # Not by anyOf, properties or prefixItems, nor by a ref to a schema still compiling.
+    for schema in [
+        {"type": "object", "anyOf": [{"additionalProperties": {}}], "unevaluatedProperties": typo},
+        {"type": "object", "properties": {"a": {}}, "unevaluatedProperties": typo},
+        {
+            "type": "array",
+            "prefixItems": [{}],
+            "minItems": 1,
+            "maxItems": 1,
+            "unevaluatedItems": typo,
+        },
+        {
+            "type": "object",
+            "additionalProperties": {},
+            "properties": {"c": {"type": "object", "$ref": "#", "unevaluatedProperties": typo}},
+        },
+    ]:
+        assert strict_schema_problem(schema) == 'strict mode: unknown keyword: "patern"', schema
+
+
+def test_strict_names_where_an_unknown_format_is() -> None:
+    def at(name: str) -> str | None:
+        schema = {"type": "object", "properties": {name: {"type": "string", "format": "hostnmae"}}}
+        return strict_schema_problem(schema)
+
+    # Each name JSON Pointer escaped, then URI encoded, as the runtime writes it.
+    for name, segment in [
+        ("a~b", "a~0b"),
+        ("a/b", "a~1b"),
+        ("a b", "a%20b"),
+        ("\u00e9", "%C3%A9"),
+        ("a#b?c&d%e+f", "a%23b%3Fc%26d%25e%2Bf"),
+        ("it's(1)*!-_.", "it's(1)*!-_."),
+    ]:
+        assert at(name) == (
+            f'unknown format "hostnmae" ignored in schema at path "#/properties/{segment}"'
+        )
+    pattern = {"type": "object", "patternProperties": {"^x": {"type": "string", "format": "x"}}}
+    assert strict_schema_problem(pattern) == (
+        'unknown format "x" ignored in schema at path "#/patternProperties/%5Ex"'
+    )
+    # The runtime compiles the schema a ref reaches on its own, so its path is `#`.
+    via_ref = {"$defs": {"a": {"type": "string", "format": "hostnmae"}}, "$ref": "#/$defs/a"}
+    assert (
+        strict_schema_problem(via_ref) == 'unknown format "hostnmae" ignored in schema at path "#"'
+    )
+
+
+def test_strict_refuses_id_as_the_runtime_does() -> None:
+    assert strict_schema_problem({"type": "string", "id": "x"}) == (
+        'NOT SUPPORTED: keyword "id", use "$id" for schema ID'
+    )
+
+
+def test_strict_names_the_problem_the_runtime_names_first() -> None:
+    def bad(name: str) -> dict[str, Any]:
+        return {"type": "string", "format": name}
+
+    # A node's unknown keywords come first, then `id`.
+    assert strict_schema_problem({"type": "string", "format": "hostnmae", "fromat": "x"}) == (
+        'strict mode: unknown keyword: "fromat"'
+    )
+    assert strict_schema_problem({"type": "object", "properties": {"a": bad("x")}, "zzz": 1}) == (
+        'strict mode: unknown keyword: "zzz"'
+    )
+    assert strict_schema_problem({"type": "string", "id": "x", "zzz": 1}) == (
+        'strict mode: unknown keyword: "zzz"'
+    )
+    assert strict_schema_problem({**bad("x"), "id": "x"}) == (
+        'NOT SUPPORTED: keyword "id", use "$id" for schema ID'
+    )
+    # Then its keywords in the runtime's order, whatever the schema's key order: `$ref` and the
+    # applicators before `format`, `additionalProperties` before `properties`, unevaluated last.
+    assert strict_schema_problem({**bad("x"), "$ref": "#/$defs/nope"}) == (
+        "can't resolve reference #/$defs/nope from id #"
+    )
+    assert strict_schema_problem({**bad("bad1"), "allOf": [bad("bad2")]}) == (
+        'unknown format "bad2" ignored in schema at path "#/allOf/0"'
+    )
+    two = {"type": "object", "properties": {"b": bad("bad2")}, "additionalProperties": bad("bad1")}
+    assert strict_schema_problem(two) == (
+        'unknown format "bad1" ignored in schema at path "#/additionalProperties"'
+    )
+    both = {
+        "type": ["object", "array"],
+        "unevaluatedProperties": bad("p"),
+        "unevaluatedItems": bad("i"),
+    }
+    assert strict_schema_problem(both) == (
+        'unknown format "i" ignored in schema at path "#/unevaluatedItems"'
+    )
+
+
+def test_strict_refuses_a_ref_that_names_nothing() -> None:
+    for ref, schema in [
+        ("#/$defs/nope", {}),
+        ("#/$defs/a/", {"$defs": {"a": {"type": "string"}}}),
+        ("#/allOf/01", {"allOf": [{"type": "string"}, {"type": "string"}]}),
+        ("#A", {}),
+        ("other.json", {}),
+        ("https://example.com/x.json", {}),
+    ]:
+        assert strict_schema_problem({**schema, "type": "string", "$ref": ref}) == (
+            f"can't resolve reference {ref} from id #"
+        )
+    nested = {"type": "object", "properties": {"p": {"type": "string", "$ref": "#/$defs/nope"}}}
+    assert strict_schema_problem(nested) == "can't resolve reference #/$defs/nope from id #"
+    # Only a schema names a base: a property named `$id`, or a value holding one, doesn't.
+    for elsewhere in [
+        {"type": "object", "properties": {"$id": {"type": "string"}, **nested["properties"]}},
+        {**nested, "default": {"$id": "https://x.example/a"}},
+        {**nested, "const": {"$dynamicAnchor": "A"}},
+        {**nested, "enum": [{"$id": "https://x.example/a"}]},
+        {**nested, "examples": [{"$dynamicAnchor": "A"}]},
+    ]:
+        assert strict_schema_problem(elsewhere) == "can't resolve reference #/$defs/nope from id #"
+
+
+def test_strict_follows_a_ref_to_the_root_once() -> None:
+    tree = {"type": "object", "properties": {"child": {"$ref": "#"}}}
+    assert strict_schema_problem(tree) is None
+    assert strict_schema_problem({"type": "string", "allOf": [{"$ref": "#/"}]}) is None
+
+
+def test_strict_leaves_a_ref_alone_in_a_schema_with_a_base() -> None:
+    # What a ref reaches there depends on bases the walk doesn't track: the runtime resolves this
+    # `b` through its `$id`, and this `#/$defs/q` in `p`'s own `$defs`, not the root's.
+    by_id = {
+        "$id": "https://x.example/a",
+        "$ref": "b",
+        "$defs": {"b": {"$id": "https://x.example/b", "type": "string"}},
+    }
+    assert strict_schema_problem(by_id) is None
+    nested_base = {
+        "type": "object",
+        "properties": {
+            "p": {
+                "$id": "https://x.example/p",
+                "type": "string",
+                "$ref": "#/$defs/q",
+                "$defs": {"q": {"type": "string"}},
+            }
+        },
+        "$defs": {"q": {"type": "string", "format": "hostnmae"}},
+    }
+    assert strict_schema_problem(nested_base) is None
+    p, root_defs = nested_base["properties"]["p"], nested_base["$defs"]
+    for holder in [{"type": "array", "items": p}, {"type": "string", "allOf": [p]}]:
+        assert strict_schema_problem({**holder, "$defs": root_defs}) is None
+    for defs in ["$defs", "definitions"]:
+        anchored = {"$ref": "#A", defs: {"a": {"$dynamicAnchor": "A", "type": "string"}}}
+        assert strict_schema_problem(anchored) is None
+    # The runtime doesn't compile a `contentSchema`, but it registers the bases in it.
+    c = {"$id": "https://x.example/c", "type": "string"}
+    for content in [c, {"type": "object", "properties": {"q": c}}]:
+        in_content = {
+            "type": ["string", "object", "array"],
+            "contentMediaType": "application/json",
+            "contentSchema": content,
+            "$ref": "https://x.example/c",
+        }
+        assert strict_schema_problem(in_content) is None

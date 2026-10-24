@@ -336,16 +336,17 @@ export function deploymentsRouter(
   // another project was already refused, `refuseOtherProjectForKey`.)
   const tenantAccess = tenantResourceAccess(authorizer);
   r.use('*', async (c, next) => {
+    // Without an authorizer, nothing here is checked: deploying is project
+    // work, which a runtime without an authorization store leaves to every
+    // caller. `tenantResourceAccess` would make every change the tenant
+    // admin's, as it does for the tenant's settings.
+    if (authorizer === undefined) return next();
     // A promotion checks rights on the projects themselves: read on the
     // deployment's environment, admin on the target.
     if (isPromotionRoute(c.req.method, c.req.path)) return next();
     // A secrets sync asks admin where it writes them, as `/v1/secrets` does.
     if (c.req.method === 'POST' && SECRETS_PATH.test(c.req.path)) return next();
-    if (
-      authorizer === undefined ||
-      c.req.method !== 'POST' ||
-      !/\/deployments\/?$/.test(c.req.path)
-    ) {
+    if (c.req.method !== 'POST' || !/\/deployments\/?$/.test(c.req.path)) {
       return tenantAccess(c, next);
     }
     return authorizer.authorize('admin', async (ctx) => {

@@ -41,7 +41,7 @@ Java client.
 | [Agents](../../guides/agents/write-an-agent/), with [typed answers](../../guides/agents/typed-answer/), [memory](../../guides/agents/give-an-agent-memory/) and [budgets](../../guides/agents/budgets/) | Yes | Yes | Yes | Yes |
 | [Flows](../../guides/flows/write-a-flow/): branches, loops, parallel steps, retries, approvals | Yes | Yes | Yes | Yes |
 | Unit-testing a tool | Yes | Yes | Yes | Yes |
-| A test context with env values and secrets, checked as a run checks them | Yes | Partly | Partly | Partly |
+| A test context with env values and secrets, its env values decided as a run decides them | Yes | Yes | Yes | Yes |
 
 In Java and Scala, an agent's or a flow's fields beyond the builder's own go
 in as data, as the API names them: `set("budget", …)`, `node(Map.of(…))`,
@@ -64,11 +64,6 @@ in as data, as the API names them: `set("budget", …)`, `node(Map.of(…))`,
 - **HTTP tools without code:** in a Java or Scala pack, write a tool whose
   handler makes the request
   ([When to write a handler instead](../../guides/tools/http-tools/#when-to-write-a-handler-instead)).
-- **A test context with env values and secrets:** in Python,
-  `ToolContext.for_test(env=…, secrets=…)` sets them. In Java and Scala,
-  build the context with `new ToolContext(…)`, which takes them. In those
-  three, nothing fills in the defaults a tool declares for its env values or
-  checks them, as TypeScript's `invokeToolForTest` does.
 
 The guides show each language in its own tab. Where a guide has no tab for
 your language, the [In a pack](#in-a-pack) and [In your app](#in-your-app)

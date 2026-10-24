@@ -509,6 +509,16 @@ describe('kindgi exports create', () => {
     expect(m.kinds.users).toEqual({ status: 'skipped', reason: 'it needs a tenant admin' });
     expect(m.kinds.agents).toMatchObject({ status: 'ok' });
     expect(fake.calls.some((c) => c.startsWith('GET /v1/identity/users'))).toBe(false);
+    // Every webhook-endpoints and compliance route is a tenant admin's, so
+    // they're skipped rather than refused.
+    for (const kind of ['webhook-endpoints', 'compliance-evidence']) {
+      expect(refused.stderr).toContain(kind);
+      expect(m.kinds[kind]).toEqual({ status: 'skipped', reason: 'it needs a tenant admin' });
+    }
+    expect(m.kinds['webhook-deliveries']).toMatchObject({ status: 'skipped' });
+    expect(fake.calls.some((c) => /^GET \/v1\/(webhook-endpoints|compliance)\b/.test(c))).toBe(
+      false,
+    );
   });
 
   test('a folder that isn’t empty is refused without --resume', async () => {

@@ -67,7 +67,11 @@ export interface ImprovementBudget {
 
 export interface StartImprovementPassInput {
   readonly tenantId: TenantId;
-  /** The agent version's project, when the agent store records one. */
+  /**
+   * The project the pass works in: its test set is one the project
+   * reaches, and its eval runs run there. Absent when the agent store
+   * records no projects.
+   */
   readonly projectId?: ProjectId;
   readonly agentId: string;
   /** The version whose settings it tunes. */

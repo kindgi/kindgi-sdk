@@ -12,6 +12,10 @@
  * For a tool-call subject the run names the tool, field by field
  * (`tool: { id, version, callId }`). Everything else stays behind the
  * approvals routes' reviewer gate.
+ *
+ * A wait for another system's answer (a pausing tool's call) is in
+ * `tokens`, as the runtime's wait token binding lists it: what it waits
+ * for, the tool, and when it times out. Never the token's link.
  */
 
 import { TOOL_CALL_GATE_SUBJECT } from '@kindgi/agents';
@@ -19,6 +23,7 @@ import type { JournalEntry, RunBinding } from '@kindgi/runtime';
 import type { RunId, TenantId } from '@kindgi/types';
 
 import type { Approval, ApprovalStatus, HitlBinding } from './hitl-binding.js';
+import type { WaitTokenBinding, WaitingToken } from './wait-token-binding.js';
 
 /** An approval the run waits for, as a run reader may see it. */
 export interface WaitingForApproval {
@@ -52,6 +57,11 @@ export type WaitingForOther =
 export interface RunWaitingFor {
   readonly approvals: readonly WaitingForApproval[];
   readonly other: readonly WaitingForOther[];
+  /**
+   * Its waits for another system's answer. Absent on a runtime that pauses
+   * no run, or when they can't be read (the waits are then `unattributed`).
+   */
+  readonly tokens?: readonly WaitingToken[];
 }
 
 /** An approval in one of these is still to be decided. */
@@ -66,10 +76,14 @@ const OPEN_APPROVAL: ReadonlySet<string> = new Set([
  * What `run` (suspended) waits for, or `undefined` when it isn't suspended
  * or its journal can't be read (the field is then left out; a caller
  * falls back to its own reading). Approvals that can't be read leave their
- * waits `unattributed`.
+ * waits `unattributed`, as do waits for an answer that can't be read.
  */
 export async function runWaitingFor(
-  deps: { readonly runBinding: RunBinding; readonly hitl?: HitlBinding },
+  deps: {
+    readonly runBinding: RunBinding;
+    readonly hitl?: HitlBinding;
+    readonly waitTokens?: WaitTokenBinding;
+  },
   tenantId: TenantId,
   run: { readonly id: RunId; readonly status: string },
 ): Promise<RunWaitingFor | undefined> {
@@ -79,12 +93,15 @@ export async function runWaitingFor(
   const open = openWaits(journal.value);
   if (open.length === 0) return { approvals: [], other: [{ what: 'no-open-wait' }] };
 
+  const answers = await waitsForAnswers(deps.waitTokens, tenantId, run.id);
+  const listed = new Set(answers?.map((t) => t.tokenId));
+  const withTokens = answers === undefined ? {} : { tokens: answers };
   const children = open.filter((w) => childRunOf(w.tokenId) !== undefined);
-  const tokens = open.filter((w) => childRunOf(w.tokenId) === undefined);
+  const tokens = open.filter((w) => childRunOf(w.tokenId) === undefined && !listed.has(w.tokenId));
   const childWaits = await Promise.all(
     children.map((w) => childWait(deps.runBinding, tenantId, w)),
   );
-  if (tokens.length === 0) return { approvals: [], other: childWaits };
+  if (tokens.length === 0) return { approvals: [], other: childWaits, ...withTokens };
 
   const linked = await linkedApprovals(
     deps.hitl,
@@ -94,7 +111,31 @@ export async function runWaitingFor(
   return {
     approvals: linked.filter((a) => OPEN_APPROVAL.has(a.status)).map(onTheRun),
     other: [...childWaits, ...decided(linked), ...unattributed(tokens, linked)],
+    ...withTokens,
   };
+}
+
+/** The run's waits for another system's answer; `undefined` when there's no binding or it fails. */
+async function waitsForAnswers(
+  waitTokens: WaitTokenBinding | undefined,
+  tenantId: TenantId,
+  runId: RunId,
+): Promise<readonly WaitingToken[] | undefined> {
+  if (waitTokens === undefined) return undefined;
+  const waiting = await waitTokens.waiting({ tenantId, runId }).catch(() => undefined);
+  // Built field by field, whatever the binding answers.
+  return waiting?.map((t) => ({
+    tokenId: t.tokenId,
+    ...(t.name !== undefined && { name: t.name }),
+    tool: {
+      id: t.tool.id,
+      version: t.tool.version,
+      ...(t.tool.callId !== undefined && { callId: t.tool.callId }),
+    },
+    ...(t.nodeId !== undefined && { nodeId: t.nodeId }),
+    createdAt: t.createdAt,
+    timesOutAt: t.timesOutAt,
+  }));
 }
 
 /** A wait on a child run, with the child's status when it can be read. */

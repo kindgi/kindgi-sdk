@@ -25,6 +25,17 @@ app a request when a run ends, see
 ## Before you start
 
 - **A pack and a runtime,** such as `kindgi dev`, with Kindgi 0.2's CLI.
+- **A secrets store and `KINDGI_ENV` on the runtime,** which `kindgi dev`
+  has. A trigger's signing secret is kept in the store, in the env the
+  runtime serves, so without either the runtime has no webhook triggers:
+  `/v1/webhooks` and `/v1/hooks` answer `404 route-not-found`. On your own
+  deployment, the store is Postgres, with `KINDGI_SECRETS_BACKEND=postgres`,
+  or [your own secret manager](../../../deploy/self-hosted/secret-manager/).
+  The environment variable reference has
+  [`KINDGI_SECRETS_BACKEND`](../../../reference/env-vars/#kindgi_secrets_backend)
+  and [`KINDGI_ENV`](../../../reference/env-vars/#kindgi_env). On Cloud Run,
+  the module sets both, unless `secrets_backend = "none"`
+  ([Without a KMS key](../../../deploy/self-hosted/cloud-run-reference/#without-a-kms-key)).
 - **A runtime the sender can reach,** with its public address in
   `KINDGI_PUBLIC_URL`, for a real sender. `kindgi dev` on your machine isn't
   reachable from a hosted store.
