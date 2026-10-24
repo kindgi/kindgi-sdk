@@ -29,6 +29,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { RunHandlerBinding, RunTrace } from '../handler-binding.js';
 import type {
   Approval,
+  ApprovalConnection,
   ApprovalPosition,
   ApprovalStatus,
   HitlBinding,
@@ -917,7 +918,16 @@ function serializeApproval(a: Approval): Record<string, unknown> {
     ...(a.withdrawnBecause !== undefined && { withdrawnBecause: a.withdrawnBecause }),
     ...(a.escalatedFrom !== undefined && { escalatedFrom: a.escalatedFrom }),
     ...(a.escalatedTo !== undefined && { escalatedTo: a.escalatedTo }),
+    ...(a.approver !== undefined && {
+      approver: { kind: a.approver.kind, userId: a.approver.userId },
+    }),
+    ...(a.connection !== undefined && { connection: approvalConnection(a.connection) }),
   };
+}
+
+/** The person's account the call would use, field by field. */
+function approvalConnection(connection: ApprovalConnection): Record<string, unknown> {
+  return { app: connection.app, appName: connection.appName, account: connection.account };
 }
 
 function serializeApprovalDecision(d: ReviewDecisionRecord): Record<string, unknown> {

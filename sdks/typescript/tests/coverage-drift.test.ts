@@ -104,6 +104,8 @@ describe('SDK ↔ generated wire coverage — every endpoint has a resource wrap
         // Drupal, GitHub…) posts to it, signed with the trigger's secret.
         '/v1/hooks/{tenantId}/{webhookId}':
           "hooks.receive — a signed sender's path (the trigger's receiveUrl), not this client's",
+        '/v1/connection-notices/{tenantId}/{appId}':
+          "connectionNotices.receive — a signed sender's path (the registration's noticesUrl), not this client's",
       };
       if (raw in SKIP) continue;
       if (!wrapped.has(normalize(raw))) missing.push(raw);

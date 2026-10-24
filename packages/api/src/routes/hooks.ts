@@ -575,7 +575,7 @@ function isWooPing(request: Request, body: Uint8Array): boolean {
 }
 
 /** The request's body, at most `max` bytes; `too-large` past it (read no further). */
-async function readCapped(request: Request, max: number): Promise<Uint8Array | 'too-large'> {
+export async function readCapped(request: Request, max: number): Promise<Uint8Array | 'too-large'> {
   const declared = Number(request.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > max) return 'too-large';
   if (request.body === null) return new Uint8Array();

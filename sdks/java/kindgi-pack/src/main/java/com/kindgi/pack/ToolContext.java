@@ -40,6 +40,11 @@ import org.jspecify.annotations.Nullable;
  *     the system it writes to (an {@code Idempotency-Key} header, a client reference, a unique
  *     column), or looks for it there first. A UUID. {@code null} from a runtime that can't name its
  *     steps (before pack protocol 2.6.0): the call can't be deduped on it then.
+ * @param connections the connections the tool declares ({@code needsSpec.connections}), by its name
+ *     for each, each with a short-lived token for this call (pack protocol 2.7.0); empty when it
+ *     declares none. When the app refuses a token, throw {@link ConnectionRejectedException}.
+ *     Printing them, or the context, shows their names, never a token, and the context's JSON leaves
+ *     them out.
  */
 public record ToolContext(
     String tenantId,
@@ -53,7 +58,8 @@ public record ToolContext(
     Map<String, Map<String, Object>> settings,
     Cancellation cancellation,
     @JsonIgnore Logger log,
-    @Nullable String idempotencyKey) {
+    @Nullable String idempotencyKey,
+    @JsonIgnore Map<String, ToolConnection> connections) {
   /** Copies the maps, unmodifiable. */
   public ToolContext {
     Objects.requireNonNull(tenantId, "tenantId");
@@ -64,6 +70,41 @@ public record ToolContext(
     settings = Collections.unmodifiableMap(new LinkedHashMap<>(settings));
     Objects.requireNonNull(cancellation, "cancellation");
     Objects.requireNonNull(log, "log");
+    connections = Collections.unmodifiableMap(new LinkedHashMap<>(connections));
+  }
+
+  /**
+   * A context without connections: the components before pack protocol 2.7.0, so code that built one
+   * before keeps compiling.
+   *
+   * @param tenantId the tenant the call runs for
+   * @param runId the run the call belongs to
+   * @param requestId the individual call, when sent
+   * @param projectId the run's project, when sent
+   * @param orgId the project's org, when it has one
+   * @param env resolved environment values for the call
+   * @param secrets resolved secrets for the call, by name
+   * @param config resolved configuration for the call
+   * @param settings the settings blocks the calling agent version pins, by block id
+   * @param cancellation fires when the call passes its deadline or its caller goes away
+   * @param log a logger bound to this call
+   * @param idempotencyKey a key for this call's side effects, when sent
+   */
+  public ToolContext(
+      String tenantId,
+      String runId,
+      @Nullable String requestId,
+      @Nullable String projectId,
+      @Nullable String orgId,
+      Map<String, Object> env,
+      Map<String, Object> secrets,
+      Map<String, Object> config,
+      Map<String, Map<String, Object>> settings,
+      Cancellation cancellation,
+      Logger log,
+      @Nullable String idempotencyKey) {
+    this(tenantId, runId, requestId, projectId, orgId, env, secrets, config, settings, cancellation, log,
+        idempotencyKey, Map.of());
   }
 
   /**
@@ -94,7 +135,8 @@ public record ToolContext(
       Map<String, Map<String, Object>> settings,
       Cancellation cancellation,
       Logger log) {
-    this(tenantId, runId, requestId, projectId, orgId, env, secrets, config, settings, cancellation, log, null);
+    this(tenantId, runId, requestId, projectId, orgId, env, secrets, config, settings, cancellation, log, null,
+        Map.of());
   }
 
   /**
@@ -118,10 +160,22 @@ public record ToolContext(
         new Cancellation(), log);
   }
 
-  /** @return the secrets, without their values (a context may be logged) */
+  /**
+   * A context for a unit test of a handler that uses connections.
+   *
+   * @param connections the connections the handler reads, by the tool's name for each
+   * @return a context with a test tenant and run, a logger that writes nothing, and the connections
+   */
+  public static ToolContext forTest(Map<String, ToolConnection> connections) {
+    return new ToolContext("t-test", "run-test", null, null, null, Map.of(), Map.of(), Map.of(), Map.of(),
+        new Cancellation(), Logger.noop(), null, connections);
+  }
+
+  /** @return the secrets and connections, by name only (a context may be logged) */
   @Override
   public String toString() {
-    return "ToolContext[tenantId=" + tenantId + ", runId=" + runId + ", requestId=" + requestId + ", secrets=" + secrets.keySet() + "]";
+    return "ToolContext[tenantId=" + tenantId + ", runId=" + runId + ", requestId=" + requestId + ", secrets=" + secrets.keySet()
+        + ", connections=" + connections.keySet() + "]";
   }
 
   /** Secrets: a map like any other, except that printing it never shows a value. */

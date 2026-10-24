@@ -1113,6 +1113,47 @@ OPERATIONS: dict[str, Operation] = {
     "webhookEndpoints.sendTest": Operation(
         "webhookEndpoints.sendTest", "POST", "/v1/webhook-endpoints/{endpointId}/test", "json", True
     ),
+    "connectionEntries.list": Operation(
+        "connectionEntries.list", "GET", "/v1/connection-entries", "json", False
+    ),
+    "connectionApps.list": Operation(
+        "connectionApps.list", "GET", "/v1/connection-apps", "json", False
+    ),
+    "connectionApps.create": Operation(
+        "connectionApps.create", "POST", "/v1/connection-apps", "json", True
+    ),
+    "connectionApps.get": Operation(
+        "connectionApps.get", "GET", "/v1/connection-apps/{appId}", "json", False
+    ),
+    "connectionApps.update": Operation(
+        "connectionApps.update", "PATCH", "/v1/connection-apps/{appId}", "json", True
+    ),
+    "connectionApps.remove": Operation(
+        "connectionApps.remove", "DELETE", "/v1/connection-apps/{appId}", "json", True
+    ),
+    "connections.list": Operation("connections.list", "GET", "/v1/connections", "json", False),
+    "connections.connect": Operation(
+        "connections.connect", "POST", "/v1/connections", "json", True
+    ),
+    "connections.finish": Operation(
+        "connections.finish", "POST", "/v1/connections/finish", "json", True
+    ),
+    "connections.requests.get": Operation(
+        "connections.requests.get", "GET", "/v1/connections/requests/{requestId}", "json", False
+    ),
+    "connections.requests.start": Operation(
+        "connections.requests.start",
+        "POST",
+        "/v1/connections/requests/{requestId}/start",
+        "json",
+        True,
+    ),
+    "connections.get": Operation(
+        "connections.get", "GET", "/v1/connections/{connectionId}", "json", False
+    ),
+    "connections.disconnect": Operation(
+        "connections.disconnect", "DELETE", "/v1/connections/{connectionId}", "json", True
+    ),
     "projects.sites.list": Operation(
         "projects.sites.list", "GET", "/v1/projects/{projectId}/sites", "json", False
     ),
@@ -9438,7 +9479,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Update a cron schedule. `PATCH /v1/schedules/{triggerId}`
 
-        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it.
+        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule runs as whoever created it, or last changed what it runs: when anyone but the person who owns it changes its target or version, its input or `toolsAllowedUnattended`, the caller becomes its owner, as `POST /v1/schedules/{triggerId}/owner` would make them, and the change is audited as `trigger-owner-set`. A label, the cron line or the policies don't move it, nor does the same value sent again. A schedule a service account owns keeps its owner. The answer shows the owner after the change.
         """
         return self._client._request(
             _OPERATIONS["schedules.update"],
@@ -9658,7 +9699,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
 
-        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited.
+        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited. A trigger runs as whoever created it, or last changed what it runs: when anyone but the person who owns it changes its flow version, its input, its `toolsAllowedUnattended` or `hmacSecretName`, the caller becomes its owner, as `POST /v1/webhooks/{triggerId}/owner` would make them, and the change is audited as `trigger-owner-set`. The label, the delivery settings or the same value sent again don't move it. A trigger a service account owns keeps its owner. The answer shows the owner after the change.
         """
         return self._client._request(
             _OPERATIONS["webhooks.update"],
@@ -9956,6 +9997,310 @@ class WebhookEndpointsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.WebhookDelivery,
+            timeout=timeout,
+        )
+
+
+class ConnectionEntriesResource:
+    """`client.connection_entries` — the `connectionEntries` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(self, /, *, timeout: float | None = None) -> _models.ConnectionEntryList:
+        """List the apps this server can connect to. `GET /v1/connection-entries`
+
+        Each app with who may own a connection to it, how a person signs in, the permissions a tool may ask for (in plain words, and whether each changes anything) and the guide an admin follows to register the app. Any signed-in member. Mounted when the deployment supplies a `ConnectionBinding`.
+        """
+        return self._client._request(
+            _OPERATIONS["connectionEntries.list"],
+            path={},
+            query={},
+            headers={},
+            response=_models.ConnectionEntryList,
+            timeout=timeout,
+        )
+
+
+class ConnectionAppsResource:
+    """`client.connection_apps` — the `connectionApps` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        include_removed: bool | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionAppPage:
+        """List the tenant's app registrations. `GET /v1/connection-apps`
+
+        The tenant's own registrations of its client at an app: its client id, and its secrets by reference. Tenant admins only. Removed registrations are listed only with `includeRemoved=true`.
+        """
+        return self._client._request(
+            _OPERATIONS["connectionApps.list"],
+            path={},
+            query={"includeRemoved": include_removed, "limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ConnectionAppPage,
+            timeout=timeout,
+        )
+
+    def create(
+        self,
+        body: _models.CreateConnectionAppBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectionApp:
+        """Register an app. `POST /v1/connection-apps`
+
+        Registers the tenant's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["connectionApps.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateConnectionAppBody, body, fields),
+            response=_models.ConnectionApp,
+            timeout=timeout,
+        )
+
+    def get(self, app_id: str | UUID, /, *, timeout: float | None = None) -> _models.ConnectionApp:
+        """Fetch an app registration. `GET /v1/connection-apps/{appId}`"""
+        return self._client._request(
+            _OPERATIONS["connectionApps.get"],
+            path={"appId": app_id},
+            query={},
+            headers={},
+            response=_models.ConnectionApp,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        app_id: str | UUID,
+        body: _models.UpdateConnectionAppBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectionApp:
+        """Update an app registration. `PATCH /v1/connection-apps/{appId}`
+
+        Changes the label, the client or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["connectionApps.update"],
+            path={"appId": app_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateConnectionAppBody, body, fields),
+            response=_models.ConnectionApp,
+            timeout=timeout,
+        )
+
+    def remove(
+        self,
+        app_id: str | UUID,
+        /,
+        *,
+        with_connections: bool | None = None,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionAppRemoved:
+        """Remove an app registration. `DELETE /v1/connection-apps/{appId}`
+
+        Without `withConnections=true`, a registration that still has live connections is refused (`connection-app-in-use`). With it, those connections are removed too. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["connectionApps.remove"],
+            path={"appId": app_id},
+            query={"withConnections": with_connections},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ConnectionAppRemoved,
+            timeout=timeout,
+        )
+
+
+class ConnectionsRequestsResource:
+    """`client.connections.requests` — the `connections.requests` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def get(
+        self, request_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ConnectRequest:
+        """Fetch a connect request. `GET /v1/connections/requests/{requestId}`
+
+        A member's request is the member's alone; the company's is a tenant admin's. Anyone else gets the `404` of a request that doesn't exist.
+        """
+        return self._client._request(
+            _OPERATIONS["connections.requests.get"],
+            path={"requestId": request_id},
+            query={},
+            headers={},
+            response=_models.ConnectRequest,
+            timeout=timeout,
+        )
+
+    def start(
+        self,
+        request_id: str | UUID,
+        body: _models.StartConnectBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectStart:
+        """Start a connect request. `POST /v1/connections/requests/{requestId}/start`
+
+        Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`.
+        """
+        return self._client._request(
+            _OPERATIONS["connections.requests.start"],
+            path={"requestId": request_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.StartConnectBody, body, fields),
+            response=_models.ConnectStart,
+            timeout=timeout,
+        )
+
+
+class ConnectionsResource:
+    """`client.connections` — the `connections` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+        self.requests = ConnectionsRequestsResource(client)
+
+    def list(
+        self,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        app: str | None = None,
+        owner: Literal["me"] | None = None,
+        owner_kind: Literal["member", "company"] | None = None,
+        state: Literal["working", "needs-reconnecting", "removing", "removed"] | None = None,
+        include_removed: bool | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionPage:
+        """List connections. `GET /v1/connections`
+
+        A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`, or with the others under `includeRemoved=true`.
+        """
+        return self._client._request(
+            _OPERATIONS["connections.list"],
+            path={},
+            query={
+                "projectId": project_id,
+                "app": app,
+                "owner": owner,
+                "ownerKind": owner_kind,
+                "state": state,
+                "includeRemoved": include_removed,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.ConnectionPage,
+            timeout=timeout,
+        )
+
+    def connect(
+        self,
+        body: _models.CreateConnectRequestBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectRequest:
+        """Start a connect. `POST /v1/connections`
+
+        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).
+        """
+        return self._client._request(
+            _OPERATIONS["connections.connect"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateConnectRequestBody, body, fields),
+            response=_models.ConnectRequest,
+            timeout=timeout,
+        )
+
+    def finish(
+        self,
+        body: _models.FinishConnectBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectFinish:
+        """Finish a connect. `POST /v1/connections/finish`
+
+        Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`).
+        """
+        return self._client._request(
+            _OPERATIONS["connections.finish"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.FinishConnectBody, body, fields),
+            response=_models.ConnectFinish,
+            timeout=timeout,
+        )
+
+    def get(
+        self, connection_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Connection:
+        """Fetch a connection. `GET /v1/connections/{connectionId}`
+
+        A member's connection is its owner's or a tenant admin's. Anyone else gets the `404` of a connection that doesn't exist.
+        """
+        return self._client._request(
+            _OPERATIONS["connections.get"],
+            path={"connectionId": connection_id},
+            query={},
+            headers={},
+            response=_models.Connection,
+            timeout=timeout,
+        )
+
+    def disconnect(
+        self,
+        connection_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Connection:
+        """Disconnect. `DELETE /v1/connections/{connectionId}`
+
+        Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal.
+        """
+        return self._client._request(
+            _OPERATIONS["connections.disconnect"],
+            path={"connectionId": connection_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Connection,
             timeout=timeout,
         )
 
@@ -18236,7 +18581,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Update a cron schedule. `PATCH /v1/schedules/{triggerId}`
 
-        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it.
+        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule runs as whoever created it, or last changed what it runs: when anyone but the person who owns it changes its target or version, its input or `toolsAllowedUnattended`, the caller becomes its owner, as `POST /v1/schedules/{triggerId}/owner` would make them, and the change is audited as `trigger-owner-set`. A label, the cron line or the policies don't move it, nor does the same value sent again. A schedule a service account owns keeps its owner. The answer shows the owner after the change.
         """
         return await self._client._request(
             _OPERATIONS["schedules.update"],
@@ -18456,7 +18801,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
 
-        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited.
+        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited. A trigger runs as whoever created it, or last changed what it runs: when anyone but the person who owns it changes its flow version, its input, its `toolsAllowedUnattended` or `hmacSecretName`, the caller becomes its owner, as `POST /v1/webhooks/{triggerId}/owner` would make them, and the change is audited as `trigger-owner-set`. The label, the delivery settings or the same value sent again don't move it. A trigger a service account owns keeps its owner. The answer shows the owner after the change.
         """
         return await self._client._request(
             _OPERATIONS["webhooks.update"],
@@ -18760,6 +19105,312 @@ class AsyncWebhookEndpointsResource:
         )
 
 
+class AsyncConnectionEntriesResource:
+    """`client.connection_entries` — the `connectionEntries` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(self, /, *, timeout: float | None = None) -> _models.ConnectionEntryList:
+        """List the apps this server can connect to. `GET /v1/connection-entries`
+
+        Each app with who may own a connection to it, how a person signs in, the permissions a tool may ask for (in plain words, and whether each changes anything) and the guide an admin follows to register the app. Any signed-in member. Mounted when the deployment supplies a `ConnectionBinding`.
+        """
+        return await self._client._request(
+            _OPERATIONS["connectionEntries.list"],
+            path={},
+            query={},
+            headers={},
+            response=_models.ConnectionEntryList,
+            timeout=timeout,
+        )
+
+
+class AsyncConnectionAppsResource:
+    """`client.connection_apps` — the `connectionApps` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        include_removed: bool | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionAppPage:
+        """List the tenant's app registrations. `GET /v1/connection-apps`
+
+        The tenant's own registrations of its client at an app: its client id, and its secrets by reference. Tenant admins only. Removed registrations are listed only with `includeRemoved=true`.
+        """
+        return await self._client._request(
+            _OPERATIONS["connectionApps.list"],
+            path={},
+            query={"includeRemoved": include_removed, "limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ConnectionAppPage,
+            timeout=timeout,
+        )
+
+    async def create(
+        self,
+        body: _models.CreateConnectionAppBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectionApp:
+        """Register an app. `POST /v1/connection-apps`
+
+        Registers the tenant's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["connectionApps.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateConnectionAppBody, body, fields),
+            response=_models.ConnectionApp,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, app_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ConnectionApp:
+        """Fetch an app registration. `GET /v1/connection-apps/{appId}`"""
+        return await self._client._request(
+            _OPERATIONS["connectionApps.get"],
+            path={"appId": app_id},
+            query={},
+            headers={},
+            response=_models.ConnectionApp,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        app_id: str | UUID,
+        body: _models.UpdateConnectionAppBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectionApp:
+        """Update an app registration. `PATCH /v1/connection-apps/{appId}`
+
+        Changes the label, the client or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["connectionApps.update"],
+            path={"appId": app_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateConnectionAppBody, body, fields),
+            response=_models.ConnectionApp,
+            timeout=timeout,
+        )
+
+    async def remove(
+        self,
+        app_id: str | UUID,
+        /,
+        *,
+        with_connections: bool | None = None,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionAppRemoved:
+        """Remove an app registration. `DELETE /v1/connection-apps/{appId}`
+
+        Without `withConnections=true`, a registration that still has live connections is refused (`connection-app-in-use`). With it, those connections are removed too. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["connectionApps.remove"],
+            path={"appId": app_id},
+            query={"withConnections": with_connections},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ConnectionAppRemoved,
+            timeout=timeout,
+        )
+
+
+class AsyncConnectionsRequestsResource:
+    """`client.connections.requests` — the `connections.requests` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def get(
+        self, request_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ConnectRequest:
+        """Fetch a connect request. `GET /v1/connections/requests/{requestId}`
+
+        A member's request is the member's alone; the company's is a tenant admin's. Anyone else gets the `404` of a request that doesn't exist.
+        """
+        return await self._client._request(
+            _OPERATIONS["connections.requests.get"],
+            path={"requestId": request_id},
+            query={},
+            headers={},
+            response=_models.ConnectRequest,
+            timeout=timeout,
+        )
+
+    async def start(
+        self,
+        request_id: str | UUID,
+        body: _models.StartConnectBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectStart:
+        """Start a connect request. `POST /v1/connections/requests/{requestId}/start`
+
+        Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`.
+        """
+        return await self._client._request(
+            _OPERATIONS["connections.requests.start"],
+            path={"requestId": request_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.StartConnectBody, body, fields),
+            response=_models.ConnectStart,
+            timeout=timeout,
+        )
+
+
+class AsyncConnectionsResource:
+    """`client.connections` — the `connections` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+        self.requests = AsyncConnectionsRequestsResource(client)
+
+    async def list(
+        self,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        app: str | None = None,
+        owner: Literal["me"] | None = None,
+        owner_kind: Literal["member", "company"] | None = None,
+        state: Literal["working", "needs-reconnecting", "removing", "removed"] | None = None,
+        include_removed: bool | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionPage:
+        """List connections. `GET /v1/connections`
+
+        A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`, or with the others under `includeRemoved=true`.
+        """
+        return await self._client._request(
+            _OPERATIONS["connections.list"],
+            path={},
+            query={
+                "projectId": project_id,
+                "app": app,
+                "owner": owner,
+                "ownerKind": owner_kind,
+                "state": state,
+                "includeRemoved": include_removed,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.ConnectionPage,
+            timeout=timeout,
+        )
+
+    async def connect(
+        self,
+        body: _models.CreateConnectRequestBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectRequest:
+        """Start a connect. `POST /v1/connections`
+
+        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).
+        """
+        return await self._client._request(
+            _OPERATIONS["connections.connect"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateConnectRequestBody, body, fields),
+            response=_models.ConnectRequest,
+            timeout=timeout,
+        )
+
+    async def finish(
+        self,
+        body: _models.FinishConnectBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectFinish:
+        """Finish a connect. `POST /v1/connections/finish`
+
+        Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`).
+        """
+        return await self._client._request(
+            _OPERATIONS["connections.finish"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.FinishConnectBody, body, fields),
+            response=_models.ConnectFinish,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, connection_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Connection:
+        """Fetch a connection. `GET /v1/connections/{connectionId}`
+
+        A member's connection is its owner's or a tenant admin's. Anyone else gets the `404` of a connection that doesn't exist.
+        """
+        return await self._client._request(
+            _OPERATIONS["connections.get"],
+            path={"connectionId": connection_id},
+            query={},
+            headers={},
+            response=_models.Connection,
+            timeout=timeout,
+        )
+
+    async def disconnect(
+        self,
+        connection_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Connection:
+        """Disconnect. `DELETE /v1/connections/{connectionId}`
+
+        Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal.
+        """
+        return await self._client._request(
+            _OPERATIONS["connections.disconnect"],
+            path={"connectionId": connection_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Connection,
+            timeout=timeout,
+        )
+
+
 class Resources:
     """Every resource, as attributes of `Kindgi`."""
 
@@ -18816,6 +19467,9 @@ class Resources:
     schedules: SchedulesResource
     webhooks: WebhooksResource
     webhook_endpoints: WebhookEndpointsResource
+    connection_entries: ConnectionEntriesResource
+    connection_apps: ConnectionAppsResource
+    connections: ConnectionsResource
 
     def __init__(self) -> None:
         client = cast(SyncClientBase, self)
@@ -18872,6 +19526,9 @@ class Resources:
         self.schedules = SchedulesResource(client)
         self.webhooks = WebhooksResource(client)
         self.webhook_endpoints = WebhookEndpointsResource(client)
+        self.connection_entries = ConnectionEntriesResource(client)
+        self.connection_apps = ConnectionAppsResource(client)
+        self.connections = ConnectionsResource(client)
 
 
 class AsyncResources:
@@ -18930,6 +19587,9 @@ class AsyncResources:
     schedules: AsyncSchedulesResource
     webhooks: AsyncWebhooksResource
     webhook_endpoints: AsyncWebhookEndpointsResource
+    connection_entries: AsyncConnectionEntriesResource
+    connection_apps: AsyncConnectionAppsResource
+    connections: AsyncConnectionsResource
 
     def __init__(self) -> None:
         client = cast(AsyncClientBase, self)
@@ -18986,3 +19646,6 @@ class AsyncResources:
         self.schedules = AsyncSchedulesResource(client)
         self.webhooks = AsyncWebhooksResource(client)
         self.webhook_endpoints = AsyncWebhookEndpointsResource(client)
+        self.connection_entries = AsyncConnectionEntriesResource(client)
+        self.connection_apps = AsyncConnectionAppsResource(client)
+        self.connections = AsyncConnectionsResource(client)

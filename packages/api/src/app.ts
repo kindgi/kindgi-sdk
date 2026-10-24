@@ -29,6 +29,7 @@ import type { AdapterRegistryBinding } from './adapter-binding.js';
 import type { AgentRegistryBinding } from './agent-binding.js';
 import type { BlockRegistryBinding } from './block-binding.js';
 import type { CapabilityRegistryBinding } from './capability-binding.js';
+import type { ConnectionBinding } from './connection-binding.js';
 import type { CostBinding } from './cost-binding.js';
 import type { CursorSealer } from './cursor-seal.js';
 import type { DeploymentBinding } from './deployment-binding.js';
@@ -131,6 +132,12 @@ import { authRouter, logoutHandler } from './routes/auth.js';
 import { blocksRouter } from './routes/blocks.js';
 import { capabilitiesRouter } from './routes/capabilities.js';
 import { complianceRouter } from './routes/compliance.js';
+import {
+  connectionAppsRouter,
+  connectionEntriesRouter,
+  connectionNoticesRouter,
+  connectionsRouter,
+} from './routes/connections.js';
 import { conversationsRouter } from './routes/conversations.js';
 import { costRouter } from './routes/cost.js';
 import { deploymentsRouter } from './routes/deployments.js';
@@ -849,6 +856,18 @@ export interface CreateAppInput {
    * `WebhookEndpointBinding`.
    */
   readonly webhookEndpoints?: WebhookEndpointBinding;
+  /**
+   * Optional. When present, mounts connections: tools acting with a
+   * member's own account at another app, or the company's.
+   * `/v1/connection-entries` (the apps this server knows),
+   * `/v1/connection-apps/*` (the tenant's registrations, an admin's),
+   * `/v1/connections/*` (connections and connect requests), and, outside
+   * the bearer chain, `/v1/connection-notices/*` (removals the app
+   * reports, rate-limited as `webhookReceiver` says). Needs `envName`: a
+   * connection is made under the env this runtime serves. See
+   * `ConnectionBinding`.
+   */
+  readonly connections?: ConnectionBinding;
   /**
    * Optional. When present, mounts the tenant policies catalog surface
    * (`/v1/policies` list/get/publish, `/v1/policies/:policyId/versions/*`).
@@ -1569,6 +1588,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       {
         ...(input.eventBus !== undefined && { eventBus: input.eventBus }),
         ...(input.hitlBinding !== undefined && { hitl: input.hitlBinding }),
+        ...(input.connections !== undefined && { connections: input.connections }),
         ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
         ...(itemRights !== undefined && { itemRights }),
         ...(input.agentRegistry !== undefined &&
@@ -2095,6 +2115,29 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       }),
     );
   }
+  if (input.connections !== undefined) {
+    if (servedEnv === undefined) {
+      throw new Error(
+        'createApp: `connections` needs `envName`, the env this runtime serves (KINDGI_ENV): a connection is made under it',
+      );
+    }
+    v1.route('/connection-entries', connectionEntriesRouter(input.connections));
+    v1.route(
+      '/connection-apps',
+      connectionAppsRouter(input.connections, authorizer, {
+        providerKeys,
+        ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
+      }),
+    );
+    v1.route(
+      '/connections',
+      connectionsRouter(input.connections, authorizer, {
+        envName: servedEnv,
+        ...(input.reviewerBinding !== undefined &&
+          input.hitlBinding !== undefined && { reviewers: input.reviewerBinding }),
+      }),
+    );
+  }
   if (input.policyRegistry !== undefined) {
     v1.route(
       '/policies',
@@ -2492,6 +2535,21 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.tenantStates !== undefined && { tenantStates: input.tenantStates }),
         ...(input.projectSuspended !== undefined && {
           projectSuspended: input.projectSuspended,
+        }),
+      }),
+    );
+  }
+  // Removals an app reports: outside the bearer chain (mounted ahead of
+  // `/v1`), checked by the app's own signature.
+  if (input.connections !== undefined) {
+    app.route(
+      '/v1/connection-notices',
+      connectionNoticesRouter(input.connections, {
+        ...(input.webhookReceiver?.clientAddress !== undefined && {
+          clientAddress: input.webhookReceiver.clientAddress,
+        }),
+        ...(input.webhookReceiver?.rateLimitStore !== undefined && {
+          rateLimitStore: input.webhookReceiver.rateLimitStore,
         }),
       }),
     );

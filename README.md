@@ -70,6 +70,8 @@ All `@kindgi/*` packages share one version.
 | [`@kindgi/capabilities`](./packages/capabilities) | Capability declarations + provider router for Kindgi™. |
 | [`@kindgi/cli`](./packages/cli) | Command-line interface for Kindgi™. |
 | [`@kindgi/compliance`](./packages/compliance) | Kindgi™ compliance evidence contract. |
+| [`@kindgi/connections`](./packages/connections) | Kindgi™ connections: the app entries a Kindgi server reads to connect people's and a company's accounts at other apps (how to sign in, each permission in plain words, whose account it is, how access is withdrawn), defineApp to check one, and the Google and GitHub entries. |
+| [`@kindgi/connections-inmemory`](./packages/connections-inmemory) | An in-memory ConnectionBinding and ConnectionResolver with a fake app, for development and tests only; refuses to start in production. |
 | [`@kindgi/crypto`](./packages/crypto) | Kindgi™ cryptographic primitives. |
 | [`@kindgi/dev-echo-provider`](./packages/dev-echo-provider) | Deterministic dev-only ModelProvider — no LLM key, no network, no cost. |
 | [`@kindgi/dotenv-file`](./packages/dotenv-file) | Dotenv files the way applications read them (dotenv grammar, verified against the version Next.js bundles), expanded (${VAR}), layered (.env < .env.local) and edited losslessly. |
