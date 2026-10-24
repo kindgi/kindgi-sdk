@@ -32,7 +32,7 @@ import { pathToFileURL } from 'node:url';
 import { type Logger, childSpan, noopLogger, parseTraceparent } from '@kindgi/log';
 
 import type { HandlerContext, HandlerError } from '../handler-runner.js';
-import { runCheck, runHandler } from '../handler-runner.js';
+import { runCheck, runHandlerOrPause } from '../handler-runner.js';
 import type { Index, IndexedGuardrail, IndexedTool } from '../kindgi-index.js';
 import { type PackEnvCheck, missingPackEnv } from '../pack-env.js';
 import {
@@ -99,7 +99,8 @@ export type PackServiceLogEvent =
       readonly target: 'tool' | 'check';
       readonly id: string;
       readonly durationMs: number;
-      readonly outcome: 'ok' | PackErrorCode;
+      /** `pause`: a tool's call waits for another system's answer (protocol 2.8.0). */
+      readonly outcome: 'ok' | 'pause' | PackErrorCode;
     }
   | {
       /** A handler ignored its abort signal and finished after its call ended. */
@@ -285,21 +286,22 @@ export function createPackService(options: PackServiceOptions): PackService {
     const found = toolFor(message.tool);
     if ('refused' in found) return Promise.resolve(found.refused);
     const { tool } = found;
-    return runHandler({
+    return runHandlerOrPause({
       tool: {
         id: tool.id,
         modulePath: options.resolveModule(tool.modulePath),
         inputSchema: tool.input,
         outputSchema: tool.output,
+        ...(tool.pauses === true && { pauses: true }),
       },
       input: message.input,
       ctx: handlerContext(message.ctx, signal, callLog),
       importHandler: (p) => importModule(p) as never,
-    }).then((r) =>
-      r.kind === 'ok'
-        ? { v: PACK_PROTOCOL_VERSION, kind: 'result', output: r.value }
-        : fromHandlerError(r.error, { toolId: tool.id }),
-    );
+    }).then((r): PackResponse => {
+      if (r.kind === 'ok') return { v: PACK_PROTOCOL_VERSION, kind: 'result', output: r.value };
+      if (r.kind === 'pause') return { v: PACK_PROTOCOL_VERSION, kind: 'pause', ...r.pause };
+      return fromHandlerError(r.error, { toolId: tool.id });
+    });
   }
 
   function callCheck(message: CheckInvokeMessage, signal: AbortSignal): Promise<PackResponse> {
@@ -432,9 +434,10 @@ export function createPackService(options: PackServiceOptions): PackService {
       });
     }
     const durationMs = Date.now() - started;
-    const result = outcome.kind === 'error' ? outcome.code : 'ok';
+    const result =
+      outcome.kind === 'error' ? outcome.code : outcome.kind === 'pause' ? 'pause' : 'ok';
     logger({ kind: 'call', target, id, durationMs, outcome: result });
-    call[result === 'ok' ? 'info' : 'warn'](
+    call[result === 'ok' || result === 'pause' ? 'info' : 'warn'](
       `${target} ${id} ${result} ${durationMs}ms`,
       { event: 'call', kind: 'call', id, outcome: result, durationMs },
       { inMessage: ['target', 'id', 'outcome', 'durationMs'] },

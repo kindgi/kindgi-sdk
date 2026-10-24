@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kindgi.com/schemas/v1/pack-protocol.schema.json",
-  "$comment": "schema-version: 2.7.0",
+  "$comment": "schema-version: 2.9.0",
   "title": "Pack protocol",
   "description": "Pack protocol v2 — the messages a runtime exchanges with a pack service to run pack code (tool handlers and guardrail checks). One request, one response. Transport (HTTP): `POST /v1/invoke` takes a request and answers 200 with a response; `GET /v1/info` (token) answers `info`; `GET /healthz` (no token) answers 200 while the process is up; `GET /readyz` (no token) answers 200 once every module the index names has loaded and the service isn't draining. Headers: `kindgi-pack-token` (required on `/v1/invoke` and `/v1/info`; `Authorization` is deliberately not used, since platforms like Cloud Run put their own identity token there), `kindgi-timeout-ms` (relative deadline; default 120000), `kindgi-run-id`, `kindgi-request-id`, `kindgi-protocol`, `traceparent` (W3C Trace Context: the run's trace, so a pack service's records can carry its trace id; optional, protocol 2.4.1), `kindgi-tenant-id` (the tenant the call is for, set by the runtime from the deployment it routed the call to, on `/v1/invoke` and `/v1/info`; optional, protocol 2.7.0); the answer to an invoke carries `kindgi-duration-ms` and `kindgi-artifact-version`. Every outcome of running pack code is a response message with status 200 — a validation failure, a throw, an unknown tool, `deadline-exceeded`, `cancelled` (the caller closed the connection). Non-2xx statuses are transport-level only: 401 (bad token), 404, 405, 413 (body over 10 MiB), 415 (not `application/json`), 421 with `{\"code\":\"pack-tenant-mismatch\"}` (a service pinned to one tenant by `KINDGI_PACK_TENANT_ID` refused a call to `/v1/invoke` or `/v1/info` whose `kindgi-tenant-id` header is missing or names another tenant, or a tool call whose context names another: the call didn't run, and isn't retried; protocol 2.7.0), 503 with `Retry-After` (not ready, draining, or at the concurrency cap — the call provably did not run), 500 (the service itself failed). Process contract: a pack service reads `--index`, `--module-root` and `--host` arguments, `KINDGI_PACK_SERVICE_TOKEN`, `PORT` (`0` picks a free port), `KINDGI_PACK_SERVICE_MAX_CONCURRENCY` and, optionally, `KINDGI_PACK_TENANT_ID` (protocol 2.7.0); it removes `KINDGI_PACK_SERVICE_TOKEN` from its process environment before it loads pack code, which never sees it; it loads every module before listening and exits 1 with a `{\"kind\":\"boot-failed\",\"problems\":[…]}` JSON line on stderr when one fails; once listening it writes `{\"kind\":\"listening\",\"port\":N,…}` on stderr; SIGTERM drains in-flight calls (up to 8 s; `/readyz` and new invokes answer 503 meanwhile) and exits 0.",
   "oneOf": [
@@ -20,6 +20,7 @@
     "response": {
       "oneOf": [
         { "$ref": "#/$defs/toolResult" },
+        { "$ref": "#/$defs/toolPause" },
         { "$ref": "#/$defs/checkResult" },
         { "$ref": "#/$defs/error" }
       ]
@@ -58,7 +59,7 @@
         "connections": {
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/connection" },
-          "description": "The connections the tool declares (`needsSpec.connections`), by the tool's name for each, resolved for this call (protocol 2.7.0). Like `secrets`, never logged. Absent when the tool declares none, and from an older runtime."
+          "description": "The connections the tool declares (`needsSpec.connections`), by the tool's name for each, resolved for this call (protocol 2.9.0). Like `secrets`, never logged. Absent when the tool declares none, and from an older runtime."
         },
         "config": {
           "type": "object",
@@ -68,6 +69,24 @@
           "type": "object",
           "additionalProperties": { "type": "object" },
           "description": "The settings blocks the calling agent version pins: each block's values, by block id (protocol 2.4.0). Absent when it pins none, and from an older runtime."
+        },
+        "waitToken": {
+          "type": "object",
+          "required": ["id", "url"],
+          "additionalProperties": false,
+          "description": "The wait token a tool that declares `pauses` may answer with (protocol 2.8.0). The tool hands `url` to the system that will answer, then answers `pause`; the run waits until that system posts its answer to `url`, and the answer becomes the call's output. Sent only for a tool whose index entry says `pauses`. Absent from an older runtime: a tool that reads it then fails with `pause-not-available`.",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The token's id. The same every time this attempt of the call runs (a retry of its step gets a new token)."
+            },
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "description": "Where the other system posts its answer: `POST` with the output as a JSON body, no `Authorization` header. The link is the credential: hand it only to the system that answers. A re-run after a crash gets a new link to the same wait, and either link completes it. Hand on the new one only if the old one never went out, and dedupe on `idempotencyKey`."
+            }
+          }
         }
       }
     },
@@ -134,6 +153,28 @@
         "kind": { "const": "result" },
         "output": {
           "description": "The handler's return value, valid against the tool's output schema."
+        }
+      }
+    },
+    "toolPause": {
+      "type": "object",
+      "required": ["v", "kind"],
+      "additionalProperties": false,
+      "description": "A tool that declares `pauses` answers that its call waits for another system (protocol 2.8.0). Valid only as the answer to an `invoke` whose context carried `waitToken`. The run waits until that system posts to the token's `url`, or until `timeoutMs` passes; the posted value, valid against the tool's output schema, becomes the call's output.",
+      "properties": {
+        "v": { "$ref": "#/$defs/version" },
+        "kind": { "const": "pause" },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2073600000,
+          "description": "How long the run waits for the answer, in milliseconds: at most 24 days. Absent means the runtime's default, 24 hours."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "What the run waits for, in a few words (`the carrier's pickup confirmation`), shown wherever the run's waits are listed."
         }
       }
     },
@@ -206,9 +247,10 @@
         "check-not-in-pack",
         "tool-version-mismatch",
         "deadline-exceeded",
-        "cancelled"
+        "cancelled",
+        "pause-not-available"
       ],
-      "description": "Why running pack code didn't produce a result."
+      "description": "Why running pack code didn't produce a result. `pause-not-available` (protocol 2.8.0): a tool tried to pause, but the call carried no `waitToken` (an older runtime, or a tool whose index entry doesn't say `pauses`)."
     },
     "issue": {
       "type": "object",
@@ -258,7 +300,7 @@
         },
         "connection": {
           "type": "string",
-          "description": "Present for `connection-rejected` (protocol 2.7.0): the tool's name for the connection whose token the app refused. The runtime renews that token once and runs the call again."
+          "description": "Present for `connection-rejected` (protocol 2.9.0): the tool's name for the connection whose token the app refused. The runtime renews that token once and runs the call again."
         }
       }
     },

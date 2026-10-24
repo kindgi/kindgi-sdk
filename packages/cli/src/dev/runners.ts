@@ -10,6 +10,7 @@
  * `runIndexer` (`@kindgi/handler-runtime`), and an `fs.watch` bridge.
  */
 
+import type { PackBlockWrite, PackBlockWriteOutcome } from '@kindgi/handler-runtime';
 import type {
   PackServiceSupervisor,
   PackServiceSupervisorEvent,
@@ -192,7 +193,19 @@ export interface DevPackServiceOptions {
   readonly sandbox?: ActiveDevSandbox;
   /** A notice for the user from starting the pack service (the sandbox's). */
   readonly onNotice?: (line: string) => void;
+  /**
+   * The pack's blocks (`discovery.blocks`). A version made live in the
+   * console is written into its file through the front (`POST
+   * /v1/blocks`), and `onWritten` says so.
+   */
+  readonly blocks: {
+    readonly pattern: string;
+    readonly onWritten: (write: PackBlockWrite, written: PackBlockWritten) => void;
+  };
 }
+
+/** What the front wrote for a block made live: its file, and its template file too. */
+export type PackBlockWritten = Extract<PackBlockWriteOutcome, { readonly kind: 'ok' }>;
 
 /**
  * The local pack service: the public supervisor, children behind a
@@ -209,6 +222,11 @@ export interface IndexedCounts {
   readonly guardrails: number;
   readonly agents: number;
   readonly flows: number;
+  /**
+   * The pack's data blocks (`blocks/`). Absent from an indexer from before
+   * blocks in a pack: a Python or JVM pack's own `kindgi` package.
+   */
+  readonly blocks?: number;
 }
 
 /**

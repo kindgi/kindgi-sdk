@@ -80,7 +80,7 @@ const add: LeafCommand = {
   kind: 'leaf',
   name: 'add',
   description:
-    "Add a person to the tenant; prints their id. They can read the tenant's settings at once; give them a project role to work on its agents and runs, and their first key (`kindgi tokens create --for=user:<id>`). Where the runtime invites people, one added with an email is invited, and the invitation emailed unless `--no-invite`; it says whether it was. Tenant admins only.",
+    "Add a person to the tenant; prints their id. They can read the tenant's settings at once. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then give them their first key (`kindgi tokens create --for=user:<id>`). Where the runtime invites people, one added with an email is invited, and the invitation emailed unless `--no-invite`; it says whether it was. Tenant admins only.",
   usage: 'kindgi people add --name=<display-name> [--email=<email>] [--no-invite]',
   optionSpec: {
     name: { type: 'string', description: 'Their name, as people see it.' },
@@ -112,7 +112,7 @@ const add: LeafCommand = {
         stderr:
           ctx.globals.format === 'quiet'
             ? ''
-            : `Added to the tenant: they can read its settings. Give them a project role to work on its agents and runs, then their first key: kindgi tokens create --for=user:${String(created.userId)}\n${inviteLine(created, created.inviteEmail)}`,
+            : `Added to the tenant: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:${String(created.userId)}\n${inviteLine(created, created.inviteEmail)}`,
       };
     }),
 };

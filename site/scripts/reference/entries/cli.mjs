@@ -302,6 +302,10 @@ export const CLI_DEFAULTS = {
     project: "the tenant's Default project",
     segment: 'none',
   },
+  'runs resume': {
+    output: 'none: the command only says what the run waits for',
+    waitpoint: "the run's only wait for another system's answer (only with `--output`)",
+  },
   'agents list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
@@ -490,15 +494,22 @@ export const CLI_DEFAULTS = {
   },
   'proposals improve': {
     agent: 'required',
+    'class-weights':
+      "none (counts everyone until the test set's project, its tenant, or the agent improved there has a restricted judge class, then only those)",
+    drafts: '`3` (`1` to `5`; a prompt pass only)',
     'from-version': 'the version serving the scope',
     'idempotency-key': 'none',
     'max-candidates': '`30`',
     'max-cost': '`5` (US dollars)',
+    model: 'none (needed with `--tier=prompt`, with `--provider`)',
     objective: '`weightedYesShare`',
     org: 'none',
+    'pass-project': "the scope's project, else the agent version's",
     project: 'none',
+    provider: 'none (needed with `--tier=prompt`, with `--model`)',
     segment: 'none',
     'test-set': 'required',
+    tier: '`settings`',
   },
   'proposals passes list': {
     agent: 'none',
@@ -729,6 +740,7 @@ export const CLI_DEFAULTS = {
   },
   'judgments add': {
     class: 'none (the judgment is unclassified)',
+    correction: 'none (an ordinary judgment, with no correction)',
     item: 'required',
     no: 'off (exactly one of `--yes` or `--no` is required)',
     participant: 'none',
@@ -774,6 +786,84 @@ export const CLI_DEFAULTS = {
     'principal-id': 'unchanged',
     'principal-kind': 'unchanged',
     weight: 'unchanged',
+  },
+  'judging-rules create': {
+    project: "the tenant's Default project",
+    name: 'required',
+    agent: 'none (runs of any agent)',
+    flow: 'none (runs of any flow)',
+    'agent-version': 'none (any version)',
+    status: '`completed` (only completed runs match)',
+    sample: '`1` (every matching run)',
+    'max-open': 'none (no cap)',
+    class: 'none (any judgment closes an item)',
+    'queue-last':
+      'none (nothing is queued on create unless `--queue-last` or `--queue-since` is given)',
+    'queue-since': 'none',
+  },
+  'judging-rules list': {
+    project: "the tenant's Default project",
+    limit: '`25` (at most `100`)',
+    cursor: 'none',
+  },
+  'judging-rules show': {
+    project: "the tenant's Default project",
+  },
+  'judging-rules update': {
+    project: "the tenant's Default project",
+    name: 'unchanged',
+    agent: 'unchanged (any match flag replaces `when` whole)',
+    flow: 'unchanged (any match flag replaces `when` whole)',
+    'agent-version': 'unchanged (any match flag replaces `when` whole)',
+    status: 'unchanged (any match flag replaces `when` whole)',
+    sample: 'unchanged',
+    'max-open': 'unchanged',
+    class: 'unchanged',
+  },
+  'judging-rules remove': {
+    project: "the tenant's Default project",
+  },
+  'judging-rules versions': {
+    project: "the tenant's Default project",
+    limit: '`25` (at most `100`)',
+    cursor: 'none',
+  },
+  'judging-rules results': {
+    project: "the tenant's Default project",
+    since: 'none (every result)',
+  },
+  'judging-rules preview': {
+    project: "the tenant's Default project",
+    agent: 'none (runs of any agent)',
+    flow: 'none (runs of any flow)',
+    'agent-version': 'none (any version)',
+    status: '`completed` (only completed runs match)',
+    sample: '`1` (every matching run)',
+    last: '`100` (1 to 500)',
+    rule: 'none (preview the given flags, not an existing rule)',
+  },
+  'judging-rules queue-recent': {
+    project: "the tenant's Default project",
+    last: 'none (give `--last` and/or `--since`)',
+    since: 'none (give `--last` and/or `--since`)',
+  },
+  'judging-queue list': {
+    project: "the tenant's Default project",
+    state: 'none (every state)',
+    agent: 'none',
+    rule: 'none',
+    class: 'none',
+    'added-after': 'none',
+    'closed-after': 'none',
+    limit: '`25` (at most `100`)',
+    cursor: 'none',
+  },
+  'judging-queue dismiss': {
+    project: "the tenant's Default project",
+    reason: 'none',
+  },
+  'judging-queue reopen': {
+    project: "the tenant's Default project",
   },
   'eval-runs start': {
     project: 'required',
@@ -1706,6 +1796,99 @@ export const CLI_EXAMPLES = {
       line: 'kindgi judge-classes remove <judge-class-id>',
     },
   ],
+  'judging-rules create': [
+    {
+      purpose: "Queue a quarter of an agent's completed runs for judging.",
+      line: 'kindgi judging-rules create --name="refund tone" --agent=acme.refunds --sample=0.25',
+    },
+    {
+      purpose: 'Create a rule and catch it up at once on the last 500 finished runs.',
+      line: 'kindgi judging-rules create --name="all refunds" --agent=acme.refunds --queue-last=500',
+    },
+  ],
+  'judging-rules list': [
+    {
+      purpose: "List a project's judging rules.",
+      line: 'kindgi judging-rules list --project=<project-id>',
+    },
+  ],
+  'judging-rules show': [
+    {
+      purpose: "Show a rule's latest version.",
+      line: 'kindgi judging-rules show <rule-id>',
+    },
+  ],
+  'judging-rules update': [
+    {
+      purpose: "Raise a rule's open-items cap and enable it.",
+      line: 'kindgi judging-rules update <rule-id> --max-open=50 --enable',
+    },
+    {
+      purpose: 'Replace what the rule matches and drop its cap.',
+      line: 'kindgi judging-rules update <rule-id> --agent=acme.refunds --clear-max-open',
+    },
+  ],
+  'judging-rules remove': [
+    {
+      purpose: 'Unregister a rule so it queues nothing more; its queued items stay.',
+      line: 'kindgi judging-rules remove <rule-id>',
+    },
+  ],
+  'judging-rules versions': [
+    {
+      purpose: 'List every version of a rule, newest first.',
+      line: 'kindgi judging-rules versions <rule-id>',
+    },
+  ],
+  'judging-rules results': [
+    {
+      purpose:
+        "Show a rule's results for runs queued since a date, by the rule's version and the agent's.",
+      line: 'kindgi judging-rules results <rule-id> --since=2026-10-01',
+    },
+  ],
+  'judging-rules preview': [
+    {
+      purpose: 'See how many of the last 200 runs a rule would queue, changing nothing.',
+      line: 'kindgi judging-rules preview --agent=acme.refunds --last=200',
+    },
+    {
+      purpose: 'Preview exactly what an existing rule would take.',
+      line: 'kindgi judging-rules preview --rule=<rule-id>',
+    },
+  ],
+  'judging-rules queue-recent': [
+    {
+      purpose: 'Catch a rule up on the last 1,000 finished runs.',
+      line: 'kindgi judging-rules queue-recent <rule-id> --last=1000',
+    },
+    {
+      purpose: 'Queue its matches among runs finished on or after a date.',
+      line: 'kindgi judging-rules queue-recent <rule-id> --since=2026-10-01',
+    },
+  ],
+  'judging-queue list': [
+    {
+      purpose: 'List the runs waiting for a judgment, as a table.',
+      line: 'kindgi judging-queue list --state=open --table',
+    },
+    {
+      purpose: 'List the open items one of your judgments would close.',
+      line: 'kindgi judging-queue list --state=open --for-me',
+    },
+  ],
+  'judging-queue dismiss': [
+    {
+      purpose: 'Dismiss a queued run that needs no judgment.',
+      line: 'kindgi judging-queue dismiss <run-id> --reason="not a refund"',
+    },
+  ],
+  'judging-queue reopen': [
+    {
+      purpose: 'Reopen a dismissed item so it waits for a judgment again.',
+      line: 'kindgi judging-queue reopen <run-id>',
+    },
+  ],
   'eval-runs list': [
     {
       purpose: 'List the newest eval runs of one suite.',
@@ -2089,4 +2272,6 @@ export const CLI_GROUP_SEE_ALSO = {
   health: ['deploy/self-hosted/operate'],
   version: ['start/install'],
   usage: ['guides/observability/cost-per-run', 'guides/projects/organize-by-org-and-project'],
+  'judging-rules': ['guides/evals/judge-a-runs-output', 'guides/evals/judging-reference'],
+  'judging-queue': ['guides/evals/judge-a-runs-output', 'guides/evals/judging-reference'],
 };

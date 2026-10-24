@@ -95,10 +95,16 @@ interface Fixtures {
   readonly server: FakeServer;
   readonly indexOutcomes: IndexResult[];
   captureIndexerCalls: string[];
-  captureWatchCalls: { readonly packDir: string; readonly debounceMs?: number }[];
+  captureWatchCalls: {
+    readonly packDir: string;
+    readonly debounceMs?: number;
+    readonly patterns?: readonly string[];
+  }[];
   /** A code change: the bundler reports a rebuild (default: an empty one). */
   triggerChange: (build?: PackBuild) => void;
-  /** An env-file change (the second watcher). */
+  /** A block file's change (the second watcher). */
+  triggerBlocksChange: () => void;
+  /** An env-file change (the third watcher). */
   triggerEnvChange: () => void;
   /** A watch failed, as both `watchPack` watchers hear it. */
   triggerWatchFailure: (error: Error) => void;
@@ -182,7 +188,11 @@ function makeFixtures(
   const captureIndexerCalls: string[] = [];
   const indexOutcomes = outcomes;
 
-  const captureWatchCalls: { packDir: string; debounceMs?: number }[] = [];
+  const captureWatchCalls: {
+    packDir: string;
+    debounceMs?: number;
+    patterns?: readonly string[];
+  }[] = [];
   const onChangeRefs: (() => void)[] = [];
   const watchFailedRefs: ((error: unknown) => void)[] = [];
   let rebuildRef: ((build: PackBuild) => void) | undefined;
@@ -287,6 +297,7 @@ function makeFixtures(
       captureWatchCalls.push({
         packDir: dir,
         ...(watchOpts?.debounceMs !== undefined && { debounceMs: watchOpts.debounceMs }),
+        ...(watchOpts?.patterns !== undefined && { patterns: watchOpts.patterns }),
       });
       onChangeRefs.push(onChange);
       if (watchOpts?.onWatchFailed !== undefined) watchFailedRefs.push(watchOpts.onWatchFailed);
@@ -302,7 +313,8 @@ function makeFixtures(
     captureWatchCalls,
     watchHandle,
     triggerChange: (build) => rebuildRef?.(build ?? { kind: 'ok', bundleMap: {} }),
-    triggerEnvChange: () => onChangeRefs[1]?.(),
+    triggerBlocksChange: () => onChangeRefs[1]?.(),
+    triggerEnvChange: () => onChangeRefs[2]?.(),
     triggerWatchFailure: (error) => {
       for (const failed of watchFailedRefs) failed(error);
     },
@@ -1517,7 +1529,7 @@ describe('kindgi dev — watch flow', () => {
 
     // Wait for boot to reach the watch stage (condition-based, not a fixed
     // sleep — boot time varies with machine load).
-    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(3), WAIT);
 
     // One boot-time index run.
     expect(fixtures.captureIndexerCalls.length).toBeGreaterThanOrEqual(1);
@@ -1538,8 +1550,42 @@ describe('kindgi dev — watch flow', () => {
     expect(fixtures.packBeginCloses()).toBe(1);
     const out = await promise;
     expect(out.exitCode).toBe(0);
-    expect(fixtures.watchHandle.closeCount).toBe(2);
+    expect(fixtures.watchHandle.closeCount).toBe(3);
     expect(fixtures.server.shutdownCount).toBe(1);
+  });
+
+  test("a change to the pack's blocks re-indexes: the blocks watcher follows the blocks folder", async () => {
+    const controller = new AbortController();
+    const withBlocks = (blocks: number): IndexResult => {
+      const outcome = defaultHappyOutcome();
+      return outcome.kind === 'ok'
+        ? { ...outcome, counts: { ...outcome.counts, blocks } }
+        : outcome;
+    };
+    const fixtures = makeFixtures({ outcomes: [withBlocks(1), withBlocks(2)] });
+    const { writes, restore } = captureStderr();
+    const promise = runCli({
+      ...baseInputs(fixtures, { stopSignal: controller.signal }),
+      argv: ['dev', `--path=${packDir}`],
+    });
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(3), WAIT);
+    // The code watcher doesn't follow the blocks: they're no bundle's entry.
+    expect(fixtures.captureWatchCalls[0]?.patterns).not.toContain('blocks/**/*.json');
+    expect(fixtures.captureWatchCalls[1]?.patterns).toEqual(['blocks/**']);
+
+    const before = fixtures.captureIndexerCalls.length;
+    fixtures.triggerBlocksChange();
+    await vi.waitFor(
+      () => expect(fixtures.captureIndexerCalls.length).toBeGreaterThan(before),
+      WAIT,
+    );
+    controller.abort();
+    const out = await promise.finally(restore);
+    expect(out.exitCode).toBe(0);
+    // The counts name the blocks, once there are some.
+    const said = `${writes.join('')}${out.stderr}`;
+    expect(said).toContain('1 flows, 1 blocks');
+    expect(said).toContain('1 flows, 2 blocks');
   });
 
   test('the watchers close while the runtime stops; a change seen while stopping starts nothing', async () => {
@@ -1549,7 +1595,7 @@ describe('kindgi dev — watch flow', () => {
       ...baseInputs(fixtures, { stopSignal: controller.signal }),
       argv: ['dev', `--path=${packDir}`],
     });
-    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(3), WAIT);
     const indexed = fixtures.captureIndexerCalls.length;
     controller.abort();
     // The watchers are still open while the runtime shuts down: what they
@@ -1565,6 +1611,7 @@ describe('kindgi dev — watch flow', () => {
       'runtime: stopping',
       'watcher',
       'watcher',
+      'watcher',
       'runtime: gone',
       'pack service',
     ]);
@@ -1577,7 +1624,7 @@ describe('kindgi dev — watch flow', () => {
       ...baseInputs(fixtures, { stopSignal: controller.signal }),
       argv: ['dev', `--path=${packDir}`],
     });
-    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(3), WAIT);
     const stderr = vi.spyOn(process.stderr, 'write');
     try {
       fixtures.triggerWatchFailure(new Error('the watch of /pack ended'));
@@ -1601,12 +1648,18 @@ describe('kindgi dev — watch flow', () => {
       ...baseInputs(fixtures, { stopSignal: controller.signal }),
       argv: ['dev', `--path=${packDir}`],
     });
-    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(3), WAIT);
     controller.abort();
     const out = await promise;
     expect(out.exitCode).not.toBe(0);
     expect(out.stderr).toContain('docker stop failed');
-    expect(fixtures.stopOrder).toEqual(['runtime: stopping', 'watcher', 'watcher', 'pack service']);
+    expect(fixtures.stopOrder).toEqual([
+      'runtime: stopping',
+      'watcher',
+      'watcher',
+      'watcher',
+      'pack service',
+    ]);
   });
 
   test('a shutdown step that fails still shuts the runtime and the pack service down', async () => {
@@ -1616,7 +1669,7 @@ describe('kindgi dev — watch flow', () => {
       ...baseInputs(fixtures, { stopSignal: controller.signal }),
       argv: ['dev', `--path=${packDir}`],
     });
-    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(3), WAIT);
     controller.abort();
     const out = await promise;
     expect(out.exitCode).not.toBe(0);
@@ -1642,7 +1695,7 @@ describe('kindgi dev — watch flow', () => {
       ...baseInputs(fixtures, { stopSignal: controller.signal }),
       argv: ['dev', '--json', `--path=${packDir}`],
     });
-    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(3), WAIT);
     fixtures.triggerChange();
     await vi.waitFor(
       () => expect(fixtures.captureIndexerCalls.length).toBeGreaterThanOrEqual(2),
@@ -1689,7 +1742,7 @@ describe('kindgi dev — watch flow', () => {
       ...baseInputs(fixtures, { stopSignal: controller.signal, devRunners }),
       argv: ['dev', '--json', `--path=${packDir}`],
     });
-    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(3), WAIT);
     fixtures.triggerChange();
     await vi.waitFor(() => expect(releaseTick).toBeDefined(), WAIT);
 
@@ -1721,7 +1774,7 @@ describe('kindgi dev — watch flow', () => {
         ...baseInputs(fixtures, { stopSignal: controller.signal }),
         argv: ['dev', `--path=${packDir}`],
       });
-      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(3), WAIT);
       writes.length = 0;
       controller.abort();
       out = await promise;
@@ -1757,7 +1810,7 @@ describe('kindgi dev — watch flow', () => {
         ...baseInputs(fixtures, { stopSignal: controller.signal, devRunners }),
         argv: ['dev', `--path=${packDir}`],
       });
-      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(3), WAIT);
       fixtures.triggerChange();
       await vi.waitFor(() => expect(releaseTick).toBeDefined(), WAIT);
       writes.length = 0;
@@ -1813,7 +1866,7 @@ describe('kindgi dev — watch flow', () => {
         ...baseInputs(fixtures, { stopSignal: controller.signal }),
         argv: ['dev', `--path=${packDir}`],
       });
-      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(3), WAIT);
       expect(writes.join('')).toContain(`    ⚠ ${message('cites')}\n`);
       // The same warning as the boot's: not repeated.
       expect(warned(await reload())).toEqual([
@@ -1871,9 +1924,9 @@ describe('kindgi dev — watch flow', () => {
     expect(out.exitCode).toBe(0);
     // Watch was still set up (we don't skip watch setup based on
     // pre-aborted signal — the caller passed --watch by default).
-    // Two watchers: primitive files added or removed, and the env files.
-    expect(fixtures.captureWatchCalls).toHaveLength(2);
-    expect(fixtures.watchHandle.closeCount).toBe(2);
+    // Three watchers: primitive files added or removed, the blocks, and the env files.
+    expect(fixtures.captureWatchCalls).toHaveLength(3);
+    expect(fixtures.watchHandle.closeCount).toBe(3);
     expect(fixtures.server.shutdownCount).toBe(1);
   });
 });
@@ -1972,7 +2025,7 @@ describe("kindgi dev — imports a deployed pack wouldn't have", () => {
         ...baseInputs(fixtures, { stopSignal: controller.signal }),
         argv: ['dev', '--json', `--path=${packDir}`],
       });
-      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(3), WAIT);
       expect(linesWith(writes, { stderr: '' }, 'The pack imports ms')).toHaveLength(1);
 
       // A save that imports nanoid too: a warning for nanoid only.

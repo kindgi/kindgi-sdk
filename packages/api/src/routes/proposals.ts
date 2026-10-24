@@ -368,9 +368,18 @@ function evaluationWire(
   stored: NonNullable<StoredProposal['evaluation']>,
   seen: ProposalEvaluationOutcome | null | undefined,
 ): Record<string, unknown> {
-  if (seen === undefined || seen === null) return { ...stored };
+  // The reference run it's held to stays the runtime's: what it found is
+  // `costUsd` and `decisions`.
+  const recorded = {
+    evalRunId: stored.evalRunId,
+    suiteId: stored.suiteId,
+    objective: stored.objective,
+    startedAt: stored.startedAt,
+    ...(stored.rule !== undefined && { rule: stored.rule }),
+  };
+  if (seen === undefined || seen === null) return recorded;
   return {
-    ...stored,
+    ...recorded,
     runStatus: seen.runStatus,
     ...(seen.baseline !== undefined && { baseline: seen.baseline }),
     ...(seen.candidate !== undefined && { candidate: seen.candidate }),
@@ -378,6 +387,8 @@ function evaluationWire(
     ...(seen.spread !== undefined && { spread: seen.spread }),
     ...(seen.cases !== undefined && { cases: seen.cases }),
     ...(seen.better !== undefined && { better: seen.better }),
+    ...(seen.costUsd !== undefined && { costUsd: seen.costUsd }),
+    ...(seen.decisions !== undefined && { decisions: seen.decisions }),
   };
 }
 

@@ -330,6 +330,14 @@ test('builds the URL from the env values', async () => {
 </TabItem>
 <TabItem label="Python">
 
+`ToolContext.for_test(tool=…)` decides them as a run does:
+- a name the test doesn't set takes its schema's `default`;
+- each value is checked against its schema;
+- the handler sees the declared names only.
+
+A missing or invalid value raises `ValueError`, naming it, so the test never
+reaches the handler.
+
 ```python
 # tests/test_orders.py
 from kindgi import ToolContext
@@ -338,19 +346,23 @@ from tools.orders import Lookup, find_order
 
 def test_builds_the_url_from_the_env_values():
     ctx = ToolContext.for_test(
-        env={"ORDERS_BASE_URL": "https://orders.example.com", "ORDERS_REGION": "us"}
+        tool=find_order, env={"ORDERS_BASE_URL": "https://orders.example.com"}
     )
     found = find_order(Lookup(orderId="ord_1001"), ctx)
-    assert found.url == "https://orders.example.com/us/orders/ord_1001"
+    # ORDERS_REGION isn't set, so it's its default, `eu`, as in a run.
+    assert found.url == "https://orders.example.com/eu/orders/ord_1001"
 ```
 
 </TabItem>
 <TabItem label="Java">
 
-`new ToolContext(…)` takes the env values as the handler gets them. Nothing
-fills in a default or checks a value against its schema, as
-`invokeToolForTest` does in TypeScript, so the test sets each name the
-handler reads.
+`ToolContext.forTest(tool, env, secrets)` decides them as a run does:
+- a name the test doesn't set takes its schema's `default`;
+- each value is checked against its schema;
+- `ctx.env()` holds the declared names only.
+
+A missing or invalid value throws `IllegalArgumentException`, naming it, so the
+test never reaches the handler.
 
 ```java
 // src/test/java/mypack/tools/FindOrderTest.java
@@ -358,8 +370,6 @@ package mypack.tools;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import com.kindgi.log.Logger;
-import com.kindgi.pack.Cancellation;
 import com.kindgi.pack.ToolContext;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -367,11 +377,11 @@ import org.junit.jupiter.api.Test;
 class FindOrderTest {
   @Test
   void buildsTheUrlFromTheEnvValues() throws Exception {
-    Map<String, Object> env = Map.of("ORDERS_BASE_URL", "https://orders.example.com", "ORDERS_REGION", "us");
-    ToolContext ctx = new ToolContext("test-tenant", "test-run", null, null, null, env,
-        Map.of(), Map.of(), Map.of(), new Cancellation(), Logger.noop());
+    ToolContext ctx = ToolContext.forTest(
+        FindOrder.TOOL, Map.of("ORDERS_BASE_URL", "https://orders.example.com"), Map.of());
     FindOrder.Output output = FindOrder.TOOL.call(new FindOrder.Input("ord_1001"), ctx);
-    assertEquals("https://orders.example.com/us/orders/ord_1001", output.url());
+    // ORDERS_REGION isn't set, so it's its default, `eu`, as in a run.
+    assertEquals("https://orders.example.com/eu/orders/ord_1001", output.url());
   }
 }
 ```
@@ -380,26 +390,28 @@ class FindOrderTest {
 
 <TabItem label="Scala">
 
-`new ToolContext(…)` takes the env values as the handler gets them. Nothing
-fills in a default or checks a value against its schema, as
-`invokeToolForTest` does in TypeScript, so the test sets each name the
-handler reads.
+`ToolContext.forTest(tool, env, secrets)` decides them as a run does:
+- a name the test doesn't set takes its schema's `default`;
+- each value is checked against its schema;
+- `ctx.env` holds the declared names only.
+
+A missing or invalid value throws `IllegalArgumentException`, naming it, so the
+test never reaches the handler.
 
 ```scala
 // src/test/scala/mypack/tools/FindOrderSuite.scala
 package mypack.tools
 
-import com.kindgi.log.Logger
-import com.kindgi.pack.{Cancellation, ToolContext}
+import com.kindgi.pack.ToolContext
 import java.util.Map as JMap
 
 class FindOrderSuite extends munit.FunSuite {
   test("builds the URL from the env values") {
-    val env = JMap.of[String, Object]("ORDERS_BASE_URL", "https://orders.example.com", "ORDERS_REGION", "us")
-    val ctx = new ToolContext("test-tenant", "test-run", null, null, null, env,
-      JMap.of(), JMap.of(), JMap.of(), new Cancellation(), Logger.noop())
+    val ctx = ToolContext.forTest(
+      FindOrder.tool, JMap.of("ORDERS_BASE_URL", "https://orders.example.com"), JMap.of[String, Object]())
     val output = FindOrder.tool.call(FindOrder.Input("ord_1001"), ctx)
-    assertEquals(output.url, "https://orders.example.com/us/orders/ord_1001")
+    // ORDERS_REGION isn't set, so it's its default, `eu`, as in a run.
+    assertEquals(output.url, "https://orders.example.com/eu/orders/ord_1001")
   }
 }
 ```

@@ -25,6 +25,17 @@ app a request when a run ends, see
 ## Before you start
 
 - **A pack and a runtime,** such as `kindgi dev`, with Kindgi 0.2's CLI.
+- **A secrets store and `KINDGI_ENV` on the runtime,** which `kindgi dev`
+  has. A trigger's signing secret is kept in the store, in the env the
+  runtime serves, so without either the runtime has no webhook triggers:
+  `/v1/webhooks` and `/v1/hooks` answer `404 route-not-found`. On your own
+  deployment, the store is Postgres, with `KINDGI_SECRETS_BACKEND=postgres`,
+  or [your own secret manager](../../../deploy/self-hosted/secret-manager/).
+  The environment variable reference has
+  [`KINDGI_SECRETS_BACKEND`](../../../reference/env-vars/#kindgi_secrets_backend)
+  and [`KINDGI_ENV`](../../../reference/env-vars/#kindgi_env). On Cloud Run,
+  the module sets both, unless `secrets_backend = "none"`
+  ([Without a KMS key](../../../deploy/self-hosted/cloud-run-reference/#without-a-kms-key)).
 - **A runtime the sender can reach,** with its public address in
   `KINDGI_PUBLIC_URL`, for a real sender. `kindgi dev` on your machine isn't
   reachable from a hosted store.
@@ -519,13 +530,19 @@ A run an event trigger starts reads the same, with `startedBy: "event"`.
   for up to 10 seconds: the old secret stops verifying at once on the
   instance that took the rotation, and within 10 seconds on the others.
 - **`kindgi webhooks take-ownership <trigger-id>`:** for a trigger whose owner
-  left. Once they're removed from the tenant, its deliveries are refused
-  (runtime 0.1.9 or later). After 5 deliveries in a row that were refused
-  or failed, a trigger pauses itself, with the reason in its `statusReason`:
-  take it over, then `kindgi webhooks resume <trigger-id>`. Its runs act as
-  you from the next delivery. This needs `admin` on the project and `execute`
-  on the flow. With `--run-as=<service-account-id>`, the account becomes its
-  owner instead, which needs `act_as` on it too. Every take-over is recorded
+  left. Once they're removed from the tenant, or the service account it runs
+  as is unregistered, its deliveries are refused (runtime 0.1.9 or later).
+  After 5 deliveries in a row whose run was refused or failed to start, a
+  trigger pauses itself, with the reason in its `statusReason`. A run refused
+  for a limit, such as `rate-limited`, or one the database was too busy to
+  start (runtime 0.1.9 or later) neither counts nor starts the count over.
+  Nor does a request turned away before that, such as one that doesn't prove
+  its sender or is past the trigger's
+  [limits](#what-kindgi-does-with-each-request). Take the trigger over, then
+  `kindgi webhooks resume <trigger-id>`. Its runs act as you from the next
+  delivery. This needs `admin` on the project and `execute` on the flow.
+  With `--run-as=<service-account-id>`, the account becomes its owner
+  instead, which needs `act_as` on it too. Every take-over is recorded
   as evidence, `trigger-owner-set`.
 - **`kindgi webhooks unregister <trigger-id>`:** the sender is answered `410`
   from then on. WooCommerce switches a webhook off after 7 refusals in a row,

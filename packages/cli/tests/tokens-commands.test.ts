@@ -330,10 +330,11 @@ describe('kindgi people', () => {
       displayName: 'Carol',
       email: 'carol@acme.test',
     });
-    // What being added gives them, and what's next. A runtime that doesn't
-    // invite says nothing about an invitation.
+    // What being added gives them, and what's next: the CLI can't tell
+    // whether the runtime checks roles, so it says both. A runtime that
+    // doesn't invite says nothing about an invitation.
     expect(out.stderr).toBe(
-      'Added to the tenant: they can read its settings. Give them a project role to work on its agents and runs, then their first key: kindgi tokens create --for=user:u-9\n',
+      'Added to the tenant: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:u-9\n',
     );
     const quiet = await run(['people', 'add', '--name=Dana', '--quiet']);
     expect([quiet.out.stdout, quiet.out.stderr]).toEqual(['', '']);

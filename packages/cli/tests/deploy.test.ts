@@ -49,6 +49,7 @@ import type {
 } from '../src/deploy/runners.js';
 import type { PackEnvNameRecord } from '../src/env/pack-env-hint.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
+import { CLI_VERSION } from '../src/version-info.js';
 import { fakeRateLimitWaits } from './rate-limit-waits.js';
 
 let cwd: string;
@@ -1059,6 +1060,77 @@ describe('kindgi deploy — dry-run + safety gates', () => {
   });
 });
 
+describe('kindgi deploy — its lines, as they come', () => {
+  /** The same deploy twice: its lines kept for the outcome, then streamed. */
+  async function keptAndStreamed(fixtures: () => Fixtures, argv: readonly string[]) {
+    const kept = await runCli({ ...baseInputs(fixtures()), argv: [...argv] });
+    const streamed: string[] = [];
+    const out = await runCli({
+      ...baseInputs(fixtures(), { progress: (text) => streamed.push(text) }),
+      argv: [...argv],
+    });
+    return { kept, streamed: streamed.join(''), writes: streamed, out };
+  }
+
+  test('streamed, the same text, one line per write, and the outcome leaves it out', async () => {
+    await writeAutoEnvelope();
+    const { kept, streamed, writes, out } = await keptAndStreamed(
+      () => makeFixtures(),
+      ['deploy', '--env=staging', `--path=${packDir}`],
+    );
+    expect(kept.exitCode, kept.stderr).toBe(0);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(writes.every((text) => text.endsWith('\n') && !text.slice(0, -1).includes('\n'))).toBe(
+      true,
+    );
+    expect(streamed).toBe(kept.stderr);
+    expect(streamed).toContain('201 Created');
+    expect(out.stderr).toBe('');
+    expect(JSON.parse(out.stdout)).toEqual(JSON.parse(kept.stdout));
+  });
+
+  test.each([
+    {
+      failure: 'the server refuses the deployment',
+      envelope: makeEnvelope(),
+      postResult: {
+        kind: 'wire-error',
+        status: 413,
+        error: {
+          code: 'request-too-large',
+          message: 'The request body is over the limit of 2097152 bytes',
+        },
+      } as const,
+      error: 'The request body is over the limit of 2097152 bytes',
+    },
+    {
+      failure: 'the envelope is unsigned',
+      envelope: makeEnvelope({
+        signature: undefined,
+        signerKeyId: undefined,
+        signerPublicKey: undefined,
+      }),
+      postResult: undefined,
+      error: 'deploy-envelope.json is unsigned. The server will refuse the deployment.\n',
+    },
+  ])('when $failure, the error comes after the lines before it, streamed or kept', async (c) => {
+    await writeAutoEnvelope();
+    const { kept, streamed, out } = await keptAndStreamed(
+      () =>
+        makeFixtures({
+          envelope: c.envelope,
+          ...(c.postResult !== undefined && { postResult: c.postResult }),
+        }),
+      ['deploy', '--env=staging', `--path=${packDir}`],
+    );
+    expect(kept.exitCode).toBe(1);
+    expect(out.exitCode).toBe(1);
+    expect(kept.stderr.startsWith('\n  Environment: staging\n')).toBe(true);
+    expect(kept.stderr.indexOf(c.error)).toBeGreaterThan(kept.stderr.indexOf('  Idempotency:'));
+    expect(`${streamed}${out.stderr}`).toBe(kept.stderr);
+  });
+});
+
 describe('kindgi deploy — secrets sync', () => {
   test('.env.<envName> present, --sync-secrets NOT passed → informational hint only, no sync fired', async () => {
     await writeAutoEnvelope();
@@ -1546,6 +1618,38 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     const out = await deploy(run.fixtures, '--hosted', `--project=${PROJECT}`);
     expect(out.exitCode, out.stderr).toBe(0);
     expect(out.stderr).toContain(`    … pending (${problem}): ${why}`);
+  });
+
+  test('streamed, each state goes out when it is seen, not at the end', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), [pending(), pending('capacity-unavailable'), ready]);
+    const streamed: string[] = [];
+    const atRead: string[] = [];
+    const { getDeployment } = run.fixtures.runners;
+    if (getDeployment === undefined) throw new Error('hostedFixtures reads the deployment');
+    const runners: DeployRunners = {
+      ...run.fixtures.runners,
+      getDeployment: async (o) => {
+        atRead.push(streamed.join(''));
+        return getDeployment(o);
+      },
+    };
+    const out = await runCli({
+      ...baseInputs(
+        { ...run.fixtures, runners },
+        { env: signedIn, progress: (text) => streamed.push(text) },
+        cloud(),
+      ),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, '--hosted', `--project=${PROJECT}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(atRead).toHaveLength(3);
+    expect(atRead[0]).toContain('201 Created');
+    expect(atRead[0]).toContain('Waiting for the pack service\n');
+    expect(atRead[2]).toContain('    … pending (capacity-unavailable)');
+    expect(atRead[2]).not.toContain('✓ ready');
+    expect(streamed.join('')).toContain('    ✓ ready\n');
+    expect(out.stderr).toBe('');
   });
 
   test("the env block's `build: 'hosted'` waits too; without either, nothing waits", async () => {
@@ -2525,4 +2629,107 @@ describe("kindgi deploy: the stored API key goes only to the address it's for", 
       expect(fixtures.state.postCalls).toBe(0);
     },
   );
+});
+
+describe('kindgi deploy — a pack with blocks goes only to a runtime that publishes them', () => {
+  const BLOCKS = [
+    { id: 'my-pack.reply', version: '1.0.0', kind: 'prompt', content: { template: 'Hi.' } },
+    { id: 'my-pack.style', version: '1.0.0', kind: 'settings', content: { values: {} } },
+  ];
+
+  /** A runtime whose `/v1/openapi.json` lists `capabilities` (none: no entry), and the URLs asked. */
+  function runtime(capabilities?: readonly string[], status = 200) {
+    const asked: string[] = [];
+    const fetchImpl = (async (url: unknown) => {
+      asked.push(String(url));
+      const info = {
+        title: 'Kindgi Platform API',
+        version: '0.1.0',
+        ...(capabilities !== undefined && { 'x-kindgi-capabilities': capabilities }),
+      };
+      return new Response(JSON.stringify({ openapi: '3.1.0', info }), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+    return { fetchImpl, asked };
+  }
+
+  async function deployWith(
+    fetchImpl: typeof fetch,
+    opts: { blocks?: boolean; argv?: string[] } = {},
+  ) {
+    const index = { ...(makeEnvelope().index as Record<string, unknown>) };
+    if (opts.blocks !== false) index.blocks = BLOCKS;
+    await writeAutoEnvelope({ index });
+    const fixtures = makeFixtures({ envelope: makeEnvelope({ index }) });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, ...(opts.argv ?? [])],
+      fetchImpl,
+    });
+    return { out, fixtures };
+  }
+
+  test('a runtime that lists deploy-publishes-pack-blocks takes it; names it does not know are ignored', async () => {
+    const { fetchImpl, asked } = runtime(['some-later-capability', 'deploy-publishes-pack-blocks']);
+    const { out, fixtures } = await deployWith(fetchImpl);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(asked).toEqual(['https://api.staging.example.com/v1/openapi.json']);
+    expect(fixtures.state.postCalls).toBe(1);
+  });
+
+  test("a runtime that doesn't is refused before anything is sent, naming this CLI's release", async () => {
+    for (const capabilities of [undefined, ['some-later-capability']]) {
+      const { fetchImpl } = runtime(capabilities);
+      const { out, fixtures } = await deployWith(fetchImpl);
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `The runtime at https://api.staging.example.com doesn't publish a pack's blocks (2 blocks in its index); deploy to a runtime with Kindgi ${CLI_VERSION} or later, or remove them.`,
+      );
+      expect(fixtures.state.postCalls).toBe(0);
+    }
+  });
+
+  test('a pack without blocks never asks', async () => {
+    const { fetchImpl, asked } = runtime();
+    const { out, fixtures } = await deployWith(fetchImpl, { blocks: false });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(asked).toEqual([]);
+    expect(fixtures.state.postCalls).toBe(1);
+  });
+
+  test("an answer that isn't the document is refused too: the deploy can't tell", async () => {
+    const { fetchImpl } = runtime(undefined, 404);
+    const { out, fixtures } = await deployWith(fetchImpl);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "Couldn't read what the runtime at https://api.staging.example.com does (GET /v1/openapi.json: HTTP 404), which a pack with blocks (2 blocks in its index) needs before it deploys.",
+    );
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('--dry-run sends nothing, so asks nothing', async () => {
+    const { fetchImpl, asked } = runtime();
+    const { out } = await deployWith(fetchImpl, { argv: ['--dry-run'] });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(asked).toEqual([]);
+  });
+
+  test("with no envelope yet, the pack's block files are checked before the build", async () => {
+    await mkdir(join(packDir, 'blocks'), { recursive: true });
+    await writeFile(join(packDir, 'blocks', 'reply.json'), JSON.stringify(BLOCKS[0]), 'utf8');
+    await writeFile(join(packDir, 'blocks', 'style.json'), JSON.stringify(BLOCKS[1]), 'utf8');
+    const { fetchImpl } = runtime();
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+      fetchImpl,
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain("doesn't publish a pack's blocks (blocks/: 2 files)");
+    expect(fixtures.state.buildCalls).toBe(0);
+    expect(fixtures.state.postCalls).toBe(0);
+  });
 });

@@ -67,8 +67,11 @@ export interface PackServiceTarget {
  * - `env-filter`: only the names the pack declares (and Kindgi's and the
  *   platform's) reach its code, unless `KINDGI_PACK_ENV_FILTER=off`; the
  *   service names the ones it dropped (`env-dropped`).
+ * - `pause`: a tool that declares `pauses` gets the call's wait token and
+ *   may answer with a pause (pack protocol 2.8.0); the fixture pack has
+ *   `conformance.pause`.
  */
-export type ConformanceFeature = 'pack-env' | 'log-records' | 'env-filter';
+export type ConformanceFeature = 'pack-env' | 'log-records' | 'env-filter' | 'pause';
 
 /** Root of a fixture pack shipped with this package (`node-pack`, `python-pack`). */
 export function fixturePackDir(name: string): string {
@@ -89,6 +92,8 @@ export const FIXTURE_TOOL_IDS = [
   'conformance.sleep',
   'conformance.throws',
 ] as const;
+/** The fixture pack's pausing tool, for a target that supports `pause`. */
+export const FIXTURE_PAUSE_TOOL_ID = 'conformance.pause';
 export const FIXTURE_CHECK_IDS = [
   'conformance.checks.min-length',
   'conformance.checks.throws',
@@ -467,6 +472,7 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
       guardrails: Record<string, unknown>[];
       agents: Record<string, unknown>[];
       flows: Record<string, unknown>[];
+      blocks?: Record<string, unknown>[];
     };
     let service: RunningService;
 
@@ -500,7 +506,9 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         expect(index.packVersion).toBe('1.0.0');
         expect(index.artifactVersion).toBe(PINS.artifactVersion);
         expect(index.publishedAt).toBe(PINS.publishedAt);
-        expect(index.tools.map((t) => t.id)).toEqual([...FIXTURE_TOOL_IDS]);
+        const toolIds: string[] = [...FIXTURE_TOOL_IDS];
+        if (target.unsupported?.includes('pause') !== true) toolIds.push(FIXTURE_PAUSE_TOOL_ID);
+        expect(index.tools.map((t) => t.id)).toEqual(toolIds.sort());
         expect(index.tools.every((t) => t.version === '1.0.0')).toBe(true);
         expect(index.guardrails.map((g) => g.checkId ?? g.id).sort()).toEqual([
           ...FIXTURE_CHECK_IDS,
@@ -513,6 +521,40 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         expect(index.agents[0]?.tools).toEqual([{ id: 'conformance.echo', version: '1.0.0' }]);
         expect(index.flows.map((f) => f.id)).toEqual(['conformance.echo-flow']);
         expect(index.flows[0]?.kernelPayloadVersion).toBe(1);
+      });
+
+      test("lists the pack's data blocks, a prompt's template file read into it", () => {
+        expect(index.blocks).toEqual([
+          {
+            id: 'conformance.greeting',
+            version: '1.0.0',
+            kind: 'prompt',
+            description: 'Greets the person by name',
+            content: {
+              template: 'Say hello to {{ name }}.\n',
+              parameters: [{ name: 'name', type: 'string' }],
+            },
+            modulePath: 'blocks/greeting.json',
+          },
+          {
+            id: 'conformance.limits',
+            version: '1.0.0',
+            kind: 'settings',
+            content: {
+              values: { maxSentences: 3, temperature: 1, minScore: 1e-7 },
+              schema: {
+                type: 'object',
+                properties: {
+                  maxSentences: { type: 'integer', minimum: 1 },
+                  temperature: { type: 'number', minimum: 0 },
+                  minScore: { type: 'number', minimum: 0 },
+                },
+                required: ['maxSentences'],
+              },
+            },
+            modulePath: 'blocks/limits.json',
+          },
+        ]);
       });
 
       test('is canonical: keys sorted, two-space indent, trailing newline', () => {
@@ -1068,7 +1110,7 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
       });
 
       test("an app's refusal of a connection, or an error caused by one: connection-rejected, naming it", async () => {
-        // Pack protocol 2.7.0: the runtime renews that connection's token and calls once more.
+        // Pack protocol 2.9.0: the runtime renews that connection's token and calls once more.
         const accessToken = 'refused-mail-token';
         const ctx = {
           ...CTX,
@@ -1131,7 +1173,7 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
           secrets: { API_KEY: 's3cret' },
           config: { mode: 'fast' },
           settings: { 'acme.weights': { recency: 0.7 } },
-          // Pack protocol 2.7.0: the connections the tool declares, each with a short-lived token.
+          // Pack protocol 2.9.0: the connections the tool declares, each with a short-lived token.
           connections: {
             mail: {
               connectionId: 'c-mail',
@@ -1263,6 +1305,71 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
       });
     });
 
+    describe.skipIf(target.unsupported?.includes('pause') === true)('pauses', () => {
+      // Pack protocol 2.8.0: the call's wait token, as the runtime sends it to a tool that pauses.
+      const waitToken = {
+        id: 'wt-conformance',
+        url: 'https://kindgi.example/v1/wait-tokens/wt-conformance/answer?sig=conformance',
+      };
+      const pauseCall = (input: Record<string, unknown>, ctx: object = { ...CTX, waitToken }) =>
+        toolCall(FIXTURE_PAUSE_TOOL_ID, input, { ctx });
+
+      test('the index says which tool pauses', () => {
+        const pausing = index.tools.filter((t) => t.pauses !== undefined).map((t) => t.id);
+        expect(pausing).toEqual([FIXTURE_PAUSE_TOOL_ID]);
+        expect(index.tools.find((t) => t.id === FIXTURE_PAUSE_TOOL_ID)?.pauses).toBe(true);
+      });
+
+      test('a tool that pauses answers with a pause', async () => {
+        const name = "the carrier's pickup confirmation";
+        const answer = await invoke(service, pauseCall({ timeoutMs: 7_200_000, name }));
+        expect(response(answer)).toEqual({ v: 2, kind: 'pause', timeoutMs: 7_200_000, name });
+        expect(response(await invoke(service, pauseCall({})))).toEqual({ v: 2, kind: 'pause' });
+      });
+
+      test('a pause is logged as one', async () => {
+        await invoke(service, pauseCall({}));
+        await waitFor(
+          () =>
+            service.events.find(
+              (e) => e.kind === 'call' && e.id === FIXTURE_PAUSE_TOOL_ID && e.outcome === 'pause',
+            ),
+          3_000,
+          'the pause line',
+        );
+      });
+
+      test('the handler receives the wait token, and may answer at once', async () => {
+        const answer = response(await invoke(service, pauseCall({ answer: true })));
+        expect(answer).toEqual({ v: 2, kind: 'result', output: { tokenId: waitToken.id } });
+      });
+
+      test('a call from a runtime that sends no wait token: pause-not-available', async () => {
+        const answer = response(await invoke(service, pauseCall({}, CTX)));
+        expect(answer).toMatchObject({
+          v: 2,
+          kind: 'error',
+          code: 'pause-not-available',
+          toolId: FIXTURE_PAUSE_TOOL_ID,
+        });
+      });
+
+      test.each([
+        ['no time', { timeoutMs: 0 }],
+        ['more than 24 days', { timeoutMs: 24 * 24 * 60 * 60 * 1000 + 1 }],
+        ['part of a millisecond', { timeoutMs: 1.5 }],
+        ['an empty name', { name: '' }],
+        ['a name over 200 characters', { name: 'x'.repeat(201) }],
+      ])('a pause for %s: handler-shape-invalid', async (_case, input) => {
+        const answer = response(await invoke(service, pauseCall(input)));
+        expect(answer).toMatchObject({
+          kind: 'error',
+          code: 'handler-shape-invalid',
+          toolId: FIXTURE_PAUSE_TOOL_ID,
+        });
+      });
+    });
+
     describe('checks', () => {
       test('a passing and a failing verdict', async () => {
         const passed = response(
@@ -1372,7 +1479,7 @@ export function describeCallContextCompatibility(target: PackServiceTarget): voi
 
     test('a tool call whose context has the project, the org, an idempotency key and connections: answered', async () => {
       if (service === undefined) throw new Error('the service did not start');
-      // The idempotency key is pack protocol 2.6.0 and the connections 2.7.0: an older
+      // The idempotency key is pack protocol 2.6.0 and the connections 2.9.0: an older
       // service ignores both.
       const ctx = {
         ...newer,
