@@ -6,7 +6,9 @@
 `wire_schema` turns a pydantic model (or any type pydantic understands) into
 the JSON Schema a pack index carries — Draft 2020-12, field names as they
 travel (aliases), no generated titles, local `$ref`s inlined unless a type is
-recursive. A dict is taken as JSON Schema already.
+recursive, and no OpenAPI `discriminator` (a tagged union's `oneOf` picks its
+member by the tag; a union whose member a callable `Discriminator` picks is an
+`anyOf`). A dict is taken as JSON Schema already.
 
 `SchemaValidator` checks a value against a schema and reports issues shaped
 like Ajv's (`instancePath`, `schemaPath`, `keyword`, `params`, `message`) —
@@ -50,6 +52,15 @@ class _WireSchema(GenerateJsonSchema):
     def field_title_should_be_set(self, schema: Any) -> bool:
         return False
 
+    def tagged_union_schema(self, schema: core_schema.TaggedUnionSchema) -> JsonSchemaValue:
+        out = super().tagged_union_schema(schema)
+        # With no `discriminator` beside it, as when a callable `Discriminator` picks the member,
+        # the members can overlap: a `oneOf` refuses a value that fits two of them, though
+        # pydantic takes it. An `anyOf` takes every value that fits the member pydantic picks.
+        if "discriminator" not in out and "oneOf" in out:
+            out["anyOf"] = out.pop("oneOf")
+        return out
+
     def model_schema(self, schema: core_schema.ModelSchema) -> JsonSchemaValue:
         out = super().model_schema(schema)
         # The core config's title defaults to the class name; the model's own config says
@@ -69,7 +80,7 @@ def wire_schema(source: Any, mode: JsonSchemaMode = "validation") -> JsonObject:
     else:
         adapter: TypeAdapter[Any] = TypeAdapter(cast(Any, source))
         schema = adapter.json_schema(by_alias=True, mode=mode, schema_generator=_WireSchema)
-    return _inline_refs(schema)
+    return _without_discriminators(_inline_refs(schema))
 
 
 def _inline_refs(schema: JsonObject) -> JsonObject:
@@ -108,6 +119,71 @@ def _inline_refs(schema: JsonObject) -> JsonObject:
     if done:
         out["$defs"] = done
     return out
+
+
+def _without_discriminators(schema: JsonObject) -> JsonObject:
+    """Take out the `discriminator` pydantic writes beside a tagged union's `oneOf`.
+
+    It is OpenAPI's keyword, not JSON Schema's: the runtime's strict compile refuses it, and its
+    `mapping` names `$defs` that `_inline_refs` has inlined. Each member keeps its tag as a
+    `const` (an `enum` when it has several values), so the `oneOf` alone picks the member. The tag
+    goes into each member's `required`, since pydantic refuses a value without its tag even when
+    the tag has a default. `schema` is `_inline_refs`' own copy, changed in place.
+    """
+
+    def walk(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        here = cast("dict[str, Any]", node)
+        found = here.get("discriminator")
+        members = here.get("oneOf")
+        if isinstance(found, Mapping) and isinstance(members, list):
+            tag = cast("Mapping[str, Any]", found).get("propertyName")
+            if isinstance(tag, str):
+                del here["discriminator"]
+                for member in cast("list[Any]", members):
+                    _require_tag(member, tag)
+        for keyword, holds in _SUBSCHEMAS:
+            value = here.get(keyword)
+            if holds == "one":
+                walk(value)
+            elif holds == "list" and isinstance(value, list):
+                for item in cast("list[Any]", value):
+                    walk(item)
+            elif holds == "map" and isinstance(value, dict):
+                for item in cast("dict[str, Any]", value).values():
+                    walk(item)
+
+    walk(schema)
+    return schema
+
+
+def _require_tag(member: Any, tag: str) -> None:
+    """Put `tag` first in a tagged union member's `required`: an object's own, or each member's
+    when the member is a union itself (a tagged union's `oneOf`, or the `anyOf` of a union a
+    callable picks). A recursive type's member is a `$ref`: the tag is
+    asked for beside it, with the `type` and the property the strict compile wants beside a
+    `required`. Its definition stays as it is: the type can sit outside the union, where its tag
+    isn't asked for."""
+    if not isinstance(member, dict):
+        return
+    here = cast("dict[str, Any]", member)
+    properties = here.get("properties")
+    if isinstance(properties, Mapping) and tag in properties:
+        required = cast("list[Any]", here.get("required", []))
+        if tag not in required:
+            here["required"] = [tag, *required]
+        return
+    for keyword in ("oneOf", "anyOf"):
+        members = here.get(keyword)
+        if isinstance(members, list):
+            for inner in cast("list[Any]", members):
+                _require_tag(inner, tag)
+            return
+    if isinstance(here.get("$ref"), str) and "properties" not in here:
+        here.setdefault("type", "object")
+        here["properties"] = {tag: True}
+        here["required"] = [tag]
 
 
 # ---------------------------------------------------------------------------
