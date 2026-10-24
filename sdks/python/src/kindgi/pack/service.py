@@ -43,7 +43,16 @@ from pydantic import ValidationError as PydanticError
 from .._json import compact_dumps
 from .._schema import Issue, SchemaValidator, apply_defaults, issues_from_pydantic
 from ..log import Logger, child_span, noop_logger, parse_traceparent
-from .context import Cancellation, ConnectionRejected, ToolContext
+from .context import (
+    MAX_PAUSE_NAME_LENGTH,
+    MAX_PAUSE_TIMEOUT_MS,
+    Cancellation,
+    ConnectionRejected,
+    PauseAnswer,
+    PauseNotAvailable,
+    ToolContext,
+    wait_token_from_wire,
+)
 from .define import Guardrail, Tool, check_result_to_wire
 from .loader import import_pack_module, mount_pack, primitives_of
 from .protocol import (
@@ -380,7 +389,8 @@ class PackService:
             )
             work.cancel()
         duration_ms = int((time.monotonic() - started) * 1000)
-        result = outcome["code"] if outcome.get("kind") == "error" else "ok"
+        kind = outcome.get("kind")
+        result = outcome["code"] if kind == "error" else "pause" if kind == "pause" else "ok"
         self._log(
             {
                 "kind": "call",
@@ -390,7 +400,7 @@ class PackService:
                 "outcome": result,
             }
         )
-        (call_log.info if result == "ok" else call_log.warn)(
+        (call_log.info if result in ("ok", "pause") else call_log.warn)(
             f"{target} {call_id} {result} {duration_ms}ms",
             {
                 "event": "call",
@@ -492,8 +502,9 @@ class PackService:
             )
 
         # The handler's records are its own (`pack.tool`), shown, never acted on.
+        pauses = entry.get("pauses") is True
         ctx = ToolContext.from_wire(
-            message.ctx, cancellation, call_log.child(subsystem="pack.tool")
+            message.ctx, cancellation, call_log.child(subsystem="pack.tool"), pauses=pauses
         )
         try:
             result = await self._call(
@@ -505,6 +516,8 @@ class PackService:
             )
         except asyncio.CancelledError:
             raise
+        except PauseNotAvailable:
+            return _no_pause(tool_id, pauses)
         except BaseException as cause:
             if isinstance(cause, KeyboardInterrupt):
                 raise
@@ -522,6 +535,10 @@ class PackService:
                 toolId=tool_id,
                 cause=_serialize_cause(cause),
             )
+        if isinstance(result, PauseAnswer):
+            if not pauses or wait_token_from_wire(message.ctx) is None:
+                return _no_pause(tool_id, pauses)
+            return _pause(tool_id, result)
 
         try:
             output = tool.dump_output(result)
@@ -696,6 +713,50 @@ class PackService:
 # ---------------------------------------------------------------------------
 # HTTP helpers
 # ---------------------------------------------------------------------------
+
+
+def _no_pause(tool_id: str, pauses: bool) -> Message:
+    if not pauses:
+        text = f'Tool "{tool_id}" answered with a pause, but doesn\'t declare `pauses=True`'
+    else:
+        text = (
+            f'Tool "{tool_id}" can\'t pause: the runtime that called it sent no wait token.'
+            " Pausing needs a runtime that speaks pack protocol 2.8.0 or later."
+        )
+    return pack_error("pause-not-available", text, toolId=tool_id)
+
+
+def _pause(tool_id: str, answer: PauseAnswer) -> Message:
+    """A handler's pause as its response, checked against the limits the protocol states."""
+    # Typed, but a handler's values: checked as they come.
+    timeout_ms: Any = answer.timeout_ms
+    name: Any = answer.name
+    if timeout_ms is not None and (
+        not isinstance(timeout_ms, int)
+        or isinstance(timeout_ms, bool)
+        or not 1 <= timeout_ms <= MAX_PAUSE_TIMEOUT_MS
+    ):
+        return pack_error(
+            "handler-shape-invalid",
+            f'Tool "{tool_id}" paused with timeout_ms {timeout_ms!r}: it must be a whole number'
+            f" of milliseconds from 1 to {MAX_PAUSE_TIMEOUT_MS} (24 days)",
+            toolId=tool_id,
+        )
+    if name is not None and (
+        not isinstance(name, str) or not 1 <= len(name) <= MAX_PAUSE_NAME_LENGTH
+    ):
+        return pack_error(
+            "handler-shape-invalid",
+            f'Tool "{tool_id}" paused with a name that isn\'t 1 to {MAX_PAUSE_NAME_LENGTH}'
+            " characters",
+            toolId=tool_id,
+        )
+    pause: Message = {"v": PACK_PROTOCOL_VERSION, "kind": "pause"}
+    if timeout_ms is not None:
+        pause["timeoutMs"] = timeout_ms
+    if name is not None:
+        pause["name"] = name
+    return pause
 
 
 def _header(scope: Scope, name: str) -> str | None:

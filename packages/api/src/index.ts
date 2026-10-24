@@ -17,7 +17,11 @@ export {
   MULTI_TENANT_LOOKUP,
 } from './middleware/auth.js';
 export type { SessionCookieOptions, TokenResolution, TokenResolver } from './middleware/auth.js';
-export type { SignInLegalLinks, SignInOptionsRateLimit } from './routes/sign-in-options.js';
+export type {
+  ConsoleLink,
+  SignInLegalLinks,
+  SignInOptionsRateLimit,
+} from './routes/sign-in-options.js';
 export type {
   LicensePreview,
   LicenseStatus,
@@ -297,6 +301,7 @@ export type {
   JudgingQueueListInput,
   JudgingQueuePage,
   JudgingQueueState,
+  JudgingRecentQueued,
   JudgingRule,
   JudgingRulePage,
   JudgingRulePatch,
@@ -430,6 +435,15 @@ export type {
 } from './public-run-token.js';
 export { runFailure } from './run-failure.js';
 export type { RunFailure } from './run-failure.js';
+export { WAIT_TOKEN_STATES } from './wait-token-binding.js';
+export type {
+  CompleteWaitTokenInput,
+  WaitTokenAccepted,
+  WaitTokenBinding,
+  WaitTokenRefusal,
+  WaitTokenState,
+  WaitingToken,
+} from './wait-token-binding.js';
 export {
   WEBHOOK_DELIVERY_STATUSES,
   WEBHOOK_EVENT_TYPES,
@@ -508,6 +522,8 @@ export type {
   AgentUnregisterOutcome,
 } from './agent-binding.js';
 export type { RegistryReadOnly } from './registry-read-only.js';
+// A pack agent's block pins where the pack's own versions are the only ones (`kindgi dev`).
+export { type BlockPins, type BlockVersionReads, resolveBlockPins } from './block-pins.js';
 export type {
   FlowGetInput,
   FlowGetVersionInput,
@@ -651,6 +667,7 @@ export type {
   EvalCasePage,
   EvalCasePutInput,
   EvalCaseStoreBinding,
+  JudgedCaseCorrection,
   JudgedEvalCase,
   JudgedItemSummary,
   JudgedReason,
@@ -831,6 +848,14 @@ export type {
   OutputItem,
   OutputScore,
 } from './judged-items.js';
+export { describeCorrectionDifference, gradeCorrection } from './corrections.js';
+export type {
+  CandidateCall,
+  Correction,
+  CorrectionDifference,
+  CorrectionResult,
+  ExpectedCall,
+} from './corrections.js';
 export {
   COST_AGGREGATE_DEFAULT_LIMIT,
   COST_AGGREGATE_MAX_LIMIT,
@@ -963,6 +988,7 @@ export type {
   ProposalEvaluationRef,
   ProposalEvidence,
   ProposalObjective,
+  ProposalRule,
   ProposalStep,
   ProposalTier,
   ProposedChange,
@@ -976,6 +1002,7 @@ export type {
   SupervisorQueryObservationsOutcome,
 } from './supervisor-binding.js';
 export type {
+  EstimateImprovementPassInput,
   ImproveScheduleInput,
   ImproveThreshold,
   ImprovementBudget,
@@ -983,6 +1010,7 @@ export type {
   ImprovementPass,
   ImprovementPassBinding,
   ImprovementPassComparison,
+  ImprovementPassEstimateBasis,
   ImprovementPassOutcome,
   ImprovementPassStatus,
   ImprovementTier,
@@ -993,6 +1021,7 @@ export { IMPROVE_SCHEDULE_DEFAULTS } from './improvement-pass-binding.js';
 export {
   DEFAULT_BUDGET as DEFAULT_IMPROVEMENT_BUDGET,
   parseImproveScheduleInput,
+  projectHasExpertClass,
   serializePass,
 } from './routes/improvement-passes.js';
 export { sampleCases } from './eval-sample.js';
@@ -1022,7 +1051,9 @@ export {
 export type {
   FixProposalStatus,
   ProposalAction,
+  ProposalDecisions,
   ProposalEvaluationOutcome,
+  ProposalNotKept,
 } from './proposal-status.js';
 export {
   PACK_SERVICE_NAME_PREFIX,

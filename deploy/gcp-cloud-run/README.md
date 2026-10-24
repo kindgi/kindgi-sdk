@@ -30,8 +30,8 @@ The `connector` shape is the same resources wired to an existing connector.
 For a dev environment next to an app, with no project of its own: `network_mode = "none"` (no VPC), the pack service sleeping to zero (`pack_min_instances = 0`), and Kindgi's database on the app's existing Cloud SQL instance (`database_host_instance`). `example-dev.tfvars` is a starting point. Not for production.
 
 - **No VPC.** Both services reach the internet through Cloud Run's own egress; the pack service takes all ingress, closed by IAM to the server's account (`pack_ingress = "INGRESS_TRAFFIC_ALL"`). There is no static egress IP, and the pack's tools reach only public addresses and the instances in `pack_cloud_sql_instances` — not a private-IP database.
-- **A shared database instance.** With `database_host_instance` set, the module makes no instance of its own: it creates Kindgi's `database_name` database on the named instance, and the operator creates Kindgi's user on that instance (step 3, run against the host). The instance must have a public IP and run **Postgres 16 or later** — before 16 a `CREATEROLE` user, which Kindgi's needs, could take any other role, so the two databases wouldn't be walled off. Run **one Kindgi deployment per host instance** (Kindgi's role and `PUBLIC` connect are instance-wide). The server's account gets `roles/cloudsql.client` on the app's instance, scoped to it by an IAM condition. The app's instance admins can reset Kindgi's database password; only secrets you store through Kindgi's API stay sealed under its key. Backups, point-in-time recovery and deletion protection are the app instance's, not Kindgi's; `database_deletion_protection` instead keeps Kindgi's database object from a Terraform-side drop (`ABANDON`). Choose a host or the module's own instance **at the first apply** — moving later is a dump and restore.
-- **The pack service at zero.** `pack_min_instances = 0` lets the pack service sleep when idle; the first tool call after idle waits for it to start, up to about two minutes (its startup probe). The server allows `pack_call_timeout_ms` for a single tool call (default 120 s, `KINDGI_PACK_CALL_TIMEOUT_MS`); raise it if cold starts run near that. The server, unlike the pack, keeps one instance on (`server_min_instances` stays at its default of 1): a run started without waiting, an Improve pass or an eval run keeps going after its response returns and needs an instance — and the CPU on it — to finish.
+- **A shared database instance.** With `database_host_instance` set, the module makes no instance of its own: it creates Kindgi's `database_name` database on the named instance, and the operator creates Kindgi's user on that instance (step 3, run against the host). The instance must have a public IP and run **Postgres 16 or later** — before 16 a `CREATEROLE` user, which Kindgi's needs, could take any other role, so the two databases wouldn't be walled off. Run **one Kindgi deployment per host instance** (Kindgi's role and `PUBLIC` connect are instance-wide). The server's account gets `roles/cloudsql.client` on the app's instance, scoped to it by an IAM condition. The app's instance admins can reset Kindgi's database password; only secrets you store through Kindgi's API stay sealed under its key. Backups, point-in-time recovery and deletion protection are the app instance's, not Kindgi's, and the module refuses its backup variables with a host; `database_deletion_protection` instead keeps Kindgi's database object from a Terraform-side drop (`ABANDON`). Choose a host or the module's own instance **at the first apply** — moving later is a dump and restore.
+- **The pack service at zero.** `pack_min_instances = 0` lets the pack service sleep when idle; the first tool call after idle waits for it to start, up to about two minutes (its startup probe). When response time matters, keep the default of 1: one instance stays running, around the clock ([Cloud Run pricing](https://cloud.google.com/run/pricing)). The server allows `pack_call_timeout_ms` for a single tool call (default 120 s, `KINDGI_PACK_CALL_TIMEOUT_MS`); raise it if cold starts run near that. The server, unlike the pack, keeps one instance on (`server_min_instances` stays at its default of 1): a run started without waiting, an Improve pass or an eval run keeps going after its response returns and needs an instance — and the CPU on it — to finish.
 
 ## Before you start
 
@@ -143,16 +143,39 @@ openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-exp
 read -rs LICENSE_KEY && printf '%s' "$LICENSE_KEY" | gcloud secrets versions add $N-license-key --data-file=- && unset LICENSE_KEY
 ```
 
-With `database_private_network` set, the URL is `postgres://kindgi:<password>@<private ip>:5432/kindgi?sslmode=require` (`terraform output database_private_ip`).
+With `database_private_network` set, the URL is `postgres://kindgi:<password>@<private ip>:5432/kindgi?sslmode=require` (`terraform output database_private_ip`). `sslmode=require` encrypts the connection and checks no certificate, and the private IP isn't in the instance's certificate. So the module also sets `KINDGI_DATABASE_SERVER_CA` to the instance's server CAs, and the server (runtime 0.2.0 on; an earlier one ignores it) checks that the database's certificate chains to one of them and is in date. It doesn't check the name: the instance's default per-instance CA signs that one instance's certificate alone, and "Verifying the CA verifies the server identity since each instance has a unique CA" ([Google: SSL/TLS certificates](https://docs.cloud.google.com/sql/docs/postgres/authorize-ssl)). Through `/cloudsql` (no `database_private_network`), the Cloud SQL connector encrypts the connection and checks the instance itself. An OpenFGA of yours that reaches the instance by its private IP opens a connection of its own, which these settings don't reach: give it the same CAs as a file, with `sslmode=verify-ca&sslrootcert=<file>` in its datastore URI (`gcloud sql ssl server-ca-certs list --instance=$N --format="value(cert)" > database-ca.pem` writes the file).
 
 **Your pack's own secrets** (`secret_env` in `kindgi env plan --env dev`): create each one and add its value, then list it in `pack_secret_env`. The pack service gets read access to exactly those.
 
 **Without a KMS key (`secrets_backend = "none"`).** By default (`"postgres"`), secrets set through Kindgi's API are envelope-encrypted in its database under a Cloud KMS key this module creates. With `"none"`:
 - **Not created:** the KMS key ring, the key and its grants, and the `<prefix>-secrets-aad-key` secret. `secrets_aad_key_version` isn't needed.
 - **The server stores no secrets of its own.** `/v1/secrets` isn't served (it answers 404 `route-not-found`), and nothing can be stored through Kindgi's API. The boot record has no KMS probe line.
+- **No webhooks, in or out.** A webhook trigger's signing secret and an endpoint's secret are kept in the store, so their routes aren't served: `/v1/webhooks`, `/v1/hooks` and `/v1/webhook-endpoints` answer 404 `route-not-found`. No webhook starts a run, and none is sent.
 - **Sign-in:** Continue with Google, Microsoft or GitHub and the emailed link work (step 7). A workspace's own identity provider needs `"postgres"`: its client secret and keys are references into the store, so adding or changing one answers 409 `identity-providers-need-secrets-store`.
-- **Who it fits:** a deployment whose pack secrets all come by reference (`pack_secret_env`) and whose model uses the service's own identity, Gemini on Vertex AI (`vertex_ai = true`). A provider that needs an API key stored in Kindgi doesn't fit it.
+- **Who it fits:** a deployment whose pack secrets all come by reference (`pack_secret_env`), whose model uses the service's own identity, Gemini on Vertex AI (`vertex_ai = true`), and that takes and sends no webhooks. A provider that needs an API key stored in Kindgi doesn't fit it.
 - **Changing an existing deployment from `"postgres"`:** the key's `prevent_destroy` stops the plan. That's on purpose: secrets stored under the key would become unreadable. Move them out first, then take the key out of state, as in "Taking it down".
+
+**Turning the store on later (`"none"` to `"postgres"`).** Nothing was stored, so nothing moves. The server's next revision reads `<prefix>-secrets-aad-key`, so the store's key and that secret come first, before the services change:
+
+1. Set `secrets_backend = "postgres"`. Leave `secrets_aad_key_version` unset until step 4.
+2. Apply only what the store stands on: the KMS API, the key ring, the key and the server's grant on it, and the new secret with the server's read access.
+
+   ```sh
+   terraform apply -var-file=dev.tfvars \
+     -target=google_project_service.apis \
+     -target=google_kms_crypto_key_iam_member.server_wraps \
+     -target=google_secret_manager_secret_iam_member.server_reads
+   ```
+
+   Terraform warns that resource targeting is in effect and the applied changes may be incomplete. Both are expected: step 4 completes them.
+
+3. Add the secret's first version, as above:
+
+   ```sh
+   openssl rand 32 | base64 | gcloud secrets versions add $N-secrets-aad-key --data-file=-
+   ```
+
+4. Set `secrets_aad_key_version = "1"`, and apply in full (step 5). The server's new revision stores secrets in Postgres, and its boot has the KMS probe record. Webhooks, and a workspace's own identity providers, work from then on.
 
 ## 4. The pack's env
 
@@ -261,10 +284,35 @@ Pin each secret to a version, as above, rather than `latest`: a new version then
 - **`public_url`** (`KINDGI_PUBLIC_URL`) is the URL people open the console at. On a new deployment that's `terraform output -raw server_url` after the first apply, so the emailed link comes with a second apply. With your own domain in front, it's that domain.
   - Console sessions are then accepted from that origin only, so open the console there.
   - The plan refuses `KINDGI_AUTH_SECRET` without it, because the server wouldn't start.
-- **Continue with Google, Microsoft or GitHub, verified domains, and Turnstile** go the same way:
-  - in `server_env`: each provider's client id, `KINDGI_AUTH_VERIFIED_DOMAINS` (`acme.com:<tenant id>`) and the Turnstile site key;
-  - in `server_secret_env`: each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET`.
-  - The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
+
+**With Continue with Google.** It needs the sign-in secret and `public_url`, as for the emailed link, and an OAuth client of type **Web application** in the Google Cloud console. Its authorized redirect URI is `public_url` followed by `/auth/kindgi/social/callback/google`:
+
+```
+https://kindgi-dev-server-abc123-pd.a.run.app/auth/kindgi/social/callback/google
+```
+
+```sh
+# The Google client's secret: paste it; it never goes in a file.
+read -rs GOOGLE_SECRET && printf '%s' "$GOOGLE_SECRET" | gcloud secrets create $N-google-client-secret --data-file=- && unset GOOGLE_SECRET
+```
+
+```hcl
+public_url = "https://kindgi-dev-server-abc123-pd.a.run.app"
+server_env = {
+  KINDGI_AUTH_GOOGLE_CLIENT_ID = "<client id>" # ends in .apps.googleusercontent.com
+}
+server_secret_env = {
+  KINDGI_AUTH_SECRET               = { secret = "kindgi-dev-auth-secret", version = "1" }
+  KINDGI_AUTH_GOOGLE_CLIENT_SECRET = { secret = "kindgi-dev-google-client-secret", version = "1" }
+}
+```
+
+- **Microsoft and GitHub, verified domains, and Turnstile** go the same way:
+  - in `server_env`: `KINDGI_AUTH_MICROSOFT_CLIENT_ID` or `KINDGI_AUTH_GITHUB_CLIENT_ID`, `KINDGI_AUTH_VERIFIED_DOMAINS` (`acme.com:<tenant id>`) and the Turnstile site key;
+  - in `server_secret_env`: `KINDGI_AUTH_MICROSOFT_CLIENT_SECRET` or `KINDGI_AUTH_GITHUB_CLIENT_SECRET`, and `KINDGI_AUTH_TURNSTILE_SECRET`;
+  - each provider's redirect URI ends in its name: `…/auth/kindgi/social/callback/microsoft` or `…/github`.
+- Several ways in share the two maps: with the emailed link too, they hold both sets of settings.
+- The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
 
 ## Many tenants (`tenancy`)
 
@@ -306,7 +354,7 @@ server_secret_env = {
 
 ## Testing the module
 
-`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, the server's own settings (sign-in), the tenancy: `single` with its pack service, `multi` with each setting it needs, and what each refuses; and `database_instance`: the server's volume, URL secret and grants on another instance, the module's own instance and grant kept, and each refusal.
+`terraform init -backend=false && terraform test` runs the tests in `tests/` with a mock Google provider. No credentials are used and no cloud calls are made. `tests/module.tftest.hcl` plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, the server's own settings (sign-in), the tenancy: `single` with its pack service, `multi` with each setting it needs, and what each refuses; `database_instance`: the server's volume, URL secret and grants on another instance, the module's own instance and grant kept, and each refusal; and the database's backups: Cloud SQL's defaults, each setting, and what each refuses. `tests/store-on-later.tftest.hcl` applies, in order, a deployment without a secrets store and the steps that turn one on later: the full plan refused until `secrets_aad_key_version` is set, the targeted apply of what the store stands on, and then the full apply, with the server's new settings.
 
 ## Upgrading
 
@@ -319,8 +367,18 @@ server_secret_env = {
 ## Operating it
 
 - **Client addresses:** the server trusts one proxy, Cloud Run's front end, which appends the caller to `X-Forwarded-For` (`trusted_proxies = "1"`, `KINDGI_TRUSTED_PROXIES`), so rate limits and audit records see the caller. With an external Application Load Balancer in front, set `"2"`: it appends the client and then its own address ([Google: the X-Forwarded-For header](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).
+- **Backups:** Cloud SQL backs the database up daily, with point-in-time recovery. By default it keeps 7 backups and 7 days of transaction logs on `ENTERPRISE` (the module's edition), 15 backups and 14 days on `ENTERPRISE_PLUS`, in the multi-region nearest the instance ([Google: Cloud SQL backup options](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/backup-options)).
+  - **Changing them:** `database_backup_retention`, `database_point_in_time_days` (at most 7 days on `ENTERPRISE`, and at most as many days as backups kept, both checked at plan) and `database_backup_location` (for example 30 backups, in `us`).
+  - **Where the backups are kept:** the nearest multi-region can be outside the instance's region and country. When you promise where backups are kept, set `database_backup_location` to a region (`northamerica-northeast2`, say) or a multi-region (`us`, `eu`, `asia`); a zone is refused at plan. Point-in-time recovery's transaction logs stay in the instance's own location ([Google: transaction log retention](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/backup-options#sb-log-retention)).
+  - **Setting it on a running deployment** changes the instance in place. The backups taken before stay where they were ([Google: custom backup locations](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/backup-options#sb-custom-backup-location)).
+  - **What a restore reaches:** any second within the logs' days, or one of the kept daily backups.
+  - **On a host or a restored instance:** these set the module's own instance only. With `database_host_instance` they're refused at plan: the host's backups are the app's, set where that instance is managed. An instance `database_instance` names keeps its own.
 - **One server instance** (`server_max_instances = 1`) until several replicas are verified. Migrations run at boot and need a direct database connection (the socket or a private IP, not a transaction pooler).
 - **Rotating a secret:** add a version, then roll a new revision of each service that reads it (`gcloud run services update <service> --update-labels=rotated=$(date +%s)`).
+- **Rotating the database's server CA** (private-IP mode): the server trusts the CAs the instance lists at the last apply, so add the new one, apply, and only then rotate. Applying after the rotation is too late: the server refuses the new certificate until it has the new CA.
+  1. `gcloud sql ssl server-ca-certs create --instance=$N` adds the upcoming CA.
+  2. `terraform apply`: the server's new revision trusts it and the current one. An OpenFGA of yours that checks these CAs gets them again here too (`gcloud sql ssl server-ca-certs list`, as above) and restarts with the new file.
+  3. `gcloud sql ssl server-ca-certs rotate --instance=$N` moves the instance to the new CA ([Google: manage SSL/TLS](https://docs.cloud.google.com/sql/docs/postgres/manage-ssl-instance)).
 - **The AAD key is pinned, never rotated this way.** The server reads the version `secrets_aad_key_version` names, not `latest`. Every secret stored in Postgres is bound to it: a new version is a key change that needs every stored secret re-encrypted, and a version added by mistake must not reach the server.
   - **Upgrading from a module copy before this variable:** set it to the version your server reads now. `gcloud secrets versions list $N-secrets-aad-key` shows it; normally `1`.
 - **Database timeouts:** from runtime 0.1.9, the server's connections carry their own: 60 s a statement, 30 s waiting for a lock, and 30 s idle in a transaction; a query waits at most 10 s for one of the server's pooled connections. `KINDGI_DB_STATEMENT_TIMEOUT_MS`, `KINDGI_DB_LOCK_TIMEOUT_MS`, `KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` and `KINDGI_DB_POOL_WAIT_TIMEOUT_MS` in `server_env` change them; 0 turns one off. The three Postgres timeouts win over the instance's flags. A GET or HEAD the statement or lock timeout or the pool wait ends answers 503 `database-busy` with `Retry-After: 5` (under `/auth/`, a browser signing in is sent back to the sign-in page instead), any other request 500, and the server's log has a `db` warning naming the setting, its value and its variable. The instance's `database_idle_in_transaction_timeout_ms` is the backstop for every other session on the module's own instance. The module sets no such flag on an instance `database_instance` or `database_host_instance` names; set it yourself if you want it — on a shared host instance it also ends the app's own sessions left idle that long, so that's the operator's call ([Cloud SQL: configure database flags](https://docs.cloud.google.com/sql/docs/postgres/flags)).

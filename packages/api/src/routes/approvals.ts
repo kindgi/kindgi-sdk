@@ -25,8 +25,9 @@ import type {
   UserId,
 } from '@kindgi/types';
 
+import { approvalResourceRef } from '../approval-resource.js';
 import { statusFor, toWireError } from '../errors.js';
-import type { RunHandlerBinding, RunTrace } from '../handler-binding.js';
+import type { RunHandlerBinding } from '../handler-binding.js';
 import type {
   Approval,
   ApprovalConnection,
@@ -38,6 +39,7 @@ import type {
 } from '../hitl-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
+import { type ResumeReport, resumeInline } from '../resume-inline.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import {
@@ -155,16 +157,15 @@ export function approvalsRouter(
   const runHandler = options.runHandler;
 
   /** What an approval is checked on: its project, else its run's, else the tenant. */
-  const approvalRef = async (tenantId: TenantId, approval: Approval): Promise<ResourceRef> => {
-    if (approval.projectId !== undefined) {
-      return ref('project', approval.projectId as unknown as string);
-    }
-    const runId = approval.provenanceRef?.runId;
-    const run = runId === undefined ? null : await runBinding.getRun(tenantId, runId as never);
-    return run === null
-      ? ref('tenant', tenantId as unknown as string)
-      : ref('project', run.projectId as unknown as string);
-  };
+  const approvalRef = (tenantId: TenantId, approval: Approval): Promise<ResourceRef> =>
+    approvalResourceRef(
+      tenantId,
+      {
+        projectId: approval.projectId,
+        runId: approval.provenanceRef?.runId as RunId | undefined,
+      },
+      (t, runId) => runBinding.getRun(t, runId as never),
+    );
   /** Whether the caller may read the approval's project (always, without an authorizer). */
   const mayRead = async (c: Context<AppEnv>, approval: Approval): Promise<boolean> =>
     authorizer === undefined ||
@@ -1027,40 +1028,6 @@ function parseAuditBundleBody(
     includeMessages = im;
   }
   return { kind: 'ok', value: { signingKeyId: signingKeyId.value, includeMessages } };
-}
-
-/** How the inline resume after a decision went. */
-type ResumeReport =
-  | { readonly kind: 'ok' }
-  | { readonly kind: 'failed'; readonly code: string; readonly message: string };
-
-/**
- * Resume the run a decision released, in the same request. A resume that
- * fails is reported, not raised: the decision is durable either way, and
- * the runtime ends a run that can't go on, or resumes it later.
- */
-async function resumeInline(
-  runHandler: RunHandlerBinding,
-  tenantId: TenantId,
-  runId: RunId,
-  trace: RunTrace | undefined,
-): Promise<ResumeReport> {
-  try {
-    const outcome = await runHandler.resumeRun({
-      tenantId,
-      runId,
-      ...(trace !== undefined && { trace }),
-    });
-    return outcome.kind === 'ok'
-      ? { kind: 'ok' }
-      : { kind: 'failed', code: outcome.error.code, message: outcome.error.message };
-  } catch (cause) {
-    return {
-      kind: 'failed',
-      code: 'resume-failed',
-      message: cause instanceof Error ? cause.message : String(cause),
-    };
-  }
 }
 
 /** Marks an oldest-first page's cursor (`order=asc`), which only continues that order. */

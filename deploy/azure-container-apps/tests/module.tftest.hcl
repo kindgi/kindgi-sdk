@@ -454,6 +454,77 @@ run "sign_in_with_providers_needs_public_url" {
   expect_failures = [azurerm_container_app.server]
 }
 
+# One tenant: "single", or unset, plans; serving many is refused, in either map.
+run "one_tenant_plans" {
+  command = plan
+  variables {
+    server_env = { KINDGI_TENANCY = "single" }
+  }
+  assert {
+    condition     = [for e in azurerm_container_app.server.template[0].container[0].env : e.value if e.name == "KINDGI_TENANCY"] == ["single"]
+    error_message = "KINDGI_TENANCY = \"single\" reaches the server."
+  }
+}
+
+# The runtime reads an empty KINDGI_TENANCY as "single".
+run "an_empty_tenancy_plans" {
+  command = plan
+  variables {
+    server_env = { KINDGI_TENANCY = "" }
+  }
+}
+
+run "refuses_many_tenants" {
+  command = plan
+  variables {
+    server_env = { KINDGI_TENANCY = "multi" }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_tenancy_as_a_secret" {
+  command = plan
+  variables {
+    server_secret_env = { KINDGI_TENANCY = { secret = "tenancy", version = "latest" } }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "one_pack_service_plans" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PACK_ROUTING = "single" }
+  }
+  assert {
+    condition     = [for e in azurerm_container_app.server.template[0].container[0].env : e.value if e.name == "KINDGI_PACK_ROUTING"] == ["single"]
+    error_message = "KINDGI_PACK_ROUTING = \"single\" reaches the server."
+  }
+}
+
+# The runtime trims KINDGI_PACK_ROUTING before it reads it.
+run "a_padded_single_routing_plans" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PACK_ROUTING = " single " }
+  }
+}
+
+run "refuses_a_pack_service_per_deployment" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PACK_ROUTING = "per-deployment" }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_pack_routing_as_a_secret" {
+  command = plan
+  variables {
+    server_secret_env = { KINDGI_PACK_ROUTING = { secret = "pack-routing", version = "latest" } }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
 # Renewing the license key: off by default. The server still gets where the
 # two keys are, so its 30-day warning prints the exact command.
 run "license_renewal_is_off_by_default" {

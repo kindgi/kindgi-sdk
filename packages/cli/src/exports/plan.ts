@@ -398,6 +398,7 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     route: '/v1/webhook-endpoints',
     paging: cursor,
     covers: ['/v1/webhook-endpoints/{endpointId}'],
+    admin: true,
   },
   {
     name: 'webhook-deliveries',
@@ -514,6 +515,7 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     route: '/v1/compliance/evidence',
     paging: cursor,
     covers: ['/v1/compliance/evidence/{evidenceId}'],
+    admin: true,
   },
   { name: 'sign-ins', route: '/v1/audit/sign-ins', paging: cursor, admin: true },
   { name: 'access-decisions', route: '/v1/audit/authz', paging: cursor },

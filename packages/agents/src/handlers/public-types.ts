@@ -284,6 +284,10 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    *   tenant-scope fact.
    * - **`principal` is absent** for a turn that has none. The authorizer
    *   decides what that gets.
+   * - **`toolVersion` is the version the call runs:** the one the turn
+   *   resolved for the agent's range, or a built-in's own. The turn sets it
+   *   on every check, so a rule can differ per version, as a flow's tool
+   *   step is checked on the exact version it runs.
    *
    * The Kindgi runtime checks `invoke` on the tool for the turn's
    * principal. Absent: every call is allowed.
@@ -293,6 +297,8 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
     readonly projectId: ProjectId;
     readonly principal?: Principal;
     readonly toolId: string;
+    /** The version the call runs. The turn sets it on every check. */
+    readonly toolVersion?: string;
   }) => Promise<ToolCallAuthorization>;
   /**
    * How replay turns (`InvokeAgentInput.replay`) decide their tool calls,

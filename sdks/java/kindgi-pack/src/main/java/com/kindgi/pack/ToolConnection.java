@@ -9,7 +9,7 @@ import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 
 /**
- * One of a tool's connections to another app, as a call gets it (pack protocol 2.7.0): the account,
+ * One of a tool's connections to another app, as a call gets it (pack protocol 2.9.0): the account,
  * and a short-lived token for this call.
  *
  * @param connectionId the connection

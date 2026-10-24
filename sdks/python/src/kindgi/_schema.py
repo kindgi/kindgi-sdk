@@ -22,6 +22,7 @@ import re
 from collections.abc import Callable, Iterable, Mapping
 from datetime import date, time
 from typing import Any, cast
+from urllib.parse import quote, unquote
 
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import ValidationError as SchemaError
@@ -35,6 +36,7 @@ __all__ = [
     "apply_defaults",
     "check_schema",
     "issues_from_pydantic",
+    "strict_schema_problem",
     "wire_schema",
 ]
 
@@ -202,6 +204,199 @@ _FORMAT_CHECKER = _formats()
 def check_schema(schema: Mapping[str, Any]) -> None:
     """Raise `jsonschema.SchemaError` when `schema` is not a valid Draft 2020-12 schema."""
     Draft202012Validator.check_schema(schema)
+
+
+# The keywords the runtime's compile of an inline schema knows (Ajv's Draft 2020-12 ones, with
+# ajv-formats' format bounds), and the annotation Kindgi reads (`x-kindgi-tunable`). Its strict
+# mode refuses any other keyword, and any format but ajv-formats' (`_STRICT_FORMATS`). It knows
+# `id` only to refuse it.
+_STRICT_KEYWORDS = frozenset(
+    {
+        "$async", "$comment", "$defs", "$dynamicAnchor", "$dynamicRef", "$id", "$recursiveAnchor",
+        "$recursiveRef", "$ref", "$schema", "$vocabulary", "additionalProperties", "allOf", "anyOf",
+        "const", "contains", "contentEncoding", "contentMediaType", "contentSchema", "default",
+        "definitions", "dependencies", "dependentRequired", "dependentSchemas", "deprecated",
+        "description", "else", "enum", "examples", "exclusiveMaximum", "exclusiveMinimum", "format",
+        "formatExclusiveMaximum", "formatExclusiveMinimum", "formatMaximum", "formatMinimum", "id",
+        "if", "items", "maxContains", "maxItems", "maxLength", "maxProperties", "maximum",
+        "minContains", "minItems", "minLength", "minProperties", "minimum", "multipleOf", "not",
+        "nullable", "oneOf", "pattern", "patternProperties", "prefixItems", "properties",
+        "propertyNames", "readOnly", "required", "then", "title", "type", "unevaluatedItems",
+        "unevaluatedProperties", "uniqueItems", "writeOnly", "x-kindgi-tunable",
+    }
+)  # fmt: skip
+_STRICT_FORMATS = frozenset(
+    {
+        "binary", "byte", "date", "date-time", "double", "duration", "email", "float", "hostname",
+        "int32", "int64", "ipv4", "ipv6", "iso-date-time", "iso-time", "json-pointer",
+        "json-pointer-uri-fragment", "password", "regex", "relative-json-pointer", "time", "uri",
+        "uri-reference", "uri-template", "url", "uuid",
+    }
+)  # fmt: skip
+# The keywords whose value the runtime compiles as a subschema ("one"), a list or a map of them, in
+# the order it compiles them, which decides the problem it names first: `$ref` and the applicators,
+# then `format`, then the array, object and unevaluated keywords. `$defs` and `contentSchema` aren't
+# among them: a definition is compiled where a `$ref` reaches it, and `contentSchema` is an
+# annotation.
+_COMPILE_ORDER = (
+    ("$ref", "ref"), ("not", "one"), ("anyOf", "list"), ("oneOf", "list"), ("allOf", "list"),
+    ("if", "one"), ("then", "one"), ("else", "one"), ("format", "format"),
+    ("prefixItems", "list"), ("items", "one"), ("contains", "one"), ("propertyNames", "one"),
+    ("additionalProperties", "one"), ("dependencies", "map"), ("properties", "map"),
+    ("patternProperties", "map"), ("dependentSchemas", "map"), ("unevaluatedItems", "one"),
+    ("unevaluatedProperties", "one"),
+)  # fmt: skip
+# The keyword that evaluates every property (or item), which makes an unevaluated one moot.
+_EVALUATES_ALL = {"unevaluatedProperties": "additionalProperties", "unevaluatedItems": "items"}
+# Where a subschema sits: under a keyword the runtime compiles, among the definitions, or under
+# `contentSchema`, which the runtime doesn't compile but whose bases it registers.
+_SUBSCHEMAS = (
+    *((keyword, holds) for keyword, holds in _COMPILE_ORDER if holds in ("one", "list", "map")),
+    ("$defs", "map"),
+    ("definitions", "map"),
+    ("contentSchema", "one"),
+)
+# The keywords that name a base or an anchor the runtime knows, which a `$ref` can resolve against.
+_BASE_KEYWORDS = ("$id", "$dynamicAnchor")
+_INDEX = re.compile(r"0|[1-9][0-9]*")
+_NOWHERE = object()
+
+
+def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
+    """What the runtime's strict compile refuses in a valid Draft 2020-12 `schema`: an unknown
+    keyword or `id`, an unknown format, or a `$ref` that names nothing, in the schema or a
+    subschema it compiles (one a `$ref` reaches included). Worded as the runtime words it, and of
+    two problems the one it names first; `None` when there's none.
+
+    A `$ref` is followed when it is `#` or a `#/...` pointer, and refused otherwise. When the
+    schema or a subschema names a base or an anchor (`$id`, `$dynamicAnchor`), what a `$ref`
+    reaches depends on bases this walk doesn't track, so no `$ref` is followed or refused. Ajv's
+    strict rules about types (`strictTypes`, `strictTuples`, `strictRequired`) aren't checked here.
+    """
+    follow = not _names_a_base(schema)
+    seen: set[int] = set()
+
+    def walk(node: Any, path: str, compiling: tuple[int, ...]) -> str | None:
+        if not isinstance(node, Mapping):
+            return None
+        here = cast("Mapping[str, Any]", node)
+        if id(here) in seen:
+            return None
+        seen.add(id(here))
+        for keyword in here:
+            if keyword not in _STRICT_KEYWORDS:
+                return f'strict mode: unknown keyword: "{keyword}"'
+        if "id" in here:
+            return 'NOT SUPPORTED: keyword "id", use "$id" for schema ID'
+        for keyword, holds in _COMPILE_ORDER:
+            if keyword not in here:
+                continue
+            value = here[keyword]
+            found: str | None = None
+            if holds == "format":
+                if isinstance(value, str) and value not in _STRICT_FORMATS:
+                    found = f'unknown format "{value}" ignored in schema at path "{path}"'
+            elif holds == "ref":
+                if follow and isinstance(value, str):
+                    reached = _local_ref(schema, value)
+                    if reached is _NOWHERE:
+                        return f"can't resolve reference {value} from id #"
+                    # The runtime compiles the schema a ref reaches on its own, so its path is `#`.
+                    found = walk(reached, "#", (*compiling, id(reached)))
+            elif keyword in _EVALUATES_ALL and evaluated(here, keyword, compiling):
+                continue  # the runtime doesn't compile it
+            elif holds == "one":
+                found = walk(value, f"{path}/{keyword}", compiling)
+            elif holds == "list" and isinstance(value, list):
+                for i, item in enumerate(cast("list[Any]", value)):
+                    found = found or walk(item, f"{path}/{keyword}/{i}", compiling)
+            elif holds == "map" and isinstance(value, Mapping):
+                for name, item in cast("Mapping[str, Any]", value).items():
+                    found = found or walk(item, f"{path}/{keyword}/{_segment(name)}", compiling)
+            if found is not None:
+                return found
+        return None
+
+    def evaluated(node: Mapping[str, Any], unevaluated: str, compiling: tuple[int, ...]) -> bool:
+        # Whether the runtime knows, before it compiles `unevaluated`, that every property (or
+        # item) is evaluated: by `node`'s own keyword, or by an `allOf` member or what a `$ref`
+        # reaches (their `unevaluated` keyword included), unless that is still compiling.
+        if _EVALUATES_ALL[unevaluated] in node:
+            return True
+        members = node.get("allOf")
+        if isinstance(members, list) and any(
+            covers(member, unevaluated, compiling) for member in cast("list[Any]", members)
+        ):
+            return True
+        ref = node.get("$ref")
+        if not isinstance(ref, str):
+            return False
+        if not follow:
+            return True  # what it reaches is unknown, so `unevaluated` is left unwalked
+        reached = _local_ref(schema, ref)
+        return id(reached) not in compiling and covers(
+            reached, unevaluated, (*compiling, id(reached))
+        )
+
+    def covers(node: Any, unevaluated: str, compiling: tuple[int, ...]) -> bool:
+        if not isinstance(node, Mapping):
+            return False
+        here = cast("Mapping[str, Any]", node)
+        return unevaluated in here or evaluated(here, unevaluated, compiling)
+
+    return walk(schema, "#", (id(schema),))
+
+
+def _names_a_base(node: Any) -> bool:
+    """Whether `node` or a subschema of it names a base or an anchor (`_BASE_KEYWORDS`). Only a
+    schema names one: a property named `$id`, or a `default` holding one, doesn't."""
+    if not isinstance(node, Mapping):
+        return False
+    here = cast("Mapping[str, Any]", node)
+    if any(keyword in here for keyword in _BASE_KEYWORDS):
+        return True
+    for keyword, holds in _SUBSCHEMAS:
+        value = here.get(keyword)
+        if holds == "one":
+            inside = [value]
+        elif holds == "list" and isinstance(value, list):
+            inside = cast("list[Any]", value)
+        elif holds == "map" and isinstance(value, Mapping):
+            inside = list(cast("Mapping[str, Any]", value).values())
+        else:
+            continue
+        if any(_names_a_base(item) for item in inside):
+            return True
+    return False
+
+
+def _segment(name: str) -> str:
+    """`name` as a path segment, written as the runtime writes it: JSON Pointer escaped, then
+    URI encoded."""
+    return quote(name.replace("~", "~0").replace("/", "~1"), safe="!*'()")
+
+
+def _local_ref(root: Mapping[str, Any], ref: str) -> Any:
+    """What a `#` or `#/...` ref names in `root`, read as the runtime reads it; `_NOWHERE` for
+    another ref, or one naming nothing."""
+    if ref in ("#", "#/"):
+        return root
+    if not ref.startswith("#/"):
+        return _NOWHERE
+    node: Any = root
+    for raw in ref[2:].split("/"):
+        part = unquote(raw).replace("~1", "/").replace("~0", "~")
+        if isinstance(node, Mapping) and part in node:
+            node = cast("Mapping[str, Any]", node)[part]
+        elif (
+            isinstance(node, list)
+            and _INDEX.fullmatch(part)
+            and int(part) < len(cast("list[Any]", node))
+        ):
+            node = cast("list[Any]", node)[int(part)]
+        else:
+            return _NOWHERE
+    return node
 
 
 class SchemaValidator:

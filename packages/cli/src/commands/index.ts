@@ -30,6 +30,8 @@ import { guardrailsCommand } from './guardrails.js';
 import { healthCommand } from './health.js';
 import { initCommand } from './init.js';
 import { judgeClassesCommand } from './judge-classes.js';
+import { judgingQueueCommand } from './judging-queue.js';
+import { judgingRulesCommand } from './judging-rules.js';
 import { judgmentsCommand } from './judgments.js';
 import { keyCommand } from './key.js';
 import { licenseCommand } from './license.js';
@@ -104,6 +106,8 @@ export const ROOT_COMMANDS: readonly Command[] = [
   observationsCommand,
   judgmentsCommand,
   judgeClassesCommand,
+  judgingRulesCommand,
+  judgingQueueCommand,
   evalRunsCommand,
   evalSuitesCommand,
   blocksCommand,

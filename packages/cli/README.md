@@ -494,6 +494,13 @@ Builds a signed pack image with a Kindgi build server, and writes
 7. **Sign and write:** signs the image digest and index hash with your
    Ed25519 key and writes `.kindgi/build/deploy-envelope.json`.
 
+**What it prints:** each step's lines go to stderr as the step runs, the
+build server's log among them, so a long build shows where it is. A build
+that fails keeps those lines, with the error after them. The summary goes
+to stdout at the end, as JSON, so `kindgi build > build.json` keeps it
+apart. With `--quiet`, the build's own lines are left out: an error still
+shows, and so do the CLI pin's warning and a rate limit's wait.
+
 **The image (a TypeScript pack):**
 - **Base:** `node:22` or `node:24-bookworm-slim`, pinned by digest: the
   first whose Node satisfies the app's `engines.node`.
@@ -729,6 +736,12 @@ deployment. The envelope is `--from-envelope`, else
 - **Errors** carry a hint for the common ones: `signature-invalid`,
   `signer-not-trusted`, `image-unverifiable`,
   `deployment-validation-failed`.
+- **What it prints:** each line goes to stderr as it happens, the wait for
+  a hosted pack service included. The inline `kindgi build`'s lines go out
+  between deploy's, as `kindgi build` prints them. A deploy that fails
+  keeps those lines, with the error after them. The summary goes to stdout
+  at the end. `--quiet` leaves out the inline build's lines only: deploy's
+  own still show, since a refused deployment's error is among them.
 
 ## `kindgi env`
 
@@ -832,9 +845,11 @@ Ed25519 signing keys for `kindgi build`, as files under `~/.kindgi/keys/`
 
 ## `kindgi skills`
 
-`kindgi skills sync [--force] [--dry-run]` refreshes `.claude/skills/` from the
-skills bundled with this CLI. Skills you edited are kept unless `--force`.
-`kindgi dev` mentions it when the installed skills are behind.
+`kindgi skills sync [--force] [--dry-run]` refreshes `.claude/skills/` and
+`.agents/skills/` from the skills bundled with this CLI. Skills you edited are
+kept unless `--force`; a skill you deleted comes back. After an upgrade,
+`kindgi dev` refreshes them as it starts, the same way without `--force`,
+except that a skill or a skills folder you deleted stays deleted.
 
 ## `kindgi mcp`
 

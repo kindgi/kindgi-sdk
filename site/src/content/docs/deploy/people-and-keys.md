@@ -6,15 +6,17 @@ sidebar:
 ---
 
 When you finish this page, your deployment's people have their own
-sign-ins, roles and API keys. Your pipelines have service accounts, with
-only what they need. You can also remove someone in one step.
+sign-ins and API keys, and your pipelines have service accounts. With
+[authorization](../authorization/) on, each has a role, with only what they
+need. You can also remove someone in one step.
 
-With [authorization](../authorization/) on, a tenant has **people**, each
-with their own sign-in and API keys. It also has **service accounts**, which
-act for a pipeline or an app. What each may do is kept in OpenFGA, so turn
-authorization on first. A **tenant admin** adds them. The first one is the
-runtime's seed user: `KINDGI_SEED_USER_ID`, or the API token's user. The
-runtime makes the seed user a tenant admin at every start.
+A tenant has **people**, each with their own sign-in and API keys. It also
+has **service accounts**, which act for a pipeline or an app. A **tenant
+admin** adds them. With authorization on, what each may do is kept in
+OpenFGA, and the first tenant admin is the runtime's seed user:
+`KINDGI_SEED_USER_ID`, or the API token's user. The runtime makes the seed
+user a tenant admin at every start. Without authorization, roles aren't
+checked ([Without authorization](#without-authorization)).
 
 :::note[On Kindgi Cloud]
 Whoever signs up is the workspace's first tenant admin. Authorization is
@@ -24,8 +26,9 @@ as `KINDGI_SEED_USER_ID`, are Kindgi's.
 
 ## Before you start
 
-- **Authorization is on** for your runtime
-  ([Run with authorization](../authorization/)).
+- **For roles:** authorization on for your runtime
+  ([Run with authorization](../authorization/)). Without it, see
+  [Without authorization](#without-authorization).
 - **You're a tenant admin,** such as the seed user.
 - **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
   exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`. The
@@ -35,6 +38,8 @@ as `KINDGI_SEED_USER_ID`, are Kindgi's.
   project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## Who can do what
+
+With authorization on:
 
 - **A tenant admin** does everything in the tenant. They add and remove
   people, make keys for anyone, and change tenant-wide settings: providers,
@@ -63,6 +68,34 @@ Everyone in a tenant reads its settings. Give people from different
 companies different tenants, not different projects of one tenant.
 :::
 
+## Without authorization
+
+A runtime without an authorization store, with no `KINDGI_OPENFGA_API_URL`,
+suits one tenant whose people trust each other: one operator, or a small
+team. `kindgi dev` runs this way. Serving many tenants needs authorization:
+with `KINDGI_TENANCY=multi`, the runtime doesn't start without a store.
+
+- **Everyone it lets in works in every project,** by a sign-in or a key:
+  its agents, runs, conversations and deployments. Writing secrets and
+  environment values still takes its capability: a key made with it
+  carries it, and a sign-in carries none ([API keys](#api-keys)).
+- **Tenant settings are the tenant admin's.** Anyone reads the tenant's
+  policies, model providers, adapters, identity providers and signing keys,
+  and only the tenant admin changes them. Webhook endpoints and compliance
+  evidence are the tenant admin's to read too, as are people, keys for
+  others and service accounts. Anyone else gets `403 permission-denied`.
+- **The tenant admin is whoever uses the runtime's API token,** or an
+  `admin` key made for the seed user, and a console signed in with either
+  ([Signing in with an API token](../self-hosted/sign-in/#signing-in-with-an-api-token)).
+  Someone signed in through an identity provider or an emailed link isn't
+  one, the seed user included.
+- **Roles aren't checked.** A project role you record, and a service
+  account's grants, give nothing more here. Making a person a tenant admin
+  answers `501 person-grants-unsupported`.
+
+[Run with authorization](../authorization/) when people need different
+access, or more than one person needs to be a tenant admin.
+
 ## Add a person
 
 Adding a person gives them a place in the tenant, so they can sign in and
@@ -78,7 +111,8 @@ npx --yes @kindgi/cli@0.2 people add --name="Sam Rivera" --email=sam@acme.exampl
 - `--no-invite` doesn't email them the invitation, for when you tell them
   yourself. They're still invited.
 
-It prints the new person, and says on stderr what being added gives them:
+It prints the new person, and says on stderr what being added gives them.
+With sign-in off, nobody is [invited](#their-invitation):
 
 ```text
 {
@@ -86,14 +120,14 @@ It prints the new person, and says on stderr what being added gives them:
   "displayName": "Sam Rivera",
   "email": "sam@acme.example"
 }
-Added to the tenant: they can read its settings. Give them a project role to work on its agents and runs, then their first key: kindgi tokens create --for=user:002ee784-0b05-47fb-918e-34d192be94c1
+Added to the tenant: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:002ee784-0b05-47fb-918e-34d192be94c1
 ```
 
 An email another person already has is refused with
 `409 identity-user-email-taken`.
 
-Then give them a role on a project. A tenant admin, or an admin of that
-project, adds them by email or by id:
+With authorization on, give them a role on a project next. A tenant admin,
+or an admin of that project, adds them by email or by id:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/memberships" \
@@ -127,8 +161,28 @@ In the TypeScript client, it's
 ### Their invitation
 
 Where people [sign in to the console](../self-hosted/sign-in/), a person added with an
-email is invited: the runtime emails them a link to sign in, through the
-[sign-in email](../self-hosted/sign-in/#sign-in-links-by-email) sender you set up.
+email is invited: the runtime emails them an invitation, through the
+[sign-in email](../self-hosted/sign-in/#sign-in-links-by-email) sender you set up. It
+says who added them, to which workspace, and when it expires, and links to
+the console's sign-in page with their email filled in. The link holds no
+secret and signs no one in: they sign in on that page, a way the deployment
+allows, with that email. From a runtime at `http://localhost:18096`, an
+invitation read:
+
+```text
+From: Kindgi <sign-in@acme-live.example>
+Subject: You're invited to Default tenant on Kindgi
+
+seed-user added you to Default tenant on Kindgi.
+
+Sign in with this email address here:
+
+http://localhost:18096/console/login#email=ann%40acme.test
+
+This invitation expires on 2026-10-24 15:06 UTC.
+If you weren't expecting it, ignore this email.
+```
+
 The invitation is open for 7 days from the add, or from the last time it
 was sent. It's `pending` until their first sign-in, then it's gone: they've
 joined. Once the 7 days pass with no sign-in it's `expired`, and every way
@@ -136,19 +190,35 @@ in refuses them, an identity provider too, until a tenant admin sends it
 again. A key you made them still works. With sign-in off, nobody is
 invited: people work with the keys you make them.
 
-The person's record says it, while it's open:
+With sign-in on, `kindgi people add` prints the invitation, and says on
+stderr whether it went out:
 
-```json
-"invite": { "state": "pending", "expiresAt": "…", "sentAt": "…" }
+```text
+{
+  "userId": "f9054f5f-3a4b-40af-8aa9-317c32eead7c",
+  "displayName": "Ann Lee",
+  "email": "ann@acme.test",
+  "invite": {
+    "state": "pending",
+    "expiresAt": "2026-10-24T15:06:45.522Z",
+    "sentAt": "2026-10-17T15:06:45.552Z"
+  },
+  "inviteEmail": {
+    "sent": true
+  }
+}
+Added to the tenant: they can read its settings. Give them a project role to work on its agents and runs, then their first key: kindgi tokens create --for=user:f9054f5f-3a4b-40af-8aa9-317c32eead7c
+The invitation went to ann@acme.test: they sign in with it before it expires (2026-10-24T15:06:45.522Z).
 ```
 
-`sentAt` is when it was last emailed; it's absent when it never was. People
-added before the runtime invited, the people the runtime adds itself (such
-as the seed user), and people with no email aren't invited, so they have no
-`invite`.
+The person's record keeps `invite` until their first sign-in, with a
+`state` of `pending` or `expired`. `sentAt` is when it was last emailed;
+it's absent when it never was. People added before the runtime invited,
+the people the runtime adds itself (such as the seed user), and people with
+no email aren't invited, so they have no `invite`.
 
-`kindgi people add` says on stderr whether the invitation went out, and if
-not, why (`inviteEmail.reason` in the answer):
+When the invitation wasn't emailed, `inviteEmail.reason` says why, and so
+does the line on stderr:
 
 | Reason | Why it wasn't emailed |
 |---|---|
@@ -157,6 +227,12 @@ not, why (`inviteEmail.reason` in the answer):
 | `send-failed` | The mail server refused it or didn't answer. |
 | `capped` | The tenant, or the whole deployment, has sent as many invitation emails as it may in 24 hours (below). |
 | `no-email` | They have no email, so they aren't invited. |
+
+With `--no-invite`, the line reads:
+
+```text
+Invited, not emailed (--no-invite): tell them to sign in with bo@acme.test before it expires (2026-10-24T15:06:46.142Z).
+```
 
 Unless it's `no-email`, they're invited all the same: tell them to sign in
 with their email, or send it again. To send it again, open for 7 days from
@@ -185,7 +261,19 @@ The people invited who haven't signed in yet, with a STATE of `pending` or
 npx --yes @kindgi/cli@0.2 people list --pending --table
 ```
 
-To take an invitation back, [remove the person](#remove-a-person).
+Here Lee Park's invitation expired before they signed in:
+
+```text
+ID                                    NAME      EMAIL          STATE    ADDED
+────────────────────────────────────  ────────  ─────────────  ───────  ────────────────────────
+8e4e2291-7af5-42cd-8799-e4a7b5dc8c03  Lee Park  lee@acme.test  expired  2026-10-08T15:06:49.559Z
+f9054f5f-3a4b-40af-8aa9-317c32eead7c  Ann Lee   ann@acme.test  pending  2026-10-17T15:06:45.522Z
+d94a41a9-939d-43a3-89ac-84406d0cffed  Bo Chen   bo@acme.test   pending  2026-10-17T15:06:46.142Z
+bd6453a9-b1f5-4cba-89f2-a172675bdee6  Kim Ito   kim@acme.test  pending  2026-10-17T15:06:47.404Z
+```
+
+To take an invitation back, [remove the person](#remove-a-person): in the
+console, **Revoke the invitation** on their page.
 
 In the TypeScript client, `users.create(spec)` answers with the person
 added; its `inviteEmail` says whether the invitation was emailed, and is
@@ -570,6 +658,11 @@ directly: what a team's role gives on a project isn't listed there. A
 search box, sorting, **People who were removed** and **Columns** narrow and
 order the list, and the page's address keeps them.
 
+Someone [invited](#their-invitation) who hasn't signed in yet is marked
+**(invited)**, and **(invitation expired)** once its 7 days pass:
+
+![The People page with five people: Lee Park (invitation expired), added 9 days ago; the seed user (you), admin reviewer; and Ann Lee, Bo Chen and Kim Ito, each (invited), with no role yet, added just now.](../../../assets/people/people-invites.png)
+
 ![The People page: "8 people in this tenant", a People who were removed checkbox, Columns and Add a person; each person with their email, their access in words (the seed user: tenant admin, owner on Support and Billing, admin of team Support crew, admin reviewer; Ada Lovelace: reads the tenant's settings, viewer on Support, member of team Support crew, standard reviewer; Sam Rivera: reads the tenant's settings), their active keys, when they were last active and when they were added.](../../../assets/people/people.png)
 
 **Add a person** adds someone with their access in one step: "Give them
@@ -592,6 +685,13 @@ opens. When one doesn't, the dialog says how each went:
   answer: it says so and offers **Look in People**, rather than adding them
   again.
 
+Where the runtime invites, a dialog that stays open also says whether their
+invitation went out, and when it didn't, what to do, such as "Invited, but
+the invitation email didn't go out: send it again, or tell them to sign in."
+Here the project role's step got no answer:
+
+![The Add a person dialog after Dee Moss was added and not everything was given: Add Dee Moss (dee@acme.test) succeeded, viewer on Default failed with "No answer from the server: try again.", and "The invitation went to dee@acme.test: they sign in with it.", with Open their page and Try again what failed.](../../../assets/people/add-person-invited.png)
+
 A person's page says what they may do and changes it in place, each part
 where you may:
 
@@ -608,6 +708,17 @@ their next request on, they can't work in Support. Their other access, and
 what they did there, stay." The page also lists their keys, with **Make a
 key for** them, where they're signed in, their sign-ins, and **Remove from
 the tenant**.
+
+Until they first sign in, their page has an **Invitation** section: when
+it's open until and when it was emailed, or when it expired ("they can't
+sign in until it's sent again"). **Send it again** opens it for 7 days from
+then ("Renewed: open for 7 days from now."), and says whether it went out;
+for an open one never emailed, it's **Send the invitation**. **Remove
+from the tenant** reads **Revoke the invitation**: "They haven't signed in: revoking
+removes them from the tenant, so the invitation no longer lets them in.
+Adding their email again invites them anew."
+
+![Ann Lee's page before they signed in: no keys and nothing they may do yet; Invitation: "They haven't signed in yet. Their invitation is open until 24 Oct 2026, 11:06 AM EDT; emailed 17 Oct 2026, 11:06 AM EDT.", with Send it again; then Revoke the invitation, with its button.](../../../assets/people/person-invitation.png)
 
 ![Ada Lovelace's page as a tenant admin: "1 active key acts as Ada Lovelace" with Make a key for Ada Lovelace; What they may do: Support (viewer) and Support crew (member), each with Take away; Reviewer: Standard, with Take off the roster; Tenant admin: No, with Make tenant admin; Give access (a project, a role); then Signed in, Their keys (ada-laptop, expiring in 3 days, with Revoke), Sign-ins, and Remove from the tenant.](../../../assets/people/person.png)
 

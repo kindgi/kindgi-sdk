@@ -81,7 +81,9 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
   service-account-not-found`) or it was unregistered (`409
   service-account-unregistered`).
 - **The account must be able to run it,** as any owner must: a fire it may
-  no longer run is `refused`.
+  no longer run is `refused`. So is every fire after the account is
+  unregistered (runtime 0.1.9 or later): take the schedule over, or
+  delete it.
 - **To hand an existing schedule to an account:** `kindgi schedules
   take-ownership <schedule-id> --run-as=<service-account-id>`. It needs
   what taking it over yourself needs, `admin` on the project and `execute`
@@ -109,7 +111,8 @@ each time still fires once.
   `--catch-up=skip` fires none of them. A time is missed when the fire would
   start more than `--starting-deadline` seconds late, 600 by default.
 - **Its owner may no longer run it,** such as when they lost their role on
-  the project, or were removed from the tenant (runtime 0.1.9 or later).
+  the project, or were removed from the tenant, or it's a service account
+  that was unregistered (runtime 0.1.9 or later).
   The fire is `refused`, with why. Whoever holds `admin` on the project can
   make themselves its owner: `kindgi schedules take-ownership <schedule-id>`,
   or hand it to a service account
@@ -256,8 +259,8 @@ list filtered to that schedule.
 ## Improve on a schedule
 
 A schedule can start [improvement passes](../../evals/improve-an-agent/)
-instead of runs, when enough new trusted judgments have come in on an
-agent's runs:
+instead of runs, when enough new judgments have come in on an agent's runs,
+counted the way the pass will count them:
 
 ```sh
 pnpm exec kindgi schedules create --cron="0 3 * * *" --improve=acme.rank.scorer --project=<project-id> --segment=company:acme \
@@ -308,14 +311,16 @@ It prints the schedule, with the defaults applied to its input:
 }
 ```
 
-At each fire, it counts the trusted "no" judgments on the agent's runs in
-its scope since the agent's last pass there. A trusted judgment is one
-recorded under a
-[restricted judge class](../../evals/judge-a-runs-output/#restrict-who-may-judge-as-a-class).
-The last pass is one that didn't fail or get cancelled, whoever started it.
-With enough of them, across enough runs, from enough judges, it starts a
-pass on a fresh test set of those runs, `improve.<pass-id>`. Otherwise the
-fire is `skipped`, and its note says which count was short.
+At each fire, it counts the "no" judgments on the agent's runs in its scope
+since the agent's last pass there, the way the pass will count them:
+everyone's until the tenant, the project, or the agent being improved has a
+[restricted judge class](../../evals/judge-a-runs-output/#restrict-who-may-judge-as-a-class),
+then only the ones recorded under one. With `classWeights` in the schedule's
+input, it counts the way that value says. The last pass is one that didn't
+fail or get cancelled, whoever started it. With enough of them, across enough
+runs, from enough judges, it starts a pass on a fresh test set of those runs,
+`improve.<pass-id>`. Otherwise the fire is `skipped`, and its note says which
+count was short.
 
 That schedule's first fire, started with `run-now`, was skipped: one judge
 short. Then the threshold was lowered to one judge:
@@ -339,6 +344,10 @@ FIRED                     FOR      OUTCOME          STARTED                     
 2026-10-09T13:25:39.201Z  run-now  skipped                                                     Not enough new trusted judgments so far: 1 of 2 judges (trusted "no" judgments met: 10, runs met: 10).
 ```
 
+This project has a restricted judge class, so the pass counts trusted
+judgments and the skip note names them. Without one, it would count every
+"no", and the note would drop "trusted".
+
 - **Its scope** is the schedule's project, `--project`, or a segment of it,
   `--segment=<key:value>`, repeated for a path. It's never the tenant or an
   org: a pass learns from one project's runs, so its evidence must cover the
@@ -349,7 +358,9 @@ FIRED                     FOR      OUTCOME          STARTED                     
   month.
 - **A monthly cap:** once the schedule's passes this month, in UTC, have
   cost `monthlyCapUsd`, its fires are skipped until the next month. A pass's
-  budget is never more than what's left of it.
+  budget is never more than what's left of it. Its cost counts the
+  comparisons that prove its best candidate, which its budget doesn't stop,
+  so a month's passes can cost more than the cap.
 - **One pass at a time:** while the schedule's previous pass still runs, a
   fire is `skipped-overlap`.
 - **At most once an hour.** Registering needs `publish` on the agent.

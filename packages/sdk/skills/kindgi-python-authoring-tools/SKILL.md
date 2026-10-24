@@ -189,7 +189,7 @@ def find_order(lookup: Lookup, ctx: ToolContext) -> Found:
   precondition-failed: Tool "acme-orders.needs-account" was not run: env-value-missing: tool "acme-orders.needs-account" needs env value "ACME_ACCOUNT_ID" in env "local", and none is set for project e889c1f5-eae7-45dc-8669-5bd029a5d85c, its org, or the tenant. Set it: kindgi env set ACME_ACCOUNT_ID <value> --scope=project:e889c1f5-eae7-45dc-8669-5bd029a5d85c --env=local (or --scope=tenant, for every project)
   ```
 - **Not secret:** env values are recorded with each run that uses them and shown in its journal. A credential is a secret, never an env value.
-- **In a test:** `ToolContext.for_test(env={"ORDERS_BASE_URL": "…"})`.
+- **In a test:** `ToolContext.for_test(tool=find_order, env={"ORDERS_BASE_URL": "…"})` decides them as a run does: a schema `default` fills a name the test doesn't set, each value is checked, and a missing or invalid one raises `ValueError`.
 
 Everything else comes from the process environment: `os.environ["CITATOR_URL"]`.
 The pack service runs with the pack's environment — in `kindgi dev`
