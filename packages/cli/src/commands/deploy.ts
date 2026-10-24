@@ -29,17 +29,21 @@
 import { stat } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 
+import { type DiscoveryConfig, readPackBlocks, resolveDiscovery } from '@kindgi/handler-runtime';
 import { LOCAL_ENV_NAME, type PackEnv, packValues, readPackEnv } from '@kindgi/secrets-dotenv';
 
 import { deployApiAddress, hostedApiAddress } from '../api-address.js';
-import { HOSTED_BUILD } from '../build/hosted.js';
+import { describeFiles } from '../build/pack-blocks.js';
 import type { CommandContext } from '../context.js';
 import { isEnvelopeSigned } from '../deploy/envelope-loader.js';
+import { packBlocksRefusal } from '../deploy/pack-blocks-gate.js';
+import { packServiceProblemText, packServiceRetiredText } from '../deploy/pack-service-text.js';
 import {
   buildPostBody,
   deriveIdempotencyKey,
   deriveSyncSecretsIdempotencyKey,
 } from '../deploy/post.js';
+import { type PromotionStop, promotionPath } from '../deploy/promotion-path.js';
 import { renderResponse } from '../deploy/response.js';
 import type {
   DeployRunners,
@@ -50,16 +54,29 @@ import type {
   RunBuildResult,
   SyncSecretsBody,
 } from '../deploy/runners.js';
+import { envProjectRefs } from '../env-projects.js';
+import {
+  packEnvProblemLines,
+  packEnvSecretSetCommand,
+  packEnvSetCommand,
+} from '../env/pack-env-hint.js';
 import {
   type PackEnvPlan,
   describePackEnvPlan,
+  packEnvPlanLines,
+  packEnvPlanWarnings,
   plainSecretReason,
   planPackEnv,
 } from '../env/pack-env-plan.js';
 import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import type { OptionValue } from '../parse.js';
+import { type ProgressLines, progressLines } from '../progress-lines.js';
+import { PROJECT_ID_RE } from '../project-ref.js';
 import { type RateLimitRefusal, isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
+import { SLUG } from '../slug.js';
+import { type PackEnvironments, environmentsOf, resolveValueTarget } from '../value-target.js';
+import { CLI_VERSION } from '../version-info.js';
 import { runBuild } from './build.js';
 import type { EnvironmentConfig, PackConfig } from './build.js';
 import type { CommandResult, LeafCommand } from './types.js';
@@ -71,7 +88,10 @@ export const deployCommand: LeafCommand = {
   kind: 'leaf',
   name: 'deploy',
   description:
-    'Deploy a signed pack image to Kindgi. Reads deploy-envelope.json (or runs `kindgi build` inline) + POSTs to /v1/deployments.',
+    'Deploy a signed pack image to Kindgi. Reads deploy-envelope.json (or runs `kindgi build` inline) + POSTs to /v1/deployments. ' +
+    "`--hosted` (or the env block's `build: 'hosted'`) deploys to Kindgi hosted: an inline build runs on the hosted build service (as `kindgi build --hosted`), and after the deploy it waits, up to 5 minutes, for the deployment's pack service to be ready. " +
+    "A deploy into the Default project with a pack tool whose id is an MCP endpoint's tool's is refused (`tool-kind-mismatch`), and nothing is deployed.",
+  hostedRun: { defaultEnv: 'staging' },
   usage:
     'kindgi deploy [--env <name>] [--from-envelope <path>] [--endpoint <url>] [--token <bearer>] ' +
     '[--tenant <id>] [--project <id|slug>] [--hosted] [--idempotency-key <str>] [--dry-run] [--sync-secrets] [--allow-missing-env] ' +
@@ -103,11 +123,6 @@ export const deployCommand: LeafCommand = {
       type: 'string',
       description:
         "The project to deploy into, one per client: its id, or its slug. A slug two orgs share is refused: pass the id. Default: a tenant-wide deploy, into the tenant's Default project.",
-    },
-    hosted: {
-      type: 'boolean',
-      description:
-        "Deploy to Kindgi hosted: an inline build runs on the hosted build service (as `kindgi build --hosted`), and after the deploy it waits, up to 5 minutes, for the deployment's pack service to be ready. Same as the env block's `build: 'hosted'`.",
     },
     'idempotency-key': {
       type: 'string',
@@ -219,9 +234,17 @@ interface ResolvedDeployArgs {
    */
   readonly syncSecrets: boolean;
   readonly envBlock: EnvironmentConfig | undefined;
+  /**
+   * The pack's environments, each with the project it names, if any: for the
+   * value target, and to name the environments a refusal into a later one
+   * points at.
+   */
+  readonly environments: PackEnvironments;
   /** The pack service's process env in this environment (`env` + `environments.<env>.env`). */
   readonly packEnv: PackEnvPlan;
   readonly allowMissingEnv: boolean;
+  /** The pack's blocks discovery pattern (`discovery.blocks`, the same default in every language). */
+  readonly blocksPattern: string;
 }
 
 // ---------------------------------------------------------------------
@@ -241,10 +264,24 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   if (parsed.kind === 'error') return parsed;
   const args = parsed.args;
 
-  const banner: string[] = [];
-  const line = (s: string): void => {
-    banner.push(s);
-  };
+  // Deploy's lines, its inline build's among them: each to stderr as it
+  // comes when the CLI streams them, else kept for the result. A failure's
+  // error comes after them either way. `--quiet` keeps errors and warnings
+  // only, as `kindgi dev` does: a refusal, a secret sync that failed, and
+  // its warnings.
+  const out = progressLines(ctx.progress, ctx.globals.format === 'quiet');
+  const result = await deployWith(ctx, runners, args, out);
+  if (result.kind === 'error') return { ...result, stderr: `${out.kept()}${result.stderr}` };
+  return { ...result, rendered: { ...result.rendered, stderr: out.kept() } };
+}
+
+async function deployWith(
+  ctx: CommandContext,
+  runners: DeployRunners,
+  args: ResolvedDeployArgs,
+  out: ProgressLines,
+): Promise<CommandResult> {
+  const { line } = out;
   line('');
   line(`  Environment: ${args.envName}`);
   line(`  API:         ${args.endpoint}`);
@@ -261,18 +298,77 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   // Every name the pack declares in env.required needs a value or a
   // Secret Manager reference for this environment; a secret given in
   // the clear is refused. Checked before anything is built or sent.
-  const envRefusal = checkPackEnv(args, line);
+  const envRefusal = checkPackEnv(args, out);
   if (envRefusal !== undefined) return envRefusal;
+
+  // On a runtime that keeps its values under one env, a pack environment
+  // with a `project` is that project, and its secret sync goes there, under
+  // the env the runtime serves. Any other env's sync is refused here,
+  // before a build or an upload, as the runtime would refuse the sync after
+  // the deployment.
+  let syncEnvName = args.envName;
+  let environmentProject: string | undefined;
+  const named = args.environments[args.envName] !== undefined;
+  if ((args.syncSecrets || named) && runners.servedEnv !== undefined) {
+    const target = resolveValueTarget({
+      flag: args.envName,
+      served: await runners.servedEnv({
+        endpoint: args.endpoint,
+        token: args.token,
+        fetchImpl: ctx.fetch,
+        ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+      }),
+      write: args.syncSecrets,
+      what: `the secrets in .env.${args.envName}`,
+      mayOmit: false,
+      environments: args.environments,
+    });
+    if (target.kind === 'refused') return failure(target.stderr);
+    if (target.kind === 'ok' && target.environment !== undefined) {
+      environmentProject = target.environment.projectRef;
+      syncEnvName = target.envName;
+      line(`  Project:     ${environmentProject}  (environments.${args.envName}.project)`);
+      if (args.syncSecrets) line(`  Secrets:     under ${syncEnvName}, the env the runtime serves`);
+      line('');
+    }
+  }
 
   // ---- 1. The project to deploy into (--project) ---------------------
   //
   // Resolved first: a project that isn't there fails before a build, and
   // a hosted build carries the project's id as its label.
-  const project = await resolveProject(args, runners, ctx);
+  const project = await resolveDeployProject(args, environmentProject, runners, ctx);
   if (project.kind === 'error') return failure(project.message);
+  const hostedEnvRefusal = refuseHostedConfigEnv(args, project.id);
+  if (hostedEnvRefusal !== undefined) return hostedEnvRefusal;
+
+  // A pack with blocks deploys only to a runtime that publishes them
+  // (`deploy/pack-blocks-gate.ts`): read before a build or an upload, from
+  // the pack's block files when the envelope is still to be built, and
+  // from the envelope's index (step 3) otherwise. Not on --dry-run, which
+  // sends nothing.
+  let blocksChecked = false;
+  const refuseBlocks = async (brought: string): Promise<string | undefined> => {
+    if (args.dryRun || blocksChecked) return undefined;
+    blocksChecked = true;
+    return packBlocksRefusal({
+      endpoint: args.endpoint,
+      fetchImpl: ctx.fetch,
+      ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+      brought,
+      release: CLI_VERSION,
+    });
+  };
+  if (!args.explicitEnvelope && !(await pathExists(args.envelopePath))) {
+    const read = await readPackBlocks(args.packDir, args.blocksPattern);
+    const found = new Set([...read.files, ...read.errors.map((e) => e.filePath)]).size;
+    const refused =
+      found > 0 ? await refuseBlocks(describeFiles(args.blocksPattern, found)) : undefined;
+    if (refused !== undefined) return failure(refused);
+  }
 
   // ---- 2. Ensure envelope on disk -------------------------------------
-  const envelopeReady = await ensureEnvelopeExists(ctx, args, runners, line, project.id);
+  const envelopeReady = await ensureEnvelopeExists(ctx, args, runners, out, project.id);
   if (envelopeReady.kind === 'error') return envelopeReady;
 
   // ---- 3. Load + validate envelope ------------------------------------
@@ -285,6 +381,13 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
     );
   }
   const envelope = loaded.envelope;
+  const indexBlocks = Array.isArray(envelope.index.blocks) ? envelope.index.blocks.length : 0;
+  if (indexBlocks > 0) {
+    const refused = await refuseBlocks(
+      `${indexBlocks} ${indexBlocks === 1 ? 'block' : 'blocks'} in its index`,
+    );
+    if (refused !== undefined) return failure(refused);
+  }
 
   // ---- 4. Signed-envelope gate ----------------------------------------
   if (!isEnvelopeSigned(envelope)) {
@@ -295,8 +398,8 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
           'what would be POSTed.\n',
       );
     }
-    line('  ⚠ Envelope is unsigned — --dry-run is proceeding for inspection only.');
-    line('');
+    out.problem('  ⚠ Envelope is unsigned — --dry-run is proceeding for inspection only.');
+    out.problem('');
   }
 
   // ---- 5. Consistency check: envelope.tenantId vs --tenant override ---
@@ -373,7 +476,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
     const rendered = renderJson(summary, ctx.globals.format);
     return {
       kind: 'ok',
-      rendered: { stdout: rendered.stdout, stderr: `${banner.join('\n')}\n` },
+      rendered: { stdout: rendered.stdout, stderr: '' },
     };
   }
 
@@ -397,6 +500,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   );
 
   // ---- 10. Render response ---------------------------------------------
+  const promotionPath = await promotionPathOf(args, runners, ctx, result);
   const rendered = renderResponse(result, {
     envName: args.envName,
     endpoint: args.endpoint,
@@ -407,16 +511,17 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
     signerKeyId: envelope.signerKeyId ?? '(unsigned)',
     envelopePath: args.envelopePath,
     idempotencyKey,
+    promotionPath,
   });
-  for (const l of rendered.banner) line(l);
-
+  // A refused deployment's banner is its error: said under `--quiet` too.
   if (rendered.exitCode !== 0) {
     return {
       kind: 'error',
-      stderr: `${banner.join('\n')}\n`,
+      stderr: rendered.banner.map((l) => `${l}\n`).join(''),
       exitCode: rendered.exitCode,
     };
   }
+  for (const l of rendered.banner) line(l);
 
   // ---- 11. Post-deploy secrets sync ----------------------------------
   //
@@ -431,7 +536,14 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   const deployedRecord =
     result.kind === 'created' || result.kind === 'replayed' ? result.record : null;
   if (args.syncSecrets && deployedRecord !== null) {
-    const syncOutcome = await runSecretsSync(ctx, args, runners, deployedRecord.deploymentId, line);
+    const syncOutcome = await runSecretsSync(
+      ctx,
+      args,
+      syncEnvName,
+      runners,
+      deployedRecord.deploymentId,
+      out,
+    );
     Object.assign(syncSummary, syncOutcome);
   }
 
@@ -441,9 +553,9 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   // deployment is in place whatever the wait finds.
   let packService: DeploymentEndpointRecord | undefined;
   if (args.hosted && deployedRecord !== null && deployedRecord.endpoint !== undefined) {
-    const waited = await waitForPackService(ctx, args, runners, deployedRecord, line);
+    const waited = await waitForPackService(ctx, args, runners, deployedRecord, line, project.id);
     if (waited.kind === 'error') {
-      return { kind: 'error', stderr: `${banner.join('\n')}\n${waited.message}`, exitCode: 1 };
+      return { kind: 'error', stderr: waited.message, exitCode: 1 };
     }
     packService = waited.endpoint;
   }
@@ -458,7 +570,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   );
   return {
     kind: 'ok',
-    rendered: { stdout: jsonOut.stdout, stderr: `${banner.join('\n')}\n` },
+    rendered: { stdout: jsonOut.stdout, stderr: '' },
   };
 }
 
@@ -496,10 +608,13 @@ function deployRefusal(result: PostDeploymentResult): RateLimitRefusal | undefin
 async function runSecretsSync(
   ctx: CommandContext,
   args: ResolvedDeployArgs,
+  /** The env the values go under: `--env`, or the one a runtime that keeps its values under one serves. */
+  envName: string,
   runners: DeployRunners,
   deploymentId: string,
-  line: (s: string) => void,
+  out: ProgressLines,
 ): Promise<Record<string, unknown>> {
+  const { line, problem } = out;
   const file = await detectSecretsFile(args, '');
   if (file === null || file.entries.length === 0) {
     line('  --sync-secrets set, but no `.env.<envName>` entries to sync. Skipping.');
@@ -513,16 +628,16 @@ async function runSecretsSync(
   // impossible to miss.
   const shaped = file.entries.filter((e) => plainSecretReason(e.name, e.value) !== undefined);
   if (shaped.length > 0) {
-    line(
+    problem(
       `  ! secret-shaped keys detected in .env.${args.envName}: ${shaped.map((e) => e.name).join(', ')}`,
     );
-    line('    Keep secrets out of .env files: store them with `kindgi secrets`.');
-    line(`    Consider: kindgi secrets set --env=${args.envName} <name> <value>`);
-    line('');
+    problem('    Keep secrets out of .env files: store them with `kindgi secrets`.');
+    problem(`    Consider: kindgi secrets set --env=${args.envName} <name> <value>`);
+    problem('');
   }
 
   const syncBody: SyncSecretsBody = {
-    envName: args.envName,
+    envName,
     secrets: file.entries.map((e) => ({ name: e.name, value: e.value })),
   };
   const idempotencyKey = deriveSyncSecretsIdempotencyKey(deploymentId, syncBody);
@@ -557,15 +672,21 @@ async function runSecretsSync(
     };
   }
   if (result.kind === 'wire-error') {
-    line(`    ✗ ${result.status} ${result.error.code}: ${result.error.message}`);
-    line('      The deployment landed OK; only the secret sync failed. Retry with');
-    line('      `kindgi deploy --sync-secrets` (idempotent).');
-    line('');
+    // Errors: said under `--quiet` too, though the exit code stays 0.
+    problem(`    ✗ ${result.status} ${result.error.code}: ${result.error.message}`);
+    syncFailedHint(problem);
     return { performed: false, error: { code: result.error.code, message: result.error.message } };
   }
-  line(`    ✗ transport error: ${result.message}`);
-  line('');
+  problem(`    ✗ transport error: ${result.message}`);
+  syncFailedHint(problem);
   return { performed: false, error: { code: 'transport-error', message: result.message } };
+}
+
+/** After a secret sync that failed: the deployment is in place; how to sync again. */
+function syncFailedHint(problem: (s: string) => void): void {
+  problem('      The deployment landed OK; only the secret sync failed. Retry with');
+  problem('      `kindgi deploy --sync-secrets` (idempotent).');
+  problem('');
 }
 
 /**
@@ -573,31 +694,67 @@ async function runSecretsSync(
  * when the pack declares any, and the refusal when a required name has no
  * value (unless `--allow-missing-env`) or a secret is given in the clear.
  */
-function checkPackEnv(
-  args: ResolvedDeployArgs,
-  line: (s: string) => void,
-): CommandResult | undefined {
+function checkPackEnv(args: ResolvedDeployArgs, out: ProgressLines): CommandResult | undefined {
+  // A hosted pack service gets the values set in the workspace, not these:
+  // `refuseHostedConfigEnv`, once the project is known.
+  if (args.hosted) return undefined;
   const plan = args.packEnv;
   if (plan.entries.length === 0 && plan.problems.length === 0 && plan.warnings.length === 0) {
     return undefined;
   }
-  for (const l of describePackEnvPlan(plan)) line(l);
-  line('');
-  if (plan.problems.length > 0) {
-    return failure(
-      `kindgi deploy: the pack service's env for ${args.envName} gives a secret in the clear or is malformed (above). Fix environments.${args.envName}.env in kindgi.config and deploy again.\n`,
-    );
+  const refusal = packEnvRefusal(args, plan);
+  if (refusal !== undefined) {
+    // A refusal's reason is the plan: said under `--quiet` too.
+    for (const l of describePackEnvPlan(plan)) out.problem(l);
+    out.problem('');
+    return failure(refusal);
   }
-  if (plan.missing.length > 0 && !args.allowMissingEnv) {
-    return failure(
-      `kindgi deploy: ${plan.missing.join(', ')} ${plan.missing.length === 1 ? 'is' : 'are'} required by the pack and ${plan.missing.length === 1 ? 'has' : 'have'} no value in environments.${args.envName}.env, so the pack service wouldn't be ready. Add ${plan.missing.length === 1 ? 'it' : 'them'}, or deploy anyway with --allow-missing-env.\n`,
-    );
-  }
+  // A plan that deploys: under `--quiet`, its warnings alone.
+  for (const l of packEnvPlanLines(plan)) out.line(l);
+  for (const l of packEnvPlanWarnings(plan)) out.problem(l);
+  (plan.warnings.length > 0 ? out.problem : out.line)('');
   if (plan.missing.length > 0) {
-    line(`  ⚠ --allow-missing-env: deploying without ${plan.missing.join(', ')}`);
-    line('');
+    out.problem(`  ⚠ --allow-missing-env: deploying without ${plan.missing.join(', ')}`);
+    out.problem('');
   }
   return undefined;
+}
+
+/** Why the pack service's env refuses the deploy (`checkPackEnv`), when it does. */
+function packEnvRefusal(args: ResolvedDeployArgs, plan: PackEnvPlan): string | undefined {
+  if (plan.problems.length > 0) {
+    return `kindgi deploy: the pack service's env for ${args.envName} gives a secret in the clear or is malformed (above). Fix environments.${args.envName}.env in kindgi.config and deploy again.\n`;
+  }
+  if (plan.missing.length > 0 && !args.allowMissingEnv) {
+    return `kindgi deploy: ${plan.missing.join(', ')} ${plan.missing.length === 1 ? 'is' : 'are'} required by the pack and ${plan.missing.length === 1 ? 'has' : 'have'} no value in environments.${args.envName}.env, so the pack service wouldn't be ready. Add ${plan.missing.length === 1 ? 'it' : 'them'}, or deploy anyway with --allow-missing-env.\n`;
+  }
+  return undefined;
+}
+
+/**
+ * A hosted deploy: Kindgi Cloud gives the pack service the env values set
+ * in the workspace (`kindgi env set`, a secret with `kindgi secrets set`),
+ * at the deployment's project, then its org, then the tenant.
+ * `environments.<env>.env` in kindgi.config isn't read there, so a config
+ * that gives any is refused before anything is built or sent, naming each
+ * name and how to set it.
+ */
+function refuseHostedConfigEnv(
+  args: ResolvedDeployArgs,
+  projectId: string | undefined,
+): CommandResult | undefined {
+  const plan = args.packEnv;
+  if (!args.hosted || (plan.given.length === 0 && plan.problems.length === 0)) return undefined;
+  const block = `environments.${args.envName}.env`;
+  const names = plan.given.length === 0 ? '' : ` (${plan.given.join(', ')})`;
+  const target = { envName: args.envName, ...(projectId !== undefined && { projectId }) };
+  const command = packEnvSetCommand({ ...target, hasProjectMapping: false });
+  const secrets = plan.entries.some((e) => e.source?.kind === 'secret')
+    ? ` (a secret with \`${packEnvSecretSetCommand(target)}\`)`
+    : '';
+  return failure(
+    `kindgi deploy: on Kindgi Cloud the pack service gets the env values set in your workspace, not ${block} in kindgi.config${names}. Set each with \`${command}\`${secrets}, then remove ${block} from kindgi.config and deploy again.\n`,
+  );
 }
 
 // ---------------------------------------------------------------------
@@ -608,9 +765,10 @@ async function ensureEnvelopeExists(
   ctx: CommandContext,
   args: ResolvedDeployArgs,
   runners: DeployRunners,
-  line: (s: string) => void,
+  out: ProgressLines,
   projectId: string | undefined,
 ): Promise<{ readonly kind: 'ok' } | (CommandResult & { readonly kind: 'error' })> {
+  const { line } = out;
   const exists = await pathExists(args.envelopePath);
   if (exists) return { kind: 'ok' };
 
@@ -622,8 +780,8 @@ async function ensureEnvelopeExists(
 
   // Auto-detect path is missing → run build inline.
   line(`  Envelope missing — running \`kindgi build --env=${args.envName}\` inline...`);
-  line('');
   if (runners.runBuild !== undefined) {
+    line('');
     const buildArgv = buildInlineArgv(ctx, args, projectId);
     const outcome: RunBuildResult = await runners.runBuild({
       buildArgv,
@@ -658,12 +816,8 @@ async function ensureEnvelopeExists(
   // No inline runner available — invoke the same-package `runBuild`
   // directly. This is the production path when
   // `deployRunners.runBuild` is omitted (see `deploy/defaults.ts`).
-  const built = await runInlineBuild(ctx, args, projectId);
+  const built = await runInlineBuild(ctx, args, projectId, out);
   if (built.kind === 'error') return built;
-  if (built.banner.length > 0) {
-    line(built.banner);
-    line('');
-  }
   return { kind: 'ok' };
 }
 
@@ -672,21 +826,25 @@ async function ensureEnvelopeExists(
  * `CommandContext` (buildRunners, buildConfigLoader, env, cwd, etc.)
  * but with an argument set derived from the deploy invocation. We
  * clone the context with `options` replaced so the build command sees
- * only build-relevant flags.
+ * only build-relevant flags. Its lines go out with deploy's (`out`), in
+ * order.
  */
 async function runInlineBuild(
   ctx: CommandContext,
   args: ResolvedDeployArgs,
   projectId: string | undefined,
+  out: ProgressLines,
 ): Promise<
-  | { readonly kind: 'ok'; readonly banner: string }
+  | { readonly kind: 'ok' }
   | { readonly kind: 'error'; readonly stderr: string; readonly exitCode: number }
 > {
   const buildOptions = buildInlineOptions(ctx, args, projectId);
   // A hosted build runs at the API this deploy goes to: the build resolves
   // the same address, with the same key, from the same config.
   const buildCtx: CommandContext = { ...ctx, options: buildOptions };
-  const result = await runBuild(buildCtx);
+  // Through deploy's own `out`, `--quiet` and all. None are kept here:
+  // deploy's `out` streams or keeps them.
+  const result = await runBuild(buildCtx, { ...out, kept: () => '' });
   if (result.kind === 'error') {
     return {
       kind: 'error',
@@ -703,10 +861,7 @@ async function runInlineBuild(
       exitCode: 1,
     };
   }
-  return {
-    kind: 'ok',
-    banner: result.rendered.stderr.trim(),
-  };
+  return { kind: 'ok' };
 }
 
 function buildInlineOptions(
@@ -779,29 +934,6 @@ const PACK_SERVICE_POLL_MS = 2_000;
 /** Reads in a row that may fail before it stops waiting. */
 const PACK_SERVICE_READ_TRIES = 3;
 
-/** Why a deployment has no pack service yet, by its `problem.code`. */
-const PACK_SERVICE_PROBLEMS: Readonly<Record<string, string>> = {
-  'tenant-not-provisioned': 'your workspace has nowhere to run pack services yet',
-  'capacity-unavailable': 'there is no room for another pack service just now',
-  'service-start-failed': "the pack's image was deployed but didn't start",
-  'image-not-allowed': "the image is outside your workspace's own repository",
-  'endpoint-url-invalid': "the platform couldn't connect the pack service",
-  'endpoint-host-not-allowed': "the platform couldn't connect the pack service",
-  'endpoint-name-mismatch': "the platform couldn't connect the pack service",
-  'endpoint-unreachable': "the pack service didn't answer",
-  'endpoint-info-mismatch': 'the pack service answered as another pack or version',
-};
-
-/** Why no pack service is wanted for a cleared deployment now, by its `retired` reason. */
-const PACK_SERVICE_RETIRED: Readonly<Record<string, string>> = {
-  superseded:
-    'a later deploy ships every tool version and check this one does, so no new call reaches it',
-  'tenant-closing': 'your workspace is closing',
-  'tenant-suspended': "your workspace is suspended, until it's restored",
-  'project-suspended': "its project is suspended, until it's restored",
-  'pack-suspended': "its pack is suspended, until it's restored",
-};
-
 /**
  * Waits for the deployment's own pack service to be `ready`, reading the
  * deployment again every 2 s and saying each new state once. A `cleared`
@@ -816,6 +948,7 @@ async function waitForPackService(
   runners: DeployRunners,
   record: DeploymentRecord,
   line: (s: string) => void,
+  projectId: string | undefined,
 ): Promise<
   | { readonly kind: 'ok'; readonly endpoint: DeploymentEndpointRecord }
   | { readonly kind: 'error'; readonly message: string }
@@ -833,7 +966,15 @@ async function waitForPackService(
   const started = now();
   let endpoint = record.endpoint as DeploymentEndpointRecord;
   let said = '';
+  let saidEnv = '';
   let failedReads = 0;
+  // What stands in the way of its env, said once, and again when it changes.
+  const sayPackEnv = async (): Promise<void> => {
+    const lines = await packEnvLines(ctx, args, runners, id, projectId);
+    const text = lines.join('\n');
+    if (text !== '' && text !== saidEnv) for (const l of lines) line(`      ${l}`);
+    saidEnv = text;
+  };
   line('  Waiting for the pack service');
   for (;;) {
     const settled = settledPackService(endpoint, id);
@@ -842,7 +983,13 @@ async function waitForPackService(
       return settled;
     }
     const state = waitingState(endpoint);
-    if (state !== said) line(`    … ${state}`);
+    if (state !== said) {
+      line(`    … ${state}`);
+      // At once, before the platform records it as the problem; and again then.
+      if (said === '' || endpoint.problem?.code.startsWith('pack-env-') === true) {
+        await sayPackEnv();
+      }
+    }
     said = state;
     if (now() - started >= PACK_SERVICE_WAIT_MS) {
       return stoppedWaiting(`The pack service isn't ready after 5 minutes: ${state}`, id);
@@ -865,6 +1012,34 @@ async function waitForPackService(
       );
     }
   }
+}
+
+/**
+ * Where the deployment's pack declares names that stand in the way, said
+ * as what to do: nothing when none does, when the server doesn't give pack
+ * services their env (or is older), or when it can't be read.
+ */
+async function packEnvLines(
+  ctx: CommandContext,
+  args: ResolvedDeployArgs,
+  runners: DeployRunners,
+  deploymentId: string,
+  projectId: string | undefined,
+): Promise<string[]> {
+  if (runners.getPackEnv === undefined) return [];
+  const got = await runners.getPackEnv({
+    endpoint: args.endpoint,
+    token: args.token,
+    deploymentId,
+    fetchImpl: ctx.fetch,
+    ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+  });
+  if (got.kind !== 'ok') return [];
+  return packEnvProblemLines(got.packEnv.data, {
+    envName: got.packEnv.envName,
+    ...(projectId !== undefined && { projectId }),
+    hasProjectMapping: false,
+  });
 }
 
 /** The deployment's pack service now, read again. */
@@ -915,7 +1090,7 @@ function settledPackService(
       message: `The deployment's pack service was taken down (cleared). deploymentId ${id}.\n`,
     };
   }
-  const why = PACK_SERVICE_RETIRED[endpoint.retired] ?? 'none is wanted for it now';
+  const why = packServiceRetiredText(endpoint.retired);
   return {
     kind: 'error',
     message: `The deployment's pack service was taken down (cleared, ${endpoint.retired}): ${why}. deploymentId ${id}.\n`,
@@ -931,7 +1106,7 @@ function waitingState(endpoint: DeploymentEndpointRecord): string {
   const state =
     endpoint.status === 'cleared' ? 'cleared, waiting for its pack service again' : 'pending';
   if (endpoint.problem === undefined) return state;
-  const why = PACK_SERVICE_PROBLEMS[endpoint.problem.code] ?? 'not ready yet';
+  const why = packServiceProblemText(endpoint.problem.code);
   return `${state} (${endpoint.problem.code}): ${why}`;
 }
 
@@ -951,7 +1126,32 @@ function sleepUnlessStopped(ms: number, signal?: AbortSignal): Promise<void> {
 // The project a deploy goes into
 // ---------------------------------------------------------------------
 
-const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+type ProjectOutcome =
+  | { readonly kind: 'ok'; readonly id?: string }
+  | { readonly kind: 'error'; readonly message: string };
+
+/**
+ * The project to deploy into: `--project`, else the pack environment's
+ * `project` when the runtime keeps its values under one env (`fromEnvironment`).
+ * A `--project` that isn't that environment's project is refused.
+ */
+async function resolveDeployProject(
+  args: ResolvedDeployArgs,
+  fromEnvironment: string | undefined,
+  runners: DeployRunners,
+  ctx: CommandContext,
+): Promise<ProjectOutcome> {
+  const flag = await resolveProject(args.projectRef, '--project', args, runners, ctx);
+  if (flag.kind === 'error' || fromEnvironment === undefined) return flag;
+  const where = `environments.${args.envName}.project`;
+  const environment = await resolveProject(fromEnvironment, where, args, runners, ctx);
+  if (environment.kind === 'error' || args.projectRef === undefined) return environment;
+  if (flag.id === environment.id) return environment;
+  return {
+    kind: 'error',
+    message: `--project ${args.projectRef} isn't the ${args.envName} environment's project, ${fromEnvironment} (${where}). Leave --project out, or deploy with the --env whose project it is.\n`,
+  };
+}
 
 /**
  * `--project`: an id goes as it is (the server answers 404 for one of no
@@ -960,20 +1160,18 @@ const PROJECT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
  * share one). Absent: tenant-wide.
  */
 async function resolveProject(
+  ref: string | undefined,
+  where: string,
   args: ResolvedDeployArgs,
   runners: DeployRunners,
   ctx: CommandContext,
-): Promise<
-  | { readonly kind: 'ok'; readonly id?: string }
-  | { readonly kind: 'error'; readonly message: string }
-> {
-  const ref = args.projectRef;
+): Promise<ProjectOutcome> {
   if (ref === undefined) return { kind: 'ok' };
   if (PROJECT_ID_RE.test(ref)) return { kind: 'ok', id: ref };
   if (runners.findProjects === undefined) {
     return {
       kind: 'error',
-      message: `--project ${ref}: this build can't look a slug up. Pass the project's id.\n`,
+      message: `${where} ${ref}: this build can't look a slug up. Pass the project's id.\n`,
     };
   }
   const found = await runners.findProjects({
@@ -986,14 +1184,14 @@ async function resolveProject(
   if (found.kind === 'error') {
     return {
       kind: 'error',
-      message: `--project ${ref}: couldn't list the tenant's projects: ${found.message}\n`,
+      message: `${where} ${ref}: couldn't list the tenant's projects: ${found.message}\n`,
     };
   }
   const [only, ...more] = found.projects;
   if (only === undefined) {
     return {
       kind: 'error',
-      message: `--project ${ref}: no project of this tenant has that slug. \`kindgi projects list\` shows them.\n`,
+      message: `${where} ${ref}: no project of this tenant has that slug. \`kindgi projects list\` shows them; \`kindgi projects create --name=<name> --slug=${SLUG.test(ref) ? ref : '<slug>'}\` makes one.\n`,
     };
   }
   if (more.length > 0) {
@@ -1002,7 +1200,7 @@ async function resolveProject(
     );
     return {
       kind: 'error',
-      message: `--project ${ref}: ${found.projects.length} projects of this tenant have that slug, in different orgs: ${ids.join(', ')}. Pass the id.\n`,
+      message: `${where} ${ref}: ${found.projects.length} projects of this tenant have that slug, in different orgs: ${ids.join(', ')}. Pass the id.\n`,
     };
   }
   return { kind: 'ok', id: only.id };
@@ -1041,8 +1239,9 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   const outDirRaw = typeof outFlag === 'string' && outFlag !== '' ? outFlag : '.kindgi/build';
   const outDir = isAbsolute(outDirRaw) ? outDirRaw : resolve(packDir, outDirRaw);
 
-  const hosted = ctx.options.hosted === true || envBlock?.build === HOSTED_BUILD;
-  if (ctx.options.hosted === true && ctx.options['build-endpoint'] !== undefined) {
+  // --hosted, or the env block's `build: 'hosted'` (main.ts, `hostedRun`).
+  const hosted = ctx.hosted;
+  if (ctx.globals.hosted && ctx.options['build-endpoint'] !== undefined) {
     return {
       kind: 'error',
       stderr:
@@ -1099,6 +1298,8 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       exitCode: 1,
     };
   }
+  // No --endpoint or env `endpoint`: the key goes to the CLI's own address.
+  if (named.every((n) => n.url === undefined || n.url === '')) ctx.noteOwnAddressKey();
 
   // --tenant — used only as a consistency check against the envelope.
   const tenantFlag = ctx.options.tenant;
@@ -1153,10 +1354,54 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       dryRun,
       syncSecrets,
       envBlock,
+      environments: environmentsOf(cfg),
       packEnv: packEnv.plan,
       allowMissingEnv: ctx.options['allow-missing-env'] === true,
+      blocksPattern: resolveDiscovery(cfg.discovery as DiscoveryConfig | undefined).blocks,
     },
   };
+}
+
+/**
+ * A deploy refused into a later environment of its order
+ * (`409 environment-takes-promotions`): each environment from the order's
+ * first to that one, named from the pack config, for the hint. `undefined`
+ * for any other answer, and when the refusal doesn't name the first (the
+ * caller can't read it) or the reads fail: the hint then says the rule
+ * without names.
+ */
+async function promotionPathOf(
+  args: ResolvedDeployArgs,
+  runners: DeployRunners,
+  ctx: CommandContext,
+  result: PostDeploymentResult,
+): Promise<readonly PromotionStop[] | undefined> {
+  if (result.kind !== 'wire-error' || result.error.code !== 'environment-takes-promotions') {
+    return undefined;
+  }
+  const { position, firstProjectId } = result.error;
+  if (position === undefined || firstProjectId === undefined) return undefined;
+  if (runners.listProjects === undefined || runners.listEnvironmentOrders === undefined) {
+    return undefined;
+  }
+  const opts = {
+    endpoint: args.endpoint,
+    token: args.token,
+    fetchImpl: ctx.fetch,
+    ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+  };
+  const [projects, orders] = await Promise.all([
+    runners.listProjects(opts),
+    runners.listEnvironmentOrders(opts),
+  ]);
+  if (projects.kind === 'error' || orders.kind === 'error') return undefined;
+  return promotionPath({
+    firstProjectId,
+    position,
+    orders: orders.orders,
+    projects: projects.projects,
+    environments: envProjectRefs(args.environments),
+  });
 }
 
 async function loadDeployConfig(

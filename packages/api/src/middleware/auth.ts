@@ -14,7 +14,13 @@ import { statusFor, toWireError } from '../errors.js';
 import type { PersonCapabilitiesBinding } from '../person-capabilities-binding.js';
 import { PUBLIC_RUN_TOKEN_PREFIX, verifyPublicRunToken } from '../public-run-token.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
-import { SYSTEM_TENANT_ID, type SystemPrincipal, isSystemCapability } from '../system.js';
+import {
+  FULL_SYSTEM_CAPABILITY,
+  SYSTEM_TENANT_ID,
+  type SystemPrincipal,
+  isSystemCapability,
+  isSystemKeysPath,
+} from '../system.js';
 import { loggable } from './error-mapper.js';
 
 /**
@@ -82,6 +88,14 @@ export interface TokenResolution {
    * gives such a request `SYSTEM_TENANT_ID` whatever `tenantId` says.
    */
   readonly system?: SystemPrincipal;
+  /**
+   * Set on the deployment's own token by a runtime serving one tenant: on
+   * `/v1/system/keys` (and under it) the token is this system principal,
+   * with the full system capability and nothing of the tenant's, so it
+   * mints, lists and revokes the system keys. Everywhere else it is what
+   * the rest of this resolution says.
+   */
+  readonly systemKeysOperator?: SystemPrincipal;
   /**
    * Optional session id. Populated by the session-token verifier path
    * (`kgi_sk_*` tokens) so `/v1/identity/whoami` and `/v1/auth/logout`
@@ -308,7 +322,7 @@ export function bearerAuthMiddleware(
     const isSessionToken = sessionStore !== undefined && token.startsWith(SESSION_TOKEN_PREFIX);
     const resolution = isSessionToken
       ? await resolveSessionToken(sessionStore!, token)
-      : await resolve(token);
+      : operatorOnSystemKeys(await resolve(token), c.req.path);
     if (resolution === null) {
       const body = toWireError(
         { code: 'auth-missing', message: 'Bearer token is not recognized' },
@@ -489,6 +503,26 @@ export function bearerAuthMiddleware(
     }
 
     return authenticate(c, next, token, requestId);
+  };
+}
+
+/**
+ * Serving one tenant, the deployment's own token on `/v1/system/keys`:
+ * the system principal `systemKeysOperator` names, holding `kindgi:system`,
+ * in no tenant. Elsewhere, and for any other token, the resolution as it is.
+ */
+function operatorOnSystemKeys(
+  resolution: TokenResolution | null,
+  path: string,
+): TokenResolution | null {
+  const operator = resolution?.systemKeysOperator;
+  if (resolution === null || operator === undefined || !isSystemKeysPath(path)) return resolution;
+  return {
+    tenantId: SYSTEM_TENANT_ID,
+    system: operator,
+    capabilities: [FULL_SYSTEM_CAPABILITY],
+    ...(resolution.expiresAt !== undefined && { expiresAt: resolution.expiresAt }),
+    ...(resolution.revoked !== undefined && { revoked: resolution.revoked }),
   };
 }
 

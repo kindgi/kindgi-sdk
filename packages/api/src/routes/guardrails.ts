@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import {
@@ -13,8 +13,11 @@ import {
 } from '@kindgi/guardrails';
 import type { Cursor, GuardrailId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
+import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
+import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { GuardrailRecord, GuardrailRegistryBinding } from '../guardrail-binding.js';
+import { type ItemRights, itemMiddleware, itemPathCheck } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import {
@@ -80,6 +83,14 @@ export function guardrailsRouter(
   checkConfig?: GuardrailConfigCheck,
   /** What a guardrail's project may run (`reference-scope.ts`); absent → as named. */
   referenceScope?: ReferenceScopeBinding,
+  /**
+   * The tenant's environment orders: a publish into a later environment is
+   * refused (`environment-entry.ts`). Absent: no project is a later
+   * environment.
+   */
+  environmentOrders?: Pick<EnvironmentOrderBinding, 'orderOf'>,
+  /** Rights on a guardrail more than one project serves (`item-rights.ts`); absent → its own. */
+  itemRights?: ItemRights,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -124,18 +135,48 @@ export function guardrailsRouter(
       const mw = authorizer.authorize('read', () => ref('project', scopeProjectId));
       return mw(c, next);
     });
-    r.use('/:guardrailId/*', async (c, next) => {
-      const action = c.req.method === 'GET' ? 'read' : 'admin';
-      const guardrailId = c.req.param('guardrailId') ?? '';
-      const mw = authorizer.authorize(action, () => ref('guardrail', guardrailId));
-      return mw(c, next);
-    });
-    r.use('/:guardrailId', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
-      const guardrailId = c.req.param('guardrailId') ?? '';
-      const mw = authorizer.authorize('read', () => ref('guardrail', guardrailId));
-      return mw(c, next);
-    });
+    // An item more than one project serves is checked on those projects
+    // instead (`item-rights.ts`).
+    r.use(
+      '/:guardrailId/*',
+      itemMiddleware({
+        authorizer,
+        rights: itemRights,
+        kind: 'guardrail',
+        id: (c) => c.req.param('guardrailId') ?? '',
+        today: (c) => (c.req.method === 'GET' ? 'read' : 'admin'),
+        check: itemPathCheck,
+        versionNotFound: guardrailNotFound,
+      }),
+    );
+    r.use(
+      '/:guardrailId',
+      itemMiddleware({
+        authorizer,
+        rights: itemRights,
+        kind: 'guardrail',
+        id: (c) => c.req.param('guardrailId') ?? '',
+        today: (c) => (c.req.method === 'GET' ? 'read' : undefined),
+        check: () => ({ rule: 'read' }),
+        versionNotFound: guardrailNotFound,
+      }),
+    );
+  }
+
+  /** The guardrail's 404 (it has no versions, so the middleware never answers it). */
+  function guardrailNotFound(c: Context<AppEnv>): Response {
+    const guardrailId = c.req.param('guardrailId') ?? '';
+    c.status(statusFor('guardrail-not-found') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'guardrail-not-found',
+          message: `No guardrail registered with id "${guardrailId}"`,
+          guardrailId,
+        },
+        c.get('requestId'),
+      ),
+    );
   }
 
   // ---------- GET / (list, cursor-paginated) ----------
@@ -167,9 +208,14 @@ export function guardrailsRouter(
     const visible =
       authorizer === undefined
         ? page.data
-        : await authorizer.filterByCan(c, 'read', page.data, (a) =>
-            ref('guardrail', a.id as unknown as string),
-          );
+        : itemRights === undefined
+          ? await authorizer.filterByCan(c, 'read', page.data, (a) =>
+              ref('guardrail', a.id as unknown as string),
+            )
+          : await itemRights.filterItems(c, 'guardrail', page.data, {
+              idOf: (a) => a.id as unknown as string,
+              todayRef: (a) => ref('guardrail', a.id as unknown as string),
+            });
     return c.json({
       data: visible.map(serializeGuardrail),
       hasMore: page.nextCursor !== undefined,
@@ -239,6 +285,16 @@ export function guardrailsRouter(
       );
     }
     const projectId = projectIdRaw as ProjectId;
+    const later = await laterEnvironment(environmentOrders, tenantId, projectId);
+    if (later !== undefined) {
+      return environmentTakesPromotionsResponse(
+        c,
+        requestId,
+        authorizer,
+        { kind: 'publish', noun: 'guardrail' },
+        later,
+      );
+    }
     const { projectId: _pid, ...bodyWithoutProjectId } = bodyObj;
 
     const validated = validateGuardrailSpec(bodyWithoutProjectId);

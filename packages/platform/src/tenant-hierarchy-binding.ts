@@ -88,6 +88,14 @@ export type AddTeamMemberError =
       readonly message: string;
       readonly role: TeamRole;
     }
+  | {
+      /**
+       * A person a site signs in (`createdBy: site:<id>`): they hold only
+       * the grants their site's sign-in writes, never one given here.
+       */
+      readonly code: 'site-person-grants-managed';
+      readonly message: string;
+    }
   | { readonly code: 'add-failed'; readonly message: string; readonly cause?: unknown };
 
 export type AddProjectMemberError =
@@ -101,6 +109,14 @@ export type AddProjectMemberError =
       readonly code: 'membership-exists';
       readonly message: string;
       readonly role: ProjectRole;
+    }
+  | {
+      /**
+       * A person a site signs in (`createdBy: site:<id>`): they hold only
+       * the grants their site's sign-in writes, never one given here.
+       */
+      readonly code: 'site-person-grants-managed';
+      readonly message: string;
     }
   | { readonly code: 'add-failed'; readonly message: string; readonly cause?: unknown };
 
@@ -165,7 +181,12 @@ export interface DeleteTeamParams {
 
 /** A membership change that couldn't be written (the row and its tuple both left as they were). */
 export interface MembershipWriteError {
-  readonly code: 'write-failed';
+  /**
+   * `write-failed`: the row and its tuple couldn't be changed together.
+   * `site-person-grants-managed`: the person is one a site signs in, who
+   * holds only the grants their site's sign-in writes.
+   */
+  readonly code: 'write-failed' | 'site-person-grants-managed';
   readonly message: string;
   readonly cause?: unknown;
 }
@@ -224,6 +245,47 @@ export interface TenantLimits {
    */
   readonly projectsInProduction?: number;
 }
+
+/** A tenant's new name, slug, or both (`renameTenant`). A field left out stays as it is. */
+export interface RenameTenantParams {
+  readonly tenantId: TenantId;
+  readonly name?: string;
+  readonly slug?: string;
+}
+
+/**
+ * How a rename ended. The checks and the write are one change, so a tenant
+ * that starts closing, or a slug another tenant takes, while it runs is
+ * refused, never written over.
+ */
+export type RenameTenantOutcome =
+  /** Renamed, or already so: the same values again change nothing, `updatedAt` included. */
+  | { readonly kind: 'ok' }
+  /** No tenant with that id, or a purged one. */
+  | { readonly kind: 'tenant-not-found' }
+  | { readonly kind: 'tenant-closing' }
+  /** Its setup hasn't finished: the create request that finishes it finds it by its slug. */
+  | { readonly kind: 'tenant-setup-pending' }
+  /** Another tenant has the slug: a purged one, or one whose setup is pending, included. */
+  | { readonly kind: 'slug-taken' }
+  /**
+   * The deployment's verified sign-in domains name this tenant by its
+   * current `slug` (`domains`, each `<domain>:<slug>` entry's domain), so
+   * after the rename the server would find no tenant by it when it next
+   * starts.
+   */
+  | {
+      readonly kind: 'slug-in-config';
+      readonly names: 'current';
+      readonly slug: string;
+      readonly domains: readonly string[];
+    }
+  /**
+   * The deployment's verified sign-in domains name the new slug, so the
+   * server's next start would give those domains to this tenant. The
+   * entries aren't given: they aren't this tenant's.
+   */
+  | { readonly kind: 'slug-in-config'; readonly names: 'new' };
 
 /**
  * Tenant-hierarchy CRUD binding. Every route that creates orgs /
@@ -296,4 +358,13 @@ export interface TenantHierarchyBinding {
    * tenant it is operating as.
    */
   getTenant(tenantId: TenantId): Promise<TenantSummary | null>;
+  /**
+   * Rename a tenant: its name, its slug, or both. Its id stays, so
+   * everything that names it by id keeps working. The checks (purged,
+   * closing, setup pending, a slug another tenant has, a slug the
+   * deployment's sign-in settings name) and the write are one change.
+   * `PATCH /v1/tenant` and `PATCH /v1/system/tenants/{tenantId}` mount
+   * only with it.
+   */
+  renameTenant?(params: RenameTenantParams): Promise<RenameTenantOutcome>;
 }

@@ -51,7 +51,9 @@ function sessionStore(sessions: Record<string, Partial<Session> & { userId: User
       tenantId: tenantA,
       providerId: 'acme-sso',
       expiresAt: FAR,
-      scopes: [],
+      // A tenant admin's (as a token sign-in with an admin key is): trusting
+      // a key is a tenant admin's, and what's tested here is the capability.
+      scopes: ['tenant-admin'],
       createdAt: '2026-10-01T00:00:00.000Z' as Timestamp,
       ...s,
     };

@@ -9,10 +9,12 @@ import type { Cursor, ProjectId, ScopeSegment, TenantId, UserId } from '@kindgi/
 import { statusFor, toWireError } from '../errors.js';
 import type {
   EvalCaseStoreBinding,
+  JudgedCaseCorrection,
   JudgedEvalCase,
   JudgedItemSummary,
 } from '../eval-case-binding.js';
 import type { EvalSuiteRegistryBinding } from '../eval-suite-binding.js';
+import type { ItemRights } from '../item-rights.js';
 import { classWeightReader, summarizeJudgments } from '../judged-summary.js';
 import {
   type JudgedRunListInput,
@@ -48,6 +50,8 @@ export function judgedSuitesRouter(
   judgments: JudgmentRegistryBinding,
   cases: EvalCaseStoreBinding,
   authorizer?: Authorizer,
+  /** Rights on a suite more than one project serves (`item-rights.ts`); absent → the suite's own. */
+  itemRights?: ItemRights,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -105,8 +109,11 @@ export function judgedSuitesRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const suiteId = c.req.param('suiteId');
     const version = c.req.param('version');
+    // A suite more than one project serves was checked on those projects,
+    // this version among them (`item-rights.ts`, the suites' middleware).
     if (
       authorizer !== undefined &&
+      (await itemRights?.multi(c, 'eval_suite', suiteId)) === undefined &&
       !(await authorizer.can(c, 'read', ref('eval_suite', suiteId)))
     ) {
       return fail(c, 'eval-suite-not-found', `No eval suite "${suiteId}".`);
@@ -275,6 +282,21 @@ async function toCase(
   const items: JudgedItemSummary[] = [];
   for (const [key, list] of byKey) items.push(await summarizeJudgments(key, list, weightOf));
   items.sort((a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER));
+  // Each kept judgment that carries a correction rides onto the case, keyed by
+  // its judgment and carrying its judge class and restriction, so a
+  // restricted-only comparison filters corrections the way it filters items.
+  const corrections: JudgedCaseCorrection[] = kept.flatMap((j) =>
+    j.correction === undefined
+      ? []
+      : [
+          {
+            ...j.correction,
+            judgmentId: j.id,
+            ...(j.judgeClassId !== undefined && { judgeClassId: j.judgeClassId }),
+            ...(j.restricted === true && { restricted: true as const }),
+          },
+        ],
+  );
   const run = judged.run;
   return {
     caseId: run.runId,
@@ -283,6 +305,7 @@ async function toCase(
     ...(run.context !== undefined && { context: run.context }),
     output: run.output,
     items,
+    ...(corrections.length > 0 && { corrections }),
   };
 }
 

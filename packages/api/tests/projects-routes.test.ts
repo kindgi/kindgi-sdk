@@ -6,9 +6,10 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import { makeInMemoryProjectBinding } from '@kindgi/platform';
-import type { TenantId } from '@kindgi/types';
+import type { ProjectId, TenantId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
+import { makeInMemoryEnvironmentOrderBinding } from './support/in-memory-environment-order-binding.js';
 
 import { createApp } from '../src/index.js';
 import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
@@ -74,6 +75,86 @@ async function createProject(
   const { id } = (await res.json()) as { id: string };
   return id;
 }
+
+// A composed in-memory server: the project binding's environment-order guard
+// hook wired to an in-memory EnvironmentOrderBinding they share.
+function makeGuardApp() {
+  const orders = makeInMemoryEnvironmentOrderBinding();
+  const trio = makeInMemoryProjectBinding({
+    environmentOrderOf: async (tenantId, projectId) =>
+      (await orders.orderOf({ tenantId, projectId }))?.orderId,
+  });
+  const app = createApp({
+    ...createStubAppBindings(),
+    resolveToken,
+    runHandler,
+    projectBinding: trio.projects,
+    projectMembershipBinding: trio.memberships,
+    teamProjectGrantBinding: trio.grants,
+    environmentOrders: orders,
+  });
+  return { app, trio, orders };
+}
+
+describe('API — projects environment-order guard', () => {
+  async function seedOrder(
+    app: ReturnType<typeof makeGuardApp>['app'],
+    orders: ReturnType<typeof makeGuardApp>['orders'],
+  ) {
+    const staging = await createProject(app, TOKEN_A, { name: 'Staging', slug: 'staging' });
+    const prod = await createProject(app, TOKEN_A, { name: 'Prod', slug: 'prod' });
+    const set = await orders.set({
+      tenantId: tenantA,
+      parent: { kind: 'tenant' },
+      projectIds: [staging, prod] as ProjectId[],
+    });
+    expect(set.kind).toBe('ok');
+    return { staging, prod };
+  }
+
+  test('DELETE a project in an environment order → 409 project-in-environment-order; it stays', async () => {
+    const { app, orders } = makeGuardApp();
+    const { staging } = await seedOrder(app, orders);
+    const del = await app.request(`/v1/projects/${staging}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${TOKEN_A}` },
+    });
+    expect(del.status).toBe(409);
+    const body = (await del.json()) as {
+      error: { code: string; details?: { orderId?: string } };
+    };
+    expect(body.error.code).toBe('project-in-environment-order');
+    expect(body.error.details?.orderId).toBe(`tenant:${tenantA}`);
+    const get = await app.request(`/v1/projects/${staging}`, {
+      headers: { authorization: `Bearer ${TOKEN_A}` },
+    });
+    expect(get.status).toBe(200);
+  });
+
+  test('PATCH orgId on a project in an environment order → 409', async () => {
+    const { app, orders } = makeGuardApp();
+    const { staging } = await seedOrder(app, orders);
+    const patch = await app.request(`/v1/projects/${staging}`, {
+      method: 'PATCH',
+      headers: { authorization: `Bearer ${TOKEN_A}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ orgId: randomUUID() }),
+    });
+    expect(patch.status).toBe(409);
+    const body = (await patch.json()) as { error: { code: string } };
+    expect(body.error.code).toBe('project-in-environment-order');
+  });
+
+  test('a rename PATCH on an ordered project still succeeds (204)', async () => {
+    const { app, orders } = makeGuardApp();
+    const { staging } = await seedOrder(app, orders);
+    const patch = await app.request(`/v1/projects/${staging}`, {
+      method: 'PATCH',
+      headers: { authorization: `Bearer ${TOKEN_A}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Staging-renamed' }),
+    });
+    expect(patch.status).toBe(204);
+  });
+});
 
 describe('API — projects CRUD', () => {
   test('create → get roundtrip; isDefault defaults to false', async () => {

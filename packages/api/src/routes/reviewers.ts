@@ -153,6 +153,10 @@ export function reviewersRouter(
       role: parsed.value.role,
       ...(parsed.value.displayName !== undefined && { displayName: parsed.value.displayName }),
     });
+    if (outcome.kind === 'refused') {
+      c.status(statusFor(outcome.code) as never);
+      return c.json(toWireError({ code: outcome.code, message: outcome.message }, requestId));
+    }
     c.status(201);
     return c.json(serializeReviewer(outcome.reviewer));
   });
@@ -164,6 +168,10 @@ export function reviewersRouter(
     const reviewerId = c.req.param('reviewerId') as ReviewerId;
 
     const outcome = await binding.unregister({ tenantId, reviewerId });
+    if (outcome.refused !== undefined) {
+      c.status(statusFor(outcome.refused.code) as never);
+      return c.json(toWireError({ ...outcome.refused }, requestId));
+    }
     if (!outcome.unregistered) {
       c.status(statusFor('reviewer-not-found') as never);
       return c.json(

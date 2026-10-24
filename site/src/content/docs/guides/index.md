@@ -36,6 +36,9 @@ Kindgi these docs describe.
 - [Secrets and env](secrets/): where a pack's settings and secrets live on
   your machine and in a deployment, how your code gets them, and the sandbox
   `kindgi dev` runs it in.
+- [Connections](connections/): register your company's Google or GitHub
+  app, let people connect their accounts, and have a tool act with them,
+  approved by the account's owner.
 - [Sign-in](sso/sign-in/): sign in to the console, keep a session, and see
   the enterprise sign-in options Kindgi builds with you.
 - [Cost and provenance](observability/trace-an-answer/): trace an answer to
@@ -43,4 +46,5 @@ Kindgi these docs describe.
 - [Evals](evals/judge-a-runs-output/): judge runs' answers, build a test set
   from them, change a prompt or a setting without a deploy, compare the new
   version on the test set, and release it. You can also propose a change
-  through review, or let a pass look for a better setting or prompt.
+  through review, let a pass look for a better setting or prompt, or fix what
+  the experts corrected, each correction at the layer where it belongs.

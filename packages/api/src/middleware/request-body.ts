@@ -17,11 +17,11 @@ import { statusFor, toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
 
 /**
- * Paths the API's body limit leaves alone: the webhook receiver reads its
- * body under its own limit, before any lookup, and the S3-compatible
- * routes take objects, not JSON.
+ * Paths the API's body limit leaves alone: the webhook receiver and a wait
+ * token's link read their bodies under their own limits, before any
+ * lookup, and the S3-compatible routes take objects, not JSON.
  */
-const OTHER_BODY_PATHS = ['/v1/hooks/', '/s3/'];
+const OTHER_BODY_PATHS = ['/v1/hooks/', '/v1/wait-tokens/', '/s3/'];
 
 /**
  * The API's limit on a request body, `requestMaxBytes`, checked before

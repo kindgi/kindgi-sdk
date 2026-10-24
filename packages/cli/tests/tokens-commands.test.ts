@@ -52,7 +52,38 @@ const GRANTS = {
   reviewer: { role: 'senior' },
 };
 
-async function run(argv: readonly string[]) {
+const CAROL = {
+  userId: 'u-9',
+  tenantId: 't-1',
+  displayName: 'Carol',
+  primaryEmail: 'carol@acme.test',
+  createdAt: '2026-10-06T12:00:00Z',
+};
+const INVITE = { state: 'pending', expiresAt: '2026-10-13T12:00:00Z' };
+
+const SECOND_FACTOR = {
+  setUp: true,
+  since: '2026-10-07T12:00:00Z',
+  recoveryCodesLeft: 8,
+  usable: true,
+  required: false,
+};
+const SETTINGS = { required: false, onPreviousSecret: 0, unusable: 0 };
+
+/** What `users.*` answers, where a test needs another answer. */
+interface UsersAnswers {
+  readonly create?: unknown;
+  readonly list?: unknown;
+  readonly resendInvite?: unknown;
+  readonly removeSecondFactor?: unknown;
+  readonly settings?: {
+    readonly required: boolean;
+    readonly onPreviousSecret: number;
+    readonly unusable: number;
+  };
+}
+
+async function run(argv: readonly string[], answers: UsersAnswers = {}) {
   const calls: unknown[][] = [];
   const rec =
     (name: string, value: unknown) =>
@@ -73,6 +104,18 @@ async function run(argv: readonly string[]) {
           get: rec('tokens.get', META),
           revoke: rec('tokens.revoke', undefined),
         },
+        auth: {
+          settings: {
+            get: rec('auth.settings.get', { secondFactor: answers.settings ?? SETTINGS }),
+            update: async (...args: unknown[]) => {
+              calls.push(['auth.settings.update', ...args]);
+              const patch = args[0] as { secondFactor: { required: boolean } };
+              return {
+                secondFactor: { ...(answers.settings ?? SETTINGS), ...patch.secondFactor },
+              };
+            },
+          },
+        },
         serviceAccounts: {
           create: rec('sa.create', ACCOUNT),
           list: rec('sa.list', { data: [ACCOUNT], hasMore: false }),
@@ -82,19 +125,21 @@ async function run(argv: readonly string[]) {
           unregister: rec('sa.unregister', ACCOUNT),
         },
         users: {
-          create: rec('users.create', 'u-9'),
-          list: rec('users.list', {
-            data: [
-              {
-                userId: 'u-9',
-                displayName: 'Carol',
-                primaryEmail: 'carol@acme.test',
-                createdAt: '2026-10-06T12:00:00Z',
-              },
-            ],
-            hasMore: false,
-          }),
+          create: rec('users.create', answers.create ?? CAROL),
+          list: rec('users.list', answers.list ?? { data: [CAROL], hasMore: false }),
+          resendInvite: rec(
+            'users.resendInvite',
+            answers.resendInvite ?? {
+              user: { ...CAROL, invite: { ...INVITE, sentAt: '2026-10-06T13:00:00Z' } },
+              inviteEmail: { sent: true },
+            },
+          ),
           get: rec('users.get', { userId: 'u-9' }),
+          secondFactor: rec('users.secondFactor', SECOND_FACTOR),
+          removeSecondFactor: rec(
+            'users.removeSecondFactor',
+            answers.removeSecondFactor ?? { removed: true },
+          ),
           grants: rec('users.grants', GRANTS),
           grant: rec('users.grant', { ...GRANTS, tenantAdmin: true }),
           ungrant: rec('users.ungrant', GRANTS),
@@ -285,14 +330,102 @@ describe('kindgi people', () => {
       displayName: 'Carol',
       email: 'carol@acme.test',
     });
-    // What being added gives them, and what's next.
+    // What being added gives them, and what's next: the CLI can't tell
+    // whether the runtime checks roles, so it says both. A runtime that
+    // doesn't invite says nothing about an invitation.
     expect(out.stderr).toBe(
-      'Added to the tenant: they can read its settings. Give them a project role to work on its agents and runs, then their first key: kindgi tokens create --for=user:u-9\n',
+      'Added to the tenant: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:u-9\n',
     );
     const quiet = await run(['people', 'add', '--name=Dana', '--quiet']);
     expect([quiet.out.stdout, quiet.out.stderr]).toEqual(['', '']);
     const missing = await run(['people', 'add']);
     expect(missing.out.stderr).toContain('--name is required');
+  });
+
+  test('add says where the invitation went, and when it expires', async () => {
+    const { out } = await run(['people', 'add', '--name=Carol', '--email=carol@acme.test'], {
+      create: { ...CAROL, invite: INVITE, inviteEmail: { sent: true } },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(JSON.parse(out.stdout)).toEqual({
+      userId: 'u-9',
+      displayName: 'Carol',
+      email: 'carol@acme.test',
+      invite: INVITE,
+      inviteEmail: { sent: true },
+    });
+    expect(out.stderr).toContain(
+      'The invitation went to carol@acme.test: they sign in with it before it expires (2026-10-13T12:00:00Z).\n',
+    );
+  });
+
+  test('add --no-invite still invites them, not emailed: you tell them', async () => {
+    const { out, calls } = await run(
+      ['people', 'add', '--name=Carol', '--email=carol@acme.test', '--no-invite'],
+      {
+        create: { ...CAROL, invite: INVITE, inviteEmail: { sent: false, reason: 'not-requested' } },
+      },
+    );
+    expect(calls).toEqual([
+      ['users.create', { displayName: 'Carol', email: 'carol@acme.test', sendInvite: false }],
+    ]);
+    expect(out.stderr).toContain(
+      'Invited, not emailed (--no-invite): tell them to sign in with carol@acme.test before it expires (2026-10-13T12:00:00Z).\n',
+    );
+  });
+
+  test.each([
+    ['no-email', 'No invitation: they have no email.\n'],
+    [
+      'not-configured',
+      'Invited, but this deployment sends no email: tell them to sign in through a provider with carol@acme.test before it expires (2026-10-13T12:00:00Z).\n',
+    ],
+    [
+      'send-failed',
+      "Invited, but the invitation email didn't go out: send it again (kindgi people invite u-9), or tell them to sign in before it expires (2026-10-13T12:00:00Z).\n",
+    ],
+    [
+      'capped',
+      "Invited, but the tenant's invitations for today are used up: send it later (kindgi people invite u-9), or tell them to sign in before it expires (2026-10-13T12:00:00Z).\n",
+    ],
+  ])('add says why the invitation was not emailed: %s', async (reason, line) => {
+    const { out } = await run(['people', 'add', '--name=Carol', '--email=carol@acme.test'], {
+      create: {
+        ...CAROL,
+        ...(reason !== 'no-email' && { invite: INVITE }),
+        inviteEmail: { sent: false, reason },
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr.endsWith(line)).toBe(true);
+  });
+
+  test('invite sends the invitation again: the record on stdout, where it went on stderr', async () => {
+    const { out, calls } = await run(['people', 'invite', 'u-9']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['users.resendInvite', 'u-9']]);
+    expect(JSON.parse(out.stdout)).toMatchObject({
+      user: { userId: 'u-9', invite: { state: 'pending' } },
+      inviteEmail: { sent: true },
+    });
+    expect(out.stderr).toBe(
+      'The invitation went to carol@acme.test: they sign in with it before it expires (2026-10-13T12:00:00Z).\n',
+    );
+    const quiet = await run(['people', 'invite', 'u-9', '--quiet']);
+    expect([quiet.out.stdout, quiet.out.stderr]).toEqual(['', '']);
+    const missing = await run(['people', 'invite']);
+    expect(missing.out.exitCode).toBe(2);
+    expect(missing.calls).toEqual([]);
+  });
+
+  test('list --pending asks for the invited people only, with their STATE', async () => {
+    const { out, calls } = await run(['people', 'list', '--pending', '--table'], {
+      list: { data: [{ ...CAROL, invite: { ...INVITE, state: 'expired' } }], hasMore: false },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['users.list', { pending: true }]]);
+    expect(out.stdout).toMatch(/STATE/);
+    expect(out.stdout).toMatch(/carol@acme\.test\s+expired/);
   });
 
   test('list --query as a table', async () => {
@@ -349,5 +482,67 @@ describe("kindgi people: a person's grants", () => {
     expect(none.out.exitCode).toBe(2);
     expect(none.out.stderr).toContain('Give --tenant-admin');
     expect(none.calls).toEqual([]);
+  });
+});
+
+describe('kindgi people and sign-in: a second factor', () => {
+  test('people second-factor reads theirs', async () => {
+    const { out, calls } = await run(['people', 'second-factor', 'u-9']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['users.secondFactor', 'u-9']]);
+    expect(JSON.parse(out.stdout)).toEqual(SECOND_FACTOR);
+  });
+
+  test('people reset-second-factor removes it, and says what that means', async () => {
+    const { out, calls } = await run(['people', 'reset-second-factor', 'u-9']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['users.removeSecondFactor', 'u-9']]);
+    expect(JSON.parse(out.stdout)).toEqual({ removed: true });
+    expect(out.stderr).toBe(
+      "Removed u-9's second factor: they set one up again at their next sign-in where the workspace requires one.\n",
+    );
+  });
+
+  test('people reset-second-factor for someone without one: nothing changed', async () => {
+    const { out } = await run(['people', 'reset-second-factor', 'u-9'], {
+      removeSecondFactor: { removed: false },
+    });
+    expect(out.stderr).toBe('u-9 had no second factor set up: nothing changed.\n');
+  });
+
+  test('sign-in settings reads them, and names what needs doing', async () => {
+    const { out, calls } = await run(['sign-in', 'settings'], {
+      settings: { required: true, onPreviousSecret: 2, unusable: 1 },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['auth.settings.get']]);
+    expect(JSON.parse(out.stdout)).toEqual({
+      secondFactor: { required: true, onPreviousSecret: 2, unusable: 1 },
+    });
+    expect(out.stderr).toBe(
+      [
+        'Signing in takes a second factor (your own identity provider is exempt; API keys are not covered).',
+        "2 person(s)' second factor is still under the previous sign-in secret: keep it configured until this is 0.",
+        "1 person(s)' second factor can't be read any more: they need a recovery code, or kindgi people reset-second-factor.",
+        '',
+      ].join('\n'),
+    );
+  });
+
+  test.each([
+    ['on', true],
+    ['off', false],
+  ] as const)('sign-in settings --require-second-factor=%s', async (flag, required) => {
+    const { out, calls } = await run(['sign-in', 'settings', `--require-second-factor=${flag}`]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['auth.settings.update', { secondFactor: { required } }]]);
+    expect(JSON.parse(out.stdout).secondFactor.required).toBe(required);
+  });
+
+  test('sign-in settings --require-second-factor takes on or off only', async () => {
+    const { out, calls } = await run(['sign-in', 'settings', '--require-second-factor=yes']);
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('--require-second-factor takes on or off (got yes)');
+    expect(calls).toEqual([]);
   });
 });

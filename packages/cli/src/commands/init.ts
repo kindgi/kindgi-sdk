@@ -75,12 +75,12 @@ export const initCommand: LeafCommand = {
   description:
     'Scaffold a new Kindgi pack repo, or add Kindgi to an existing app: a Node.js, Python, Maven or sbt project, auto-detected from its `package.json`, `pyproject.toml`, `pom.xml` or `build.sbt` when no pack-name is given.',
   usage:
-    'kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|python|java|scala] [--path=<dir>] [--force] [--link-local] [--new-repo]',
+    'kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|follow-up|python|java|scala] [--path=<dir>] [--force] [--link-local] [--new-repo]',
   optionSpec: {
     template: {
       type: 'string',
       description:
-        'The starter: `minimal` (default; empty primitive folders), `sample` (tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store, with approvals), `drupal` (agents for a Drupal site through its MCP Server, with approvals), `python` (a Python pack), `java` (a Java pack, built with Maven; preview) or `scala` (a Scala pack, built with sbt; preview).',
+        'The starter: `minimal` (default; empty primitive folders), `sample` (tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store, with approvals), `drupal` (agents for a Drupal site through its MCP Server, with approvals), `follow-up` (an agent that writes a follow-up mail from your notes and sends it from your Gmail once you approve it), `python` (a Python pack), `java` (a Java pack, built with Maven; preview) or `scala` (a Scala pack, built with sbt; preview).',
     },
     path: {
       type: 'string',
@@ -127,6 +127,7 @@ export const AVAILABLE_TEMPLATES = [
   'sample',
   'woocommerce',
   'drupal',
+  'follow-up',
   'python',
   'java',
   'scala',
@@ -282,6 +283,13 @@ function augmentTemplate(
       kind: 'err',
       stderr:
         'The drupal template makes a pack of its own (its agents share the site settings in lib/), so init does not add it to an existing app.\nFor a standalone Drupal pack here: kindgi init <pack-name> --template=drupal --new-repo\n',
+    };
+  }
+  if (name === 'follow-up') {
+    return {
+      kind: 'err',
+      stderr:
+        'The follow-up template makes a pack of its own (its send tool comes from @kindgi/connections, which this app does not depend on), so init does not add it to an existing app.\nFor a standalone follow-up pack here: kindgi init <pack-name> --template=follow-up --new-repo\n',
     };
   }
   if (name === 'python') {
@@ -682,12 +690,12 @@ function runInitLanguageTemplate(
   }
 }
 
-/** build.sbt's resolver line for kindgi-pack from a checkout (the local Maven repository); none from Maven Central. */
+/** build.sbt's resolver line for kindgi-pack from a checkout (the local Maven repository, first); none from Maven Central. */
 function scalaTemplateResolver(source: KindgiJavaSource): string {
   const resolver = sbtLocalResolver(source);
   return resolver === undefined
     ? ''
-    : `\n    // kindgi-pack from the Kindgi checkout this pack was made from (./mvnw install).\n    ${resolver},`;
+    : `\n    // kindgi-pack from the Kindgi checkout this pack was made from (./mvnw install), before\n    // Maven Central: the checkout's version can be one already released there.\n    ${resolver},`;
 }
 
 /**
@@ -881,7 +889,8 @@ async function pathExists(path: string): Promise<boolean> {
 
 /**
  * Stamp the resolved specs over the template's `workspace:*` entries
- * for `@kindgi/sdk` (dependencies) and `@kindgi/cli` (devDependencies).
+ * for `@kindgi/sdk` and `@kindgi/connections` (dependencies) and
+ * `@kindgi/cli` (devDependencies).
  */
 async function rewriteTemplateDependencySpecs(
   targetDir: string,
@@ -893,6 +902,9 @@ async function rewriteTemplateDependencySpecs(
     devDependencies?: Record<string, string>;
   };
   if (pkg.dependencies?.['@kindgi/sdk'] !== undefined) pkg.dependencies['@kindgi/sdk'] = specs.sdk;
+  if (pkg.dependencies?.['@kindgi/connections'] !== undefined) {
+    pkg.dependencies['@kindgi/connections'] = specs.connections;
+  }
   if (pkg.devDependencies?.['@kindgi/cli'] !== undefined) {
     pkg.devDependencies['@kindgi/cli'] = specs.cli;
   }

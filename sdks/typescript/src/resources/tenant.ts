@@ -16,12 +16,14 @@ import type {
   Tenant,
   TenantConfigCollectionPage,
   TenantConfigKind,
+  TenantPatch,
   UpsertTenantConfigBody,
   UpsertTenantConfigResult,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 
 export type TenantInfo = Tenant;
+export type RenameTenantInput = TenantPatch;
 export type TenantConfigPage = TenantConfigCollectionPage;
 export type UpsertConfigInput = UpsertTenantConfigBody;
 export type UpsertConfigResult = UpsertTenantConfigResult;
@@ -36,6 +38,14 @@ export interface ListTenantConfigFilter {
 export interface TenantClient {
   /** @wire GET /v1/tenant */
   get(): Promise<TenantInfo>;
+  /**
+   * Rename the caller's tenant: its name, its slug, or both. Its id stays;
+   * the console's addresses carry the slug, so links with the old one stop
+   * opening it. Takes a tenant admin. Answers nothing: `get()` reads it.
+   *
+   * @wire PATCH /v1/tenant
+   */
+  update(input: RenameTenantInput, options?: { readonly idempotencyKey?: string }): Promise<void>;
   readonly config: TenantConfigClient;
 }
 
@@ -55,6 +65,14 @@ export function makeTenantClient(transport: Transport): TenantClient {
       return transport.request<TenantInfo>({
         method: 'GET',
         path: '/v1/tenant',
+      });
+    },
+    async update(input, options) {
+      return transport.request<void>({
+        method: 'PATCH',
+        path: '/v1/tenant',
+        body: input,
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },
     config: {

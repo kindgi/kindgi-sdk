@@ -10,11 +10,28 @@ import threading
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 from ..log import Logger, noop_logger
 
-__all__ = ["CallCancelled", "CancelReason", "Cancellation", "ToolContext"]
+if TYPE_CHECKING:
+    from .define import Tool
+
+__all__ = [
+    "MAX_PAUSE_NAME_LENGTH",
+    "MAX_PAUSE_TIMEOUT_MS",
+    "CallCancelled",
+    "CancelReason",
+    "Cancellation",
+    "ConnectionAccount",
+    "ConnectionRejected",
+    "PauseAnswer",
+    "PauseNotAvailable",
+    "ToolConnection",
+    "ToolContext",
+    "WaitToken",
+    "wait_token_from_wire",
+]
 
 CancelReason = Literal["deadline-exceeded", "cancelled"]
 
@@ -79,6 +96,111 @@ class Cancellation:
             self._loop.call_soon_threadsafe(self._async_fired.set)
 
 
+class ConnectionRejected(Exception):
+    """The app refused a connection's token: an HTTP 401 from its API.
+
+    Raise it with the tool's name for the connection (its `needs_spec["connections"]` key), or
+    raise your own error `from` it. The call answers `connection-rejected`, and the runtime renews
+    that token once and runs the call again; it never removes the connection. Say what the app
+    said, never the token.
+    """
+
+    def __init__(self, connection: str, message: str | None = None) -> None:
+        super().__init__(message or f'the app refused the connection "{connection}"')
+        self.connection = connection
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectionAccount:
+    """Whose account a connection is at the app."""
+
+    id: str
+    """Its stable id at the app."""
+    label: str
+    """What people see: `ana@acme.example`."""
+
+
+@dataclass(frozen=True, slots=True)
+class ToolConnection:
+    """A connection resolved for one call: an account at another app, with a short-lived token.
+
+    What a tool reads from `ctx.connections["mail"]`. The token is never in its `repr`.
+    """
+
+    connection_id: str
+    app: str
+    """The app entry's id: `"google"`, `"github"`."""
+    app_name: str
+    """The app's name as people know it: `"Google"`."""
+    access_token: str = field(repr=False)
+    """The token to send to the app's API (`Authorization: Bearer …`). Never log or return it."""
+    account: ConnectionAccount
+    expires_at: str | None = None
+    """When the token expires (ISO 8601), when the app says."""
+
+    @classmethod
+    def from_wire(cls, value: Any) -> ToolConnection | None:
+        """The connection for one protocol v2 `ctx.connections` entry; `None` when it isn't one."""
+        if not isinstance(value, Mapping):
+            return None
+        raw = cast("Mapping[str, Any]", value)
+        account = raw.get("account")
+        texts = [raw.get(k) for k in ("connectionId", "app", "appName", "accessToken")]
+        if not all(isinstance(t, str) for t in texts) or not isinstance(account, Mapping):
+            return None
+        account_id = cast("Mapping[str, Any]", account).get("id")
+        label = cast("Mapping[str, Any]", account).get("label")
+        expires_at = raw.get("expiresAt")
+        if not isinstance(account_id, str) or not isinstance(label, str):
+            return None
+        return cls(
+            connection_id=cast(str, texts[0]),
+            app=cast(str, texts[1]),
+            app_name=cast(str, texts[2]),
+            access_token=cast(str, texts[3]),
+            account=ConnectionAccount(id=account_id, label=label),
+            expires_at=expires_at if isinstance(expires_at, str) else None,
+        )
+
+
+MAX_PAUSE_TIMEOUT_MS: Final = 24 * 24 * 60 * 60 * 1000
+"""The longest a pause may wait: 24 days, in milliseconds."""
+MAX_PAUSE_NAME_LENGTH: Final = 200
+"""The longest a pause's `name` may be."""
+
+
+@dataclass(frozen=True, slots=True)
+class WaitToken:
+    """A call's wait token: its id, and the link the other system posts its answer to."""
+
+    id: str
+    """The same every time this attempt of the call runs (a retry of its step gets a new token)."""
+    url: str
+    """`POST` the answer here, as a JSON body, with no `Authorization` header: the link is the
+    credential. Hand it only to the system that answers. A re-run after a crash gets a new link
+    to the same wait, and either link completes it. Hand on the new one only if the old one never
+    went out, and dedupe on `idempotency_key`."""
+
+
+@dataclass(frozen=True, slots=True)
+class PauseAnswer:
+    """What `ctx.pause()` returns. A pausing tool's handler returns it as its result."""
+
+    timeout_ms: int | None = None
+    """How long the run waits for the answer, in milliseconds: from 1 to `MAX_PAUSE_TIMEOUT_MS`
+    (24 days). `None`: 24 hours. When it passes, the call fails with `wait-token-timed-out`."""
+    name: str | None = None
+    """What the run waits for, in a few words (`the carrier's pickup confirmation`): 1 to 200
+    characters."""
+
+
+class PauseNotAvailable(Exception):
+    """Raised by `ToolContext.wait_token` and `ToolContext.pause` when the call has no wait token.
+
+    The pack service answers the call with `pause-not-available`.
+    """
+
+
 _EMPTY: Mapping[str, Any] = MappingProxyType({})
 
 
@@ -133,19 +255,77 @@ class ToolContext:
     it writes to (an `Idempotency-Key` header, a client reference, a unique column), or looks for
     it there first. A UUID. `None` from a runtime that can't name its steps (before protocol
     2.6.0): the call can't be deduped on it then."""
+    connections: Mapping[str, ToolConnection] = field(default_factory=_empty, repr=False)
+    """The connections the tool declares (`needs_spec["connections"]`), by the tool's name for
+    each: an account at another app and a short-lived token for it
+    (`ctx.connections["mail"].access_token`). Empty when the tool declares none, and from a
+    runtime before protocol 2.9.0. Never in the context's `repr`. When the app refuses a token
+    (a 401), raise `ConnectionRejected("mail")`."""
+    _wait_token: WaitToken | None = field(default=None, repr=False)
+
+    @property
+    def wait_token(self) -> WaitToken:
+        """The call's wait token, for a tool that declares `pauses=True`: hand its `url` to the
+        system that will answer, then return `ctx.pause()`. The run waits until that system posts
+        its answer to the link, or until the pause's time passes; the answer, valid against the
+        tool's output schema, becomes the call's result. A re-run after a crash gets a new link to
+        the same wait, and either link completes it: hand on the new one only if the old one never
+        went out, and dedupe on `idempotency_key`.
+
+        Raises `PauseNotAvailable` when the call has none: the tool doesn't declare
+        `pauses=True`, or the runtime that called it can't pause (before pack protocol 2.8.0).
+        Read it before handing anything on, so the tool fails first."""
+        if self._wait_token is None:
+            raise _no_wait_token()
+        return self._wait_token
+
+    def pause(self, timeout_ms: int | None = None, name: str | None = None) -> PauseAnswer:
+        """The answer that makes the run wait for the system the tool handed `wait_token` to.
+
+        `timeout_ms`: how long the run waits, from 1 to `MAX_PAUSE_TIMEOUT_MS` (24 days);
+        24 hours when `None`. `name`: what it waits for, in a few words. Raises
+        `PauseNotAvailable` as `wait_token` does."""
+        if self._wait_token is None:
+            raise _no_wait_token()
+        return PauseAnswer(timeout_ms=timeout_ms, name=name)
 
     @classmethod
     def for_test(
-        cls, tenant_id: str = "tenant-test", run_id: str = "run-test", **kwargs: Any
+        cls,
+        tenant_id: str = "tenant-test",
+        run_id: str = "run-test",
+        *,
+        wait_token: WaitToken | None = None,
+        tool: Tool[Any, Any] | None = None,
+        **kwargs: Any,
     ) -> ToolContext:
-        """A context for calling a handler directly in a unit test."""
-        return cls(tenant_id=tenant_id, run_id=run_id, **kwargs)
+        """A context for calling a handler directly in a unit test. Pass `wait_token` to test a
+        pausing tool.
+
+        Pass `tool=` to fill `env` from the tool's `needs_spec["env"]` the way the runtime
+        does: every env name the tool declares, from the `env=` the test offers or the
+        schema's string default, each checked against its schema. A name the tool doesn't
+        declare is dropped. `secrets=` pass through unchecked (the runtime resolves them).
+        """
+        if tool is not None:
+            from .needs import resolve_env
+
+            kwargs["env"] = resolve_env(
+                tool.id, tool.needs_spec, dict(kwargs.pop("env", None) or {})
+            )
+        return cls(tenant_id=tenant_id, run_id=run_id, _wait_token=wait_token, **kwargs)
 
     @classmethod
     def from_wire(
-        cls, ctx: Mapping[str, Any], cancellation: Cancellation, log: Logger = noop_logger
+        cls,
+        ctx: Mapping[str, Any],
+        cancellation: Cancellation,
+        log: Logger = noop_logger,
+        *,
+        pauses: bool = False,
     ) -> ToolContext:
-        """The context for a protocol v2 `ctx` (`tenantId`, `runId`, …)."""
+        """The context for a protocol v2 `ctx` (`tenantId`, `runId`, …). Its `waitToken` is kept
+        only for a tool that `pauses`."""
 
         def mapping(key: str) -> Mapping[str, Any]:
             value = ctx.get(key)
@@ -170,4 +350,36 @@ class ToolContext:
             settings=mapping("settings"),
             cancellation=cancellation,
             log=log,
+            connections=_connections(ctx.get("connections")),
+            _wait_token=wait_token_from_wire(ctx) if pauses else None,
         )
+
+
+def _connections(value: Any) -> Mapping[str, ToolConnection]:
+    if not isinstance(value, Mapping):
+        return _EMPTY
+    out: dict[str, ToolConnection] = {}
+    for name, raw in cast("Mapping[str, Any]", value).items():
+        connection = ToolConnection.from_wire(raw)
+        if connection is not None:
+            out[str(name)] = connection
+    return MappingProxyType(out)
+
+
+def wait_token_from_wire(ctx: Mapping[str, Any]) -> WaitToken | None:
+    """A protocol v2 `ctx`'s `waitToken` (protocol 2.8.0), if it carries a well-formed one."""
+    value = ctx.get("waitToken")
+    if not isinstance(value, Mapping):
+        return None
+    token = cast("Mapping[str, Any]", value)
+    token_id, url = token.get("id"), token.get("url")
+    if not isinstance(token_id, str) or token_id == "" or not isinstance(url, str) or url == "":
+        return None
+    return WaitToken(id=token_id, url=url)
+
+
+def _no_wait_token() -> PauseNotAvailable:
+    return PauseNotAvailable(
+        "This call has no wait token: a tool pauses only when it declares `pauses=True` and the"
+        " runtime that calls it speaks pack protocol 2.8.0 or later."
+    )

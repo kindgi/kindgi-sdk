@@ -77,6 +77,31 @@ export interface Approval {
   readonly escalatedFrom?: ApprovalId;
   /** The approval this one was escalated to. */
   readonly escalatedTo?: ApprovalId;
+  /**
+   * The one member who may decide it, set when the call would use that
+   * member's own connection: only they approve, reject or withdraw it, and
+   * only with a reviewer seat of the required rank. It's never escalated:
+   * an `escalate` decision on it answers `409 invalid-transition`, and at
+   * its deadline it expires. The other reviewers don't see it listed.
+   * Absent: any reviewer of the rank decides.
+   */
+  readonly approver?: ApprovalApprover;
+  /** The person's connection the call would use: shown as "as <account>". */
+  readonly connection?: ApprovalConnection;
+}
+
+/** Who alone may decide an approval. */
+export interface ApprovalApprover {
+  readonly kind: 'member';
+  readonly userId: string;
+}
+
+/** The connection a gated call would use: the app, and whose account. */
+export interface ApprovalConnection {
+  readonly app: string;
+  readonly appName: string;
+  /** The account's label at the app: an email address, a login. */
+  readonly account: string;
 }
 
 /**
@@ -116,6 +141,11 @@ export interface ListApprovalsBindingInput {
    * lists more: the route keeps only these.
    */
   readonly assignedTo?: ReviewerId;
+  /**
+   * Only approvals this reviewer decided. A binding that ignores it lists
+   * more: the route keeps only these (`decision.reviewerId`).
+   */
+  readonly decidedBy?: ReviewerId;
   /**
    * `asc`: oldest first (`createdAt` asc, then `id` asc), and `after`
    * continues in that order. Default `desc`. A binding says which it
@@ -179,6 +209,13 @@ export interface SubmitReviewBindingInput {
   readonly reviewerId: ReviewerId;
   readonly decision: ReviewDecisionKind;
   readonly rationale?: string;
+  /**
+   * The provider of the session the reviewer decided with (`site:<id>`
+   * for a site's sign-in, an identity provider's id for a single sign-on
+   * session). Absent for an API key. Kept with the decision, so an
+   * exported audit bundle names the trust behind it without a join.
+   */
+  readonly sessionProvider?: string;
 }
 
 /**
@@ -212,6 +249,13 @@ export interface ReviewDecisionRecord {
   readonly reviewerRoleAtDecision: ReviewerRole;
   readonly decidedAt: Timestamp;
   readonly rationale?: string;
+  /** The provider of the session the reviewer decided with; see `SubmitReviewBindingInput.sessionProvider`. */
+  readonly sessionProvider?: string;
+  /**
+   * The reviewer's display name when they decided: a person renamed since
+   * (a site may rename its people) still shows as they were.
+   */
+  readonly deciderName?: string;
 }
 
 // ---------- error shape ----------
