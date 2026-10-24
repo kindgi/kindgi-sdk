@@ -34,6 +34,13 @@ const CALLERS: Readonly<Record<string, Omit<TokenResolution, 'tenantId'>>> = {
   },
   // A person signed in with an identity provider, or a member key.
   member: { userId: 'user-member' as UserId, scopes: [], capabilities: ['signing-keys:write'] },
+  // A member key, whatever scopes it carries: a member's.
+  'member key': {
+    userId: 'user-member' as UserId,
+    scopes: ['tenant-admin'],
+    tokenRole: 'member',
+    capabilities: ['signing-keys:write'],
+  },
   // An admin key limited to one project.
   'project key': {
     userId: 'user-admin' as UserId,
@@ -47,6 +54,9 @@ const resolveToken: TokenResolver = async (token) => {
   const caller = CALLERS[token];
   return caller === undefined ? null : { tenantId, ...caller };
 };
+
+/** Every caller but the tenant admin. */
+const OTHERS = ['member', 'member key', 'project key'] as const;
 
 /** A binding whose every method fails: past the check, a request ends here (500), never 403. */
 const unreached = () =>
@@ -92,6 +102,7 @@ const READS: readonly (readonly [string, string])[] = [
   ['GET', '/v1/providers'],
   ['GET', '/v1/providers/p'],
   ['GET', '/v1/providers/p/capabilities'],
+  ['GET', '/v1/providers/p/check'],
   ['GET', '/v1/policies'],
   ['GET', '/v1/policies/p'],
   ['GET', '/v1/policies/p/versions'],
@@ -160,7 +171,7 @@ describe('without an authorization store, the tenant settings are a tenant admin
   test.each(CHANGES)(
     'anyone else is refused (403 permission-denied): %s %s',
     async (method, path) => {
-      for (const caller of ['member', 'project key']) {
+      for (const caller of OTHERS) {
         await expectRefused(
           await call(caller, method, path),
           'Only a tenant admin changes a tenant-wide setting.',
@@ -171,7 +182,7 @@ describe('without an authorization store, the tenant settings are a tenant admin
 
   test.each(ADMIN_ONLY)('a tenant admin, and only one, calls %s %s', async (method, path) => {
     expect((await call('admin', method, path)).status).not.toBe(403);
-    for (const caller of ['member', 'project key']) {
+    for (const caller of OTHERS) {
       await expectRefused(
         await call(caller, method, path),
         'Only a tenant admin reads or changes this tenant-wide setting.',
