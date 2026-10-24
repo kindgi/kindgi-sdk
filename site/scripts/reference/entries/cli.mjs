@@ -36,7 +36,7 @@ export const CLI_DEFAULTS = {
     log: 'none',
     'log-format': '`pretty`',
     'log-level':
-      "`KINDGI_LOG_LEVEL` (the shell's, then the env files'), else info; with `--quiet`, error",
+      "`KINDGI_LOG_LEVEL` (the shell's, then the env files'), else info; with `--quiet`, warn",
     path: 'the current directory',
     port: "`4000`, or the next free port when it's taken",
     'runtime-image': 'the image this CLI release pins',
