@@ -117,16 +117,26 @@ describe.skipIf(process.platform === 'win32')('the runtime image pull', () => {
     expect(lines.at(-1)).toMatch(/^ {2}✓ pulled the runtime image: 269 MB in \d+\.\ds$/);
   });
 
-  test('a refused pull: a pull credential from the access page, the login, then kindgi dev again', async () => {
+  test("a refused pull from Kindgi's registry: the license key from the access page, docker login, then kindgi dev again", async () => {
     vi.stubEnv('FAKE_PULL_DENIED', '1');
     const phases = createStartPhases({ emit: () => undefined });
-    const result = await ensureRuntimeImage('quay.io/acme/runtime:1.0', phases);
+    const result = await ensureRuntimeImage('registry.kindgi.com/acme/runtime:1.0', phases);
     phases.close();
     expect(result.kind).toBe('error');
     const message = result.kind === 'error' ? result.message : '';
     expect(message).toContain('unauthorized');
     expect(message).toContain(
-      '  The runtime image needs a pull credential: sign in with GitHub at https://access.kindgi.com for one, log in (kindgi auth registry --username <your robot name>), then run kindgi dev again.',
+      '  The runtime image needs your license key: sign in at https://access.kindgi.com for it, log in with it as the password (docker login registry.kindgi.com --username kindgi), then run kindgi dev again.',
+    );
+    expect(message).not.toContain('robot');
+  });
+
+  test('a refused pull from another registry: a pull credential, and the login naming that registry', async () => {
+    vi.stubEnv('FAKE_PULL_DENIED', '1');
+    const result = await ensureRuntimeImage('quay.io/acme/runtime:1.0');
+    const message = result.kind === 'error' ? result.message : '';
+    expect(message).toContain(
+      '  The runtime image needs a pull credential: sign in with GitHub at https://access.kindgi.com for one, log in (kindgi auth registry --username <your robot name> --registry quay.io), then run kindgi dev again.',
     );
   });
 

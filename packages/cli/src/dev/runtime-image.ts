@@ -9,12 +9,12 @@
  * Pinned by digest, not tag: Docker doesn't re-pull a tag it already has, so
  * a tag would leave anyone with an older pull on an older runtime.
  *
- * The image is on Quay. A pull credential (a robot name and a token) comes
- * from signing in with GitHub at access.kindgi.com (`KINDGI_ACCESS_ORIGIN`),
- * then `kindgi auth registry --username <name>`.
+ * The image is on Kindgi's registry, registry.kindgi.com. The license key
+ * from signing in at access.kindgi.com (`KINDGI_ACCESS_ORIGIN`) is the
+ * password: `docker login registry.kindgi.com --username kindgi`.
  */
 export const DEFAULT_RUNTIME_IMAGE =
-  'quay.io/kindgi/runtime:0.1.10@sha256:b6bdf6bcc6fb86fd1e16a2fce7d37dc066b766a0b4313dd3f19e2c904b3b01b3';
+  'registry.kindgi.com/kindgi/runtime:0.1.11-rc.0@sha256:a059cf3b52549a287381f076b02cb8753e08eacd9a69da8a2fb041d04975995d';
 
 /** Docker Hub, the registry of a reference that names none (`busybox`, `library/busybox`). */
 const DOCKER_HUB = 'docker.io';
@@ -33,6 +33,21 @@ export function registryOf(image: string): string {
 
 /** The registry `DEFAULT_RUNTIME_IMAGE` is pulled from: `kindgi auth registry` logs in to it. */
 export const RUNTIME_IMAGE_REGISTRY = registryOf(DEFAULT_RUNTIME_IMAGE);
+
+/**
+ * Kindgi's own registry. It takes Basic auth with a license key as the
+ * password: the username is ignored, and is `KINDGI_REGISTRY_USERNAME` by
+ * convention.
+ */
+export const KINDGI_REGISTRY = 'registry.kindgi.com';
+
+/** The username the hints give for `KINDGI_REGISTRY`. */
+export const KINDGI_REGISTRY_USERNAME = 'kindgi';
+
+/** Whether `host` is `KINDGI_REGISTRY`, in any case: a hostname is case-insensitive. */
+export function isKindgiRegistry(host: string): boolean {
+  return host.toLowerCase() === KINDGI_REGISTRY;
+}
 
 /**
  * The same image on another registry: its repository path, tag and digest

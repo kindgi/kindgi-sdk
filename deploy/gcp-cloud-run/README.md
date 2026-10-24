@@ -37,7 +37,7 @@ For a dev environment next to an app, with no project of its own: `network_mode 
 
 - Terraform ≥ 1.6, `gcloud`, Docker, `openssl`, `curl`, `jq`, and your pack's `kindgi` CLI (0.1.2 or later, for `kindgi key trust`).
 - **Permission to create the resources:** an Owner, or Editor plus Security Admin and Secret Manager Admin.
-- **Pull access to the runtime image** `quay.io/kindgi/runtime` (`kindgi auth registry`).
+- **Pull access to the runtime image** `registry.kindgi.com/kindgi/runtime`, with your license key as the password: `docker login registry.kindgi.com --username kindgi` asks for the key.
 - **A license key** from Kindgi (`KINDGI_LICENSE_KEY`; a non-production key for a pilot).
 - **A TypeScript pack** with an `environments.<env>` block in `kindgi.config.ts` (`registry`, `signingKey`, `signerKeyId`, `tenantId`).
 - **Check your org policies first**, since they change the recipe:
@@ -88,7 +88,7 @@ Cloud Run pulls from Artifact Registry. Copy the runtime's **whole multi-platfor
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker <region>-docker.pkg.dev
-docker buildx imagetools create --tag $REPO/runtime:<version> quay.io/kindgi/runtime:<version>@sha256:<release digest>
+docker buildx imagetools create --tag $REPO/runtime:<version> registry.kindgi.com/kindgi/runtime:<version>@sha256:<release digest>
 kindgi build --local --push --env dev      # the pack image, signed; writes .kindgi/build/deploy-envelope.json
 ```
 
@@ -308,7 +308,7 @@ server_secret_env = {
 
 ## Upgrading
 
-- **A small dev deployment** (`network_mode = "none"`, from runtime 0.1.8 or later) can be upgraded with `./upgrade.sh`: it reads the current version, mirrors the new image into Artifact Registry and runs the upgrade checks against the database, stopping if one fails, backs up Kindgi's database as an export, shows the plan and applies it only when you type `yes`, and if the new revision doesn't come up it prints the way back rather than rolling back on its own. Outside the deployment, it grants the Cloud SQL instance's service account `roles/storage.objectAdmin` on the backup bucket (the grant stays), and it writes the new image into your var-file's `server_image` (and `pack_image`), keeping the previous file next to it. See `./upgrade.sh --help`. The notes below apply whichever way you upgrade.
+- **A small dev deployment** (`network_mode = "none"`, from runtime 0.1.8 or later) can be upgraded to 0.1.11 or later with `./upgrade.sh` (log in to `registry.kindgi.com` first: `docker login registry.kindgi.com --username kindgi` asks for your license key; see [Pull the runtime image](https://docs.kindgi.com/deploy/self-hosted/pull-the-runtime-image/)): it reads the current version, mirrors the new image from `registry.kindgi.com` into Artifact Registry and runs the upgrade checks against the database, stopping if one fails, backs up Kindgi's database as an export, shows the plan and applies it only when you type `yes`, and if the new revision doesn't come up it prints the way back rather than rolling back on its own. Outside the deployment, it grants the Cloud SQL instance's service account `roles/storage.objectAdmin` on the backup bucket (the grant stays), and it writes the new image into your var-file's `server_image` (and `pack_image`), keeping the previous file next to it. See `./upgrade.sh --help`. The notes below apply whichever way you upgrade.
 - **To runtime 0.1.5: add `KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"` to `server_env` first, or nobody can sign in to the console.** Up to 0.1.4 the console's sign-in page took the API token on its own. From 0.1.5 that's off by default outside `kindgi dev`. The API keeps taking tokens either way, and "7. Turn on sign-in" has the other ways in.
 - **The module turns Cloud Resource Manager on** (`cloudresourcemanager.googleapis.com`). Its own calls to it are billed to the caller's project, but another root on the same project that reads the project with its calls billed there (the provider's `user_project_override`) needs it on, and couldn't turn it on before that read. A deployment made with an earlier copy of the module gets it at its next apply: one `google_project_service` to add.
 - **The instance gets a backstop for sessions left idle in a transaction** (`database_idle_in_transaction_timeout_ms`, 10 minutes by default; 0 turns it off). A deployment made with an earlier copy of the module gets it at its next apply: one flag added to the instance, changed in place. Cloud SQL lists `idle_in_transaction_session_timeout` as a flag that needs no restart ([Cloud SQL: configure database flags](https://docs.cloud.google.com/sql/docs/postgres/flags)).

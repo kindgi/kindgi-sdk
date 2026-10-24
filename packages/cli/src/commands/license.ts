@@ -6,10 +6,10 @@
  * it: by hand, or from your own scheduler (cron, CI, a scheduled job).
  * Nothing calls Kindgi unless you run `renew`.
  *
- *   - `enroll --for <github login> --renewer <ref>`: once per deployment.
+ *   - `enroll --for <github login | em- id> --renewer <ref>`: once per deployment.
  *     Makes the renewer's key pair, keeps the private half at `<ref>` (it
  *     never leaves it, and is never printed), and prints the line to add on
- *     access.kindgi.com, signed in as that login.
+ *     access.kindgi.com, signed in as the person it's for.
  *   - `renew --key <ref> | --env-file <path>  --renewer <ref>`: asks for the
  *     key's next version, checks it offline, and writes it only when it's
  *     new. One line by shape; exit 1 when refused or failed, so a
@@ -46,8 +46,13 @@ import {
 import { commandResultFromThrown, stringFlag } from './helpers.js';
 import type { CommandResult, GroupCommand, LeafCommand } from './types.js';
 
-/** A GitHub login: letters, digits and single hyphens, up to 39. */
+/**
+ * A GitHub login: letters, digits and single hyphens, up to 39. An email
+ * user's `em-` id (`em-` and 26 base32 characters) has the same form.
+ */
 const GITHUB_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
+/** Who `--for` names: the account on access.kindgi.com the enroll line is for. */
+const FOR_WHOM = 'your GitHub login, or the em- id your key page shows';
 const DAY_MS = 86_400_000;
 
 function store(ctx: CommandContext, flag: string, ref: string): SecretStore {
@@ -193,12 +198,12 @@ const enroll: LeafCommand = {
   description:
     'Enroll this deployment to renew its license key: makes its renewer key (kept at --renewer, never printed) and prints the line to add on access.kindgi.com.',
   usage:
-    'kindgi license enroll --for <github login> --renewer <ref> [--access-url <origin>] [--replace]',
+    'kindgi license enroll --for <github login | em- id> --renewer <ref> [--access-url <origin>] [--replace]',
   optionSpec: {
     for: {
       type: 'string',
       description:
-        'The GitHub login you sign in to access.kindgi.com with: the line is for it alone.',
+        'Your GitHub login, or the em- id your key page shows: the line is for it alone.',
     },
     renewer: {
       type: 'string',
@@ -217,9 +222,9 @@ const enroll: LeafCommand = {
   },
   async run(ctx): Promise<CommandResult> {
     try {
-      const login = required(ctx, 'for', 'the GitHub login you sign in to access.kindgi.com with');
+      const login = required(ctx, 'for', FOR_WHOM);
       if (!GITHUB_LOGIN.test(login))
-        throw new UsageError(`--for must be a GitHub login. Got "${login}".`);
+        throw new UsageError(`--for must be ${FOR_WHOM}. Got "${login}".`);
       const renewerRef = required(ctx, 'renewer', "where to keep the renewer's private key");
       const origin = accessOrigin(ctx);
       const where = store(ctx, 'renewer', renewerRef);
@@ -236,7 +241,7 @@ const enroll: LeafCommand = {
       const stdout = [
         `Renewer ${key.renewerId}: its private key is ${reuse ? 'already ' : ''}in ${where.describe}.`,
         '',
-        `Add this deployment on ${origin}, signed in as ${login}, under "Renew the key from your deployment":`,
+        `Add this deployment on ${origin}, signed in as the person it's for (${login}), under "Renew the key from your deployment":`,
         '',
         `  ${enrollLine(key, login, origin)}`,
         '',

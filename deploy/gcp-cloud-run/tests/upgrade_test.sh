@@ -78,8 +78,12 @@ cat >"$BIN/docker" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   "buildx imagetools inspect"*)
-    printf '{"mediaType":"application/vnd.oci.image.index.v1+json","digest":"%s","size":1609}\n' "${STUB_QUAY_DIGEST:-}"; exit 0 ;;
-  "buildx imagetools create"*) : >"${STUB_MARKER_MIRROR:-/dev/null}"; exit "${STUB_MIRROR_RC:-0}" ;;
+    printf '%s\n' "$*" >>"${STUB_DOCKER_LOG:-/dev/null}"
+    if [[ -n ${STUB_INSPECT_ERR:-} ]]; then printf '%s\n' "$STUB_INSPECT_ERR" >&2; exit 1; fi
+    printf '{"mediaType":"application/vnd.oci.image.index.v1+json","digest":"%s","size":1609}\n' "${STUB_RELEASE_DIGEST:-}"; exit 0 ;;
+  "buildx imagetools create"*)
+    printf '%s\n' "$*" >>"${STUB_DOCKER_LOG:-/dev/null}"
+    : >"${STUB_MARKER_MIRROR:-/dev/null}"; exit "${STUB_MIRROR_RC:-0}" ;;
   *) exit 0 ;;
 esac
 STUB
@@ -127,7 +131,7 @@ fail() { FAIL=$((FAIL + 1)); printf '  FAIL: %s\n' "$*"; }
 # A fresh case directory, var-file and markers. $1 = a pack_image line to add.
 reset_env() {
   unset STUB_TAGS STUB_DB_VERSION STUB_DB_PUBLIC STUB_JOB_CREATE_RC STUB_CHECK_RC \
-        STUB_EXPORT_RC STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC \
+        STUB_EXPORT_RC STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC STUB_INSPECT_ERR \
         V_NET V_HOST V_TENANCY V_PACK V_AAD V_PREFIX V_DBI
   CASE_DIR="$(mktemp -d "$TMP/case.XXXXXX")"
   OUT="$CASE_DIR/out.txt"
@@ -142,7 +146,8 @@ reset_env() {
   export STUB_TF_OUTPUTS="$TF_OUTPUTS"
   export STUB_RUNNING_IMAGE="$RUNNING_IMAGE"
   export STUB_SERVICE_JSON="$SERVICE_READY"
-  export STUB_QUAY_DIGEST="$NEW_DIGEST"
+  export STUB_RELEASE_DIGEST="$NEW_DIGEST"
+  export STUB_DOCKER_LOG="$CASE_DIR/docker.log"
   export STUB_MARKER_EXPORT="$CASE_DIR/exported"
   export STUB_MARKER_APPLY="$CASE_DIR/applied"
   export STUB_MARKER_MIRROR="$CASE_DIR/mirrored"
@@ -168,7 +173,7 @@ assert_varfile_unchanged() {
   if cmp -s "$VAR_FILE" "$CASE_DIR/original.tfvars"; then pass; else fail "the var-file changed but shouldn't have"; fi
 }
 
-# 1. Happy path: 0.1.8 -> 0.1.10, own instance, no pack, confirm yes.
+# 1. Happy path: 0.1.8 -> 0.1.11, own instance, no pack, confirm yes.
 case_start "happy path"
 reset_env; export STUB_TAGS="0.1.8"
 run "yes"
@@ -176,7 +181,7 @@ assert_rc 0 "happy path exits 0"
 assert_present "$STUB_MARKER_MIRROR" "mirror"
 assert_present "$STUB_MARKER_EXPORT" "backup"
 assert_present "$STUB_MARKER_APPLY" "apply"
-assert_out "0.1.8 -> 0.1.10 applied"
+assert_out "0.1.8 -> 0.1.11 applied"
 assert_file_has "$VAR_FILE" "server_image = \"$NEW_IMAGE\"  # mirrored 0.1.8" "var-file pins the new image, comment kept"
 assert_file_has "$STUB_PLAN_SAW" "$NEW_IMAGE" "the plan read the new image from the var-file"
 if grep -q "plan got -var" "$STUB_PLAN_SAW"; then fail "plan was given -var"; else pass; fi
@@ -194,10 +199,10 @@ assert_varfile_unchanged
 
 # 3. Already at the target.
 case_start "already at target"
-reset_env; export STUB_TAGS="0.1.10"
+reset_env; export STUB_TAGS="0.1.11"
 run "yes"
 assert_rc 1 "already at target"
-assert_out "already on 0.1.10"
+assert_out "already on 0.1.11"
 assert_absent "$STUB_MARKER_APPLY" "apply"
 
 # 4. A runtime check fails: stop before the backup, say so.
@@ -253,29 +258,29 @@ assert_absent "$STUB_MARKER_EXPORT" "backup"
 
 # 9. An rc goes to its final.
 case_start "rc to its final"
-reset_env; export STUB_TAGS="0.1.10-rc.1"
+reset_env; export STUB_TAGS="0.1.11-rc.0"
 run "yes"
 assert_rc 0 "rc -> final runs"
-assert_out "0.1.10-rc.1 -> 0.1.10 applied"
+assert_out "0.1.11-rc.0 -> 0.1.11 applied"
 
 # 10. To an rc: its release's steps are included.
 case_start "0.1.8 to an rc"
 reset_env; export STUB_TAGS="0.1.8"
-run "yes" --to 0.1.10-rc.1
+run "yes" --to 0.1.11-rc.0
 assert_rc 0 "to an rc runs"
-assert_out "crossing: 0.1.9 0.1.10"
+assert_out "crossing: 0.1.9 0.1.10 0.1.11"
 assert_out "autoCloseAfterInactiveSeconds"
 
 # 11. An rc promoted to its final carries both tags: the final is the version.
 case_start "rc and final tags on one digest"
-reset_env; export STUB_TAGS="0.1.10-rc.1;0.1.10"
+reset_env; export STUB_TAGS="0.1.11-rc.0;0.1.11"
 run "yes"
 assert_rc 1 "final read from the two tags"
-assert_out "already on 0.1.10,"
+assert_out "already on 0.1.11,"
 
-# 12. quay's tag isn't the digest given: refused before the mirror.
+# 12. The release's tag isn't the digest given: refused before the mirror.
 case_start "digest doesn't match the release tag"
-reset_env; export STUB_TAGS="0.1.8" STUB_QUAY_DIGEST="$OLD_DIGEST"
+reset_env; export STUB_TAGS="0.1.8" STUB_RELEASE_DIGEST="$OLD_DIGEST"
 run "yes"
 assert_rc 1 "mismatched digest refused"
 assert_out "not the --runtime-digest"
@@ -360,6 +365,51 @@ ARGS=(--var-file "$VAR_FILE" --runtime-digest "$NEW_DIGEST" --backup-bucket "gs:
 run "yes"
 assert_rc 0 "json var-file runs"
 if [[ "$(jq -r .server_image "$VAR_FILE")" == "$NEW_IMAGE" ]]; then pass; else fail "json var-file not rewritten"; fi
+
+# 21. 0.1.10 -> 0.1.11: crosses 0.1.11 alone, copies it from registry.kindgi.com.
+case_start "0.1.10 to 0.1.11"
+reset_env; export STUB_TAGS="0.1.10"
+run "yes"
+assert_rc 0 "0.1.10 -> 0.1.11 runs"
+assert_out "crossing: 0.1.11$"
+assert_out "0.1.11:"
+assert_out "Nothing to do by hand"
+if grep -q "autoCloseAfterInactiveSeconds" "$OUT"; then fail "0.1.10's steps shown for 0.1.10 -> 0.1.11"; else pass; fi
+assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.1.11 " "the release tag is read on registry.kindgi.com"
+assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.1.11@$NEW_DIGEST" "the mirror copies from registry.kindgi.com"
+if grep -q "quay.io" "$STUB_DOCKER_LOG"; then fail "an image was read from quay.io"; else pass; fi
+assert_out "0.1.10 -> 0.1.11 applied"
+
+# 22. 0.1.10 -> an rc of 0.1.11: its steps are included, and it gets to the mirror.
+case_start "0.1.10 to 0.1.11-rc.0"
+reset_env; export STUB_TAGS="0.1.10"
+run "yes" --to 0.1.11-rc.0
+assert_rc 0 "0.1.10 -> 0.1.11-rc.0 runs"
+assert_out "crossing: 0.1.11$"
+assert_present "$STUB_MARKER_MIRROR" "mirror"
+assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.1.11-rc.0@$NEW_DIGEST" "the rc is copied from registry.kindgi.com"
+
+# 23. A target before 0.1.11 isn't on registry.kindgi.com: refused at the start.
+case_start "target before 0.1.11"
+reset_env; export STUB_TAGS="0.1.8"
+run "yes" --to 0.1.10
+assert_rc 1 "0.1.10 target refused"
+assert_out "has 0.1.11 and later"
+assert_out "as of the @kindgi/sdk@0.1.10 tag"
+assert_absent "$STUB_DOCKER_LOG" "a registry read"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_varfile_unchanged
+
+# 24. Not logged in to registry.kindgi.com: the login line, before the mirror.
+case_start "not logged in to registry.kindgi.com"
+reset_env; export STUB_TAGS="0.1.10" STUB_INSPECT_ERR="ERROR: unexpected status from HEAD request: 401 Unauthorized"
+run "yes"
+assert_rc 1 "no login refused"
+assert_out "docker login registry.kindgi.com --username kindgi, with your license key as the password"
+assert_out "401 Unauthorized"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_varfile_unchanged
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

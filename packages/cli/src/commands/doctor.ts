@@ -50,8 +50,13 @@ import {
 } from '../dev/google-credentials.js';
 import { javaMajor } from '../dev/pack-code.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
-import { DEFAULT_RUNTIME_IMAGE, registryOf } from '../dev/runtime-image.js';
-import { checkDocker, checkImageAccess, credentialHelperHint } from '../dev/runtime-registry.js';
+import { DEFAULT_RUNTIME_IMAGE, isKindgiRegistry, registryOf } from '../dev/runtime-image.js';
+import {
+  checkDocker,
+  checkImageAccess,
+  credentialHelperHint,
+  registryLoginCommand,
+} from '../dev/runtime-registry.js';
 import { probeReal } from '../dev/sandbox/detect.js';
 import {
   DEV_SANDBOX_DOCS,
@@ -734,7 +739,11 @@ async function registryCheck(
 ): Promise<DoctorCheck> {
   const access = await checkImageAccess(run, image);
   const host = registryOf(image);
-  const login = `${kindgi('auth', 'registry', '--username', '<your robot name>', '--password-stdin')} (the robot name and the token are on ${KINDGI_ACCESS_ORIGIN} once you sign in with GitHub; pipe the token in, never paste it into a chat)`;
+  const onKindgi = isKindgiRegistry(host);
+  // Kindgi's registry takes the license key as the password.
+  const login = onKindgi
+    ? `${registryLoginCommand(image)} --password-stdin (your license key is the password: it's on ${KINDGI_ACCESS_ORIGIN} once you sign in; pipe it in, never paste it into a chat)`
+    : `${kindgi('auth', 'registry', '--username', '<your robot name>', '--password-stdin')} (the robot name and the token are on ${KINDGI_ACCESS_ORIGIN} once you sign in with GitHub; pipe the token in, never paste it into a chat)`;
   switch (access.kind) {
     case 'ok':
       return pass('registry', `Docker can pull the runtime image (${image}).`);
@@ -742,7 +751,7 @@ async function registryCheck(
       return fail(
         'registry',
         `Docker can't pull the runtime image from ${host}: ${firstLine(access.detail)}`,
-        `Log Docker in with your pull token: ${login}. Then run doctor again.`,
+        `Log Docker in with your ${onKindgi ? 'license key' : 'pull token'}: ${login}. Then run doctor again.`,
       );
     case 'not-found':
       return access.maybeNoAccess === true
