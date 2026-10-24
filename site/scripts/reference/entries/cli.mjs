@@ -574,6 +574,7 @@ export const CLI_DEFAULTS = {
   'schedules create': {
     agent: 'none',
     'agent-version': 'none',
+    'allow-unattended': 'none (a tool that waits for a person still waits)',
     'catch-up': '`latest`',
     cron: 'required',
     flow: 'none',
@@ -594,6 +595,8 @@ export const CLI_DEFAULTS = {
   'schedules update': {
     agent: 'unchanged',
     'agent-version': 'unchanged',
+    'allow-unattended':
+      'unchanged; a schedule that has a list and moves to another flow or agent must name it again, or `none`',
     'catch-up': 'unchanged',
     cron: 'unchanged',
     flow: 'unchanged',
@@ -612,6 +615,7 @@ export const CLI_DEFAULTS = {
     limit: '`25` (at most `100`)',
   },
   'webhooks register': {
+    'allow-unattended': 'none (a tool that waits for a person still waits)',
     'body-limit': '`262144` bytes (256 KiB)',
     'delivery-id-header': 'none, or the header the preset sets',
     flow: 'required',
@@ -635,6 +639,7 @@ export const CLI_DEFAULTS = {
     status: 'none (both active and paused)',
   },
   'webhooks update': {
+    'allow-unattended': 'unchanged',
     'body-limit': 'unchanged',
     'delivery-id-header': 'unchanged',
     'flow-version': 'unchanged',

@@ -12,20 +12,20 @@ beside your code: its tools import your app's packages.
 **Before you start**, set up what the [Install page](../install/) describes:
 Python 3.11 or later, uv (or Poetry, or pip), Docker, and access to the
 runtime image. In the app's folder,
-`uvx --from "kindgi-cli>=0.1,<0.2" kindgi doctor` checks Docker and access to
+`uvx --from "kindgi-cli>=0.2,<0.3" kindgi doctor` checks Docker and access to
 the runtime image, and says how to fix what's missing. Run it again after
 `kindgi init`, and it checks Python and uv too.
 
 In the app's directory (where its `pyproject.toml` is):
 
 ```sh
-uv add --dev "kindgi-cli>=0.1,<0.2"   # the CLI, pinned to Kindgi's minor version
+uv add --dev "kindgi-cli>=0.2,<0.3"   # the CLI, pinned to Kindgi's minor version
 uv run kindgi init     # --pack-id=<id> if the app's name doesn't make one
 uv sync                # or what it prints for Poetry or pip
 uv run kindgi dev
 ```
 
-With Poetry, add the CLI with `poetry add --group dev "kindgi-cli>=0.1,<0.2"`
+With Poetry, add the CLI with `poetry add --group dev "kindgi-cli>=0.2,<0.3"`
 and run it as `poetry run kindgi`.
 
 The four commands print, in order:

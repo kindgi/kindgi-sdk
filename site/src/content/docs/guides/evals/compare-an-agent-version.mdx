@@ -21,12 +21,12 @@ recorded runs.
   new version of its agent or flow. Under `kindgi dev`, saving the agent's
   file with its new `version` is enough. On a runtime you deploy to, deploy
   the new version first.
-- **Kindgi 0.1's CLI**, and the project's id.
+- **Kindgi 0.2's CLI**, and the project's id.
 - **The right to start one:** an editor of the test set's project, or anyone
   who may execute the test set, who may write to the project the run lands
   in and run its agent or flow.
 - **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
-  Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+  Kindgi 0.2's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
 
 ## Compare a version
 
@@ -193,11 +193,80 @@ weightedPrecisionAtK: 0.3333333333333333 → 1.0
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/Compare.java
+package com.acme.app;
+
+import com.kindgi.client.Comparisons;
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.ComparisonMetric;
+import com.kindgi.client.models.EvalRun;
+import com.kindgi.client.models.EvalRunAgentRef;
+import com.kindgi.client.models.JudgedComparisonSummary;
+import com.kindgi.client.models.StartEvalRunBody;
+import com.kindgi.client.models.StartEvalRunResult;
+import java.util.UUID;
+
+public final class Compare {
+  public static void main(String[] args) throws InterruptedException {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+    UUID projectId = UUID.fromString(args[0]);
+
+    // Replay version 0.2.0 on each case of the test set.
+    StartEvalRunResult started =
+        kindgi.evalRuns().start(
+            "acme.article-picks",
+            StartEvalRunBody.builder()
+                .projectId(projectId)
+                .agentRef(
+                    EvalRunAgentRef.builder().agentId("acme-ops.article-picker").version("0.2.0").build())
+                .build());
+
+    EvalRun run = kindgi.evalRuns().get(started.runId());
+    while (run.status().equals(EvalRun.Status.PENDING) || run.status().equals(EvalRun.Status.RUNNING)) {
+      Thread.sleep(2000);
+      run = kindgi.evalRuns().get(started.runId());
+    }
+
+    // comparisonOf is empty until the run finishes, or for a dry run.
+    Comparisons.comparisonOf(run)
+        .ifPresent(
+            comparison -> {
+              JudgedComparisonSummary.Metrics metrics = comparison.summary().metrics();
+              print("judgedCoverage", metrics.judgedCoverage());
+              print("weightedYesShare", metrics.weightedYesShare());
+              print("weightedPrecisionAtK", metrics.weightedPrecisionAtK());
+            });
+  }
+
+  private static void print(String name, ComparisonMetric metric) {
+    System.out.println(name + ": " + metric.baseline() + " → " + metric.candidate());
+  }
+
+  private Compare() {}
+}
+```
+
+```text
+judgedCoverage: 0.75 → 0.5
+weightedYesShare: 0.3333333333333333 → 1.0
+weightedPrecisionAtK: 0.3333333333333333 → 1.0
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+Scala apps use the Java helper: call `Comparisons.comparisonOf` from `com.kindgi.client` as the Java tab shows. It takes the `EvalRun` and returns a `java.util.Optional` of the `JudgedComparisonResult`: its `summary()`, and each case in `perCase()`.
+
+</TabItem>
 </Tabs>
 
-`comparisonOf`, or `comparison_of` in Python, reads a finished comparison's
-result, typed: its `summary` and each case. It returns `undefined`, or
-`None`, for a comparison that hasn't finished, or a dry run.
+`comparisonOf` reads a finished comparison's result, typed: its `summary`
+and each case. It's `comparison_of` in Python, and `Comparisons.comparisonOf`
+in Java and Scala. For a comparison that hasn't finished, or a dry run, it
+returns `undefined`: `None` in Python, an empty `Optional` in Java and Scala.
 
 A model doesn't answer the same way every time: run the same comparison
 again, and the scores may differ. `--repetitions=<n>` runs each case several

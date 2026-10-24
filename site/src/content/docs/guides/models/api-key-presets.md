@@ -30,7 +30,7 @@ direct vendor's preset, or [a model you serve yourself](../serve-your-own-model/
 
 ## Before you start
 
-- **A pack** with `kindgi dev` running, from Kindgi 0.1's CLI.
+- **A pack** with `kindgi dev` running, from Kindgi 0.2's CLI.
 - **The provider's API key.**
 
 ## 1. Store the key

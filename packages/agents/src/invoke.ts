@@ -99,6 +99,9 @@ export async function invokeAgent(
       ...(input.idempotencyKey !== undefined && { idempotencyKey: input.idempotencyKey }),
       ...(input.trigger !== undefined && { trigger: input.trigger }),
       ...(input.startedBy !== undefined && { startedBy: input.startedBy }),
+      ...(input.toolsAllowedUnattended !== undefined && {
+        toolsAllowedUnattended: input.toolsAllowedUnattended,
+      }),
       ...(input.dryRun === true && { options: { dryRun: true } }),
       // Authorization — carry principal + authz into the run so every
       // tool invocation inside the agent's turn is checked.
@@ -346,6 +349,12 @@ export function turnInputFromSnapshot(
     // of an unattended run attended.
     ...(snapshot.startedBy !== undefined &&
       snapshot.startedBy !== null && { startedBy: snapshot.startedBy }),
+    // What the run may call without a person's yes, as recorded when it
+    // started: never from whoever resumes it.
+    ...(snapshot.toolsAllowedUnattended !== undefined &&
+      snapshot.toolsAllowedUnattended !== null && {
+        toolsAllowedUnattended: snapshot.toolsAllowedUnattended,
+      }),
     // No `messageFromEvent`: a replay doesn't park before its turn has
     // stored its message (marked) and built its first model call, and a
     // resumed turn reads that stored mark. If a replay could park sooner,
