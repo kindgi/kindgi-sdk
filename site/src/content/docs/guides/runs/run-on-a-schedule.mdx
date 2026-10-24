@@ -64,9 +64,11 @@ Python).
 
 ## Run as a service account
 
-A schedule's runs act as its **owner**: whoever created it. To have them act
-as a service account instead, with the account's grants rather than yours,
-and keep running after you leave, name it with `--run-as`:
+A schedule's runs act as its **owner**: whoever created it, or last changed
+what it runs ([Who owns it after a change](#who-owns-it-after-a-change)).
+To have them act as a service account instead, with the account's grants
+rather than yours, and keep running after you leave, name it with
+`--run-as`:
 
 ```sh
 pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" --timezone=America/Toronto \
@@ -92,7 +94,24 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
 - **From your app:** `runAsServiceAccountId` on `schedules.register` and
   `schedules.takeOwnership` (`run_as_service_account_id` in Python).
 - **Each change of owner is recorded** as evidence, `trigger-owner-set`: a
-  schedule created to run as an account, and every take-over.
+  schedule created to run as an account, every take-over, and every change
+  that moves it.
+
+### Who owns it after a change
+
+When someone who isn't its owner changes what the schedule runs, they
+become its owner (runtime 0.1.12 or later), and its next fires act as
+them. So your own access only serves what you set it to run.
+
+- **These move it:** a new target or version, a new input, or a new list
+  of tools allowed unattended.
+- **These don't:** its label, its cron line or timezone, its catch-up,
+  overlap and deadline policies, and the same value sent again.
+- **A schedule a service account owns keeps its owner,** whoever changes
+  it. A service account that changes a person's schedule becomes its
+  owner.
+
+The answer to the change shows the owner after it.
 
 ## Each time it fires
 
@@ -183,7 +202,9 @@ none.
 - `kindgi schedules pause <schedule-id>` stops it. `resume` starts it again
   from its next time, without running the ones it missed while paused.
 - `kindgi schedules update <schedule-id>` changes when it runs, what it runs,
-  its input or its policies, with the same flags as `create`.
+  its input or its policies, with the same flags as `create`. A change to
+  what it runs can make you its owner
+  ([Who owns it after a change](#who-owns-it-after-a-change)).
 - `kindgi schedules unregister <schedule-id>` removes it.
 
 ## In the console
