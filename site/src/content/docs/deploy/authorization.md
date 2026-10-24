@@ -33,8 +33,10 @@ Authorization is for several people and teams sharing one deployment:
 - **Every request is checked** against what its caller may do: tenant admin,
   tenant member, a role on a project, or a reviewer role. Lists hold only
   what the caller may read.
-- **Every decision is recorded,** allowed or denied, with who asked, what for
-  and why ([The access audit](#the-access-audit)).
+- **Every decision on what a request may do or read is recorded,** allowed
+  or denied, with who asked, what for and why
+  ([The access audit](#the-access-audit)). What the console reads to show
+  you your own access isn't (runtime 0.3.0 or later).
 - **Registering an approval reviewer takes a tenant admin.** A tenant admin
   reads approvals at every tier without registering, through a session or an
   `admin` key not limited to a project, in the projects they may read.
@@ -501,14 +503,14 @@ more.
 
 ## The access audit
 
-Each decision the authorization model makes, allowed or denied, is kept. So
-is a refusal the API answers from its own checks. `GET /v1/audit/authz`
-lists them, oldest first, for a tenant admin. `order=desc` lists the newest
-first, and its cursor goes on in that order: `order: 'desc'` in TypeScript,
-`order="desc"` in Python. They're kept for good, unless the runtime purges
-audit events. With `KINDGI_COMPLIANCE_CLASSIFIER=shipped`, it purges allowed
-ones after 90 days and denied ones after 365
-([Audit events](../retention/#audit-events)).
+Each decision the authorization model makes on what a request may do or
+read, allowed or denied, is kept. So is a refusal the API answers from its
+own checks. `GET /v1/audit/authz` lists them, oldest first, for a tenant
+admin. `order=desc` lists the newest first, and its cursor goes on in that
+order: `order: 'desc'` in TypeScript, `order="desc"` in Python. They're kept
+for good, unless the runtime purges audit events. With
+`KINDGI_COMPLIANCE_CLASSIFIER=shipped`, it purges allowed ones after 90 days
+and denied ones after 365 ([Audit events](../retention/#audit-events)).
 
 ```json
 {
@@ -556,6 +558,14 @@ Never kept, since they don't refuse the caller: `signer-not-trusted`,
 being minted. Nor is a refusal of a request with no principal behind it: a
 public run token used outside its two progress routes, or judging without a
 user or a service token. A `401`, for an unknown caller, never is.
+
+On runtime 0.3.0 or later, what a caller is shown about its own access isn't
+kept either, allowed or not: whoami's `tenantAdmin`
+(`GET /v1/identity/whoami`), `GET /v1/identity/me/permissions`, and a
+judging queue item's `can` (whether you may dismiss or reopen it). A console
+reads them often, to choose which pages and buttons to show, and none of
+them lets the caller do anything. Each request it then makes is checked, and
+kept, as above.
 
 ### In the console
 

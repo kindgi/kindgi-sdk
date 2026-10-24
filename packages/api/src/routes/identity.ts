@@ -13,7 +13,13 @@ import {
 } from '@kindgi/authz';
 import type { Cursor, EnvName, SessionId, TenantId, UserId } from '@kindgi/types';
 
-import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../caller.js';
+import {
+  callerPrincipal,
+  callerRef,
+  isTenantAdmin,
+  isTenantAdminForDisplay,
+  principalToWire,
+} from '../caller.js';
 import type { EnvBinding } from '../env-binding.js';
 import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type {
@@ -143,12 +149,14 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     body.scopes = scopes;
     // Whether the caller is a tenant admin, as the admin routes decide it:
     // what a console shows admin pages by (scopes are what a credential may
-    // do; admin is a role, from the authorizer when there is one). whoami
-    // is how a console starts, so an authorization store that can't answer
-    // leaves the field out (a console then reads `scopes`) instead of
-    // failing the whole answer.
+    // do; admin is a role, from the authorizer when there is one). A
+    // console reads it on every poll, so it's asked without recording a
+    // decision; the admin routes record theirs. whoami is how a console
+    // starts, so an authorization store that can't answer leaves the field
+    // out (a console then reads `scopes`) instead of failing the whole
+    // answer.
     try {
-      body.tenantAdmin = await isTenantAdmin(c, authorizer);
+      body.tenantAdmin = await isTenantAdminForDisplay(c, authorizer);
     } catch (cause) {
       c.get('log').warn(
         `whoami: couldn't tell whether the caller is a tenant admin, so tenantAdmin is left out: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -616,7 +624,8 @@ function mountMyPermissions(
     let access: MyAccess | undefined;
     let reviewer: Record<string, unknown> | undefined;
     try {
-      tenantAdmin = await isTenantAdmin(c, authorizer);
+      // What the caller holds, shown: no decision recorded, as `myAccess` records none.
+      tenantAdmin = await isTenantAdminForDisplay(c, authorizer);
       access = principal === undefined ? undefined : await myAccess.read({ tenantId, principal });
       reviewer = await reviewerFacts(c, reviewerBinding);
     } catch (cause) {
