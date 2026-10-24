@@ -868,6 +868,12 @@ export const RunSchema: JsonSchema = {
       description:
         "How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.",
     },
+    toolsAllowedUnattended: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        "The tools, by id, whose calls in this run don't wait for a person's yes though no person started it: the list of the webhook or schedule that fired it, as it was when the run started, and never changed after. A child run has its parent's. Absent: none.",
+    },
     replayOf: {
       type: 'string',
       format: 'uuid',
@@ -1476,6 +1482,94 @@ export const TenantAdminContactsSchema: JsonSchema = {
           displayName: { type: 'string' },
         },
       },
+    },
+  },
+};
+
+export const PurgeTenantBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['confirm'],
+  properties: {
+    confirm: {
+      type: 'string',
+      minLength: 1,
+      description: "The tenant's slug, a second check on the id.",
+    },
+  },
+};
+
+export const TenantTableRowsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A tenant's rows in one table: the table's name and a count.",
+  required: ['table', 'rows'],
+  properties: {
+    table: { type: 'string' },
+    rows: { type: 'integer', minimum: 1 },
+  },
+};
+
+export const SystemTenantPurgeSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'tenantId',
+    'complete',
+    'alreadyPurged',
+    'deleted',
+    'objectsDeleted',
+    'authzStoreDeleted',
+    'left',
+    'objectsLeft',
+  ],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    complete: {
+      type: 'boolean',
+      description:
+        "`true`: nothing of the tenant is left, its purge record is written, and it's marked purged. `false`: `left` and `objectsLeft` say what is; run it again.",
+    },
+    alreadyPurged: {
+      type: 'boolean',
+      description:
+        'It was marked purged before this run: what this run deleted was written after its mark. Its mark and its record stay as they were.',
+    },
+    purgedAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When it was marked purged. Absent while something of it from before the mark is left.',
+    },
+    deleted: {
+      type: 'array',
+      items: ref('TenantTableRows'),
+      description:
+        "Rows this run deleted, per table with any: table names and counts, never the rows' content.",
+    },
+    objectsDeleted: {
+      type: 'integer',
+      minimum: 0,
+      description: "Objects this run deleted from the artifacts' store.",
+    },
+    authzStoreDeleted: {
+      type: 'boolean',
+      description: 'Whether this run deleted its authorization store.',
+    },
+    left: {
+      type: 'array',
+      items: ref('TenantTableRows'),
+      description:
+        "Rows of it still there afterwards, per table; empty when none are. A table the purge doesn't delete from is named too: report it.",
+    },
+    objectsLeft: {
+      type: 'integer',
+      minimum: 0,
+      description: "Objects still under its prefix in the artifacts' store.",
+    },
+    leftBecause: {
+      type: 'string',
+      description: "Why what's left wasn't deleted, when it's a setting the runtime lacks.",
     },
   },
 };
@@ -2441,6 +2535,17 @@ export const SiteEnrollmentCodeSchema: JsonSchema = {
   },
 };
 
+export const SitePersonRestoreResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['user'],
+  description:
+    "A site's person let back in after a removal made in Kindgi (`POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`).",
+  properties: {
+    user: { $ref: '#/components/schemas/UserRecord' },
+  },
+};
+
 export const RegisterSiteResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -2911,7 +3016,6 @@ export const ConversationPolicySchema: JsonSchema = {
   additionalProperties: false,
   properties: {
     historyLimit: { type: 'integer', minimum: 1 },
-    autoCloseAfterInactiveSeconds: { type: 'integer', minimum: 1 },
     hitlAfterTurns: { type: 'integer', minimum: 1 },
   },
 };
@@ -3776,7 +3880,7 @@ export const ToolSchema: JsonSchema = {
     needsApprovalWhenUnattended: {
       type: 'boolean',
       description:
-        "`true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.",
+        "`true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`.",
     },
     sandbox: { $ref: '#/components/schemas/SandboxMode' },
     limits: { $ref: '#/components/schemas/RuntimeLimits' },
@@ -6367,6 +6471,16 @@ export const BlobMetaSchema: JsonSchema = {
       description: 'Who uploaded it: `user:<id>` or `service_account:<id>`.',
     },
     createdAt: { type: 'string', format: 'date-time' },
+    bucket: {
+      type: 'string',
+      description:
+        "The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.",
+    },
+    key: {
+      type: 'string',
+      description:
+        "The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one.",
+    },
   },
 };
 
@@ -10783,7 +10897,7 @@ export const DeploymentEndpointSchema: JsonSchema = {
   additionalProperties: false,
   required: ['status', 'since'],
   description:
-    "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); it carries `waiting` or `retired` to say whether it comes back. Carries no URL and no token.",
+    "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise, and for a deployment that ships nothing a pack service serves (no tool, and no guardrail check but built-in ones: a pack of agents and flows only), which needs none. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); it carries `waiting` or `retired` to say whether it comes back. Carries no URL and no token.",
   properties: {
     status: { type: 'string', enum: ['pending', 'ready', 'cleared'] },
     since: {
@@ -11708,6 +11822,23 @@ export const TenantSchema: JsonSchema = {
   },
 };
 
+export const TenantPatchSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'A new name, a new slug, or both; a field left out stays as it is. The id stays, so whatever names the tenant by its id keeps working.',
+  properties: {
+    name: { type: 'string', minLength: 1, maxLength: 100 },
+    slug: {
+      type: 'string',
+      maxLength: 63,
+      pattern: '^[a-z0-9](?:-?[a-z0-9])*$',
+      description:
+        "Lowercase letters, digits and single hyphens, unique across tenants. The console's addresses carry it, so links with the old one stop opening the tenant; nothing else is keyed by it.",
+    },
+  },
+};
+
 /**
  * `EgressAddresses` — where a deployment's calls to other sites come
  * from. `GET /v1/tenant`'s `egress`, the deployment's, not the tenant's.
@@ -12480,6 +12611,20 @@ export const TriggerStatusSchema: JsonSchema = {
 
 // ---------- schedules (cron kind) ----------
 
+/**
+ * A webhook's or a schedule's `toolsAllowedUnattended`, as each body and
+ * record names it (`routes/trigger-tools.ts` holds the rules).
+ */
+function toolsAllowedUnattendedProperty(lead: string): JsonSchema {
+  return {
+    type: 'array',
+    maxItems: 100,
+    uniqueItems: true,
+    items: { type: 'string', minLength: 1, maxLength: 200 },
+    description: `${lead} Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.`,
+  };
+}
+
 export const ScheduleRecordSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -12569,6 +12714,9 @@ export const ScheduleRecordSchema: JsonSchema = {
       description:
         'Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count.',
     },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none.",
+    ),
     nextFireAt: {
       type: ['string', 'null'],
       format: 'date-time',
@@ -12787,6 +12935,9 @@ export const RegisterScheduleBodySchema: JsonSchema = {
       description: 'Default 600.',
     },
     label: { type: 'string' },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this schedule's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the schedule's project.",
+    ),
   },
 };
 
@@ -12833,6 +12984,9 @@ export const PatchScheduleBodySchema: JsonSchema = {
       type: ['string', 'null'],
       description: '`null` clears the label; omit to leave unchanged.',
     },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "Replaces the schedule's list; `[]` clears it, and absent keeps it. Naming it takes `admin` on the schedule's project. A change of what it runs (another flow or agent) while the list isn't empty must name it again, as it is or `[]`; a new version alone keeps it.",
+    ),
   },
 };
 
@@ -13068,6 +13222,9 @@ export const WebhookTriggerRecordSchema: JsonSchema = {
         count: { type: 'integer', minimum: 1 },
       },
     },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this trigger's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none.",
+    ),
     lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
@@ -13206,6 +13363,9 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
       description:
         "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Absent: the caller owns it.",
     },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this trigger's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the trigger's project.",
+    ),
   },
 };
 
@@ -13241,6 +13401,9 @@ export const PatchWebhookTriggerBodySchema: JsonSchema = {
       maximum: 6000,
       description: '`null`: the default.',
     },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "Replaces the trigger's list; `[]` clears it, and absent keeps it (a new `flowVersion` too). Naming it takes `admin` on the trigger's project, and it's checked against the flow at the version the trigger will run.",
+    ),
   },
 };
 
@@ -13248,7 +13411,7 @@ export const TakeTriggerOwnerBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner.",
+    "Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner. A take-over keeps the trigger's `toolsAllowedUnattended`: change that with PATCH.",
   properties: {
     runAsServiceAccountId: {
       type: 'string',
@@ -13714,6 +13877,77 @@ export const MintPublicRunTokenResultSchema: JsonSchema = {
   },
 };
 
+export const UsageGroupSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['count', 'quantity', 'firstAt', 'lastAt'],
+  description:
+    "One group: the dimensions it's grouped by (only those), then its count, the sum of its quantities, and its first and last times.",
+  properties: {
+    tenantId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The tenant, on the operator's read across tenants.",
+    },
+    projectId: {
+      type: 'string',
+      description:
+        "Absent for a record with no project; a tenant admin's read includes those, and the CLI shows them as `(none)`.",
+    },
+    agentId: {
+      type: 'string',
+      description: 'Absent for a record with no agent; the CLI shows those as `(none)`.',
+    },
+    kind: {
+      type: 'string',
+      description:
+        "What was counted: `run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`. A runtime may count more kinds later: show one you don't know as it is.",
+    },
+    class: {
+      type: 'string',
+      description:
+        "The class of the run a record counts or belongs to, fixed when the run was created: `production`, `staging`, `dry-run`, `replay`, `eval`, `child`. A record with no counted run has none. A runtime may add classes later: show one you don't know as it is.",
+    },
+    state: {
+      type: 'string',
+      description:
+        "The record's state, by kind: `on`, `off` (`project.production`); `completed`, `failed`, `cancelled` (`run.ended`); `escalation` (`approval.requested`, an escalation's next tier); `approved`, `rejected`, `withdrawn`, `escalated`, `expired` (`approval.decided`). Other kinds have none.",
+    },
+    day: {
+      type: 'string',
+      pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+      description: 'The UTC date, `YYYY-MM-DD`.',
+    },
+    count: { type: 'integer', minimum: 0, description: 'Records in the group.' },
+    quantity: {
+      type: 'number',
+      description:
+        'The sum of their quantities: milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count.',
+    },
+    firstAt: { type: 'string', format: 'date-time' },
+    lastAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const UsagePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'watermark'],
+  properties: {
+    data: { type: 'array', items: ref('UsageGroup') },
+    watermark: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "Every record at or before this time is in the answer; a later one may not be yet. Re-read a window until its watermark is past the window's end. Every page of one read carries the same watermark.",
+    },
+    nextCursor: {
+      type: 'string',
+      description: 'More groups: pass it as `cursor`. Absent on the last page.',
+    },
+  },
+};
+
 export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WireError', WireErrorSchema],
   ['HealthResult', HealthResultSchema],
@@ -13793,6 +14027,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SetTenantImagePrefixBody', SetTenantImagePrefixBodySchema],
   ['ProjectSuspension', ProjectSuspensionSchema],
   ['TenantAdminContacts', TenantAdminContactsSchema],
+  ['PurgeTenantBody', PurgeTenantBodySchema],
+  ['TenantTableRows', TenantTableRowsSchema],
+  ['SystemTenantPurge', SystemTenantPurgeSchema],
   ['SystemWhoami', SystemWhoamiSchema],
   ['ApiToken', ApiTokenSchema],
   ['ApiTokenPage', ApiTokenPageSchema],
@@ -13832,6 +14069,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ExportSigningKey', ExportSigningKeySchema],
   ['ExportSigningKeyList', ExportSigningKeyListSchema],
   ['LicenseStatus', LicenseStatusSchema],
+  ['UsageGroup', UsageGroupSchema],
+  ['UsagePage', UsagePageSchema],
   ['LicenseUsage', LicenseUsageSchema],
   ['ExportAuditBundleBody', ExportAuditBundleBodySchema],
   ['ExportAuditBundleResult', ExportAuditBundleResultSchema],
@@ -14252,6 +14491,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateProjectMembershipBody', UpdateProjectMembershipBodySchema],
   ['AddProjectMembershipResult', AddProjectMembershipResultSchema],
   ['Tenant', TenantSchema],
+  ['TenantPatch', TenantPatchSchema],
   ['TenantLimits', TenantLimitsSchema],
   ['EgressAddresses', EgressAddressesSchema],
   ['ProductionAllowedBody', ProductionAllowedBodySchema],
@@ -14357,6 +14597,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateSiteBody', UpdateSiteBodySchema],
   ['SiteEnrollmentCode', SiteEnrollmentCodeSchema],
   ['RegisterSiteResult', RegisterSiteResultSchema],
+  ['SitePersonRestoreResult', SitePersonRestoreResultSchema],
   ['EnrollSiteBody', EnrollSiteBodySchema],
   ['EnrollSiteResult', EnrollSiteResultSchema],
   ['SiteSignInBody', SiteSignInBodySchema],

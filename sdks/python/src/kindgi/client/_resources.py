@@ -60,6 +60,9 @@ OPERATIONS: dict[str, Operation] = {
     "systemTenants.get": Operation(
         "systemTenants.get", "GET", "/v1/system/tenants/{tenantId}", "json", False
     ),
+    "systemTenants.update": Operation(
+        "systemTenants.update", "PATCH", "/v1/system/tenants/{tenantId}", "empty", True
+    ),
     "systemTenants.close": Operation(
         "systemTenants.close", "POST", "/v1/system/tenants/{tenantId}/close", "json", True
     ),
@@ -83,6 +86,9 @@ OPERATIONS: dict[str, Operation] = {
     "systemTenants.admins": Operation(
         "systemTenants.admins", "GET", "/v1/system/tenants/{tenantId}/admins", "json", False
     ),
+    "systemTenants.purge": Operation(
+        "systemTenants.purge", "POST", "/v1/system/tenants/{tenantId}/purge", "json", True
+    ),
     "systemKeys.whoami": Operation("systemKeys.whoami", "GET", "/v1/system/whoami", "json", False),
     "systemTenants.setProductionAllowed": Operation(
         "systemTenants.setProductionAllowed",
@@ -97,6 +103,8 @@ OPERATIONS: dict[str, Operation] = {
     "systemTenants.setLimits": Operation(
         "systemTenants.setLimits", "PUT", "/v1/system/tenants/{tenantId}/limits", "json", True
     ),
+    "systemUsage.read": Operation("systemUsage.read", "GET", "/v1/system/usage", "json", False),
+    "usage.read": Operation("usage.read", "GET", "/v1/usage", "json", False),
     "systemDeployments.list": Operation(
         "systemDeployments.list", "GET", "/v1/system/deployments", "json", False
     ),
@@ -963,6 +971,7 @@ OPERATIONS: dict[str, Operation] = {
         True,
     ),
     "tenant.get": Operation("tenant.get", "GET", "/v1/tenant", "json", False),
+    "tenant.update": Operation("tenant.update", "PATCH", "/v1/tenant", "empty", True),
     "tenant.config.list": Operation(
         "tenant.config.list", "GET", "/v1/tenant/config", "json", False
     ),
@@ -1148,6 +1157,13 @@ OPERATIONS: dict[str, Operation] = {
         "projects.sites.revokeKey",
         "POST",
         "/v1/projects/{projectId}/sites/{siteId}/keys/{kid}/revoke",
+        "json",
+        True,
+    ),
+    "projects.sites.restorePerson": Operation(
+        "projects.sites.restorePerson",
+        "POST",
+        "/v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore",
         "json",
         True,
     ),
@@ -1720,7 +1736,7 @@ class SystemKeysResource:
     def list(self, /, *, timeout: float | None = None) -> _models.SystemKeyList:
         """List system keys. `GET /v1/system/keys`
 
-        The operator's system keys (`kgi_sy_…`) on a runtime serving many tenants: each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them.
+        The operator's system keys (`kgi_sy_…`): each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them; on a runtime serving one tenant, the deployment's own token alone.
         """
         return self._client._request(
             _OPERATIONS["systemKeys.list"],
@@ -1742,7 +1758,7 @@ class SystemKeysResource:
     ) -> _models.MintSystemKeyResult:
         """Mint a system key. `POST /v1/system/keys`
 
-        A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. A runtime serving one tenant has no system keys: there, the deployment's own token is that tenant's, and this route isn't mounted.
+        A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. On a runtime serving one tenant, only the deployment's own token reaches the system keys, and a key holds `system:license` alone: it reads `GET /v1/license` and `GET /v1/license/usage`, for the license renewal, and every other route refuses it.
         """
         return self._client._request(
             _OPERATIONS["systemKeys.mint"],
@@ -1764,7 +1780,7 @@ class SystemKeysResource:
     ) -> _models.RevokeSystemKeyResult:
         """Revoke a system key. `POST /v1/system/keys/{keyId}/revoke`
 
-        Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.
+        Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them; on a runtime serving one tenant, the deployment's own token alone.
         """
         return self._client._request(
             _OPERATIONS["systemKeys.revoke"],
@@ -1778,7 +1794,7 @@ class SystemKeysResource:
     def whoami(self, /, *, timeout: float | None = None) -> _models.SystemWhoami:
         """Which system key this is. `GET /v1/system/whoami`
 
-        A system key's own id, scopes and expiry, for a service checking its key. Any system principal; a tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key.
+        A system key's own id, scopes and expiry, for a service checking its key: any system principal, on a runtime serving many tenants. A tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key. A runtime serving one tenant answers no one here: its own token is that tenant's outside `/v1/system/keys`, and a system key reads the license routes alone.
         """
         return self._client._request(
             _OPERATIONS["systemKeys.whoami"],
@@ -1853,6 +1869,29 @@ class SystemTenantsResource:
             query={},
             headers={},
             response=_models.SystemTenant,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        tenant_id: str | UUID,
+        body: _models.TenantPatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Rename a tenant. `PATCH /v1/system/tenants/{tenantId}`
+
+        Changes its name, its slug, or both, as the tenant's own admins can (`PATCH /v1/tenant`); a field left out stays as it is. Its id stays. The same values again change nothing. Takes `system:tenants`. A closing tenant is refused (`409 tenant-closing`). A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.update"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPatch, body, fields),
             timeout=timeout,
         )
 
@@ -1966,6 +2005,30 @@ class SystemTenantsResource:
             timeout=timeout,
         )
 
+    def purge(
+        self,
+        tenant_id: str | UUID,
+        body: _models.PurgeTenantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SystemTenantPurge:
+        """Purge a closed tenant, for good. `POST /v1/system/tenants/{tenantId}/purge`
+
+        Deletes a `closing` tenant whose 30-day export window has passed: every row of it, its artifacts' bytes and its authorization store. Once nothing of it is left, its purge record is written, so a restore from an older backup purges it again, and it's marked purged: its tenants row stays, and nothing of it signs in or is served. Then, once each server has seen the mark, it deletes again what work under way at the mark wrote meanwhile. Irreversible. `confirm` is the tenant's slug, a second check on the id. It answers when done. Safe to run again: a run that stopped part-way (`complete: false`, or a request that ended before its answer) is finished by the next, and on a tenant already purged it deletes what was written after its mark, leaving its mark and its record as they were. A run again is a new request: a new Idempotency-Key, or none. Takes its own scope, `system:tenants:purge`, which no other scope includes, or `kindgi:system`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.purge"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PurgeTenantBody, body, fields),
+            response=_models.SystemTenantPurge,
+            timeout=timeout,
+        )
+
     def set_production_allowed(
         self,
         tenant_id: str | UUID,
@@ -2027,6 +2090,96 @@ class SystemTenantsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.TenantLimits, body, fields),
             response=_models.TenantLimitsResult,
+            timeout=timeout,
+        )
+
+
+class SystemUsageResource:
+    """`client.system_usage` — the `systemUsage` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def read(
+        self,
+        /,
+        *,
+        from_: str,
+        to: str,
+        group_by: str | None = None,
+        kind: str | None = None,
+        class_: str | None = None,
+        state: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        tenant_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.UsagePage:
+        """Read usage across tenants. `GET /v1/system/usage`
+
+        Usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Records are counted when the counted thing happens, exactly once (the kinds `kind` lists, each run with its class). `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A test tenant's usage, and one whose setup is pending, are never in the answer, even when `tenantId` names one. Takes `system:usage:read`; the access record marks a read across every tenant, or of the one named. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404.
+        """
+        return self._client._request(
+            _OPERATIONS["systemUsage.read"],
+            path={},
+            query={
+                "from": from_,
+                "to": to,
+                "groupBy": group_by,
+                "kind": kind,
+                "class": class_,
+                "state": state,
+                "limit": limit,
+                "cursor": cursor,
+                "tenantId": tenant_id,
+            },
+            headers={},
+            response=_models.UsagePage,
+            timeout=timeout,
+        )
+
+
+class UsageResource:
+    """`client.usage` — the `usage` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def read(
+        self,
+        /,
+        *,
+        from_: str,
+        to: str,
+        group_by: str | None = None,
+        kind: str | None = None,
+        class_: str | None = None,
+        state: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.UsagePage:
+        """Read your workspace's usage. `GET /v1/usage`
+
+        Your workspace's usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Over the projects you may read: a tenant admin's covers every project and the records with none; anyone else's, only the projects they may read, and one they can't read is absent rather than an error. `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404. Model-call cost is on `/v1/cost`.
+        """
+        return self._client._request(
+            _OPERATIONS["usage.read"],
+            path={},
+            query={
+                "from": from_,
+                "to": to,
+                "groupBy": group_by,
+                "kind": kind,
+                "class": class_,
+                "state": state,
+                "limit": limit,
+                "cursor": cursor,
+                "projectId": project_id,
+            },
+            headers={},
+            response=_models.UsagePage,
             timeout=timeout,
         )
 
@@ -8453,6 +8606,29 @@ class ProjectsSitesResource:
             timeout=timeout,
         )
 
+    def restore_person(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SitePersonRestoreResult:
+        """Let a person removed in Kindgi back in, through their site. `POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`
+
+        For one of the site's people removed in Kindgi (`POST /v1/identity/users/{userId}/unregister`) while the site still knows them: they're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` for someone in the tenant whose site still knows them; `left` when their site said they left it, removed in Kindgi too or not: a site forgets a person who leaves, and signs them in as a new person if they come back; `linked-elsewhere` when they also sign in another way (through another site, or the tenant's own sign-in), which letting them back in would open too: add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.restorePerson"],
+            path={"projectId": project_id, "siteId": site_id, "userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SitePersonRestoreResult,
+            timeout=timeout,
+        )
+
 
 class ProjectsResource:
     """`client.projects` — the `projects` operations."""
@@ -8655,6 +8831,28 @@ class TenantResource:
             query={},
             headers={},
             response=_models.Tenant,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        body: _models.TenantPatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Rename the caller's tenant. `PATCH /v1/tenant`
+
+        Changes its name, its slug, or both; a field left out stays as it is. Its id stays, so whatever names it by its id keeps working. The console's addresses carry the slug: after a new one, links with the old one stop opening the tenant, and another tenant may take the old one. The same values again change nothing. Takes `admin` on the tenant. A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.
+        """
+        return self._client._request(
+            _OPERATIONS["tenant.update"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPatch, body, fields),
             timeout=timeout,
         )
 
@@ -9198,7 +9396,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Register a cron schedule. `POST /v1/schedules`
 
-        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering.
+        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return self._client._request(
             _OPERATIONS["schedules.register"],
@@ -9240,7 +9438,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Update a cron schedule. `PATCH /v1/schedules/{triggerId}`
 
-        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`.
+        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it.
         """
         return self._client._request(
             _OPERATIONS["schedules.update"],
@@ -9370,7 +9568,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
 
-        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs.
+        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return self._client._request(
             _OPERATIONS["schedules.takeOwnership"],
@@ -9423,7 +9621,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Register a webhook trigger. `POST /v1/webhooks`
 
-        A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow.
+        A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return self._client._request(
             _OPERATIONS["webhooks.register"],
@@ -9460,7 +9658,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
 
-        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`.
+        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited.
         """
         return self._client._request(
             _OPERATIONS["webhooks.update"],
@@ -9563,7 +9761,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Take over a webhook trigger. `POST /v1/webhooks/{triggerId}/owner`
 
-        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow.
+        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return self._client._request(
             _OPERATIONS["webhooks.takeOwnership"],
@@ -10314,7 +10512,7 @@ class AsyncSystemKeysResource:
     async def list(self, /, *, timeout: float | None = None) -> _models.SystemKeyList:
         """List system keys. `GET /v1/system/keys`
 
-        The operator's system keys (`kgi_sy_…`) on a runtime serving many tenants: each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them.
+        The operator's system keys (`kgi_sy_…`): each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them; on a runtime serving one tenant, the deployment's own token alone.
         """
         return await self._client._request(
             _OPERATIONS["systemKeys.list"],
@@ -10336,7 +10534,7 @@ class AsyncSystemKeysResource:
     ) -> _models.MintSystemKeyResult:
         """Mint a system key. `POST /v1/system/keys`
 
-        A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. A runtime serving one tenant has no system keys: there, the deployment's own token is that tenant's, and this route isn't mounted.
+        A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. On a runtime serving one tenant, only the deployment's own token reaches the system keys, and a key holds `system:license` alone: it reads `GET /v1/license` and `GET /v1/license/usage`, for the license renewal, and every other route refuses it.
         """
         return await self._client._request(
             _OPERATIONS["systemKeys.mint"],
@@ -10358,7 +10556,7 @@ class AsyncSystemKeysResource:
     ) -> _models.RevokeSystemKeyResult:
         """Revoke a system key. `POST /v1/system/keys/{keyId}/revoke`
 
-        Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.
+        Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them; on a runtime serving one tenant, the deployment's own token alone.
         """
         return await self._client._request(
             _OPERATIONS["systemKeys.revoke"],
@@ -10372,7 +10570,7 @@ class AsyncSystemKeysResource:
     async def whoami(self, /, *, timeout: float | None = None) -> _models.SystemWhoami:
         """Which system key this is. `GET /v1/system/whoami`
 
-        A system key's own id, scopes and expiry, for a service checking its key. Any system principal; a tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key.
+        A system key's own id, scopes and expiry, for a service checking its key: any system principal, on a runtime serving many tenants. A tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key. A runtime serving one tenant answers no one here: its own token is that tenant's outside `/v1/system/keys`, and a system key reads the license routes alone.
         """
         return await self._client._request(
             _OPERATIONS["systemKeys.whoami"],
@@ -10447,6 +10645,29 @@ class AsyncSystemTenantsResource:
             query={},
             headers={},
             response=_models.SystemTenant,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        tenant_id: str | UUID,
+        body: _models.TenantPatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Rename a tenant. `PATCH /v1/system/tenants/{tenantId}`
+
+        Changes its name, its slug, or both, as the tenant's own admins can (`PATCH /v1/tenant`); a field left out stays as it is. Its id stays. The same values again change nothing. Takes `system:tenants`. A closing tenant is refused (`409 tenant-closing`). A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.update"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPatch, body, fields),
             timeout=timeout,
         )
 
@@ -10560,6 +10781,30 @@ class AsyncSystemTenantsResource:
             timeout=timeout,
         )
 
+    async def purge(
+        self,
+        tenant_id: str | UUID,
+        body: _models.PurgeTenantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SystemTenantPurge:
+        """Purge a closed tenant, for good. `POST /v1/system/tenants/{tenantId}/purge`
+
+        Deletes a `closing` tenant whose 30-day export window has passed: every row of it, its artifacts' bytes and its authorization store. Once nothing of it is left, its purge record is written, so a restore from an older backup purges it again, and it's marked purged: its tenants row stays, and nothing of it signs in or is served. Then, once each server has seen the mark, it deletes again what work under way at the mark wrote meanwhile. Irreversible. `confirm` is the tenant's slug, a second check on the id. It answers when done. Safe to run again: a run that stopped part-way (`complete: false`, or a request that ended before its answer) is finished by the next, and on a tenant already purged it deletes what was written after its mark, leaving its mark and its record as they were. A run again is a new request: a new Idempotency-Key, or none. Takes its own scope, `system:tenants:purge`, which no other scope includes, or `kindgi:system`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.purge"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PurgeTenantBody, body, fields),
+            response=_models.SystemTenantPurge,
+            timeout=timeout,
+        )
+
     async def set_production_allowed(
         self,
         tenant_id: str | UUID,
@@ -10621,6 +10866,96 @@ class AsyncSystemTenantsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.TenantLimits, body, fields),
             response=_models.TenantLimitsResult,
+            timeout=timeout,
+        )
+
+
+class AsyncSystemUsageResource:
+    """`client.system_usage` — the `systemUsage` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def read(
+        self,
+        /,
+        *,
+        from_: str,
+        to: str,
+        group_by: str | None = None,
+        kind: str | None = None,
+        class_: str | None = None,
+        state: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        tenant_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.UsagePage:
+        """Read usage across tenants. `GET /v1/system/usage`
+
+        Usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Records are counted when the counted thing happens, exactly once (the kinds `kind` lists, each run with its class). `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A test tenant's usage, and one whose setup is pending, are never in the answer, even when `tenantId` names one. Takes `system:usage:read`; the access record marks a read across every tenant, or of the one named. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemUsage.read"],
+            path={},
+            query={
+                "from": from_,
+                "to": to,
+                "groupBy": group_by,
+                "kind": kind,
+                "class": class_,
+                "state": state,
+                "limit": limit,
+                "cursor": cursor,
+                "tenantId": tenant_id,
+            },
+            headers={},
+            response=_models.UsagePage,
+            timeout=timeout,
+        )
+
+
+class AsyncUsageResource:
+    """`client.usage` — the `usage` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def read(
+        self,
+        /,
+        *,
+        from_: str,
+        to: str,
+        group_by: str | None = None,
+        kind: str | None = None,
+        class_: str | None = None,
+        state: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.UsagePage:
+        """Read your workspace's usage. `GET /v1/usage`
+
+        Your workspace's usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Over the projects you may read: a tenant admin's covers every project and the records with none; anyone else's, only the projects they may read, and one they can't read is absent rather than an error. `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404. Model-call cost is on `/v1/cost`.
+        """
+        return await self._client._request(
+            _OPERATIONS["usage.read"],
+            path={},
+            query={
+                "from": from_,
+                "to": to,
+                "groupBy": group_by,
+                "kind": kind,
+                "class": class_,
+                "state": state,
+                "limit": limit,
+                "cursor": cursor,
+                "projectId": project_id,
+            },
+            headers={},
+            response=_models.UsagePage,
             timeout=timeout,
         )
 
@@ -17067,6 +17402,29 @@ class AsyncProjectsSitesResource:
             timeout=timeout,
         )
 
+    async def restore_person(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SitePersonRestoreResult:
+        """Let a person removed in Kindgi back in, through their site. `POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`
+
+        For one of the site's people removed in Kindgi (`POST /v1/identity/users/{userId}/unregister`) while the site still knows them: they're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` for someone in the tenant whose site still knows them; `left` when their site said they left it, removed in Kindgi too or not: a site forgets a person who leaves, and signs them in as a new person if they come back; `linked-elsewhere` when they also sign in another way (through another site, or the tenant's own sign-in), which letting them back in would open too: add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.restorePerson"],
+            path={"projectId": project_id, "siteId": site_id, "userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SitePersonRestoreResult,
+            timeout=timeout,
+        )
+
 
 class AsyncProjectsResource:
     """`client.projects` — the `projects` operations."""
@@ -17271,6 +17629,28 @@ class AsyncTenantResource:
             query={},
             headers={},
             response=_models.Tenant,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        body: _models.TenantPatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Rename the caller's tenant. `PATCH /v1/tenant`
+
+        Changes its name, its slug, or both; a field left out stays as it is. Its id stays, so whatever names it by its id keeps working. The console's addresses carry the slug: after a new one, links with the old one stop opening the tenant, and another tenant may take the old one. The same values again change nothing. Takes `admin` on the tenant. A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.
+        """
+        return await self._client._request(
+            _OPERATIONS["tenant.update"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPatch, body, fields),
             timeout=timeout,
         )
 
@@ -17814,7 +18194,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Register a cron schedule. `POST /v1/schedules`
 
-        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering.
+        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return await self._client._request(
             _OPERATIONS["schedules.register"],
@@ -17856,7 +18236,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Update a cron schedule. `PATCH /v1/schedules/{triggerId}`
 
-        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`.
+        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it.
         """
         return await self._client._request(
             _OPERATIONS["schedules.update"],
@@ -17986,7 +18366,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
 
-        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs.
+        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return await self._client._request(
             _OPERATIONS["schedules.takeOwnership"],
@@ -18039,7 +18419,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Register a webhook trigger. `POST /v1/webhooks`
 
-        A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow.
+        A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return await self._client._request(
             _OPERATIONS["webhooks.register"],
@@ -18076,7 +18456,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
 
-        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`.
+        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited.
         """
         return await self._client._request(
             _OPERATIONS["webhooks.update"],
@@ -18179,7 +18559,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Take over a webhook trigger. `POST /v1/webhooks/{triggerId}/owner`
 
-        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow.
+        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return await self._client._request(
             _OPERATIONS["webhooks.takeOwnership"],
@@ -18389,6 +18769,8 @@ class Resources:
     tokens: TokensResource
     system_keys: SystemKeysResource
     system_tenants: SystemTenantsResource
+    system_usage: SystemUsageResource
+    usage: UsageResource
     system_deployments: SystemDeploymentsResource
     service_accounts: ServiceAccountsResource
     approvals: ApprovalsResource
@@ -18443,6 +18825,8 @@ class Resources:
         self.tokens = TokensResource(client)
         self.system_keys = SystemKeysResource(client)
         self.system_tenants = SystemTenantsResource(client)
+        self.system_usage = SystemUsageResource(client)
+        self.usage = UsageResource(client)
         self.system_deployments = SystemDeploymentsResource(client)
         self.service_accounts = ServiceAccountsResource(client)
         self.approvals = ApprovalsResource(client)
@@ -18499,6 +18883,8 @@ class AsyncResources:
     tokens: AsyncTokensResource
     system_keys: AsyncSystemKeysResource
     system_tenants: AsyncSystemTenantsResource
+    system_usage: AsyncSystemUsageResource
+    usage: AsyncUsageResource
     system_deployments: AsyncSystemDeploymentsResource
     service_accounts: AsyncServiceAccountsResource
     approvals: AsyncApprovalsResource
@@ -18553,6 +18939,8 @@ class AsyncResources:
         self.tokens = AsyncTokensResource(client)
         self.system_keys = AsyncSystemKeysResource(client)
         self.system_tenants = AsyncSystemTenantsResource(client)
+        self.system_usage = AsyncSystemUsageResource(client)
+        self.usage = AsyncUsageResource(client)
         self.system_deployments = AsyncSystemDeploymentsResource(client)
         self.service_accounts = AsyncServiceAccountsResource(client)
         self.approvals = AsyncApprovalsResource(client)

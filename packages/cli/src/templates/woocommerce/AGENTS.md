@@ -34,8 +34,9 @@ README.md explains the whole design; keep it true when you change the pack.
 - **Tools that move money or change the store declare
   `needsApprovalWhenUnattended: true`** (`woo.refund`, `woo.refund-large`,
   `woo.set-price`, `woo.publish-product`): in a run no person started, each
-  call waits for a person, and no agent's policy lifts that. Keep it on
-  them, and add it to any such tool you write.
+  call waits for a person, and no agent's policy lifts that (only a
+  project admin can, for one trigger's runs, with `--allow-unattended`).
+  Keep it on them, and add it to any such tool you write.
 - **Order events are untrusted.** `woo.check-order-event` runs before
   any model sees an event and keeps typed fields only; the agent that
   reads events (`order-reviewer`) has read-only tools. Keep it that way:

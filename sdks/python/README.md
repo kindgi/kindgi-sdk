@@ -91,7 +91,9 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
 - `needs_approval_when_unattended=True` makes each call wait for a person's
   approval in a run no person started (a webhook, a schedule, an event, or a
   service account's key). A flow's tool step that calls it is refused there.
-  A run a person starts is unaffected.
+  A webhook trigger or a schedule whose `toolsAllowedUnattended` names the
+  tool (a project admin's to set) lifts that, in its own runs only. A run a
+  person starts is unaffected.
 - The handler is `(input)` or `(input, ctx)`, `def` or `async def`. A `def`
   handler runs in a worker thread, so blocking I/O is fine.
 - Before calling you, the pack service validates the input against the schema

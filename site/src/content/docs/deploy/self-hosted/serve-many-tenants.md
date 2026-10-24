@@ -66,7 +66,7 @@ apart, and the two that let you allow and count them:
 | Setting | What it does |
 |---|---|
 | `KINDGI_TENANT_HOST_ACCESS=isolated` | What a tenant registers reaches public hosts only: not the metadata server, this host or private networks, and never with the server's own cloud credentials. The server then refuses `KINDGI_DEV`, `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow` and `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`. |
-| `KINDGI_PACK_ROUTING=per-deployment` | Each call goes to the pack service of the deployment that shipped the tool or check, never to one pack service every tenant shares. It needs `KINDGI_SECRETS_BACKEND=postgres`, because each endpoint's token is sealed under the secrets' key. `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused. |
+| `KINDGI_PACK_ROUTING=per-deployment` | Each call goes to the pack service of the newest deployment in the run's project that shipped the tool or check, never to one pack service every tenant shares. A run with no project uses the Default project, whose deployments include each one that named no project. It needs `KINDGI_SECRETS_BACKEND=postgres`, because each endpoint's token is sealed under the secrets' key. `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused. |
 | `KINDGI_PACK_ENDPOINT_HOSTS` | The hosts a deployment's pack service may be on, comma-separated: a host name, `*.` and a domain, or `*-`, a tail and a domain. |
 | `KINDGI_OPENFGA_API_URL` and `KINDGI_OPENFGA_PRESHARED_KEY` | The authorization store, and the key it requires of its callers, so only the server reads and writes tenants' grants ([Require a key for OpenFGA](../../authorization/#require-a-key-for-openfga)). |
 | `KINDGI_PRODUCTION_GATE=on` | A tenant puts a project in production only once you allow it ([Limits and production](#limits-and-production)). |
@@ -95,12 +95,13 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 
 | Scope | What it reaches |
 |---|---|
-| `system:tenants` | Creating, listing, reading and closing tenants |
+| `system:tenants` | Creating, listing, reading, renaming and closing tenants |
 | `system:tenants:create` | Creating tenants only: each with a first admin, production blocked, no image repository, not a test tenant |
 | `system:tenants:image-prefix` | Setting a tenant's image repository |
 | `system:tenants:production` | A tenant's production switch |
 | `system:tenants:limits` | A tenant's limits |
 | `system:tenants:contacts` | A tenant's admins' contact addresses, for service notices |
+| `system:tenants:purge` | [Purging a closed tenant](#close-and-purge-a-tenant), once its window has passed (runtime 0.1.10 or later). No other scope includes it |
 | `system:suspend` | Suspending and restoring a tenant, a project or a pack |
 | `system:deployments` | The deployments and their pack services' endpoints |
 | `system:pack-env` | The values each deployment's pack declares, for its pack service, and the revision it runs (runtime 0.1.9 or later). On a key of its own: the deployments key reads no value, and only a key holding this scope itself, not `kindgi:system`, reads a secret's |
@@ -109,7 +110,7 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 
 ```sh
 curl -sS -X POST "$KINDGI_URL/v1/system/keys" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d '{"scopes": ["system:deployments"], "label": "pack services", "expiresAt": "2027-10-01T00:00:00Z"}'
@@ -134,7 +135,7 @@ curl -sS -X POST "$KINDGI_URL/v1/system/keys" \
 
 ```sh
 curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d '{
@@ -150,9 +151,54 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   ([Turn on sign-in](../sign-in/)). No key comes back: once signed in, they
   make the tenant's keys ([API keys](../../people-and-keys/#api-keys)).
 - **Without `firstAdmin`,** the answer carries the tenant's first admin key,
-  once. Store it, because nothing shows it again, and without it nothing
-  gives the tenant another admin key. Only the full capability creates a
-  tenant that way.
+  once. Store it, because nothing shows it again. Only the full capability
+  creates a tenant that way.
+- **A tenant whose admins can't sign in any more** (runtime 0.1.9 or later):
+  `kindgi-runtime tenants make-admin` makes one of its people its admin, or a
+  new person by email, with what a first admin holds: every capability but
+  `secrets:reveal`, which no person is given. They then sign in and make the
+  tenant's keys, so it needs sign-in turned on ([Turn on sign-in](../sign-in/)).
+  Like [`tenants repair`](#after-each-upgrade-tenants-repair), it runs
+  against the runtime's database and authorization store. Run it with
+  `--dry-run` first, which says what would change and changes nothing:
+
+  ```sh
+  kindgi-runtime tenants make-admin <tenant id> \
+    --email pat@acme-store.example --name Pat \
+    --reason "Pat can't sign in; checked with Acme Store" --dry-run
+  ```
+
+  `--person <user id>` names one of its people instead, who must be a
+  tenant member. Nothing is taken from anyone. If it stops partway, run it
+  again with the same arguments to finish it. What it does is in the
+  tenant's audit log, by `system`, which the tenant's admins can read:
+  making them admin and what that gives them carry your `--reason`.
+- **A tenant created without `firstAdmin` whose admin key is lost** (runtime
+  0.2.0 or later): `kindgi-runtime tenants admin-key` mints it again. The
+  live keys of the tenant's "First admin" service account are revoked, and
+  the console sessions they opened end. Then one key is minted for it,
+  carrying what the first one did: tenant admin, and the tenant's root
+  capabilities, `secrets:reveal` among them. It runs against the runtime's
+  database. Run it with `--dry-run` first:
+
+  ```sh
+  kindgi-runtime tenants admin-key <tenant id> \
+    --reason "Acme Store's admin key was lost; checked with Acme Store" --dry-run
+  ```
+
+  The key is printed once, alone, on stdout, so it can go straight into a
+  secret store; the rest is said on stderr. With `--dry-run`, nothing is
+  minted, and what would change is said on stdout. It's refused when one of
+  those keys has a use recorded, unless `--revoke-used`: a key that was used
+  was received, and someone may be holding it. A use is recorded at most once
+  a minute, so a key used just now may not show it yet. A suspended tenant
+  gets the key too, as does a closing one inside its 30-day export window; a
+  closing tenant past that window is refused. Each key revoked, and the key
+  minted, is in the tenant's audit log, by `system`, with your `--reason`. It
+  exits `0` when the key is minted, `1` when it's minted but an audit entry
+  couldn't be written or a revoked key's sessions couldn't be ended, and `2`
+  when it's refused and nothing changed. A tenant created with `firstAdmin`
+  has no such account: `tenants make-admin` makes a person its admin.
 - **Production starts blocked.** `"productionAllowed": true` allows it from
   the start, and takes `system:tenants:production`.
 - **`imagePrefix`** is the repository every image the tenant deploys must
@@ -180,6 +226,15 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   `kindgi-runtime tenants repair --tenant <id>` if its create named a first
   admin.
 
+**Rename a tenant** (runtime 0.1.10 or later) with
+`PATCH /v1/system/tenants/<tenant id>` and `{ "name": …, "slug": … }`,
+either or both, under `system:tenants`. It answers `204`, and its id stays. Its own admins can do the same with
+`PATCH /v1/tenant`. The slug follows the create's rules, and a taken one is
+refused with `tenant-slug-taken`. A closing tenant, or one whose setup is
+pending, can't be renamed (`409 tenant-closing`, `409 tenant-setup-pending`).
+Neither can a slug that `KINDGI_AUTH_VERIFIED_DOMAINS` names
+(`409 tenant-slug-in-config`): see [Turn on sign-in](../sign-in/).
+
 ## A pack service for each deployment
 
 Each deployment runs in its own pack service, which you run: an orchestrator,
@@ -188,13 +243,24 @@ service is, and checks it. It never creates or deletes one.
 
 1. **List the deployments that need a service:**
    `GET /v1/system/deployments?endpoint=missing`, oldest first across tenants.
-   A deployment needs one while it's routed: it's the newest with routes for
-   some tool version or pack check, it has no endpoint or a cleared one, and
-   nothing about it is closing or suspended. Each entry has the tenant's id,
-   the deployment's id, its pack and project (the one it named, else the
-   tenant's Default), and its image: the digest-pinned `imageRef`, its
-   digest, the artifact version and when it went live. It has nothing else
-   of the tenant.
+   A deployment needs one while it's routed: it's the newest in its project
+   with routes for some tool version or pack check, it has no endpoint or a
+   cleared one, and nothing about it is closing or suspended. Each entry has
+   the tenant's id, the deployment's id, its pack and project (the one it
+   named, else the tenant's Default), and its image: the digest-pinned
+   `imageRef`, its digest, the artifact version and when it went live. It
+   has nothing else of the tenant.
+
+   A deployment that ships no tools and no guardrail checks of its own, such
+   as one of agents and flows whose guardrails use only built-in checks, has
+   nothing to route. It gets no endpoint, so it's never listed, and the routes
+   on its endpoint (`PUT` and `DELETE …/endpoint`, `PUT …/endpoint/problem`
+   and `PUT …/suspended`) answer `404`. Its agents and flows reach its
+   project's runs without a pack service. One registered by an earlier
+   runtime may still hold a `pending` endpoint from then. It's never listed
+   or shown, though those routes still find it. Leave it: clearing it retires
+   the deployment, and a version that reaches the project's runs only through
+   it, as a promoted one does, stops reaching them.
 2. **Run the image as a service** whose host begins with the deployment's own
    service name, `packServiceName(tenantId, deploymentId)` from `@kindgi/api`
    (`kp-` and 20 characters), then `-` or `.`. Give it a token of its own,
@@ -213,9 +279,9 @@ service is, and checks it. It never creates or deletes one.
 
    ```sh
    curl -sS -X PUT "$KINDGI_URL/v1/system/tenants/$TENANT_ID/deployments/$DEPLOYMENT_ID/endpoint" \
-     -H "Authorization: Bearer $KINDGI_SYSTEM_KEY" \
+     -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_SYSTEM_KEY") \
      -H 'Content-Type: application/json' \
-     -d "{\"url\": \"https://$SERVICE_HOST\", \"auth\": \"token\", \"token\": \"$PACK_TOKEN\"}"
+     -d @<(printf '{"url": "https://%s", "auth": "token", "token": "%s"}' "$SERVICE_HOST" "$PACK_TOKEN")
    ```
 
    `auth` is `token`, or `google-id-token` to add an ID token for the URL
@@ -273,12 +339,27 @@ service is, and checks it. It never creates or deletes one.
    lists deployments with an endpoint whose service should go, each with its
    `reason`. Clear the endpoint first, with `DELETE …/endpoint`, then delete
    the service. A `superseded` deployment is one whose every tool version and
-   check newer deployments ship.
+   check newer deployments in its project ship.
 
 A call to a deployment's tool never goes anywhere else. With no endpoint yet
 it fails with `pack-endpoint-pending`, and after a clear with
 `pack-endpoint-cleared`. A tenant sees its deployment's `endpoint`: `pending`
 (with the problem, if one is recorded), `ready` or `cleared`.
+
+A call never goes to a deployment in another project, either. When no
+deployment in the run's project ships what it names, it fails with
+`pack-route-missing`:
+
+```text
+No deployment in project "<project name>" ships tool acme.lookup@1.0.0.
+```
+
+A call run again stays on the deployment it first ran on. If that
+deployment isn't in the run's project, or doesn't ship what the call names:
+
+```text
+Deployment <deployment-id> isn't in project "<project name>", or doesn't ship tool acme.lookup@1.0.0. This call first ran on deployment <deployment-id>, and a re-run doesn't move to another.
+```
 
 ## Limits and production
 
@@ -304,18 +385,21 @@ restoring clears both. A closing tenant can't be suspended (`409 tenant-closing`
 
 - **A tenant:** `PUT /v1/system/tenants/{tenantId}/suspended` with
   `{"suspended": true, "reason": "…"}`. It takes hold within 5 seconds. Its
-  own keys and sessions still read and export it. Nothing runs (its running
-  runs are cancelled), and any other write is refused
-  (`409 tenant-suspended`), but for deletes, signing in and out, revoking,
-  and erasing or searching memory. Its schedules and triggers are skipped,
-  not changed, and a webhook whose signature checks is answered `202` and
-  skipped. At the restore, nothing that came due meanwhile runs late: a schedule fires
-  next at its first time after the restore.
+  own keys and sessions still read and export it. Nothing runs (its
+  unfinished runs are cancelled, waiting ones included), and any other
+  write is refused (`409 tenant-suspended`), but for deletes, signing in
+  and out, revoking, and erasing or searching memory. Its schedules and
+  triggers are skipped, not changed, and a webhook whose signature checks
+  is answered `202` and skipped. At the restore, nothing that came due
+  meanwhile runs late: a schedule fires next at its first time after the
+  restore.
 - **A project:** `PUT /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`.
   Nothing new runs in it (`409 project-suspended`), and no pack service's
-  endpoint is recorded for it. Its running runs are cancelled, its schedules
-  and webhooks are skipped, and its deployments list to retire. The rest of
-  the tenant is untouched.
+  endpoint is recorded for it. Its unfinished runs are cancelled, waiting
+  ones included. Its schedules and webhooks are skipped, and its
+  deployments list to retire. The rest of the tenant is untouched. While
+  the Default project is suspended, a pack call that names no project is
+  refused too.
 - **A pack:** `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended`.
   Its calls fail with `pack-suspended`, never going to an older deployment,
   and it lists to retire. Restored, it serves again from the endpoint
@@ -327,21 +411,79 @@ restoring clears both. A closing tenant can't be suspended (`409 tenant-closing`
 `POST /v1/system/tenants/{tenantId}/close` starts the end of the tenant's
 contract, and there's no way back. The tenant is `closing`. For its 30-day
 export window, its own keys and sessions still read and export it, and its
-people can still sign in. Nothing runs (its running runs are cancelled),
-and writes are refused as for a suspended tenant, with `409 tenant-closing`.
-Its deployments list to retire.
+people can still sign in. Nothing runs (its unfinished runs are cancelled,
+waiting ones included), and writes are refused as for a suspended tenant,
+with `409 tenant-closing`. Its deployments list to retire.
 
 Once the window has passed, purge it. Its keys and sessions go with its
 rows. Until then, nothing of the tenant runs, and it writes only deletes,
 revokes, erasures, exports and sign-ins. One of those during the purge can
-leave a row: the purge exits `1` and names it, and running it again
-finishes it.
+leave a row: the purge names it, and running it again finishes it.
 
-When nothing of the tenant is left, the purge marks it purged. Each server
-keeps a tenant's state for about 5 seconds, so within about 5 seconds of
-the mark nothing of it signs in or is served. The purge waits three times
-that, then deletes again: work of the tenant under way at the mark, such as
-a request that started before it, can still write a row.
+When nothing of the tenant is left, the purge writes its record and marks it
+purged. Each server keeps a tenant's state for about 5 seconds, so within
+about 5 seconds of the mark nothing of it signs in or is served. The purge
+waits three times that, then deletes again: work of the tenant under way at
+the mark, such as a request that started before it, can still write a row.
+
+Purge it through the system API, or with `kindgi-runtime tenants purge`
+where the runtime's database is reachable. Both run the same purge.
+
+### Through the system API
+
+`POST /v1/system/tenants/{tenantId}/purge` (runtime 0.1.10 or later) takes a
+system key holding `system:tenants:purge`, or `kindgi:system`. No other scope
+includes it: give it to the tooling that ends accounts, and to nothing else.
+
+```sh
+curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/purge" \
+  -H "Authorization: Bearer $KINDGI_SYSTEM_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"confirm": "acme-shop"}'
+```
+
+- **`confirm` is the tenant's slug,** a second check on the id. Another
+  value is `400 tenant-slug-mismatch`, and nothing is changed.
+- **The servers need `KINDGI_TENANT_PURGE_RECORD`:** where purge records
+  are kept, `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]`, the same
+  place as the command's `--record`. Unset, every purge is refused with
+  `409 purge-record-unset`: without a record, restoring a backup taken
+  before the purge would bring the tenant back, with nothing to purge it
+  again ([`kindgi-runtime tenants repurge`](#after-a-restore-tenants-repurge)
+  reads the records after a restore).
+- **It answers when it's done,** after its wait. The answer names each
+  table's rows it deleted (`deleted`), the objects deleted from the
+  artifacts' store (`objectsDeleted`), and whether its authorization store
+  went (`authzStoreDeleted`).
+- **One purge of a tenant runs at a time,** through this route or with
+  `kindgi-runtime tenants purge`: a second waits for the first to finish,
+  then runs. Every 30 seconds of waiting, the server logs
+  `tenant purge: waiting for another purge of the tenant to finish`, with
+  `tenantId` and `waitedSeconds`, under the
+  [subsystem](../logs/#the-subsystems) `tenants.purge`.
+- **`complete: true`:** nothing of it is left, its record is written, and
+  it's marked purged at `purgedAt`. **`complete: false`:** `left` and
+  `objectsLeft` say what is, and `leftBecause` why, when it's a setting the
+  runtime lacks. Run it again. A call that ended before its answer is
+  finished the same way. Each run again is a new request: a new
+  `Idempotency-Key`, or none.
+- **Refused, with nothing changed:** a tenant that isn't closing
+  (`409 tenant-not-closing`), or whose window is still open
+  (`409 tenant-export-window-open`, with `windowEndsAt`), and one with
+  artifacts or an authorization store when the server has no
+  `KINDGI_ARTIFACTS` or `KINDGI_OPENFGA_API_URL` (`409 purge-setting-missing`).
+- **A failed delete of its OpenFGA store** is `502 authz-store-delete-failed`,
+  and its message says what that left. A tenant's rows go only after its
+  store, so by then its artifacts' bytes may be deleted, but none of its
+  rows. Run it again once OpenFGA answers.
+- **A day later,** run it again. On a tenant already purged, it deletes
+  anything of it written since its mark (`alreadyPurged: true`), and its
+  mark and its record stay as they were. Nothing should write to a tenant
+  a day after its mark, so report any tables it names.
+- **Every call is on the operator's access record,** with its key, the
+  tenant and its outcome, a refusal too.
+
+### With kindgi-runtime
 
 ```sh
 kindgi-runtime tenants purge <tenant id> --confirm <tenant slug> --record <where>
@@ -389,10 +531,70 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
   that still holds rows, by table and count: rows only, not the bytes under
   its prefix.
 - **`--record`** (`local:<dir>` or `gcs:<bucket>[/<prefix>]`) keeps a record
-  of each purge. After a [restore](../back-up-and-restore/), and before the
-  runtime serves, `kindgi-runtime tenants repurge --from <where>` purges
-  again every tenant a record names. On one still marked purged, it deletes
-  what's of it, and leaves its mark and its record as they were.
+  of each purge, `purged/<tenant id>.json` under it. After a restore,
+  [`tenants repurge`](#after-a-restore-tenants-repurge) reads them.
+- **One purge of a tenant runs at a time** (runtime 0.1.10 or later): a
+  second, here or through the system API, waits for the first to finish.
+  Every 30 seconds of waiting it says
+  `tenants purge: waiting for another purge of tenant <id> to finish (30 s so far)`
+  on stderr. `tenants repurge` waits the same way, tenant by tenant:
+  `tenant <id>: waiting for another purge of it to finish (30 s so far)`.
+
+### After a restore: tenants repurge
+
+A backup taken before a tenant's purge brings the tenant back with its data,
+and [replaying the erasure ledger](../back-up-and-restore/) doesn't purge it.
+After a restore, before the runtime serves anyone, purge every purged tenant
+again:
+
+```sh
+kindgi-runtime tenants repurge --from <where> --ledger <where>
+```
+
+- **Two sources name the tenants:** the purge records under `--from`
+  (`local:<dir>` or `gcs:<bucket>[/<prefix>]`, where `--record` and
+  `KINDGI_TENANT_PURGE_RECORD` write them), and the newest copy of the
+  erasure ledger under `--ledger` (runtime 0.1.10 or later), which names
+  every tenant purged before it was written, however long ago. A record can
+  be gone, deleted by a bucket's retention rule, say; the copy still names
+  its tenant. A tenant both name is purged once.
+- **`--ledger`** takes what `erasures replay --from` takes: a directory, a
+  bucket, or one file by its absolute path. Left out, it's
+  `KINDGI_ERASURE_LEDGER_EXPORT`, where the server writes its copies. With
+  neither, it goes by the records alone, and says so:
+  `No --ledger or KINDGI_ERASURE_LEDGER_EXPORT: the records alone, so a tenant whose record is gone isn't found.`
+  With no copy where it looks, it stops:
+  `tenants repurge: no copy of the erasure ledger in <where>.`
+- **One bucket can hold both,** for example the records under `purged/`
+  (`--from gcs:<bucket>`) and the server's copies under `runtime/`
+  (`--ledger gcs:<bucket>/runtime`). Reading a bucket, it lists and
+  downloads, so whatever runs it needs read access to it, as
+  [replay](../back-up-and-restore/) does.
+- **Run it with `--dry-run` first,** and nothing changes. Its first line
+  says what it read:
+  `tenants repurge --dry-run: <n> purge records, and the ledger's copy <file> (written <when>; <n> purged tenants). Nothing will be changed.`
+  A copy names purged tenants when runtime 0.1.10 or later wrote it. An
+  earlier one says `version 1, which names no purged tenant`, and only the
+  records name tenants then. A line for each tenant follows, by id and
+  slug, with what named it (`its record`, `the ledger's copy`, or both) and
+  what a run would do: `would be purged again`, with its state and what it
+  holds;
+  `already purged; what was written of it after its mark would be deleted`;
+  or `already purged, and nothing of it is left`.
+- **Each tenant is purged again,** whatever its restored row says: a restore
+  can bring it back active, or closing. On one still marked purged, it
+  deletes what's of it, and leaves its mark and its record as they were.
+- **Skipped or refused:** a tenant the database doesn't have is skipped
+  (`not in this database, skipped`). One whose record or entry in the copy
+  isn't its own is refused, and named. That's checked by when the tenant was
+  created, which a rename doesn't change
+  (`refused: its record's createdAt isn't this tenant's.`), and, for a
+  record without a creation time, by the tenant's slug.
+- **Exit `0`:** done. **`1`:** rows of a tenant are left, named
+  (`tenant <id>: left: <table>: <n> rows`): run it again. **`2`:** a tenant
+  was refused, as above or for a setting the run lacks (artifacts or an
+  OpenFGA store, and no `KINDGI_ARTIFACTS` or `KINDGI_OPENFGA_API_URL`), or
+  it couldn't run.
 
 ## After each upgrade: tenants repair
 

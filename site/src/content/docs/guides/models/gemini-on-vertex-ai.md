@@ -14,7 +14,7 @@ credentials, and Vertex AI runs and bills them in a project you name.
 
 ## Before you start
 
-- **A pack** with `kindgi dev` running, from Kindgi 0.1's CLI.
+- **A pack** with `kindgi dev` running, from Kindgi 0.2's CLI.
 - **The `gcloud` CLI.**
 - **A Google Cloud project** with the Vertex AI API turned on, and an account
   with access to Vertex AI in it.

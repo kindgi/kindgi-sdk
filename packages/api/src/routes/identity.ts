@@ -873,7 +873,8 @@ function serializePersonGrants(g: PersonGrants): Record<string, unknown> {
   };
 }
 
-function serializeUser(u: UserRecord): Record<string, unknown> {
+/** A person on the wire (`UserRecord`): also a site's person a restore lets back in (sites.ts). */
+export function serializeUser(u: UserRecord): Record<string, unknown> {
   return {
     userId: u.userId as unknown as string,
     tenantId: u.tenantId as unknown as string,

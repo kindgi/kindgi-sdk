@@ -3,19 +3,20 @@
 A Terraform root module that runs Kindgi in one GCP project:
 - the runtime (the API, agent and flow execution) as a Cloud Run service;
 - your pack's code as a second, IAM-protected Cloud Run service;
-- Kindgi's own Cloud SQL (Postgres 16) instance;
+- Kindgi's own Cloud SQL (Postgres 16) instance (unless `database_host_instance` points at an existing one);
 - everything they stand on: service accounts, an Artifact Registry repository, a KMS key for the runtime's secrets (unless `secrets_backend = "none"`, below), and Secret Manager containers.
 
-**Two network shapes** (`network_mode`):
+**Three network shapes** (`network_mode`):
 
-| | `direct` (default) | `connector` |
-|---|---|---|
-| For | a project of its own | a project that already has a VPC |
-| Network | a new VPC and subnet, Direct VPC egress (all traffic), Cloud NAT | an existing Serverless VPC Access connector, private-ranges-only egress; nothing created |
-| The pack service | internal ingress, plus IAM | all ingress, plus IAM (a server without VPC egress can't reach an internal service) |
-| Example values | `example.tfvars` | `example-connector.tfvars` |
+| | `direct` (default) | `connector` | `none` |
+|---|---|---|---|
+| For | a project of its own | a project that already has a VPC | a small dev deployment (below) |
+| Network | a new VPC and subnet, Direct VPC egress (all traffic), Cloud NAT | an existing Serverless VPC Access connector, private-ranges-only egress; nothing created | no VPC at all; nothing created |
+| The pack service | internal ingress, plus IAM | all ingress, plus IAM (a server without VPC egress can't reach an internal service) | all ingress, plus IAM |
+| Database | public IP (`/cloudsql`) or private IP | public IP (`/cloudsql`) or private IP | public IP (`/cloudsql`) only |
+| Example values | `example.tfvars` | `example-connector.tfvars` | `example-dev.tfvars` |
 
-In both shapes only the runtime's service account may invoke the pack service. The runtime sends a Google ID token (`KINDGI_PACK_SERVICE_AUTH=google-id-token`), so a public URL on the pack service is still closed to everyone else.
+In every shape only the runtime's service account may invoke the pack service. The runtime sends a Google ID token (`KINDGI_PACK_SERVICE_AUTH=google-id-token`), so a public URL on the pack service is still closed to everyone else.
 
 The `direct` shape was deployed end to end on 2026-10-04, with runtime 0.1.1:
 - the runtime reached the internal pack service with its ID token;
@@ -23,6 +24,14 @@ The `direct` shape was deployed end to end on 2026-10-04, with runtime 0.1.1:
 - flows ran through the pack: tool-call hop p50 42 ms, p95 100 ms.
 
 The `connector` shape is the same resources wired to an existing connector.
+
+### A small dev deployment
+
+For a dev environment next to an app, with no project of its own: `network_mode = "none"` (no VPC), the pack service sleeping to zero (`pack_min_instances = 0`), and Kindgi's database on the app's existing Cloud SQL instance (`database_host_instance`). `example-dev.tfvars` is a starting point. Not for production.
+
+- **No VPC.** Both services reach the internet through Cloud Run's own egress; the pack service takes all ingress, closed by IAM to the server's account (`pack_ingress = "INGRESS_TRAFFIC_ALL"`). There is no static egress IP, and the pack's tools reach only public addresses and the instances in `pack_cloud_sql_instances` — not a private-IP database.
+- **A shared database instance.** With `database_host_instance` set, the module makes no instance of its own: it creates Kindgi's `database_name` database on the named instance, and the operator creates Kindgi's user on that instance (step 3, run against the host). The instance must have a public IP and run **Postgres 16 or later** — before 16 a `CREATEROLE` user, which Kindgi's needs, could take any other role, so the two databases wouldn't be walled off. Run **one Kindgi deployment per host instance** (Kindgi's role and `PUBLIC` connect are instance-wide). The server's account gets `roles/cloudsql.client` on the app's instance, scoped to it by an IAM condition. The app's instance admins can reset Kindgi's database password; only secrets you store through Kindgi's API stay sealed under its key. Backups, point-in-time recovery and deletion protection are the app instance's, not Kindgi's; `database_deletion_protection` instead keeps Kindgi's database object from a Terraform-side drop (`ABANDON`). Choose a host or the module's own instance **at the first apply** — moving later is a dump and restore.
+- **The pack service at zero.** `pack_min_instances = 0` lets the pack service sleep when idle; the first tool call after idle waits for it to start, up to about two minutes (its startup probe). The server allows `pack_call_timeout_ms` for a single tool call (default 120 s, `KINDGI_PACK_CALL_TIMEOUT_MS`); raise it if cold starts run near that. The server, unlike the pack, keeps one instance on (`server_min_instances` stays at its default of 1): a run started without waiting, an Improve pass or an eval run keeps going after its response returns and needs an instance — and the CPU on it — to finish.
 
 ## Before you start
 
@@ -42,7 +51,7 @@ The `connector` shape is the same resources wired to an existing connector.
 ```sh
 gcloud storage buckets create gs://<state bucket> --location=<region> --uniform-bucket-level-access
 gcloud storage buckets update gs://<state bucket> --versioning
-cp example.tfvars dev.tfvars      # or example-connector.tfvars; fill in
+cp example.tfvars dev.tfvars      # or example-connector.tfvars / example-dev.tfvars; fill in
 terraform init -backend-config=bucket=<state bucket> -backend-config=prefix=<this deployment>
 ```
 
@@ -90,6 +99,8 @@ With `tenancy = "multi"` (see "Many tenants") there's no `pack_image` and no pac
 ## 3. Secret values
 
 Each value is piped straight into Secret Manager. None goes on disk, into Terraform's state or into a command's arguments, which other processes can read and gcloud writes to its log file. `N` is your `name_prefix`. The commands are for bash or zsh.
+
+With `database_host_instance` set there is no `$N` instance of the module's own: in the `instances/…/users` path below, use the host instance's name in place of `$N` (the `$N-…` secret names stay as they are).
 
 ```sh
 CONN=$(terraform output -raw sql_connection_name)
@@ -139,6 +150,7 @@ With `database_private_network` set, the URL is `postgres://kindgi:<password>@<p
 **Without a KMS key (`secrets_backend = "none"`).** By default (`"postgres"`), secrets set through Kindgi's API are envelope-encrypted in its database under a Cloud KMS key this module creates. With `"none"`:
 - **Not created:** the KMS key ring, the key and its grants, and the `<prefix>-secrets-aad-key` secret. `secrets_aad_key_version` isn't needed.
 - **The server stores no secrets of its own.** `/v1/secrets` isn't served (it answers 404 `route-not-found`), and nothing can be stored through Kindgi's API. The boot record has no KMS probe line.
+- **Sign-in:** Continue with Google, Microsoft or GitHub and the emailed link work (step 7). A workspace's own identity provider needs `"postgres"`: its client secret and keys are references into the store, so adding or changing one answers 409 `identity-providers-need-secrets-store`.
 - **Who it fits:** a deployment whose pack secrets all come by reference (`pack_secret_env`) and whose model uses the service's own identity, Gemini on Vertex AI (`vertex_ai = true`). A provider that needs an API key stored in Kindgi doesn't fit it.
 - **Changing an existing deployment from `"postgres"`:** the key's `prevent_destroy` stops the plan. That's on purpose: secrets stored under the key would become unreadable. Move them out first, then take the key out of state, as in "Taking it down".
 
@@ -184,6 +196,8 @@ KMS probe OK (gcp-cloud-kms): gcp-cloud-kms v1 (encrypt/decrypt round trip, key 
 ```
 
 **On the first apply** the pack service line can read `⚠ Pack service at https://… isn't answering (pack-service-unauthorized: The platform in front of the pack service refused the call: …)`. The server's invoker grant on the pack service is seconds old then, and IAM is still propagating it. Calls work once it has, without a restart (in our run, the first tool call, 3½ minutes after the warning, worked). If tool calls still fail after that, check that the server's service account has `roles/run.invoker` on the pack service.
+
+**When the server starts with the pack service at zero** (`pack_min_instances = 0`), the line can read `⚠ Pack service at https://… didn't answer within 5 s. The server is up; pack tools and checks fail until it answers.` The server waits 5 s for the pack service at startup, and a service at zero takes longer than that to start an instance. It's harmless: the first tool call waits for the instance (**The pack service at zero**, above). With `pack_min_instances` at its default of 1, one instance stays up to answer. If tool calls keep failing, read the pack service's logs: its startup probe (`/readyz`) fails until every module is loaded and every `env.required` name is set, and its logs name what's missing.
 
 The runtime's KMS key needs `roles/cloudkms.cryptoKeyEncrypterDecrypter`. A runtime before 0.1.3 also needs `roles/cloudkms.viewer`, because its boot probe reads the key; from 0.1.3 the probe is an encrypt/decrypt round trip. The module grants both.
 
@@ -296,8 +310,10 @@ server_secret_env = {
 
 ## Upgrading
 
+- **A small dev deployment** (`network_mode = "none"`, from runtime 0.1.8 or later) can be upgraded with `./upgrade.sh`: it reads the current version, mirrors the new image into Artifact Registry and runs the upgrade checks against the database, stopping if one fails, backs up Kindgi's database as an export, shows the plan and applies it only when you type `yes`, and if the new revision doesn't come up it prints the way back rather than rolling back on its own. Outside the deployment, it grants the Cloud SQL instance's service account `roles/storage.objectAdmin` on the backup bucket (the grant stays), and it writes the new image into your var-file's `server_image` (and `pack_image`), keeping the previous file next to it. See `./upgrade.sh --help`. The notes below apply whichever way you upgrade.
 - **To runtime 0.1.5: add `KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"` to `server_env` first, or nobody can sign in to the console.** Up to 0.1.4 the console's sign-in page took the API token on its own. From 0.1.5 that's off by default outside `kindgi dev`. The API keeps taking tokens either way, and "7. Turn on sign-in" has the other ways in.
 - **The module turns Cloud Resource Manager on** (`cloudresourcemanager.googleapis.com`). Its own calls to it are billed to the caller's project, but another root on the same project that reads the project with its calls billed there (the provider's `user_project_override`) needs it on, and couldn't turn it on before that read. A deployment made with an earlier copy of the module gets it at its next apply: one `google_project_service` to add.
+- **The instance gets a backstop for sessions left idle in a transaction** (`database_idle_in_transaction_timeout_ms`, 10 minutes by default; 0 turns it off). A deployment made with an earlier copy of the module gets it at its next apply: one flag added to the instance, changed in place. Cloud SQL lists `idle_in_transaction_session_timeout` as a flag that needs no restart ([Cloud SQL: configure database flags](https://docs.cloud.google.com/sql/docs/postgres/flags)).
 - **Upgrades roll forward:** migrations only go forward, so an older runtime can break on a database a newer one migrated. Deploy a new runtime revision at 100% traffic, keep a database backup from before, and roll back by restoring it.
 
 ## Operating it
@@ -312,13 +328,16 @@ server_secret_env = {
 - **Rotating a secret:** add a version, then roll a new revision of each service that reads it (`gcloud run services update <service> --update-labels=rotated=$(date +%s)`).
 - **The AAD key is pinned, never rotated this way.** The server reads the version `secrets_aad_key_version` names, not `latest`. Every secret stored in Postgres is bound to it: a new version is a key change that needs every stored secret re-encrypted, and a version added by mistake must not reach the server.
   - **Upgrading from a module copy before this variable:** set it to the version your server reads now. `gcloud secrets versions list $N-secrets-aad-key` shows it; normally `1`.
+- **Database timeouts:** from runtime 0.1.9, the server's connections carry their own: 60 s a statement, 30 s waiting for a lock, and 30 s idle in a transaction; a query waits at most 10 s for one of the server's pooled connections. `KINDGI_DB_STATEMENT_TIMEOUT_MS`, `KINDGI_DB_LOCK_TIMEOUT_MS`, `KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` and `KINDGI_DB_POOL_WAIT_TIMEOUT_MS` in `server_env` change them; 0 turns one off. The three Postgres timeouts win over the instance's flags. A GET or HEAD the statement or lock timeout or the pool wait ends answers 503 `database-busy` with `Retry-After: 5` (under `/auth/`, a browser signing in is sent back to the sign-in page instead), any other request 500, and the server's log has a `db` warning naming the setting, its value and its variable. The instance's `database_idle_in_transaction_timeout_ms` is the backstop for every other session on the module's own instance. The module sets no such flag on an instance `database_instance` or `database_host_instance` names; set it yourself if you want it — on a shared host instance it also ends the app's own sessions left idle that long, so that's the operator's call ([Cloud SQL: configure database flags](https://docs.cloud.google.com/sql/docs/postgres/flags)).
 - **Slow tools:** the runtime waits `KINDGI_PACK_CALL_TIMEOUT_MS` (default 120 s, `pack_call_timeout_ms`) for a tool call. Keep the pack service's `pack_timeout` above it.
 
 ## Serving from a restored instance
 
 A point-in-time recovery always makes a new instance ([Google: point-in-time recovery](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/pitr)). A backup can go into a new one too ([Google: restoring](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/restoring)); restored into the instance that serves, it overwrites everything on it. `database_instance` moves the server onto the new instance and leaves the module's own as it is. Public-IP mode only: the server reaches whichever instance it serves from through its `/cloudsql` volume.
 
-1. **Restore into a new instance in this project.** `S` is the instance the server serves from: `$N`, or `database_instance.name` after an earlier restore, since writes made since that switch are only there. `R` is the new one's name, such as `$N-r20261023`:
+With `database_host_instance` set there is no instance of the module's own, so a restore drill clones the app's whole instance (all its databases and users): it needs clone rights on that instance, works only if the app turned on backups or point-in-time recovery, and the clone should be deleted when the drill is done.
+
+1. **Restore into a new instance in this project.** `S` is the instance the server serves from: `$N`, or `database_instance.name` after an earlier restore, since writes made since that switch are only there. With `database_host_instance` set there is no `$N` instance of the module's own — set `S` to the host instance's name (or `database_instance.name` after an earlier restore). `R` is the new one's name, such as `$N-r20261023`:
 
    ```sh
    S=$N
@@ -371,9 +390,10 @@ A point-in-time recovery always makes a new instance ([Google: point-in-time rec
    - **The plan refuses:**
      - private-IP mode;
      - the module's own instance or its `$N-database-url`;
+     - the host instance itself (`database_host_instance`), where Kindgi's database lives — serve from a clone of it;
      - an instance without a public IP;
      - a connection name for `name`, or a path for `url_secret`.
-6. **The module's own instance stays,** with its deletion protection. The `sql_connection_name` output still names it. Writes made since the restore point are on it alone.
+6. **The module's own instance stays,** with its deletion protection. The `sql_connection_name` output still names it. Writes made since the restore point are on it alone. (With `database_host_instance` set there is no instance of the module's own: going back points the server at the host instance again, and `sql_connection_name` names the host.)
 
 **Anything else on the instance** comes back with it: another database there, an OpenFGA store's, say. That moves on your side, in the same window.
 

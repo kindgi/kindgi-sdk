@@ -15,6 +15,8 @@ import type {
   Site,
   SiteBinding,
   SiteEnrollOutcome,
+  SitePersonRestoreInput,
+  SitePersonRestoreOutcome,
   SiteRegisterInput,
   SiteSignInOutcome,
   TokenResolver,
@@ -70,10 +72,13 @@ function makeApp(
     enroll?: SiteEnrollOutcome;
     signIn?: SiteSignInOutcome;
     clientAddress?: false;
+    /** What `restorePerson` answers; `absent` for a binding without it. */
+    restore?: SitePersonRestoreOutcome | 'absent';
   } = {},
 ) {
   const sites = new Map<string, Site>();
   const calls: Array<{ method: string; input: unknown }> = [];
+  const { restore } = options;
   const binding: SiteBinding = {
     async register(input: SiteRegisterInput) {
       calls.push({ method: 'register', input });
@@ -137,6 +142,14 @@ function makeApp(
         options.enroll ?? { kind: 'ok', siteId: 'site-1', audience: 'https://kindgi.acme.example' }
       );
     },
+    ...(restore === 'absent'
+      ? {}
+      : {
+          async restorePerson(input: SitePersonRestoreInput) {
+            calls.push({ method: 'restorePerson', input });
+            return restore ?? { kind: 'not-found' };
+          },
+        }),
     async signIn(input) {
       calls.push({ method: 'signIn', input });
       return (
@@ -351,6 +364,116 @@ describe('the sites of a project (tenant admins)', () => {
     expect(
       (await h.call(ADMIN, 'GET', `/v1/projects/${P1}/sites/${randomUUID()}`)).body.error,
     ).toMatchObject({ code: 'site-not-found', message: 'No site with that id in this project' });
+  });
+});
+
+describe("letting a site's person removed in Kindgi back in (tenant admins)", () => {
+  const SITE = randomUUID();
+  const JANE = randomUUID();
+  const restore = `/v1/projects/${P1}/sites/${SITE}/people/${JANE}/restore`;
+  const jane = {
+    userId: JANE as UserId,
+    tenantId,
+    displayName: 'Jane, via Acme store',
+    createdAt: NOW,
+  };
+
+  test('the binding gets the site, the person and who asked, and the answer is the person', async () => {
+    const h = makeApp({ restore: { kind: 'ok', user: jane } });
+    const res = await h.call(ADMIN, 'POST', restore);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      user: { userId: JANE, tenantId, displayName: 'Jane, via Acme store', createdAt: NOW },
+    });
+    expect(h.calls).toEqual([
+      {
+        method: 'restorePerson',
+        input: { tenantId, projectId: P1, siteId: SITE, userId: JANE, by: 'user:ada' },
+      },
+    ]);
+  });
+
+  test('a person who is not a tenant admin is refused, and the binding is never asked', async () => {
+    const h = makeApp({ restore: { kind: 'ok', user: jane } });
+    const res = await h.call(MEMBER, 'POST', restore);
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('permission-denied');
+    expect(h.calls).toEqual([]);
+  });
+
+  test.each([
+    ['not-removed', "This person isn't removed: there's nothing to undo"],
+    [
+      'left',
+      'Their site said they left it, and forgot them: if they come back, it signs them in as a new person',
+    ],
+    [
+      'linked-elsewhere',
+      "This person also signs in another way (through another site, or the tenant's own sign-in), and letting them back in would let them in there too. Add them again instead, as a new person: with an email, they're invited",
+    ],
+  ] as const)('refused as %s: a 409 that says why, with the person', async (reason, message) => {
+    const h = makeApp({ restore: { kind: 'refused', reason } });
+    const res = await h.call(ADMIN, 'POST', restore);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'site-person-restore-refused',
+      message,
+      details: { reason, userId: JANE },
+    });
+  });
+
+  test('no such site, or a site with no link to the person: a 404 each, with its own code', async () => {
+    const noSite = await makeApp({ restore: { kind: 'not-found' } }).call(ADMIN, 'POST', restore);
+    expect(noSite.status).toBe(404);
+    expect(noSite.body.error).toMatchObject({
+      code: 'site-not-found',
+      message: 'No site with that id in this project',
+    });
+    const noPerson = await makeApp({ restore: { kind: 'person-not-found' } }).call(
+      ADMIN,
+      'POST',
+      restore,
+    );
+    expect(noPerson.status).toBe(404);
+    expect(noPerson.body.error).toMatchObject({
+      code: 'site-person-not-found',
+      message: 'No person of this site with that id',
+      details: { userId: JANE },
+    });
+  });
+
+  test('a retry with the same Idempotency-Key gets the same answer, and the binding is asked once', async () => {
+    const h = makeApp({ restore: { kind: 'ok', user: jane } });
+    const post = () =>
+      h.app.request(restore, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${ADMIN}`, 'idempotency-key': 'restore-jane-1' },
+      });
+    const first = await post();
+    const again = await post();
+    expect(first.status).toBe(200);
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual(await first.json());
+    expect(h.calls.filter((c) => c.method === 'restorePerson')).toHaveLength(1);
+  });
+
+  test("a project id that isn't one is a 400, before the binding is asked", async () => {
+    const h = makeApp({ restore: { kind: 'ok', user: jane } });
+    const res = await h.call(
+      ADMIN,
+      'POST',
+      `/v1/projects/p-1/sites/${SITE}/people/${JANE}/restore`,
+    );
+    expect(res.status).toBe(400);
+    expect(h.calls).toEqual([]);
+  });
+
+  test("a binding that can't let people back in: the route isn't there, and the site's others are", async () => {
+    const h = makeApp({ restore: 'absent' });
+    const res = await h.call(ADMIN, 'POST', restore);
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('route-not-found');
+    expect((await h.call(ADMIN, 'GET', `/v1/projects/${P1}/sites`)).status).toBe(200);
   });
 });
 

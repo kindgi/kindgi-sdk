@@ -18,7 +18,7 @@ Use it to answer "where did this answer come from?" and "what did it cost?".
 
 ## Before you start
 
-- **A runtime,** such as `kindgi dev`, with Kindgi 0.1's CLI.
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.2's CLI.
 - **The id of an agent turn's run.** `kindgi runs list` shows it.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set in your shell, for the
   HTTP requests. With `kindgi dev`, they're the URL and token it prints. They're
@@ -63,7 +63,7 @@ Over HTTP it's `GET /v1/provenance/<run-id>`:
 
 ```sh
 curl "$KINDGI_API_URL/v1/provenance/a64ce71c-9cfc-4263-87b1-b5562f09079c" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN"
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 Both answer the record:
@@ -418,7 +418,7 @@ Over HTTP it's `GET /v1/provenance`, filtered by `runId`, `agentId` or
 
 ```sh
 curl "$KINDGI_API_URL/v1/provenance?createdAfter=2026-10-05T16:25:00Z&limit=3" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN"
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 ```json

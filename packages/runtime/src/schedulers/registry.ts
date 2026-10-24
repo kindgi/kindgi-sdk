@@ -312,6 +312,14 @@ export interface RegisterCronTriggerInput {
   /** How late a fire may start and still count as on time; past it, `catchUp` applies. */
   readonly startingDeadlineSeconds?: number;
   readonly label?: string;
+  /**
+   * Tools, by id, whose calls in its runs don't wait for a person's yes
+   * though no person started them (the tool's `needsApprovalWhenUnattended`):
+   * copied to each run when it starts (`RunFlowInput.toolsAllowedUnattended`).
+   * A project admin's to set, and each id one the target can call (the
+   * route checks both). Absent: none.
+   */
+  readonly toolsAllowedUnattended?: readonly string[];
 }
 
 export interface RegisterEventTriggerInput {
@@ -359,6 +367,8 @@ export interface RegisterWebhookTriggerInput {
   /** Accepted deliveries a minute; absent → {@link WEBHOOK_RATE_LIMITS}`.defaultPerMinute`. */
   readonly rateLimitPerMinute?: number;
   readonly label?: string;
+  /** As `RegisterCronTriggerInput.toolsAllowedUnattended`. */
+  readonly toolsAllowedUnattended?: readonly string[];
 }
 
 // ---------- update (discriminated on kind) ----------
@@ -385,6 +395,8 @@ export interface UpdateCronTriggerInput extends Omit<UpdateBase, 'flowVersion'> 
   readonly catchUp?: ScheduleCatchUp;
   readonly overlap?: ScheduleOverlap;
   readonly startingDeadlineSeconds?: number;
+  /** The `toolsAllowedUnattended`, replaced: `[]` clears it. Absent: kept as it is. */
+  readonly toolsAllowedUnattended?: readonly string[];
 }
 
 export interface UpdateEventTriggerInput extends UpdateBase {
@@ -406,6 +418,8 @@ export interface UpdateWebhookTriggerInput extends UpdateBase {
   readonly bodyLimitBytes?: number | null;
   /** `null` goes back to the default. */
   readonly rateLimitPerMinute?: number | null;
+  /** As `UpdateCronTriggerInput.toolsAllowedUnattended`. */
+  readonly toolsAllowedUnattended?: readonly string[];
 }
 
 // ---------- records (discriminated on kind) ----------
@@ -440,6 +454,11 @@ export interface CronTriggerRecord extends TriggerRecordBase {
   readonly statusReason?: string;
   /** The next occurrences, when the read asked for them (`GetTriggerInput.upcoming`). */
   readonly upcoming?: readonly string[];
+  /**
+   * Tools its runs may call without a person's yes
+   * (`RegisterCronTriggerInput.toolsAllowedUnattended`). Absent: none.
+   */
+  readonly toolsAllowedUnattended?: readonly string[];
 }
 
 export interface EventTriggerRecord extends FlowTriggerRecordBase {
@@ -465,6 +484,8 @@ export interface WebhookTriggerRecord extends FlowTriggerRecordBase {
   readonly statusReason?: string;
   /** Refusals and skipped deliveries this minute past the recorded ones, which only counted. */
   readonly suppressedRefusals?: { readonly since: string; readonly count: number };
+  /** As `CronTriggerRecord.toolsAllowedUnattended`. */
+  readonly toolsAllowedUnattended?: readonly string[];
 }
 
 export type TriggerRecord = CronTriggerRecord | EventTriggerRecord | WebhookTriggerRecord;

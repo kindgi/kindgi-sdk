@@ -1,5 +1,93 @@
 # @kindgi/guardrails
 
+## 0.1.10
+
+### Patch Changes
+
+- @kindgi/capabilities@0.1.10
+  - @kindgi/compliance@0.1.10
+  - @kindgi/schema@0.1.10
+  - @kindgi/bounds@0.1.10
+  - @kindgi/types@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/bounds@0.1.10-rc.1
+  - @kindgi/capabilities@0.1.10-rc.1
+  - @kindgi/compliance@0.1.10-rc.1
+  - @kindgi/schema@0.1.10-rc.1
+  - @kindgi/types@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- @kindgi/capabilities@0.1.10-rc.0
+  - @kindgi/compliance@0.1.10-rc.0
+  - @kindgi/schema@0.1.10-rc.0
+  - @kindgi/bounds@0.1.10-rc.0
+  - @kindgi/types@0.1.10-rc.0
+
+## 0.1.9
+
+### Patch Changes
+
+- 7be0273: **A guardrail's `action` is described as what it does in 0.1: only `halt` acts.** The OpenAPI `GuardrailAction` description, the guardrail YAML schema (`guardrail.schema.json`, both its `on-violation` text and its top-level description), the `Guardrail.action` and `OnViolation` docs and the package description of `@kindgi/guardrails`, the TS client's `GuardrailAction`, the Python client's model and the Python SDK README now say the same as the guardrail skills: a failed `halt` check fails the turn with `guardrail-violation`, and any other value, `retry`, `escalate`, `compensate` and custom names included, is recorded as a violation and the turn completes. They no longer say that `retry` runs the step again, that `escalate` routes to review, that `compensate` calls a tool, that a custom name needs an action handler registered (the runtime registers none), or that a `retry` action needs `maxAttempts` (only a `retry` object, when given, needs it). `retry`, `escalateTo` and `compensateWith` gain descriptions saying nothing acts on them in 0.1. No behaviour changes, and no shape changes.
+- 8bcfa4b: **The guardrail skills and the guardrails guide say up front what a guardrail can do in 0.1.** Before, the skills listed `halt / retry / escalate / log-only / compensate` in their descriptions and said only far down that the runtime acts only on `halt`, so a coding agent asked to "block the reply and make the agent try again" planned a retry it couldn't build. The skills (`kindgi-authoring-guardrails` 0.3.10, `kindgi-python-authoring-guardrails` 0.1.5, `kindgi-java-authoring-guardrails` 0.1.2, `kindgi-scala-authoring-guardrails` 0.1.2) and the guide's overview now open with three limits:
+  - **Only `halt` acts.** `retry`, `escalate` and `compensate` are recorded on the turn's violations, as `log-only` is, and nothing runs the turn again, escalates or calls a tool.
+  - **A check sees one turn:** that turn's user message, tool calls, tool results and answer. Earlier turns aren't in its trace.
+  - **A check's in-memory state doesn't last:** it's lost when the pack's process is replaced (every reload and restart under `kindgi dev`, an instance stopping in a deployment), and each instance keeps its own.
+  
+  They also say what works today for a check on figures, and what it doesn't cover. The `on-violation` action's docs say the same: the `Action` JSDoc in `@kindgi/guardrails`, the Python `@guardrail` docstring, and `onViolation` in the Java and Scala packs. No behaviour changes.
+- Updated dependencies [5d68d0d]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [3c8afcf]
+- Updated dependencies [ffeecb2]
+- Updated dependencies [3502389]
+  - @kindgi/compliance@0.1.9
+  - @kindgi/capabilities@0.1.9
+  - @kindgi/bounds@0.1.9
+  - @kindgi/schema@0.1.9
+  - @kindgi/types@0.1.9
+
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/bounds@0.1.9-rc.1
+  - @kindgi/capabilities@0.1.9-rc.1
+  - @kindgi/compliance@0.1.9-rc.1
+  - @kindgi/schema@0.1.9-rc.1
+  - @kindgi/types@0.1.9-rc.1
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- 7be0273: **A guardrail's `action` is described as what it does in 0.1: only `halt` acts.** The OpenAPI `GuardrailAction` description, the guardrail YAML schema (`guardrail.schema.json`, both its `on-violation` text and its top-level description), the `Guardrail.action` and `OnViolation` docs and the package description of `@kindgi/guardrails`, the TS client's `GuardrailAction`, the Python client's model and the Python SDK README now say the same as the guardrail skills: a failed `halt` check fails the turn with `guardrail-violation`, and any other value, `retry`, `escalate`, `compensate` and custom names included, is recorded as a violation and the turn completes. They no longer say that `retry` runs the step again, that `escalate` routes to review, that `compensate` calls a tool, that a custom name needs an action handler registered (the runtime registers none), or that a `retry` action needs `maxAttempts` (only a `retry` object, when given, needs it). `retry`, `escalateTo` and `compensateWith` gain descriptions saying nothing acts on them in 0.1. No behaviour changes, and no shape changes.
+- 8bcfa4b: **The guardrail skills and the guardrails guide say up front what a guardrail can do in 0.1.** Before, the skills listed `halt / retry / escalate / log-only / compensate` in their descriptions and said only far down that the runtime acts only on `halt`, so a coding agent asked to "block the reply and make the agent try again" planned a retry it couldn't build. The skills (`kindgi-authoring-guardrails` 0.3.10, `kindgi-python-authoring-guardrails` 0.1.5, `kindgi-java-authoring-guardrails` 0.1.2, `kindgi-scala-authoring-guardrails` 0.1.2) and the guide's overview now open with three limits:
+  - **Only `halt` acts.** `retry`, `escalate` and `compensate` are recorded on the turn's violations, as `log-only` is, and nothing runs the turn again, escalates or calls a tool.
+  - **A check sees one turn:** that turn's user message, tool calls, tool results and answer. Earlier turns aren't in its trace.
+  - **A check's in-memory state doesn't last:** it's lost when the pack's process is replaced (every reload and restart under `kindgi dev`, an instance stopping in a deployment), and each instance keeps its own.
+  
+  They also say what works today for a check on figures, and what it doesn't cover. The `on-violation` action's docs say the same: the `Action` JSDoc in `@kindgi/guardrails`, the Python `@guardrail` docstring, and `onViolation` in the Java and Scala packs. No behaviour changes.
+- Updated dependencies [5d68d0d]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [3c8afcf]
+- Updated dependencies [ffeecb2]
+- Updated dependencies [3502389]
+  - @kindgi/compliance@0.1.9-rc.0
+  - @kindgi/capabilities@0.1.9-rc.0
+  - @kindgi/bounds@0.1.9-rc.0
+  - @kindgi/schema@0.1.9-rc.0
+  - @kindgi/types@0.1.9-rc.0
+
 ## 0.1.8
 
 ### Patch Changes

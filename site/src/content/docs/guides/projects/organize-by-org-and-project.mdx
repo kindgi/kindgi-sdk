@@ -34,7 +34,7 @@ it's in: its `projectId`, with the runtime 0.1.6 or later. A pack
 
 ## Before you start
 
-- **A runtime,** such as `kindgi dev`, with Kindgi 0.1's client and CLI.
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.2's client and CLI.
 - **Node 22.12 or later, Python 3.11 or later, or Java 17 or later,** for the
   client.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set, or a running
@@ -231,8 +231,8 @@ pack whose ids all start with its pack id, so two clients' packs never share
 an id:
 
 ```sh
-npx --yes @kindgi/cli@0.1 projects create --name="Acme shop" --org=<org-id>
-npx --yes @kindgi/cli@0.1 init acme-shop --template=woocommerce
+npx --yes @kindgi/cli@0.2 projects create --name="Acme shop" --org=<org-id>
+npx --yes @kindgi/cli@0.2 init acme-shop --template=woocommerce
 cd acme-shop
 pnpm install
 pnpm exec kindgi deploy --project acme-shop
@@ -500,6 +500,30 @@ kindgi.orgs().delete(org.id)
 Kindgi keeps the deleted org's record until a
 [retention policy](../../../deploy/retention/) on `org` purges it. That
 comes after its environments' and MCP endpoints' own records are purged.
+
+## Rename your workspace
+
+Your workspace is the tenant your orgs and projects sit in. A tenant admin
+can rename it (runtime 0.1.10 or later): its name, its slug, or both. Its
+id stays, so whatever names it by its id keeps working, your keys and the
+CLI included.
+
+- `kindgi tenant rename --name="Acme Store"` changes its name, and
+  `--slug=acme-store` its slug. It prints the workspace, as
+  `kindgi tenant get` does.
+- The TypeScript and Python clients' `tenant.update` does the same:
+  `PATCH /v1/tenant`, which answers `204`.
+- In the console, use **Rename** in the header of the workspace's home page.
+
+The console's addresses carry the slug. After a new one, a bookmark or a link
+with the old slug opens a page that says the address names another
+workspace, with a link to yours. Another workspace can then take the old
+slug. Nothing in the CLI or the clients uses it.
+
+A workspace's slug is lowercase letters, digits and single hyphens, at most
+63 characters, and unique across the runtime's workspaces. A taken one is
+refused with `409 tenant-slug-taken`, and a closing workspace with
+`409 tenant-closing`.
 
 ## Next
 

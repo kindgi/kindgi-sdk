@@ -55,6 +55,8 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
     'The deployment trust list: the public keys whose signatures `POST /v1/deployments` accepts. Revoked keys stay readable for audit.',
   'system-tenants':
     "The operator's tenants on a runtime serving many: create, list, read, close and suspend them (a project too), and what the control plane sets on each (production, limits, the image prefix), plus the admins' contacts for service notices. System keys only, each route under its own scope.",
+  'system-usage':
+    "Usage across tenants, aggregated (counts, sums, first and last times): the control plane's pull for statements. System keys only.",
   'system-keys':
     "The operator's system keys (`kgi_sy_…`), on a runtime serving many tenants: each acts in no tenant, with the least system scope its service needs (sign-up, the orchestrator, billing, the license renewal), and only the full system capability mints them. A runtime serving one tenant has none.",
   'system-deployments':
@@ -84,6 +86,8 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
     'Capability catalog (list + get) — part of the admin control plane. Read-only over HTTP. Capabilities are framework-declared (`FEATURES` enum + `@kindgi/specs/capability.schema.json`) and deployment-extended at boot time via `CapabilityRegistryBinding`; tenants do NOT author capabilities via the API.',
   providers:
     'Model-provider catalog (list, get, register, unregister, capabilities sub-resource) — part of the admin control plane. Full CRUD. `ProviderMetadata` is the wire shape; secrets never cross the wire (they live inside `ProviderRegistryBinding`). The capability router picks a best-fit provider from this set per capability requirement at run time.',
+  usage:
+    "Your workspace's usage, aggregated: runs, approvals, model calls and projects put in production, counted and summed by project, agent, kind, class, state or day, over the projects you may read. Model-call cost is on `cost`.",
   cost: 'Cost readback (list records, get record, aggregate across a required time window) — part of the admin control plane. Read-only over HTTP; records are written by the runtime usage instrumentation (agents, tools, sandboxes). Caller-plugged via `CostBinding`. Budgets are not enforced through this surface.',
   adapters:
     'Unified adapter catalog (list, get, test) — part of the admin control plane. Covers every adapter kind the deployment wired: model providers, embedding providers, blob storage, sandbox providers, eval judges. Read-only + smoke-test-only over HTTP; adapter lifecycle (register / unregister / reconfigure) is a deployment concern — the runtime learns about adapters at `CreateAppInput` time. Caller-plugged via `AdapterRegistryBinding`. Config is REDACTED on the wire — no secrets crossing.',

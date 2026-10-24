@@ -103,6 +103,15 @@ export interface InvokeAgentInput {
    */
   readonly startedBy?: RunStartedBy;
   /**
+   * The tools, by id, whose `needsApprovalWhenUnattended` doesn't hold in
+   * this turn though no person started its run: the
+   * `toolsAllowedUnattended` of the webhook or schedule that started it,
+   * recorded with the run (`RunFlowInput.toolsAllowedUnattended`). Only
+   * that wait is lifted: the tenant's floor and the agent's own rules
+   * still apply. Set by the runtime from the run, never from a request.
+   */
+  readonly toolsAllowedUnattended?: readonly string[];
+  /**
    * The turn's message is an event's, though no webhook or event starts
    * this run: a replay of a run one started sets it (its turn, or a flow's
    * agent step's), and records no start of its own. The turn reads its

@@ -25,7 +25,7 @@ API, as this guide shows.
 
 ## Before you start
 
-- **A runtime,** such as `kindgi dev`, with Kindgi 0.1's CLI.
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.2's CLI.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set in your shell: your
   runtime's URL and its API token. `kindgi dev` prints both.
 - **`uv`,** to run the example server.
@@ -240,7 +240,7 @@ Or register it with `curl`:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/mcp/endpoints" \
-  -H "authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{"endpointId":"inventory","name":"Inventory","transport":"streamable-http",
        "config":{"transport":"streamable-http","url":"http://localhost:8791/mcp"},
        "scopeKind":"tenant"}'
@@ -484,6 +484,14 @@ Store the secret with
 unregister the endpoint and register it again, as
 [When the server changes](#when-the-server-changes) shows.
 
+Whichever way it's sent, a credential the server quotes back in an error
+shows as `[redacted]`: in the tool call's result, the run's events, the
+endpoint's
+[resource and prompt reads](../../../reference/api/operations/tags/mcp/),
+and the logs ([what's looked for](../give-a-tool-a-secret/#store-the-secret)).
+A `stdio` server gets no headers or `auth`, and what's in its `env` isn't
+looked for.
+
 ### Sign in with a user name and password
 
 For a server that takes HTTP Basic, use `auth` instead of `secretRef`. A
@@ -581,7 +589,7 @@ a secret in two headers, or `Authorization` with a prefix other than
 MCP server wants an API key and a secret, each in a header of its own." For
 reference, it adds this to the registration:
 
-```json
+```json excerpt
 "auth": {
   "scheme": "header",
   "headers": [
@@ -595,7 +603,7 @@ Kindgi sends each header as `<name>: <prefix><secret>` on every request, the
 secrets resolved from the tenant's secrets when it connects. Reading the
 endpoint back shows the references only:
 
-```json
+```json excerpt
 "auth":{"scheme":"header","headers":[{"name":"X-Api-Key","secretRef":{"name":"INVENTORY_KEY","envName":"local"}},{"name":"X-Api-Secret","prefix":"Secret ","secretRef":{"name":"INVENTORY_SECRET","envName":"local"}}]}
 ```
 
@@ -693,7 +701,7 @@ use `auth` with `scheme: "header"`.
 It keeps working, and:
 - **reads back `[redacted]`** for each such header, its name kept:
 
-  ```json
+  ```json excerpt
   "config":{"url":"http://127.0.0.1:18766/mcp","headers":{"X-Region":"eu","X-Api-Key":"[redacted]","X-Api-Secret":"[redacted]"},"transport":"streamable-http"}
   ```
 - **never follows a redirect**, as an endpoint with `auth` or `secretRef`
@@ -851,7 +859,7 @@ and registering again does. `inventory` in the path is the endpoint's id:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/mcp/endpoints/inventory/unregister" \
-  -H "authorization: Bearer $KINDGI_API_TOKEN"
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 ```json

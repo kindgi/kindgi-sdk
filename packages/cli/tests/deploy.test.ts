@@ -944,6 +944,24 @@ describe("kindgi deploy — the server's rate limit", () => {
     expect(new Set(run.keys).size).toBe(1);
   });
 
+  test("the tenant's hour of image reads is waited out as any limit is; a wait past what it waits fails with the hour's hint", async () => {
+    const hour = (retryAfter: string) =>
+      refusal({ 'Retry-After': retryAfter }, { limit: 'tenant-unpack-hour' });
+    const waited = await deployAgainst([hour('90'), created]);
+    expect(waited.out.exitCode, waited.out.stderr).toBe(0);
+    expect(waited.lines).toEqual([
+      "The server's tenant-unpack-hour limit is reached: sending it again in 90s.\n",
+    ]);
+    expect(waited.keys).toHaveLength(2);
+    const past = await deployAgainst([hour('2400'), created]);
+    expect(past.out.exitCode).toBe(1);
+    expect(past.keys).toHaveLength(1);
+    expect(past.lines).toEqual([]);
+    expect(past.out.stderr.replaceAll(/\s+/g, ' ')).toContain(
+      "This tenant's image reads unpacked as much as the server allows in an hour.",
+    );
+  });
+
   test('a 429 without Retry-After: no wait, it fails at once', async () => {
     const run = await deployAgainst([refusal(), created]);
     expect(run.out.exitCode).toBe(1);
