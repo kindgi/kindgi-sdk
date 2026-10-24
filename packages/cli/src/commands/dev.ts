@@ -298,7 +298,7 @@ function emitProgress(msg: string): void {
   emitProblem(msg);
 }
 
-/** A progress line that's an error: shown under `--quiet` too. */
+/** A progress line that's an error or a warning: shown under `--quiet` too. */
 function emitProblem(msg: string): void {
   process.stderr.write(`${stoppingLineOpen ? '\n' : ''}  ${msg}\n`);
   stoppingLineOpen = false;
@@ -535,7 +535,7 @@ async function runDevForPack(
       `✓ Google credentials: ${google.credentials.path} (${google.credentials.who}), mounted read-only for Vertex AI`,
     );
   } else if (declaredVertex.length > 0) {
-    emitProgress(`⚠ ${vertexCredentialsHint(declaredVertex, ctx.env)}`);
+    emitProblem(`⚠ ${vertexCredentialsHint(declaredVertex, ctx.env)}`);
   }
 
   // The pack service runs sandboxed where this machine can: the code a
@@ -587,7 +587,7 @@ async function runDevForPack(
       };
     }
     if (args.recreateServices) {
-      emitProgress(
+      emitProblem(
         '⚠ --recreate-services: the shared Postgres may be recreated; every kindgi dev on this machine using it reconnects',
       );
     }
@@ -617,7 +617,7 @@ async function runDevForPack(
         ? "✓ Postgres: started with docker (docker compose isn't available)"
         : '✓ Postgres: started with docker compose',
     );
-    for (const note of outcome.handle.notes ?? []) emitProgress(`⚠ ${note}`);
+    for (const note of outcome.handle.notes ?? []) emitProblem(`⚠ ${note}`);
   }
 
   const kindgircPath = join(args.packDir, '.kindgirc.json');
@@ -759,7 +759,7 @@ async function runDevForPack(
     onNotice: (line: string) => {
       if (sandboxNotices.has(line)) return;
       sandboxNotices.add(line);
-      emitProgress(`⚠ ${line}`);
+      emitProblem(`⚠ ${line}`);
     },
     onLog: (line: string, stream: 'stdout' | 'stderr') =>
       emitOutput(showText('pack', line, logView, stream)),
@@ -944,7 +944,7 @@ async function runDevForPack(
       providersTarget.database,
       server.tenantId,
     ).catch((err: unknown) => {
-      emitProgress(
+      emitProblem(
         `  ⚠ could not update ${join('.kindgi', 'dev', 'providers.json')}: ${(err as Error).message}. Providers this pack registered before 0.1.4 may read as not its own.`,
       );
     });
@@ -977,7 +977,7 @@ async function runDevForPack(
     const byHand = (providers ?? [])
       .map((p) => p.id)
       .filter((id) => id === VERTEX_PROVIDER_ID && !declaredVertex.includes(id));
-    if (byHand.length > 0) emitProgress(`⚠ ${vertexCredentialsHint(byHand, ctx.env)}`);
+    if (byHand.length > 0) emitProblem(`⚠ ${vertexCredentialsHint(byHand, ctx.env)}`);
   }
   // A preview runtime near the end of its life (90 days after its
   // release, until 1.0): from 30 days before, the way to a newer one.
@@ -985,7 +985,7 @@ async function runDevForPack(
     await readLicenseStatus(client),
     devRuntimeSource(args),
   );
-  if (previewWarning !== undefined) emitProgress(previewWarning);
+  if (previewWarning !== undefined) emitProblem(previewWarning);
 
   const bannerLines = renderDevBanner({
     baseUrl: server.baseUrl,
@@ -1271,7 +1271,7 @@ async function runDevForPack(
   const stdout = ctx.globals.formatRequested ? renderJson(summary, ctx.globals.format).stdout : '';
   return {
     kind: 'ok',
-    // --quiet: errors only, so no summary.
+    // --quiet: errors and warnings only, so no summary.
     rendered: {
       stdout,
       stderr: args.watch || logView.quiet ? '' : `${bannerLines.join('\n')}\n`,
@@ -1389,7 +1389,7 @@ async function loadDevProjectEnv(ctx: CommandContext, packDir: string): Promise<
       ? `env files: none yet (reads ${label(env.files.read)})`
       : `✓ env files: ${label(env.present)} — ${Object.keys(packValues(env.values)).length} name(s) for the pack`,
   );
-  for (const line of describeEnvDiagnostics(packDir, env.diagnostics)) emitProgress(`  ! ${line}`);
+  for (const line of describeEnvDiagnostics(packDir, env.diagnostics)) emitProblem(`  ! ${line}`);
   const discovery = settings.config?.discovery;
   const language =
     settings.config !== undefined ? packLanguage(settings.config as KindgiConfig) : 'node';
@@ -1469,7 +1469,7 @@ async function walkRuntimePorts(
       exitCode: 1,
     };
   }
-  emitProgress(`⚠ port ${args.port} is in use (another kindgi dev?): using ${free}`);
+  emitProblem(`⚠ port ${args.port} is in use (another kindgi dev?): using ${free}`);
   return { kind: 'ok', port: free };
 }
 
@@ -1773,7 +1773,7 @@ function reportWatchFailureOnce(): (error: unknown) => void {
     if (said) return;
     said = true;
     const why = error instanceof Error ? error.message : String(error);
-    emitProgress(`  ⚠ file watch failed (${why}): changes are picked up by the once-a-second scan`);
+    emitProblem(`  ⚠ file watch failed (${why}): changes are picked up by the once-a-second scan`);
   };
 }
 
@@ -1962,9 +1962,9 @@ async function emitSkillDriftHint(
       await detectSkillDrift({ skillsRoot, targetDir: packDir, language }),
     );
     if (drift === undefined) return;
-    emitProgress(`  ⚠ Framework skills: ${drift}.`);
-    emitProgress(`    Run \`${syncCommand}\` to pull the latest.`);
-    emitProgress('');
+    emitProblem(`  ⚠ Framework skills: ${drift}.`);
+    emitProblem(`    Run \`${syncCommand}\` to pull the latest.`);
+    emitProblem('');
   } catch {
     // Advisory; never block boot on a drift-check failure.
   }
@@ -2067,7 +2067,7 @@ async function settleProviderKeys(inputs: {
   for (const h of held) {
     if (h.inKindgiFile) continue;
     const where = h.files.map((f) => displayEnvPath(inputs.packDir, f)).join(' and ');
-    emitProgress(
+    emitProblem(
       `  ⚠ ${h.name} is in ${where}, which your app loads too. To give Kindgi its own copy: ${inputs.kindgi('secrets', 'copy')} (it never edits your app's files).`,
     );
   }
@@ -2121,7 +2121,7 @@ async function applyDeclaredProviders(inputs: {
       hasSecret: (name) => inputs.secretNames.has(name),
     });
   } catch (err) {
-    emitProgress(
+    emitProblem(
       `⚠ Providers from ${inputs.file}: not applied; the runtime's providers could not be listed: ${(err as Error).message}`,
     );
     return;
@@ -2130,7 +2130,7 @@ async function applyDeclaredProviders(inputs: {
   try {
     await writeOwnedProviders(recordPath, inputs.key, result.owned);
   } catch (err) {
-    emitProgress(
+    emitProblem(
       `  ⚠ could not write ${join('.kindgi', 'dev', 'providers.json')}: ${(err as Error).message}. The next boot leaves the providers registered now as they are.`,
     );
   }

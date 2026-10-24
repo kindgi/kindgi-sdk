@@ -32,6 +32,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { createLogger } from '@kindgi/log';
 
+import { defaultSdkSkillsRoot } from '../src/commands/init.js';
 import { LocalPortsRefused } from '../src/dev/blocked.js';
 import { type DevLockProcesses, devLockPath } from '../src/dev/dev-lock.js';
 import type { EnsureOutcome, ProjectDatabases } from '../src/dev/project-database.js';
@@ -55,6 +56,12 @@ const MODELS_GUIDE_URL = `https://docs.kindgi.com/v${CLI_VERSION.split('.').slic
 
 /** vi.waitFor's own default (1 s) is too short on a loaded machine; a passing wait returns as soon as it holds. */
 const WAIT = { timeout: 15_000 } as const;
+
+/** The flags to run a scenario twice: as it is, and with `--quiet` (errors and warnings only). */
+const LOUD_AND_QUIET: readonly (readonly string[])[] = [[], ['--quiet']];
+
+/** A line `kindgi dev` writes at every boot as progress: gone under `--quiet`. */
+const BOOT_PROGRESS = 'Bundling + indexing the pack...';
 
 let cwd: string;
 let home: string;
@@ -489,6 +496,25 @@ function captureStderr(): { readonly writes: string[]; restore(): void } {
   return { writes, restore: () => spy.mockRestore() };
 }
 
+/** Boot `kindgi dev --no-watch` once with these flags: all it said, live and at the end. */
+async function bootSaid(
+  fixtures: Fixtures,
+  flags: readonly string[] = [],
+  extra: Partial<RunCliInputs> = {},
+): Promise<string> {
+  const { writes, restore } = captureStderr();
+  try {
+    const out = await runCli({
+      ...baseInputs(fixtures, extra),
+      argv: ['dev', '--no-watch', `--path=${packDir}`, ...flags],
+    });
+    expect(out.exitCode).toBe(0);
+    return writes.join('') + out.stderr;
+  } finally {
+    restore();
+  }
+}
+
 // ---------- tests ----------
 
 describe('kindgi dev — argument validation', () => {
@@ -631,6 +657,28 @@ describe('kindgi dev — the project env files', () => {
     expect(log).toContain('.env:3: ignored');
     expect(log).not.toContain('sk-secret-value');
     expect(log).not.toContain('bad line');
+  });
+
+  test('a malformed env line is said under --quiet too; the files and counts are not', async () => {
+    await writeFile(join(packDir, '.env'), 'KINDGI_X=1\nbad line\n');
+    for (const flags of LOUD_AND_QUIET) {
+      const fixtures = makeFixtures();
+      const { writes, restore } = captureStderr();
+      try {
+        const out = await runCli({
+          ...baseInputs(fixtures),
+          argv: ['dev', '--no-watch', `--path=${packDir}`, ...flags],
+        });
+        expect(out.exitCode).toBe(0);
+        const said = writes.join('') + out.stderr;
+        expect(said).toContain('  ! .env:2: ignored — ');
+        expect(said).not.toContain('bad line');
+        expect(said.includes('env files: .env')).toBe(flags.length === 0);
+        expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
+      } finally {
+        restore();
+      }
+    }
   });
 
   test('public run tokens: the runtime makes the key; KINDGI_CORS_ORIGINS from the env files', async () => {
@@ -787,50 +835,57 @@ describe('kindgi dev — the project env files', () => {
     }
   });
 
-  test('a declared Vertex provider without Google credentials is said before the start', async () => {
+  test('a declared Vertex provider without Google credentials is said before the start, under --quiet too', async () => {
     await writeFile(
       join(packDir, 'kindgi.config.ts'),
       "export default { pack: { id: 'my-pack', version: '0.1.0' }, providers: [{ preset: 'gemini', project: 'acme-gcp' }] };\n",
       'utf8',
     );
-    const fixtures = makeFixtures();
-    const { writes, restore } = captureStderr();
-    try {
-      const out = await runCli({
-        ...baseInputs(fixtures),
-        argv: ['dev', '--no-watch', `--path=${packDir}`],
-      });
-      expect(out.exitCode).toBe(0);
-      const said = writes.join('') + out.stderr;
-      expect(said).toContain(
-        "⚠ Provider gemini (Vertex AI) has no Google credentials: set KINDGI_DEV_GOOGLE_CREDENTIALS=adc (or a credentials file), in the pack's .env or the shell, and restart kindgi dev.",
-      );
-      // Once, before the start: not again after boot for the same provider.
-      expect(said.split('has no Google credentials').length - 1).toBe(1);
-    } finally {
-      restore();
+    for (const flags of LOUD_AND_QUIET) {
+      const fixtures = makeFixtures();
+      const { writes, restore } = captureStderr();
+      try {
+        const out = await runCli({
+          ...baseInputs(fixtures),
+          argv: ['dev', '--no-watch', `--path=${packDir}`, ...flags],
+        });
+        expect(out.exitCode).toBe(0);
+        const said = writes.join('') + out.stderr;
+        expect(said).toContain(
+          "⚠ Provider gemini (Vertex AI) has no Google credentials: set KINDGI_DEV_GOOGLE_CREDENTIALS=adc (or a credentials file), in the pack's .env or the shell, and restart kindgi dev.",
+        );
+        // Once, before the start: not again after boot for the same provider.
+        expect(said.split('has no Google credentials').length - 1).toBe(1);
+        expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
+      } finally {
+        restore();
+      }
     }
   });
 
-  test('a Vertex provider registered by hand without Google credentials is said after boot', async () => {
-    const fixtures = makeFixtures({
-      providers: [
-        { id: 'gemini', region: 'global', models: [{ name: 'gemini-3.8-flash' }] },
-        DEV_ECHO_ROW,
-      ],
-    });
-    const { writes, restore } = captureStderr();
-    try {
-      const out = await runCli({
-        ...baseInputs(fixtures),
-        argv: ['dev', '--no-watch', `--path=${packDir}`],
+  test('a Vertex provider registered by hand without Google credentials is said after boot, under --quiet too', async () => {
+    for (const flags of LOUD_AND_QUIET) {
+      const fixtures = makeFixtures({
+        providers: [
+          { id: 'gemini', region: 'global', models: [{ name: 'gemini-3.8-flash' }] },
+          DEV_ECHO_ROW,
+        ],
       });
-      expect(out.exitCode).toBe(0);
-      expect(writes.join('') + out.stderr).toContain(
-        '⚠ Provider gemini (Vertex AI) has no Google credentials: set KINDGI_DEV_GOOGLE_CREDENTIALS=adc',
-      );
-    } finally {
-      restore();
+      const { writes, restore } = captureStderr();
+      try {
+        const out = await runCli({
+          ...baseInputs(fixtures),
+          argv: ['dev', '--no-watch', `--path=${packDir}`, ...flags],
+        });
+        expect(out.exitCode).toBe(0);
+        const said = writes.join('') + out.stderr;
+        expect(said).toContain(
+          '⚠ Provider gemini (Vertex AI) has no Google credentials: set KINDGI_DEV_GOOGLE_CREDENTIALS=adc',
+        );
+        expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
+      } finally {
+        restore();
+      }
     }
   });
 
@@ -1617,28 +1672,33 @@ describe('kindgi dev — watch flow', () => {
     ]);
   });
 
-  test('a failed file watch is said once, whichever watchers hear it', async () => {
-    const controller = new AbortController();
-    const fixtures = makeFixtures({ outcomes: [defaultHappyOutcome()] });
-    const promise = runCli({
-      ...baseInputs(fixtures, { stopSignal: controller.signal }),
-      argv: ['dev', `--path=${packDir}`],
-    });
-    await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(3), WAIT);
-    const stderr = vi.spyOn(process.stderr, 'write');
-    try {
-      fixtures.triggerWatchFailure(new Error('the watch of /pack ended'));
-      fixtures.triggerWatchFailure(new Error('too many open files'));
-      const lines = stderr.mock.calls.map(([chunk]) => String(chunk)).join('');
+  test('a failed file watch is said once, whichever watchers hear it, under --quiet too', async () => {
+    for (const flags of LOUD_AND_QUIET) {
+      const controller = new AbortController();
+      const fixtures = makeFixtures({ outcomes: [defaultHappyOutcome()] });
+      const { writes, restore } = captureStderr();
+      let out: Awaited<ReturnType<typeof runCli>>;
+      try {
+        const promise = runCli({
+          ...baseInputs(fixtures, { stopSignal: controller.signal }),
+          argv: ['dev', `--path=${packDir}`, ...flags],
+        });
+        await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(3), WAIT);
+        fixtures.triggerWatchFailure(new Error('the watch of /pack ended'));
+        fixtures.triggerWatchFailure(new Error('too many open files'));
+        controller.abort();
+        out = await promise;
+      } finally {
+        restore();
+      }
+      expect(out.exitCode).toBe(0);
+      const lines = writes.join('');
       expect(lines.match(/file watch failed/g)).toHaveLength(1);
       expect(lines).toContain(
         '⚠ file watch failed (the watch of /pack ended): changes are picked up by the once-a-second scan',
       );
-    } finally {
-      stderr.mockRestore();
+      expect(lines.includes('Watching ')).toBe(flags.length === 0);
     }
-    controller.abort();
-    expect((await promise).exitCode).toBe(0);
   });
 
   test("a runtime that won't stop still has the watchers and the pack service closed", async () => {
@@ -2256,6 +2316,38 @@ describe('kindgi dev — the shared services and --reset', () => {
     expect(spy.mock.calls[0]?.[0]?.databaseUrl).toBe('postgres://kindgi@127.0.0.1:55432/kindgi');
   });
 
+  test("Postgres' notes are said under --quiet too; how it started is not", async () => {
+    const note =
+      '--recreate-services needs docker compose: the existing kindgi-dev_postgres is reused as it is.';
+    for (const flags of LOUD_AND_QUIET) {
+      const viaDocker = withServices({
+        kind: 'ok',
+        handle: {
+          databaseUrl: 'postgres://kindgi@127.0.0.1:55432/kindgi',
+          services: ['postgres'],
+          startedWith: 'docker',
+          notes: [note],
+        },
+      });
+      const { writes, restore } = captureStderr();
+      try {
+        const out = await runCli({
+          ...baseInputs(viaDocker.fixtures),
+          env: {},
+          argv: ['dev', '--no-watch', '--recreate-services', `--path=${packDir}`, ...flags],
+        });
+        expect(out.exitCode).toBe(0);
+      } finally {
+        restore();
+      }
+      const said = writes.join('');
+      expect(said).toContain(`⚠ ${note}`);
+      expect(
+        said.includes("✓ Postgres: started with docker (docker compose isn't available)"),
+      ).toBe(flags.length === 0);
+    }
+  });
+
   test('without docker: one error naming the options, install Docker or --database-url', async () => {
     const { fixtures } = withServices({
       kind: 'unavailable',
@@ -2301,6 +2393,29 @@ describe('kindgi dev — the shared services and --reset', () => {
     expect(second.exitCode).toBe(0);
     expect(recreate.calls).toEqual([{ recreate: true }]);
     expect(writes.join('')).toContain('--recreate-services: the shared Postgres may be recreated');
+  });
+
+  test('--recreate-services says the shared Postgres may be recreated under --quiet too', async () => {
+    for (const flags of LOUD_AND_QUIET) {
+      const recreate = withServices();
+      const { writes, restore } = captureStderr();
+      try {
+        const out = await runCli({
+          ...baseInputs(recreate.fixtures),
+          env: {},
+          argv: ['dev', '--no-watch', '--recreate-services', `--path=${packDir}`, ...flags],
+        });
+        expect(out.exitCode).toBe(0);
+      } finally {
+        restore();
+      }
+      expect(recreate.calls).toEqual([{ recreate: true }]);
+      const said = writes.join('');
+      expect(said).toContain(
+        '⚠ --recreate-services: the shared Postgres may be recreated; every kindgi dev on this machine using it reconnects',
+      );
+      expect(said.includes('Starting Postgres...')).toBe(flags.length === 0);
+    }
   });
 
   test('--reset starts this pack fresh (a new tenant and token) and leaves the services alone', async () => {
@@ -2456,6 +2571,44 @@ describe('kindgi dev — a database per project', () => {
     expect(Object.keys(JSON.parse(await readFile(recordPath, 'utf8')).runtimes)).toEqual([
       `bundled kindgi_acme tenant ${tenant}`,
     ]);
+  });
+
+  test("a providers.json that can't be written is said under --quiet too, once for each write", async () => {
+    await writeFile(join(packDir, 'kindgi.config.ts'), GEMINI_CONFIG, 'utf8');
+    const base = makeFixtures();
+    await boot(withProjectDatabase({ base }).fixtures);
+    const recordDir = join(packDir, '.kindgi', 'dev');
+    const recordPath = join(recordDir, 'providers.json');
+    const record = JSON.parse(await readFile(recordPath, 'utf8')) as {
+      readonly runtimes: Record<string, unknown>;
+    };
+    // A 0.1.3 record, which the next boot would move to the new key; and
+    // a directory where the file is written first, so no write can land.
+    await writeFile(
+      recordPath,
+      JSON.stringify({
+        v: 1,
+        runtimes: {
+          'localhost:58091/kindgi_acme tenant tenant-abc': Object.values(record.runtimes)[0],
+        },
+      }),
+    );
+    await mkdir(join(recordDir, `providers.json.${process.pid}.tmp`));
+
+    for (const flags of LOUD_AND_QUIET) {
+      const { out, log } = await boot(
+        withProjectDatabase({ base, ensure: { kind: 'exists' } }).fixtures,
+        flags,
+      );
+      expect(out.exitCode).toBe(0);
+      expect(log.split('\n').filter((l) => l.includes('could not update'))).toEqual([
+        expect.stringContaining('  ⚠ could not update .kindgi/dev/providers.json: EISDIR'),
+      ]);
+      expect(log.split('\n').filter((l) => l.includes('could not write'))).toEqual([
+        expect.stringContaining('  ⚠ could not write .kindgi/dev/providers.json: EISDIR'),
+      ]);
+      expect(log.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
+    }
   });
 
   test("the runtime gets the project's database and its dev tenant and user", async () => {
@@ -2781,12 +2934,15 @@ describe("kindgi dev — the runtime's port (T218)", () => {
     expect(live).not.toContain('is in use');
   });
 
-  test('4000 taken (another kindgi dev): the next free port, named on the way', async () => {
-    const ports = withPorts([4000, 4001]);
-    const { out, live } = await dev(ports.fixtures, []);
-    expect(out.exitCode).toBe(0);
-    expect(ports.started).toEqual([4002]);
-    expect(live).toContain('⚠ port 4000 is in use (another kindgi dev?): using 4002\n');
+  test('4000 taken (another kindgi dev): the next free port, named on the way, under --quiet too', async () => {
+    for (const flags of LOUD_AND_QUIET) {
+      const ports = withPorts([4000, 4001]);
+      const { out, live } = await dev(ports.fixtures, flags);
+      expect(out.exitCode).toBe(0);
+      expect(ports.started).toEqual([4002]);
+      expect(live).toContain('⚠ port 4000 is in use (another kindgi dev?): using 4002\n');
+      expect(live.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
+    }
   });
 
   test('a --port that is taken is refused before Postgres starts or the pack is bundled', async () => {
@@ -2957,6 +3113,7 @@ describe('kindgi dev — logs', () => {
           { method: 'GET', route: '/v1/runs', status: 200, durationMs: 12 },
           { inMessage: ['method', 'route', 'status', 'durationMs'] },
         );
+      log.child({ subsystem: 'kernel' }).warn('step slow', { runId: 'run-1' });
       log.child({ subsystem: 'kernel' }).error('step failed', { runId: 'run-1' });
     }),
     'a line that is not a record',
@@ -3011,6 +3168,7 @@ describe('kindgi dev — logs', () => {
     const { out, stderr } = await boot([]);
     expect(out.exitCode).toBe(0);
     expect(stderr).toContain('    [runtime] 14:02:11.123 INFO  [http] GET /v1/runs 200 12ms\n');
+    expect(stderr).toContain('    [runtime] 14:02:11.123 WARN  [kernel] step slow runId=run-1\n');
     expect(stderr).toContain('    [runtime] 14:02:11.123 ERROR [kernel] step failed runId=run-1\n');
     expect(stderr).toContain('    [runtime] a line that is not a record\n');
   });
@@ -3031,10 +3189,11 @@ describe('kindgi dev — logs', () => {
     expect(logLevels).toEqual({ KINDGI_LOG_LEVEL: 'warn', KINDGI_LOG_LEVELS: 'boot=info' });
   });
 
-  test('--quiet: errors only; no progress, no info records', async () => {
+  test('--quiet: errors and warnings only; no progress, no info records', async () => {
     const { out, stderr, logLevels } = await boot(['--quiet']);
     expect(out.exitCode).toBe(0);
-    expect(logLevels).toEqual({ KINDGI_LOG_LEVEL: 'error', KINDGI_LOG_LEVELS: 'boot=info' });
+    expect(logLevels).toEqual({ KINDGI_LOG_LEVEL: 'warn', KINDGI_LOG_LEVELS: 'boot=info' });
+    expect(stderr).toContain('WARN  [kernel] step slow');
     expect(stderr).toContain('ERROR [kernel] step failed');
     expect(stderr).not.toContain('[http]');
     expect(stderr).not.toContain('Kindgi is up');
@@ -3043,9 +3202,17 @@ describe('kindgi dev — logs', () => {
     expect(out.stderr).toBe('');
   });
 
+  test('--quiet with --log-level: the level given wins', async () => {
+    const { logLevels, stderr } = await boot(['--quiet', '--log-level=error']);
+    expect(logLevels).toEqual({ KINDGI_LOG_LEVEL: 'error', KINDGI_LOG_LEVELS: 'boot=info' });
+    expect(stderr).toContain('ERROR [kernel] step failed');
+    expect(stderr).not.toContain('step slow');
+  });
+
   test('--log-format=json: records on stdout as written; the rest stays on stderr', async () => {
     const { stdout, stderr } = await boot(['--log-format=json']);
-    expect(stdout.split('\n').filter(Boolean)).toEqual(RUNTIME_LINES.slice(0, 2));
+    // Every record, as written; the line that is not one stays on stderr.
+    expect(stdout.split('\n').filter(Boolean)).toEqual(RUNTIME_LINES.slice(0, -1));
     expect(stderr).not.toContain('[http]');
     expect(stderr).toContain('    [runtime] a line that is not a record\n');
     expect(stderr).toContain('Kindgi is up');
@@ -3068,6 +3235,114 @@ describe('kindgi dev — logs', () => {
     expect(badEnv.exitCode).toBe(1);
     expect(badEnv.stderr).toContain('kindgi dev: KINDGI_LOG_LEVEL must be one of');
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe('kindgi dev — what --quiet keeps (warnings)', () => {
+  test("the pack service's sandbox notices are said once each, under --quiet too", async () => {
+    const notice = 'the sandbox could not be applied to the acme tools: no engine';
+    for (const flags of LOUD_AND_QUIET) {
+      const fixtures = makeFixtures();
+      const devRunners: DevRunners = {
+        ...fixtures.runners,
+        createPackService: (serviceOpts) => {
+          const service = fixtures.runners.createPackService(serviceOpts);
+          return {
+            ...service,
+            start: async (indexPath) => {
+              serviceOpts.onNotice?.(notice);
+              serviceOpts.onNotice?.(notice);
+              return service.start(indexPath);
+            },
+          };
+        },
+      };
+      const said = await bootSaid(fixtures, flags, { devRunners });
+      expect(said).toContain(`⚠ ${notice}`);
+      expect(said.split(notice).length - 1).toBe(1);
+      expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
+    }
+  });
+
+  test('framework skills behind the bundled ones are said under --quiet too', async () => {
+    // Nothing installed in the pack: every bundled skill is not yet installed.
+    expect(defaultSdkSkillsRoot()).toBeDefined();
+    for (const flags of LOUD_AND_QUIET) {
+      const said = await bootSaid(makeFixtures(), flags);
+      expect(said).toMatch(/ {2}⚠ Framework skills: \d+ not yet installed\.\n/);
+      expect(said).toMatch(/ {4}Run `.*kindgi skills sync` to pull the latest\.\n/);
+      expect(said.includes('Hit a framework rough edge?')).toBe(flags.length === 0);
+    }
+  });
+
+  test('a provider key the app loads too is said under --quiet too, and the registering is not', async () => {
+    await writeFile(
+      join(packDir, 'kindgi.config.ts'),
+      "export default { pack: { id: 'my-pack', version: '0.1.0' }, providers: [{ preset: 'anthropic' }] };\n",
+      'utf8',
+    );
+    await writeFile(join(packDir, '.env'), 'ANTHROPIC_API_KEY=sk-test\n');
+    for (const flags of LOUD_AND_QUIET) {
+      const said = await bootSaid(makeFixtures(), flags);
+      expect(said).toContain(
+        "  ⚠ ANTHROPIC_API_KEY is in .env, which your app loads too. To give Kindgi its own copy: npx --no -- kindgi secrets copy (it never edits your app's files).",
+      );
+      expect(said).not.toContain('sk-test');
+      expect(said.includes('✓ anthropic: registered')).toBe(flags.length === 0);
+    }
+  });
+
+  test("providers that couldn't be applied, as the runtime's can't be listed, are said under --quiet too", async () => {
+    await writeFile(
+      join(packDir, 'kindgi.config.ts'),
+      "export default { pack: { id: 'my-pack', version: '0.1.0' }, providers: [{ preset: 'gemini', project: 'acme-gcp' }] };\n",
+      'utf8',
+    );
+    for (const flags of LOUD_AND_QUIET) {
+      const fixtures = makeFixtures();
+      const client = makeFakeClient(fixtures) as { providers: Record<string, unknown> };
+      const said = await bootSaid(fixtures, flags, {
+        clientFactory: () =>
+          ({
+            ...client,
+            providers: {
+              ...client.providers,
+              list: async () => {
+                throw new Error('connection refused');
+              },
+            },
+          }) as never,
+      });
+      expect(said).toContain(
+        "⚠ Providers from kindgi.config.ts: not applied; the runtime's providers could not be listed: connection refused",
+      );
+      expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
+    }
+  });
+
+  test('a preview runtime near its end is warned about under --quiet too', async () => {
+    const license = {
+      get: async () => ({
+        mode: 'development',
+        preview: {
+          version: '0.1.8',
+          releasedAt: '2026-10-20T14:00:00.000Z',
+          expiresAt: '2027-01-18T14:00:00.000Z',
+          daysLeft: 20,
+          standing: 'expiring',
+        },
+      }),
+    };
+    for (const flags of LOUD_AND_QUIET) {
+      const fixtures = makeFixtures();
+      const said = await bootSaid(fixtures, flags, {
+        clientFactory: () => ({ ...(makeFakeClient(fixtures) as object), license }) as never,
+      });
+      expect(said).toContain(
+        '⚠ This preview runtime (0.1.8) stops starting on 2027-01-18, in 20 days.',
+      );
+      expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
+    }
   });
 });
 
