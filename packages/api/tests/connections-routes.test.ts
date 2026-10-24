@@ -11,8 +11,10 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import type { AppEntry, SignIn } from '@kindgi/connections';
 import { github } from '@kindgi/connections/github';
 import { google } from '@kindgi/connections/google';
+import { microsoft } from '@kindgi/connections/microsoft';
 import type { EnvName, TenantId, UserId } from '@kindgi/types';
 
 import type {
@@ -50,7 +52,7 @@ const SECRET = { envName: 'local', name: 'ACME_GOOGLE_CLIENT_SECRET' };
 const at = '2026-10-22T12:00:00.000Z';
 
 /** A binding that keeps everything in maps, and records what the routes pass it. */
-function memoryBinding() {
+function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
   const apps = new Map<string, ConnectionAppRecord>();
   const connections = new Map<string, ConnectionRecord>();
   const requests = new Map<string, ConnectRequestRecord>();
@@ -63,9 +65,16 @@ function memoryBinding() {
     error: { code, message, ...(field !== undefined && { field }) } as never,
   });
   const binding: ConnectionBinding = {
-    entries: () => [google, github],
-    async listApps({ tenantId }) {
-      return { data: [...apps.values()].filter((a) => a.tenantId === tenantId) };
+    entries: () => entries,
+    async listApps(input) {
+      seen('listApps', input);
+      return {
+        data: [...apps.values()].filter(
+          (a) =>
+            a.tenantId === input.tenantId &&
+            (input.includeRemoved === true || a.removedAt === undefined),
+        ),
+      };
     },
     async getApp({ tenantId, appId }) {
       const app = apps.get(appId);
@@ -267,9 +276,10 @@ function makeApp(
     reviewers?: ReviewerBinding;
     clientAddress?: (r: Request) => string | undefined;
     authzCheckBinding?: AuthzCheckBinding;
+    entries?: readonly AppEntry[];
   } = {},
 ) {
-  const memory = memoryBinding();
+  const memory = memoryBinding(options.entries);
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -328,6 +338,58 @@ describe('GET /v1/connection-entries', () => {
       signIn: { kind: 'github-app' },
     });
     expect(JSON.stringify(res.json)).not.toContain('googleapis.com/auth');
+  });
+
+  test("each app says whether a registration names a directory, and what a disconnect withdraws there: Microsoft's has no default and withdraws nothing, Google's revoke is grant-wide and it reports removals", async () => {
+    const oauth2 = microsoft.signIn as Extract<SignIn, { kind: 'oauth2' }>;
+    const withDefault: AppEntry = {
+      ...microsoft,
+      id: 'acme-directory',
+      signIn: { ...oauth2, tenant: { default: 'organizations' } },
+    };
+    const { app } = makeApp({ entries: [google, github, microsoft, withDefault] });
+    const res = await call(app, 'ana', 'GET', '/v1/connection-entries');
+    expect(res.status).toBe(200);
+    const byId = Object.fromEntries(
+      res.json.data.map((entry: Record<string, any>) => [entry.id, entry]),
+    );
+    expect(byId.microsoft.signIn).toEqual({ kind: 'oauth2', tenant: {} });
+    expect(byId.microsoft.removal).toEqual({});
+    expect(byId['acme-directory'].signIn).toEqual({
+      kind: 'oauth2',
+      tenant: { default: 'organizations' },
+    });
+    expect(byId.google.signIn).toEqual({ kind: 'oauth2' });
+    expect(byId.google.removal).toEqual({
+      revoke: 'oauth2-revoke',
+      revokeIsGrantWide: true,
+      notices: 'google-risc',
+    });
+    expect(byId.github.signIn).toEqual({ kind: 'github-app' });
+    expect(byId.github.removal).toEqual({
+      revoke: 'github-installation-token',
+      notices: 'github-webhooks',
+    });
+  });
+
+  test("a field an entry's tenant or removal carries that the schema doesn't list stays off the wire", async () => {
+    const oauth2 = microsoft.signIn as Extract<SignIn, { kind: 'oauth2' }>;
+    const ahead = {
+      ...microsoft,
+      id: 'acme-ahead',
+      signIn: { ...oauth2, tenant: { default: 'organizations', region: 'eu' } },
+      removal: { ...google.removal, reportsTo: 'acme-hook' },
+    } as AppEntry;
+    const { app } = makeApp({ entries: [ahead] });
+    const res = await call(app, 'ana', 'GET', '/v1/connection-entries');
+    expect(res.status).toBe(200);
+    const [entry] = res.json.data;
+    expect(entry.signIn).toEqual({ kind: 'oauth2', tenant: { default: 'organizations' } });
+    expect(entry.removal).toEqual({
+      revoke: 'oauth2-revoke',
+      revokeIsGrantWide: true,
+      notices: 'google-risc',
+    });
   });
 });
 
@@ -460,6 +522,22 @@ describe('/v1/connection-apps', () => {
     expect(
       calls.removeApp?.map((i) => (i as { withConnections: boolean }).withConnections),
     ).toEqual([true, false]);
+  });
+
+  test('a list of registrations takes includeRemoved, true or false only', async () => {
+    const { app, calls } = makeApp();
+    await call(app, 'admin', 'GET', '/v1/connection-apps');
+    await call(app, 'admin', 'GET', '/v1/connection-apps?includeRemoved=true');
+    await call(app, 'admin', 'GET', '/v1/connection-apps?includeRemoved=false');
+    expect(calls.listApps?.map((i) => (i as { includeRemoved?: boolean }).includeRemoved)).toEqual([
+      undefined,
+      true,
+      undefined,
+    ]);
+    const res = await call(app, 'admin', 'GET', '/v1/connection-apps?includeRemoved=yes');
+    expect(res.status).toBe(400);
+    expect(res.json.error.details).toEqual({ field: 'includeRemoved' });
+    expect(calls.listApps).toHaveLength(3);
   });
 
   test('an id that is not one is a 400, before the binding', async () => {
@@ -795,6 +873,7 @@ describe('the connections themselves', () => {
     ['ownerKind', 'team'],
     ['state', 'broken'],
     ['app', 'Google'],
+    ['includeRemoved', 'yes'],
   ])('a list refuses %s=%s', async (name, value) => {
     const { app } = makeApp();
     const res = await call(app, 'ana', 'GET', `/v1/connections?${name}=${value}`);
@@ -806,6 +885,20 @@ describe('the connections themselves', () => {
     const { app, calls } = makeApp();
     await call(app, 'admin', 'GET', '/v1/connections?state=removed');
     expect(calls.list?.[0]).toMatchObject({ state: 'removed', includeRemoved: true });
+  });
+
+  test('includeRemoved=true lists removed ones with the others, and a state still narrows it', async () => {
+    const { app, calls } = makeApp();
+    await call(app, 'admin', 'GET', '/v1/connections?includeRemoved=true');
+    await call(app, 'admin', 'GET', '/v1/connections?state=working&includeRemoved=true');
+    await call(app, 'admin', 'GET', '/v1/connections?includeRemoved=false');
+    await call(app, 'admin', 'GET', '/v1/connections?state=working');
+    expect(calls.list?.[0]).toMatchObject({ includeRemoved: true });
+    expect(calls.list?.[0]).not.toHaveProperty('state');
+    expect(calls.list?.[1]).toMatchObject({ state: 'working', includeRemoved: true });
+    expect(calls.list?.[2]).not.toHaveProperty('includeRemoved');
+    expect(calls.list?.[3]).toMatchObject({ state: 'working' });
+    expect(calls.list?.[3]).not.toHaveProperty('includeRemoved');
   });
 
   test("a connection is its owner's and a tenant admin's; anyone else gets the same 404", async () => {

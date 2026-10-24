@@ -10650,13 +10650,24 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connectionApps.list',
     summary: "List the tenant's app registrations",
     description:
-      "The tenant's own registrations of its client at an app: its client id, and its secrets by reference. Tenant admins only.",
+      "The tenant's own registrations of its client at an app: its client id, and its secrets by reference. Tenant admins only. Removed registrations are listed only with `includeRemoved=true`.",
     tags: ['connections'],
     security: 'bearer',
-    parameters: [LimitQueryParam, CursorQueryParam],
+    parameters: [
+      {
+        name: 'includeRemoved',
+        in: 'query',
+        required: false,
+        description: '`true` lists removed registrations too.',
+        schema: { type: 'boolean', default: false },
+      },
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
     responses: {
       '200': { description: 'Page of registrations.', schema: ref('ConnectionAppPage') },
       ...CommonAuthErrors,
+      '400': ErrorResponse('An `includeRemoved` other than `true` or `false` (`bad-input`).'),
       '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
     },
   },
@@ -10763,7 +10774,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.list',
     summary: 'List connections',
     description:
-      'A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`.',
+      'A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`, or with the others under `includeRemoved=true`.',
     tags: ['connections'],
     security: 'bearer',
     parameters: [
@@ -10802,13 +10813,22 @@ export const OPERATIONS: readonly OperationSpec[] = [
         description: 'Only those in this state.',
         schema: { $ref: '#/components/schemas/ConnectionState' },
       },
+      {
+        name: 'includeRemoved',
+        in: 'query',
+        required: false,
+        description: '`true` lists removed connections too.',
+        schema: { type: 'boolean', default: false },
+      },
       LimitQueryParam,
       CursorQueryParam,
     ],
     responses: {
       '200': { description: 'Page of connections.', schema: ref('ConnectionPage') },
       ...CommonAuthErrors,
-      '400': ErrorResponse('An unknown `app`, `owner`, `ownerKind` or `state` (`bad-input`).'),
+      '400': ErrorResponse(
+        'An unknown `app`, `owner`, `ownerKind` or `state`, or an `includeRemoved` other than `true` or `false` (`bad-input`).',
+      ),
     },
   },
   {
