@@ -851,7 +851,7 @@ describe('kindgi build --hosted', () => {
     expect(fixtures.state.tarCalls).toBe(0);
   });
 
-  test('a pack over 30 MiB packed is never sent, and the message links what the image needs', async () => {
+  test("a pack over 30 MiB packed is never sent, and the message links what the image needs on the CLI's release line", async () => {
     const fixtures = makeFixtures({ tarballSize: 30 * 1024 * 1024 + 1 });
     const out = await runCli({
       ...baseInputs(fixtures, { env: loggedIn }, cloud()),
@@ -862,6 +862,9 @@ describe('kindgi build --hosted', () => {
       "over the 30 MiB the hosted build service takes, so it wasn't sent",
     );
     expect(out.stderr).toContain(PACK_IMAGE_DOCS_URL);
+    expect(PACK_IMAGE_DOCS_URL).toBe(
+      `https://docs.kindgi.com/v${CLI_VERSION.split('.').slice(0, 2).join('.')}/start/existing-app-typescript/#what-the-packs-image-needs`,
+    );
     expect(fixtures.state.postCalls).toBe(0);
   });
 
