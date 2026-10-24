@@ -79,11 +79,17 @@ export function buildPostBody(envelope: DeployEnvelope): PostDeploymentBody {
       'buildPostBody() called on an unsigned envelope. Check with `isEnvelopeSigned` first.',
     );
   }
+  // publishedAt stays last, the order a released CLI sends: the server's
+  // idempotency check fingerprints the body's bytes, so the same envelope
+  // deployed again under the same key by another CLI version, its keys
+  // reordered, would be refused as a different body.
+  const { publishedAt, ...fields } = unsignedPostBody(envelope);
   return {
-    ...unsignedPostBody(envelope),
+    ...fields,
     signerKeyId: envelope.signerKeyId,
     signerPublicKey: envelope.signerPublicKey,
     signature: envelope.signature,
+    publishedAt,
   };
 }
 
