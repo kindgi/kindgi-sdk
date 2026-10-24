@@ -1996,7 +1996,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tokens.mint',
     summary: 'Mint an API key',
     description:
-      "An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. Only mounted when the deployment supplies a `TokenAdmin`.",
+      "An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. The tenant's observer holds no API key: they mint none, and none is minted for them. Only mounted when the deployment supplies a `TokenAdmin`.",
     tags: ['tokens'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -2005,10 +2005,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Token minted.', schema: ref('MintTokenResult') },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`).",
+        "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`). Or `for` names the tenant's observer, who holds no API key (`person-is-observer`, its `details.userId` the person).",
       ),
       '403': ErrorResponse(
-        "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a session limited to a project or a role, which mints no keys (`limited-session-cannot-mint`); a key for a person a site signs in, whose access is only the sessions their site gives (`site-person-grants-managed`).",
+        "Not a tenant admin where one is needed, a capability the caller does not hold, or the caller is the tenant's observer, who mints no API keys (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a session limited to a project or a role, which mints no keys (`limited-session-cannot-mint`); a key for a person a site signs in, whose access is only the sessions their site gives (`site-person-grants-managed`).",
       ),
       '400': ErrorResponse(
         "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
@@ -3095,7 +3095,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`).",
       ),
       '400': ErrorResponse('Malformed body, or `expiresInSeconds` above the deployment maximum.'),
-      '403': ErrorResponse('The caller may not read one of the runs (`permission-denied`).'),
+      '403': ErrorResponse(
+        "The caller may not read one of the runs, or is the tenant's observer, who makes no public run links (`permission-denied`).",
+      ),
       '404': ErrorResponse('A run does not exist under this tenant (`run-not-found`).'),
     },
   },
@@ -3241,6 +3243,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '403': ErrorResponse(
         "With authorization enforced, the caller is not an admin of the tenant; or the person is one a site signs in, whose reviewer role is their site's to give (`site-person-grants-managed`).",
+      ),
+      '409': ErrorResponse(
+        "The person is the tenant's observer, who only views and decides no approvals (`person-is-observer`, its `details.userId` the person); or an idempotency conflict.",
       ),
     },
   },
@@ -5063,6 +5068,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Signed bundle.', schema: ref('ExportProvenanceResult') },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "With authorization enforced, no `read` on the run's project; or the caller is the tenant's observer, who views the run and exports no provenance (`permission-denied`).",
+      ),
       '404': ErrorResponse(
         'Provenance not found, signing key id unknown, or signing not configured on this deployment.',
       ),
@@ -6952,7 +6960,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.create',
     summary: 'Add a person',
     description:
-      "Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. A person added with an email is invited (`invite`): they sign in within 7 days, or a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`); the invitation is emailed where the deployment sends email, and `inviteEmail` says whether it was. Tenant admins only. Mounted when the identity directory can add people.",
+      "Adds a person to the tenant, written before it answers: as a tenant member (the default), they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. As the tenant's observer (`tenantRole: 'observer'`), they read neither, only the projects they're then given as a viewer, with the tenant's own record and those projects' deployments: they hold no API key, make no public run link and export no provenance. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. A person added with an email is invited (`invite`): they sign in within 7 days, or a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`); the invitation is emailed where the deployment sends email, and `inviteEmail` says whether it was. Tenant admins only. Mounted when the identity directory can add people.",
     tags: ['identity'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6966,6 +6974,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse('Not a tenant admin.'),
       '409': ErrorResponse(
         'Another person of the tenant has the email (`identity-user-email-taken`), or an idempotency conflict.',
+      ),
+      '501': ErrorResponse(
+        "`tenantRole: 'observer'` on a runtime that checks no one's access (it runs without an authorization store), where nothing would hold an observer to their projects (`observer-not-served`). No one is added.",
       ),
     },
   },
@@ -7259,7 +7270,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.permissions',
     summary: 'What I may do',
     description:
-      "What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.",
+      "What the caller may do, so a client can hide what it can't: tenant admin, whether it's the tenant's observer (on a runtime that has one), its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.",
     tags: ['identity'],
     security: 'bearer',
     responses: {
@@ -7299,9 +7310,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/identity/users/:userId/grant',
     openapiPath: '/v1/identity/users/{userId}/grant',
     operationId: 'identity.users.grant',
-    summary: 'Make a person a tenant admin',
+    summary: "Make a person a tenant admin, or the tenant's observer",
     description:
-      "Written before the call answers, so the person's next request holds it. A no-op when held. Tenant admins only.",
+      "Written before the call answers, so the person's next request holds it. A no-op when held. `tenant-observer` makes the person the tenant's observer in place of a member, in one write, and their recorded role with it. The observer only views, so a person who holds what the observer doesn't is refused until that's undone by its own call: a tenant admin (`person-is-tenant-admin`), a person on the reviewer roster (`person-is-reviewer`), one who holds a role above `viewer` on a project (`person-holds-project-role`), one in a team (`person-in-team`), and one who holds a live API key (`person-holds-keys`). An observer isn't made a tenant admin (`person-is-observer`). A person a site signs in (`siteManaged` on their grants) is given neither: their site gives their grants (`site-person-grants-managed`). Tenant admins only.",
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -7313,13 +7324,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: "The person's grants, after.", schema: ref('PersonGrants') },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        "Not a tenant admin; or the person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+        "Not a tenant admin; or the person is one a site signs in, who holds only the grants their site's sign-in writes, so neither kind is theirs to be given, `tenant-observer` included (`site-person-grants-managed`).",
       ),
       '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
       '409': ErrorResponse(
-        'The person was removed from the tenant (`identity-user-unregistered`), or an idempotency conflict.',
+        "The person was removed from the tenant (`identity-user-unregistered`); `tenant-admin` for the tenant's observer (`person-is-observer`); `tenant-observer` for a tenant admin (`person-is-tenant-admin`), a person on the reviewer roster (`person-is-reviewer`), one who holds a role above `viewer` on a project (`person-holds-project-role`, `details.projects` naming at most 20, `details.truncated` when there are more), one in a team (`person-in-team`, `details.teams` the same way) or one who holds a live API key (`person-holds-keys`); or an idempotency conflict. `details.userId` names the person.",
       ),
-      '501': ErrorResponse('The runtime has no authorization store (`person-grants-unsupported`).'),
+      '501': ErrorResponse(
+        "The runtime has no authorization store (`person-grants-unsupported`); or `tenant-observer` on a runtime that checks no one's access, which can't hold an observer to their projects (`observer-not-served`), asked before anything is read.",
+      ),
     },
   },
   {
@@ -7327,9 +7340,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/identity/users/:userId/ungrant',
     openapiPath: '/v1/identity/users/{userId}/ungrant',
     operationId: 'identity.users.ungrant',
-    summary: 'Remove tenant admin from a person',
+    summary: "Remove tenant admin from a person, or make the tenant's observer a member",
     description:
-      'A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.',
+      "A no-op when not held. `tenant-observer` makes the tenant's observer a member in place of an observer, in one write, and their recorded role with it. Tenant admin is refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.",
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -7451,7 +7464,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonAuthErrors,
       '403': ErrorResponse(
-        "No `read` on the tenant, or a `projectId` naming a project the caller doesn't read, or one that isn't there (the tenant admin too, so it tells no one what exists).",
+        "The caller isn't in the tenant (a member, an admin or its observer), or `projectId` names a project the caller doesn't read, or one that isn't there (the tenant admin too, so it tells no one what exists).",
       ),
       '500': ErrorResponse('List failed inside the caller-plugged binding.'),
     },
@@ -7555,7 +7568,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.values.list',
     summary: 'List the values a deployment needs in a project',
     description:
-      "Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), `read` on the project the deployment serves, and `read` on the tenant, as every deployments route does.",
+      "Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), `read` on the project the deployment serves, and the caller in the tenant, as every deployments read asks.",
     tags: ['deployments'],
     security: 'bearer',
     parameters: [
@@ -8312,7 +8325,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No team with that id under this tenant (`team-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).',
       ),
       '409': ErrorResponse(
-        'A member already, with another role (`membership-exists`, `details.role`); or an Idempotency-Key reused with another body.',
+        "A member already, with another role (`membership-exists`, `details.role`); the tenant's observer, who is in no team (`person-is-observer`); or an Idempotency-Key reused with another body.",
       ),
     },
   },
@@ -8386,6 +8399,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse(
         'No membership for that (team, user) pair, or no such team under this tenant.',
+      ),
+      '409': ErrorResponse(
+        "The person is the tenant's observer, who is in no team (`person-is-observer`); or an Idempotency-Key reused with another body.",
       ),
       '501': ErrorResponse(
         "With authorization enforced, a runtime whose tenant-hierarchy binding can't change the membership together with its authorization tuple refuses with `authz-membership-unsupported`; nothing is changed.",
@@ -9025,7 +9041,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No project with that id under this tenant (`project-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).',
       ),
       '409': ErrorResponse(
-        'A member already, with another role (`membership-exists`, `details.role`); or an Idempotency-Key reused with another body.',
+        "A member already, with another role (`membership-exists`, `details.role`); a role above `viewer` for the tenant's observer, who only views (`person-is-observer`); or an Idempotency-Key reused with another body.",
       ),
     },
   },
@@ -9248,6 +9264,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         'No membership for that (project, user) pair, or no such project under this tenant.',
       ),
+      '409': ErrorResponse(
+        "A role above `viewer` for the tenant's observer, who only views (`person-is-observer`); or an Idempotency-Key reused with another body.",
+      ),
       '501': ErrorResponse(
         "With authorization enforced, a runtime whose tenant-hierarchy binding can't change the membership together with its authorization tuple refuses with `authz-membership-unsupported`; nothing is changed.",
       ),
@@ -9262,12 +9281,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tenant.get',
     summary: "Fetch the caller's tenant",
     description:
-      "Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the tenant's `limits`, and a deployment that publishes where its calls come from adds `egress`.",
+      "Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the tenant's `limits`, and a deployment that publishes where its calls come from adds `egress`. Anyone in the tenant reads it, its observer too; its config (`GET /v1/tenant/config`) needs `read` on the tenant, which an observer doesn't hold.",
     tags: ['tenant'],
     security: 'bearer',
     responses: {
       '200': { description: 'Tenant.', schema: ref('Tenant') },
       ...CommonAuthErrors,
+      '403': ErrorResponse(
+        "With authorization enforced, the caller isn't in the tenant: not a member, an admin or its observer (`permission-denied`).",
+      ),
       '404': ErrorResponse('The tenant id on the token does not resolve to a stored row.'),
     },
   },

@@ -8,6 +8,7 @@ import type { Cursor, ReviewerId, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import type { PersonGrantsBinding } from '../person-grants-binding.js';
 import type {
   ReviewerBinding,
   ReviewerRecord,
@@ -48,6 +49,13 @@ export function reviewersRouter(
   authorizer?: Authorizer,
   /** Whether the caller is a reviewer, for reading the roster (`callerReviewerRole`). */
   reviewerBinding?: ReviewerBinding,
+  /**
+   * The person's grants, read before they're put on the roster: the
+   * tenant's observer only views, and deciding an approval is the
+   * roster's alone, so an observer is refused, 409 `person-is-observer`.
+   * Without it, nothing is read.
+   */
+  personGrants?: PersonGrantsBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -147,6 +155,20 @@ export function reviewersRouter(
       return c.json(toWireError({ code: 'bad-input', message: parsed.message }, requestId));
     }
 
+    const grants = await personGrants?.read({ tenantId, userId: parsed.value.userId });
+    if (grants?.tenantObserver === true) {
+      c.status(statusFor('person-is-observer') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'person-is-observer',
+            message: `${parsed.value.userId} is this tenant's observer, who only views: an observer decides no approvals`,
+            userId: parsed.value.userId,
+          },
+          requestId,
+        ),
+      );
+    }
     const outcome = await binding.register({
       tenantId,
       userId: parsed.value.userId,

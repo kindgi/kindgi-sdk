@@ -411,12 +411,17 @@ function limitedOne(c: Context<AppEnv>): string {
  *   an org or a team, reading included: its person's tenant membership
  *   reads the tenant's settings, which such a session must not reach.
  *   A key keeps today's rule, since its holder is its principal.
+ *
+ * None of these holds for the tenant's `only_view`: it asks whether the
+ * principal is the observer, refused what an observer is refused, and a
+ * limit that answered "no" would lift the refusal instead of holding it.
  */
 function keyCeilingDeny(
   c: Context<AppEnv>,
   action: Action,
   resource: ResourceRef,
 ): Decision | undefined {
+  if (action === 'only_view') return undefined;
   if (action === 'admin' && resource.type === 'tenant' && c.get('tokenRole') === 'member') {
     return keyDecision(
       action,

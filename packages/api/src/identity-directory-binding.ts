@@ -66,9 +66,12 @@ export interface IdentityDirectoryBinding {
    */
   revokeAllSessions(input: IdentityRevokeSessionsInput): Promise<RevokeSessionsResult>;
   /**
-   * Optional. Add a person to the tenant as a tenant member, written to
-   * the authorization store before it returns: they can read the
-   * tenant's settings, not its projects. A tenant admin then gives them a
+   * Optional. Add a person to the tenant in the role `tenantRole` says,
+   * written to the authorization store before it returns: a tenant member
+   * (the default) reads the tenant's settings, not its projects; the
+   * tenant's observer reads neither, only the projects they're then
+   * given. The role is recorded with the person, so a repair puts back
+   * the one they hold. A tenant admin then gives them a
    * role and mints their first API key. When present,
    * `POST /v1/identity/users` mounts (tenant admins only). An email
    * another person of the tenant has is refused. A directory that invites
@@ -146,7 +149,17 @@ export interface IdentityCreateUserInput {
    * `not-requested`.
    */
   readonly sendInvite?: boolean;
+  /** Their role in the tenant (default `member`). */
+  readonly tenantRole?: TenantRole;
 }
+
+/**
+ * A person's role in the tenant, apart from tenant admin (a grant): a
+ * `member`, or the tenant's `observer`, who reads only the projects
+ * they're given.
+ */
+export type TenantRole = 'member' | 'observer';
+export const TENANT_ROLES: readonly TenantRole[] = ['member', 'observer'];
 
 export type IdentityCreateUserResult =
   | {

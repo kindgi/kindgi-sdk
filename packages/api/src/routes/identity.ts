@@ -11,28 +11,39 @@ import {
   REVIEWER_ROLE_RANK,
   type ReviewerRole,
 } from '@kindgi/authz';
-import type { Cursor, EnvName, SessionId, TenantId, UserId } from '@kindgi/types';
+import type {
+  ApiTokenId,
+  Cursor,
+  EnvName,
+  Result,
+  SessionId,
+  TenantId,
+  UserId,
+} from '@kindgi/types';
 
 import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../caller.js';
 import type { EnvBinding } from '../env-binding.js';
 import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
-import type {
-  IdentityDirectoryBinding,
-  InviteEmail,
-  SessionSummary,
-  UserRecord,
+import {
+  type IdentityDirectoryBinding,
+  type InviteEmail,
+  type SessionSummary,
+  TENANT_ROLES,
+  type TenantRole,
+  type UserRecord,
 } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { MyAccess, MyAccessBinding, RoleCapabilities } from '../my-access-binding.js';
 import type {
   PersonGrant,
-  PersonGrantError,
+  PersonGrantChange,
   PersonGrants,
   PersonGrantsBinding,
 } from '../person-grants-binding.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
+import type { TokenAdmin } from '../token-admin.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { DEFAULT_TENANT_CONFIG_ENV_NAME } from './tenant.js';
@@ -87,10 +98,18 @@ export interface IdentityRouterOptions {
    */
   readonly authorizer?: Authorizer;
   /**
-   * Optional. A person's grants: the read, and tenant admin given or
-   * taken. Without it, those routes answer `501 person-grants-unsupported`.
+   * Optional. A person's grants: the read, and tenant admin or the
+   * tenant's observer given or taken. Without it, those routes answer
+   * `501 person-grants-unsupported`.
    */
   readonly personGrants?: PersonGrantsBinding;
+  /**
+   * Optional. The tenant's API keys, read before a person is made the
+   * tenant's observer: an observer holds none, so a person who holds a
+   * live key is refused, 409 `person-holds-keys`. Without it, there are
+   * no keys to hold.
+   */
+  readonly tokenAdmin?: TokenAdmin;
   /**
    * Optional. What the caller holds (`GET /me/permissions`): its projects
    * with their roles, its orgs and teams, what each project role allows.
@@ -120,6 +139,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     reviewerBinding,
     authorizer,
     personGrants,
+    tokenAdmin,
     myAccess,
     tenantConfig,
     servedEnv,
@@ -260,6 +280,11 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
       if (typeof parsed === 'string') {
         c.status(statusFor('bad-input') as never);
         return c.json(toWireError({ code: 'bad-input', message: parsed }, requestId));
+      }
+      // Without an authorizer nothing is checked, so an observer would
+      // read everything a member does: none is added, and nothing written.
+      if (parsed.tenantRole === 'observer' && authorizer === undefined) {
+        return observerNotServed(c, 'Add them as a member');
       }
       const createdBy = callerRef(c);
       const outcome = await createUser({
@@ -498,7 +523,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     });
   });
 
-  mountPersonGrants(r, personGrants, authorizer);
+  mountPersonGrants(r, personGrants, authorizer, tokenAdmin);
   return r;
 }
 
@@ -528,12 +553,16 @@ const denied = (c: Context<AppEnv>, message: string) => {
 /**
  * `GET /users/:userId/grants` (a tenant admin, or the person), and
  * `POST /users/:userId/grant|ungrant` (tenant admins): `{kind:
- * 'tenant-admin'}`, written before the call answers.
+ * 'tenant-admin'}` or `{kind: 'tenant-observer'}`, written before the
+ * call answers. A grant that would leave a person both the tenant's
+ * observer and something an observer isn't is refused first
+ * (`observerGrantConflict`).
  */
 function mountPersonGrants(
   r: Hono<AppEnv>,
   binding: PersonGrantsBinding | undefined,
   authorizer: Authorizer | undefined,
+  tokenAdmin: TokenAdmin | undefined,
 ): void {
   r.get('/users/:userId/grants', async (c) => {
     const userId = c.req.param('userId');
@@ -551,16 +580,15 @@ function mountPersonGrants(
       if (!(await isTenantAdmin(c, authorizer))) {
         return denied(c, "Only a tenant admin changes a person's grants");
       }
-      const grant = parsePersonGrant(await c.req.json().catch(() => undefined));
-      if (typeof grant === 'string') {
-        c.status(statusFor('bad-input') as never);
-        return c.json(toWireError({ code: 'bad-input', message: grant }, c.get('requestId')));
-      }
+      const grant = await grantAsked(c, action, authorizer);
+      if (grant instanceof Response) return grant;
       if (binding === undefined) return unsupported(c);
+      const tenantId = c.get('tenantId') as TenantId;
+      const userId = c.req.param('userId');
       const by = callerRef(c);
-      const result = await binding[action]({
-        tenantId: c.get('tenantId') as TenantId,
-        userId: c.req.param('userId'),
+      const result = await changePersonGrant(binding, tokenAdmin, action, {
+        tenantId,
+        userId,
         grant,
         ...(by !== undefined && { by }),
       });
@@ -568,6 +596,44 @@ function mountPersonGrants(
       return c.json(serializePersonGrants(result.value));
     });
   }
+}
+
+/**
+ * The grant the body asks for, or the answer refusing it before anything
+ * is read or written: a body that names none (`bad-input`), or making a
+ * person the observer where no one's access is checked
+ * (`observer-not-served`): as for the add, nothing would hold them to
+ * their projects.
+ */
+async function grantAsked(
+  c: Context<AppEnv>,
+  action: 'grant' | 'ungrant',
+  authorizer: Authorizer | undefined,
+): Promise<PersonGrant | Response> {
+  const grant = parsePersonGrant(await c.req.json().catch(() => undefined));
+  if (typeof grant === 'string') {
+    c.status(statusFor('bad-input') as never);
+    return c.json(toWireError({ code: 'bad-input', message: grant }, c.get('requestId')));
+  }
+  if (action === 'grant' && grant.kind === 'tenant-observer' && authorizer === undefined) {
+    return observerNotServed(c, 'Keep them a member');
+  }
+  return grant;
+}
+
+/**
+ * The caller's place in the tenant: admin, and member or observer where
+ * the store says (the observer only where the runtime has one).
+ */
+function tenantRoles(
+  admin: boolean,
+  access: MyAccess | undefined,
+): { readonly admin: boolean; readonly member?: boolean; readonly observer?: boolean } {
+  return {
+    admin,
+    ...(access?.tenantMember !== undefined && { member: access.tenantMember }),
+    ...(access?.tenantObserver !== undefined && { observer: access.tenantObserver }),
+  };
 }
 
 /** Project roles from the highest: `capabilities` is answered in this order. */
@@ -664,10 +730,7 @@ function mountMyPermissions(
 
     return c.json({
       tenantId,
-      tenant: {
-        admin: tenantAdmin,
-        ...(access?.tenantMember !== undefined && { member: access.tenantMember }),
-      },
+      tenant: tenantRoles(tenantAdmin, access),
       ...(reviewer !== undefined && { reviewer }),
       ...(tokenId !== undefined && {
         key: {
@@ -795,6 +858,23 @@ function byName<T extends { readonly name: string }>(id: (x: T) => string) {
     a.name < b.name ? -1 : a.name > b.name ? 1 : id(a) < id(b) ? -1 : id(a) > id(b) ? 1 : 0;
 }
 
+/**
+ * `501 observer-not-served`: a runtime that checks no one's access can't
+ * hold an observer to their projects. `instead` is what to do instead.
+ */
+function observerNotServed(c: Context<AppEnv>, instead: string) {
+  c.status(statusFor('observer-not-served') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'observer-not-served',
+        message: `This runtime checks no one's access (it runs without an authorization store), so it can't hold an observer to their projects. ${instead}, or run with authorization.`,
+      },
+      c.get('requestId'),
+    ),
+  );
+}
+
 function notFound(c: Context<AppEnv>, userId: string) {
   c.status(statusFor('identity-user-not-found') as never);
   return c.json(
@@ -809,9 +889,37 @@ function notFound(c: Context<AppEnv>, userId: string) {
   );
 }
 
-function grantError(c: Context<AppEnv>, error: PersonGrantError) {
+/** A grant refused, by the binding or by `observerGrantConflict` (with its details). */
+type GrantRefusal = { readonly code: string; readonly message: string } & Readonly<
+  Record<string, unknown>
+>;
+
+function grantError(c: Context<AppEnv>, error: GrantRefusal) {
   c.status(statusFor(error.code) as never);
-  return c.json(toWireError({ code: error.code, message: error.message }, c.get('requestId')));
+  return c.json(toWireError(error, c.get('requestId')));
+}
+
+/**
+ * A grant or an ungrant through the binding. A grant is refused first
+ * where it would leave the person the tenant's observer and what an
+ * observer isn't (`observerGrantConflict`), its details naming them. The
+ * binding's own refusal carries its code and message alone.
+ */
+async function changePersonGrant(
+  binding: PersonGrantsBinding,
+  tokenAdmin: TokenAdmin | undefined,
+  action: 'grant' | 'ungrant',
+  change: PersonGrantChange,
+): Promise<Result<PersonGrants, GrantRefusal>> {
+  if (action === 'grant') {
+    const { tenantId, userId, grant } = change;
+    const conflict = await observerGrantConflict(binding, tokenAdmin, tenantId, userId, grant);
+    if (conflict !== undefined) return { kind: 'err', error: { ...conflict, userId } };
+  }
+  const result = await binding[action](change);
+  return result.kind === 'err'
+    ? { kind: 'err', error: { code: result.error.code, message: result.error.message } }
+    : result;
 }
 
 /** How many people's grants the users list reads at once, without `readMany`. */
@@ -854,12 +962,132 @@ function parsePersonGrant(raw: unknown): PersonGrant | string {
     typeof b !== 'object' ||
     b === null ||
     Array.isArray(b) ||
-    b.kind !== 'tenant-admin' ||
+    (b.kind !== 'tenant-admin' && b.kind !== 'tenant-observer') ||
     Object.keys(b).length !== 1
   ) {
-    return "The body must be { kind: 'tenant-admin' }: a person's project and team roles have their own routes (`/v1/projects/{projectId}/memberships`, `/v1/teams/{teamId}/memberships`)";
+    return "The body must be { kind: 'tenant-admin' } or { kind: 'tenant-observer' }: a person's project and team roles have their own routes (`/v1/projects/{projectId}/memberships`, `/v1/teams/{teamId}/memberships`)";
   }
-  return { kind: 'tenant-admin' };
+  return { kind: b.kind };
+}
+
+/**
+ * Why `grant` would leave a person both the tenant's observer and what an
+ * observer isn't, if it would; each is undone first, by its own call.
+ * An observer only views: they're not a tenant admin (`person-is-observer`
+ * the one way, `person-is-tenant-admin` the other), not on a reviewer
+ * roster, which decides approvals on its own (`person-is-reviewer`), hold
+ * no role above `viewer` on a project (`person-holds-project-role`), are
+ * in no team (`person-in-team`), and hold no live API key
+ * (`person-holds-keys`). The project roles are those granted directly: a
+ * team's are a team's, and an org's admin is a tenant admin, who created
+ * it. A grant already held, or a person who isn't there, is the binding's
+ * to answer, and so is a person a site signs in (`siteManaged`): the
+ * binding refuses them every grant (`site-person-grants-managed`).
+ */
+async function observerGrantConflict(
+  binding: PersonGrantsBinding,
+  tokenAdmin: TokenAdmin | undefined,
+  tenantId: TenantId,
+  userId: string,
+  grant: PersonGrant,
+): Promise<
+  | ({ readonly code: string; readonly message: string } & Readonly<Record<string, unknown>>)
+  | undefined
+> {
+  const held = await binding.read({ tenantId, userId });
+  // A person their site's sign-in gives grants to: the binding refuses
+  // every grant naming them, so it answers, not what they hold.
+  if (held === null || held.siteManaged === true) return undefined;
+  if (grant.kind === 'tenant-admin') {
+    return held.tenantObserver === true
+      ? {
+          code: 'person-is-observer',
+          message: `${userId} is this tenant's observer, who only views: ungrant tenant-observer first`,
+        }
+      : undefined;
+  }
+  if (held.tenantObserver === true) return undefined;
+  if (held.tenantAdmin === true) {
+    return {
+      code: 'person-is-tenant-admin',
+      message: `${userId} is a tenant admin: ungrant tenant-admin before making them the tenant's observer`,
+    };
+  }
+  if (held.reviewer !== undefined) {
+    return {
+      code: 'person-is-reviewer',
+      message: `${userId} is on the reviewer roster: take them off it before making them the tenant's observer, who decides no approvals`,
+    };
+  }
+  const aboveViewer = held.projects.filter((p) => p.role !== 'viewer');
+  if (aboveViewer.length > 0) {
+    return {
+      code: 'person-holds-project-role',
+      message: `${userId} holds a role above viewer on ${aboveViewer.length} project(s): make it viewer, or take it away, before making them the tenant's observer, who only views`,
+      ...listed(
+        'projects',
+        aboveViewer.map(({ projectId, role }) => ({ projectId, role })),
+      ),
+    };
+  }
+  if (held.teams.length > 0) {
+    return {
+      code: 'person-in-team',
+      message: `${userId} is in ${held.teams.length} team(s): take them out before making them the tenant's observer, who is in none`,
+      ...listed(
+        'teams',
+        held.teams.map(({ teamId, role }) => ({ teamId, role })),
+      ),
+    };
+  }
+  if (tokenAdmin !== undefined && (await holdsLiveKey(tokenAdmin, tenantId, userId))) {
+    return {
+      code: 'person-holds-keys',
+      message: `${userId} holds a live API key: revoke their keys before making them the tenant's observer, who holds none`,
+    };
+  }
+  return undefined;
+}
+
+/** How many projects or teams a refusal's `details` names; `truncated` says there are more. */
+const LISTED_AT_MOST = 20;
+
+/** `{ [key]: the first LISTED_AT_MOST, truncated: true when there are more }`. */
+function listed<T>(key: string, all: readonly T[]): Readonly<Record<string, unknown>> {
+  return {
+    [key]: all.slice(0, LISTED_AT_MOST),
+    ...(all.length > LISTED_AT_MOST && { truncated: true }),
+  };
+}
+
+/** How many of a person's keys each page reads, looking for a live one. */
+const KEYS_READ_AT_ONCE = 100;
+
+/** Whether the person holds a key that's neither revoked nor expired. */
+async function holdsLiveKey(
+  tokenAdmin: TokenAdmin,
+  tenantId: TenantId,
+  userId: string,
+): Promise<boolean> {
+  const principal = { kind: 'user', userId } as const;
+  const now = Date.now();
+  let after: { readonly createdAt: Date; readonly tokenId: ApiTokenId } | undefined;
+  for (;;) {
+    const page = await tokenAdmin.list({
+      tenantId,
+      principal,
+      limit: KEYS_READ_AT_ONCE,
+      ...(after !== undefined && { after }),
+    });
+    const live = page.some(
+      (k) =>
+        k.revokedAt === undefined && (k.expiresAt === undefined || k.expiresAt.getTime() > now),
+    );
+    if (live) return true;
+    const last = page.at(-1);
+    if (page.length < KEYS_READ_AT_ONCE || last === undefined) return false;
+    after = { createdAt: last.createdAt, tokenId: last.tokenId };
+  }
 }
 
 function serializePersonGrants(g: PersonGrants): Record<string, unknown> {
@@ -867,9 +1095,11 @@ function serializePersonGrants(g: PersonGrants): Record<string, unknown> {
     userId: g.userId,
     ...(g.tenantAdmin !== undefined && { tenantAdmin: g.tenantAdmin }),
     ...(g.tenantMember !== undefined && { tenantMember: g.tenantMember }),
+    ...(g.tenantObserver !== undefined && { tenantObserver: g.tenantObserver }),
     projects: g.projects.map((p) => ({ projectId: p.projectId, role: p.role })),
     teams: g.teams.map((t) => ({ teamId: t.teamId, role: t.role })),
     ...(g.reviewer !== undefined && { reviewer: { role: g.reviewer.role } }),
+    ...(g.siteManaged === true && { siteManaged: true }),
   };
 }
 
@@ -934,18 +1164,31 @@ function keyFacts(c: Context<AppEnv>): Record<string, unknown> {
 
 const MAX_NAME_LENGTH = 200;
 
-/** `{displayName, primaryEmail?, sendInvite?}`, or why not. */
+/** `{displayName, primaryEmail?, sendInvite?, tenantRole?}`, or why not. */
 function parseCreateUser(
   raw: unknown,
-): { displayName: string; primaryEmail?: string; sendInvite?: boolean } | string {
+):
+  | { displayName: string; primaryEmail?: string; sendInvite?: boolean; tenantRole?: TenantRole }
+  | string {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     return 'Request body must be a JSON object';
   }
-  const b = raw as { displayName?: unknown; primaryEmail?: unknown; sendInvite?: unknown };
+  const b = raw as {
+    displayName?: unknown;
+    primaryEmail?: unknown;
+    sendInvite?: unknown;
+    tenantRole?: unknown;
+  };
   if (b.sendInvite !== undefined && typeof b.sendInvite !== 'boolean') {
     return '`sendInvite` must be true or false';
   }
-  const send = b.sendInvite === undefined ? {} : { sendInvite: b.sendInvite };
+  if (b.tenantRole !== undefined && !(TENANT_ROLES as readonly unknown[]).includes(b.tenantRole)) {
+    return `\`tenantRole\` must be one of ${TENANT_ROLES.map((role) => `\`${role}\``).join(', ')}`;
+  }
+  const send = {
+    ...(b.sendInvite !== undefined && { sendInvite: b.sendInvite }),
+    ...(b.tenantRole !== undefined && { tenantRole: b.tenantRole as TenantRole }),
+  };
   if (
     typeof b.displayName !== 'string' ||
     b.displayName.trim() === '' ||

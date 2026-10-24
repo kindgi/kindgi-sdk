@@ -2315,6 +2315,87 @@ export const ERROR_ENTRIES = {
       "The runtime runs without an authorization store, so it can't read or change a person's grants.",
     details: [],
   },
+  'observer-not-served': {
+    description:
+      "`POST /v1/identity/users` asked for `tenantRole: 'observer'` on a runtime that checks no one's access (it runs without an authorization store), so nothing would hold the observer to the projects they're given. Nobody is added. Add the person as a member, or run with authorization.",
+    details: [],
+  },
+  'person-is-observer': {
+    description:
+      "The person is the tenant's observer, who only views, and the request would give them more: the tenant admin grant, a place on the reviewer roster, a project role above `viewer`, a team membership or a team role, or an API key minted for them. Nothing is written. Give them what an observer holds, or ungrant `tenant-observer` first, which makes them a member again.",
+    details: [
+      {
+        key: 'userId',
+        meaning: 'the observer',
+      },
+    ],
+  },
+  'person-is-tenant-admin': {
+    description:
+      'Granting `tenant-observer` to a tenant admin: the observer only views, so no one is both. Nothing is written. Ungrant `tenant-admin` first.',
+    details: [
+      {
+        key: 'userId',
+        meaning: 'the person',
+      },
+    ],
+  },
+  'person-is-reviewer': {
+    description:
+      'Granting `tenant-observer` to a person on the reviewer roster: the observer decides no approvals. Nothing is written. Take them off the roster first.',
+    details: [
+      {
+        key: 'userId',
+        meaning: 'the person',
+      },
+    ],
+  },
+  'person-holds-project-role': {
+    description:
+      "Granting `tenant-observer` to a person given a role above `viewer` on a project: the observer holds `viewer` at most. Only the roles given to the person count, not a team's. Nothing is written. Make each listed role `viewer`, or take it away, first.",
+    details: [
+      {
+        key: 'userId',
+        meaning: 'the person',
+      },
+      {
+        key: 'projects',
+        meaning: 'the projects, each with its `projectId` and the `role` held there, at most 20',
+      },
+      {
+        key: 'truncated',
+        meaning: 'true when the person holds such a role on more than 20 projects',
+      },
+    ],
+  },
+  'person-in-team': {
+    description:
+      'Granting `tenant-observer` to a person in a team: the observer is in none. Nothing is written. Take them out of each listed team first.',
+    details: [
+      {
+        key: 'userId',
+        meaning: 'the person',
+      },
+      {
+        key: 'teams',
+        meaning: 'the teams, each with its `teamId` and the `role` held there, at most 20',
+      },
+      {
+        key: 'truncated',
+        meaning: 'true when the person is in more than 20 teams',
+      },
+    ],
+  },
+  'person-holds-keys': {
+    description:
+      'Granting `tenant-observer` to a person who holds a live API key (one neither revoked nor expired): the observer holds none. Nothing is written. Revoke their keys first.',
+    details: [
+      {
+        key: 'userId',
+        meaning: 'the person',
+      },
+    ],
+  },
   'permissions-unsupported': {
     description:
       "The runtime runs without an authorization store, so it can't say what the caller may do. Read whoami's `tenantAdmin` and `reviewerRole` instead.",

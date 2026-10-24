@@ -193,12 +193,13 @@ function harness(opts: {
   return { get, asked, reads };
 }
 
-const READ = 'read tenant';
+/** Every deployments read asks `belong` on the tenant: a member, an admin or the observer. */
+const BELONG = 'belong tenant';
 
 describe('the values a deployment needs in a project, names only', () => {
   test('its own project: each where a run finds it, a tenant-held secret too, for a caller who administers only the project', async () => {
     const h = harness({
-      granted: [READ, `read project:${OWN}`, `admin project:${OWN}`],
+      granted: [BELONG, `read project:${OWN}`, `admin project:${OWN}`],
       secrets: ['tenant/ACME_TOKEN'],
       env: ['project/ACME_REGION'],
     });
@@ -232,7 +233,7 @@ describe('the values a deployment needs in a project, names only', () => {
 
   test('`?projectId=` naming its own project is the same', async () => {
     const h = harness({
-      granted: [READ, `read project:${OWN}`, `admin project:${OWN}`],
+      granted: [BELONG, `read project:${OWN}`, `admin project:${OWN}`],
       secrets: ['tenant/ACME_TOKEN'],
     });
     const out = await h.get(`/v1/deployments/d-own/values?projectId=${OWN}`);
@@ -247,7 +248,7 @@ describe('the values a deployment needs in a project, names only', () => {
 
   test("another project: a tool's secret as the caller's promotion would record it", async () => {
     const projectOnly = harness({
-      granted: [READ, `read project:${OWN}`, `admin project:${TARGET}`],
+      granted: [BELONG, `read project:${OWN}`, `admin project:${TARGET}`],
       secrets: ['tenant/ACME_TOKEN'],
     });
     const missing = await projectOnly.get(`/v1/deployments/d-own/values?projectId=${TARGET}`);
@@ -259,7 +260,12 @@ describe('the values a deployment needs in a project, names only', () => {
       problem: 'missing',
     });
     const tenantAdmin = harness({
-      granted: [READ, `read project:${OWN}`, `admin project:${TARGET}`, `admin tenant:${tenantId}`],
+      granted: [
+        BELONG,
+        `read project:${OWN}`,
+        `admin project:${TARGET}`,
+        `admin tenant:${tenantId}`,
+      ],
       secrets: ['tenant/ACME_TOKEN'],
     });
     const found = await tenantAdmin.get(`/v1/deployments/d-own/values?projectId=${TARGET}`);
@@ -273,7 +279,7 @@ describe('the values a deployment needs in a project, names only', () => {
 
   test('a tenant-wide deployment: its own project is the Default project', async () => {
     const h = harness({
-      granted: [READ, `read project:${DEFAULT}`, `admin project:${DEFAULT}`],
+      granted: [BELONG, `read project:${DEFAULT}`, `admin project:${DEFAULT}`],
       secrets: ['tenant/ACME_TOKEN'],
     });
     const out = await h.get('/v1/deployments/d-wide/values');
@@ -289,7 +295,7 @@ describe('the values a deployment needs in a project, names only', () => {
 
   test("a carried version's model key is listed too", async () => {
     const h = harness({
-      granted: [READ, `read project:${OWN}`, `admin project:${OWN}`],
+      granted: [BELONG, `read project:${OWN}`, `admin project:${OWN}`],
       providers: { 'acme-llm': 'ACME_LLM_KEY', 'acme-other': 'ACME_OTHER_KEY' },
       secrets: ['tenant/ACME_OTHER_KEY'],
     });
@@ -305,7 +311,7 @@ describe('the values a deployment needs in a project, names only', () => {
 
   test('never a value: no response carries one, and each entry has only its fields', async () => {
     const h = harness({
-      granted: [READ, `read project:${OWN}`, `admin project:${OWN}`],
+      granted: [BELONG, `read project:${OWN}`, `admin project:${OWN}`],
       secrets: ['tenant/ACME_TOKEN', 'tenant/ACME_LLM_KEY'],
       env: ['project/ACME_REGION'],
       providers: { 'acme-llm': 'ACME_LLM_KEY' },
@@ -325,7 +331,7 @@ describe('the values a deployment needs in a project, names only', () => {
 
 describe('who may read them', () => {
   test('without `admin` on the project: refused, and nothing is read', async () => {
-    const h = harness({ granted: [READ, `read project:${OWN}`], secrets: ['tenant/ACME_TOKEN'] });
+    const h = harness({ granted: [BELONG, `read project:${OWN}`], secrets: ['tenant/ACME_TOKEN'] });
     const out = await h.get('/v1/deployments/d-own/values');
     expect(out.status).toBe(403);
     expect(h.reads).toEqual([]);
@@ -335,16 +341,16 @@ describe('who may read them', () => {
     expect(h.reads).toEqual([]);
   });
 
-  test('without `read` on the tenant: refused, as every deployments route is', async () => {
+  test('without `belong` on the tenant: refused, as every deployments route is', async () => {
     const h = harness({ granted: [`admin project:${OWN}`] });
     const out = await h.get('/v1/deployments/d-own/values');
     expect(out.status).toBe(403);
-    expect(h.asked).toEqual([`read tenant:${tenantId}`]);
+    expect(h.asked).toEqual([`belong tenant:${tenantId}`]);
   });
 
   test("without `read` on the deployment's own project: as an unknown one, a 404, and nothing is read", async () => {
     const h = harness({
-      granted: [READ, `admin project:${TARGET}`],
+      granted: [BELONG, `admin project:${TARGET}`],
       secrets: ['tenant/ACME_TOKEN'],
     });
     for (const path of [
@@ -363,7 +369,7 @@ describe('who may read them', () => {
   });
 
   test('an unknown deployment, a project of no one, a projectId that is not one', async () => {
-    const h = harness({ granted: [READ, 'read project', 'admin project'] });
+    const h = harness({ granted: [BELONG, 'read project', 'admin project'] });
     const none = await h.get('/v1/deployments/d-none/values');
     expect(none.status).toBe(404);
     expect((none.body.error as { code: string }).code).toBe('deployment-not-found');
@@ -377,7 +383,11 @@ describe('who may read them', () => {
   });
 
   test('a tenant-wide deployment on a runtime that records no projects: `projectId` is required', async () => {
-    const h = harness({ granted: [READ, 'admin project'], projectBinding: false });
+    // With no project binding to find the Default, the deployment is read by `read` on the tenant.
+    const h = harness({
+      granted: [BELONG, 'read tenant', 'admin project'],
+      projectBinding: false,
+    });
     const out = await h.get('/v1/deployments/d-wide/values');
     expect(out.status).toBe(400);
     const error = out.body.error as { code: string; message: string };

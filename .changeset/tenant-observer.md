@@ -1,0 +1,15 @@
+---
+"@kindgi/api": patch
+"@kindgi/authz": patch
+"@kindgi/client": patch
+"@kindgi/cli": patch
+---
+
+**The tenant's observer: a person who only views the projects they're given.** With authorization on, a person is the tenant's member or its observer, never both. The observer reads none of the tenant's settings, only the tenant's own record and the projects they're given, as `viewer` at most, and is in no team.
+- **Adding one:** `POST /v1/identity/users` takes `tenantRole: 'member' | 'observer'` (default `member`): `users.create({ tenantRole: 'observer' })`, `kindgi people add --observer`. A runtime that checks no one's access refuses it: `501 observer-not-served`, with no one added. `kindgi people add --observer` reads `tenant.observer` first, and adds no one where the runtime holds no observer (an older one, or one that checks no one's access).
+- **Changing one:** the person-grant kind `tenant-observer` makes a member the observer (`grant`) and the observer a member (`ungrant`): `kindgi people grant <id> --tenant-observer`. It's refused for a tenant admin (`409 person-is-tenant-admin`), a person on the reviewer roster (`409 person-is-reviewer`), one who holds a role above `viewer` on a project (`409 person-holds-project-role`, `details.projects`), one in a team (`409 person-in-team`, `details.teams`) and one who holds a live API key (`409 person-holds-keys`). A runtime that checks no one's access refuses `grant` (`501 observer-not-served`) before anything is read. The observer isn't made a tenant admin, put on the reviewer roster, given a role above `viewer` on a project (`POST /v1/projects/{id}/memberships`, `PATCH …/memberships/{userId}`), added to a team or given a role in one (`POST /v1/teams/{id}/memberships`, `PATCH …/memberships/{userId}`), or given a key someone else makes for them: `409 person-is-observer`.
+- **What's refused the observer:** making an API key, a public run link or a provenance export, `403 permission-denied` with `details.action: 'only_view'`.
+- **What reads change:** `GET /v1/tenant` and the deployments routes' reads ask only that the caller is in the tenant (the new check-only tenant action `belong`), its observer included; each deployment is still read in the project it serves. `GET /v1/tenant/config` still needs `read` on the tenant.
+- **What reports it:** `GET /v1/identity/me/permissions` carries `tenant.observer`, and a person's grants `tenantObserver`, where the runtime has an observer. A client offers the role only where `tenant.observer` is present.
+- **A person a site signs in:** their grants carry `siteManaged: true` where the runtime says so. Their site's sign-in gives them what they hold, so every grant naming them is refused (`403 site-person-grants-managed`), the observer's included. `kindgi people grants --table` shows a `site` row for them.
+- **`@kindgi/authz`:** the tenant gains the check-only actions `belong` (`can_belong`) and `only_view` (`can_only_view`). A key's role ceiling doesn't apply to `only_view`, which asks who the principal is, not what the key may do.

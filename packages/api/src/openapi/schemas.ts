@@ -9739,6 +9739,12 @@ export const CreateUserBodySchema: JsonSchema = {
       description:
         "Email them the invitation (default `true`). `false` still invites them, for an admin who tells them another way. A person without an email isn't invited.",
     },
+    tenantRole: {
+      type: 'string',
+      enum: ['member', 'observer'],
+      description:
+        "Their role in the tenant (default `member`). A `member` reads the tenant's settings (providers, policies, adapters, signing keys), not its projects. The tenant's `observer` reads neither: only the projects they're then given, the tenant's own record (`GET /v1/tenant`) and those projects' deployments. An observer holds no API key, makes no public run link, exports no provenance, and is neither a tenant admin nor a reviewer. A runtime that checks no one's access refuses an observer (`501 observer-not-served`). A tenant admin is made with `POST /v1/identity/users/{userId}/grant`.",
+    },
   },
 };
 
@@ -9758,7 +9764,12 @@ export const PersonGrantsSchema: JsonSchema = {
     tenantMember: {
       type: 'boolean',
       description:
-        "Whether the person is a tenant member: they read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A person is one from being added. Absent when the runtime has no authorization store, or doesn't report it.",
+        "Whether the person is a tenant member: they read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A person is one from being added, unless added as the tenant's observer. Absent when the runtime has no authorization store, or doesn't report it.",
+    },
+    tenantObserver: {
+      type: 'boolean',
+      description:
+        "Whether the person is the tenant's observer, in place of a member: they read only the projects they're given, hold no API key, and are neither a tenant admin nor a reviewer. Absent when the runtime has no authorization store, or doesn't report it.",
     },
     projects: {
       type: 'array',
@@ -9771,6 +9782,12 @@ export const PersonGrantsSchema: JsonSchema = {
       items: { $ref: '#/components/schemas/PersonTeamRole' },
     },
     reviewer: { $ref: '#/components/schemas/PersonReviewerRole' },
+    siteManaged: {
+      type: 'boolean',
+      const: true,
+      description:
+        "A person a site signs in: their site's sign-in gives them what they hold, so every grant naming them is refused (`403 site-person-grants-managed`). Change their role on the site instead. Absent for everyone else, and where the runtime doesn't say.",
+    },
   },
 };
 
@@ -9957,6 +9974,11 @@ export const MyTenantAccessSchema: JsonSchema = {
       type: 'boolean',
       description:
         "Tenant member: reads the tenant's settings. Absent when the runtime doesn't report it.",
+    },
+    observer: {
+      type: 'boolean',
+      description:
+        "The tenant's observer: reads only the projects they're given, and mints no API key, public run link or provenance export. Absent when the runtime doesn't report it, or can't hold one (it checks no one's access), so a client offers the role only where this is present.",
     },
   },
 };
@@ -10402,8 +10424,8 @@ export const PersonGrantBodySchema: JsonSchema = {
   additionalProperties: false,
   required: ['kind'],
   description:
-    "The grant to give or take: tenant admin. A person's project and team roles have their own membership routes.",
-  properties: { kind: { type: 'string', enum: ['tenant-admin'] } },
+    "The grant to give or take: tenant admin, or the tenant's observer. Granting `tenant-observer` makes the person the tenant's observer in place of a member, and ungranting it a member in place of an observer: a person is always exactly one of the two. A person's project and team roles have their own membership routes.",
+  properties: { kind: { type: 'string', enum: ['tenant-admin', 'tenant-observer'] } },
 };
 
 export const UserCollectionPageSchema: JsonSchema = {

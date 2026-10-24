@@ -40,10 +40,15 @@ as `KINDGI_SEED_USER_ID`, are Kindgi's.
   people, make keys for anyone, and change tenant-wide settings: providers,
   policies, signing keys, deployments and identity providers.
 - **A tenant member** reads the tenant's settings, not its projects: its
-  providers, policies, adapters and signing keys. Everyone you add is one.
+  providers, policies, adapters and signing keys. Everyone you add is one,
+  unless you add them as the tenant's observer.
   A deployment is read in the project it serves: a member lists and reads
   only those in projects they read. One deployed without a project is the
   Default project's.
+- **The tenant's observer** is a person in place of a member who only
+  views: none of the tenant's settings, only the projects they're given, as
+  `viewer` at most. They hold no API key
+  ([The tenant's observer](#the-tenants-observer)).
 - **A role on a project** gives the work in it: its agents, runs and
   conversations. The roles are `owner`, `admin`, `editor` and `viewer`
   ([Project memberships](../authorization/#project-memberships)).
@@ -59,7 +64,7 @@ as `KINDGI_SEED_USER_ID`, are Kindgi's.
 Lists hold only what the caller may read.
 
 :::caution[One company per tenant]
-Everyone in a tenant reads its settings. Give people from different
+Every member of a tenant reads its settings. Give people from different
 companies different tenants, not different projects of one tenant.
 :::
 
@@ -75,6 +80,9 @@ npx --yes @kindgi/cli@0.2 people add --name="Sam Rivera" --email=sam@acme.exampl
 - `--name` is their name, as people see it.
 - `--email` is the email they sign in with. It's unique among the tenant's
   people. A person added with one is [invited](#their-invitation).
+- `--observer` adds them as the tenant's observer, not a member
+  ([The tenant's observer](#the-tenants-observer)). With an older runtime,
+  `--observer` is refused and no one is added.
 - `--no-invite` doesn't email them the invitation, for when you tell them
   yourself. They're still invited.
 
@@ -206,9 +214,9 @@ npx --yes @kindgi/cli@0.2 people ungrant <user-id> --tenant-admin
 holds from their next request.
 
 `kindgi people grants <user-id> --table` lists what someone holds, as
-granted directly: tenant admin, tenant member, project and team roles, and a
-reviewer role. What a team or an org gives isn't expanded. Sam, newly added,
-holds only the tenant membership:
+granted directly: tenant admin, tenant member or the tenant's observer,
+project and team roles, and a reviewer role. What a team or an org gives
+isn't expanded. Sam, newly added, holds only the tenant membership:
 
 ```text
 WHERE   ROLE
@@ -221,6 +229,12 @@ In TypeScript, that's `users.list({ includeGrants: true })`, and in Python
 `identity.users.list(include="grants")`. Each person then carries `grants`,
 the same shape as their own grants read. A runtime without an authorization
 store lists the people without them.
+
+A person a site signs in holds what their site's sign-in gives them, so
+every grant naming them is refused (`403 site-person-grants-managed`):
+change their role on the site instead. Their grants say so with
+`siteManaged: true` (`site_managed` in Python), and the table with a
+`site` row.
 
 Taking tenant admin away is refused in two cases:
 
@@ -258,13 +272,62 @@ npx --yes @kindgi/cli@0.2 service-accounts create acme-deploy --description="Dep
 npx --yes @kindgi/cli@0.2 tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=deploy --expires=90d
 ```
 
+## The tenant's observer
+
+The tenant's observer is a person in place of a member who only views. They
+read none of the tenant's settings, only the projects they're given, as
+`viewer` at most, and they're in no team. They also read the tenant's own
+record (`GET /v1/tenant`) and the deployments in the projects they read.
+Three things are refused them, with `403 permission-denied`: making an API
+key, making a public run link, and exporting a run's provenance.
+
+Add one with `--observer` (`tenantRole: "observer"` on
+`POST /v1/identity/users`), or make a member the observer:
+
+```sh
+npx --yes @kindgi/cli@0.1 people add --name="Ana Diaz" --email=ana@acme.example --observer
+npx --yes @kindgi/cli@0.1 people grant <user-id> --tenant-observer
+npx --yes @kindgi/cli@0.1 people ungrant <user-id> --tenant-observer
+```
+
+`ungrant --tenant-observer` makes them a member again: a person you add is
+always one of the two. A person a site signs in is neither, and isn't made
+the observer: their site gives their grants (`siteManaged`,
+`403 site-person-grants-managed`).
+Making someone the observer is refused (`409`) while they're one of these,
+until that's undone:
+
+- a tenant admin (`person-is-tenant-admin`);
+- on the reviewer roster (`person-is-reviewer`);
+- holding a role above `viewer` on a project (`person-holds-project-role`):
+  make it `viewer`, or take it away. `details.projects` names at most 20
+  of them, with `details.truncated` when there are more;
+- in a team (`person-in-team`): take them out. `details.teams` names them
+  the same way;
+- holding a live API key (`person-holds-keys`): revoke it first.
+
+The other way round, the observer isn't made a tenant admin, put on the
+reviewer roster, given a role above `viewer` on a project, added to a team,
+or given a key someone else makes for them (`409 person-is-observer`).
+
+Only a runtime that checks access has an observer. On one without an
+authorization store, adding one or making a member the observer answers
+`501 observer-not-served`, before anything is written.
+`GET /v1/identity/me/permissions` carries `tenant.observer` where the
+runtime has one, so a client offers the role only there.
+
+With an older runtime, `--observer` is refused and no one is added: the CLI
+reads `tenant.observer` first. A direct `POST /v1/identity/users` with
+`tenantRole` adds a member there, so check `tenant.observer` first.
+
 ## What you may do
 
 `GET /v1/identity/me/permissions` answers what you, the caller, may do, with
 your API key's limits applied. Unlike `grants`, it counts every way you hold
 a role.
 
-- **`tenant`:** `{admin, member}`.
+- **`tenant`:** `{admin, member}`, and `observer`, whether you're the
+  tenant's observer, where the runtime has one.
 - **`reviewer`:** when you're a reviewer, it has:
   - your role;
   - your reviewer `id`, which an approval assigned to you names in

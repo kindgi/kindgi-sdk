@@ -318,10 +318,11 @@ export function deploymentsRouter(
   const publishCompiles = publishCompilesMiddleware();
   // A deploy into a named project needs admin on that project, as creating
   // an agent there does; a tenant-wide deploy, the tenant's. Every read
-  // here needs `read` on the tenant, and a read of one deployment `read` on
-  // the project it serves as well (`readableDeployment`). (A key limited to
-  // another project was already refused, `refuseOtherProjectForKey`.)
-  const tenantAccess = tenantResourceAccess(authorizer);
+  // here needs the caller in the tenant (`belong`, its observer too), and
+  // a read of one deployment `read` on the project it serves as well
+  // (`readableDeployment`). (A key limited to another project was already
+  // refused, `refuseOtherProjectForKey`.)
+  const tenantAccess = tenantResourceAccess(authorizer, { reads: 'belong' });
   r.use('*', async (c, next) => {
     // A promotion checks rights on the projects themselves: read on the
     // deployment's environment, admin on the target.
@@ -492,7 +493,7 @@ export function deploymentsRouter(
   // ---------- GET /:deploymentId/values ----------
   // What the deployment needs set in a project before it serves there,
   // names only (`deployment-values.ts`). It asks what listing secrets in
-  // that project asks, `admin` on it, on top of the tenant `read` above and
+  // that project asks, `admin` on it, on top of the tenant check above and
   // the deployment's own read, as a promotion from it does.
   r.get('/:deploymentId/values', async (c) => {
     const requestId = c.get('requestId');

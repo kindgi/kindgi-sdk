@@ -374,6 +374,31 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'person-grants-unsupported': 501,
   /** A caller's permissions on a runtime without an authorization store (`GET /v1/identity/me/permissions`). */
   'permissions-unsupported': 501,
+  /**
+   * Adding an observer on a runtime without an authorizer: nothing is
+   * checked there, so an observer would get everything a member does.
+   */
+  'observer-not-served': 501,
+  /**
+   * The person is the tenant's observer, who only views: no API key is
+   * minted for them, they're made neither a tenant admin nor a reviewer,
+   * and they hold no role above `viewer` on a project and none in a team.
+   */
+  'person-is-observer': 409,
+  /** Making a tenant admin the tenant's observer: take tenant admin from them first. */
+  'person-is-tenant-admin': 409,
+  /** Making a person on a reviewer roster the tenant's observer: take them off it first. */
+  'person-is-reviewer': 409,
+  /** Making a person who holds a live API key the tenant's observer: revoke their keys first. */
+  'person-holds-keys': 409,
+  /**
+   * Making a person who holds a role above `viewer` on a project the
+   * tenant's observer: make it `viewer`, or take it away, first.
+   * `details.projects` names them.
+   */
+  'person-holds-project-role': 409,
+  /** Making a person in a team the tenant's observer: take them out first. `details.teams` names them. */
+  'person-in-team': 409,
   /** Unregister: the version is live in a scope; move that pin first. */
   'agent-version-live': 409,
   /** An artifact upload over the runtime's cap (`KINDGI_ARTIFACT_MAX_BYTES`). */

@@ -7780,6 +7780,10 @@ class CreateUserBody(BaseModel):
     """
     Email them the invitation (default `true`). `false` still invites them, for an admin who tells them another way. A person without an email isn't invited.
     """
+    tenant_role: Annotated[Literal["member", "observer"] | None, Field(alias="tenantRole")] = None
+    """
+    Their role in the tenant (default `member`). A `member` reads the tenant's settings (providers, policies, adapters, signing keys), not its projects. The tenant's `observer` reads neither: only the projects they're then given, the tenant's own record (`GET /v1/tenant`) and those projects' deployments. An observer holds no API key, makes no public run link, exports no provenance, and is neither a tenant admin nor a reviewer. A runtime that checks no one's access refuses an observer (`501 observer-not-served`). A tenant admin is made with `POST /v1/identity/users/{userId}/grant`.
+    """
 
 
 class PersonReviewerRole(BaseModel):
@@ -7799,14 +7803,14 @@ class PersonReviewerRole(BaseModel):
 
 class PersonGrantBody(BaseModel):
     """
-    The grant to give or take: tenant admin. A person's project and team roles have their own membership routes.
+    The grant to give or take: tenant admin, or the tenant's observer. Granting `tenant-observer` makes the person the tenant's observer in place of a member, and ungranting it a member in place of an observer: a person is always exactly one of the two. A person's project and team roles have their own membership routes.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["tenant-admin"]
+    kind: Literal["tenant-admin", "tenant-observer"]
 
 
 class JudgingRuleWhen(BaseModel):
@@ -8309,6 +8313,10 @@ class MyTenantAccess(BaseModel):
     member: bool | None = None
     """
     Tenant member: reads the tenant's settings. Absent when the runtime doesn't report it.
+    """
+    observer: bool | None = None
+    """
+    The tenant's observer: reads only the projects they're given, and mints no API key, public run link or provenance export. Absent when the runtime doesn't report it, or can't hold one (it checks no one's access), so a client offers the role only where this is present.
     """
 
 
@@ -15208,7 +15216,11 @@ class PersonGrants(BaseModel):
     """
     tenant_member: Annotated[bool | None, Field(alias="tenantMember")] = None
     """
-    Whether the person is a tenant member: they read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A person is one from being added. Absent when the runtime has no authorization store, or doesn't report it.
+    Whether the person is a tenant member: they read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A person is one from being added, unless added as the tenant's observer. Absent when the runtime has no authorization store, or doesn't report it.
+    """
+    tenant_observer: Annotated[bool | None, Field(alias="tenantObserver")] = None
+    """
+    Whether the person is the tenant's observer, in place of a member: they read only the projects they're given, hold no API key, and are neither a tenant admin nor a reviewer. Absent when the runtime has no authorization store, or doesn't report it.
     """
     projects: list[PersonProjectRole]
     """
@@ -15219,6 +15231,10 @@ class PersonGrants(BaseModel):
     Team memberships.
     """
     reviewer: PersonReviewerRole | None = None
+    site_managed: Annotated[Literal[True] | None, Field(alias="siteManaged")] = None
+    """
+    A person a site signs in: their site's sign-in gives them what they hold, so every grant naming them is refused (`403 site-person-grants-managed`). Change their role on the site instead. Absent for everyone else, and where the runtime doesn't say.
+    """
 
 
 class EnvSetOutcome(

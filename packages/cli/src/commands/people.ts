@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { InviteEmail, ListPage, PersonGrants, User } from '@kindgi/client';
+import type { InviteEmail, ListPage, PersonGrant, PersonGrants, User } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
-import { UsageError } from '../errors.js';
+import { UsageError, extractKindgiError } from '../errors.js';
 import { renderJson } from '../output.js';
 import {
   type TableSpec,
@@ -18,10 +18,11 @@ import type { Command, LeafCommand } from './types.js';
 
 /**
  * `kindgi people`: the tenant's people. A tenant admin adds one (a
- * tenant member: they can read the tenant's settings), gives them a role
- * (a project or team membership, or tenant admin with
- * `kindgi people grant <id> --tenant-admin`) and mints their first key:
- * `kindgi tokens create --for=user:<id>`. A person added with an email is
+ * tenant member: they can read the tenant's settings; or, with
+ * `--observer`, the tenant's observer, who views only the projects
+ * they're given), gives them a role (a project or team membership, or
+ * tenant admin with `kindgi people grant <id> --tenant-admin`) and mints
+ * a member their first key: `kindgi tokens create --for=user:<id>`. A person added with an email is
  * invited where the runtime invites people: they sign in before the
  * invitation expires, or a tenant admin sends it again
  * (`kindgi people invite <id>`).
@@ -76,15 +77,46 @@ function inviteLine(person: User, email: InviteEmail | undefined): string {
   }
 }
 
+/**
+ * Whether the runtime holds the tenant's observer: it answers
+ * `tenant.observer` on `me/permissions`. One from before the observer
+ * ignores `tenantRole` and adds a member (one from before the route
+ * answers `route-not-found`), and one that checks no one's access (no
+ * authorization store, `permissions-unsupported`) can't hold one.
+ */
+async function servesObserver(ctx: CommandContext): Promise<boolean> {
+  try {
+    return (await ctx.client().identity.me.permissions()).tenant.observer !== undefined;
+  } catch (err) {
+    const wire = extractKindgiError(err);
+    if (wire?.code === 'not-found' && wire.serverCode === 'route-not-found') return false;
+    if (wire?.code === 'server' && wire.serverCode === 'permissions-unsupported') return false;
+    throw err;
+  }
+}
+
+/** `add --observer` asks first, and adds no one where the runtime holds no observer. */
+async function mustServeObserver(ctx: CommandContext): Promise<void> {
+  if (await servesObserver(ctx)) return;
+  throw new Error(
+    "--observer needs a runtime that holds the tenant's observer: a newer one, which checks access (it runs with an authorization store). No one was added.",
+  );
+}
+
 const add: LeafCommand = {
   kind: 'leaf',
   name: 'add',
   description:
-    "Add a person to the tenant; prints their id. They can read the tenant's settings at once; give them a project role to work on its agents and runs, and their first key (`kindgi tokens create --for=user:<id>`). Where the runtime invites people, one added with an email is invited, and the invitation emailed unless `--no-invite`; it says whether it was. Tenant admins only.",
-  usage: 'kindgi people add --name=<display-name> [--email=<email>] [--no-invite]',
+    "Add a person to the tenant; prints their id. They can read the tenant's settings at once; give them a project role to work on its agents and runs, and their first key (`kindgi tokens create --for=user:<id>`). With `--observer`, they're the tenant's observer instead: they read only the projects you give them, and hold no key. It asks the runtime first, and adds no one where it holds no observer (an older one, or one that checks no one's access). Where the runtime invites people, one added with an email is invited, and the invitation emailed unless `--no-invite`; it says whether it was. Tenant admins only.",
+  usage: 'kindgi people add --name=<display-name> [--email=<email>] [--observer] [--no-invite]',
   optionSpec: {
     name: { type: 'string', description: 'Their name, as people see it.' },
     email: { type: 'string', description: "Their email; unique among the tenant's people." },
+    observer: {
+      type: 'boolean',
+      description:
+        "The tenant's observer, not a member: they view only the projects you give them.",
+    },
     'no-invite': {
       type: 'boolean',
       description: "Don't email the invitation: you tell them. They're still invited.",
@@ -95,9 +127,12 @@ const add: LeafCommand = {
       const displayName = stringFlag(ctx, 'name');
       if (displayName === undefined) throw new UsageError('--name is required');
       const email = stringFlag(ctx, 'email');
+      const observer = ctx.options.observer === true;
+      if (observer) await mustServeObserver(ctx);
       const created = await ctx.client().users.create({
         displayName,
         ...(email !== undefined && { email }),
+        ...(observer && { tenantRole: 'observer' as const }),
         ...(ctx.options['no-invite'] === true && { sendInvite: false }),
       });
       const added = {
@@ -112,7 +147,7 @@ const add: LeafCommand = {
         stderr:
           ctx.globals.format === 'quiet'
             ? ''
-            : `Added to the tenant: they can read its settings. Give them a project role to work on its agents and runs, then their first key: kindgi tokens create --for=user:${String(created.userId)}\n${inviteLine(created, created.inviteEmail)}`,
+            : `${observer ? "Added as the tenant's observer: give them a project role to view its agents and runs. An observer holds no key." : `Added to the tenant: they can read its settings. Give them a project role to work on its agents and runs, then their first key: kindgi tokens create --for=user:${String(created.userId)}`}\n${inviteLine(created, created.inviteEmail)}`,
       };
     }),
 };
@@ -224,9 +259,15 @@ const GRANTS_TABLE: TableSpec<PersonGrants, readonly [string, string]> = {
   rows: (g) => [
     ...(g.tenantAdmin === true ? [['tenant', 'admin'] as const] : []),
     ...(g.tenantMember === true ? [['tenant', 'member (reads its settings)'] as const] : []),
+    ...(g.tenantObserver === true
+      ? [['tenant', 'observer (views only the projects it is given)'] as const]
+      : []),
     ...g.projects.map((p) => [`project ${p.projectId}`, p.role] as const),
     ...g.teams.map((t) => [`team ${t.teamId}`, t.role] as const),
     ...(g.reviewer !== undefined ? [['reviewer roster', g.reviewer.role] as const] : []),
+    ...(g.siteManaged === true
+      ? [['site', 'its sign-in gives these: change their role on the site'] as const]
+      : []),
   ],
   columns: [
     { header: 'WHERE', get: (r) => r[0] },
@@ -238,7 +279,7 @@ const grants: LeafCommand = {
   kind: 'leaf',
   name: 'grants',
   description:
-    "What a person may do, as granted directly: tenant admin, tenant member (reads the tenant's settings), project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.",
+    "What a person may do, as granted directly: tenant admin, tenant member (reads the tenant's settings) or the tenant's observer (views only the projects it's given), project and team roles, the reviewer roster, and whether their site's sign-in gives them (change those on the site). A tenant admin reads anyone's; anyone else only their own.",
   usage: 'kindgi people grants <user-id> [--table]',
   run: (ctx) =>
     runSdk(
@@ -249,27 +290,40 @@ const grants: LeafCommand = {
     ),
 };
 
-/** Only `--tenant-admin` is granted here: project and team roles are memberships. */
-function tenantAdminFlag(ctx: CommandContext): { readonly kind: 'tenant-admin' } {
-  if (ctx.options['tenant-admin'] !== true) {
+/**
+ * Only `--tenant-admin` or `--tenant-observer` is granted here, one at a
+ * time: project and team roles are memberships.
+ */
+function personGrantFlag(ctx: CommandContext): PersonGrant {
+  const admin = ctx.options['tenant-admin'] === true;
+  const observer = ctx.options['tenant-observer'] === true;
+  if (admin === observer) {
     throw new UsageError(
-      "Give --tenant-admin: a person's project and team roles are memberships (`/v1/projects/{id}/memberships`, `/v1/teams/{id}/memberships`)",
+      "Give --tenant-admin or --tenant-observer, one of them: a person's project and team roles are memberships (`/v1/projects/{id}/memberships`, `/v1/teams/{id}/memberships`)",
     );
   }
-  return { kind: 'tenant-admin' };
+  return { kind: admin ? 'tenant-admin' : 'tenant-observer' };
 }
+
+const PERSON_GRANT_OPTIONS = {
+  'tenant-admin': { type: 'boolean', description: 'Tenant admin.' },
+  'tenant-observer': {
+    type: 'boolean',
+    description: "The tenant's observer, in place of a member.",
+  },
+} as const;
 
 const grant: LeafCommand = {
   kind: 'leaf',
   name: 'grant',
   description:
-    'Make a person a tenant admin, before it answers: their next request holds it. Tenant admins only.',
-  usage: 'kindgi people grant <user-id> --tenant-admin',
-  optionSpec: { 'tenant-admin': { type: 'boolean', description: 'Tenant admin.' } },
+    "Make a person a tenant admin, or the tenant's observer in place of a member, before it answers: their next request holds it. The observer role is refused for a tenant admin, a person on the reviewer roster, one who holds a role above viewer on a project, one in a team and one who holds a live key (take that away first); an observer isn't made a tenant admin. Tenant admins only.",
+  usage: 'kindgi people grant <user-id> --tenant-admin|--tenant-observer',
+  optionSpec: PERSON_GRANT_OPTIONS,
   run: (ctx) =>
     runSdk(ctx, 'people grant', async () => {
       const id = requiredPositional(ctx, 0, 'user-id');
-      return await ctx.client().users.grant(id as never, tenantAdminFlag(ctx));
+      return await ctx.client().users.grant(id as never, personGrantFlag(ctx));
     }),
 };
 
@@ -277,13 +331,13 @@ const ungrant: LeafCommand = {
   kind: 'leaf',
   name: 'ungrant',
   description:
-    'Remove tenant admin from a person. Refused for the only person who holds it (make someone else one first) and for the seed user (unset KINDGI_SEED_USER_ID and restart the runtime first). Tenant admins only.',
-  usage: 'kindgi people ungrant <user-id> --tenant-admin',
-  optionSpec: { 'tenant-admin': { type: 'boolean', description: 'Tenant admin.' } },
+    "Remove tenant admin from a person, or make the tenant's observer a member again (`--tenant-observer`). Removing tenant admin is refused for the only person who holds it (make someone else one first) and for the seed user (unset KINDGI_SEED_USER_ID and restart the runtime first). Tenant admins only.",
+  usage: 'kindgi people ungrant <user-id> --tenant-admin|--tenant-observer',
+  optionSpec: PERSON_GRANT_OPTIONS,
   run: (ctx) =>
     runSdk(ctx, 'people ungrant', async () => {
       const id = requiredPositional(ctx, 0, 'user-id');
-      return await ctx.client().users.ungrant(id as never, tenantAdminFlag(ctx));
+      return await ctx.client().users.ungrant(id as never, personGrantFlag(ctx));
     }),
 };
 

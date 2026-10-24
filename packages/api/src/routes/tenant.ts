@@ -3,6 +3,7 @@
 
 import { isIP } from 'node:net';
 
+import type { Context } from 'hono';
 import { Hono } from 'hono';
 
 import { ref, tuplesForCreate } from '@kindgi/authz';
@@ -204,15 +205,16 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
   const egress = publishedEgress(options.egress);
   const r = new Hono<AppEnv>();
 
-  // Authorization — gate every /v1/tenant route with `read` on the
-  // caller's tenant. Anyone with tenant admin/member cascades through
-  // via can_read. Non-members (rare — usually implies a mis-issued
-  // token) get 403 rather than the tenant metadata.
+  // Authorization. The tenant's own record (its name, limits, state and
+  // published addresses) is anyone's in the tenant, its observer's too:
+  // `belong`. Every other route here needs `read`, which an observer
+  // doesn't hold: its config (env values in clear and secret names), and
+  // any route added later, until it says otherwise. Anyone else (rare,
+  // usually a mis-issued token) gets 403 rather than the tenant's metadata.
   if (authorizer !== undefined) {
-    r.use(
-      '*',
-      authorizer.authorize('read', (c) => ref('tenant', c.get('tenantId') as unknown as string)),
-    );
+    const tenant = (c: Context<AppEnv>) => ref('tenant', c.get('tenantId') as unknown as string);
+    r.use('/', authorizer.authorize('belong', tenant));
+    r.use('/:rest{.+}', authorizer.authorize('read', tenant));
     // Changing the config writes the tenant's secrets and env: `admin`
     // on the tenant (T243 A), as every tenant-wide write.
     const admin = authorizer.authorize('admin', (c) =>

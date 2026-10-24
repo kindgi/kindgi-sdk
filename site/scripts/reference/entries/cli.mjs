@@ -1905,6 +1905,10 @@ export const CLI_EXAMPLES = {
       purpose: 'Add a person without emailing the invitation: you tell them.',
       line: 'kindgi people add --name="Sam Lee" --email=sam@acme.example --no-invite',
     },
+    {
+      purpose: "Add the tenant's observer, who views only the projects you give them.",
+      line: 'kindgi people add --name="Sam Lee" --email=sam@acme.example --observer',
+    },
   ],
   'people invite': [
     {

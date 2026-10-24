@@ -1656,7 +1656,7 @@ class TokensResource:
     ) -> _models.MintTokenResult:
         """Mint an API key. `POST /v1/tokens`
 
-        An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. Only mounted when the deployment supplies a `TokenAdmin`.
+        An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. The tenant's observer holds no API key: they mint none, and none is minted for them. Only mounted when the deployment supplies a `TokenAdmin`.
         """
         return self._client._request(
             _OPERATIONS["tokens.mint"],
@@ -6806,7 +6806,7 @@ class IdentityUsersResource:
     ) -> _models.UserCreated:
         """Add a person. `POST /v1/identity/users`
 
-        Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. A person added with an email is invited (`invite`): they sign in within 7 days, or a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`); the invitation is emailed where the deployment sends email, and `inviteEmail` says whether it was. Tenant admins only. Mounted when the identity directory can add people.
+        Adds a person to the tenant, written before it answers: as a tenant member (the default), they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. As the tenant's observer (`tenantRole: 'observer'`), they read neither, only the projects they're then given as a viewer, with the tenant's own record and those projects' deployments: they hold no API key, make no public run link and export no provenance. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. A person added with an email is invited (`invite`): they sign in within 7 days, or a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`); the invitation is emailed where the deployment sends email, and `inviteEmail` says whether it was. Tenant admins only. Mounted when the identity directory can add people.
         """
         return self._client._request(
             _OPERATIONS["identity.users.create"],
@@ -6974,9 +6974,9 @@ class IdentityUsersResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.PersonGrants:
-        """Make a person a tenant admin. `POST /v1/identity/users/{userId}/grant`
+        """Make a person a tenant admin, or the tenant's observer. `POST /v1/identity/users/{userId}/grant`
 
-        Written before the call answers, so the person's next request holds it. A no-op when held. Tenant admins only.
+        Written before the call answers, so the person's next request holds it. A no-op when held. `tenant-observer` makes the person the tenant's observer in place of a member, in one write, and their recorded role with it. The observer only views, so a person who holds what the observer doesn't is refused until that's undone by its own call: a tenant admin (`person-is-tenant-admin`), a person on the reviewer roster (`person-is-reviewer`), one who holds a role above `viewer` on a project (`person-holds-project-role`), one in a team (`person-in-team`), and one who holds a live API key (`person-holds-keys`). An observer isn't made a tenant admin (`person-is-observer`). A person a site signs in (`siteManaged` on their grants) is given neither: their site gives their grants (`site-person-grants-managed`). Tenant admins only.
         """
         return self._client._request(
             _OPERATIONS["identity.users.grant"],
@@ -6998,9 +6998,9 @@ class IdentityUsersResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.PersonGrants:
-        """Remove tenant admin from a person. `POST /v1/identity/users/{userId}/ungrant`
+        """Remove tenant admin from a person, or make the tenant's observer a member. `POST /v1/identity/users/{userId}/ungrant`
 
-        A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.
+        A no-op when not held. `tenant-observer` makes the tenant's observer a member in place of an observer, in one write, and their recorded role with it. Tenant admin is refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.
         """
         return self._client._request(
             _OPERATIONS["identity.users.ungrant"],
@@ -7128,7 +7128,7 @@ class IdentityMeResource:
     def permissions(self, /, *, timeout: float | None = None) -> _models.MyPermissions:
         """What I may do. `GET /v1/identity/me/permissions`
 
-        What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.
+        What the caller may do, so a client can hide what it can't: tenant admin, whether it's the tenant's observer (on a runtime that has one), its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.
         """
         return self._client._request(
             _OPERATIONS["identity.me.permissions"],
@@ -7179,7 +7179,7 @@ class DeploymentsValuesResource:
     ) -> _models.DeploymentValueList:
         """List the values a deployment needs in a project. `GET /v1/deployments/{deploymentId}/values`
 
-        Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), `read` on the project the deployment serves, and `read` on the tenant, as every deployments route does.
+        Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), `read` on the project the deployment serves, and the caller in the tenant, as every deployments read asks.
         """
         return self._client._request(
             _OPERATIONS["deployments.values.list"],
@@ -8823,7 +8823,7 @@ class TenantResource:
     def get(self, /, *, timeout: float | None = None) -> _models.Tenant:
         """Fetch the caller's tenant. `GET /v1/tenant`
 
-        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the tenant's `limits`, and a deployment that publishes where its calls come from adds `egress`.
+        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the tenant's `limits`, and a deployment that publishes where its calls come from adds `egress`. Anyone in the tenant reads it, its observer too; its config (`GET /v1/tenant/config`) needs `read` on the tenant, which an observer doesn't hold.
         """
         return self._client._request(
             _OPERATIONS["tenant.get"],
@@ -10430,7 +10430,7 @@ class AsyncTokensResource:
     ) -> _models.MintTokenResult:
         """Mint an API key. `POST /v1/tokens`
 
-        An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. Only mounted when the deployment supplies a `TokenAdmin`.
+        An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. The tenant's observer holds no API key: they mint none, and none is minted for them. Only mounted when the deployment supplies a `TokenAdmin`.
         """
         return await self._client._request(
             _OPERATIONS["tokens.mint"],
@@ -15600,7 +15600,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.UserCreated:
         """Add a person. `POST /v1/identity/users`
 
-        Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. A person added with an email is invited (`invite`): they sign in within 7 days, or a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`); the invitation is emailed where the deployment sends email, and `inviteEmail` says whether it was. Tenant admins only. Mounted when the identity directory can add people.
+        Adds a person to the tenant, written before it answers: as a tenant member (the default), they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. As the tenant's observer (`tenantRole: 'observer'`), they read neither, only the projects they're then given as a viewer, with the tenant's own record and those projects' deployments: they hold no API key, make no public run link and export no provenance. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. A person added with an email is invited (`invite`): they sign in within 7 days, or a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`); the invitation is emailed where the deployment sends email, and `inviteEmail` says whether it was. Tenant admins only. Mounted when the identity directory can add people.
         """
         return await self._client._request(
             _OPERATIONS["identity.users.create"],
@@ -15770,9 +15770,9 @@ class AsyncIdentityUsersResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.PersonGrants:
-        """Make a person a tenant admin. `POST /v1/identity/users/{userId}/grant`
+        """Make a person a tenant admin, or the tenant's observer. `POST /v1/identity/users/{userId}/grant`
 
-        Written before the call answers, so the person's next request holds it. A no-op when held. Tenant admins only.
+        Written before the call answers, so the person's next request holds it. A no-op when held. `tenant-observer` makes the person the tenant's observer in place of a member, in one write, and their recorded role with it. The observer only views, so a person who holds what the observer doesn't is refused until that's undone by its own call: a tenant admin (`person-is-tenant-admin`), a person on the reviewer roster (`person-is-reviewer`), one who holds a role above `viewer` on a project (`person-holds-project-role`), one in a team (`person-in-team`), and one who holds a live API key (`person-holds-keys`). An observer isn't made a tenant admin (`person-is-observer`). A person a site signs in (`siteManaged` on their grants) is given neither: their site gives their grants (`site-person-grants-managed`). Tenant admins only.
         """
         return await self._client._request(
             _OPERATIONS["identity.users.grant"],
@@ -15794,9 +15794,9 @@ class AsyncIdentityUsersResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.PersonGrants:
-        """Remove tenant admin from a person. `POST /v1/identity/users/{userId}/ungrant`
+        """Remove tenant admin from a person, or make the tenant's observer a member. `POST /v1/identity/users/{userId}/ungrant`
 
-        A no-op when not held. Refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.
+        A no-op when not held. `tenant-observer` makes the tenant's observer a member in place of an observer, in one write, and their recorded role with it. Tenant admin is refused for the only person who is a tenant admin (`last-tenant-admin`: make someone else one first), and for the seed user, whom the runtime makes tenant admin at every boot (`seed-user-admin`: unset `KINDGI_SEED_USER_ID` and restart it first). Tenant admins only.
         """
         return await self._client._request(
             _OPERATIONS["identity.users.ungrant"],
@@ -15924,7 +15924,7 @@ class AsyncIdentityMeResource:
     async def permissions(self, /, *, timeout: float | None = None) -> _models.MyPermissions:
         """What I may do. `GET /v1/identity/me/permissions`
 
-        What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.
+        What the caller may do, so a client can hide what it can't: tenant admin, whether it's the tenant's observer (on a runtime that has one), its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.
         """
         return await self._client._request(
             _OPERATIONS["identity.me.permissions"],
@@ -15975,7 +15975,7 @@ class AsyncDeploymentsValuesResource:
     ) -> _models.DeploymentValueList:
         """List the values a deployment needs in a project. `GET /v1/deployments/{deploymentId}/values`
 
-        Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), `read` on the project the deployment serves, and `read` on the tenant, as every deployments route does.
+        Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), `read` on the project the deployment serves, and the caller in the tenant, as every deployments read asks.
         """
         return await self._client._request(
             _OPERATIONS["deployments.values.list"],
@@ -17621,7 +17621,7 @@ class AsyncTenantResource:
     async def get(self, /, *, timeout: float | None = None) -> _models.Tenant:
         """Fetch the caller's tenant. `GET /v1/tenant`
 
-        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the tenant's `limits`, and a deployment that publishes where its calls come from adds `egress`.
+        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the tenant's `limits`, and a deployment that publishes where its calls come from adds `egress`. Anyone in the tenant reads it, its observer too; its config (`GET /v1/tenant/config`) needs `read` on the tenant, which an observer doesn't hold.
         """
         return await self._client._request(
             _OPERATIONS["tenant.get"],

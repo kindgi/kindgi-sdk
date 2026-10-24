@@ -118,8 +118,15 @@ export interface UsersClient {
   grants(id: UserId): Promise<PersonGrants>;
 
   /**
-   * Make a person a tenant admin, before the call answers. Tenant admins
-   * only. Project and team roles have their own membership routes.
+   * Make a person a tenant admin, or the tenant's observer in place of a
+   * member, before the call answers. A no-op when held. An observer isn't
+   * made a tenant admin (`409 person-is-observer`), and the observer role
+   * is refused for a tenant admin (`409 person-is-tenant-admin`), a person
+   * on the reviewer roster (`409 person-is-reviewer`), one who holds a role
+   * above `viewer` on a project (`409 person-holds-project-role`), one in a
+   * team (`409 person-in-team`) and one who holds a live API key
+   * (`409 person-holds-keys`). Tenant admins only. Project
+   * and team roles have their own membership routes.
    *
    * @wire `POST /v1/identity/users/{userId}/grant` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users~1{userId}~1grant/post`.
@@ -131,7 +138,8 @@ export interface UsersClient {
   ): Promise<PersonGrants>;
 
   /**
-   * Remove tenant admin from a person. Refused for the only person who
+   * Remove tenant admin from a person, or make the tenant's observer a
+   * member again. Removing tenant admin is refused for the only person who
    * holds it (`409 last-tenant-admin`) and for the seed user
    * (`409 seed-user-admin`). Tenant admins only.
    *
@@ -274,6 +282,7 @@ export function makeUsersClient(transport: Transport): UsersClient {
           displayName: spec.displayName,
           ...(spec.email !== undefined && { primaryEmail: spec.email }),
           ...(spec.sendInvite !== undefined && { sendInvite: spec.sendInvite }),
+          ...(spec.tenantRole !== undefined && { tenantRole: spec.tenantRole }),
         },
         ...(options?.idempotencyKey !== undefined && {
           idempotencyKey: options.idempotencyKey,

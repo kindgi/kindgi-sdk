@@ -238,10 +238,12 @@ export type {
   RevokeSessionsResult,
   SessionSummary,
   SessionSummaryPage,
+  TenantRole,
   UserCollectionPage,
   UserInvite,
   UserRecord,
 } from './identity-directory-binding.js';
+export { TENANT_ROLES } from './identity-directory-binding.js';
 export {
   createInMemoryIdempotencyStore,
   idempotencyMiddleware,

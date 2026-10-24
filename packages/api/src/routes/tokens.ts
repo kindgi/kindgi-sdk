@@ -4,7 +4,7 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import { Hono } from 'hono';
 
-import { ref } from '@kindgi/authz';
+import { type ResourceRef, ref } from '@kindgi/authz';
 import type { ApiTokenId, ProjectId, TenantId } from '@kindgi/types';
 
 import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../caller.js';
@@ -12,6 +12,7 @@ import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../c
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
+import type { PersonGrantsBinding } from '../person-grants-binding.js';
 import { FULL_SYSTEM_CAPABILITY, isSystemCapability } from '../system.js';
 import {
   API_TOKEN_ROLES,
@@ -22,6 +23,7 @@ import {
 } from '../token-admin.js';
 import type { AppEnv } from '../types.js';
 import { type Refusal, recordRefusal, refusalError } from './denied.js';
+import { observerRefusal } from './observer.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
 import { parseTimeInput } from './time-input.js';
 import { tokenSignInKey } from './token-sign-in.js';
@@ -58,6 +60,12 @@ export interface TokensRouterOptions {
    * only system keys act for the operator.
    */
   readonly tenancy?: 'single' | 'multi';
+  /**
+   * A person's grants, read when a tenant admin mints a key for someone
+   * else: the tenant's observer holds no API keys, so a key for one is
+   * refused, 409 `person-is-observer`. Without it, nothing is read.
+   */
+  readonly personGrants?: PersonGrantsBinding;
 }
 
 export function tokensRouter(
@@ -83,6 +91,7 @@ export function tokensRouter(
     const refused =
       systemCapabilityRefusal(c, authorizer, parsed.value.capabilities, options.tenancy) ??
       (await mintRefusal(c, authorizer, owner, principal, parsed.value)) ??
+      (await observerKeyRefusal(c, options.personGrants, owner, principal)) ??
       (await expiryRefusal(c, admin, authorizer, parsed.value.expiresAt));
     if (refused !== undefined) return fail(c, refused, requestId);
 
@@ -240,6 +249,50 @@ function systemCapabilityRefusal(
   return refusalError(refusal);
 }
 
+/**
+ * A key a tenant admin mints for a person who is the tenant's observer:
+ * an observer holds no API keys, whoever mints them, so it's refused,
+ * 409 `person-is-observer`. Read only for someone else (the caller's own
+ * mint is `observerRefusal`'s), and only with the person's grants wired.
+ */
+async function observerKeyRefusal(
+  c: Context<AppEnv>,
+  personGrants: PersonGrantsBinding | undefined,
+  owner: TokenPrincipal | undefined,
+  principal: TokenPrincipal | undefined,
+): Promise<WireError | undefined> {
+  if (personGrants === undefined || principal?.kind !== 'user') return undefined;
+  if (samePrincipal(principal, owner)) return undefined;
+  const grants = await personGrants.read({
+    tenantId: c.get('tenantId') as TenantId,
+    userId: principal.userId,
+  });
+  if (grants?.tenantObserver !== true) return undefined;
+  return {
+    code: 'person-is-observer',
+    message: `${principal.userId} is this tenant's observer, and an observer holds no API keys`,
+    userId: principal.userId,
+  };
+}
+
+/**
+ * A session with a key's limits (a project, a role) mints no keys: a key
+ * would outlive whatever ends the session (its expiry, its provider's
+ * removal). For a session, `tokenRole` comes only from its own limit.
+ */
+function limitedSessionRefusal(c: Context<AppEnv>, tenant: ResourceRef): Refusal | undefined {
+  const narrowedTo = c.get('tokenProjectId');
+  if (c.get('sessionId') === undefined) return undefined;
+  if (narrowedTo === undefined && c.get('tokenRole') === undefined) return undefined;
+  return {
+    action: 'admin',
+    resource: tenant,
+    message: `This session is limited (${narrowedTo !== undefined ? `to project ${narrowedTo}` : `to the ${c.get('tokenRole')} role`}), and a limited session mints no keys`,
+    failing: 'scope',
+    code: 'limited-session-cannot-mint',
+  };
+}
+
 /** Why the route refuses this mint before the store sees it, if it does. */
 async function mintRefusal(
   c: Context<AppEnv>,
@@ -274,23 +327,14 @@ async function mintRefusal(
       failing: 'scope',
     });
   }
+  const limited = limitedSessionRefusal(c, tenant);
+  if (limited !== undefined) return refuse(limited);
+  // After the session's own limit, whose answer is its own: a limited
+  // session holds no `read` on the tenant (the key ceiling), so under an
+  // authorizer that allows every check it would read as the observer.
+  const observer = await observerRefusal(c, authorizer, 'mints no API keys');
+  if (observer !== undefined) return refuse(observer);
   const narrowedTo = c.get('tokenProjectId');
-  // A session with a key's limits (a project, a role) mints no keys: a
-  // key would outlive whatever ends the session (its expiry, its
-  // provider's removal). For a session, `tokenRole` comes only from its
-  // own limit.
-  if (
-    c.get('sessionId') !== undefined &&
-    (narrowedTo !== undefined || c.get('tokenRole') !== undefined)
-  ) {
-    return refuse({
-      action: 'admin',
-      resource: tenant,
-      message: `This session is limited (${narrowedTo !== undefined ? `to project ${narrowedTo}` : `to the ${c.get('tokenRole')} role`}), and a limited session mints no keys`,
-      failing: 'scope',
-      code: 'limited-session-cannot-mint',
-    });
-  }
   if (narrowedTo !== undefined && body.projectId !== (narrowedTo as unknown as ProjectId)) {
     return refuse({
       action: 'admin',
@@ -385,7 +429,10 @@ function toWire(record: ApiTokenRecord): Record<string, unknown> {
   };
 }
 
-type WireError = { readonly code: string; readonly message: string };
+/** A refusal's code and message, with the details it carries beside them. */
+type WireError = { readonly code: string; readonly message: string } & Readonly<
+  Record<string, unknown>
+>;
 
 function fail(c: Context<AppEnv>, error: WireError, requestId: string): Response {
   c.status(statusFor(error.code) as never);
