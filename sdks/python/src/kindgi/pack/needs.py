@@ -16,9 +16,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, cast
 
-from jsonschema import SchemaError
-
-from .._schema import SchemaValidator, strict_schema_problem
+from .._schema import SchemaValidator, compile_problem
 
 
 def needs_spec_problem(needs_spec: Mapping[str, Any]) -> str | None:
@@ -36,7 +34,7 @@ def needs_spec_problem(needs_spec: Mapping[str, Any]) -> str | None:
             if not isinstance(entry, Mapping):
                 continue
             schema = cast("Mapping[str, Any]", entry)
-            why = _compile_problem(schema)
+            why = compile_problem(schema)
             if why is not None:
                 return f"the schema for needsSpec.{slot}.{name} doesn't compile: {why}"
             if slot == "env" and "default" in schema and not isinstance(schema["default"], str):
@@ -77,7 +75,7 @@ def resolve_env(
         if not isinstance(entry, Mapping):
             continue
         schema = cast("Mapping[str, Any]", entry)
-        why = _compile_problem(schema)
+        why = compile_problem(schema)
         if why is not None:
             raise ValueError(
                 f'tool "{tool_id}" declares env value "{name}" '
@@ -91,16 +89,6 @@ def resolve_env(
                 f"declares for it: {_constraints_broken(issues)}"
             )
     return resolved
-
-
-def _compile_problem(schema: Mapping[str, Any]) -> str | None:
-    """Why the runtime's compile refuses ``schema``: not valid Draft 2020-12, or a keyword or a
-    format it doesn't know. ``None`` when it compiles."""
-    try:
-        SchemaValidator(schema)
-    except SchemaError as exc:
-        return getattr(exc, "message", None) or str(exc)
-    return strict_schema_problem(schema)
 
 
 def _missing_message(tool_id: str, missing: list[str]) -> str:

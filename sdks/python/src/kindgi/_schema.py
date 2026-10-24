@@ -25,6 +25,7 @@ from typing import Any, cast
 from urllib.parse import quote, unquote
 
 from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema.exceptions import SchemaError as InvalidSchemaError
 from jsonschema.exceptions import ValidationError as SchemaError
 from pydantic import BaseModel, TypeAdapter
 from pydantic import ValidationError as PydanticError
@@ -35,6 +36,7 @@ __all__ = [
     "SchemaValidator",
     "apply_defaults",
     "check_schema",
+    "compile_problem",
     "issues_from_pydantic",
     "strict_schema_problem",
     "wire_schema",
@@ -204,6 +206,16 @@ _FORMAT_CHECKER = _formats()
 def check_schema(schema: Mapping[str, Any]) -> None:
     """Raise `jsonschema.SchemaError` when `schema` is not a valid Draft 2020-12 schema."""
     Draft202012Validator.check_schema(schema)
+
+
+def compile_problem(schema: Mapping[str, Any]) -> str | None:
+    """Why the runtime's compile of an inline schema refuses `schema`: it isn't valid Draft
+    2020-12, or its strict mode refuses it (`strict_schema_problem`). `None` when it compiles."""
+    try:
+        check_schema(schema)
+    except InvalidSchemaError as exc:
+        return exc.message or str(exc)
+    return strict_schema_problem(schema)
 
 
 # The keywords the runtime's compile of an inline schema knows (Ajv's Draft 2020-12 ones, with
