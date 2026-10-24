@@ -66,6 +66,7 @@ All `@kindgi/*` packages share one version.
 | [`@kindgi/audit-events-inmemory`](./packages/audit-events-inmemory) | Reference in-memory `AuditEventBinding` adapter for dev + tests. |
 | [`@kindgi/authz`](./packages/authz) | Kindgi™ authorization shape. |
 | [`@kindgi/blob-binding`](./packages/blob-binding) | Kindgi™ blob storage binding contract. |
+| [`@kindgi/bounds`](./packages/bounds) | The limits a Kindgi server puts on what a tenant sends it: pattern length and engine (V8, or linear-time RE2 when hosted), schema size and depth, template limits, and the size and idle time of bodies read from tenant-named endpoints. |
 | [`@kindgi/capabilities`](./packages/capabilities) | Capability declarations + provider router for Kindgi™. |
 | [`@kindgi/cli`](./packages/cli) | Command-line interface for Kindgi™. |
 | [`@kindgi/compliance`](./packages/compliance) | Kindgi™ compliance evidence contract. |
@@ -110,7 +111,7 @@ Kindgi CLI for Python developers: `@kindgi/cli` with Node from a wheel, so
 
 ## Java
 
-[`kindgi-client`](./sdks/java) (Java 17+, preview; not on Maven Central yet) — the
+[`kindgi-client`](./sdks/java) (Java 17+, preview) — the
 Kindgi API from a Java app: generated from the OpenAPI document at build time, with
 typed models and errors, paging, streaming and retries. It works beside an app's
 own Jackson, Spring Boot 3 and 4 included.

@@ -7,15 +7,32 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide continues a conversation with an agent turn by turn, limits the
+history its model sees, reads the history, and closes the conversation.
+
 Every turn belongs to a conversation. A run without a `conversationId` opens a
 new one, and its result carries the id. Pass the id with the next message, and
 the agent's model sees what was said before.
 
+## Before you start
+
+- **An agent with a tool,** on a runtime such as `kindgi dev`, with Kindgi
+  0.1's CLI. This guide uses `acme.order-desk` and its `acme.lookup-order`
+  tool, from [Write an agent](../write-an-agent/).
+- **A registered model** for answers worth reading. Without one, `dev-echo`
+  answers.
+- **Node 22.18 or later, which runs a TypeScript file directly, Python
+  3.11 or later, or Java 17 or later,** with Kindgi 0.2's client.
+  The scripts read the API's URL and token from `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN`. With `kindgi dev`, they're the URL and token it prints,
+  also in the pack's `.kindgirc.json`.
+
 ## Continue a conversation
 
-The scripts on this page read the API's URL and token from `KINDGI_API_URL`
-and `KINDGI_API_TOKEN`. With `kindgi dev`, they're the URL and token it prints
-(also in the pack's `.kindgirc.json`).
+Ask your coding agent: "I want my app to send a follow-up message in the same
+conversation, then print the conversation's history." For reference, the
+code looks like this. The second turn passes the first turn's
+`conversationId`, so the model sees the first:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -114,19 +131,23 @@ uv run python scripts/chat.py
 
 The second message names no order, and the agent answers about A-1002: its
 model saw the first turn, including the tool call and its result. The history
-is every message in order: the user's, the agent's (a tool call or an answer)
-and each tool result. From the command line, pass the same field:
-`--input='{"userMessage":"Has it shipped yet?","conversationId":"<id>"}'`.
+is every message in order: the user's, the agent's, each a tool call or an
+answer, and each tool result. From the command line, pass the same field:
+`--input='{"userMessage":"Has it shipped yet?","conversationId":"<id>"}'`,
+where `<id>` is the conversation's id.
 
 ## Limit what the model sees
 
 A long conversation makes every turn's prompt longer. `historyLimit` caps how
-many earlier messages a turn loads:
+many earlier messages a turn loads. Ask your coding agent: "Send my agent's
+model only the last 20 messages of a conversation." Kindgi's skills in your
+pack tell it how ([How it knows Kindgi](../../../start/coding-agents/)). For
+reference, it adds `historyLimit` to the agent's definition:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 // in agents/order-desk/index.ts
   conversationPolicy: { historyLimit: 20 },
 ```
@@ -134,25 +155,43 @@ many earlier messages a turn loads:
 </TabItem>
 <TabItem label="Python">
 
-```python
+```python excerpt
 # in agents/order_desk.py
     conversation_policy={"historyLimit": 20},
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .set("conversationPolicy", Map.of("historyLimit", 20))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .set("conversationPolicy", Map("historyLimit" -> 20))
+```
+
+</TabItem>
 </Tabs>
 
-The turn loads the last 20 messages before the new one; older ones stay in the
-conversation but aren't sent. Without `historyLimit`, every turn loads the whole
-history. To see what a turn sent, read its journal
-(`kindgi runs journal <run-id>`): the `build-initial-messages` step's output
-has the messages.
+The turn loads the last 20 messages before the new one. Older ones stay in
+the conversation but aren't sent. Without `historyLimit`, every turn loads the
+whole history. To see what a turn sent, read its journal with
+`kindgi runs journal <run-id>`: the `build-initial-messages` step's output has
+the messages.
 
 ## Open, list and close conversations
 
 A conversation can also be opened before its first turn, with a title and the
 person it's with. Closing one ends it: a turn on a closed conversation is
-refused.
+refused. Ask your coding agent: "I want my app to open a conversation with a
+customer, and close it when we're done." For reference, the code looks like
+this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -249,38 +288,245 @@ conversation-closed Conversation "b3135493-47bd-4f78-90ac-fe0ff3e21e8d" is close
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/Close.java
+package com.acme.app;
+
+import com.kindgi.client.ConflictException;
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.Conversation;
+import com.kindgi.client.models.ConversationStatus;
+import com.kindgi.client.models.OpenConversationBody;
+import com.kindgi.client.models.StartRunBody;
+import com.kindgi.client.resources.ConversationsListParams;
+import java.util.Map;
+
+public final class Close {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    Conversation conversation = kindgi.conversations().open(OpenConversationBody.builder()
+        .agentId("acme.order-desk")
+        .agentVersion("0.1.0")
+        .title("Order A-1002")
+        .participantId("customer-4411")
+        .build());
+    System.out.println(conversation.id() + " " + conversation.status() + " " + conversation.turnCount());
+
+    kindgi.runs().start(StartRunBody.WithAgent.builder()
+        .agent("acme.order-desk")
+        .input(Map.of("userMessage", "Where is order A-1002?", "conversationId", conversation.id().toString()))
+        .build());
+
+    Conversation closed = kindgi.conversations().close(conversation.id());
+    System.out.println(closed.status() + " " + closed.turnCount());
+
+    try {
+      kindgi.runs().start(StartRunBody.WithAgent.builder()
+          .agent("acme.order-desk")
+          .input(Map.of("userMessage", "One more thing…", "conversationId", conversation.id().toString()))
+          .build());
+    } catch (ConflictException e) {
+      System.out.println(e.serverCode() + " " + e.getMessage());
+    }
+
+    var list = kindgi.conversations().list(ConversationsListParams.builder()
+        .agentId("acme.order-desk")
+        .status(ConversationStatus.CLOSED)
+        .build());
+    System.out.println(list.data().stream().map(c -> c.id().toString()).toList());
+  }
+}
+```
+
+```text
+581d051c-4619-4f9b-a3c8-56980ce4ac85 open 0
+closed 1
+conversation-closed Conversation "581d051c-4619-4f9b-a3c8-56980ce4ac85" is closed
+[581d051c-4619-4f9b-a3c8-56980ce4ac85]
+```
+
+A turn on a closed conversation throws `ConflictException`; its
+`serverCode()` is `conversation-closed`. `list` takes `agentId` and `status`
+(`ConversationStatus.OPEN` or `CLOSED`), and `scopeKind` with `scopeId` for
+one project's or org's.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/Close.scala
+package acme.app
+
+import com.kindgi.client.{ConflictException, Kindgi}
+import com.kindgi.client.models.{ConversationStatus, OpenConversationBody, StartRunBody}
+import com.kindgi.client.resources.ConversationsListParams
+import scala.jdk.CollectionConverters._
+
+object Close {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    val conversation = kindgi.conversations().open(OpenConversationBody.builder()
+      .agentId("acme.order-desk")
+      .agentVersion("0.1.0")
+      .title("Order A-1002")
+      .participantId("customer-4411")
+      .build())
+    println(s"${conversation.id} ${conversation.status} ${conversation.turnCount}")
+
+    def turn(message: String) = kindgi.runs().start(StartRunBody.WithAgent.builder()
+      .agent("acme.order-desk")
+      .input(Map[String, AnyRef]("userMessage" -> message, "conversationId" -> conversation.id.toString).asJava)
+      .build())
+
+    turn("Where is order A-1002?")
+
+    val closed = kindgi.conversations().close(conversation.id)
+    println(s"${closed.status} ${closed.turnCount}")
+
+    try turn("One more thing…")
+    catch { case e: ConflictException => println(s"${e.serverCode} ${e.getMessage}") }
+
+    val list = kindgi.conversations().list(ConversationsListParams.builder()
+      .agentId("acme.order-desk")
+      .status(ConversationStatus.CLOSED)
+      .build())
+    println(list.data.asScala.map(_.id.toString).mkString("[", ", ", "]"))
+  }
+}
+```
+
+```text
+0c9b03fb-be50-4076-be4f-7c019c3bc634 open 0
+closed 1
+conversation-closed Conversation "0c9b03fb-be50-4076-be4f-7c019c3bc634" is closed
+[0c9b03fb-be50-4076-be4f-7c019c3bc634, …]
+```
+
+A turn on a closed conversation throws `ConflictException`; its `serverCode`
+is `conversation-closed`. `list` takes `agentId` and `status`
+(`ConversationStatus.OPEN` or `CLOSED`), and `scopeKind` with `scopeId` for
+one project's or org's.
+
+</TabItem>
 </Tabs>
 
 - `open` pins the agent and its version (below); `title` defaults to
   `Untitled conversation`. A conversation that a turn opens takes the agent's
   name as its title.
 - `participantId` is kept on the conversation. A first turn can set it too,
-  with `participantId` in its input.
+  with `participantId` in its input. Every turn in it runs as that
+  participant, which only they (by their user id) or someone with `write` on
+  the project may do, as reading their memory takes. Anyone else gets
+  `403 participant-not-allowed`.
+- **Who may add a turn:** with a participant, the rule above. Without one,
+  whoever opened the conversation, or someone with `write` on its project, an
+  editor or above. Reading the conversation isn't enough. Anyone else gets
+  `403 permission-denied`.
+- A turn into a conversation that doesn't exist is refused with
+  `404 conversation-not-found` before it starts, with `wait: false` too. If
+  you can't read the conversation's project, you get that same `404` in place
+  of the `409 conversation-project-mismatch` (below) or the
+  `403 permission-denied`, and in place of the `403 participant-not-allowed`
+  for its participant (runtime 0.2.0 or later).
+- **With [authorization](../../../deploy/authorization/) on,** reading a
+  conversation or its messages takes `read` on its project. Closing one
+  takes `execute` on its agent, or, for an agent more than one project
+  serves, `call` on the conversation's project; reading it isn't needed. A
+  conversation you can't read answers `404 conversation-not-found`, as if it
+  weren't there, when you read it or its messages, or are refused closing
+  it, unregistering it or adding a turn (runtime 0.2.0 or later). If you can
+  read it, a refusal is a `403`.
+- A turn into a closed conversation is refused with
+  `409 conversation-closed`: start a new conversation instead. It's
+  refused before a run is made, with `wait: false` too (runtime 0.1.10
+  or later), and after the rules on who may add a turn, so a caller they
+  refuse gets their answer instead.
+- **Who opened it:** `openedBy` (`user:<id>` or `service_account:<id>`) is
+  the caller who opened it, or, for one a turn opened, whoever the run acts
+  for. It's set by the server, never from the body.
+  - `list({ openedBy: 'me' })` (`?openedBy=me`, `opened_by="me"` in
+    Python, `--opened-by=me` in the CLI) lists only your own, and every page
+    says so, as `openedBy: "me"`. An older runtime ignores it and lists
+    everyone's, with no `openedBy` on the page; the CLI stops instead, and
+    names the release the runtime needs.
+  - Conversations an older runtime opened record no opener, and aren't
+    listed by it.
+  - It's a filter, not privacy: anyone who may read the project reads its
+    conversations.
 - `close` is safe to repeat: closing a closed conversation returns it as it is.
 - `list` filters by agent and by `status` (`open` or `closed`), newest first;
   `get` fetches one conversation. From the CLI:
-  `kindgi conversations list --status=closed`.
+  `kindgi conversations list --status=closed`. In the console, a project's
+  **Conversations** page lists them: **All**, **Open** or **Closed** filters
+  by status, and **Load more** brings older ones.
 - **A [comparison](../../evals/compare-an-agent-version/)'s replays** have
   conversations too, and lists leave them out unless you ask: `replays:
   'include'` or `'only'` (`--replays=include` or `--replays=only` in the CLI).
   A replay's conversation has `replayOf` and `evalRunId` in its `metadata`.
-- A conversation is in a project: a run opens it in the run's project, and
-  `open` takes a `projectId` (one of your tenant's projects; without one, the
-  Default project, as for a run). `list` takes a `scope` for one project's
-  conversations, or every project's in an org: `{ kind: 'project', projectId }`
-  (`scope_kind="project", scope_id=…`) or `{ kind: 'org', orgId }`. A
-  conversation from before Kindgi 0.1.3 has no project and is listed only
-  without a scope.
+- A conversation is in a project. A run opens it in the run's project, and
+  `open` takes a `projectId`, one of your tenant's projects, which takes
+  `write` on that project, as a run naming one does. Without one, it's the
+  agent's own project, as for a run.
+- Every later turn runs in the conversation's project. A turn that names
+  another `projectId` is refused with `409 conversation-project-mismatch`:
+  name the conversation's project, or leave `projectId` out.
+- `list` takes a `scope` for one project's conversations, or every project's
+  in an org: `{ kind: 'project', projectId }` or `{ kind: 'org', orgId }`. In
+  Python, it's `scope_kind="project", scope_id=…`. A conversation stored
+  without a project, by an older runtime, is listed only without a scope.
 
-From the CLI:
+From the CLI, where `<conversation-id>` is the id `open` prints:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi conversations open acme.order-desk 0.1.0 --title="Order A-1002" --participant=customer-4411
-kindgi runs start --agent=acme.order-desk --agent-version=0.1.0 --input='{"userMessage":"Where is order A-1002?","conversationId":"<conversation-id>"}'
-kindgi conversations messages <conversation-id>   # oldest first
-kindgi conversations get <conversation-id>
-kindgi conversations close <conversation-id>
+pnpm exec kindgi conversations open acme.order-desk 0.1.0 --title="Order A-1002" --participant=customer-4411
+pnpm exec kindgi runs start --agent=acme.order-desk --agent-version=0.1.0 --input='{"userMessage":"Where is order A-1002?","conversationId":"<conversation-id>"}'
+pnpm exec kindgi conversations messages <conversation-id>   # oldest first
+pnpm exec kindgi conversations get <conversation-id>
+pnpm exec kindgi conversations close <conversation-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi conversations open acme.order-desk 0.1.0 --title="Order A-1002" --participant=customer-4411
+uv run kindgi runs start --agent=acme.order-desk --agent-version=0.1.0 --input='{"userMessage":"Where is order A-1002?","conversationId":"<conversation-id>"}'
+uv run kindgi conversations messages <conversation-id>   # oldest first
+uv run kindgi conversations get <conversation-id>
+uv run kindgi conversations close <conversation-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw conversations open acme.order-desk 0.1.0 --title="Order A-1002" --participant=customer-4411
+./kindgiw runs start --agent=acme.order-desk --agent-version=0.1.0 --input='{"userMessage":"Where is order A-1002?","conversationId":"<conversation-id>"}'
+./kindgiw conversations messages <conversation-id>   # oldest first
+./kindgiw conversations get <conversation-id>
+./kindgiw conversations close <conversation-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw conversations open acme.order-desk 0.1.0 --title="Order A-1002" --participant=customer-4411
+./kindgiw runs start --agent=acme.order-desk --agent-version=0.1.0 --input='{"userMessage":"Where is order A-1002?","conversationId":"<conversation-id>"}'
+./kindgiw conversations messages <conversation-id>   # oldest first
+./kindgiw conversations get <conversation-id>
+./kindgiw conversations close <conversation-id>
+```
+
+</TabItem>
+</Tabs>
 
 Over HTTP, these are `POST /v1/conversations`, `GET /v1/conversations`,
 `GET /v1/conversations/{id}`, `POST /v1/conversations/{id}/close` and
@@ -288,9 +534,38 @@ Over HTTP, these are `POST /v1/conversations`, `GET /v1/conversations`,
 
 ## Remove a conversation
 
+Unregistering a conversation removes it from every read, list and recall:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi conversations unregister <conversation-id>
+pnpm exec kindgi conversations unregister <conversation-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi conversations unregister <conversation-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw conversations unregister <conversation-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw conversations unregister <conversation-id>
+```
+
+</TabItem>
+</Tabs>
 
 It prints the conversation, now with `unregisteredAt`:
 
@@ -314,17 +589,22 @@ It prints the conversation, now with `unregisteredAt`:
 }
 ```
 
-From then on, no read, list or [recall](../give-an-agent-memory/#recall-earlier-conversations)
-returns it, and it takes no more turns. With
-[authorization](../../../deploy/authorization/) on, unregistering takes
-`write` on the conversation's project (an editor or above); anyone else is
-refused with `403 permission-denied`, and the conversation stays. An id that
-doesn't exist, or a conversation already unregistered, answers `404`. Its
-messages stay in the database until a retention policy on `conversation`
-purges them
-([Keep and purge deleted data](../../../deploy/retention/)). In your app:
-`conversations.unregister`; over HTTP,
-`POST /v1/conversations/{id}/unregister`.
+From then on, no read, list or
+[recall](../give-an-agent-memory/#recall-earlier-conversations) returns it,
+and it takes no more turns.
+
+- **With [authorization](../../../deploy/authorization/) on,** unregistering
+  takes `write` on the conversation's project, an editor or above. Anyone
+  else who can read it is refused with `403 permission-denied`, and the
+  conversation stays. If you can't read it, it answers `404`, as if it
+  weren't there (runtime 0.2.0 or later).
+- **An id that doesn't exist,** or a conversation already unregistered,
+  answers `404`.
+- **Its messages stay in the database** until a retention policy on
+  `conversation` purges them, as
+  [Keep and purge deleted data](../../../deploy/retention/) describes.
+- **In your app,** it's `conversations.unregister`. Over HTTP, it's
+  `POST /v1/conversations/{id}/unregister`.
 
 To clear a person's words now, from every conversation and run that held
 them, [erase their data](../erase-a-persons-data/).
@@ -340,8 +620,9 @@ of an open conversation is refused:
 Error [not-found]: The conversation was opened with agent "acme.order-desk@0.1.0", which is no longer registered.
 ```
 
-A turn that names another version (`--agent-version=0.2.0` in the CLI,
-`agentVersion` in `runs.start`, `agent_version` in Python) is refused too:
+A turn that names another version is refused too. That's
+`--agent-version=0.2.0` in the CLI, `agentVersion` in `runs.start`, or
+`agent_version` in Python:
 
 ```text
 Error [agent-version-mismatch]: Conversation opened with acme.order-desk@0.1.0; invoked with acme.order-desk@0.2.0
@@ -355,6 +636,12 @@ way, not on every edit.
 ## Approvals in a conversation
 
 A conversation can make a person approve each turn once it runs long, or
-before a tool runs: see
+before a tool runs, as
 [Ask before a long conversation continues](../../approvals/ask-after-n-turns/)
-and [Ask before a tool runs](../../approvals/ask-before-a-tool-runs/).
+and [Ask before a tool runs](../../approvals/ask-before-a-tool-runs/) show.
+
+## Next
+
+- [Give an agent memory](../give-an-agent-memory/)
+- [Ask before a long conversation continues](../../approvals/ask-after-n-turns/)
+- [Erase a person's data](../erase-a-persons-data/)

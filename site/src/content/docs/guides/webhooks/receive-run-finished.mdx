@@ -7,15 +7,33 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide has Kindgi send your app a signed `run.finished` request each time
+a run ends, so your app needn't poll.
+
 Kindgi signs each request with a secret that your receiver knows too. The
-secret lives with your other secrets, and the endpoint refers to it by name:
+secret lives with your other secrets, and the endpoint refers to it by name.
 Kindgi never stores it with the endpoint.
 
-This page is about Kindgi **sending** your app webhooks. To have a webhook from
-another system start a run, see [Start runs from WooCommerce, Drupal or any
-signed webhook](../start-runs-from-webhooks/).
+This guide is about Kindgi **sending** your app webhooks. To have a webhook
+from another system start a run, see
+[Start runs from WooCommerce, Drupal or any signed webhook](../start-runs-from-webhooks/).
+
+## Before you start
+
+- **`kindgi dev` running** in your pack's directory, with Kindgi 0.2's CLI.
+- **A flow to watch,** registered on that runtime. This guide filters on
+  `acme.check-order-stock`; use your own flow's id.
+- **Your app's server,** on Node 22.12 or later, Python 3.11 or later, or
+  Java 17 or later, with Kindgi 0.2's client and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
+- **A route in your app that receives the request,** such as
+  `http://localhost:8787/hooks/kindgi`.
+  [Verify a webhook](../verify-a-webhook/) has receivers to start from.
 
 ## 1. Store a signing secret
+
+Kindgi and your receiver both need the same secret: Kindgi signs with it, and
+your receiver checks the signature.
 
 A signing secret is `whsec_` and the base64 of at least 24 random bytes.
 Generate one:
@@ -24,6 +42,7 @@ Generate one:
 <TabItem label="TypeScript">
 
 ```ts
+// scripts/new-webhook-secret.ts
 import { generateWebhookSecret } from '@kindgi/sdk/webhooks';
 
 console.log(generateWebhookSecret());
@@ -33,50 +52,146 @@ console.log(generateWebhookSecret());
 <TabItem label="Python">
 
 ```python
+# scripts/new_webhook_secret.py
 from kindgi import webhooks
 
 print(webhooks.generate_secret())
 ```
 
 </TabItem>
-</Tabs>
+<TabItem label="Java">
 
-Store it as a secret, under a name (the CLI asks for the value and doesn't
-echo it):
+```java
+// src/main/java/com/acme/app/NewWebhookSecret.java
+package com.acme.app;
 
-```sh
-kindgi secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant --app
+import com.kindgi.client.Kindgi;
+
+public final class NewWebhookSecret {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    System.out.println(kindgi.webhookEndpoints().generateSecret().secret());
+  }
+}
 ```
 
+The Java client asks the runtime for the secret (`POST
+/v1/webhook-endpoints/generate-secret`), so this needs `KINDGI_API_URL` and
+`KINDGI_API_TOKEN`, or the running `kindgi dev`.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/NewWebhookSecret.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+
+object NewWebhookSecret {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    println(kindgi.webhookEndpoints().generateSecret().secret)
+  }
+}
+```
+
+The Java client asks the runtime for the secret (`POST
+/v1/webhook-endpoints/generate-secret`), so this needs `KINDGI_API_URL` and
+`KINDGI_API_TOKEN`, or the running `kindgi dev`.
+
+</TabItem>
+</Tabs>
+
+It prints a new secret on one line: `whsec_` and the base64 of 32 random
+bytes.
+
+Store it as a secret, under a name. The CLI asks for the value and doesn't
+echo it:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant --app
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant --app
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant --app
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant --app
+```
+
+</TabItem>
+</Tabs>
+
+- `ACME_WEBHOOK_SECRET` is the secret's name. The endpoint refers to it by
+  this name.
+- `--env=local` is the environment the secret belongs to. Under
+  `kindgi dev`, `local` is the pack's env files.
+- `--scope=tenant` is where the secret lives: the tenant, rather than one
+  org (`org:<orgId>`) or project (`project:<projectId>`).
+- `--app` writes it to your app's own env file, `.env.local`, where your
+  receiver reads it. Kindgi reads it there too. Without `--app`, it goes to
+  Kindgi's own `.kindgi/secrets.env`, which your app doesn't load, as
+  [Keep local values in env files](../../secrets/env-files/) explains.
+
+It prints the secret's name, scope, environment and version as JSON, then:
+
 ```text
+…
   Set ACME_WEBHOOK_SECRET at tenant in local, in your app's env file.
 ```
 
-In development, `--app` writes it to your app's own env file, `.env.local`,
-where your receiver reads it, and Kindgi reads it there too. Without `--app`
-it would go to Kindgi's own `.kindgi/secrets.env`, which your app doesn't
-load ([Keep local values in env files](../../secrets/env-files/)). In a deployment, store it in
-that deployment's secrets store, under its environment's name (see
-[`kindgi secrets`](../../../reference/cli/secrets/)). Your receiver needs the
-same value, from its own configuration.
+In a deployment, store it in that deployment's secrets store, under its
+environment's name, with [`kindgi secrets`](../../../reference/cli/secrets/).
+Your receiver needs the same value, from its own configuration.
 
 ## 2. Register the endpoint
 
-There's no CLI command for webhook endpoints; register one from your app (or
-any HTTP client) with the client:
+The endpoint tells Kindgi where to send the request, and with which secret.
+
+There's no CLI command for webhook endpoints. Register one with the client,
+from your app or a script. Ask your coding agent: "I want Kindgi to send my
+app a webhook when a run of my flow finishes." For reference, the code looks
+like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```ts
+// scripts/register-webhook.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
 const endpoint = await kindgi.webhookEndpoints.create({
   url: 'http://localhost:8787/hooks/kindgi',
   events: ['run.finished'],
   secretRef: { envName: 'local', name: 'ACME_WEBHOOK_SECRET' },
-  filter: { flowIds: ['acme.review-order'] }, // optional
+  filter: { flowIds: ['acme.check-order-stock'] }, // optional
 });
 console.log(endpoint.endpointId, endpoint.url);
 ```
+
+It prints the endpoint's id and URL:
 
 ```text
 5c1d2267-4dc8-4bd6-81e8-940e620405ea http://localhost:8787/hooks/kindgi
@@ -86,17 +201,92 @@ console.log(endpoint.endpointId, endpoint.url);
 <TabItem label="Python">
 
 ```python
+# scripts/register_webhook.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
+
 endpoint = kindgi.webhook_endpoints.create(
     url="http://localhost:8788/hooks/kindgi",
     events=["run.finished"],
     secret_ref={"envName": "local", "name": "ACME_WEBHOOK_SECRET"},
-    filter={"flowIds": ["acme.review-order"]},  # optional
+    filter={"flowIds": ["acme.check-order-stock"]},  # optional
 )
 print(endpoint.endpoint_id, endpoint.url)
 ```
 
+It prints the endpoint's id and URL:
+
 ```text
 07fec45a-f938-4694-8ac3-f72f38a938a4 http://localhost:8788/hooks/kindgi
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/RegisterWebhook.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.CreateWebhookEndpointBody;
+import com.kindgi.client.models.WebhookEndpoint;
+import com.kindgi.client.models.WebhookEndpointFilter;
+import com.kindgi.client.models.WebhookEventType;
+import com.kindgi.client.models.WebhookSecretRef;
+import java.util.List;
+
+public final class RegisterWebhook {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    WebhookEndpoint endpoint = kindgi.webhookEndpoints().create(CreateWebhookEndpointBody.builder()
+        .url("http://localhost:8787/hooks/kindgi")
+        .events(List.of(WebhookEventType.RUN_FINISHED))
+        .secretRef(WebhookSecretRef.builder().envName("local").name("ACME_WEBHOOK_SECRET").build())
+        .filter(WebhookEndpointFilter.builder().flowIds(List.of("acme.check-order-stock")).build()) // optional
+        .build());
+    System.out.println(endpoint.endpointId() + " " + endpoint.url());
+  }
+}
+```
+
+It prints the endpoint's id and URL:
+
+```text
+b755d953-6dbf-4ec6-bd5a-3b55b0a87fc2 http://localhost:8787/hooks/kindgi
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/RegisterWebhook.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{CreateWebhookEndpointBody, WebhookEndpointFilter, WebhookEventType, WebhookSecretRef}
+import scala.jdk.CollectionConverters._
+
+object RegisterWebhook {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    val endpoint = kindgi.webhookEndpoints().create(CreateWebhookEndpointBody.builder()
+      .url("http://localhost:8787/hooks/kindgi")
+      .events(List(WebhookEventType.RUN_FINISHED).asJava)
+      .secretRef(WebhookSecretRef.builder().envName("local").name("ACME_WEBHOOK_SECRET").build())
+      .filter(WebhookEndpointFilter.builder().flowIds(List("acme.check-order-stock").asJava).build()) // optional
+      .build())
+    println(s"${endpoint.endpointId} ${endpoint.url}")
+  }
+}
+```
+
+It prints the endpoint's id and URL:
+
+```text
+331103fc-6f6d-408f-904b-2a9299f9a2db http://localhost:8787/hooks/kindgi
 ```
 
 </TabItem>
@@ -104,35 +294,37 @@ print(endpoint.endpoint_id, endpoint.url)
 
 - **`url`** is your receiver. Use https in production; plain http is for
   development. In `kindgi dev`, `localhost` reaches your machine, not the
-  runtime's container. Outside development the receiver must be on a public
+  runtime's container. Outside development, the receiver must be on a public
   address. A self-hosted runtime whose receiver is on its own private
-  network (the same VPC or compose network) sets
-  `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`. That opens RFC 1918, CGNAT and
-  IPv6 unique-local addresses, still over https only. Loopback and the cloud
-  metadata addresses stay refused. A URL the deployment refuses gets
-  `400 webhook-url-refused`, with the reason: `The deployment refuses this
-  URL: private network addresses are not allowed`.
-- **`events`**: `run.finished`, and
-  [`improvement-pass.finished`](#improvement-passes) and
-  [`approval.requested`](#approvals), both below.
-- **`secretRef`** names the secret: the environment it's in (`local` in
-  development) and its name. Kindgi checks that it exists and is strong
-  enough, and keeps only the name:
+  network, such as the same VPC or compose network, sets
+  `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`. That opens RFC 1918, CGNAT, and
+  IPv6 unique-local and site-local addresses, still over https only.
+  Loopback and the cloud metadata addresses stay refused. A URL the
+  deployment refuses gets `400 webhook-url-refused` with a reason. For a
+  private address, it's `The deployment refuses this URL: private network
+  addresses are not allowed`.
+- **`events`** lists the events to send: `run.finished` here.
+  `improvement-pass.finished` and `approval.requested` are the others, as
+  [Webhook events and deliveries](../webhook-events/) describes.
+- **`secretRef`** names the secret: the environment it's in, `local` in
+  development, and its name. Kindgi checks that it exists and is strong
+  enough, and keeps only the name. A secret that isn't stored is refused:
 
   ```json
   {"error":{"code":"webhook-secret-not-found","message":"No secret \"NOPE_SECRET\" in \"local\": store it first, then register the endpoint",…}}
   ```
 
-- **`filter`** narrows which runs reach the endpoint: `flowIds` (any version
-  of these flows), `projectId`, and `includeDryRuns` (dry runs are left out
-  unless it's `true`). Without a filter, every run you start does.
+- **`filter`** (optional) narrows which runs reach the endpoint. `flowIds`
+  names flows, any version of them. `projectId` names a project.
+  `includeDryRuns: true` sends dry runs too, which are left out otherwise.
+  Without a filter, every run you start reaches the endpoint.
 
-Only runs your app or the CLI started send `run.finished`; the runs inside
-them (an agent step's turn) don't.
+Only runs your app or the CLI started send `run.finished`. The runs inside
+them, such as an agent step's turn, don't.
 
 ## 3. What your endpoint receives
 
-When a run of `acme.review-order` ends, your URL gets a `POST`:
+When a run of `acme.check-order-stock` ends, your URL gets a `POST`:
 
 ```text
 POST /hooks/kindgi
@@ -169,161 +361,32 @@ webhook-signature: v1,bj8Mj6s7ln2Gd1sDRQi8+Wax2SOFHovsdMIwvNhDrgw=
 }
 ```
 
-- `status` is `completed`, `failed` or `cancelled`; `failureMessage` says why
-  when it failed.
-- `usage` is what the run's model calls cost, its agent steps included:
-  `calls` (failed ones too), `costUsd` and `tokens`. This flow calls no model,
-  so it's all zeros. See [Cost per run and per customer](../../observability/cost-per-run/).
-  A runtime before 0.1.3 doesn't send it.
+- `status` is `completed`, `failed` or `cancelled`. `failureMessage` says why
+  a run failed.
+- `usage` is what the run's model calls cost. This flow calls no model, so
+  it's all zeros.
 - The event carries the run's identity and outcome, never its input or
-  output. Fetch the run (`runs.get`) for its output: after `parseEvent`
-  (TypeScript), `event.data.run.id` is a `RunId`, so it goes to `runs.get` as
-  it is.
+  output. Fetch the run with `runs.get` for its output.
 - `webhook-id` is the event's id, the same on every retry.
 
-### On an agent's run
+[Webhook events and deliveries](../webhook-events/#runfinished) has every
+field, and the event for an agent's run.
 
-When your app starts an agent's run (a turn in a conversation), the event
-is the same, with `flowId` `agent.turn` and an `agent` saying which agent
-ran:
+## 4. Answer the request
 
-```json
-{
-  "id": "62340028-b9ea-4b3c-911a-9958ecdf64de",
-  "type": "run.finished",
-  "createdAt": "2026-10-11T06:05:07.444Z",
-  "data": {
-    "run": {
-      "id": "73628759-cb27-4813-94f7-f872bb3a78ef",
-      …
-      "flowId": "agent.turn",
-      "flowVersion": "1.1.0",
-      "status": "completed",
-      …
-      "agent": {
-        "id": "acme.order-assistant",
-        "version": "0.1.0",
-        "conversationId": "9bd2328a-5c30-4cf9-ab15-4ddc74dc898d",
-        "via": "latest"
-      }
-    }
-  }
-}
-```
+Kindgi retries any request your receiver doesn't answer with success, so the
+receiver answers each one.
 
-- `agent.id` and `agent.version` are the agent and the version that ran,
-  and `conversationId` is the conversation the turn belongs to.
-- `via` says why that version ran: `latest` (no version is live for the
-  run's scope), `live` (the version live for its scope), `explicit` (your
-  app named the version) or `conversation` (the conversation's own).
-- `usage` counts the agent's model calls, as on a flow's run.
-- These are the fields `GET /v1/runs/<run-id>` shows. In Python,
-  `parse_event` gives them as `event.data.run.agent`.
-- A flow's run has no `agent`, and neither does an event from a runtime
-  before 0.1.6.
+Check the signature, then answer with a 2xx status. Deduplicate on
+`webhook-id`, since the same event can arrive twice.
+[Verify a webhook](../verify-a-webhook/) has receivers that do both.
 
-## Improvement passes
+Your app now handles each event once, from a request whose signature it
+has checked.
 
-An endpoint that also lists `improvement-pass.finished` in its `events` gets
-one when any [improvement pass](../../evals/improve-an-agent/) ends,
-`completed`, `failed` or `cancelled`, whoever started it. Its `data.pass` is
-the pass as `GET /v1/improvement-passes/<pass-id>` shows it; its outcome
-names the proposal it wrote, if it wrote one. Of the filter, only
-`projectId` (the pass's project) applies; `flowIds` and `includeDryRuns` are
-about runs. `parseEvent` (TypeScript) and `parse_event` (Python) read it.
+## Next
 
-## Approvals
-
-An endpoint that lists `approval.requested` gets one each time an approval
-starts waiting for a reviewer (an escalation opens a new approval, so a new
-event). Assigning it later sends no second event: read the approval for its
-`assignedTo`. Its `data.approval` says which approval and who may decide it:
-`approvalId`, `projectId`, `requiredRole`, `title`, `assignedTo` when it's
-assigned, `createdAt`, `expiresAt`, and `url`, its page in the console when
-the runtime knows its public address. It never carries what the approval is
-about (no `context`, no tool call or run input): that stays behind sign-in.
-Of the filter, only `projectId` (the approval's project) applies. An
-approval that's rolled back before it's saved sends nothing. One, as an
-endpoint gets it (ids elided; `webhook-id` is the approval's id), with
-`assignedTo` and `expiresAt` there when they're set:
-
-```json
-{
-  "id": "…",
-  "type": "approval.requested",
-  "createdAt": "2026-10-10T01:37:31.198Z",
-  "data": {
-    "approval": {
-      "approvalId": "…",
-      "projectId": "…",
-      "requiredRole": "standard",
-      "title": "Refund over the limit",
-      "createdAt": "2026-10-10T01:37:31.198Z",
-      "url": "…/console/approvals/…"
-    }
-  }
-}
-```
-
-To email the reviewers themselves instead, see
-[reviewer email](../../approvals/decide-an-approval/#reviewer-email).
-
-## Delivery
-
-Answer with a 2xx status. Any other answer, or none, is retried with backoff
-(a minute later, then five minutes, then longer). A delivery is **at least
-once**: the same event can arrive twice, so deduplicate on `webhook-id`.
-
-Outside development, every attempt checks the receiver's address again, with
-the runtime's settings at that moment. An attempt to an address it refuses
-fails with `lastError: "url-refused"` and is retried like any other: set
-`KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`, and the queued retries to a private
-receiver go out.
-[Verify a webhook](../verify-a-webhook/) has receivers that check the
-signature and do that.
-
-## In the console
-
-Tenant admins have a **Webhooks** page: every endpoint the tenant sends to,
-and how its deliveries went. Times are UTC.
-
-![The Webhooks page: "2 endpoints; 1 is failing (its last delivery isn't getting through).", a search box and the Columns menu, Order system (a run finished, signed with dev/hooks-signing, "Of its 1 delivery, 1 was delivered.") and Old CRM ("Of its 1 delivery, 0 were delivered and 1 is still being sent.").](../../../../assets/webhooks/webhooks-list.png)
-
-- **The headline** counts the endpoints and the failing ones: "2 endpoints; 1
-  is failing (its last delivery isn't getting through)."
-- **Each endpoint** says what it sends ("a run finished"), the secret it
-  signs with, by name only, and how its recent deliveries went: "Of its 1
-  delivery, 1 was delivered."
-- **The list** has a search box, sorts by a column's header, and
-  **Columns** chooses which columns it shows.
-
-An endpoint's page says what it sends and how it signs: "Sends a run
-finished, signed with the secret dev/hooks-signing (its value stays in the
-secrets store)." Then each delivery, newest first, as a story:
-- "Delivered after 1 attempt";
-- "Retrying after 2 attempts (nothing is listening at that address), next
-  attempt …", or the receiver's answer instead, such as "(HTTP 500)";
-- "Failed after 6 attempts: HTTP 500", once it has stopped trying;
-- for a finished run, the run's outcome and **Open the run**.
-
-The other reasons it gives are "it didn't answer in time", "its host name
-doesn't resolve", "its address is one webhooks may not go to", "its TLS
-certificate wasn't accepted" and "the connection failed". **All**,
-**Failed**, **Being sent** and **Delivered** filter the list, and it sorts
-by a column's header.
-
-![An endpoint's page: what it sends and its secret by name, Send a test and Unregister, "Of its 2 deliveries, 2 were delivered.", the All, Failed, Being sent and Delivered filters, the Columns menu, and two deliveries: a test and a run finished (Completed, Open the run), each "Delivered after 1 attempt" with Send again.](../../../../assets/webhooks/webhook-endpoint.png)
-
-- **Send a test** queues a test event ("Queued: follow it below."), which
-  shows in the list as "a test".
-- **Send again** queues that delivery once more ("Queued.").
-- **Unregister:** "Nothing more is sent to it. Deliveries still waiting are
-  marked failed." It can't be brought back from the console: add it again.
-  Its old address then says "No endpoint by that id here: it was
-  unregistered, or never existed."
-
-A runtime without a secrets store sends no webhooks, and the page says so:
-"Outbound webhooks aren't turned on here". Endpoints sign with a secret kept
-in the store, so set `KINDGI_SECRETS_BACKEND` and restart the runtime.
-
-![The Webhooks page on a runtime without a secrets store: "Outbound webhooks aren't turned on here", and that they need a secrets store, set with KINDGI_SECRETS_BACKEND.](../../../../assets/webhooks/webhooks-off.png)
+- [Verify a webhook](../verify-a-webhook/)
+- [Test and replay deliveries](../test-and-replay/)
+- [Webhook events and deliveries](../webhook-events/)
+- [Show runs in your app](../../runs/show-runs-in-your-app/)

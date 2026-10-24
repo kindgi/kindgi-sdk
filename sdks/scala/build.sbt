@@ -5,8 +5,10 @@
 // LTS line. Its version is the npm packages' (version.sbt, written by scripts/sync-jvm-version.mjs),
 // and kindgi-pack's is the same.
 //
-// kindgi-pack isn't on Maven Central yet: install it first (sdks/java: ./mvnw -pl kindgi-pack -am
-// install -DskipTests), and this build reads it from the local Maven repository.
+// This build reads kindgi-pack from the local Maven repository: install it first (sdks/java:
+// ./mvnw -pl kindgi-pack -am install -DskipTests). The local repository comes before Maven Central
+// (`pack`'s externalResolvers): main's version can be one already released there, and that jar
+// lacks what main has added since.
 
 val Scala213 = "2.13.18"
 val Scala3 = "3.3.8"
@@ -18,7 +20,6 @@ val JacksonVersion = "2.18.11"
 ThisBuild / organization := "com.kindgi"
 ThisBuild / scalaVersion := Scala3
 ThisBuild / crossScalaVersions := Seq(Scala213, Scala3)
-ThisBuild / resolvers += Resolver.mavenLocal
 
 // What Maven Central requires of every pom (sdks/java/pom.xml says the same).
 ThisBuild / organizationName := "Kindgi Inc."
@@ -34,7 +35,8 @@ ThisBuild / scmInfo := Some(
 ThisBuild / developers := List(
   Developer("kindgi", "Kindgi Inc.", "", url("https://kindgi.com"))
 )
-// The local Maven repository resolves kindgi-pack in the build; the published pom names no repository.
+// The published pom names no repository: an app resolves kindgi-pack from Maven Central. Only this
+// build reads the local repository first, since main's version can equal a release already there.
 ThisBuild / pomIncludeRepository := { _ => false }
 // `publish` / `publishSigned` write to target/sona-staging, a Maven repository on disk:
 // scripts/check-jars.mjs checks it, and scripts/central-bundle.mjs uploads it with the Java SDK's.
@@ -50,7 +52,7 @@ lazy val root = (project in file("."))
 lazy val pack = (project in file("kindgi-pack-scala"))
   .settings(
     name := "kindgi-pack-scala",
-    description := "Kindgi™ tools, guardrails, agents and flows in Scala, on kindgi-pack. In preview: tested and supported, but the API may still change in 0.1.6 without the usual deprecation period.",
+    description := "Kindgi™ tools, guardrails, agents and flows in Scala, on kindgi-pack. In preview: tested and supported, but the API may still change in a later release without the usual deprecation period.",
     javacOptions ++= Seq("--release", "17"),
     scalacOptions ++= {
       CrossVersion.partialVersion(scalaVersion.value) match {
@@ -58,6 +60,8 @@ lazy val pack = (project in file("kindgi-pack-scala"))
         case _            => Seq("-release", "17", "-deprecation", "-feature")
       }
     },
+    // The local Maven repository before Maven Central (see the top of this file).
+    externalResolvers := Resolver.mavenLocal +: externalResolvers.value,
     libraryDependencies ++= Seq(
       "com.kindgi" % "kindgi-pack" % version.value,
       "com.fasterxml.jackson.module" %% "jackson-module-scala" % JacksonVersion,

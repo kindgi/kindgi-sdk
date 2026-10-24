@@ -12,7 +12,7 @@ It's built on [`@kindgi/adapter-model-shared`](../model-shared/): the retries, t
 |---|---|
 | `metadata.region` | Required: the AWS region Bedrock runs in (`us-east-2`). The requests go to it and are signed for it. |
 | `metadata.models[].name` | A Bedrock model id or inference-profile id, as Bedrock names it: `us.amazon.nova-pro-v1:0`, `us.anthropic.claude-sonnet-5-5`. A cross-region profile (`us.`, `eu.`, `apac.`…) is called from a region in its geography. |
-| `adapter_config.auth` | `aws-identity` (default): the runtime's AWS identity, requests signed with SigV4. `api-key`: a Bedrock API key through `secret_ref`, sent as a bearer token. AWS recommends API keys for exploration only. |
+| `adapter_config.auth` | `aws-identity` (default): the runtime's AWS identity, requests signed with SigV4; refused where the deployment doesn't let tenant configuration sign in as the server (`serverCredentials: false`, `KINDGI_TENANT_HOST_ACCESS=isolated`). `api-key`: a Bedrock API key through `secret_ref`, sent as a bearer token. AWS recommends API keys for exploration only. |
 | `adapter_config.baseURL` | Optional: another `bedrock-runtime` endpoint (https, its root), such as a VPC endpoint or a FIPS endpoint. With `aws-identity`, Bedrock's runtime in the region only (below); with `api-key`, any host and path (a gateway). Default: the region's own (`https://bedrock-runtime.<region>.amazonaws.com`, or its partition's domain). |
 
 ```json

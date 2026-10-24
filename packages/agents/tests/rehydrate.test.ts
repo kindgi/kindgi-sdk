@@ -3,6 +3,7 @@
 
 import { describe, expect, test } from 'vitest';
 
+import { TenantBudgetError } from '@kindgi/bounds';
 import { createProviderRegistry } from '@kindgi/capabilities';
 import type { ModelMessage, ModelProvider } from '@kindgi/capabilities';
 import type { JournalEntry } from '@kindgi/runtime';
@@ -16,6 +17,7 @@ import { buildDispatchToolsHandler } from '../src/handlers/dispatch-tools.js';
 import { AgentTurnFailure } from '../src/handlers/errors.js';
 import { rehydrateTurnContext } from '../src/handlers/rehydrate.js';
 import { resolveEffectiveHitlPolicy } from '../src/hitl-policy.js';
+import { resumeAgentTurn } from '../src/invoke.js';
 import type { AgentId, ConversationMessage } from '../src/types.js';
 import { testNodeContext } from './node-context.js';
 
@@ -244,6 +246,55 @@ describe('rehydrateTurnContext', () => {
       code: 'capability-routing-failed',
       message: expect.stringContaining('second/second-model'),
     });
+  });
+
+  test("a resumed turn whose rebuild a tenant's budget refuses fails with rate-limit-exceeded", async () => {
+    const turn = resumedTurn([provider('second')]);
+    const { agent: resumed } = turn.input;
+    let resumes = 0;
+    const result = await resumeAgentTurn({ tenantId, runId: 'run-1' as RunId, agent: resumed }, {
+      ...turn.bindings,
+      // The turn's approval policy, rebuilt before any node runs, is refused.
+      policyRegistry: {
+        evaluate: async () => {
+          throw new TenantBudgetError('Over the budget', 'schema-compile-time', 2_000, 1_500);
+        },
+      },
+      runSnapshotBinding: {
+        read: async () => ({
+          kind: 'ok',
+          value: {
+            runId: 'run-1',
+            tenantId,
+            projectId: 'p-1',
+            agentId: resumed.id,
+            agentVersion: resumed.version,
+            conversationId: 'conv-1',
+            userMessage: 'user 3',
+            dryRun: false,
+            createdAt: '2026-10-01T00:00:00Z',
+          },
+        }),
+      },
+      runBinding: {
+        readJournal: async () => ({ kind: 'ok', value: parkedJournal }),
+        resumeRun: async () => {
+          resumes += 1;
+          throw new Error('not resumed');
+        },
+      },
+    } as never);
+    expect(result).toEqual({
+      kind: 'err',
+      error: {
+        code: 'rate-limit-exceeded',
+        message: 'Over the budget',
+        limit: 'schema-compile-time',
+        budgetMs: 2_000,
+        retryAfterMs: 1_500,
+      },
+    });
+    expect(resumes).toBe(0);
   });
 });
 

@@ -14,7 +14,7 @@ description: >
   kindgi-python-getting-started.
 type: core
 library: "kindgi (Python)"
-version: "0.1.4"
+version: "0.1.5"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -242,6 +242,29 @@ a tool with a `writes`, `deletes`, `spawns-run`, `emits-event` or
 `limits=` and `network=`. They are recorded in the pack's index for
 policy and review; declare what the tool really does.
 
+## A person's yes when no one is watching: `needs_approval_when_unattended`
+
+`needs_approval_when_unattended=True` declares that a person must say yes to every call of the tool in a run no person started: one a schedule, a webhook, an event or a service account's key started. In such a run:
+
+- **An agent's call waits** for a person's yes, whatever the agent's `conversation_policy` says in `hitl["tools"]`. The agent's rules can't lift it: agents are reused, and the tool's author knows what it does.
+- **A flow's tool step that calls it is refused.** Put the tool behind an agent step instead, whose call waits.
+- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's or a schedule's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks` and `kindgi schedules`). In that trigger's runs, the tool is then as in a run a person started. The tenant's approval rules still apply.
+
+In a run a person started (signed in, or with their own API key), the agent's rules decide, as for any tool. Left out, it counts as `False`. Declare it on a tool that moves money or changes something people rely on:
+
+```python
+@tool(
+    id="acme.refund",
+    effects=[{"kind": "writes", "resource": "acme:refunds"}],
+    mutating=True,
+    needs_approval_when_unattended=True,
+)
+def refund(request: RefundRequest) -> Refunded:
+    """Refunds an order."""
+```
+
+Docs: https://docs.kindgi.com/v0.1/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
+
 ## HTTP tools — one request, no code
 
 A tool that is a single HTTP request needs no handler. `http_tool(...)`
@@ -278,7 +301,9 @@ lookup_case = http_tool(
   `{"kind": "text", "template": "…{field}…"}` (sent as `text/plain`).
 - Also `timeout_ms=` (default 30000), `parse_json=` (default `True`),
   `success_status=(200, 299)`, `effects=`, `version=`, and
-  `mutating=False` for a request that changes nothing (a GET, usually).
+  `mutating=False` for a request that changes nothing (a GET, usually), and
+  `needs_approval_when_unattended=True` for one that moves money or
+  changes something people rely on.
 - `timeout_ms` covers the whole call, reading the response included, and
   so does a run's cancel. A response body over 10 MiB, counted after it's
   decompressed, fails the call. So point the tool at an endpoint that

@@ -131,6 +131,8 @@ const steps = [
     ],
   ],
   ['publish readiness', 'pnpm', ['run', 'check:publish']],
+  // The site's build scripts' own tests (node:test, site/scripts).
+  ['docs site scripts', 'pnpm', ['run', 'docs:test-scripts']],
   // The documentation site (docs.kindgi.com) builds, with its search index.
   ['docs site', 'pnpm', ['run', 'docs:build']],
   // Every sample that is a whole file compiles (TypeScript) or indexes (Python).

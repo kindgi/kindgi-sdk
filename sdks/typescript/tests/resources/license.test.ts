@@ -27,4 +27,21 @@ describe('license — wire round-trip', () => {
     const call = stub.calls[0]!;
     expect(`${call.method} ${call.url}`).toBe(`GET ${API}/v1/license`);
   });
+
+  it('usage: GET /v1/license/usage?since=…, the counts as the runtime reports them', async () => {
+    const usage = {
+      since: '2026-10-05T12:00:00.000Z',
+      until: '2026-10-25T12:00:00.000Z',
+      runtimeVersion: '0.1.8',
+      runs: 1200,
+      people: 4,
+    };
+    const stub = jsonFetch(usage);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(await client.license.usage({ since: new Date('2026-10-05T12:00:00Z') })).toEqual(usage);
+    const call = stub.calls[0]!;
+    expect(`${call.method} ${call.url}`).toBe(
+      `GET ${API}/v1/license/usage?since=2026-10-05T12%3A00%3A00.000Z`,
+    );
+  });
 });

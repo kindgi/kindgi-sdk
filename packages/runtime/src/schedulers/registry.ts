@@ -9,6 +9,7 @@ import type {
   Cursor,
   LiveScope,
   ProjectId,
+  RecordedSecretScope,
   Result,
   TenantId,
   TriggerId,
@@ -205,7 +206,8 @@ export type WebhookRefusalReason =
   | 'paused'
   | 'rate-limited'
   | 'body-too-large'
-  | 'body-not-json';
+  | 'body-not-json'
+  | 'body-too-deep';
 
 export interface WebhookRefusalInput {
   readonly tenantId: TenantId;
@@ -236,8 +238,14 @@ export interface TriggerFire {
    * `skipped-erasure`: the person the fire acts for is being erased (the
    * run start answered `erasure-in-progress`). Skipped fires never count
    * toward the auto-pause; refused and failed ones do.
-   * `skipped`: what the target waits for wasn't there (an `improve`
-   * schedule's threshold, or its monthly cap), as `detail` says.
+   * `skipped`, as `detail` says: a webhook trigger was paused; what the
+   * target waits for wasn't there (an `improve` schedule's threshold, or its
+   * monthly cap); its project is suspended (`project-suspended`); its run or
+   * pass hadn't started when its tenant was suspended, and the restore
+   * concluded it (`tenant-suspended`); or its tenant was suspended or closing
+   * as its run started (`tenant-suspended`, `tenant-closing`). A skip for a
+   * suspension or a close doesn't reset the count of refusals and failures
+   * in a row either.
    */
   readonly outcome:
     | 'pending'
@@ -253,6 +261,14 @@ export interface TriggerFire {
   readonly passId?: string;
   /** Why it was refused, skipped or failed. */
   readonly detail?: string;
+  /**
+   * Whether it counted toward the trigger's auto-pause (5 in a row by
+   * default). `false` for a refusal for a limit, such as the tenant's runs
+   * pending (`detail` starts `rate-limited:`): the limit passes, and the
+   * trigger isn't at fault. Absent from a runtime that doesn't say: then
+   * refused and failed fires counted, and the others didn't.
+   */
+  readonly countsTowardPause?: boolean;
   /** Occurrences this fire stood in for after a gap (`catchUp: 'latest'`). */
   readonly missedCount?: number;
   /** A `run-now` fire, outside the schedule. */
@@ -296,6 +312,14 @@ export interface RegisterCronTriggerInput {
   /** How late a fire may start and still count as on time; past it, `catchUp` applies. */
   readonly startingDeadlineSeconds?: number;
   readonly label?: string;
+  /**
+   * Tools, by id, whose calls in its runs don't wait for a person's yes
+   * though no person started them (the tool's `needsApprovalWhenUnattended`):
+   * copied to each run when it starts (`RunFlowInput.toolsAllowedUnattended`).
+   * A project admin's to set, and each id one the target can call (the
+   * route checks both). Absent: none.
+   */
+  readonly toolsAllowedUnattended?: readonly string[];
 }
 
 export interface RegisterEventTriggerInput {
@@ -321,11 +345,19 @@ export interface RegisterWebhookTriggerInput {
   /** Caller-supplied (uuid). The routable id a webhook receiver looks the trigger up by. */
   readonly webhookId: string;
   /**
-   * Name of the signing secret in the secrets store, resolved at the
-   * trigger's project. The caller writes the secret first
-   * (`POST /v1/secrets`); this row never holds it.
+   * Name of the signing secret in the secrets store; this row never holds
+   * it. Read at `hmacSecretScope` only.
    */
   readonly hmacSecretName: string;
+  /**
+   * Where the signing secret is read: recorded by the API when the trigger
+   * is registered (the scope the registrant may read it at; see
+   * `@kindgi/api`'s `secret-scope.ts`). `null`: none usable, so no delivery
+   * verifies until an admin names its secret again (an update). Absent: not
+   * recorded (a caller from before it was), and the receiver reads it as it
+   * did.
+   */
+  readonly hmacSecretScope?: RecordedSecretScope | null;
   /** How its sender signs; absent → {@link DEFAULT_WEBHOOK_SIGNATURE}. */
   readonly signature?: WebhookSignatureScheme;
   /** The request header whose value, with the body, dedupes deliveries; absent → no dedupe. */
@@ -335,6 +367,8 @@ export interface RegisterWebhookTriggerInput {
   /** Accepted deliveries a minute; absent → {@link WEBHOOK_RATE_LIMITS}`.defaultPerMinute`. */
   readonly rateLimitPerMinute?: number;
   readonly label?: string;
+  /** As `RegisterCronTriggerInput.toolsAllowedUnattended`. */
+  readonly toolsAllowedUnattended?: readonly string[];
 }
 
 // ---------- update (discriminated on kind) ----------
@@ -361,6 +395,8 @@ export interface UpdateCronTriggerInput extends Omit<UpdateBase, 'flowVersion'> 
   readonly catchUp?: ScheduleCatchUp;
   readonly overlap?: ScheduleOverlap;
   readonly startingDeadlineSeconds?: number;
+  /** The `toolsAllowedUnattended`, replaced: `[]` clears it. Absent: kept as it is. */
+  readonly toolsAllowedUnattended?: readonly string[];
 }
 
 export interface UpdateEventTriggerInput extends UpdateBase {
@@ -373,6 +409,8 @@ export interface UpdateWebhookTriggerInput extends UpdateBase {
   readonly config?: Partial<WebhookTriggerConfig>;
   /** Another secret, by name. Rotating a secret's value goes through `/v1/secrets`. */
   readonly hmacSecretName?: string;
+  /** Where `hmacSecretName` is read, recorded with it (as at registration). */
+  readonly hmacSecretScope?: RecordedSecretScope | null;
   readonly signature?: WebhookSignatureScheme;
   /** `null` stops deduping. */
   readonly deliveryIdHeader?: string | null;
@@ -380,6 +418,8 @@ export interface UpdateWebhookTriggerInput extends UpdateBase {
   readonly bodyLimitBytes?: number | null;
   /** `null` goes back to the default. */
   readonly rateLimitPerMinute?: number | null;
+  /** As `UpdateCronTriggerInput.toolsAllowedUnattended`. */
+  readonly toolsAllowedUnattended?: readonly string[];
 }
 
 // ---------- records (discriminated on kind) ----------
@@ -414,6 +454,11 @@ export interface CronTriggerRecord extends TriggerRecordBase {
   readonly statusReason?: string;
   /** The next occurrences, when the read asked for them (`GetTriggerInput.upcoming`). */
   readonly upcoming?: readonly string[];
+  /**
+   * Tools its runs may call without a person's yes
+   * (`RegisterCronTriggerInput.toolsAllowedUnattended`). Absent: none.
+   */
+  readonly toolsAllowedUnattended?: readonly string[];
 }
 
 export interface EventTriggerRecord extends FlowTriggerRecordBase {
@@ -428,6 +473,8 @@ export interface WebhookTriggerRecord extends FlowTriggerRecordBase {
   readonly config: WebhookTriggerConfig;
   readonly webhookId: string;
   readonly hmacSecretName: string;
+  /** Where the signing secret is read (`RegisterWebhookTriggerInput.hmacSecretScope`), when recorded. */
+  readonly hmacSecretScope?: RecordedSecretScope | null;
   /** How its sender signs ({@link DEFAULT_WEBHOOK_SIGNATURE} when it set none). */
   readonly signature: WebhookSignatureScheme;
   readonly deliveryIdHeader?: string;
@@ -437,6 +484,8 @@ export interface WebhookTriggerRecord extends FlowTriggerRecordBase {
   readonly statusReason?: string;
   /** Refusals and skipped deliveries this minute past the recorded ones, which only counted. */
   readonly suppressedRefusals?: { readonly since: string; readonly count: number };
+  /** As `CronTriggerRecord.toolsAllowedUnattended`. */
+  readonly toolsAllowedUnattended?: readonly string[];
 }
 
 export type TriggerRecord = CronTriggerRecord | EventTriggerRecord | WebhookTriggerRecord;

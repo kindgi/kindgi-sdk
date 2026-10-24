@@ -82,20 +82,15 @@ const done = (integration, dir) =>
     logger: { info: () => undefined },
   });
 
-test('a release build fixes its pages and llms.txt', () => {
+test('a release build fixes its pages', () => {
   const dir = build({
     'start/java-app/index.html': `<a href="${repo}/tree/main/sdks/java">x</a> <code>{{kindgi.version}}</code>`,
-    'llms-full.txt': `[x](${repo}/blob/main/README.md) {{kindgi.version}}`,
   });
   try {
     done(versionedPages({ ref: tag, version: '0.1.5' }), dir);
     assert.equal(
       readFileSync(join(dir, 'start/java-app/index.html'), 'utf8'),
       `<a href="${repo}/tree/${tag}/sdks/java">x</a> <code>0.1.5</code>`,
-    );
-    assert.equal(
-      readFileSync(join(dir, 'llms-full.txt'), 'utf8'),
-      `[x](${repo}/blob/${tag}/README.md) 0.1.5`,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

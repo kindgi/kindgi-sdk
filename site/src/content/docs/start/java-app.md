@@ -4,7 +4,7 @@ description: Start runs, follow them and read their answers from a Java applicat
 sidebar:
   order: 5.5
   label: Call Kindgi from Java
-  badge: { text: 'Preview', variant: 'caution' }
+  badge: { text: 'Preview', variant: 'caution', class: 'kg-preview' }
 ---
 
 Your Java app starts runs, follows them and reads what they answered,
@@ -13,7 +13,7 @@ typed errors.
 
 :::caution[Preview]
 **Preview.** Java and Scala support is tested and supported, but its API may
-still change in 0.1.6 without the usual deprecation period.
+still change in a later release without the usual deprecation period.
 :::
 
 **Before you start:** a pack running under `kindgi dev`, such as the one
@@ -23,7 +23,9 @@ with its `echo-agent`). The client finds that runtime by itself.
 ## 1. Get the client
 
 The client is on Maven Central, and needs Java 17 or later. In your app, it's
-one dependency, at your Kindgi release's version (the CLI's, `kindgi --version`):
+one dependency, at your Kindgi release's version (the CLI's, `kindgi --version`).
+Ask your coding agent: "Add Kindgi's Java client to our app." For reference,
+it adds this to `pom.xml`:
 
 ```xml
 <dependency>
@@ -39,9 +41,16 @@ settings) is left alone; that's checked with Spring Boot 3.2 to 4.1.
 
 ## 2. Start a run and follow it
 
-To try it, make a small app in a folder inside the pack, `my-pack/hello-java`:
+To try it, make a small app in a folder inside the pack:
 `Kindgi.create()` finds the running `kindgi dev` through the nearest
-`.kindgirc.json` above the folder the app runs in, which is the pack's. Its
+`.kindgirc.json` above the folder the app runs in, which is the pack's. Ask
+your coding agent to make it:
+
+```text
+I want a small Java app in my pack that runs the echo agent and prints its events and its answer.
+```
+
+For reference, this guide makes it in `my-pack/hello-java`, with this
 `pom.xml`:
 
 ```xml
@@ -147,7 +156,7 @@ URL, the token, the timeout or your own `HttpClient`.
 the path's ids first, then the request body, then the query parameters as
 one record with a builder:
 
-```java
+```java excerpt
 // in src/main/java/com/acme/Lists.java
 RunCollectionPage page = client.runs().list(RunsListParams.builder().limit(20L).build());
 ```
@@ -160,7 +169,7 @@ fetches the next page as you read on.
 `AuthException`, `RateLimitedException` and so on, with the server's own
 code in `serverCode()`:
 
-```java
+```java excerpt
 // in src/main/java/com/acme/Lookup.java
 try {
   client.runs().get(runId);
@@ -184,9 +193,17 @@ and every request body has a builder that checks it against the API's
 rules before it's sent (a `ValidationException` lists what's wrong).
 
 A newer Kindgi runtime may answer with an enum value or a kind of object
-this client doesn't know yet. The Java client keeps it (`status().value()`
-is `UNRECOGNIZED`), where the Python client refuses the whole answer.
+this client doesn't know yet. The client keeps it: `status().value()` is
+`UNRECOGNIZED`.
 
 More detail is in the client's
 [README](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java#readme):
 streams, updates that clear a property, your app's Jackson.
+
+## Next
+
+- [Add Kindgi to a Java app](../existing-app/#a-java-app-maven): your app's
+  own classes as tools.
+- [Quickstart: Java](../quickstart-java/): a pack of its own, with every
+  primitive.
+- [Follow a run](../../guides/runs/follow-a-run/): every way to watch one.

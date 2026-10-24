@@ -34,7 +34,7 @@ export function toolContextForTest(overrides: Partial<ToolContext> = {}): ToolCo
  * Test only: in a run, the runtime decides a pack tool's env itself, from its env store, and
  * calls `invokeTool`.
  *
- * ```ts
+ * ```ts excerpt
  * const result = await invokeToolForTest(findOrder, { orderId: 'ord_1001' }, {
  *   env: { ORDERS_BASE_URL: 'https://orders.example.com' },
  * });

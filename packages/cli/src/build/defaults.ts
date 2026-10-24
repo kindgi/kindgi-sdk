@@ -23,12 +23,19 @@ import { readSse } from '@kindgi/sdk/client';
 import { runJavaIndexer, runPythonIndexer } from '../dev/defaults.js';
 import { createJavaPackBuilder } from '../dev/java-builder.js';
 import { createScalaPackBuilder } from '../dev/scala-builder.js';
-import { REQUIRE_BANNER, collectPackEntries, nodeModulesExternalPlugin } from './bundle.js';
+import {
+  REQUIRE_BANNER,
+  collectPackEntries,
+  nodeModulesExternalPlugin,
+} from './bundle.js';
+import { COMPUTED_IMPORT_LOG_OVERRIDE, computedImportsFrom } from './computed-imports.js';
 import { loadEsbuild } from '../esbuild-loader.js';
 import { readPnpmVersion } from '../package-manager.js';
 import { renderContainerfile } from './containerfile.js';
+import { BuildServiceRefusal, retryAfterSeconds } from './hosted.js';
 import { installCommands, withoutInstallScripts } from './host-install.js';
 import { renderJavaContainerfile } from './java-image.js';
+import { loadedInstall } from './loaded-install.js';
 import { renderScalaContainerfile } from './scala-image.js';
 import { renderPythonContainerfile } from './python-image.js';
 import type {
@@ -148,8 +155,8 @@ export async function runLocalIndexerReal(
  *     `node_modules` (imported by name);
  *   - the framework's process entries, `kindgi-index.mjs` and
  *     `kindgi-pack-service.mjs`: self-contained, from the CLI's own
- *     `@kindgi/handler-runtime` (the pack's install has none once
- *     pruned);
+ *     `@kindgi/handler-runtime` (the image's install has none: it has
+ *     production dependencies only);
  *   - `bundle-map.json`: each primitive's source path → its bundle.
  */
 export async function esbuildBundleReal(
@@ -176,10 +183,15 @@ export async function esbuildBundleReal(
 
   const packEntries = await collectPackEntries(opts.packDir, opts.discoveryPatterns);
   const externalPackages = new Set<string>();
+  const externalSpecifiers = new Set<string>();
   const externals = nodeModulesExternalPlugin({
     importBy: 'bare',
-    onExternal: (name) => externalPackages.add(name),
+    onExternal: (name, _importer, specifier) => {
+      externalPackages.add(name);
+      externalSpecifiers.add(specifier);
+    },
   });
+  const loaded = opts.dependencies === 'loaded';
   const pack = await esbuild.build({
     ...common,
     entryPoints: [
@@ -187,6 +199,8 @@ export async function esbuildBundleReal(
       { in: opts.configPath, out: 'kindgi.config' },
     ],
     plugins: [externals],
+    // Only what the pack loads: esbuild's notes on computed imports, as warnings.
+    ...(loaded && { logOverride: COMPUTED_IMPORT_LOG_OVERRIDE }),
   });
   // Resolved from the CLI's own package, whose dependency it is.
   const cliRoot = await cliPackageRoot();
@@ -196,8 +210,17 @@ export async function esbuildBundleReal(
     entryPoints: [
       { in: '@kindgi/handler-runtime/kindgi-index-main', out: 'kindgi-index' },
       { in: '@kindgi/handler-runtime/pack-service-main', out: 'kindgi-pack-service' },
+      // Only what the pack loads: the image's closure and load check.
+      ...(loaded ? [{ in: '@kindgi/handler-runtime/kindgi-closure-main', out: 'kindgi-closure' }] : []),
     ],
   });
+  if (loaded) {
+    await writeFile(
+      join(opts.outputDir, 'externals.json'),
+      `${JSON.stringify({ packages: [...externalPackages].sort(), specifiers: [...externalSpecifiers].sort() }, null, 2)}\n`,
+      'utf8',
+    );
+  }
 
   const bundleMap: Record<string, string> = {};
   for (const entry of packEntries) bundleMap[entry.sourceRel] = `${entry.outRel}.mjs`;
@@ -216,6 +239,7 @@ export async function esbuildBundleReal(
     emitted: outputs.map(([p]) => p).sort(),
     totalBytes: outputs.reduce((sum, [, o]) => sum + o.bytes, 0),
     externals: [...externalPackages].sort(),
+    computedImports: loaded ? computedImportsFrom(pack.warnings, opts.packDir) : [],
     bundleMap,
   };
 }
@@ -247,7 +271,7 @@ export async function writeContainerfileReal(opts: WriteContainerfileOptions): P
     publishedAt: opts.publishedAt,
     buildTarget: opts.buildTarget,
     install: opts.install,
-    commands: installCommands(opts.install),
+    commands: installCommands(opts.install, opts.image.steps),
     image: opts.image,
     hasIncludes: opts.hasIncludes,
   });
@@ -262,6 +286,7 @@ export async function writeContainerfileReal(opts: WriteContainerfileOptions): P
 /**
  * Write the image's build context into `contextDir` (emptied first):
  *   host/          the files the install reads, at their paths under the install root
+ *                  (with `'loaded'`, the manifest and lockfile cut down to what the pack loads)
  *   ext/           the files the build extensions read, at their paths under the install root
  *   dist/          the bundles
  *   include/       `bundle.include` files, at their pack-relative paths
@@ -273,10 +298,14 @@ export async function writeContextReal(opts: WriteContextOptions): Promise<void>
   await rm(opts.contextDir, { recursive: true, force: true });
   await mkdir(opts.contextDir, { recursive: true });
   const projectManifests = new Set(opts.install.projectManifests);
+  const written = opts.install.reduced?.written ?? {};
   for (const rel of opts.install.files) {
     const dest = join(opts.contextDir, 'host', rel);
     await mkdir(dirname(dest), { recursive: true });
-    if (projectManifests.has(rel)) {
+    const text = written[rel];
+    if (text !== undefined) {
+      await writeFile(dest, text, 'utf8');
+    } else if (projectManifests.has(rel)) {
       // The app's own install scripts never run in the image.
       const text = await readFile(join(opts.install.root, rel), 'utf8');
       await writeFile(dest, withoutInstallScripts(text), 'utf8');
@@ -423,14 +452,25 @@ export async function postBuildReal(opts: PostBuildOptions): Promise<PostBuildRe
   if (opts.registryPushCredsRef !== undefined) {
     form.append('registryPushCredsRef', opts.registryPushCredsRef);
   }
+  if (opts.packId !== undefined) form.append('packId', opts.packId);
+  if (opts.projectId !== undefined) form.append('projectId', opts.projectId);
   const url = `${opts.endpoint.replace(/\/+$/, '')}/v1/build`;
   const res = await opts.fetchImpl(url, {
     method: 'POST',
-    headers: { 'X-Content-SHA256': opts.tarballSha256 },
+    headers: {
+      'X-Content-SHA256': opts.tarballSha256,
+      ...(opts.authorization !== undefined && { Authorization: opts.authorization }),
+    },
     body: form,
   });
   if (res.status !== 200 && res.status !== 202) {
     const errBody = await res.text().catch(() => '');
+    const refusal = buildServiceRefusal(
+      res.status,
+      retryAfterSeconds(res.headers.get('retry-after')),
+      errBody,
+    );
+    if (refusal !== undefined) throw refusal;
     throw new Error(`POST /v1/build failed with HTTP ${res.status}: ${errBody}`);
   }
   const payload = (await res.json()) as {
@@ -463,57 +503,164 @@ export async function postBuildReal(opts: PostBuildOptions): Promise<PostBuildRe
   };
 }
 
+/** A build service's `{ error: { code, message } }` answer, else undefined. */
+function buildServiceRefusal(
+  status: number,
+  retryAfter: number | undefined,
+  body: string,
+): BuildServiceRefusal | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+  const error = (
+    parsed as { readonly error?: { readonly code?: unknown; readonly message?: unknown } } | null
+  )?.error;
+  if (typeof error?.code !== 'string' || typeof error.message !== 'string') return undefined;
+  return new BuildServiceRefusal(status, error.code, error.message, retryAfter);
+}
+
+/** A refused opening of the log stream: its status, body and `Retry-After`. */
+interface StreamRefusal {
+  readonly status: number;
+  readonly body: string;
+  readonly retryAfter: number | undefined;
+}
+
 // ---------------------------------------------------------------------
 // SSE stream of build logs
 // ---------------------------------------------------------------------
 
+/** Answers that end the stream for good: the key, the job, or its record is gone. */
+const STREAM_FINAL_STATUSES = new Set([401, 403, 404, 410]);
+/** Times the stream may be opened again with nothing new before the CLI gives up. */
+const STREAM_QUIET_TRIES = 5;
+/** The first wait before opening a cut stream again; it doubles, to at most `STREAM_RETRY_MAX_MS`. */
+const STREAM_RETRY_FIRST_MS = 1_000;
+const STREAM_RETRY_MAX_MS = 30_000;
+
+/**
+ * Follows `GET /v1/build/:jobId/stream` to its `terminal` frame, giving
+ * each `log` line to `onLog` once. A stream cut before `terminal` (a
+ * restarting instance, a proxy's timeout) is opened again: the build
+ * service replays the job's log from its first line, and the lines
+ * already given are skipped. It waits the answer's `Retry-After`, else
+ * a growing pause, and gives up after a few openings that bring nothing
+ * new, or at once on 401, 403, 404 or 410.
+ */
 export async function streamBuildLogsReal(
   opts: StreamBuildLogsOptions,
 ): Promise<TerminalPayload> {
   const url = `${opts.endpoint.replace(/\/+$/, '')}/v1/build/${opts.buildJobId}/stream`;
-  let terminal: TerminalPayload | undefined;
+  const sleep = opts.sleep ?? sleepUnlessStopped;
+  let given = 0;
+  let quiet = 0;
+  let pauseMs = STREAM_RETRY_FIRST_MS;
+  for (;;) {
+    // A refusal of this opening, for its message and its Retry-After.
+    const opening: { refused?: StreamRefusal } = {};
+    const fetchAndKeep: typeof fetch = async (input, init) => {
+      const res = await opts.fetchImpl(input, init);
+      if (!res.ok) {
+        opening.refused = {
+          status: res.status,
+          body: await res
+            .clone()
+            .text()
+            .catch(() => ''),
+          retryAfter: retryAfterSeconds(res.headers.get('retry-after')),
+        };
+      }
+      return res;
+    };
+    let seen = 0;
+    const givenBefore = given;
+    let cut: unknown;
+    try {
+      for await (const event of readSse<Readonly<Record<string, unknown>>>({
+        url,
+        fetchImpl: fetchAndKeep,
+        ...(opts.authorization !== undefined && {
+          headers: { Authorization: opts.authorization },
+        }),
+        ...(opts.signal !== undefined && { signal: opts.signal }),
+        // Opened again here, so the lines it replays are counted.
+        shouldRetry: () => false,
+      })) {
+        if (event.event === 'log') {
+          const data = event.data as { readonly line?: string };
+          if (typeof data.line !== 'string') continue;
+          seen += 1;
+          if (seen > given) {
+            opts.onLog(data.line);
+            given = seen;
+          }
+          continue;
+        }
+        if (event.event === 'terminal') return terminalOf(event.data);
+      }
+    } catch (error) {
+      cut = error;
+    }
+    if (opts.signal?.aborted === true) {
+      throw new Error(`Stopped following the build's log (buildJobId ${opts.buildJobId}).`);
+    }
+    const refused = opening.refused;
+    if (refused !== undefined && STREAM_FINAL_STATUSES.has(refused.status)) {
+      throw (
+        buildServiceRefusal(refused.status, refused.retryAfter, refused.body) ??
+        new Error(
+          `GET /v1/build/${opts.buildJobId}/stream failed with HTTP ${refused.status}: ${refused.body}`,
+        )
+      );
+    }
+    quiet = given > givenBefore ? 0 : quiet + 1;
+    if (quiet >= STREAM_QUIET_TRIES) {
+      const why = cut instanceof Error ? ` (last: ${cut.message})` : '';
+      throw new Error(
+        `The build's log stream ended ${STREAM_QUIET_TRIES} times in a row without its end or a new line${why}. buildJobId ${opts.buildJobId}: the build may still finish.`,
+      );
+    }
+    const waitMs =
+      refused?.retryAfter !== undefined ? Math.max(1, refused.retryAfter) * 1000 : pauseMs;
+    pauseMs = given > givenBefore ? STREAM_RETRY_FIRST_MS : Math.min(pauseMs * 2, STREAM_RETRY_MAX_MS);
+    await sleep(waitMs, opts.signal);
+  }
+}
 
-  const iter = readSse<Readonly<Record<string, unknown>>>({
-    url,
-    fetchImpl: opts.fetchImpl,
-    ...(opts.signal !== undefined && { signal: opts.signal }),
-    // The build server's stream is single-shot; disable auto-retry.
-    shouldRetry: () => false,
+function terminalOf(raw: Readonly<Record<string, unknown>>): TerminalPayload {
+  const data = raw as {
+    readonly status: 'completed' | 'failed';
+    readonly imageRef?: string;
+    readonly imageDigest?: string;
+    readonly indexJson?: Readonly<Record<string, unknown>>;
+    readonly indexHash?: string;
+    readonly buildLogsUrl?: string;
+    readonly error?: { readonly code: string; readonly message: string };
+  };
+  return {
+    status: data.status,
+    ...(data.imageRef !== undefined && { imageRef: data.imageRef }),
+    ...(data.imageDigest !== undefined && { imageDigest: data.imageDigest }),
+    ...(data.indexJson !== undefined && { indexJson: data.indexJson }),
+    ...(data.indexHash !== undefined && { indexHash: data.indexHash }),
+    ...(data.buildLogsUrl !== undefined && { buildLogsUrl: data.buildLogsUrl }),
+    ...(data.error !== undefined && { error: data.error }),
+  };
+}
+
+function sleepUnlessStopped(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const done = (): void => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener('abort', done, { once: true });
   });
-
-  for await (const event of iter) {
-    if (event.event === 'log') {
-      const data = event.data as { readonly line?: string };
-      if (typeof data.line === 'string') opts.onLog(data.line);
-      continue;
-    }
-    if (event.event === 'terminal') {
-      const data = event.data as {
-        readonly status: 'completed' | 'failed';
-        readonly imageRef?: string;
-        readonly imageDigest?: string;
-        readonly indexJson?: Readonly<Record<string, unknown>>;
-        readonly indexHash?: string;
-        readonly buildLogsUrl?: string;
-        readonly error?: { readonly code: string; readonly message: string };
-      };
-      terminal = {
-        status: data.status,
-        ...(data.imageRef !== undefined && { imageRef: data.imageRef }),
-        ...(data.imageDigest !== undefined && { imageDigest: data.imageDigest }),
-        ...(data.indexJson !== undefined && { indexJson: data.indexJson }),
-        ...(data.indexHash !== undefined && { indexHash: data.indexHash }),
-        ...(data.buildLogsUrl !== undefined && { buildLogsUrl: data.buildLogsUrl }),
-        ...(data.error !== undefined && { error: data.error }),
-      };
-    }
-  }
-  if (terminal === undefined) {
-    throw new Error(
-      `SSE stream closed without a terminal event for buildJobId ${opts.buildJobId}`,
-    );
-  }
-  return terminal;
 }
 
 // ---------------------------------------------------------------------
@@ -747,6 +894,7 @@ export const REAL_BUILD_RUNNERS: BuildRunners = {
   python: PYTHON_BUILD_RUNNERS,
   jvm: JVM_BUILD_RUNNERS,
   hostPnpmVersion: readPnpmVersion,
+  loadedInstall,
 };
 
 // Re-export utility for callers that want a portable tmp workdir for

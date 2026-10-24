@@ -1,13 +1,13 @@
 {
   "name": "kindgi-docs",
-  "version": "0.0.7",
+  "version": "0.0.11",
   "private": true,
   "description": "Kindgi's documentation site (docs.kindgi.com), built with Astro Starlight.",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "node scripts/generate-reference.mjs && astro dev",
-    "site:build": "node scripts/generate-reference.mjs && KINDGI_DOCS_BASE=/v0.0/ astro build && node scripts/check-links.mjs dist /v0.0/ && astro build",
+    "site:build": "node scripts/check-theme-contrast.mjs && node scripts/check-timeless.mjs && node scripts/check-tabs.mjs && node scripts/check-cli-launch.mjs && node scripts/generate-reference.mjs && node scripts/check-reference.mjs && KINDGI_DOCS_BASE=/v0.0/ astro build && node scripts/check-links.mjs dist /v0.0/ && astro build",
     "site:samples": "node scripts/check-samples.mjs",
     "site:test-scripts": "node --test scripts/*.test.mjs",
     "site:tutorials": "node scripts/run-tutorials.mjs",
@@ -27,11 +27,16 @@
     "@kindgi/env-schema": "workspace:*",
     "@kindgi/specs": "workspace:*",
     "astro": "^7.2.10",
+    "hast-util-select": "^6.0.4",
+    "rehype-parse": "^9.0.1",
+    "rehype-remark": "^10.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-stringify": "^11.0.0",
     "sharp": "^0.35.5",
-    "starlight-llms-txt": "^0.12.0",
     "starlight-openapi": "^0.26.3",
     "starlight-typedoc": "^0.23.1",
     "typedoc": "^0.28.20",
-    "typedoc-plugin-markdown": "^4.13.1"
+    "typedoc-plugin-markdown": "^4.13.1",
+    "unified": "^11.0.5"
   }
 }

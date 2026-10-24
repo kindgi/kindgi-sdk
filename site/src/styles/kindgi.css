@@ -1,150 +1,245 @@
-/* Kindgi's palette on Starlight's tokens.
-   Dark: the kindgi.com website's void base and amber accent.
-   Light: cool legal paper: a cool ink scale, a honey accent,
-   white cards and code, chrome set apart by color rather than borders,
-   white cards and code with soft shadows.
-   Both: IBM Plex Serif headings and site title, 6px corners, and asides in
-   the same roles (note blue, tip green, caution honey, danger red).
-   Fonts: IBM Plex Sans for text, IBM Plex Mono for code, served from the site
-   itself (Fontsource, in astro.config.mjs's customCss). */
+/* Kindgi's docs theme: theme E, "steel and plum", on Starlight's variables.
+   Every colour, font and corner comes from design/tokens.css (--kg-*), read
+   by role (design/README.md), and the tokens switch with Starlight's
+   data-theme. Starlight keeps its own styles in cascade layers, so these
+   unlayered rules win without raising specificity.
+   - Menus and links stay neutral; plum is for rare labels ("Preview") and a
+     primary action, never for what repeats on every page.
+   - Code sits on the neutral code surface in both themes (ec.config.mjs).
+   - Square corners; form fields 3px.
+   - Callouts in the status colours, with a quiet full border. */
 
-:root {
-  --sl-font: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
-  --sl-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-/* Dark: kindgi.com's own colors. */
 :root,
-::backdrop {
-  --sl-color-accent-low: #42341b;
-  --sl-color-accent: #e7a94a;
-  --sl-color-accent-high: #f7c56a;
-  --sl-color-white: #e8e6e0;
-  --sl-color-gray-1: #d6d3cb;
-  --sl-color-gray-2: #b5b2aa;
-  --sl-color-gray-3: #8a877f;
-  --sl-color-gray-4: #5c5a54;
-  --sl-color-gray-5: #2e2d2a;
-  --sl-color-gray-6: #1a1a1e;
-  --sl-color-black: #0a0a0b;
+:root[data-theme="light"] {
+  /* --kg-font names the variable Plex Sans first, so headings can narrow. */
+  --sl-font: var(--kg-font);
+  --sl-font-mono: var(--kg-font-mono);
 
-  /* Asides, in the light theme's roles: note blue, tip green, caution
-     honey (the accent), danger red. The text on each is --sl-color-white;
-     the title is the -high color. */
-  --sl-color-blue-low: #142238;
-  --sl-color-blue: #6f9fe0;
-  --sl-color-blue-high: #b9cff0;
-  --sl-color-purple-low: #15291b;
-  --sl-color-purple: #5fb276;
-  --sl-color-purple-high: #b5dfc0;
-  --sl-color-orange-low: #42341b;
-  --sl-color-orange: #e7a94a;
-  --sl-color-orange-high: #f7c56a;
-  --sl-color-red-low: #3d1714;
-  --sl-color-red: #ef6b5f;
-  --sl-color-red-high: #f6b8b1;
+  /* Starlight's ink scale, by role: white and gray-1/2 are text, gray-3/4
+     secondary text, gray-5 hairlines, gray-6/7 raised surfaces, black the
+     page. */
+  --sl-color-white: var(--kg-text);
+  --sl-color-gray-1: var(--kg-text);
+  --sl-color-gray-2: var(--kg-text);
+  --sl-color-gray-3: var(--kg-text-2);
+  --sl-color-gray-4: var(--kg-text-2);
+  --sl-color-gray-5: var(--kg-rule);
+  --sl-color-gray-6: var(--kg-card);
+  --sl-color-gray-7: var(--kg-card);
+  --sl-color-black: var(--kg-page);
 
-  --kindgi-radius: 6px;
+  /* The accent is the action colour, for the few things that are one. Text
+     that Starlight would tint with it stays ink. */
+  --sl-color-accent-low: color-mix(in srgb, var(--kg-action) 12%, var(--kg-card));
+  --sl-color-accent: var(--kg-action);
+  --sl-color-accent-high: var(--kg-action);
+  --sl-color-text: var(--kg-text);
+  --sl-color-text-accent: var(--kg-text);
+  --sl-color-text-invert: var(--kg-card);
+
+  --sl-color-bg: var(--kg-page);
+  --sl-color-bg-nav: var(--kg-card);
+  --sl-color-bg-sidebar: var(--kg-card);
+  --sl-color-bg-inline-code: color-mix(in srgb, var(--kg-text) 8%, var(--kg-page));
+  --sl-color-hairline-light: var(--kg-rule);
+  --sl-color-hairline: var(--kg-rule);
+  --sl-color-hairline-shade: var(--kg-rule);
+  --sl-shadow-sm: none;
+
+  /* Asides and badges in the status colours: note is info (steel), tip ok
+     (green), caution warn (amber), danger bad (red). The -high colour is the
+     word and the icon; the border mixes the line with the rule (below). */
+  --sl-color-blue-low: var(--kg-card);
+  --sl-color-blue: var(--kg-status-info-line);
+  --sl-color-blue-high: var(--kg-status-info);
+  --sl-color-purple-low: var(--kg-card);
+  --sl-color-purple: var(--kg-status-ok-line);
+  --sl-color-purple-high: var(--kg-status-ok);
+  --sl-color-green-low: var(--kg-card);
+  --sl-color-green: var(--kg-status-ok-line);
+  --sl-color-green-high: var(--kg-status-ok);
+  --sl-color-orange-low: var(--kg-card);
+  --sl-color-orange: var(--kg-status-warn-line);
+  --sl-color-orange-high: var(--kg-status-warn);
+  --sl-color-red-low: var(--kg-card);
+  --sl-color-red: var(--kg-status-bad-line);
+  --sl-color-red-high: var(--kg-status-bad);
 }
 
-/* Light: cool paper. Ink scale: 25 #f8f9fb (page), 50 #f3f5f8,
-   100 #ecf0f4, 200 #e2e6ec (soft rule), 300 #cfd4dc, 500 #6c727f,
-   600 #4a4f5a, 700 #33363e, 800 #1a1c22 (text), 900 #0d1015. Every text
-   color here meets WCAG AA on the surface it sits on. */
-:root[data-theme="light"],
-[data-theme="light"] ::backdrop {
-  --sl-color-accent-low: #f2ead4;
-  --sl-color-accent: #8f6a12;
-  --sl-color-accent-high: #5e450b;
-  --sl-color-white: #0d1015;
-  --sl-color-gray-1: #1a1c22;
-  --sl-color-gray-2: #33363e;
-  --sl-color-gray-3: #4a4f5a;
-  --sl-color-gray-4: #6c727f;
-  --sl-color-gray-5: #cfd4dc;
-  --sl-color-gray-6: #e2e6ec;
-  --sl-color-gray-7: #f3f5f8;
-  --sl-color-black: #f8f9fb;
-
-  --sl-color-text: #1a1c22;
-  --sl-color-bg-nav: #fcfdfe;
-  --sl-color-bg-sidebar: #fcfdfe;
-  --sl-color-bg-inline-code: #ecf0f4;
-  --sl-color-hairline: #e2e6ec;
-  --sl-color-hairline-light: #e2e6ec;
-  /* The header and the sidebar stand apart by color, with no border. */
-  --sl-color-hairline-shade: transparent;
-
-  --sl-shadow-sm: 0 1px 3px rgba(13, 16, 21, 0.06), 0 4px 12px rgba(13, 16, 21, 0.04);
-
-  /* Asides: reference blue, ok green, honey, danger. */
-  --sl-color-blue-low: #e6ecf4;
-  --sl-color-blue: #1e4a8a;
-  --sl-color-blue-high: #1e4a8a;
-  --sl-color-purple-low: #e6f0e8;
-  --sl-color-purple: #2e6a3a;
-  --sl-color-purple-high: #2e6a3a;
-  --sl-color-orange-low: #f2ead4;
-  --sl-color-orange: #8f6a12;
-  --sl-color-orange-high: #5e450b;
-  --sl-color-red-low: #ffdad6;
-  --sl-color-red: #ba1a1a;
-  --sl-color-red-high: #ba1a1a;
-
-  --kindgi-radius: 6px;
-  --kindgi-shadow-card: 0 1px 3px rgba(13, 16, 21, 0.06), 0 4px 12px rgba(13, 16, 21, 0.04);
+/* The logo tile beside the title, near the title's own height rather than
+   the full header's. */
+.site-title img {
+  height: 1.5rem;
+  width: 1.5rem;
 }
 
-/* Headings and the site title in IBM Plex Serif, in both themes. */
-:is(.sl-markdown-content :is(h1, h2, h3), h1#_top, .site-title) {
-  font-family: "IBM Plex Serif", "Iowan Old Style", Georgia, serif;
+/* Headings and the site title: Plex Sans at its narrow width. */
+:is(.sl-markdown-content :is(h1, h2, h3, h4), h1#_top, .site-title) {
+  font-stretch: var(--kg-narrow);
+  letter-spacing: -0.015em;
+}
+:is(.sl-markdown-content :is(h1, h2), h1#_top, .site-title) {
+  font-weight: 700;
+}
+.sl-markdown-content :is(h3, h4) {
   font-weight: 600;
 }
 
-/* Light: white cards and code, 6px corners, soft shadows. */
-:root[data-theme="light"] .sl-link-card,
-:root[data-theme="light"] .card {
-  background-color: #ffffff;
-  border-color: #e2e6ec;
-  border-radius: var(--kindgi-radius);
-  box-shadow: var(--kindgi-shadow-card);
+/* Links in the text: ink, underlined in plum, the underline thicker on hover.
+   A link card is the whole link, so its words stay plain. */
+.sl-markdown-content a:not(:where(.not-content *, .sl-link-card *)) {
+  color: var(--kg-text);
+  text-decoration: underline;
+  text-decoration-color: var(--kg-action);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.22em;
 }
-:root[data-theme="light"] .starlight-aside {
-  border-radius: var(--kindgi-radius);
-  box-shadow: var(--kindgi-shadow-card);
-}
-:root[data-theme="light"] .expressive-code {
-  --ec-codeBg: #ffffff;
-  --ec-frm-edBg: #ffffff;
-  --ec-frm-edActTabBg: #ffffff;
-  --ec-frm-trmBg: #ffffff;
-  --ec-frm-edTabBarBg: #f3f5f8;
-  --ec-frm-trmTtbBg: #f3f5f8;
-  --ec-brdCol: #e2e6ec;
-  --ec-brdRad: var(--kindgi-radius);
-}
-:root[data-theme="light"] .expressive-code .frame {
-  border-radius: var(--kindgi-radius);
-  box-shadow: var(--kindgi-shadow-card);
-}
-:root[data-theme="light"] .sl-markdown-content :not(pre) > code {
-  border-radius: 4px;
+.sl-markdown-content a:not(:where(.not-content *, .sl-link-card *)):hover {
+  color: var(--kg-text);
+  text-decoration-color: var(--kg-action);
+  text-decoration-thickness: 2px;
 }
 
-/* Both themes: 6px corners on asides, cards and code. */
-.starlight-aside,
-.sl-link-card,
-.card,
-.expressive-code .frame {
-  border-radius: var(--kindgi-radius);
+/* Menus stay neutral: the current page is ink, bold, with a line edge and a
+   faint tint of ink. */
+nav.sidebar a {
+  border-radius: var(--kg-radius);
+  color: var(--kg-text-2);
 }
-.expressive-code {
-  --ec-brdRad: var(--kindgi-radius);
+nav.sidebar a:hover {
+  color: var(--kg-text);
+}
+nav.sidebar a[aria-current="page"],
+nav.sidebar a[aria-current="page"]:hover,
+nav.sidebar a[aria-current="page"]:focus {
+  color: var(--kg-text);
+  font-weight: 600;
+  background-color: color-mix(in srgb, var(--kg-text) 6%, transparent);
+  box-shadow: inset 2px 0 0 var(--kg-text);
 }
 
-/* Headings: the website's tight display tracking. */
-.sl-markdown-content :is(h1, h2, h3) {
-  letter-spacing: -0.015em;
+/* "Preview" is one of the rare labels that wear plum. */
+.sl-badge {
+  border-radius: var(--kg-radius);
+}
+.sl-badge.kg-preview,
+nav.sidebar a[aria-current="page"] .sl-badge.kg-preview {
+  --sl-color-bg-badge: transparent;
+  --sl-color-border-badge: transparent;
+  --sl-color-text-badge: var(--kg-action);
+  color: var(--kg-action);
+  font-family: var(--sl-font);
+  font-weight: 600;
+}
+
+/* The API reference's method badges (GET, POST, …) repeat on every operation
+   in its sidebar, so they stay neutral: a rule edge and secondary text. The
+   sidebar selector outranks the plugin's own colours there
+   (`.sidebar-content a:not([aria-current=page]) .sl-openapi-method-get`). */
+.sl-badge[class*="sl-openapi-method-"],
+nav.sidebar .sidebar-content a .sl-badge[class*="sl-openapi-method-"] {
+  --sl-color-bg-badge: transparent;
+  --sl-color-border-badge: var(--kg-rule);
+  --sl-color-text-badge: var(--kg-text-2);
+  color: var(--kg-text-2);
+}
+/* The same on an operation's own page and the API overview, where the plugin
+   fills each method with its own colour. The element in the selector outranks
+   the plugin's scoped rule. */
+div.sl-openapi-operation-method-badge {
+  background-color: transparent;
+  border-color: var(--kg-rule);
+  color: var(--kg-text);
+}
+
+/* Callouts: the status colour on the word and the icon, a quiet full border,
+   the card behind. */
+.starlight-aside {
+  border: 1px solid color-mix(in srgb, var(--sl-color-asides-border) 45%, var(--kg-rule));
+  border-radius: var(--kg-radius);
+  background-color: var(--kg-card);
+}
+.starlight-aside__content {
+  color: var(--kg-text-2);
+}
+/* Inline code in a callout keeps the neutral inline-code background, not
+   Starlight's tint of the callout's colour. */
+.sl-markdown-content .starlight-aside code:not(:where(.not-content *)) {
+  background-color: var(--sl-color-bg-inline-code);
+}
+
+/* Cards and link cards: the card on the page, a rule border, square, the
+   line on hover. */
+:is(.sl-link-card, .card) {
+  border-radius: var(--kg-radius);
+  background-color: var(--kg-card);
+  border-color: var(--kg-rule);
+  box-shadow: none;
+}
+.sl-link-card:hover {
+  border-color: var(--kg-line);
+}
+/* Card icons are decoration, not a status: ink in a line box, in every card
+   (Starlight rotates its accent colours through them). */
+.card {
+  --sl-card-border: var(--kg-line);
+  --sl-card-bg: transparent;
+}
+.card .icon {
+  color: var(--kg-text);
+}
+/* A primary button is an action: plum, a light shade change on hover. */
+.sl-link-button.primary {
+  border-radius: var(--kg-radius-button);
+  background-color: var(--kg-action);
+  border-color: var(--kg-action);
+  color: var(--kg-on-action);
+}
+.sl-link-button.primary:hover {
+  background-color: var(--kg-action-hover);
+  border-color: var(--kg-action-hover);
+  color: var(--kg-on-action);
+}
+.sl-link-button:not(.primary) {
+  border-radius: var(--kg-radius-button);
+}
+
+/* Form fields: the search button and the selects, a line edge, 3px. */
+@media (min-width: 50rem) {
+  site-search button[data-open-modal] {
+    border-color: var(--kg-line);
+    border-radius: var(--kg-radius-field);
+    background-color: var(--kg-field);
+  }
+}
+starlight-theme-select select {
+  border: 1px solid var(--kg-line);
+  border-radius: var(--kg-radius-field);
+}
+/* The header's two menus, the version and the theme: one height. */
+:is(.kindgi-version, starlight-theme-select) select {
+  block-size: 2rem;
+  padding-block: 0;
+}
+/* In the phone menu's footer too, one line: Starlight stretches each item to
+   the row, where the version menu centres itself and the theme menu keeps to
+   the top. */
+.mobile-preferences {
+  align-items: center;
+}
+
+/* Tables: secondary-text headers, rule lines. */
+.sl-markdown-content th {
+  color: var(--kg-text-2);
+  font-weight: 600;
+}
+.sl-markdown-content :is(th, td) {
+  border-color: var(--kg-rule);
+}
+
+/* Inline code: a faint tint of ink, square. */
+.sl-markdown-content :not(pre) > code {
+  border-radius: var(--kg-radius);
 }
 
 /* Code: tabular figures, as on the website. */
@@ -166,4 +261,17 @@ pre {
    `kindgi runs / start` across two lines reads as two commands. */
 .card :not(pre) > code {
   white-space: nowrap;
+}
+
+/* The entry page's hero: as wide as the content under it. It has no image,
+   so it needs neither the image's column nor Starlight's 50ch line. Its
+   padding is fixed rather than Starlight's, which grows with the window to
+   10rem: 3rem from the hero to the first heading, as from any page's title
+   to its content. */
+[data-has-hero] .hero {
+  grid-template-columns: 100%;
+  padding-block: 1.5rem;
+}
+[data-has-hero] .hero .copy > * {
+  max-width: none;
 }

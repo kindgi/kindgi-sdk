@@ -14,7 +14,7 @@ description: >
   kindgi-python-authoring-agents; models by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.7"
+version: "0.1.9"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -54,7 +54,7 @@ primitive; `test_*.py`, `*_test.py` and `conftest.py` are skipped.
 ## Scaffold a new pack
 
 ```sh
-uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=python
+uvx --from "kindgi-cli>=0.2,<0.3" kindgi init my-pack --template=python
 cd my-pack
 uv sync            # .venv with the kindgi package and the kindgi CLI
 uv run pytest
@@ -77,7 +77,7 @@ and don't stop theirs.
 In the app's directory (where its `pyproject.toml` is):
 
 ```sh
-uv add --dev "kindgi-cli>=0.1,<0.2"   # the CLI (Poetry: poetry add --group dev …)
+uv add --dev "kindgi-cli>=0.2,<0.3"   # the CLI (Poetry: poetry add --group dev …)
 uv run kindgi init     # --pack-id=<id> if the app's name doesn't make one
 uv sync                # or what it prints for Poetry / pip
 uv run kindgi dev
@@ -115,7 +115,8 @@ my-pack/
 ├── flows/echo_flow.py                 # Flow(...)
 ├── tests/test_tools.py                # the tools and the check, called directly
 ├── README.md
-└── .claude/skills/                    # these skills (`kindgi skills sync` refreshes them)
+├── .claude/skills/                    # these skills (`kindgi skills sync` refreshes them)
+└── .agents/skills/                    # the same skills, where Codex and Gemini CLI look
 ```
 
 The `[tool.kindgi]` keys are the ones `kindgi.config.ts` takes —
@@ -150,6 +151,10 @@ worktree and after `--reset`, declare it in `pyproject.toml` instead:
 [[tool.kindgi.providers]]
 preset = "anthropic"   # its key, ANTHROPIC_API_KEY, from the env files
 ```
+
+Commit it: it holds the key's name, never the key, and it's how a
+teammate's `kindgi dev`, or another worktree's, gets the same provider.
+Restart `kindgi dev` after adding it: the config isn't watched.
 
 Details and other providers: `kindgi-authoring-providers`.
 
@@ -302,6 +307,27 @@ build before anything uploads, with the range to use.
   every primitive (`<pack-id>.<name>`); pick it once.
 - **Model credentials.** Ask for the key; never invent or hard-code one.
 
+## Commands for the person's own terminal
+
+Two commands are always the person's to run, in their own terminal, since
+they ask for a secret:
+
+- `kindgi secrets set`, which asks for the value without echoing it;
+- `kindgi auth registry`, which logs Docker in to the runtime image's registry.
+
+Others need what a coding agent's sandbox often blocks: `kindgi dev` and any dev
+server of the app (they keep running), and `kindgi build` or anything else that
+needs Docker. When your sandbox blocks a command (a process it can't start,
+`spawn EPERM`; Docker's socket denied; `localhost` refused; a folder it keeps
+read-only, as Codex's keeps `.agents/`, which `kindgi skills sync` writes),
+don't work around it: don't turn your sandbox off, and don't start the command
+in the background. Give the person the exact command, the folder to run it in
+and what they'll see, then wait for them. Once they say `kindgi dev` is running,
+starting it yourself exits 3 and says where theirs runs: use that one.
+
+A tool's own `EPERM` while it runs under `kindgi dev` is something else:
+Kindgi's dev sandbox (see the tools skill). Never turn that one off either.
+
 ## Keys and tokens: hands off
 
 Never open, read, grep, `cat`, copy or print the files that hold keys and
@@ -320,8 +346,11 @@ model provider. To see which secrets exist, run
 `kindgi secrets list --env=local --scope=tenant` (names only). To store one,
 ask the person to run `kindgi secrets set NAME --env=local --scope=tenant`
 themselves: it prompts without echoing. Never put a value on a command line.
-`kindgi init` adds these files to the deny rules in `.claude/settings.json`;
-in a monorepo, also to the repository root's, under the pack's path.
+`kindgi init` adds these files to the deny rules in `.claude/settings.json`
+(Claude Code); in a monorepo, also to the repository root's, under the pack's
+path. It adds them to `.cursorignore`, `.geminiignore` or `.aiderignore` too
+when the project has one. Nothing `kindgi init` writes binds Codex. Whichever
+agent you are, keep to the rule above yourself.
 
 ## Next
 
@@ -335,9 +364,9 @@ in a monorepo, also to the repository root's, under the pack's path.
 
 ## Keeping skills up to date
 
-`kindgi skills sync` refreshes `.claude/skills/` from the CLI's copy
-(local edits are kept unless `--force`); `kindgi dev` says when they are
-out of date.
+`kindgi skills sync` refreshes `.claude/skills/` and `.agents/skills/` from
+the CLI's copy (local edits are kept unless `--force`); `kindgi dev` says
+when they are out of date.
 
 ## When the framework itself is the problem
 

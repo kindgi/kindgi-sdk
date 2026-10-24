@@ -7,9 +7,26 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide brings a flow's branches back together, in a step that runs once
+after whichever of them ran.
+
 A step with several incoming edges waits until each of them is decided, then
-runs once if at least one fired. `acme.handle-order` holds a large order, then
-emails the customer either way. It adds one tool, `acme.email-customer`:
+runs once if at least one fired.
+
+## Before you start
+
+- **A pack with the tools and the branch** from
+  [Branch a flow](../branch-a-flow/): `acme.get-order` and
+  `acme.hold-order`.
+- **A runtime such as `kindgi dev`,** with Kindgi 0.2's CLI.
+
+## Join two branches
+
+Ask your coding agent: "I want a flow that holds a large order, then emails
+the customer either way." Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+tool and the flow look like this. This guide calls the flow
+`acme.handle-order`, and it adds one tool, `acme.email-customer`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -177,18 +194,174 @@ handle_order = Flow(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/tools/EmailCustomer.java
+package acme.tools;
+
+import com.kindgi.pack.Tool;
+import org.jspecify.annotations.Nullable;
+
+public final class EmailCustomer {
+  public record Input(String customer, @Nullable String status) {} // status: absent when the order wasn't held
+
+  public record Output(String to, String message) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("acme.email-customer")
+      .description("Emails the customer about their order.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      .handler((input, ctx) -> new Output(input.customer(),
+          "held".equals(input.status()) ? "Your order is being reviewed." : "Your order is on its way."));
+
+  private EmailCustomer() {}
+}
+```
+
+```java
+// src/main/java/acme/flows/HandleOrder.java
+package acme.flows;
+
+import com.kindgi.pack.Flow;
+import java.util.Map;
+
+public final class HandleOrder {
+  private static final Map<String, Object> IS_LARGE = Map.of(
+      "op", "gt",
+      "left", Map.of("path", "nodeOutputs.order.total"),
+      "right", Map.of("literal", 1000));
+
+  public static final Flow FLOW = Flow.define("acme.handle-order")
+      .version("0.1.0")
+      .set("name", "Handle an order")
+      .set("description", "Holds a large order, then tells the customer either way.")
+      .node(Map.of("id", "order", "kind", "tool", "ref", "acme.get-order",
+          "inputMapping", Map.of("orderId", Map.of("path", "runInput.orderId"))))
+      .node(Map.of("id", "hold", "kind", "tool", "ref", "acme.hold-order",
+          "inputMapping", Map.of(
+              "orderId", Map.of("path", "runInput.orderId"),
+              "reason", Map.of("literal", "Over 1000 USD"))))
+      .node(Map.of("id", "email", "kind", "tool", "ref", "acme.email-customer",
+          "inputMapping", Map.of(
+              "customer", Map.of("path", "nodeOutputs.order.customer"),
+              "status", Map.of("path", "nodeOutputs.hold.status")))) // absent when hold didn't run
+      .edge("e1", "$start", "order")
+      .edge(Map.of("id", "e2", "from", "order", "to", "hold", "when", IS_LARGE))
+      .edge(Map.of("id", "e3", "from", "order", "to", "email",
+          "when", Map.of("op", "not", "child", IS_LARGE)))
+      .edge("e4", "hold", "email")
+      .edge("e5", "email", "$end")
+      .build();
+
+  private HandleOrder() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/tools/EmailCustomer.scala
+package acme.tools
+
+import com.kindgi.pack.scaladsl._
+
+object EmailCustomer {
+  final case class Input(customer: String, status: Option[String]) // status: absent when the order wasn't held
+  final case class Output(to: String, message: String)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme.email-customer")
+    .description("Emails the customer about their order.")
+    .version("0.1.0")
+    .handler { (in, _) =>
+      val message = if (in.status.contains("held")) "Your order is being reviewed." else "Your order is on its way."
+      Output(in.customer, message)
+    }
+}
+```
+
+```scala
+// src/main/scala/acme/flows/HandleOrder.scala
+package acme.flows
+
+import com.kindgi.pack.scaladsl._
+
+object HandleOrder {
+  private val isLarge = Map(
+    "op" -> "gt",
+    "left" -> Map("path" -> "nodeOutputs.order.total"),
+    "right" -> Map("literal" -> 1000))
+
+  val flow: Flow = Flow("acme.handle-order")
+    .version("0.1.0")
+    .set("name", "Handle an order")
+    .set("description", "Holds a large order, then tells the customer either way.")
+    .node(Map("id" -> "order", "kind" -> "tool", "ref" -> "acme.get-order",
+      "inputMapping" -> Map("orderId" -> Map("path" -> "runInput.orderId"))))
+    .node(Map("id" -> "hold", "kind" -> "tool", "ref" -> "acme.hold-order",
+      "inputMapping" -> Map(
+        "orderId" -> Map("path" -> "runInput.orderId"),
+        "reason" -> Map("literal" -> "Over 1000 USD"))))
+    .node(Map("id" -> "email", "kind" -> "tool", "ref" -> "acme.email-customer",
+      "inputMapping" -> Map(
+        "customer" -> Map("path" -> "nodeOutputs.order.customer"),
+        "status" -> Map("path" -> "nodeOutputs.hold.status")))) // absent when hold didn't run
+    .edge("e1", "$start", "order")
+    .edge(Map("id" -> "e2", "from" -> "order", "to" -> "hold", "when" -> isLarge))
+    .edge(Map("id" -> "e3", "from" -> "order", "to" -> "email", "when" -> Map("op" -> "not", "child" -> isLarge)))
+    .edge("e4", "hold", "email")
+    .edge("e5", "email", "$end")
+    .build()
+}
+```
+
+</TabItem>
 </Tabs>
 
 `email` has two incoming edges: `e4` from `hold`, and `e3` straight from
 `order` when the order isn't large. Whichever path the run takes, `email`
 runs once, at the end of it.
 
+Run it for a small order and a large one:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}'
-kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-200"}'
+pnpm exec kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}'
+pnpm exec kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-200"}'
 ```
 
-The two runs return:
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}'
+uv run kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.handle-order --input='{"orderId":"A-100"}'
+./kindgiw runs start --flow=acme.handle-order --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.handle-order --input='{"orderId":"A-100"}'
+./kindgiw runs start --flow=acme.handle-order --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+</Tabs>
+
+`--flow` is the flow, and `--input` its input. The two runs return:
 
 ```json
 { "to": "ada@example.com", "message": "Your order is on its way." }
@@ -198,7 +371,8 @@ The two runs return:
 ## The input of a joining step
 
 `email` maps `status` from `nodeOutputs.hold.status`. For `A-100`, `hold`
-didn't run, so the path doesn't resolve and the key is left out:
+didn't run, so the path doesn't resolve and the key is left out. Its journal,
+which `kindgi runs journal <run-id>` prints, shows it:
 
 ```json
 {"sequence": 4, "kind": "edge.evaluated", "payload": {"edgeId": "e2", "decision": false}, …}
@@ -216,6 +390,12 @@ the step before it, and a joining step has several: its input is empty.
 ## Branches that both run
 
 Edges without conditions fire together, so two steps after the same step run
-at the same time, and a step that joins them runs once, after both. To run
+at the same time. A step that joins them runs once, after both. To run
 several tools on the same input and collect their outputs as one, a
 [fanout step](../run-steps-in-parallel/) is shorter.
+
+## Next
+
+- [Run steps in parallel](../run-steps-in-parallel/)
+- [Pass data between steps](../pass-data-between-steps/)
+- [Repeat steps in a loop](../loop/)

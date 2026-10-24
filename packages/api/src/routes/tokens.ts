@@ -12,6 +12,7 @@ import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../c
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
+import { FULL_SYSTEM_CAPABILITY, isSystemCapability } from '../system.js';
 import {
   API_TOKEN_ROLES,
   type ApiTokenRecord,
@@ -50,7 +51,20 @@ import { tokenSignInKey } from './token-sign-in.js';
  *   that never expires (the deployment's token, a key without an expiry)
  *   and a session from any other sign-in cap nothing.
  */
-export function tokensRouter(admin: TokenAdmin, authorizer?: Authorizer): Hono<AppEnv> {
+export interface TokensRouterOptions {
+  /**
+   * How many tenants the runtime serves (default `single`). With `multi`, a
+   * tenant's key is never minted holding `kindgi:system`: on such a runtime
+   * only system keys act for the operator.
+   */
+  readonly tenancy?: 'single' | 'multi';
+}
+
+export function tokensRouter(
+  admin: TokenAdmin,
+  authorizer?: Authorizer,
+  options: TokensRouterOptions = {},
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   r.use('/*', requireOwnerOrAdmin(authorizer));
 
@@ -67,6 +81,7 @@ export function tokensRouter(admin: TokenAdmin, authorizer?: Authorizer): Hono<A
     const owner = keyOwner(c);
     const principal = parsed.value.for ?? owner;
     const refused =
+      systemCapabilityRefusal(c, authorizer, parsed.value.capabilities, options.tenancy) ??
       (await mintRefusal(c, authorizer, owner, principal, parsed.value)) ??
       (await expiryRefusal(c, admin, authorizer, parsed.value.expiresAt));
     if (refused !== undefined) return fail(c, refused, requestId);
@@ -196,6 +211,35 @@ function samePrincipal(a: TokenPrincipal, b: TokenPrincipal | undefined): boolea
   return b.kind === 'service-account' && b.serviceAccountId === a.serviceAccountId;
 }
 
+/**
+ * A tenant's key never carries a system scope (`system:*`): those are
+ * system keys' (`/v1/system/keys`). On a runtime serving many tenants it
+ * doesn't carry `kindgi:system` either. Refused `403
+ * capability-not-mintable`, and recorded.
+ */
+function systemCapabilityRefusal(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  capabilities: readonly string[],
+  tenancy: 'single' | 'multi' | undefined,
+): WireError | undefined {
+  // `system:*` never; `kindgi:system` only where the runtime serves one tenant.
+  const notMintable = capabilities.filter(
+    (cap) => isSystemCapability(cap) && (tenancy === 'multi' || cap !== FULL_SYSTEM_CAPABILITY),
+  );
+  if (notMintable.length === 0) return undefined;
+  const refusal: Refusal = {
+    action: 'admin',
+    resource: ref('tenant', c.get('tenantId') as unknown as string),
+    message: `A tenant's key can't carry ${notMintable.join(', ')}: the operator's powers are system keys' (/v1/system/keys)`,
+    failing: 'scope',
+    code: 'capability-not-mintable',
+    details: { capabilities: notMintable },
+  };
+  recordRefusal(c, authorizer, refusal);
+  return refusalError(refusal);
+}
+
 /** Why the route refuses this mint before the store sees it, if it does. */
 async function mintRefusal(
   c: Context<AppEnv>,
@@ -231,6 +275,22 @@ async function mintRefusal(
     });
   }
   const narrowedTo = c.get('tokenProjectId');
+  // A session with a key's limits (a project, a role) mints no keys: a
+  // key would outlive whatever ends the session (its expiry, its
+  // provider's removal). For a session, `tokenRole` comes only from its
+  // own limit.
+  if (
+    c.get('sessionId') !== undefined &&
+    (narrowedTo !== undefined || c.get('tokenRole') !== undefined)
+  ) {
+    return refuse({
+      action: 'admin',
+      resource: tenant,
+      message: `This session is limited (${narrowedTo !== undefined ? `to project ${narrowedTo}` : `to the ${c.get('tokenRole')} role`}), and a limited session mints no keys`,
+      failing: 'scope',
+      code: 'limited-session-cannot-mint',
+    });
+  }
   if (narrowedTo !== undefined && body.projectId !== (narrowedTo as unknown as ProjectId)) {
     return refuse({
       action: 'admin',

@@ -46,8 +46,18 @@ export interface BlockRegistryBinding {
 
 /** A block version as the registry holds it. */
 export type BlockRecord = BlockDefinition & {
-  /** The project the block belongs to: its authorization comes from there. */
+  /**
+   * The project the block belongs to: its authorization comes from there.
+   * In a tenant with environment orders, a version may be made in another
+   * project of that project's order (`madeInProjectId`).
+   */
   readonly projectId: ProjectId;
+  /**
+   * The project this version was published in, when the store records it.
+   * The same as `projectId`, except in a tenant with environment orders,
+   * where a block's versions are made in the order's first environment.
+   */
+  readonly madeInProjectId?: ProjectId;
   /** ISO-8601. */
   readonly publishedAt: string;
   /** ISO-8601; present only on an unregistered version. */

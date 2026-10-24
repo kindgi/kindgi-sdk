@@ -8,9 +8,9 @@ same conformance suite as the TypeScript, Python and Java ones, with this
 layer's fixture pack on Scala 2.13 and 3.
 
 **Status:** preview. Java and Scala support is tested and supported, but its
-API may still change in 0.1.6 without the usual deprecation period. On Maven Central,
-built for Scala 2.13 and the 3.3 LTS line, on Java 17 or later. Its version is
-the Kindgi release's (the CLI's).
+API may still change in a later release without the usual deprecation period.
+On Maven Central, built for Scala 2.13 and the 3.3 LTS line, on Java 17 or
+later. Its version is the Kindgi release's (the CLI's).
 
 ```scala
 // build.sbt
@@ -46,6 +46,13 @@ the runtime.
 `readOnly` says the tool only reads: a dry run may call it, and approval gates
 skip it. Left out, a tool counts as one that writes. `mutating`, `version`,
 `effect` and `set` say the rest.
+
+`needsApprovalWhenUnattended(true)` makes each call wait for a person's
+approval in a run no person started (a webhook, a schedule, an event, or a
+service account's key). A flow's tool step that calls it is refused there. A
+webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a
+project admin's to set) lifts that, in its own runs only. A run a person
+starts is unaffected.
 
 Unit-test a handler directly:
 

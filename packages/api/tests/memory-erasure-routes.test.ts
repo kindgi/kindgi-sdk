@@ -81,7 +81,9 @@ const entry = (over: Partial<MemoryErasureLedgerEntry> = {}): MemoryErasureLedge
   ...over,
 });
 
-function harness(behaviour: { refuse?: boolean; unmatchable?: boolean } = {}) {
+function harness(
+  behaviour: { refuse?: boolean; unmatchable?: boolean; state?: 'suspended' | 'closing' } = {},
+) {
   const created: { selector: MemoryErasureSelector; requestedBy: string }[] = [];
   const replayed: MemoryErasureLedgerEntry[][] = [];
   const resumed: { id: string; force: boolean }[] = [];
@@ -131,6 +133,9 @@ function harness(behaviour: { refuse?: boolean; unmatchable?: boolean } = {}) {
     runHandler: {} as RunHandlerBinding,
     memoryErasures: binding,
     authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: authz },
+    ...(behaviour.state !== undefined && {
+      tenantStates: { of: async () => behaviour.state },
+    }),
   });
   const call = async (method: string, path: string, body?: unknown, token = ADMIN) => {
     const res = await app.request(path, {
@@ -261,6 +266,31 @@ describe('POST /v1/memory/erasures/replay', () => {
     expect(res.status).toBe(400);
     expect(res.body.error.message).toContain(message);
   });
+});
+
+describe('erasure works in every state before purge', () => {
+  test.each(['suspended', 'closing'] as const)(
+    'a %s tenant starts, replays and resumes erasures; its other writes are refused',
+    async (state) => {
+      const h = harness({ state });
+      const started = await h.call('POST', '/v1/memory/erasures', {
+        subject: { kind: 'participant', id: 'end-7' },
+      });
+      expect(started.status).toBe(202);
+      expect(h.created).toHaveLength(1);
+      const replayed = await h.call('POST', '/v1/memory/erasures/replay', {
+        erasures: JSON.parse(JSON.stringify([entry()])),
+      });
+      expect(replayed.status).toBe(200);
+      expect(h.replayed).toHaveLength(1);
+      const resumed = await h.call('POST', `/v1/memory/erasures/${h.known.id}/resume`, {});
+      expect(resumed.status).toBe(200);
+      expect(h.resumed).toHaveLength(1);
+      const write = await h.call('POST', '/v1/tokens', { name: 'ci' });
+      expect(write.status).toBe(409);
+      expect(write.body.error.code).toBe(`tenant-${state}`);
+    },
+  );
 });
 
 describe('POST /v1/memory/erasures/{erasureId}/resume', () => {

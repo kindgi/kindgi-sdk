@@ -5,19 +5,30 @@ sidebar:
   order: 4
 ---
 
+This guide publishes a tenant policy that makes chosen tools ask for
+approval, and raises the reviewer role, for every agent.
+
 An agent's own `hitl` settings are up to whoever writes the agent. A
 tenant's `hitl` **policy** sets rules every agent is held to: a tool that must
 always ask, and a lowest reviewer role. A policy can only make an agent
 stricter, never looser.
 
-Policies are published through the HTTP API. With `kindgi dev`, the URL and
-token are the ones it prints (they're also in the pack's `.kindgirc.json`).
+## Before you start
+
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.2's CLI.
+- **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set in your shell. Policies
+  are published through the HTTP API. With `kindgi dev`, the URL and token
+  are the ones it prints. They're also in the pack's `.kindgirc.json`.
+- **An agent that calls the tool you gate.** This guide uses
+  `acme-ops.status-agent`, which calls `acme-ops.post-update`.
 
 ## Publish a policy
 
+Publish the rules as a `hitl` policy with an id and a version:
+
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/policies" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{
     "id": "acme.approval-rules",
     "version": "1.0.0",
@@ -34,7 +45,8 @@ curl -X POST "$KINDGI_API_URL/v1/policies" \
 {"policyId":"acme.approval-rules","version":"1.0.0"}
 ```
 
-It applies from the next run. The `spec`:
+It applies from the next run. `id` and `version` name the policy, and
+`kind: "hitl"` makes it an approval policy. The `spec`:
 
 - **`tools`**: tool id to gate. `always_ask` makes every call of that tool,
   by any agent, wait for a decision, even an agent with no `hitl` settings of
@@ -45,10 +57,10 @@ It applies from the next run. The `spec`:
 ## What it changes
 
 An agent that calls `acme-ops.post-update` and has no approval settings now
-waits:
+waits. `--agent` is the agent, and `--input` its input:
 
 ```sh
-kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+pnpm exec kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
 ```
 
 ```json
@@ -61,12 +73,13 @@ kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkou
 ```
 
 The approval needs a `senior` reviewer, so a `standard` reviewer doesn't see
-it. (Under `kindgi dev` you're an `admin`, who sees everything; to try this,
-register yourself as `standard` first:
-`kindgi reviewers register --spec='{"role":"standard"}'`.)
+it. Under `kindgi dev`, you're an `admin`, who sees everything. To try this,
+register yourself as `standard` first, with
+`kindgi reviewers register --spec='{"role":"standard"}'`. Then list the
+pending approvals. `--status=pending` lists only the ones still `pending`:
 
 ```sh
-kindgi approvals list --status=pending
+pnpm exec kindgi approvals list --status=pending
 ```
 
 ```json
@@ -76,8 +89,9 @@ kindgi approvals list --status=pending
 }
 ```
 
-Once you're registered as `senior`
-(`kindgi reviewers register --spec='{"role":"senior"}'`), it's there:
+Register yourself as `senior`, with
+`kindgi reviewers register --spec='{"role":"senior"}'`, and list them again.
+The approval is there:
 
 ```json
 {
@@ -98,8 +112,8 @@ Once you're registered as `senior`
 ## Change or remove it
 
 A policy is versioned. Publish the same `id` with a higher `version` to change
-it; the latest version is the one that applies. Several `hitl` policies (with
-different ids) all apply: every tool any of them gates asks, and the highest
+it. The latest version is the one that applies. Several `hitl` policies with
+different ids all apply: every tool any of them gates asks, and the highest
 `minReviewerRole` wins.
 
 To remove a policy, unregister **every** version: unregistering only the
@@ -109,14 +123,23 @@ A change applies to approvals not asked for yet. A turn already waiting keeps
 the approval it asked for: the reviewer's answer still decides, even if the
 policy no longer gates that tool.
 
+Unregister a version by the policy's id and the version, in the path:
+
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/policies/acme.approval-rules/versions/1.0.0/unregister" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN"
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 ```json
 {"policyId":"acme.approval-rules","version":"1.0.0","unregistered":true}
 ```
 
-`GET /v1/policies` lists the tenant's policies. See
-[Policies in the HTTP API](../../../reference/api/operations/tags/policies/).
+`GET /v1/policies` lists the tenant's policies.
+[Policies in the HTTP API](../../../reference/api/operations/tags/policies/)
+has every operation.
+
+## Next
+
+- [Ask before a tool runs](../ask-before-a-tool-runs/)
+- [Decide an approval](../decide-an-approval/)
+- [Ask before a long conversation continues](../ask-after-n-turns/)

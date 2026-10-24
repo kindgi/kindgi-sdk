@@ -708,6 +708,22 @@
           }
         }
       },
+      "Placement": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A nullable reference to a tagged union, alone and as a map's values.",
+        "properties": {
+          "shape": {
+            "oneOf": [{ "$ref": "#/components/schemas/Shape" }, { "type": "null" }]
+          },
+          "shapesByName": {
+            "type": "object",
+            "additionalProperties": {
+              "oneOf": [{ "$ref": "#/components/schemas/Shape" }, { "type": "null" }]
+            }
+          }
+        }
+      },
       "Square": {
         "type": "object",
         "additionalProperties": false,

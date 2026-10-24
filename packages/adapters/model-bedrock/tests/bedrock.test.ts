@@ -8,11 +8,16 @@
  */
 
 import { ModelProviderError } from '@kindgi/adapter-model-shared';
-import type { AdapterFactoryInput, ProviderMetadata } from '@kindgi/capabilities';
+import {
+  type AdapterFactoryEntry,
+  type AdapterFactoryInput,
+  type ProviderMetadata,
+  createAdapterFactoryRegistry,
+} from '@kindgi/capabilities';
 import { attemptsOf } from '@kindgi/capabilities/attempts';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { cachesPrompts } from '../src/entry.js';
+import { bedrockAdapterEntry, cachesPrompts } from '../src/entry.js';
 import {
   IDENTITY_TIMEOUT_MS,
   NOVA_THINKING_REMOVED,
@@ -104,6 +109,33 @@ describe('checkConfig', () => {
     ]);
     // A Bedrock API key needs no identity.
     expect(on(false, { auth: 'api-key' }, true)).toEqual([]);
+  });
+
+  test("where the server's own credentials are refused (isolated), its AWS identity is too, even when the runtime has one", () => {
+    const entry = createAdapterFactoryRegistry([bedrockAdapterEntry], {
+      identities: { aws: async () => ({ accessKeyId: 'a', secretAccessKey: 's' }) },
+      serverCredentials: false,
+    }).get(bedrockAdapterEntry.adapterId) as AdapterFactoryEntry;
+    const problems = entry.checkConfig?.({ metadata: metadata(), config: {}, hasSecretRef: false });
+    expect(problems).toEqual([
+      {
+        path: '/adapter_config/auth',
+        message: expect.stringContaining(
+          "signs in as the runtime's own AWS identity, which this deployment doesn't let tenant configuration use (KINDGI_TENANT_HOST_ACCESS)",
+        ),
+      },
+    ]);
+    expect(() => entry.factory({ metadata: metadata(), config: {} })).toThrow(
+      problems?.[0]?.message as string,
+    );
+    // A Bedrock API key is the tenant's own.
+    expect(
+      entry.checkConfig?.({
+        metadata: metadata(),
+        config: { auth: 'api-key' },
+        hasSecretRef: true,
+      }),
+    ).toEqual([]);
   });
 
   test("the runtime's AWS credentials go only to Bedrock's runtime in the region; any other host is refused, named", () => {

@@ -7,6 +7,7 @@ export type * from './ids.js';
 export type * from './live.js';
 export type * from './refs.js';
 export type * from './result.js';
+export type * from './secret-scope.js';
 export type * from './temporal.js';
 export type * from './version.js';
 export type * from './webhook.js';

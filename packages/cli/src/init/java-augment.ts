@@ -156,7 +156,7 @@ export async function runInitJavaAugment(inputs: RunInitJavaAugmentInputs): Prom
       dryRun: false,
     });
     for (const o of report.outcomes) {
-      const target = join(inputs.targetDir, '.claude', 'skills', o.name, 'SKILL.md');
+      const target = join(inputs.targetDir, o.folder, o.name, 'SKILL.md');
       if (o.status === 'added' || o.status === 'updated') created.push(target);
       else if (o.status !== 'local-only') skipped.push(target);
     }

@@ -15,7 +15,7 @@ description: >
   kindgi-java-authoring-tools, Java agents by kindgi-java-authoring-agents.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.0"
+version: "0.1.2"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -32,7 +32,7 @@ sources:
 > `./mvnw`.
 >
 > Java support is in preview: tested and supported, but the API may still
-> change in 0.1.6 without the usual deprecation period.
+> change in a later release without the usual deprecation period.
 
 A **flow** is a versioned, durable graph of steps: tools (your code) and
 agents (a model's judgment), joined by edges that can carry conditions. It
@@ -252,6 +252,12 @@ public final class TriageTicket {
   `outputSchema`). `convergence` decides the result: `all-succeed`,
   `any-succeed` (the first success wins), or `settle-all` (wait for every
   branch and report each).
+  Every branch gets the fanout's whole input: the output of the step
+  before it (the run input after `$start`). A record refuses
+  properties it doesn't name, so when a branch tool takes only some of
+  them, its input record says `@JsonIgnoreProperties(ignoreUnknown = true)`
+  (`com.fasterxml.jackson.annotation`). Without it, the branch fails with
+  `input-validation-failed`.
 - **A sub-flow** (`"kind": "subgraph"`) is part of the flow schema, but a run
   refuses it today (`flow-unbound`). Inline the steps instead.
 

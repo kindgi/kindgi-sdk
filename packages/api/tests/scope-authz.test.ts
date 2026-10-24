@@ -283,7 +283,7 @@ describe('secrets create — the check uses body.scope', () => {
 
 describe('MCP register — the check uses body.scopeKind + body.scopeId', () => {
   const endpoint = {
-    endpointId: 'weather.http',
+    endpointId: 'weather-http',
     name: 'Weather',
     transport: 'streamable-http',
     config: { transport: 'streamable-http', url: 'https://mcp.example.com/weather' },

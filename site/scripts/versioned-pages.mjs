@@ -14,8 +14,11 @@
  *   version the build is for: the CLI's at the ref being built. The JVM SDKs
  *   are released at the CLI's version (lockstep), so a Maven or sbt snippet
  *   can use it. In code blocks it's filled before highlighting (an Expressive
- *   Code plugin), elsewhere in the built pages and `llms*.txt`. In MDX
- *   prose, put it in inline code: `{` starts an expression there.
+ *   Code plugin), elsewhere in the built pages. In MDX prose, put it in
+ *   inline code: `{` starts an expression there.
+ *
+ * Only the built HTML: the Markdown pages and `llms*.txt` are written after
+ * this, from the fixed pages (`agent-markdown.mjs`, listed after it).
  */
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -74,7 +77,7 @@ function* builtFiles(dir) {
   for (const name of readdirSync(dir)) {
     const path = join(dir, name);
     if (statSync(path).isDirectory()) yield* builtFiles(path);
-    else if (name.endsWith('.html') || name.endsWith('.txt')) yield path;
+    else if (name.endsWith('.html')) yield path;
   }
 }
 
@@ -96,8 +99,8 @@ const HOW_TO_LINK =
   "Link into the repository as https://github.com/kindgi/kindgi-sdk/tree/main/… (or blob/main/…), which a release's build points at its tag.";
 
 /**
- * Fixes the built pages and `llms*.txt` (see the module comment). Listed
- * before Starlight, so its search index reads the fixed pages.
+ * Fixes the built pages (see the module comment). Listed before Starlight,
+ * so its search index reads the fixed pages.
  */
 export function versionedPages({ ref, version }) {
   return {

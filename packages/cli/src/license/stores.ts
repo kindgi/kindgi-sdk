@@ -84,8 +84,9 @@ export function secretStoreFor(
   const context = { cwd, cloud: options.cloud ?? DEFAULT_CLOUD };
   const store = Object.hasOwn(SCHEMES, scheme) ? SCHEMES[scheme]?.(rest, context) : undefined;
   if (store !== undefined) return store;
+  // The value isn't repeated: given in place of a reference, it's the secret.
   throw new SecretRefError(
-    `"${ref}" isn't a place to keep a secret. Use file:<path>, env-file:<path>#<NAME> (for example env-file:kindgi.env#KINDGI_LICENSE_KEY), gcp:projects/<project>/secrets/<name>, azure:https://<vault>.vault.azure.net/secrets/<name>, or aws:<region>:<secret name> (or aws:<the secret's ARN>).`,
+    `That isn't a place to keep a secret, and it isn't repeated here in case it's the secret itself: give where the secret is kept. Use file:<path>, env-file:<path>#<NAME> (for example env-file:kindgi.env#KINDGI_LICENSE_KEY), gcp:projects/<project>/secrets/<name>, azure:https://<vault>.vault.azure.net/secrets/<name>, or aws:<region>:<secret name> (or aws:<the secret's ARN>).`,
   );
 }
 

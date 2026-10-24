@@ -7,19 +7,32 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-A flow waits for a person through an agent step: when the agent asks for a
+This guide stops a flow until a person approves what an agent step is about
+to do, then continues on their decision.
+
+A flow waits for a person through an agent step. When the agent asks for a
 tool that needs approval, its turn stops, and the flow stops with it. A
 reviewer decides, and the flow continues from where it stopped.
 
-`acme.escalate-order` has an agent put an order on hold (every hold waits for
-a person), then emails the customer if the hold went through. It uses
-`acme.hold-order` from [Pass data between steps](../pass-data-between-steps/)
-and `acme.email-customer` from [Join branches](../join-branches/).
+## Before you start
+
+- **The tools** `acme.get-order`, from [Write a flow](../write-a-flow/),
+  `acme.hold-order`, from
+  [Pass data between steps](../pass-data-between-steps/), and
+  `acme.email-customer`, from [Join branches](../join-branches/).
+- **A runtime such as `kindgi dev`,** with Kindgi 0.2's CLI.
+- **A registered model** that calls tools.
+
+`acme.escalate-order` has an agent put an order on hold, then emails the
+customer if the hold went through. Every hold waits for a person.
 
 ## The agent
 
-The agent gates `acme.hold-order` with `always_ask`, and returns a typed
-answer the flow can branch on:
+The agent's tool call is what waits. Ask your coding agent: "I want an agent
+that puts an order on hold, but only once a person approves." Kindgi's skills
+in your pack tell it how ([How it knows Kindgi](../../../start/coding-agents/)).
+For reference, the agent looks like this. It gates `acme.hold-order` with
+`always_ask`, and returns a typed answer the flow can branch on:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -120,13 +133,79 @@ order_holder = Agent(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/agents/OrderHolder.java
+package acme.agents;
+
+import com.kindgi.pack.Agent;
+import java.util.List;
+import java.util.Map;
+
+public final class OrderHolder {
+  public static final Agent AGENT = Agent.define("acme.order-holder")
+      .version("0.1.0")
+      .name("Order holder")
+      .description("Puts an order on hold, after a person approves.")
+      .instructions("Put order {{ input.orderId }} on hold with the acme.hold-order tool, reason \"{{ input.reason }}\". "
+          + "Set held to true if the tool ran, false if the call was rejected, and say why in summary.")
+      .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
+      .tool("acme.hold-order", "0.1.0")
+      .set("conversationPolicy",
+          Map.of("hitl", Map.of("tools", Map.of("overrides", Map.of("acme.hold-order", "always_ask")))))
+      .set("output", Map.of("schema", Map.of(
+          "type", "object",
+          "properties", Map.of("held", Map.of("type", "boolean"), "summary", Map.of("type", "string")),
+          "required", List.of("held", "summary"))))
+      .set("budget", Map.of("maxSteps", 4, "maxCostUsd", 0.05, "maxWallMs", 60_000))
+      .build();
+
+  private OrderHolder() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/agents/OrderHolder.scala
+package acme.agents
+
+import com.kindgi.pack.scaladsl._
+
+object OrderHolder {
+  val agent: Agent = Agent("acme.order-holder")
+    .version("0.1.0")
+    .name("Order holder")
+    .description("Puts an order on hold, after a person approves.")
+    .instructions("Put order {{ input.orderId }} on hold with the acme.hold-order tool, reason \"{{ input.reason }}\". " +
+      "Set held to true if the tool ran, false if the call was rejected, and say why in summary.")
+    .capability(Map("needs" -> Seq(Map("feature" -> "tool-use"))))
+    .tool("acme.hold-order", "0.1.0")
+    .set("conversationPolicy",
+      Map("hitl" -> Map("tools" -> Map("overrides" -> Map("acme.hold-order" -> "always_ask")))))
+    .set("output", Map("schema" -> Map(
+      "type" -> "object",
+      "properties" -> Map("held" -> Map("type" -> "boolean"), "summary" -> Map("type" -> "string")),
+      "required" -> List("held", "summary"))))
+    .set("budget", Map("maxSteps" -> 4, "maxCostUsd" -> 0.05, "maxWallMs" -> 60000))
+    .build()
+}
+```
+
+</TabItem>
 </Tabs>
 
 [Ask before a tool runs](../../approvals/ask-before-a-tool-runs/) covers the
-gates (`always_ask`, `never_ask`, and the default for tools that aren't
-read-only).
+gates: `always_ask`, `never_ask`, and the default for tools that aren't
+read-only.
 
 ## The flow
+
+Ask your coding agent: "I want a flow that runs that agent, then emails the
+customer if the order went on hold." For reference, the flow runs the agent
+as a step, then branches on its answer:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -255,6 +334,93 @@ escalate_order = Flow(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/flows/EscalateOrder.java
+package acme.flows;
+
+import com.kindgi.pack.Flow;
+import java.util.Map;
+
+public final class EscalateOrder {
+  private static final Map<String, Object> IS_HELD = Map.of(
+      "op", "eq",
+      "left", Map.of("path", "nodeOutputs.hold.output.held"),
+      "right", Map.of("literal", true));
+
+  public static final Flow FLOW = Flow.define("acme.escalate-order")
+      .version("0.1.0")
+      .set("name", "Escalate an order")
+      .set("description", "Has an agent put an order on hold, once a person approves, then tells the customer.")
+      .node(Map.of("id", "order", "kind", "tool", "ref", "acme.get-order",
+          "inputMapping", Map.of("orderId", Map.of("path", "runInput.orderId"))))
+      .node(Map.of("id", "hold", "kind", "agent", "ref", "acme.order-holder",
+          "inputMapping", Map.of(
+              "orderId", Map.of("path", "runInput.orderId"),
+              "reason", Map.of("path", "runInput.reason"))))
+      .node(Map.of("id", "email", "kind", "tool", "ref", "acme.email-customer",
+          "inputMapping", Map.of(
+              "customer", Map.of("path", "nodeOutputs.order.customer"),
+              "status", Map.of("literal", "held"))))
+      .edge("e1", "$start", "order")
+      .edge("e2", "order", "hold")
+      .edge(Map.of("id", "e3", "from", "hold", "to", "email", "when", IS_HELD))
+      .edge(Map.of("id", "e4", "from", "hold", "to", "$end", "when", Map.of("op", "not", "child", IS_HELD)))
+      .edge("e5", "email", "$end")
+      .set("output", Map.of("mapping", Map.of(
+          "held", Map.of("path", "nodeOutputs.hold.output.held"),
+          "summary", Map.of("path", "nodeOutputs.hold.output.summary"),
+          "notified", Map.of("path", "nodeOutputs.email.to"))))
+      .build();
+
+  private EscalateOrder() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/flows/EscalateOrder.scala
+package acme.flows
+
+import com.kindgi.pack.scaladsl._
+
+object EscalateOrder {
+  private val isHeld = Map(
+    "op" -> "eq",
+    "left" -> Map("path" -> "nodeOutputs.hold.output.held"),
+    "right" -> Map("literal" -> true))
+
+  val flow: Flow = Flow("acme.escalate-order")
+    .version("0.1.0")
+    .set("name", "Escalate an order")
+    .set("description", "Has an agent put an order on hold, once a person approves, then tells the customer.")
+    .node(Map("id" -> "order", "kind" -> "tool", "ref" -> "acme.get-order",
+      "inputMapping" -> Map("orderId" -> Map("path" -> "runInput.orderId"))))
+    .node(Map("id" -> "hold", "kind" -> "agent", "ref" -> "acme.order-holder",
+      "inputMapping" -> Map(
+        "orderId" -> Map("path" -> "runInput.orderId"),
+        "reason" -> Map("path" -> "runInput.reason"))))
+    .node(Map("id" -> "email", "kind" -> "tool", "ref" -> "acme.email-customer",
+      "inputMapping" -> Map(
+        "customer" -> Map("path" -> "nodeOutputs.order.customer"),
+        "status" -> Map("literal" -> "held"))))
+    .edge("e1", "$start", "order")
+    .edge("e2", "order", "hold")
+    .edge(Map("id" -> "e3", "from" -> "hold", "to" -> "email", "when" -> isHeld))
+    .edge(Map("id" -> "e4", "from" -> "hold", "to" -> "$end", "when" -> Map("op" -> "not", "child" -> isHeld)))
+    .edge("e5", "email", "$end")
+    .set("output", Map("mapping" -> Map(
+      "held" -> Map("path" -> "nodeOutputs.hold.output.held"),
+      "summary" -> Map("path" -> "nodeOutputs.hold.output.summary"),
+      "notified" -> Map("path" -> "nodeOutputs.email.to"))))
+    .build()
+}
+```
+
+</TabItem>
 </Tabs>
 
 Nothing in the flow says "wait": the step waits because the agent's tool call
@@ -263,18 +429,78 @@ does. After the decision, `e3` or `e4` reads the agent's answer,
 
 ## Run it
 
-Only reviewers can decide approvals. Under `kindgi dev` you're one already; on
-any other runtime, register yourself once:
+Only reviewers can decide approvals. Under `kindgi dev` you're one already.
+On any other runtime, register yourself once:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi reviewers register --spec='{"role":"standard"}'
+pnpm exec kindgi reviewers register --spec='{"role":"standard"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi reviewers register --spec='{"role":"standard"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw reviewers register --spec='{"role":"standard"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw reviewers register --spec='{"role":"standard"}'
+```
+
+</TabItem>
+</Tabs>
+
+`--spec` is the reviewer, as JSON: `role` is `standard`, `senior` or `admin`.
+It prints the registered reviewer, as JSON.
 
 Then start the flow:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.escalate-order --input='{"orderId":"A-200","reason":"Address looks wrong"}'
+pnpm exec kindgi runs start --flow=acme.escalate-order --input='{"orderId":"A-200","reason":"Address looks wrong"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.escalate-order --input='{"orderId":"A-200","reason":"Address looks wrong"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.escalate-order --input='{"orderId":"A-200","reason":"Address looks wrong"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.escalate-order --input='{"orderId":"A-200","reason":"Address looks wrong"}'
+```
+
+</TabItem>
+</Tabs>
+
+`--flow` is the flow, and `--input` its input: the order and why to hold it.
+It prints the run, waiting:
 
 ```json
 {
@@ -288,8 +514,9 @@ kindgi runs start --flow=acme.escalate-order --input='{"orderId":"A-200","reason
 ```
 
 The run is `suspended`, and the command returns as soon as it waits. Nothing
-keeps running while it waits: the journal records where the run stopped, and
-the decision picks it up from there.
+keeps running while it waits. The journal records where the run stopped, and
+the decision picks it up from there. `kindgi runs journal <run-id>` prints
+it:
 
 ```json
 {"sequence": 5, "kind": "step.started", "nodeId": "hold", "payload": {"input": {"reason": "Address looks wrong", "orderId": "A-200"}}, …}
@@ -298,9 +525,41 @@ the decision picks it up from there.
 
 ## Decide
 
+The approval is what the reviewer decides. List the ones waiting:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi approvals list --status=pending
+pnpm exec kindgi approvals list --status=pending
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals list --status=pending
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals list --status=pending
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals list --status=pending
+```
+
+</TabItem>
+</Tabs>
+
+`--status=pending` lists the ones nobody is assigned to yet. It prints the
+agent turn's approval:
 
 ```json
 {
@@ -333,19 +592,78 @@ kindgi approvals list --status=pending
 }
 ```
 
-`provenanceRef.runId` is the agent's turn, the step's own run; its
+`provenanceRef.runId` is the agent's turn, the step's own run. Its
 `parentRunId` is the flow's run. Approve it:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi approvals complete 0eaa2820-0afe-4147-a017-fc8a4d1657cc --decision=approve --rationale="Checked with the customer"
+pnpm exec kindgi approvals complete 0eaa2820-0afe-4147-a017-fc8a4d1657cc --decision=approve --rationale="Checked with the customer"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals complete 0eaa2820-0afe-4147-a017-fc8a4d1657cc --decision=approve --rationale="Checked with the customer"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals complete 0eaa2820-0afe-4147-a017-fc8a4d1657cc --decision=approve --rationale="Checked with the customer"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals complete 0eaa2820-0afe-4147-a017-fc8a4d1657cc --decision=approve --rationale="Checked with the customer"
+```
+
+</TabItem>
+</Tabs>
+
+The id is the approval's, `--decision=approve` approves it (`reject` turns
+it down), and `--rationale` is kept with it. It prints the recorded decision
+as JSON: the approval, the decision, and what it did to the run.
 
 The decision resumes the agent's turn and then the flow, within the same
-call. By the time the command returns, the flow has finished:
+call. By the time the command returns, the flow has finished. Read the flow's
+run, with its id:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi runs get 7111dde4-bdd3-40a1-a6e8-2a550d0ad318
+pnpm exec kindgi runs get 7111dde4-bdd3-40a1-a6e8-2a550d0ad318
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs get 7111dde4-bdd3-40a1-a6e8-2a550d0ad318
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs get 7111dde4-bdd3-40a1-a6e8-2a550d0ad318
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs get 7111dde4-bdd3-40a1-a6e8-2a550d0ad318
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -362,9 +680,9 @@ kindgi runs get 7111dde4-bdd3-40a1-a6e8-2a550d0ad318
 
 ## When the reviewer rejects
 
-A rejection doesn't fail the step. The tool doesn't run, the agent gets the
-rejection (with the rationale) as the tool's result, and answers. Here it
-answers `held: false`, so `e4` ends the run without the email:
+A rejection doesn't fail the step. The tool doesn't run, and the agent gets
+the rejection, with the rationale, as the tool's result. Then it answers.
+Here it answers `held: false`, so `e4` ends the run without the email:
 
 ```json
 {
@@ -379,5 +697,12 @@ from a field, not from the wording of a sentence.
 ## Stop waiting
 
 `kindgi runs cancel <run-id>` on the flow's run cancels it and the agent's
-turn. It doesn't close the approval: withdraw it as well, as
-[Decide an approval](../../approvals/decide-an-approval/) shows.
+turn. It also withdraws the approval the turn waited on, as
+[Cancel a run](../../runs/cancel-a-run/#approvals-of-a-cancelled-run)
+describes.
+
+## Next
+
+- [Decide an approval](../../approvals/decide-an-approval/)
+- [Ask before a tool runs](../../approvals/ask-before-a-tool-runs/)
+- [Branch a flow](../branch-a-flow/)

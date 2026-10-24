@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import {
+  SchemaCompileBudgetError,
   compileInlineSchema,
   compileJsonSchema,
   createSpecRegistry,
@@ -92,6 +93,8 @@ function compilesAsSchema(
     compileJsonSchema(schema as Readonly<Record<string, unknown>>, schemaOptions(tool));
     return undefined;
   } catch (cause) {
+    // A compile the tenant's budget refused says nothing about the schema.
+    if (cause instanceof SchemaCompileBudgetError) throw cause;
     return {
       code: 'invalid-schema',
       message: `Tool ${where} schema does not compile: ${cause instanceof Error ? cause.message : String(cause)}${strictHint(cause)}`,

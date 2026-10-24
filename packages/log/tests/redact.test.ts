@@ -81,6 +81,12 @@ describe('rule 2: known shapes in strings', () => {
     }
   });
 
+  test('a system key (kgi_sy_) is masked like every other kind, its kind being two letters', () => {
+    expect(scrubText('minted kgi_sy_Q2hhbmdlTWUuVGhpc0lzQVN5c3RlbUtleQ9f9 for sign-up')).toBe(
+      'minted kgi_sy_…Q9f9 for sign-up',
+    );
+  });
+
   test('Bearer <anything> becomes Bearer [redacted]', () => {
     expect(scrubText('Authorization: Bearer abc.def.ghi, next')).toBe(
       'Authorization: Bearer [redacted], next',

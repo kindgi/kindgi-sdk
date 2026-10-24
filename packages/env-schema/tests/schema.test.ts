@@ -15,7 +15,9 @@
 
 import { describe, expect, test } from 'vitest';
 
+import * as envSchema from '../src/index.js';
 import {
+  AUTH_INVITE_EMAIL_DAILY_CAP_VAR,
   type EnvTarget,
   type EnvVarSpec,
   KINDGI_ENV_SCHEMA,
@@ -186,14 +188,23 @@ describe('envVarsForTarget', () => {
     expect(dev?.required).toBe(false);
   });
 
-  test('KINDGI_TENANT_HOST_ACCESS: the server only, optional, local or deployed', () => {
+  test('KINDGI_TENANT_HOST_ACCESS: the server only, optional, local, deployed or isolated', () => {
     const access = envVarsForTarget({}).find((v) => v.name === 'KINDGI_TENANT_HOST_ACCESS');
     expect(access).toMatchObject({ group: 'core', required: false });
-    expect(access?.allowedValues).toEqual(['local', 'deployed']);
+    expect(access?.allowedValues).toEqual(['local', 'deployed', 'isolated']);
     expect(
       envVarsForTarget({ component: 'pack-service' }).some(
         (v) => v.name === 'KINDGI_TENANT_HOST_ACCESS',
       ),
+    ).toBe(false);
+  });
+
+  test('KINDGI_TENANCY: the server only, optional, single or multi', () => {
+    const tenancy = envVarsForTarget({}).find((v) => v.name === 'KINDGI_TENANCY');
+    expect(tenancy).toMatchObject({ group: 'core', required: false });
+    expect(tenancy?.allowedValues).toEqual(['single', 'multi']);
+    expect(
+      envVarsForTarget({ component: 'pack-service' }).some((v) => v.name === 'KINDGI_TENANCY'),
     ).toBe(false);
   });
 
@@ -289,6 +300,23 @@ describe('envVarsForTarget — the executor lease', () => {
   });
 });
 
+describe('envVarsForTarget — invitation emails', () => {
+  test("the deployment's daily backstop is the server's, optional, in core, and says its range and default", () => {
+    const cap = envVarsForTarget({ component: 'server' }).find(
+      (v) => v.name === AUTH_INVITE_EMAIL_DAILY_CAP_VAR,
+    );
+    expect(AUTH_INVITE_EMAIL_DAILY_CAP_VAR).toBe('KINDGI_AUTH_INVITE_EMAIL_DAILY_CAP');
+    expect(cap).toMatchObject({ required: false, group: 'core', example: '500' });
+    expect(cap?.description).toContain('Default 500, a whole number from 1 to 100000');
+    expect(cap?.description).toContain('KINDGI_AUTH_EMAIL_SMTP_URL');
+    expect(
+      envVarsForTarget({ component: 'pack-service' }).some(
+        (v) => v.name === AUTH_INVITE_EMAIL_DAILY_CAP_VAR,
+      ),
+    ).toBe(false);
+  });
+});
+
 describe('envVarsForTarget — the retention sweeper (T236)', () => {
   test("its interval is the server's, optional (unset: no sweeping on its own), in core", () => {
     const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
@@ -338,6 +366,7 @@ describe('envVarsForTarget — the pack service', () => {
     'KINDGI_PACK_ENV_CHECK',
     'KINDGI_PACK_ENV_FILTER',
     'KINDGI_PACK_ENV_DECLARED',
+    'KINDGI_PACK_TENANT_ID',
   ];
 
   test("component=pack-service is the pack service's vars and none of the server's", () => {
@@ -352,6 +381,20 @@ describe('envVarsForTarget — the pack service', () => {
       expect(names).not.toContain('KINDGI_PACK_SERVICE_TOKEN');
       expect(names).not.toContain('KINDGI_PACK_CALL_TIMEOUT_MS');
       expect(names).not.toContain('KINDGI_PACK_INDEX');
+    }
+  });
+
+  test("the per-deployment routing settings are the server's, offered whatever its transport", () => {
+    for (const target of [
+      {},
+      { component: 'server' as const },
+      { packTransport: 'http' as const },
+    ]) {
+      const names = envVarsForTarget(target).map((v) => v.name);
+      expect(names).toEqual(
+        expect.arrayContaining(['KINDGI_PACK_ROUTING', 'KINDGI_PACK_ENDPOINT_HOSTS']),
+      );
+      expect(names).not.toContain('KINDGI_PACK_TENANT_ID');
     }
   });
 
@@ -450,6 +493,19 @@ describe('validateEnvForTarget', () => {
     expect(server.has('KINDGI_PUBLIC_TOKEN_SIGNING_KEY')).toBe(true);
   });
 
+  test("the database timeouts are the server's, none required, each example its default", () => {
+    const server = new Map(envVarsForTarget({}).map((v) => [v.name, v]));
+    for (const [name, example] of [
+      ['KINDGI_DB_STATEMENT_TIMEOUT_MS', '60000'],
+      ['KINDGI_DB_LOCK_TIMEOUT_MS', '30000'],
+      ['KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS', '30000'],
+      ['KINDGI_DB_POOL_WAIT_TIMEOUT_MS', '10000'],
+    ] as const) {
+      expect(server.get(name)?.required, name).toBe(false);
+      expect(server.get(name)?.example, name).toBe(example);
+    }
+  });
+
   test('KINDGI_LICENSE_KEY is a server variable the schema leaves optional (the server requires it outside development mode)', () => {
     const key = envVarsForTarget({}).find((v) => v.name === LICENSE_KEY_VAR);
     expect(key?.required).toBe(false);
@@ -465,6 +521,9 @@ describe('validateEnvForTarget', () => {
     ]);
     expect(envVarsForTarget({}).map((v) => v.name)).not.toContain('KINDGI_PACK_SERVICE_AUTH');
     const server = new Map(envVarsForTarget({}).map((v) => [v.name, v]));
+    expect(server.get('KINDGI_OPENFGA_AUTH')?.allowedValues).toEqual(['none', 'google-id-token']);
+    expect(server.get('KINDGI_OPENFGA_PRESHARED_KEY')?.required).toBe(false);
+    expect(server.get('KINDGI_OPENFGA_PRESHARED_KEY')?.example).toBe('');
     expect(server.get('KINDGI_IMAGE_REGISTRY_AUTH')?.allowedValues).toEqual([
       'static',
       'google',
@@ -538,6 +597,16 @@ describe('KINDGI_ENV_SCHEMA — integrity', () => {
     const names = KINDGI_ENV_SCHEMA.map((v) => v.name);
     const set = new Set(names);
     expect(set.size).toBe(names.length);
+  });
+
+  test("every exported name (`*_VAR`) is a variable in the schema, so a reader and the docs can't drift", () => {
+    const names = new Set(KINDGI_ENV_SCHEMA.map((v) => v.name));
+    const exported = Object.entries(envSchema as Record<string, unknown>).filter(
+      (entry): entry is [string, string] =>
+        entry[0].endsWith('_VAR') && typeof entry[1] === 'string',
+    );
+    expect(exported.length).toBeGreaterThan(40);
+    expect(exported.filter(([, name]) => !names.has(name))).toEqual([]);
   });
 
   test('every var has a non-empty name + description', () => {

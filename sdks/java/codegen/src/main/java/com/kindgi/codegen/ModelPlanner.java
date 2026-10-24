@@ -695,7 +695,9 @@ final class ModelPlanner {
   }
 
   private void noteTags(Schema s) {
-    if (s.variants().isEmpty() || shapeOf(s) != Shape.UNION) {
+    // A nullable reference (one variant beside null) is that schema or null: a union it names is
+    // noted where it's declared.
+    if (s.variants().isEmpty() || nonNull(s.variants()).size() < 2 || shapeOf(s) != Shape.UNION) {
       return;
     }
     UnionPlan plan = analyze(s);

@@ -6,6 +6,9 @@ sidebar:
   label: Overview
 ---
 
+These guides write tools, give them secrets and per-project values, and use
+an HTTP API or an MCP server's tools without code.
+
 A tool is a function with a typed input and a typed output. Agents call
 tools, and so do flow steps. Kindgi checks the input before your code runs
 and the output after it returns, so neither side gets malformed data.
@@ -23,6 +26,6 @@ and the output after it returns, so neither side gets malformed data.
 - [Use an MCP server's tools](mcp-servers/): register an MCP server, and its
   tools become tools your agents and flows call.
 
-The examples use the pack from the quickstarts, `my-pack`
-([TypeScript](../../start/quickstart-typescript/),
-[Python](../../start/quickstart-python/)), with `kindgi dev` running.
+The examples use the pack from the quickstarts, `my-pack`, with `kindgi dev`
+running: see the [TypeScript](../../start/quickstart-typescript/) and
+[Python](../../start/quickstart-python/) quickstarts.

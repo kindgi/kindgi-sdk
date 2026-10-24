@@ -70,6 +70,12 @@ import {
 import type { CommandContext } from '../context.js';
 import { ALREADY_RUNNING_EXIT_CODE, alreadyRunning } from '../dev/already-running.js';
 import {
+  type DockerReach,
+  LocalPortsRefused,
+  localPortsRefused,
+  refusedHere,
+} from '../dev/blocked.js';
+import {
   DEV_LOCK_FILE,
   type DevLockOutcome,
   type HeldDevLock,
@@ -103,6 +109,12 @@ import { type PackCode, isJvmPackCode, resolvePackCode } from '../dev/pack-code.
 import { devPackEnv, devPackEnvFiles } from '../dev/pack-env.js';
 import { createPackRefresher, showPackEvent } from '../dev/pack-service.js';
 import { PORT_SEARCH_SPAN, firstFreePort } from '../dev/port.js';
+import {
+  devRuntimeSource,
+  previewExpiryWarning,
+  previewRefusalHint,
+  readLicenseStatus,
+} from '../dev/preview-expiry.js';
 import { type DevProject, resolveDevProject } from '../dev/project.js';
 import {
   type DeclaredProvider,
@@ -141,11 +153,12 @@ import { PYPI_NO_BUNDLER } from '../esbuild-loader.js';
 import { openUrlInBrowser } from '../open-url.js';
 import { renderJson } from '../output.js';
 import { binDisplay, cliInstall, detectBinRunner } from '../package-manager.js';
+import { MODELS_GUIDE } from '../providers/models-guide.js';
 import { loadProviderPresets } from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
 import { consoleUrlOf, couldNotOpen } from './console.js';
 import { defaultSdkSkillsRoot } from './init.js';
-import { detectSkillDrift } from './skills.js';
+import { describeSkillDrift, detectSkillDrift } from './skills.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 export const devCommand: LeafCommand = {
@@ -180,7 +193,7 @@ export const devCommand: LeafCommand = {
     tenant: {
       type: 'string',
       description:
-        "Pin the tenant. Default: the previous run's (from `.kindgirc.json`), else a new one.",
+        "Pin the tenant. Default: with the bundled Postgres, the project's own (the same for every pack and restart of the project); else the previous run's (from `.kindgirc.json`), else a new one.",
     },
     // Named `dev-token` to avoid clobbering the global `--token`
     // (which is the caller's bearer token to a remote API). In dev
@@ -340,8 +353,28 @@ async function withHeartbeat<T>(
   }
 }
 
-function renderMissingDbHint(reason: string): string {
-  return `kindgi dev needs Postgres, and couldn't start the bundled one: ${reason}\n\nOptions:\n  1. Install Docker (Docker Desktop, or Docker Engine on Linux) and make sure it runs: kindgi dev then starts the bundled Postgres itself, with \`docker compose\` when it's there and plain \`docker\` otherwise.\n  2. Use your own Postgres (16, with pgvector): pass --database-url=<url>, or set KINDGI_DATABASE_URL.\n`;
+/**
+ * Docker that's there but out of reach: its own fix, since another
+ * Postgres wouldn't start the runtime either. With `--runtime-url` the
+ * runtime isn't Docker's, so the person's own Postgres is a way out too.
+ */
+const OUT_OF_REACH: ReadonlySet<DockerReach> = new Set([
+  'not-started',
+  'socket-denied',
+  'not-running',
+]);
+
+/** The way out that needs no Docker: "Use …" in the options, "Or use …" after a fix. */
+const OWN_POSTGRES =
+  'your own Postgres (16, with pgvector): pass --database-url=<url>, or set KINDGI_DATABASE_URL.';
+
+function renderMissingDbHint(reason: string, reach?: DockerReach, ownRuntime = false): string {
+  if (reach !== undefined && OUT_OF_REACH.has(reach)) {
+    return ownRuntime
+      ? `kindgi dev needs Docker for its Postgres. ${reason}\n  Or use ${OWN_POSTGRES}\n`
+      : `kindgi dev needs Docker for its Postgres and the Kindgi runtime. ${reason}\n`;
+  }
+  return `kindgi dev needs Postgres, and couldn't start the bundled one: ${reason}\n\nOptions:\n  1. Install Docker (Docker Desktop, or Docker Engine on Linux) and make sure it runs: kindgi dev then starts the bundled Postgres itself, with \`docker compose\` when it's there and plain \`docker\` otherwise.\n  2. Use ${OWN_POSTGRES}\n`;
 }
 
 interface ResolvedDevArgs {
@@ -410,6 +443,8 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   try {
     taken = await takeDevLock(args.packDir, dev.devLockProcesses);
   } catch (cause) {
+    const refused = refusedHere(cause);
+    if (refused !== undefined) return { kind: 'error', stderr: refused, exitCode: 1 };
     return { kind: 'error', stderr: `kindgi dev: ${(cause as Error).message}\n`, exitCode: 1 };
   }
   if (taken.kind === 'held') {
@@ -556,7 +591,7 @@ async function runDevForPack(
     if (outcome.kind === 'unavailable') {
       return {
         kind: 'error',
-        stderr: renderMissingDbHint(outcome.reason),
+        stderr: renderMissingDbHint(outcome.reason, outcome.reach, args.runtimeUrl !== undefined),
         exitCode: 1,
       };
     }
@@ -651,16 +686,17 @@ async function runDevForPack(
   // console, curl bookmarks and anything else holding the printed token
   // keep working. Each one, highest first:
   //   1. Its flag (`--tenant`, `--dev-token`).
-  //   2. The previous boot's, from `.kindgirc.json` in the pack dir.
-  //   3. Server-generated on this boot (the very first one, or after
+  //   2. The tenant only: with a project database (the bundled Postgres),
+  //      the project's tenant and user. Every pack of the project, and
+  //      every restart, get the same ones.
+  //   3. The previous boot's, from `.kindgirc.json` in the pack dir.
+  //   4. Server-generated on this boot (the very first one, or after
   //      `--reset`, which already deleted the file), then persisted.
-  // Per field: `--dev-token` alone keeps the previous tenant.
+  // Per field: `--dev-token` alone leaves the tenant to steps 2-4.
   // Start the runtime. A failed start is the loudest error path, so
   // we tear down auto-started services (if any) before returning. The
   // first boot (or the first after `--reset`) makes the tenant, token and
   // user here; they're persisted after the runtime serves.
-  // With a project database, the project's tenant and user: every pack of
-  // the project, and every restart, get the same ones.
   const effectiveTenantId = args.tenantId ?? project?.tenantId ?? previous.tenantId ?? randomUUID();
   const effectiveToken = args.token ?? previous.token ?? generateDevToken();
   // The user the token resolves to comes back with the tenant it
@@ -735,6 +771,11 @@ async function runDevForPack(
   try {
     packFront = await pack.listen();
   } catch (err) {
+    const refused = refusedHere(err);
+    if (refused !== undefined) {
+      await pack.close().catch(() => undefined);
+      return { kind: 'error', stderr: refused, exitCode: 1 };
+    }
     if (previous.packServicePort === undefined) throw err;
     emitProgress(
       `  the pack service's port ${previous.packServicePort} is taken: using another one${args.runtimeUrl !== undefined ? ' (restart your runtime with the new runtime.env)' : ''}`,
@@ -829,9 +870,11 @@ async function runDevForPack(
       };
     }
     if (err instanceof RuntimeOwnedElsewhere) return ownedElsewhereRefusal(err);
+    const refused = refusedHere(err);
+    if (refused !== undefined) return { kind: 'error', stderr: refused, exitCode: 1 };
     return {
       kind: 'error',
-      stderr: `kindgi dev couldn't start the Kindgi runtime: ${(err as Error).message}\n`,
+      stderr: `kindgi dev couldn't start the Kindgi runtime: ${(err as Error).message}${previewRefusalHint((err as Error).message, devRuntimeSource(args))}\n`,
       exitCode: 1,
     };
   }
@@ -905,7 +948,6 @@ async function runDevForPack(
     },
     kindgi,
   });
-  const registerProviderCommand = await registerProviderHint(kindgi);
   // A Vertex provider registered by hand (the `gemini` preset) has no
   // credentials either; a declared one was named before the start.
   if (google.credentials === undefined) {
@@ -914,6 +956,13 @@ async function runDevForPack(
       .filter((id) => id === VERTEX_PROVIDER_ID && !declaredVertex.includes(id));
     if (byHand.length > 0) emitProgress(`⚠ ${vertexCredentialsHint(byHand, ctx.env)}`);
   }
+  // A preview runtime near the end of its life (90 days after its
+  // release, until 1.0): from 30 days before, the way to a newer one.
+  const previewWarning = previewExpiryWarning(
+    await readLicenseStatus(client),
+    devRuntimeSource(args),
+  );
+  if (previewWarning !== undefined) emitProgress(previewWarning);
 
   const bannerLines = renderDevBanner({
     baseUrl: server.baseUrl,
@@ -921,7 +970,6 @@ async function runDevForPack(
     tenantId: server.tenantId,
     token: server.token,
     providers,
-    registerProviderCommand,
     packDir: args.packDir,
     bootIndex,
     bootReport,
@@ -1000,7 +1048,7 @@ async function runDevForPack(
   emitProgress(`  Tenant     ${server.tenantId}`);
   emitProgress(`  Token      ${server.token}`);
   if (providers !== undefined) {
-    emitProgress(`  Providers  ${describeProviders(providers, registerProviderCommand)}`);
+    emitProgress(`  Models     ${describeModels(providers)}`);
   }
   emitProgress(`  Origins    ${describeBrowserOrigins(publicRunTokens.corsOrigins)}`);
   emitProgress('');
@@ -1347,12 +1395,25 @@ async function pickRuntimePort(
     return { kind: 'ok', port: args.port };
   }
   const inUse = (port: number) => dev.runtimePortInUse!({ packDir: args.packDir, port, ...owner });
+  // Every probe, the walk's too: a port that only answers a connect reads
+  // as taken without a listen, so the refusal can come from the next one.
   try {
-    if (!(await inUse(args.port))) return { kind: 'ok', port: args.port };
+    return await walkRuntimePorts(args, inUse);
   } catch (err) {
     if (err instanceof RuntimeOwnedElsewhere) return ownedElsewhereRefusal(err);
+    if (err instanceof LocalPortsRefused) {
+      return { kind: 'error', stderr: localPortsRefused(err.port, err.code), exitCode: 1 };
+    }
     throw err;
   }
+}
+
+/** The asked port when it's free, else (when it wasn't given) the next free one. */
+async function walkRuntimePorts(
+  args: ResolvedDevArgs,
+  inUse: (port: number) => Promise<boolean>,
+): Promise<RuntimePortOutcome> {
+  if (!(await inUse(args.port))) return { kind: 'ok', port: args.port };
   if (args.portGiven) {
     return {
       kind: 'error',
@@ -1840,13 +1901,11 @@ async function emitSkillDriftHint(
   const skillsRoot = defaultSdkSkillsRoot();
   if (skillsRoot === undefined) return;
   try {
-    const drift = await detectSkillDrift({ skillsRoot, targetDir: packDir, language });
-    const total = drift.missing.length + drift.outdated.length;
-    if (total === 0) return;
-    const parts: string[] = [];
-    if (drift.outdated.length > 0) parts.push(`${drift.outdated.length} out of date`);
-    if (drift.missing.length > 0) parts.push(`${drift.missing.length} not yet installed`);
-    emitProgress(`  ⚠ Framework skills: ${parts.join(', ')}.`);
+    const drift = describeSkillDrift(
+      await detectSkillDrift({ skillsRoot, targetDir: packDir, language }),
+    );
+    if (drift === undefined) return;
+    emitProgress(`  ⚠ Framework skills: ${drift}.`);
     emitProgress(`    Run \`${syncCommand}\` to pull the latest.`);
     emitProgress('');
   } catch {
@@ -2028,8 +2087,6 @@ interface DevBannerInputs {
   readonly token: string;
   /** The tenant's model providers; `undefined` leaves the line out. */
   readonly providers?: readonly BannerProvider[] | undefined;
-  /** How to register a real model, in this pack's `kindgi`. */
-  readonly registerProviderCommand: string;
   readonly packDir: string;
   readonly bootIndex: IndexResult;
   readonly bootReport: RegistrationReport;
@@ -2054,42 +2111,17 @@ function describeBrowserOrigins(origins: readonly string[]): string {
 }
 
 /**
- * How to get a real model, for the banner: the presets that take an LLM
- * provider key and nothing else (anthropic, openai, gemini-api, groq,
- * openrouter…), as the dev-echo warning names them. A preset that also asks
- * for settings (azure-openai) doesn't fit a one-line hint; doctor names its
- * settings.
+ * The banner's models line: each real provider with its models. A fallback
+ * (dev's canned replies) isn't a model, so it's left out; with no real
+ * provider, what agents do until one is connected, and the guide to it.
  */
-async function registerProviderHint(kindgi: (...args: string[]) => string): Promise<string> {
-  const keyed = Object.values(await loadProviderPresets()).flatMap((p) =>
-    p.secret !== undefined && (p.adapterConfig ?? []).length === 0 ? [p.name] : [],
-  );
-  return keyed.length > 1
-    ? `set an LLM provider key, then ${kindgi('providers', 'register', `--preset=<${keyed.join('|')}>`)}`
-    : kindgi('providers', 'register', `--preset=${keyed[0] ?? 'anthropic'}`);
-}
-
-/**
- * The banner's providers line: each provider with its models, fallbacks
- * marked; when only fallbacks (or nothing) can answer, how to register a
- * real model.
- */
-function describeProviders(
-  providers: readonly BannerProvider[],
-  registerProviderCommand: string,
-): string {
-  if (providers.length === 0) {
-    return `none — this runtime has no dev-echo fallback, so agent turns fail until one is registered: ${registerProviderCommand}`;
+function describeModels(providers: readonly BannerProvider[]): string {
+  const real = providers.filter((p) => p.fallback !== true);
+  if (real.length > 0) {
+    return real.map((p) => `${p.id} (${p.models.map((m) => m.name).join(', ')})`).join(' · ');
   }
-  const named = providers
-    .map((p) =>
-      p.fallback === true
-        ? `${p.id} (fallback)`
-        : `${p.id} (${p.models.map((m) => m.name).join(', ')})`,
-    )
-    .join(' · ');
-  if (providers.some((p) => p.fallback !== true)) return named;
-  return `${named} — canned replies; for a real model: ${registerProviderCommand}`;
+  const meanwhile = providers.length > 0 ? 'Agents give placeholder replies' : 'Agent turns fail';
+  return `none yet. ${meanwhile} until you connect a model: ${MODELS_GUIDE}`;
 }
 
 /**
@@ -2119,9 +2151,7 @@ export function renderDevBanner(inputs: DevBannerInputs): readonly string[] {
   lines.push(`    Bearer token       ${inputs.token}`);
   lines.push(`    Pack dir           ${inputs.packDir}`);
   if (inputs.providers !== undefined) {
-    lines.push(
-      `    Providers          ${describeProviders(inputs.providers, inputs.registerProviderCommand)}`,
-    );
+    lines.push(`    Models             ${describeModels(inputs.providers)}`);
   }
   if (inputs.autoStartedServices !== undefined && inputs.autoStartedServices.length > 0) {
     lines.push(

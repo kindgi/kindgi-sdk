@@ -15,9 +15,10 @@
  * With the app's cursor sealer (`cursorSealer`, as the runtime sets it):
  * - "continues after the last row it fetched": the binding gets its own
  *   position back, so paging never stops short;
- * - "hands out no cursor naming a hidden row": the sealed cursor shows
- *   nothing of it. Without a sealer the binding's cursor comes back as it
- *   is, and names the hidden row (the last test).
+ * - "hands out no cursor naming a hidden row": the cursor is sealed, and
+ *   nothing decodable in it names the hidden row. Without a sealer the
+ *   binding's cursor comes back as it is, and names the hidden row (the
+ *   last test).
  */
 
 import { randomUUID } from 'node:crypto';
@@ -470,6 +471,29 @@ function harness(entry: Entry, sealed = true) {
 const readable = (cursor: string) =>
   `${cursor} ${Buffer.from(cursor, 'base64url').toString('utf8')}`;
 
+/** A cursor the test's sealer sealed: `k1.<kid>.<nonce>.<ciphertext+tag>`, base64url. */
+const SEALED = /^k1\.test\.[\w-]{16}\.[\w-]+$/;
+
+/** What a cursor would show of a hidden row: either row's id, or its time. */
+const HIDDEN = ['hid-1', 'hid-2', HIDDEN_AT];
+
+/**
+ * Everything a caller could decode out of `text`: each run of base64url in
+ * it, decoded at each of the four alignments, and what is decodable inside
+ * that in turn, `levels` deep (a position is base64url inside JSON inside
+ * base64url). Not the text itself: a sealed cursor's text is random, so it
+ * spells out anything at some rate.
+ */
+function decodedFrom(text: string, levels = 3): string[] {
+  if (levels === 0) return [];
+  return (text.match(/[\w-]{4,}/g) ?? []).flatMap((run) =>
+    [0, 1, 2, 3].flatMap((skip) => {
+      const bytes = Buffer.from(run.slice(skip), 'base64url').toString('latin1');
+      return [bytes, ...decodedFrom(bytes, levels - 1)];
+    }),
+  );
+}
+
 describe('a list that hides the rows it fetched pages on without naming them', () => {
   test.each(ENTRIES.map((e) => [e.name, e] as const))(
     '%s: hides both rows, and its cursor continues after the last row it fetched',
@@ -496,9 +520,12 @@ describe('a list that hides the rows it fetched pages on without naming them', (
       const { get } = harness(entry);
       const first = await get(entry.path);
       expect(first.status).toBe(200);
-      const text = readable(first.body.nextCursor as string);
-      expect(text).not.toContain('hid');
-      expect(text).not.toContain(HIDDEN_AT);
+      const cursor = first.body.nextCursor as string;
+      expect(cursor).toMatch(SEALED);
+      const named = decodedFrom(cursor).flatMap((text) =>
+        HIDDEN.filter((hidden) => text.includes(hidden)),
+      );
+      expect(named).toEqual([]);
     },
   );
 

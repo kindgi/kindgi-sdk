@@ -24,7 +24,7 @@
  */
 
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -32,6 +32,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { createLogger } from '@kindgi/log';
 
+import { LocalPortsRefused } from '../src/dev/blocked.js';
 import { type DevLockProcesses, devLockPath } from '../src/dev/dev-lock.js';
 import type { EnsureOutcome, ProjectDatabases } from '../src/dev/project-database.js';
 import type { DevProject, ProjectOutcome } from '../src/dev/project.js';
@@ -48,6 +49,9 @@ import type {
 import { RuntimeOwnedElsewhere, RuntimeStartStopped } from '../src/dev/runtime-container.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
 import { CLI_VERSION } from '../src/version-info.js';
+
+/** The models guide on this CLI's release line, as the banner links it. */
+const MODELS_GUIDE_URL = `https://docs.kindgi.com/v${CLI_VERSION.split('.').slice(0, 2).join('.')}/guides/models/`;
 
 /** vi.waitFor's own default (1 s) is too short on a loaded machine; a passing wait returns as soon as it holds. */
 const WAIT = { timeout: 15_000 } as const;
@@ -659,6 +663,24 @@ describe('kindgi dev — the project env files', () => {
     );
   });
 
+  test('the live "Kindgi is up" block says what models agents have, as the exit banner does', async () => {
+    const fixtures = makeFixtures();
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    try {
+      await runCli({ ...baseInputs(fixtures), argv: ['dev', '--no-watch', `--path=${packDir}`] });
+    } finally {
+      spy.mockRestore();
+    }
+    const up = writes.join('').split('✓ Kindgi is up')[1] ?? '';
+    expect(up).toContain(
+      `  Models     none yet. Agents give placeholder replies until you connect a model: ${MODELS_GUIDE_URL}\n`,
+    );
+  });
+
   test('public run tokens: the key file when KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH is set', async () => {
     const keyPath = join(packDir, 'public-token.pem');
     const { privateKey } = generateKeyPairSync('ed25519');
@@ -1184,11 +1206,14 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(out.stderr).toContain('1 agents');
     expect(out.stderr).toContain('1 flows');
     expect(out.stderr).toContain(
-      'Providers          dev-echo (fallback) — canned replies; for a real model: set an LLM provider key, then npx --no -- kindgi providers register --preset=<anthropic|gemini-api|groq|openai|openrouter>',
+      `Models             none yet. Agents give placeholder replies until you connect a model: ${MODELS_GUIDE_URL}\n`,
     );
+    // Plain words: no fallback's name, and the command stays in `kindgi doctor`.
+    expect(out.stderr).not.toContain('dev-echo');
+    expect(out.stderr).not.toContain('providers register');
   });
 
-  test('the providers line lists real providers with their models, fallbacks marked', async () => {
+  test('the models line lists real providers with their models, and leaves the fallback out', async () => {
     const fixtures = makeFixtures({
       providers: [
         { id: 'anthropic', region: 'unspecified', models: [{ name: 'claude-haiku-4-5' }] },
@@ -1199,9 +1224,7 @@ describe('kindgi dev — boot flow (no watch)', () => {
       ...baseInputs(fixtures),
       argv: ['dev', '--no-watch', `--path=${packDir}`],
     });
-    expect(out.stderr).toContain(
-      'Providers          anthropic (claude-haiku-4-5) · dev-echo (fallback)\n',
-    );
+    expect(out.stderr).toContain('Models             anthropic (claude-haiku-4-5)\n');
   });
 
   test('providers the config declares are registered on boot, and left alone on the next', async () => {
@@ -1231,9 +1254,7 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(first).toContain(
       '  ⚠ anthropic: not registered: ANTHROPIC_API_KEY is not in .env, .env.local, .kindgi/secrets.env. Set it (npx --no -- kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant), then restart kindgi dev',
     );
-    expect(first).toContain(
-      'Providers          dev-echo (fallback) · gemini (gemini-3.5-flash-lite)\n',
-    );
+    expect(first).toContain('Models             gemini (gemini-3.5-flash-lite)\n');
     const record = JSON.parse(
       await readFile(join(packDir, '.kindgi', 'dev', 'providers.json'), 'utf8'),
     ) as { readonly runtimes: Record<string, Record<string, unknown>> };
@@ -1280,14 +1301,14 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  test('with no providers, the banner says turns fail until one is registered', async () => {
+  test('with no providers at all, the banner says turns fail until a model is connected', async () => {
     const fixtures = makeFixtures({ providers: [] });
     const out = await runCli({
       ...baseInputs(fixtures),
       argv: ['dev', '--no-watch', `--path=${packDir}`],
     });
     expect(out.stderr).toContain(
-      'Providers          none — this runtime has no dev-echo fallback, so agent turns fail until one is registered: set an LLM provider key, then npx --no -- kindgi providers register --preset=<anthropic|gemini-api|groq|openai|openrouter>',
+      `Models             none yet. Agent turns fail until you connect a model: ${MODELS_GUIDE_URL}\n`,
     );
   });
 
@@ -2994,5 +3015,148 @@ describe('kindgi dev — logs', () => {
     expect(badEnv.exitCode).toBe(1);
     expect(badEnv.stderr).toContain('kindgi dev: KINDGI_LOG_LEVEL must be one of');
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe('kindgi dev — something around it refuses what it needs (a sandbox)', () => {
+  const OWN_TERMINAL =
+    'If a coding agent runs this, its sandbox is likely what stops it: run `kindgi dev` in your own terminal instead.';
+  const sysError = (code: string, syscall: string, more: Record<string, unknown> = {}) =>
+    Object.assign(new Error(`${syscall} ${code}`), { code, syscall, ...more });
+  const dev = (fixtures: Fixtures, env?: Record<string, string>, more: readonly string[] = []) =>
+    runCli({
+      ...baseInputs(fixtures),
+      ...(env !== undefined && { env }),
+      argv: ['dev', '--no-watch', `--path=${packDir}`, ...more],
+    });
+
+  test('no port on 127.0.0.1 at all: said as such, not "all in use"', async () => {
+    const fixtures = makeFixtures();
+    const asked: number[] = [];
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      runtimePortInUse: async (input) => {
+        asked.push(input.port);
+        throw new LocalPortsRefused(input.port, 'EPERM');
+      },
+    };
+    const out = await dev({ ...fixtures, runners });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `kindgi dev isn't allowed to listen on 127.0.0.1 (port ${asked[0]}: EPERM), so no local port would work.\n  ${OWN_TERMINAL}\n`,
+    );
+    // The first refusal ends it: no walk through the other ports.
+    expect(asked).toHaveLength(1);
+  });
+
+  test('the first port answering a connect, the next refused: the same message', async () => {
+    // A taken port reads as taken without a listen, so the refusal comes from the walk.
+    const fixtures = makeFixtures();
+    const asked: number[] = [];
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      runtimePortInUse: async (input) => {
+        asked.push(input.port);
+        if (asked.length === 1) return true;
+        throw new LocalPortsRefused(input.port, 'EPERM');
+      },
+    };
+    const out = await dev({ ...fixtures, runners });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `kindgi dev isn't allowed to listen on 127.0.0.1 (port ${asked[1]}: EPERM), so no local port would work.\n  ${OWN_TERMINAL}\n`,
+    );
+    expect(asked).toEqual([asked[0], (asked[0] ?? 0) + 1]);
+  });
+
+  test.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    "a pack folder it can't write: the folder, the code, the fix",
+    async () => {
+      // Read-only, as a sandbox keeps a folder: the dev lock's folder can't be made.
+      await chmod(packDir, 0o555);
+      try {
+        const out = await dev(makeFixtures());
+        expect(out.exitCode).toBe(1);
+        expect(out.stderr).toMatch(
+          /^kindgi dev isn't allowed to write \S*\/sample-pack\/\.kindgi\S* \(EACCES\)\.\n/,
+        );
+        expect(out.stderr).toContain(
+          `${OWN_TERMINAL} Otherwise, check that your user can write there.\n`,
+        );
+      } finally {
+        await chmod(packDir, 0o755);
+      }
+    },
+  );
+
+  test("the pack service can't listen: said as such, the service closed", async () => {
+    const fixtures = makeFixtures();
+    let closed = 0;
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      createPackService: (options) => {
+        const service = fixtures.runners.createPackService(options);
+        return {
+          ...service,
+          listen: async () => {
+            throw sysError('EPERM', 'listen', { address: '127.0.0.1', port: 0 });
+          },
+          close: async () => {
+            closed += 1;
+            await service.close();
+          },
+        };
+      },
+    };
+    const out = await dev({ ...fixtures, runners });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `kindgi dev isn't allowed to listen on 127.0.0.1 (EPERM), so no local port would work.\n  ${OWN_TERMINAL}\n`,
+    );
+    expect(closed).toBe(1);
+  });
+
+  test("a runtime file it can't write: the file, the code, the fix", async () => {
+    const fixtures = makeFixtures();
+    const file = join(packDir, '.kindgi', 'dev', 'runtime.env');
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      startApiServer: async () => {
+        throw sysError('EROFS', 'open', { path: file });
+      },
+    };
+    const out = await dev({ ...fixtures, runners });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `kindgi dev isn't allowed to write ${file} (EROFS).\n  ${OWN_TERMINAL} Otherwise, check that your user can write there.\n`,
+    );
+  });
+
+  test('Docker out of reach at the Postgres step: its own fix, not "install Docker"', async () => {
+    const fixtures = makeFixtures();
+    const reason = `Docker's socket refused \`kindgi dev\`: dial unix /var/run/docker.sock: connect: operation not permitted\n  ${OWN_TERMINAL} Otherwise, your user needs access to Docker (on Linux, the \`docker\` group, or rootless Docker).`;
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      startServices: async () => ({ kind: 'unavailable', reason, reach: 'socket-denied' }),
+    };
+    const out = await dev({ ...fixtures, runners }, {});
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `kindgi dev needs Docker for its Postgres and the Kindgi runtime. ${reason}\n`,
+    );
+  });
+
+  test('Docker out of reach with --runtime-url: only Postgres needs it, and your own is a way out', async () => {
+    const fixtures = makeFixtures();
+    const reason = `Docker isn't running, or \`kindgi dev\` can't reach it: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?\n  Start Docker Desktop (or the Docker engine), then run this again. If it's running, a coding agent's sandbox may be what keeps it out of reach: run \`kindgi dev\` in your own terminal instead.`;
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      startServices: async () => ({ kind: 'unavailable', reason, reach: 'not-running' }),
+    };
+    const out = await dev({ ...fixtures, runners }, {}, ['--runtime-url=http://127.0.0.1:4000']);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `kindgi dev needs Docker for its Postgres. ${reason}\n  Or use your own Postgres (16, with pgvector): pass --database-url=<url>, or set KINDGI_DATABASE_URL.\n`,
+    );
   });
 });

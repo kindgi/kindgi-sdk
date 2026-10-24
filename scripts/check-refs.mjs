@@ -25,9 +25,10 @@
  *      A program builds its links with `@kindgi/client`'s `docsUrl(path, version)`
  *      (the CLI passes its own version), which follows the release on its own.
  *
- * A reference to `.claude/skills/<name>/SKILL.md` is a path in a user's
- * project, where `kindgi init` installs this repository's skills: it
- * resolves when `packages/sdk/skills/<name>/SKILL.md` is tracked.
+ * A reference to `.claude/skills/<name>/SKILL.md` or
+ * `.agents/skills/<name>/SKILL.md` is a path in a user's project, where
+ * `kindgi init` installs this repository's skills: it resolves when
+ * `packages/sdk/skills/<name>/SKILL.md` is tracked.
  *
  * Usage: `pnpm run check:refs` (CI runs it).
  */
@@ -41,8 +42,11 @@ import { MARKERS, NAME_HIT, nameHits } from './text-scan.mjs';
 const TEXT = /\.(ts|tsx|mts|cts|js|mjs|cjs|md|json|ya?ml)$/;
 /** The checks themselves: they spell out the markers. */
 const SELF = new Set(['scripts/check-refs.mjs', 'scripts/text-scan.mjs']);
-/** Documents that live outside this repository by design (created in a user's pack). */
-const EXTERNAL_DOCS = new Set(['FEEDBACK.md']);
+/**
+ * Documents that live outside this repository by design: created in a user's
+ * pack, or a coding agent's own (Gemini CLI's context file).
+ */
+const EXTERNAL_DOCS = new Set(['FEEDBACK.md', 'GEMINI.md']);
 /** Changelogs record what releases said; the runtime's own border check skips them too. */
 const NAME_EXEMPT = /(^|\/)CHANGELOG\.md$/;
 // Not preceded by a path/URL character (so URL paths and %-encoded URIs don't match).
@@ -70,9 +74,9 @@ function isTrackedPath(path) {
   return trackedSet.has(clean) || tracked.some((f) => f.startsWith(`${clean}/`));
 }
 
-/** `.claude/skills/<name>/SKILL.md` in a user's project, installed from `packages/sdk/skills/`. */
+/** `.claude/skills/<name>/SKILL.md` or `.agents/skills/<name>/SKILL.md` in a user's project, installed from `packages/sdk/skills/`. */
 function installedSkill(ref) {
-  const name = /^\.claude\/skills\/([\w.-]+)\/SKILL\.md$/.exec(ref)?.[1];
+  const name = /^\.(?:claude|agents)\/skills\/([\w.-]+)\/SKILL\.md$/.exec(ref)?.[1];
   return name !== undefined && trackedSet.has(`packages/sdk/skills/${name}/SKILL.md`);
 }
 

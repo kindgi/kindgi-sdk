@@ -78,7 +78,7 @@ export interface SecretUsersDeps {
 const PAGE = 100;
 const MAX_PAGES = 100;
 
-async function* pages<T>(
+export async function* pages<T>(
   read: (cursor: Cursor | undefined) => Promise<{
     readonly data: readonly T[];
     readonly nextCursor?: Cursor;
@@ -189,12 +189,24 @@ export function guardProviderKeys(
     list: (input) => binding.list(input),
     get: (input) => binding.get(input),
     listVersions: (input) => binding.listVersions(input),
+    // Says which cursors the lists issued, and the lists pass through: so does it.
+    ...(binding.issuedCursor !== undefined && {
+      issuedCursor: binding.issuedCursor.bind(binding),
+    }),
     set: (input) => binding.set(input),
     rotate: (input) => binding.rotate(input),
     revoke: (input) => binding.revoke(input),
     // Says how `set` writes, and `set` passes through: so does it.
     ...(binding.writesAppEnvFiles !== undefined && {
       writesAppEnvFiles: binding.writesAppEnvFiles,
+    }),
+    // Says which names `set` refuses, and `set` passes through: so does it.
+    ...(binding.nameRefusal !== undefined && {
+      nameRefusal: (name: string) => binding.nameRefusal?.(name),
+    }),
+    // Env names only: nothing a key could be read from.
+    ...(binding.listEnvNames !== undefined && {
+      listEnvNames: binding.listEnvNames.bind(binding),
     }),
     async resolve(input) {
       const refused = await refusal(input.scope.tenantId, input.name);
@@ -227,12 +239,15 @@ const GUARDED_MEMBERS = [
   'list',
   'get',
   'listVersions',
+  'issuedCursor',
   'set',
   'rotate',
   'revoke',
   'resolve',
   'getVersion',
   'writesAppEnvFiles',
+  'nameRefusal',
+  'listEnvNames',
 ] as const satisfies readonly (keyof SecretBinding)[];
 type Unguarded = Exclude<keyof SecretBinding, (typeof GUARDED_MEMBERS)[number]>;
 // `true` while every member is listed; an unlisted one makes it its name, and this fails.

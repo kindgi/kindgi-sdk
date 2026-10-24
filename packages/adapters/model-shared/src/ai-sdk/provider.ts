@@ -50,7 +50,7 @@ import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 import { nameToolsAsSent, toolIdsBySentName } from '@kindgi/capabilities/tool-names';
 
 import { ModelProviderError, modelProviderError } from '../errors.js';
-import { type RetryableFailure, withRetries } from '../retries.js';
+import { type RetryableFailure, isTransport, refusedConnection, withRetries } from '../retries.js';
 
 export interface AiSdkModelProviderOptions {
   readonly metadata: ProviderMetadata;
@@ -520,73 +520,6 @@ function adapterError(error: unknown): ModelProviderError | undefined {
   if (error instanceof ModelProviderError) return error;
   if (APICallError.isInstance(error) && error.cause instanceof ModelProviderError) {
     return error.cause;
-  }
-  return undefined;
-}
-
-/**
- * The codes of a failed connection, as Node (`ECONNRESET`), undici (`UND_ERR_SOCKET`) and Bun
- * (`ConnectionRefused`) set them on an error or its causes: the AI SDK's list, plus DNS.
- */
-const TRANSPORT_CODES = new Set([
-  'ECONNRESET',
-  'ECONNREFUSED',
-  'ECONNABORTED',
-  'ETIMEDOUT',
-  'EPIPE',
-  'ENOTFOUND',
-  'EAI_AGAIN',
-  'ENETUNREACH',
-  'EHOSTUNREACH',
-  'UND_ERR_SOCKET',
-  'UND_ERR_HEADERS_TIMEOUT',
-  'UND_ERR_BODY_TIMEOUT',
-  'UND_ERR_CONNECT_TIMEOUT',
-  'ConnectionRefused',
-  'ConnectionClosed',
-  'FailedToOpenSocket',
-]);
-
-/** A failed connection: `fetch failed`, or a transport code on the error or one of its causes. */
-function isTransport(error: unknown): boolean {
-  const seen = new Set<unknown>();
-  for (let e = error; e instanceof Error && !seen.has(e); e = e.cause) {
-    seen.add(e);
-    const code = (e as { code?: unknown }).code;
-    if (typeof code === 'string' && TRANSPORT_CODES.has(code)) return true;
-    if (e instanceof TypeError && /^(fetch failed|failed to fetch)$/i.test(e.message)) return true;
-  }
-  return false;
-}
-
-/**
- * A connection refused by policy, the same every time it's tried: a redirect the request won't
- * follow (its credential goes to the endpoint only), or a host refused before any connection, by
- * a system-style code that isn't a dropped connection's (the runtime's egress rules:
- * `EKINDGIEGRESS`). Its kind and words, when it's one.
- */
-function refusedConnection(
-  error: unknown,
-): { readonly kind: 'unavailable' | 'network'; readonly words: string } | undefined {
-  const seen = new Set<unknown>();
-  for (let e = error; e instanceof Error && !seen.has(e); e = e.cause) {
-    seen.add(e);
-    if (/^unexpected redirect$/i.test(e.message)) {
-      return {
-        kind: 'unavailable',
-        words:
-          "the endpoint answered with a redirect, which isn't followed: a request's credential goes to its endpoint only. Check the endpoint.",
-      };
-    }
-    const code = (e as { code?: unknown }).code;
-    if (
-      typeof code === 'string' &&
-      /^E[A-Z0-9_]+$/.test(code) &&
-      !code.startsWith('ERR_') &&
-      !TRANSPORT_CODES.has(code)
-    ) {
-      return { kind: 'network', words: e.message };
-    }
   }
   return undefined;
 }

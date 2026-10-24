@@ -172,6 +172,33 @@ describe('renderInstructions — strict variables', () => {
   });
 });
 
+describe('renderInstructions — partials', () => {
+  // A template stored before partials were refused at publish: `defineAgent`
+  // refuses these now. `package.json` is a file that exists, so this fails
+  // if partials ever resolve.
+  test.each([
+    ['include', "{% include 'package.json' %}"],
+    ['render', "{% render 'package.json' %}"],
+    ['layout', "{% layout 'package.json' %}Hello"],
+    ['a dynamic name', '{% include partial %}'],
+    ['an Object.prototype member', "{% include 'constructor' %}"],
+    ['__proto__', "{% render '__proto__' %}"],
+  ])('a template resolves no partials: %s fails the render', (_, template) => {
+    const agent = { ...make('Hi', [{ name: 'partial', type: 'string' }]), instructions: template };
+    const r = renderInstructions(agent, {
+      parameters: { partial: 'package.json' },
+      clock: fixedClock,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.code).toBe('render-failure');
+      expect(r.error.message).toBe(
+        "Template render failed: templates can't use include, render or layout",
+      );
+    }
+  });
+});
+
 describe('renderInstructions — provenance context capture', () => {
   test('returned context includes both caller params and auto-vars', () => {
     const agent = make('For {{ firmName }}.', [{ name: 'firmName', type: 'string' }]);

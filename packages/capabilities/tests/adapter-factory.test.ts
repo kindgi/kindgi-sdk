@@ -163,3 +163,53 @@ describe("a registry made with the runtime's identities", () => {
     expect(bound?.checkConfig).toBeUndefined();
   });
 });
+
+describe("a registry that refuses the server's own credentials", () => {
+  const metadata = { id: 'p', region: 'us-east-2', models: [] } as unknown as ProviderMetadata;
+  const azure = { getToken: async () => ({ token: 't' }) };
+  const aws = async () => ({ accessKeyId: 'a', secretAccessKey: 's' });
+
+  test('each factory and each check is told, and an input saying otherwise is overruled', () => {
+    const factory = vi.fn(fakeFactory());
+    const checkConfig = vi.fn(() => []);
+    const entry = createAdapterFactoryRegistry([fakeEntry({ factory, checkConfig })], {
+      serverCredentials: false,
+    }).get('@acme/adapter-fake');
+    entry?.factory({ metadata });
+    expect(factory).toHaveBeenLastCalledWith({ metadata, serverCredentials: false });
+    entry?.factory({ metadata, serverCredentials: true });
+    expect(factory).toHaveBeenLastCalledWith({ metadata, serverCredentials: false });
+    entry?.checkConfig?.({ metadata, hasSecretRef: false, serverCredentials: true });
+    expect(checkConfig).toHaveBeenLastCalledWith({
+      metadata,
+      hasSecretRef: false,
+      identities: { azure: false, aws: false },
+      serverCredentials: false,
+    });
+  });
+
+  test("the runtime's identities are withheld, from the registry and from an input alike", () => {
+    const factory = vi.fn(fakeFactory());
+    const checkConfig = vi.fn(() => []);
+    const entry = createAdapterFactoryRegistry([fakeEntry({ factory, checkConfig })], {
+      identities: { aws, azure },
+      serverCredentials: false,
+    }).get('@acme/adapter-fake');
+    entry?.factory({ metadata });
+    expect(factory).toHaveBeenLastCalledWith({ metadata, serverCredentials: false });
+    entry?.factory({ metadata, identities: { aws } });
+    expect(factory).toHaveBeenLastCalledWith({ metadata, serverCredentials: false });
+    entry?.checkConfig?.({ metadata, hasSecretRef: false, identities: { azure: true, aws: true } });
+    expect(checkConfig).toHaveBeenLastCalledWith({
+      metadata,
+      hasSecretRef: false,
+      identities: { azure: false, aws: false },
+      serverCredentials: false,
+    });
+  });
+
+  test('without it, an entry is as registered and its inputs pass through', () => {
+    const entry = fakeEntry();
+    expect(createAdapterFactoryRegistry([entry], {}).get(entry.adapterId)).toBe(entry);
+  });
+});

@@ -7,15 +7,27 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide runs a flow's steps once for each element of a list, several at a
+time, or again and again until a condition holds.
+
 A `loop` step runs a small flow of its own, its **body**, several times:
 
 - **`foreach`**: once for each element of a list, one or several at a time.
 - **`while`**: again and again, until a condition on the last pass holds.
 
+## Before you start
+
+- **A pack with the tools** from [Write a flow](../write-a-flow/), such as
+  `acme.get-order`, on a runtime such as `kindgi dev`, with Kindgi 0.2's CLI.
+
 ## For each element of a list
 
-`acme.check-order-stock` checks every item of an order with a new tool,
-`acme.check-stock`, two items at a time:
+A `foreach` loop does the same work for every element. Ask your coding agent:
+"I want a flow that checks the stock of every item in an order, two at a
+time." Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+tool and the flow look like this. `acme.check-order-stock` checks every item
+of an order with a new tool, `acme.check-stock`, two items at a time:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -173,6 +185,141 @@ check_order_stock = Flow(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/tools/CheckStock.java
+package acme.tools;
+
+import com.kindgi.pack.Tool;
+import jakarta.validation.constraints.Positive;
+import java.util.Map;
+
+public final class CheckStock {
+  public record Input(String sku, @Positive int quantity) {}
+
+  public record Output(String sku, boolean inStock) {}
+
+  private static final Map<String, Integer> STOCK = Map.of("mug", 10, "desk", 0, "lamp", 5);
+
+  public static final Tool<Input, Output> TOOL = Tool.define("acme.check-stock")
+      .description("Checks whether a quantity of one item is in stock.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      .mutating(false)
+      .handler((input, ctx) ->
+          new Output(input.sku(), STOCK.getOrDefault(input.sku(), 0) >= input.quantity()));
+
+  private CheckStock() {}
+}
+```
+
+```java
+// src/main/java/acme/flows/CheckOrderStock.java
+package acme.flows;
+
+import com.kindgi.pack.Flow;
+import java.util.List;
+import java.util.Map;
+
+public final class CheckOrderStock {
+  public static final Flow FLOW = Flow.define("acme.check-order-stock")
+      .version("0.1.0")
+      .set("name", "Check stock for an order")
+      .set("description", "Checks every item of an order, two at a time.")
+      .node(Map.of("id", "order", "kind", "tool", "ref", "acme.get-order",
+          "inputMapping", Map.of("orderId", Map.of("path", "runInput.orderId"))))
+      .node(Map.of(
+          "id", "each-item",
+          "kind", "loop",
+          "loopKind", "foreach",
+          "iterateOver", Map.of("path", "nodeOutputs.order.items"),
+          "concurrency", 2,
+          "maxIterations", 100,
+          "collectAllIterations", true,
+          "outputSchema", Map.of(
+              "type", "object",
+              "properties", Map.of("sku", Map.of("type", "string"), "inStock", Map.of("type", "boolean")),
+              "required", List.of("sku", "inStock")),
+          "body", Map.of(
+              "nodes", List.of(Map.of("id", "check", "kind", "tool", "ref", "acme.check-stock")),
+              "edges", List.of(
+                  Map.of("id", "b1", "from", "$loop-start", "to", "check"),
+                  Map.of("id", "b2", "from", "check", "to", "$loop-end")))))
+      .edge("e1", "$start", "order")
+      .edge("e2", "order", "each-item")
+      .edge("e3", "each-item", "$end")
+      .set("output", Map.of("mapping", Map.of("items", Map.of("path", "nodeOutputs.each-item.outputs"))))
+      .build();
+
+  private CheckOrderStock() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/tools/CheckStock.scala
+package acme.tools
+
+import com.kindgi.pack.scaladsl._
+import jakarta.validation.constraints.Positive
+
+object CheckStock {
+  final case class Input(sku: String, @Positive quantity: Int)
+  final case class Output(sku: String, inStock: Boolean)
+
+  private val stock = Map("mug" -> 10, "desk" -> 0, "lamp" -> 5)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme.check-stock")
+    .description("Checks whether a quantity of one item is in stock.")
+    .version("0.1.0")
+    .readOnly
+    .handler((in, _) => Output(in.sku, stock.getOrElse(in.sku, 0) >= in.quantity))
+}
+```
+
+```scala
+// src/main/scala/acme/flows/CheckOrderStock.scala
+package acme.flows
+
+import com.kindgi.pack.scaladsl._
+
+object CheckOrderStock {
+  val flow: Flow = Flow("acme.check-order-stock")
+    .version("0.1.0")
+    .set("name", "Check stock for an order")
+    .set("description", "Checks every item of an order, two at a time.")
+    .node(Map("id" -> "order", "kind" -> "tool", "ref" -> "acme.get-order",
+      "inputMapping" -> Map("orderId" -> Map("path" -> "runInput.orderId"))))
+    .node(Map(
+      "id" -> "each-item",
+      "kind" -> "loop",
+      "loopKind" -> "foreach",
+      "iterateOver" -> Map("path" -> "nodeOutputs.order.items"),
+      "concurrency" -> 2,
+      "maxIterations" -> 100,
+      "collectAllIterations" -> true,
+      "outputSchema" -> Map(
+        "type" -> "object",
+        "properties" -> Map("sku" -> Map("type" -> "string"), "inStock" -> Map("type" -> "boolean")),
+        "required" -> List("sku", "inStock")),
+      "body" -> Map(
+        "nodes" -> List(Map("id" -> "check", "kind" -> "tool", "ref" -> "acme.check-stock")),
+        "edges" -> List(
+          Map("id" -> "b1", "from" -> "$loop-start", "to" -> "check"),
+          Map("id" -> "b2", "from" -> "check", "to" -> "$loop-end")))))
+    .edge("e1", "$start", "order")
+    .edge("e2", "order", "each-item")
+    .edge("e3", "each-item", "$end")
+    .set("output", Map("mapping" -> Map("items" -> Map("path" -> "nodeOutputs.each-item.outputs"))))
+    .build()
+}
+```
+
+</TabItem>
 </Tabs>
 
 - **`iterateOver`** is the list: a `{ path }` that must resolve to an array
@@ -180,13 +327,47 @@ check_order_stock = Flow(
 - **`body`** has its own steps and edges, from `$loop-start` to `$loop-end`.
   Each pass gets one element as its input: here `{ "sku": "desk", "quantity": 1 }`,
   which is `acme.check-stock`'s input as it is.
-- **`concurrency`** runs that many passes at a time (1 by default, at most 32).
+- **`concurrency`** runs that many passes at a time, 1 by default and at most
+  32.
 - **`maxIterations`** caps the passes, and **`outputSchema`** is what each pass
-  must return. Both are required.
+  must return. Both are required. An `outputSchema` that doesn't compile is
+  refused when the flow is loaded or deployed, not at each run.
+
+Run it:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi runs start --flow=acme.check-order-stock --input='{"orderId":"A-200"}'
+pnpm exec kindgi runs start --flow=acme.check-order-stock --input='{"orderId":"A-200"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.check-order-stock --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.check-order-stock --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.check-order-stock --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+</Tabs>
+
+`--flow` is the flow, and `--input` its input. It prints the run, with each
+item's stock:
 
 ```json
 {
@@ -209,7 +390,8 @@ kindgi runs start --flow=acme.check-order-stock --input='{"orderId":"A-200"}'
 }
 ```
 
-The loop step's own output, in the journal:
+The loop step's own output is in the journal, which
+`kindgi runs journal <run-id>` prints:
 
 ```json
 {"sequence": 18, "kind": "step.completed", "nodeId": "each-item", "payload": {"output": {"outputs": [{"sku": "desk", "inStock": false}, {"sku": "lamp", "inStock": true}], "iterations": 2, "stopReason": "array-exhausted", "finalOutput": {"sku": "lamp", "inStock": true}}}, …}
@@ -218,23 +400,26 @@ The loop step's own output, in the journal:
 - `finalOutput` is the last pass's output.
 - `outputs` has every pass's output, in the list's order, even when passes
   finish out of order. It's there only with `collectAllIterations: true`.
-- `iterations` is how many passes ran; `stopReason` is why the loop stopped:
-  `array-exhausted`, `exit-condition` (a `while` loop) or `max-iterations`.
+- `iterations` is how many passes ran.
+- `stopReason` is why the loop stopped: `array-exhausted`, `exit-condition`
+  for a `while` loop, or `max-iterations`.
 
 Each pass is in the journal as `iteration.started` and `iteration.completed`,
 and the body's steps carry the pass they belong to.
 
 :::caution[Inside the body]
-In a body step's `inputMapping`, `runInput` is the pass's input (the element),
-and `nodeOutputs` has only the body's own steps. A path to a step outside the
+In a body step's `inputMapping`, `runInput` is the pass's input, the element.
+`nodeOutputs` has only the body's own steps. A path to a step outside the
 loop, or to the run's input, doesn't resolve. Put what every pass needs into
 the list's elements.
 :::
 
 ## Until a condition holds
 
-`acme.list-all-orders` reads every page of a paginated list with a new tool,
-`acme.list-orders`:
+A `while` loop repeats until its condition holds. Ask your coding agent:
+"I want a flow that reads every page of my open orders." For reference, the
+tool and the flow look like this. `acme.list-all-orders` reads every page of
+a paginated list with a new tool, `acme.list-orders`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -414,6 +599,161 @@ list_all_orders = Flow(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/tools/ListOrders.java
+package acme.tools;
+
+import com.kindgi.pack.Tool;
+import java.util.List;
+import java.util.Map;
+import org.jspecify.annotations.Nullable;
+
+public final class ListOrders {
+  public record Input(@Nullable String cursor) {}
+
+  public record Page(List<String> orders, @Nullable String nextCursor) {}
+
+  private static final Map<String, Page> PAGES = Map.of(
+      "first", new Page(List.of("A-100", "A-101"), "p2"),
+      "p2", new Page(List.of("A-102", "A-103"), "p3"),
+      "p3", new Page(List.of("A-200"), null));
+
+  public static final Tool<Input, Page> TOOL = Tool.define("acme.list-orders")
+      .description("Lists open orders, one page at a time.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Page.class)
+      .mutating(false)
+      .handler((input, ctx) -> {
+        Page page = PAGES.get(input.cursor() == null ? "first" : input.cursor());
+        if (page == null) throw new IllegalArgumentException("Unknown cursor " + input.cursor());
+        return page;
+      });
+
+  private ListOrders() {}
+}
+```
+
+```java
+// src/main/java/acme/flows/ListAllOrders.java
+package acme.flows;
+
+import com.kindgi.pack.Flow;
+import java.util.List;
+import java.util.Map;
+
+public final class ListAllOrders {
+  public static final Flow FLOW = Flow.define("acme.list-all-orders")
+      .version("0.1.0")
+      .set("name", "List all open orders")
+      .set("description", "Reads every page of open orders.")
+      .node(Map.of(
+          "id", "pages",
+          "kind", "loop",
+          "loopKind", "while",
+          // stop when the last page read has no next cursor
+          "exitCondition", Map.of("op", "falsy", "value", Map.of("path", "iterationOutput.nextCursor")),
+          "maxIterations", 20,
+          "collectAllIterations", true,
+          "outputSchema", Map.of(
+              "type", "object",
+              "properties", Map.of(
+                  "orders", Map.of("type", "array", "items", Map.of("type", "string")),
+                  "nextCursor", Map.of("type", List.of("string", "null"))),
+              "required", List.of("orders")),
+          "body", Map.of(
+              "nodes", List.of(Map.of(
+                  "id", "page",
+                  "kind", "tool",
+                  "ref", "acme.list-orders",
+                  // runInput here is the previous page (the run input on the first pass)
+                  "inputMapping", Map.of("cursor", Map.of("path", "runInput.nextCursor")))),
+              "edges", List.of(
+                  Map.of("id", "b1", "from", "$loop-start", "to", "page"),
+                  Map.of("id", "b2", "from", "page", "to", "$loop-end")))))
+      .edge("e1", "$start", "pages")
+      .edge("e2", "pages", "$end")
+      .set("output", Map.of("mapping", Map.of("pages", Map.of("path", "nodeOutputs.pages.outputs"))))
+      .build();
+
+  private ListAllOrders() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/tools/ListOrders.scala
+package acme.tools
+
+import com.kindgi.pack.scaladsl._
+
+object ListOrders {
+  final case class Input(cursor: Option[String])
+  final case class Page(orders: Seq[String], nextCursor: Option[String])
+
+  private val pages = Map(
+    "first" -> Page(Seq("A-100", "A-101"), Some("p2")),
+    "p2" -> Page(Seq("A-102", "A-103"), Some("p3")),
+    "p3" -> Page(Seq("A-200"), None))
+
+  val tool: Tool[Input, Page] = Tool[Input, Page]("acme.list-orders")
+    .description("Lists open orders, one page at a time.")
+    .version("0.1.0")
+    .readOnly
+    .handler { (in, _) =>
+      val cursor = in.cursor.getOrElse("first")
+      pages.getOrElse(cursor, throw new NoSuchElementException(s"Unknown cursor $cursor"))
+    }
+}
+```
+
+```scala
+// src/main/scala/acme/flows/ListAllOrders.scala
+package acme.flows
+
+import com.kindgi.pack.scaladsl._
+
+object ListAllOrders {
+  val flow: Flow = Flow("acme.list-all-orders")
+    .version("0.1.0")
+    .set("name", "List all open orders")
+    .set("description", "Reads every page of open orders.")
+    .node(Map(
+      "id" -> "pages",
+      "kind" -> "loop",
+      "loopKind" -> "while",
+      // stop when the last page read has no next cursor
+      "exitCondition" -> Map("op" -> "falsy", "value" -> Map("path" -> "iterationOutput.nextCursor")),
+      "maxIterations" -> 20,
+      "collectAllIterations" -> true,
+      "outputSchema" -> Map(
+        "type" -> "object",
+        "properties" -> Map(
+          "orders" -> Map("type" -> "array", "items" -> Map("type" -> "string")),
+          "nextCursor" -> Map("type" -> List("string", "null"))),
+        "required" -> List("orders")),
+      "body" -> Map(
+        "nodes" -> List(Map(
+          "id" -> "page",
+          "kind" -> "tool",
+          "ref" -> "acme.list-orders",
+          // runInput here is the previous page (the run input on the first pass)
+          "inputMapping" -> Map("cursor" -> Map("path" -> "runInput.nextCursor")))),
+        "edges" -> List(
+          Map("id" -> "b1", "from" -> "$loop-start", "to" -> "page"),
+          Map("id" -> "b2", "from" -> "page", "to" -> "$loop-end")))))
+    .edge("e1", "$start", "pages")
+    .edge("e2", "pages", "$end")
+    .set("output", Map("mapping" -> Map("pages" -> Map("path" -> "nodeOutputs.pages.outputs"))))
+    .build()
+}
+```
+
+</TabItem>
 </Tabs>
 
 - The first pass gets the loop step's input: the output of the step before
@@ -421,12 +761,43 @@ list_all_orders = Flow(
   output**, so `runInput.nextCursor` in the body is the cursor the last page
   returned.
 - **`exitCondition`** is checked after each pass, against
-  `iterationOutput` (that pass's output) and `iterationIndex` (from 0). The
+  `iterationOutput`, that pass's output, and `iterationIndex`, from 0. The
   loop stops when it holds, or after `maxIterations` passes.
 
+Run it, with an empty input:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.list-all-orders --input='{}'
+pnpm exec kindgi runs start --flow=acme.list-all-orders --input='{}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.list-all-orders --input='{}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.list-all-orders --input='{}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.list-all-orders --input='{}'
+```
+
+</TabItem>
+</Tabs>
+
+The run's `output` holds every page's orders:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -454,8 +825,35 @@ kindgi runs start --flow=acme.list-all-orders --input='{}'
 }
 ```
 
-A pydantic field that is `None` is `null` in the output, so the schema allows
-`null` and the condition is `falsy` (true for a missing value and for `null`).
+A pydantic field that is `None` is `null` in the output. So the schema allows
+`null`, and the condition is `falsy`, which is true for a missing value and
+for `null`.
+
+</TabItem>
+<TabItem label="Java">
+
+```json
+{
+  "pages": [
+    { "orders": ["A-100", "A-101"], "nextCursor": "p2" },
+    { "orders": ["A-102", "A-103"], "nextCursor": "p3" },
+    { "orders": ["A-200"] }
+  ]
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```json
+{
+  "pages": [
+    { "orders": ["A-100", "A-101"], "nextCursor": "p2" },
+    { "orders": ["A-102", "A-103"], "nextCursor": "p3" },
+    { "orders": ["A-200"] }
+  ]
+}
+```
 
 </TabItem>
 </Tabs>
@@ -463,5 +861,11 @@ A pydantic field that is `None` is `null` in the output, so the schema allows
 That's the run's `output`, from `nodeOutputs.pages.outputs`.
 
 A loop that reaches `maxIterations` stops with `stopReason: "max-iterations"`
-and completes; check `stopReason` if running out of passes is an error for
+and completes. Check `stopReason` if running out of passes is an error for
 you.
+
+## Next
+
+- [Run steps in parallel](../run-steps-in-parallel/)
+- [Pass data between steps](../pass-data-between-steps/)
+- [Retry a failing step](../retry-a-step/)

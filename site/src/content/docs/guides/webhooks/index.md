@@ -19,12 +19,14 @@ webhook](start-runs-from-webhooks/).
 `run.finished` request each time a run you started completes, fails or is
 cancelled.
 
-- [Get a webhook when a run finishes](receive-run-finished/): the signing
-  secret, registering the endpoint, and what each request carries.
+- [Get a webhook when a run finishes](receive-run-finished/): store the
+  signing secret, register the endpoint, and answer each request.
 - [Verify a webhook](verify-a-webhook/): check the signature in TypeScript
   or Python, and deduplicate retries.
 - [Test and replay deliveries](test-and-replay/): send a test event, see
   what was delivered, and send a failed delivery again.
+- [Webhook events and deliveries](webhook-events/): every event and what it
+  carries, how deliveries are retried, and the console's Webhooks page.
 
 Requests are signed in the [Standard Webhooks](https://www.standardwebhooks.com)
 format, so a receiver in another language can use any Standard Webhooks

@@ -30,7 +30,7 @@ export interface PacksClient {
    * @unwired No `POST /v1/packs` route.
    *
    * @example
-   * ```ts
+   * ```ts excerpt
    * const installationId = await client.packs.install({
    *   kind: 'bundle',
    *   manifest: JSON.parse(fs.readFileSync('acme.pack.json', 'utf-8')),

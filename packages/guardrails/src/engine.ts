@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { TenantBudgetError } from '@kindgi/bounds';
 import type { Timestamp } from '@kindgi/types';
 
 import type { GuardrailError, JudgeMissingError, ScopeMismatchError } from './errors.js';
@@ -103,10 +104,12 @@ export async function evaluateGuardrail(
   try {
     strategyOutcome = await strategy.evaluate(guardrail, checks, trace, bindings);
   } catch (thrown) {
-    // The turn was cancelled: that propagates as it is. Anything else the check threw is the
-    // check failing, which the caller treats as a check that couldn't run (a `halt` guardrail
-    // fails closed), never as a pass and never as the turn's own error.
-    if (bindings.abortSignal?.aborted === true) throw thrown;
+    // The turn was cancelled: that propagates as it is, as does work a budget kept per tenant
+    // refused (a schema compile), which isn't the check's failure and is retried as the
+    // turn's. Anything else the check threw is the check failing, which the caller treats
+    // as a check that couldn't run (a `halt` guardrail fails closed), never as a pass and
+    // never as the turn's own error.
+    if (bindings.abortSignal?.aborted === true || thrown instanceof TenantBudgetError) throw thrown;
     return {
       kind: 'err',
       error: {

@@ -9,12 +9,12 @@
   <parent>
     <groupId>com.kindgi</groupId>
     <artifactId>kindgi-java-parent</artifactId>
-    <version>0.1.6</version>
+    <version>0.1.10</version>
   </parent>
 
   <artifactId>kindgi-client</artifactId>
   <name>Kindgi Java client</name>
-  <description>Java client for the Kindgi™ API: agents, runs, approvals, evals and the rest, with typed models, typed errors, paging, streaming and retries. In preview: tested and supported, but the API may still change in 0.1.6 without the usual deprecation period.</description>
+  <description>Java client for the Kindgi™ API: agents, runs, approvals, evals and the rest, with typed models, typed errors, paging, streaming and retries. In preview: tested and supported, but the API may still change in a later release without the usual deprecation period.</description>
 
   <properties>
     <!-- The API document the client is generated from (packages/api in this repository). -->

@@ -111,6 +111,15 @@ describe('kindgi init — minimal template', () => {
     expect(out.exitCode).toBe(0);
     const files = await listRecursive(join(cwd, 'my-pack'));
     expect(files).toEqual([
+      '.agents/skills/kindgi-authoring-agents/SKILL.md',
+      '.agents/skills/kindgi-authoring-flows/SKILL.md',
+      '.agents/skills/kindgi-authoring-guardrails/SKILL.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/SKILL.md',
+      '.agents/skills/kindgi-authoring-providers/SKILL.md',
+      '.agents/skills/kindgi-authoring-tools/SKILL.md',
+      '.agents/skills/kindgi-framework-feedback/SKILL.md',
+      '.agents/skills/kindgi-getting-started/SKILL.md',
+      '.agents/skills/kindgi-using/SKILL.md',
       '.claude/settings.json',
       '.claude/skills/.kindgi-manifest.json',
       '.claude/skills/kindgi-authoring-agents/SKILL.md',
@@ -240,6 +249,23 @@ describe('kindgi init --template=woocommerce', () => {
     expect(agent).toContain("retryOn: ['invalid-arguments', 'unknown-tool', 'tool-error']");
     const reviewer = await readFile(join(root, 'agents/order-reviewer/index.ts'), 'utf8');
     expect(reviewer).toContain('{{ input.order.orderNumber }}');
+  });
+
+  test('the tools that move money or change the store wait for a person when no person started the run', async () => {
+    const out = await runCli(baseInputs({ argv: ['init', 'acme-shop', '--template=woocommerce'] }));
+    expect(out.exitCode).toBe(0);
+    const root = join(cwd, 'acme-shop');
+    const declares = async (tool: string) =>
+      /^\s*needsApprovalWhenUnattended: true,$/m.test(
+        await readFile(join(root, `tools/${tool}/index.ts`), 'utf8'),
+      );
+    for (const tool of ['refund', 'refund-large', 'set-price', 'publish-product']) {
+      expect(await declares(tool), tool).toBe(true);
+    }
+    // The read-only ones don't: a webhook's run looks orders up unasked.
+    for (const tool of ['find-orders', 'check-order-event']) {
+      expect(await declares(tool), tool).toBe(false);
+    }
   });
 });
 
@@ -553,6 +579,15 @@ describe('kindgi init — python template', () => {
     expect(out.exitCode).toBe(0);
     const files = await listRecursive(join(cwd, 'my-pack'));
     expect(files).toEqual([
+      '.agents/skills/kindgi-authoring-mcp-servers/SKILL.md',
+      '.agents/skills/kindgi-authoring-providers/SKILL.md',
+      '.agents/skills/kindgi-framework-feedback/SKILL.md',
+      '.agents/skills/kindgi-python-authoring-agents/SKILL.md',
+      '.agents/skills/kindgi-python-authoring-flows/SKILL.md',
+      '.agents/skills/kindgi-python-authoring-guardrails/SKILL.md',
+      '.agents/skills/kindgi-python-authoring-tools/SKILL.md',
+      '.agents/skills/kindgi-python-getting-started/SKILL.md',
+      '.agents/skills/kindgi-using/SKILL.md',
       '.claude/settings.json',
       '.claude/skills/.kindgi-manifest.json',
       // Only the skills written for Python packs: the shared ones and the
@@ -612,7 +647,13 @@ describe('kindgi init — java template', () => {
       '.claude/skills/kindgi-java-getting-started/SKILL.md',
       '.claude/skills/kindgi-using/SKILL.md',
     ]);
-    const files = all.filter((f) => !f.startsWith('.claude/'));
+    // The same skills for the agents that read `.agents/skills/`.
+    expect(all.filter((f) => f.startsWith('.agents/'))).toEqual(
+      all
+        .filter((f) => f.startsWith('.claude/skills/kindgi-'))
+        .map((f) => f.replace('.claude/', '.agents/')),
+    );
+    const files = all.filter((f) => !f.startsWith('.claude/') && !f.startsWith('.agents/'));
     expect(files).toEqual([
       '.gitignore',
       '.mvn/wrapper/maven-wrapper.properties',
@@ -670,6 +711,15 @@ describe('kindgi init — scala template', () => {
     expect(await listRecursive(join(cwd, 'type'))).toEqual([
       // The skills written for Scala packs: the shared ones and the Scala getting-started and
       // authoring skills.
+      '.agents/skills/kindgi-authoring-mcp-servers/SKILL.md',
+      '.agents/skills/kindgi-authoring-providers/SKILL.md',
+      '.agents/skills/kindgi-framework-feedback/SKILL.md',
+      '.agents/skills/kindgi-scala-authoring-agents/SKILL.md',
+      '.agents/skills/kindgi-scala-authoring-flows/SKILL.md',
+      '.agents/skills/kindgi-scala-authoring-guardrails/SKILL.md',
+      '.agents/skills/kindgi-scala-authoring-tools/SKILL.md',
+      '.agents/skills/kindgi-scala-getting-started/SKILL.md',
+      '.agents/skills/kindgi-using/SKILL.md',
       '.claude/settings.json',
       '.claude/skills/.kindgi-manifest.json',
       '.claude/skills/kindgi-authoring-mcp-servers/SKILL.md',
@@ -720,8 +770,10 @@ describe('kindgi init — scala template', () => {
     expect(out.stderr).toMatch(/\(cd .*sdks\/scala && sbt \+publishLocal\)/);
     expect(out.stderr).toContain('sbt test');
     expect(out.stderr).toContain('./kindgiw dev');
-    // ... and the build reads the local Maven repository, where kindgi-pack went.
-    expect(build).toContain('    resolvers += Resolver.mavenLocal,\n');
+    // ... and the build reads the local Maven repository, where kindgi-pack went, before Central.
+    expect(build).toContain(
+      '    externalResolvers := Resolver.mavenLocal +: externalResolvers.value,\n',
+    );
     expect(out.stderr).toContain(
       `✓ Scala pack scaffolded at ${join(cwd, 'type')}/ (preview)\n  ${JVM_PREVIEW}`,
     );
@@ -755,6 +807,15 @@ describe('kindgi init — sample template', () => {
     expect(out.exitCode).toBe(0);
     const files = await listRecursive(join(cwd, 'my-pack'));
     expect(files).toEqual([
+      '.agents/skills/kindgi-authoring-agents/SKILL.md',
+      '.agents/skills/kindgi-authoring-flows/SKILL.md',
+      '.agents/skills/kindgi-authoring-guardrails/SKILL.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/SKILL.md',
+      '.agents/skills/kindgi-authoring-providers/SKILL.md',
+      '.agents/skills/kindgi-authoring-tools/SKILL.md',
+      '.agents/skills/kindgi-framework-feedback/SKILL.md',
+      '.agents/skills/kindgi-getting-started/SKILL.md',
+      '.agents/skills/kindgi-using/SKILL.md',
       '.claude/settings.json',
       '.claude/skills/.kindgi-manifest.json',
       '.claude/skills/kindgi-authoring-agents/SKILL.md',

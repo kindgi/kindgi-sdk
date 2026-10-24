@@ -18,6 +18,7 @@ import type {
   ProjectCollectionPage,
   ProjectMembershipCollectionPage,
   ProjectPatch as ProjectPatchBody,
+  ProjectProduction as ProjectProductionWire,
   ProjectRole as ProjectRoleWire,
   ProjectSpec as ProjectSpecBody,
   Project as ProjectWire,
@@ -32,6 +33,7 @@ import {
   makeJudgingQueueClient,
   makeJudgingRulesClient,
 } from './judging.js';
+import { type SitesClient, makeSitesClient } from './sites.js';
 
 export type ProjectShape = ProjectWire;
 export type ProjectRecordShape = ProjectShape;
@@ -42,6 +44,8 @@ export type ProjectMembershipPage = ProjectMembershipCollectionPage;
 export type AddProjectMembershipInput = AddProjectMembershipBody;
 export type AddProjectMembershipOutcome = AddProjectMembershipResult;
 /** A role on a project, as read: `member` only on one given before it was retired. */
+/** A project's production state: `productionSince` is `null` while it isn't in production. */
+export type ProjectProductionShape = ProjectProductionWire;
 export type ProjectRoleValue = ProjectRoleWire;
 /** A role to give on a project: `member` is refused, give `viewer`. */
 export type AssignableProjectRoleValue = AssignableProjectRoleWire;
@@ -142,12 +146,33 @@ export interface ProjectsClient {
   ): Promise<ProjectShape>;
   /** @wire DELETE /v1/projects/:projectId */
   delete(projectId: string): Promise<void>;
+  /**
+   * Put the project in production (`true`), or take it out (`false`). A run
+   * in a project in production is a production run; a run anywhere else is
+   * staging. For tenant admins. Setting what's already set changes
+   * nothing. With the runtime's production gate on, a tenant that isn't
+   * allowed is refused with `403 production-not-allowed`, whose
+   * `details.next` says where to go when the runtime names it. With the
+   * tenant's `projectsInProduction` limit set, another project is refused
+   * with `403 production-limit-reached` while the tenant has that many in
+   * production (`details.projectsInProduction`, `details.inProduction`);
+   * taking one out is never refused.
+   *
+   * @wire PUT /v1/projects/:projectId/production
+   */
+  setProduction(
+    projectId: string,
+    production: boolean,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<ProjectProductionShape>;
   readonly memberships: ProjectMembershipsClient;
   /** Which of the project's runs to queue for a person's judgment. */
   readonly judgingRules: JudgingRulesClient;
   /** The runs queued for a person's judgment. */
   readonly judgingQueue: JudgingQueueClient;
   readonly teamGrants: ProjectTeamGrantsClient;
+  /** The sites that sign their own people in to the project (tenant admins). */
+  readonly sites: SitesClient;
   readonly access: ProjectAccessClient;
 }
 
@@ -229,8 +254,17 @@ export function makeProjectsClient(transport: Transport): ProjectsClient {
         discardResponse: true,
       });
     },
+    async setProduction(projectId, production, options) {
+      return transport.request<ProjectProductionShape>({
+        method: 'PUT',
+        path: `/v1/projects/${seg(projectId)}/production`,
+        body: { production },
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
     judgingRules: makeJudgingRulesClient(transport),
     judgingQueue: makeJudgingQueueClient(transport),
+    sites: makeSitesClient(transport),
     memberships: {
       async list(projectId, filter) {
         return transport.request<ProjectMembershipPage>({

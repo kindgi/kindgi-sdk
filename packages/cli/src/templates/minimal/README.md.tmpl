@@ -14,6 +14,7 @@ Author your first via `defineTool` / `defineAgent` / `defineCheck` /
 ├── package.json           # depends on @kindgi/sdk + zod
 ├── tsconfig.json
 ├── .claude/skills/        # SDK skills — Claude Code auto-loads per task
+├── .agents/skills/        # the same skills, where Codex and Gemini CLI look
 ├── tools/                 # place `<name>/index.ts` per tool
 ├── agents/                # place `<name>/index.ts` per agent
 ├── guardrails/            # place `<name>/index.ts` per check
@@ -22,15 +23,15 @@ Author your first via `defineTool` / `defineAgent` / `defineCheck` /
 
 ## AI coding assistants
 
-`.claude/skills/` is auto-populated at `kindgi init` with per-primitive
-guides: `kindgi-authoring-tools`, `kindgi-authoring-agents`,
-`kindgi-authoring-guardrails`, `kindgi-getting-started` — plus
-`kindgi-authoring-providers` (a real model), `kindgi-authoring-mcp-servers`,
-`kindgi-framework-feedback` and `kindgi-using` (guiding you in using what
-you built). Claude Code
-loads them on-demand based on what you're editing — no configuration
-needed. Read them directly if you want the mental model without an
-assistant in the loop.
+`.claude/skills/` and `.agents/skills/` are auto-populated at `kindgi init`
+with the same per-primitive guides: `kindgi-authoring-tools`,
+`kindgi-authoring-agents`, `kindgi-authoring-guardrails`,
+`kindgi-getting-started` — plus `kindgi-authoring-providers` (a real model),
+`kindgi-authoring-mcp-servers`, `kindgi-framework-feedback` and
+`kindgi-using` (guiding you in using what you built). Claude Code loads
+`.claude/skills/` on demand, based on what you're editing; Codex and Gemini
+CLI look in `.agents/skills/`. No configuration needed. Read them directly
+if you want the mental model without an assistant in the loop.
 
 ## Run
 
@@ -67,4 +68,4 @@ Claude takes over from dev-echo on the next turn; nothing to restart.
 OpenRouter, a hosted service your prompts pass through (`OPENROUTER_API_KEY`,
 `--preset=openrouter`), work the same way; `kindgi providers presets` lists
 the presets (Gemini on Vertex AI too). Picking a model per
-agent, and other providers: `.claude/skills/kindgi-authoring-providers/SKILL.md`.
+agent, and other providers: the `kindgi-authoring-providers` skill.

@@ -6,13 +6,32 @@ import { randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 
-import { type Action, type ResourceRef, ref } from '@kindgi/authz';
-import type { ProjectBinding } from '@kindgi/platform';
-import type { Cursor, ProjectId, TenantId, TriggerId, WebhookSignatureScheme } from '@kindgi/types';
+import type { AuditEventBinding } from '@kindgi/audit-events';
+import { type Action, type ResourceRef, ref, tuplesForCreate } from '@kindgi/authz';
+import type { ProjectBinding, Scope } from '@kindgi/platform';
+import type {
+  Cursor,
+  EnvName,
+  ProjectId,
+  RecordedSecretScope,
+  TenantId,
+  TriggerId,
+  WebhookSignatureScheme,
+} from '@kindgi/types';
 
+import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
+import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
+import {
+  type ReferenceScopeBinding,
+  outOfScopeResponse,
+  referencesOutOfScope,
+} from '../reference-scope.js';
+import { recordedSecretScope, secretScopesFor } from '../secret-scope.js';
+import type { SecretBinding } from '../secrets-binding.js';
+import { secretNameGrammarRefusal } from '../secrets-binding.js';
 import {
   type RegisterWebhookTriggerInput,
   type TriggerFire,
@@ -23,14 +42,43 @@ import {
   type WebhookTriggerRecord,
 } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
+import { generateSigningSecret } from '../webhook-signing-secret.js';
 import { clampLimit } from './pagination.js';
-import { type TriggerOwnerNames, ownerJson, ownerNamesOf, ownerOf } from './trigger-owners.js';
+import {
+  type TriggerOwnerNames,
+  ownerJson,
+  ownerNamesOf,
+  recordOwnerSet,
+  resolveTriggerOwner,
+  triggerOwnerDeps,
+} from './trigger-owners.js';
+import {
+  type TargetToolsDeps,
+  parseToolsAllowedUnattended,
+  recordToolsAllowedUnattendedSet,
+  sameToolList,
+  toolsAllowedUnattendedProblem,
+} from './trigger-tools.js';
 import { UUID_RE } from './uuid-param.js';
+import { auditWrite } from './write-audit.js';
 
 export interface WebhooksRouterOptions {
   readonly authorizer?: Authorizer;
-  /** The tenant's Default project: where a webhook trigger that names no project goes. */
-  readonly projects?: Pick<ProjectBinding, 'getDefault'>;
+  /**
+   * The tenant's Default project, where a webhook trigger that names no
+   * project goes; and a project's org, where its signing secret may be read.
+   */
+  readonly projects?: Pick<ProjectBinding, 'getDefault' | 'get'>;
+  /**
+   * Where a trigger's signing secret is read is recorded at registration
+   * (`secret-scope.ts`), and `generateSecret` stores a new one here, under a
+   * name it can write (`nameRefusal`). Absent: neither.
+   */
+  readonly secrets?: Pick<SecretBinding, 'get' | 'set' | 'nameRefusal'>;
+  /** The env the receiver reads signing secrets in (`webhookReceiver.envName`). */
+  readonly envName?: EnvName;
+  /** A generated secret's write is recorded as any secret write is. */
+  readonly auditEvents?: AuditEventBinding;
   /** Where an owner's name is read (`owner.displayName`). */
   readonly names?: TriggerOwnerNames;
   /** A model provider's key is never a webhook trigger's secret. */
@@ -42,6 +90,19 @@ export interface WebhooksRouterOptions {
    * records then carry no `receiveUrl`.
    */
   readonly receiveUrl?: (tenantId: TenantId, webhookId: string) => string;
+  /** What a webhook trigger's project may run (`reference-scope.ts`); absent → as named. */
+  readonly referenceScope?: ReferenceScopeBinding;
+  /**
+   * Rights on a flow more than one project serves (`item-rights.ts`):
+   * from a trigger in one of its projects, running it is that project's
+   * `execute`, as for a run naming it. Absent: one project each.
+   */
+  readonly itemRights?: ItemRights;
+  /**
+   * Where a trigger's flow and its agents are read, to check
+   * `toolsAllowedUnattended` (`trigger-tools.ts`); absent → a list is refused.
+   */
+  readonly targetTools?: TargetToolsDeps;
 }
 
 /**
@@ -71,8 +132,35 @@ export function webhooksRouter(
   binding: TriggerRegistryBinding,
   options: WebhooksRouterOptions = {},
 ): Hono<AppEnv> {
-  const { authorizer, projects, names, providerKeys, receiveUrl } = options;
+  const {
+    authorizer,
+    projects,
+    names,
+    providerKeys,
+    receiveUrl,
+    secrets,
+    envName,
+    auditEvents,
+    referenceScope,
+    itemRights,
+    targetTools,
+  } = options;
   const r = new Hono<AppEnv>();
+
+  /** Running `flowId` from a trigger in `projectId`: `execute` on it, or for a flow more than one project serves, there (`runIn`). */
+  async function flowRefused(
+    c: Context<AppEnv>,
+    flowId: string,
+    projectId: string | undefined,
+  ): Promise<Response | undefined> {
+    const served =
+      authorizer === undefined ? undefined : await itemRights?.multi(c, 'flow', flowId);
+    return itemRights !== undefined &&
+      projectId !== undefined &&
+      served?.includes(projectId as ProjectId) === true
+      ? runIn(c, itemRights, { kind: 'flow', id: flowId }, projectId)
+      : denied(c, 'execute', ref('flow', flowId));
+  }
 
   /** Nothing, when allowed; else the authorizer's own 403. */
   async function denied(
@@ -118,9 +206,46 @@ export function webhooksRouter(
     return rows.map((row) => serializeWebhook(row, named, receiveUrl));
   }
 
-  async function webhookJson(c: Context<AppEnv>, row: WebhookTriggerRecord): Promise<Response> {
+  async function webhookJson(
+    c: Context<AppEnv>,
+    row: WebhookTriggerRecord,
+    signingSecret?: string,
+  ): Promise<Response> {
     const [json] = await serialized(c.get('tenantId') as TenantId, [row]);
-    return c.json(json);
+    return c.json({ ...json, ...(signingSecret !== undefined && { signingSecret }) });
+  }
+
+  /**
+   * Where a signing secret named by a trigger at `item` is read, as the
+   * caller may read it (`secret-scope.ts`); `undefined` when not recorded.
+   */
+  async function hmacScopeFor(
+    c: Context<AppEnv>,
+    item: Scope,
+    name: string,
+  ): Promise<RecordedSecretScope | null | undefined> {
+    // Without the receiver's env, nothing is looked up: the broadest scope
+    // the caller administers is recorded (`secret-scope.ts`).
+    const scopes = await secretScopesFor(c, { secrets, projects, authorizer }, item, [
+      { envName, name },
+    ]);
+    return scopes?.[name];
+  }
+
+  /**
+   * A name `generateSecret` can't store the signing secret under: the shared
+   * name grammar ({@link secretNameGrammarRefusal}) first, then the store's
+   * own rule (`nameRefusal`), as a typed `400`. Naming a secret that's already
+   * stored never asks: the dev store reads names it can't write (a key typed
+   * into `.env` by hand).
+   */
+  function nameRefused(c: Context<AppEnv>, name: string): Response | undefined {
+    const refusal = secretNameGrammarRefusal(name) ?? secrets?.nameRefusal?.(name);
+    if (refusal === undefined) return undefined;
+    c.status(statusFor(refusal.code) as never);
+    return c.json(
+      toWireError({ code: refusal.code, message: refusal.message }, c.get('requestId')),
+    );
   }
 
   /** A model provider's key named as the signing secret: the refusal. */
@@ -151,6 +276,10 @@ export function webhooksRouter(
     const flowId = requireString(body, 'flowId');
     const flowVersion = requireString(body, 'flowVersion');
     const hmacSecretName = requireString(body, 'hmacSecretName');
+    if (body.generateSecret !== undefined && typeof body.generateSecret !== 'boolean') {
+      return bad(c, requestId, '`generateSecret` must be a boolean');
+    }
+    const generate = body.generateSecret === true;
     if (flowId.kind === 'err') return bad(c, requestId, flowId.message);
     if (flowVersion.kind === 'err') return bad(c, requestId, flowVersion.message);
     if (hmacSecretName.kind === 'err') return bad(c, requestId, hmacSecretName.message);
@@ -160,6 +289,12 @@ export function webhooksRouter(
     }
     const delivery = parseDelivery(body, false);
     if (delivery.kind === 'err') return bad(c, requestId, delivery.message);
+    const tools = parseToolsAllowedUnattended(body);
+    if (tools.kind === 'err') return bad(c, requestId, tools.message);
+    // A name the store can't write, refused before anything is stored: the
+    // trigger goes in before the secret it generates.
+    const unwritable = generate ? nameRefused(c, hmacSecretName.value) : undefined;
+    if (unwritable !== undefined) return unwritable;
 
     // A trigger that names no project goes in the tenant's Default
     // project: checked and stored as that project. With no Default to
@@ -171,10 +306,76 @@ export function webhooksRouter(
       (project === undefined
         ? await denied(c, 'admin', ref('tenant', tenantId as unknown as string))
         : await denied(c, 'write', ref('project', project))) ??
-      (await denied(c, 'execute', ref('flow', flowId.value)));
+      (await flowRefused(c, flowId.value, project));
     if (refused !== undefined) return refused;
+    // The flow it runs, at its version, must be its project's to reach
+    // (`reference-scope.ts`).
+    if (project !== undefined) {
+      const outOfScope = await referencesOutOfScope(
+        referenceScope,
+        tenantId,
+        project as ProjectId,
+        [{ path: '/flowId', kind: 'flow', id: flowId.value, version: flowVersion.value }],
+      );
+      if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+    }
+    // What its runs may call without a person's yes: a project admin's to
+    // set, and only tools its flow calls (`trigger-tools.ts`).
+    if (tools.kind === 'ok') {
+      const notAdmin =
+        project === undefined
+          ? undefined // a tenant admin already, above
+          : await denied(c, 'admin', ref('project', project));
+      if (notAdmin !== undefined) return notAdmin;
+      const problem = await toolsAllowedUnattendedProblem(
+        targetTools,
+        tenantId,
+        { kind: 'flow', flowId: flowId.value, flowVersion: flowVersion.value },
+        tools.value,
+      );
+      if (problem !== undefined) return bad(c, requestId, problem);
+    }
     const keyRefused = await providerKeyRefused(c, hmacSecretName.value);
     if (keyRefused !== undefined) return keyRefused;
+
+    // The signing secret: made here (`generateSecret`), in the trigger's own
+    // scope, where it's then read; or named, and read where its registrant
+    // may read it (`secret-scope.ts`).
+    const item: Scope =
+      project !== undefined
+        ? { kind: 'project', tenantId, projectId: project as ProjectId }
+        : { kind: 'tenant', tenantId };
+    let generated: string | undefined;
+    let hmacSecretScope: RecordedSecretScope | null | undefined;
+    if (generate) {
+      if (secrets === undefined || envName === undefined) {
+        return bad(
+          c,
+          requestId,
+          "This deployment can't make a signing secret (it has no secrets store, or no webhook receiver): store one and name it in `hmacSecretName`, without `generateSecret`.",
+        );
+      }
+      const existing = await secrets.get({ scope: item, envName, name: hmacSecretName.value });
+      if (existing !== null) return secretTaken(c, requestId, hmacSecretName.value, envName);
+      generated = generateSigningSecret(delivery.value.signature ?? undefined);
+      hmacSecretScope = recordedSecretScope(item);
+    } else {
+      hmacSecretScope = await hmacScopeFor(c, item, hmacSecretName.value);
+    }
+
+    // Who its runs act as: the caller, or the service account named with
+    // `runAsServiceAccountId` (gated by `act_as`; see `resolveTriggerOwner`).
+    const runAsRaw = body.runAsServiceAccountId;
+    if (runAsRaw !== undefined && (typeof runAsRaw !== 'string' || runAsRaw.length === 0)) {
+      return bad(c, requestId, '`runAsServiceAccountId` must be a service-account id');
+    }
+    const resolved = await resolveTriggerOwner(
+      c,
+      runAsRaw as string | undefined,
+      triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
+    );
+    if (resolved.kind === 'refused') return resolved.response;
+    const owner = resolved.owner;
 
     const rawConfig = (body.config ?? {}) as Record<string, unknown>;
     const registerInput: RegisterWebhookTriggerInput = {
@@ -183,14 +384,16 @@ export function webhooksRouter(
       flowId: flowId.value,
       flowVersion: flowVersion.value,
       ...(project !== undefined && { projectId: project as ProjectId }),
-      owner: ownerOf(c),
+      owner,
       config: { ...('input' in rawConfig && { input: rawConfig.input }) },
       // The route mints the routable id: a random UUID, so the receive URL
       // can't be guessed. The signature is still what authorises a request.
       webhookId: randomUUID(),
       hmacSecretName: hmacSecretName.value,
+      ...(hmacSecretScope !== undefined && { hmacSecretScope }),
       ...withoutNulls(delivery.value),
       ...(typeof body.label === 'string' && body.label.length > 0 && { label: body.label }),
+      ...(tools.kind === 'ok' && tools.value.length > 0 && { toolsAllowedUnattended: tools.value }),
     };
 
     const result = await binding.register(registerInput);
@@ -200,8 +403,71 @@ export function webhooksRouter(
         toWireError({ code: result.error.code, message: result.error.message }, requestId),
       );
     }
+    // The secret once the trigger exists, so a refused register leaves none
+    // behind; a secret that can't be stored takes the trigger back.
+    if (generated !== undefined && secrets !== undefined && envName !== undefined) {
+      const stored = await secrets.set({
+        scope: item,
+        envName,
+        name: hmacSecretName.value,
+        value: generated,
+        writeMode: 'create-new',
+        enqueueTuples: (secretRowId) =>
+          tuplesForCreate({ kind: 'secret', id: secretRowId, tenantId, scope: item }),
+      });
+      await auditWrite(c, auditEvents, {
+        kind: 'secret-set',
+        scope: item,
+        envName,
+        name: hmacSecretName.value,
+        writeMode: 'create-new',
+        ...(stored.kind === 'ok'
+          ? { outcome: 'succeeded' as const, version: stored.versionId }
+          : {
+              outcome: 'failed' as const,
+              errorCode: stored.kind === 'error' ? stored.code : 'secret-write-conflict',
+            }),
+      });
+      if (stored.kind !== 'ok') {
+        await binding.unregister({ tenantId, triggerId: result.value.triggerId });
+        if (stored.kind !== 'error') {
+          return secretTaken(c, requestId, hmacSecretName.value, envName);
+        }
+        c.status(statusFor(stored.code) as never);
+        return c.json(toWireError({ code: stored.code, message: stored.message }, requestId));
+      }
+    }
+    // A named service-account owner is a delegation: audit it. A plain
+    // register (owner = caller) is the trigger's creation, not a change.
+    if (runAsRaw !== undefined) {
+      await recordOwnerSet({
+        auditEvents,
+        tenantId,
+        ...(project !== undefined && { projectId: project as ProjectId }),
+        triggerId: result.value.triggerId,
+        triggerKind: 'webhook',
+        to: owner,
+        by: callerRef(c),
+        correlationId: requestId,
+        log: c.get('log'),
+      });
+    }
+    if (tools.kind === 'ok' && tools.value.length > 0) {
+      await recordToolsAllowedUnattendedSet({
+        auditEvents,
+        tenantId,
+        ...(project !== undefined && { projectId: project as ProjectId }),
+        triggerId: result.value.triggerId,
+        triggerKind: 'webhook',
+        target: { kind: 'flow', flowId: flowId.value, flowVersion: flowVersion.value },
+        to: tools.value,
+        by: callerRef(c),
+        correlationId: requestId,
+        log: c.get('log'),
+      });
+    }
     c.status(201);
-    return webhookJson(c, result.value as WebhookTriggerRecord);
+    return webhookJson(c, result.value as WebhookTriggerRecord, generated);
   });
 
   // ---------- GET / (list) ----------
@@ -289,6 +555,8 @@ export function webhooksRouter(
     }
     const delivery = parseDelivery(body, true);
     if (delivery.kind === 'err') return bad(c, requestId, delivery.message);
+    const tools = parseToolsAllowedUnattended(body);
+    if (tools.kind === 'err') return bad(c, requestId, tools.message);
 
     const found = await webhookFor(c, 'write');
     if (found.kind === 'err') return found.response;
@@ -301,12 +569,56 @@ export function webhooksRouter(
       return bad(c, requestId, STANDARD_WEBHOOKS_DEDUPES);
     }
     if (typeof body.flowVersion === 'string') {
-      const refused = await denied(c, 'execute', ref('flow', found.value.flowId));
+      const refused = await flowRefused(
+        c,
+        found.value.flowId,
+        found.value.projectId as unknown as string,
+      );
       if (refused !== undefined) return refused;
+      // The version it moves to must be its project's to reach, as at registration.
+      const outOfScope = await referencesOutOfScope(
+        referenceScope,
+        tenantId,
+        found.value.projectId,
+        [
+          {
+            path: '/flowVersion',
+            kind: 'flow',
+            id: found.value.flowId as unknown as string,
+            version: body.flowVersion,
+          },
+        ],
+      );
+      if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
     if (typeof body.hmacSecretName === 'string') {
       const keyRefused = await providerKeyRefused(c, body.hmacSecretName);
       if (keyRefused !== undefined) return keyRefused;
+    }
+    // Its `toolsAllowedUnattended`: kept unless named (a trigger keeps its
+    // flow, so a new version keeps it too); naming it takes `admin`, and
+    // it's checked against the flow at the version it will run.
+    const kept = found.value.toolsAllowedUnattended ?? [];
+    const flowAfter = {
+      kind: 'flow' as const,
+      flowId: found.value.flowId,
+      flowVersion:
+        typeof body.flowVersion === 'string' ? body.flowVersion : found.value.flowVersion,
+    };
+    if (tools.kind === 'ok') {
+      const notAdmin = await denied(
+        c,
+        'admin',
+        ref('project', found.value.projectId as unknown as string),
+      );
+      if (notAdmin !== undefined) return notAdmin;
+      const problem = await toolsAllowedUnattendedProblem(
+        targetTools,
+        tenantId,
+        flowAfter,
+        tools.value,
+      );
+      if (problem !== undefined) return bad(c, requestId, problem);
     }
 
     const patchConfig = body.config as Record<string, unknown> | undefined;
@@ -314,15 +626,27 @@ export function webhooksRouter(
     if (patchConfig !== undefined && 'input' in patchConfig) cfg.input = patchConfig.input;
 
     const triggerId = found.value.triggerId;
+    // Another secret's name: where it's read, recorded again as the caller
+    // may read it (`secret-scope.ts`).
+    const hmacSecretScope =
+      typeof body.hmacSecretName === 'string'
+        ? await hmacScopeFor(
+            c,
+            { kind: 'project', tenantId, projectId: found.value.projectId },
+            body.hmacSecretName,
+          )
+        : undefined;
     const updateInput: UpdateWebhookTriggerInput = {
       kind: 'webhook',
       tenantId,
       triggerId,
+      ...(hmacSecretScope !== undefined && { hmacSecretScope }),
       ...(Object.keys(cfg).length > 0 && { config: cfg }),
       ...('label' in body && { label: body.label === null ? null : (body.label as string) }),
       ...(typeof body.flowVersion === 'string' && { flowVersion: body.flowVersion }),
       ...(typeof body.hmacSecretName === 'string' && { hmacSecretName: body.hmacSecretName }),
       ...delivery.value,
+      ...(tools.kind === 'ok' && { toolsAllowedUnattended: tools.value }),
     };
 
     const result = await binding.update(updateInput);
@@ -338,6 +662,21 @@ export function webhooksRouter(
           requestId,
         ),
       );
+    }
+    if (tools.kind === 'ok' && !sameToolList(kept, tools.value)) {
+      await recordToolsAllowedUnattendedSet({
+        auditEvents,
+        tenantId,
+        projectId: found.value.projectId,
+        triggerId,
+        triggerKind: 'webhook',
+        target: flowAfter,
+        from: kept,
+        to: tools.value,
+        by: callerRef(c),
+        correlationId: requestId,
+        log: c.get('log'),
+      });
     }
     return webhookJson(c, result.value as WebhookTriggerRecord);
   });
@@ -396,11 +735,53 @@ export function webhooksRouter(
     const found = await webhookFor(c, 'admin');
     if (found.kind === 'err') return found.response;
     if (binding.setOwner === undefined) return unsupported(c, requestId, 'changing the owner');
-    const refused = await denied(c, 'execute', ref('flow', found.value.flowId));
+    const refused = await flowRefused(
+      c,
+      found.value.flowId,
+      found.value.projectId as unknown as string,
+    );
     if (refused !== undefined) return refused;
+    // The caller takes it over, or names a service account with
+    // `runAsServiceAccountId` in an optional body (gated by `act_as`).
+    const parsed = await parseJsonObject(c, requestId, { allowEmpty: true });
+    if (parsed.kind === 'err') return parsed.response;
+    if ('toolsAllowedUnattended' in parsed.value) {
+      return bad(
+        c,
+        requestId,
+        "a take-over keeps the trigger's `toolsAllowedUnattended`: change it with PATCH",
+      );
+    }
+    const runAsRaw = parsed.value.runAsServiceAccountId;
+    if (runAsRaw !== undefined && (typeof runAsRaw !== 'string' || runAsRaw.length === 0)) {
+      return bad(c, requestId, '`runAsServiceAccountId` must be a service-account id');
+    }
+    const resolved = await resolveTriggerOwner(
+      c,
+      runAsRaw as string | undefined,
+      triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
+    );
+    if (resolved.kind === 'refused') return resolved.response;
     const { tenantId, triggerId } = found.value;
-    const result = await binding.setOwner({ tenantId, triggerId, owner: ownerOf(c) });
+    const previousOwner = found.value.owner;
+    const result = await binding.setOwner({ tenantId, triggerId, owner: resolved.owner });
     if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
+    // Every owner change is audited, a plain caller take-over included.
+    await recordOwnerSet({
+      auditEvents,
+      tenantId,
+      ...(found.value.projectId !== undefined && { projectId: found.value.projectId as ProjectId }),
+      triggerId,
+      triggerKind: 'webhook',
+      from: previousOwner,
+      to: resolved.owner,
+      by: callerRef(c),
+      correlationId: requestId,
+      log: c.get('log'),
+      ...(found.value.toolsAllowedUnattended !== undefined && {
+        toolsAllowedUnattended: found.value.toolsAllowedUnattended,
+      }),
+    });
     return webhookJson(c, result.value as WebhookTriggerRecord);
   });
 
@@ -583,6 +964,7 @@ function serializeWebhook(
     owner: ownerJson(r.owner, names),
     ...(r.config.input !== undefined && { input: r.config.input }),
     hmacSecretName: r.hmacSecretName,
+    ...(r.hmacSecretScope !== undefined && { hmacSecretScope: r.hmacSecretScope }),
     signature: r.signature,
     ...(r.deliveryIdHeader !== undefined && { deliveryIdHeader: r.deliveryIdHeader }),
     bodyLimitBytes: r.bodyLimitBytes,
@@ -591,6 +973,10 @@ function serializeWebhook(
     status: r.status,
     ...(r.statusReason !== undefined && { statusReason: r.statusReason }),
     ...(r.suppressedRefusals !== undefined && { suppressedRefusals: r.suppressedRefusals }),
+    ...(r.toolsAllowedUnattended !== undefined &&
+      r.toolsAllowedUnattended.length > 0 && {
+        toolsAllowedUnattended: [...r.toolsAllowedUnattended],
+      }),
     lastFiredAt: r.lastFiredAt,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
@@ -605,6 +991,7 @@ function serializeFire(f: TriggerFire): Record<string, unknown> {
     outcome: f.outcome,
     ...(f.runId !== undefined && { runId: f.runId }),
     ...(f.detail !== undefined && { detail: f.detail }),
+    ...(f.countsTowardPause !== undefined && { countsTowardPause: f.countsTowardPause }),
     ...(f.duplicates !== undefined && f.duplicates > 0 && { duplicates: f.duplicates }),
     ...(f.lastDuplicateAt !== undefined && { lastDuplicateAt: f.lastDuplicateAt }),
   };
@@ -616,18 +1003,37 @@ type ParseErr = { readonly kind: 'err'; readonly response: Response };
 async function parseJsonObject(
   c: Context<AppEnv>,
   requestId: string,
+  opts: { readonly allowEmpty?: boolean } = {},
 ): Promise<ParseOk<Record<string, unknown>> | ParseErr> {
   let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    c.status(statusFor('bad-input') as never);
-    return {
-      kind: 'err',
-      response: c.json(
-        toWireError({ code: 'bad-input', message: 'Request body must be valid JSON' }, requestId),
-      ),
-    };
+  if (opts.allowEmpty === true) {
+    // An endpoint whose body is optional (take-over): no body, or an empty
+    // one, reads as `{}`; anything present must still be a JSON object.
+    const text = await c.req.text();
+    if (text.trim().length === 0) return { kind: 'ok', value: {} };
+    try {
+      body = JSON.parse(text);
+    } catch {
+      c.status(statusFor('bad-input') as never);
+      return {
+        kind: 'err',
+        response: c.json(
+          toWireError({ code: 'bad-input', message: 'Request body must be valid JSON' }, requestId),
+        ),
+      };
+    }
+  } else {
+    try {
+      body = await c.req.json();
+    } catch {
+      c.status(statusFor('bad-input') as never);
+      return {
+        kind: 'err',
+        response: c.json(
+          toWireError({ code: 'bad-input', message: 'Request body must be valid JSON' }, requestId),
+        ),
+      };
+    }
   }
   if (body === null || typeof body !== 'object' || Array.isArray(body)) {
     c.status(statusFor('bad-input') as never);
@@ -699,6 +1105,20 @@ function lifecycleError(
   return c.json(
     toWireError(
       { code: error.code, message: error.message, triggerId: triggerId as unknown as string },
+      requestId,
+    ),
+  );
+}
+
+/** A signing secret `generateSecret` would make, whose name the scope already has: never overwritten. */
+function secretTaken(c: Context<AppEnv>, requestId: string, name: string, env: EnvName): Response {
+  c.status(statusFor('secret-write-conflict') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'secret-write-conflict',
+        message: `A secret named ${name} already exists in ${env as unknown as string}: name another, or name this one without \`generateSecret\`.`,
+      },
       requestId,
     ),
   );

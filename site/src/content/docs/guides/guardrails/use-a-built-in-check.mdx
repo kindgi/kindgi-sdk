@@ -5,15 +5,28 @@ sidebar:
   order: 4
 ---
 
+This guide puts one of Kindgi's built-in checks on an agent, instead of a
+check you write, and lists the settings each one reads.
+
 Kindgi has seven built-in checks for common rules: words an answer must or
 mustn't contain, a pattern it must match, citations, and which tools a turn
 may call, how many and in what order. A guardrail can name one instead of
 shipping a check you [write yourself](../write-a-guardrail/).
 
+## Before you start
+
+- **A TypeScript pack,** with Kindgi 0.2's SDK, on a runtime such as
+  `kindgi dev`. A Python, Java or Scala pack can't name a built-in.
+- **An agent to put the guardrail on.**
+
 ## Name a built-in
 
-In a TypeScript pack, the guardrail names the built-in as its `check`, gives
-its `config`, and ships no check implementation:
+A built-in check needs no code of yours. The guardrail names the built-in as
+its `check`, gives its `config`, and ships no check implementation. Ask your
+coding agent: "I want a guardrail, with a built-in check, that stops an
+answer promising a guarantee." Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+guardrail looks like this:
 
 ```ts
 // guardrails/no-guarantees/index.ts
@@ -28,20 +41,21 @@ export default {
 };
 ```
 
-Put it on an agent by its id, as with any guardrail
-([Put it on an agent](../write-a-guardrail/#put-it-on-an-agent)). With
-`halt`, an answer containing "guaranteed" stops the turn
-([A halted turn](../halt-or-record/#a-halted-turn)). The failure gives the
-check's reason. For a `must-cite` guardrail on an answer without a citation:
+Put it on an agent by its id, as with any guardrail, as
+[Put it on an agent](../write-a-guardrail/#put-it-on-an-agent) shows. With
+`halt`, an answer containing "guaranteed" stops the turn, as
+[A halted turn](../halt-or-record/#a-halted-turn) describes. The failure
+gives the check's reason. For a `must-cite` guardrail on an answer without a
+citation:
 
 ```text
 Error [guardrail-violation]: Turn blocked by guardrail 'acme.cite-or-halt': expected >= 1 citations, found 0
 ```
 
-A Python, Java or Scala pack can't name a built-in yet: a guardrail there is
-always defined with its own check (Python's `@guardrail` decorates a check
-function). Write the rule as your own check; the table below says what each
-built-in checks.
+A Python, Java or Scala pack can't name a built-in: a guardrail there is
+always defined with its own check. Python's `@guardrail` decorates a check
+function. Write the rule as your own check, and use
+[The built-in checks](#the-built-in-checks) for what each built-in checks.
 
 ## The built-in checks
 
@@ -60,25 +74,32 @@ required.
 
 A config the check doesn't take is refused: a required setting left out, a
 setting of the wrong type, one the check doesn't know, or a regular expression
-that doesn't compile. Registering such a guardrail answers
-`422 guardrail-config-invalid`, with each problem in `details.issues`, and
-deploying a pack with one fails with `deployment-validation-failed`. If one
-reaches a turn anyway, its check can't run, so with `halt` the turn stops
-([When the check can't run](../halt-or-record/#when-the-check-cant-run)).
+that doesn't compile, or is longer than 8,192 characters with its flags.
+Registering such a guardrail answers `422 guardrail-config-invalid`, with each
+problem in `details.issues`. Deploying a pack with one fails with
+`deployment-validation-failed`. If one
+reaches a turn anyway, its check can't run, so with `halt` the turn stops, as
+[When the check can't run](../halt-or-record/#when-the-check-cant-run)
+describes.
 
 ## Your own check under a built-in's name
 
 The built-in ids are reserved. A pack that ships its own check under one, such
-as a `defineCheck({ id: 'must-cite', … })`, is refused when you build it
-(`reserved-check-id`; in Python, `DefinitionError`). Give your check a name of
-its own, such as `my-pack.checks.must-cite`, or, to use the built-in, name it
+as a `defineCheck({ id: 'must-cite', … })`, is refused when you build it, with
+`reserved-check-id`, or `DefinitionError` in Python. Give your check a name of
+its own, such as `my-pack.checks.must-cite`. Or, to use the built-in, name it
 and drop your implementation.
 
-A pack built with a CLI from before 0.1.5 wasn't checked for this, and a
-current CLI marks a guardrail that only names a built-in. So from runtime
-0.1.6, a guardrail that names a built-in, comes with its pack's code, and
-lacks that mark gets one warning in the runtime's log each time the runtime
-loads the guardrail. The built-in runs either way. If the guardrail only names
-the built-in, rebuild the pack with a current CLI and the warning goes. If its
-module is your own check, rename that check as above: the built-in has been
-running in its place.
+A current CLI marks a guardrail that only names a built-in. A pack built with
+an older CLI may lack that mark. A guardrail that names a built-in, comes with
+its pack's code, and lacks the mark gets one warning in the runtime's log each
+time the runtime loads the guardrail. The built-in runs either way. If the
+guardrail only names the built-in, rebuild the pack with a current CLI and the
+warning goes. If its module is your own check, give that check a name of its
+own: the built-in has been running in its place.
+
+## Next
+
+- [Write a guardrail](../write-a-guardrail/)
+- [Configure a guardrail](../configure-a-guardrail/)
+- [Stop a turn or record a violation](../halt-or-record/)

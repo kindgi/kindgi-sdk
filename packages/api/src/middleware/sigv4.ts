@@ -3,12 +3,14 @@
 
 import { createHash } from 'node:crypto';
 
-import type { MiddlewareHandler } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 
 import type { S3CredentialBinding } from '../s3-credential-binding.js';
 import type { AppEnv } from '../types.js';
 import { errorXml } from '../xml.js';
 import {
+  type SigV4Claim,
   checkSigV4Claim,
   constantTimeEqual,
   parseSigV4,
@@ -26,28 +28,25 @@ import {
  * own timestamp and only its `SignedHeaders` (see `./sigv4-verify.ts`);
  * the server clock only bounds the timestamp (±15 minutes; presigned URLs
  * until `X-Amz-Expires`). Order: parse → timestamp/scope → credential →
- * payload hash → signature → bucket.
+ * signature → bucket → body → payload hash. The body is read once,
+ * under `maxBytes`, and compared with the `x-amz-content-sha256` the
+ * client signed; the routes read the copy Hono keeps.
  *
  * ## S3-style errors
  *
  * Failures return S3 error XML (not JSON): `AccessDenied`,
  * `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `RequestTimeTooSkewed`,
  * `XAmzContentSHA256Mismatch`, `AuthorizationQueryParametersError`,
- * `InvalidRequest`.
+ * `InvalidRequest`, and `EntityTooLarge` for a body over `maxBytes`.
  */
-export function sigv4Middleware(binding: S3CredentialBinding): MiddlewareHandler<AppEnv> {
+export function sigv4Middleware(
+  binding: S3CredentialBinding,
+  maxBytes: number,
+): MiddlewareHandler<AppEnv> {
+  const underLimit = objectBodyLimit(maxBytes);
   return async (c, next) => {
     const req = c.req.raw;
     const method = req.method;
-    // Read body once so both hash + downstream reads can access it.
-    // The whole body is buffered — a limitation for large uploads; true
-    // streaming would need to pass the raw stream through after a
-    // header-only signature check.
-    const bodyBytes =
-      method === 'GET' || method === 'HEAD' || method === 'DELETE'
-        ? Buffer.alloc(0)
-        : Buffer.from(await req.arrayBuffer());
-
     const url = new URL(req.url);
     const request = { method, url, headers: req.headers };
 
@@ -74,27 +73,8 @@ export function sigv4Middleware(binding: S3CredentialBinding): MiddlewareHandler
       return xmlError(c, 'AccessDenied', 'Credential has expired', 403);
     }
 
-    // ------------ payload hash verification ------------
-    // Header auth signs `x-amz-content-sha256`. Cross-check it against
-    // the actual body bytes, or an attacker could swap the body after
-    // signing and the signature would still verify. (Presigned URLs sign
-    // `UNSIGNED-PAYLOAD` by design.)
-    if (info.kind === 'header' && bodyBytes.length > 0) {
-      const declared = c.req.header('x-amz-content-sha256') ?? '';
-      if (declared !== 'UNSIGNED-PAYLOAD' && declared.length > 0) {
-        const actual = createHash('sha256').update(bodyBytes).digest('hex');
-        if (!constantTimeEqual(actual, declared)) {
-          return xmlError(
-            c,
-            'XAmzContentSHA256Mismatch',
-            'The provided x-amz-content-sha256 header does not match the SHA256 of the request body.',
-            400,
-          );
-        }
-      }
-    }
-
     // ------------ signature ------------
+    // Over the headers alone: the body is checked against the hash they declare, below.
     const verified = verifySigV4Signature(request, info, credential.secretKey);
     if (verified.kind === 'err') {
       return xmlError(c, verified.error.code, verified.error.message, verified.error.status);
@@ -117,9 +97,11 @@ export function sigv4Middleware(binding: S3CredentialBinding): MiddlewareHandler
       );
     }
 
-    // Buffer the body onto the request for downstream handlers to
-    // re-consume. Hono's Context re-reads req.raw for each parse.
-    rebindBody(c, bodyBytes);
+    // ------------ body + payload hash verification ------------
+    if (method !== 'GET' && method !== 'HEAD' && method !== 'DELETE') {
+      const refused = await readSignedBody(c, info, underLimit);
+      if (refused !== undefined) return refused;
+    }
 
     c.set('tenantId', credential.tenantId);
     c.set('bucket', credential.bucket);
@@ -136,18 +118,50 @@ function extractBucket(pathname: string): string | null {
   return match === null ? null : (match[1] as string);
 }
 
-// -------------------- comparison + rebind helpers --------------------
+/**
+ * Reads the body once, under `underLimit`, and the refusal if it's over
+ * it or doesn't match what was signed. Header auth signs
+ * `x-amz-content-sha256`: the body's bytes are checked against it, an
+ * empty body's too, or a body swapped or dropped after signing would
+ * still verify. (Presigned URLs sign `UNSIGNED-PAYLOAD` by design.)
+ */
+async function readSignedBody(
+  c: Context<AppEnv>,
+  claim: SigV4Claim,
+  underLimit: MiddlewareHandler<AppEnv>,
+): Promise<Response | undefined> {
+  const read: { body?: Uint8Array } = {};
+  const refused = await underLimit(c, async () => {
+    read.body = new Uint8Array(await c.req.arrayBuffer());
+  });
+  if (read.body === undefined) return refused as Response;
+  const declared = claim.kind === 'header' ? (c.req.header('x-amz-content-sha256') ?? '') : '';
+  if (declared === 'UNSIGNED-PAYLOAD' || declared.length === 0) return undefined;
+  const actual = createHash('sha256').update(read.body).digest('hex');
+  if (constantTimeEqual(actual, declared)) return undefined;
+  return xmlError(
+    c,
+    'XAmzContentSHA256Mismatch',
+    'The provided x-amz-content-sha256 header does not match the SHA256 of the request body.',
+    400,
+  );
+}
 
-function rebindBody(c: { req: { raw: Request } }, body: Buffer): void {
-  const original = c.req.raw;
-  const rebuilt = new Request(original.url, {
-    method: original.method,
-    headers: original.headers,
-    body: body.length > 0 ? new Uint8Array(body) : undefined,
-    // `duplex: 'half'` is required by undici when a body is present.
-    ...(body.length > 0 && { duplex: 'half' }),
-  } as RequestInit);
-  Object.defineProperty(c.req, 'raw', { value: rebuilt, configurable: true });
+/**
+ * A body over `maxBytes` is S3's `400 EntityTooLarge`: refused unread by
+ * its declared length, or as soon as a streamed one passes it.
+ */
+function objectBodyLimit(maxBytes: number): MiddlewareHandler<AppEnv> {
+  return bodyLimit({
+    maxSize: maxBytes,
+    onError: (c) =>
+      xmlError(
+        c,
+        'EntityTooLarge',
+        `Your proposed upload exceeds the maximum allowed size of ${maxBytes} bytes`,
+        400,
+      ),
+  });
 }
 
 // -------------------- XML error response --------------------

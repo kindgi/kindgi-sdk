@@ -34,7 +34,7 @@
   --kg-kindgi-band: #2b1b32;
   /* Hairlines on the band. */
   --kg-kindgi-band-rule: #4a3354;
-  /* Plum: a primary action, or a person decides. Rare outside the website: never on things that repeat (links, menus, rows). */
+  /* Plum: a primary action, or a person decides. Rare outside the website: never on things that repeat (link text, menus, rows); a link's underline in docs prose is the exception. */
   --kg-action: #6c1a5a;
   /* A filled action button on hover: a light shade change. */
   --kg-action-hover: #561447;
@@ -46,7 +46,7 @@
   --kg-accent-hover: #e4a6dc;
   /* Text on an accent button. */
   --kg-on-accent: #1c2433;
-  /* Links: the words and an arrow, no underline. */
+  /* Links outside docs prose (the website): the words and an arrow, no underline. */
   --kg-link: #535d6e;
   /* A link on hover: stronger text. */
   --kg-link-hover: #1c2433;
@@ -108,8 +108,10 @@
   --kg-font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
   /* font-stretch for headings and the wordmark (IBM Plex Sans at its narrowest). */
   --kg-narrow: 85%;
-  /* Square: cards, buttons, dialogs, code. */
+  /* Square: cards, dialogs, code. */
   --kg-radius: 0;
+  /* Buttons: slightly rounded. */
+  --kg-radius-button: 4px;
   /* Form fields only: text boxes, selects, search. */
   --kg-radius-field: 3px;
   /* A list or table row, the comfortable default. */

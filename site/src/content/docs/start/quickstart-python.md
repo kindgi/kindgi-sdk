@@ -11,27 +11,38 @@ Python: two tools, an agent that calls them, a guardrail and a flow.
 
 **Before you start**, set up what the [Install page](../install/) describes:
 Docker, Python 3.11 and uv, and access to the runtime image. No Node: the CLI
-comes from PyPI. The runtime image is in private preview: request access at
-contact@kindgi.com, then log in once with `kindgi auth registry`.
+comes from PyPI. Sign in at [access.kindgi.com](https://access.kindgi.com)
+with GitHub for the runtime image's pull credentials, then log in once with
+`kindgi auth registry`.
 
 ## 1. Create the pack
 
 ```sh tutorial=run
-uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=python
+uvx --from "kindgi-cli>=0.2,<0.3" kindgi init my-pack --template=python
 cd my-pack
 uv sync          # a .venv with the kindgi package and the kindgi CLI
 uv run pytest    # the template's tests: the tools and the check, called directly
 ```
 
-:::note[On Kindgi 0.1.0 (fixed in 0.1.1)]
-`init` from npm writes no `.gitignore`, so git would track `.env` files
-(where model keys go) and `.kindgirc.json` (the dev token). Before your first
-commit:
+- `uvx --from "kindgi-cli>=0.2,<0.3" kindgi` runs the newest 0.2 release of
+  the Kindgi CLI from PyPI, the line these docs describe, without installing
+  it ([Check this machine](../install/#check-this-machine) says how). The
+  range is optional: `uvx --from kindgi-cli kindgi init my-pack --template=python`
+  runs the newest release, which may be on a later line than these docs.
+- `init my-pack` makes the pack in a new folder, `my-pack`.
+- `--template=python` makes it a Python pack, with examples.
 
-```sh
-printf '%s\n' .venv/ __pycache__/ .kindgi/ .kindgirc.json .env '.env.*' >> .gitignore
+`init` prints what it made. `uv sync` installs the pack's dependencies, and
+the template's tests pass:
+
+```text
+…
+✓ Python pack scaffolded at …/my-pack/
+…
+Installed 26 packages in 206ms
+…
+============================== 3 passed in 0.82s ===============================
 ```
-:::
 
 The pack's config is the `[tool.kindgi]` table of its `pyproject.toml`; its
 tools, guardrails, agents and flows live in four folders:
@@ -44,14 +55,16 @@ my-pack/
 ├── agents/echo_agent.py              # Agent(...)
 ├── flows/echo_flow.py                # Flow(...)
 ├── tests/test_tools.py
-└── .claude/skills/                   # skills for your coding agent
+├── .claude/skills/                   # skills for your coding agent
+└── .agents/skills/                   # the same, where Codex and Gemini CLI look
 ```
 
 :::tip[Or ask your coding agent]
-The pack already has Kindgi's skills in `.claude/skills/`. Follow the steps
-below yourself, or ask your coding agent ("run the pack and try the agent",
-"add a tool that looks up an order"): the skills tell it which commands to
-run. [How it knows Kindgi](../coding-agents/).
+The pack already has Kindgi's skills in `.claude/skills/` and
+`.agents/skills/`. Follow the steps below yourself, or ask your coding agent
+("run the pack and try the agent", "add a tool that looks up an order"): the
+skills tell it which commands to run. [How it knows
+Kindgi](../coding-agents/).
 :::
 
 ## 2. Run it
@@ -63,7 +76,7 @@ uv run kindgi dev
 `kindgi dev` starts the Kindgi runtime in Docker, indexes the pack with the
 pack's own Python (`.venv/bin/python`), runs its tools and checks in a pack
 service, and reloads on every save. It writes the API's URL and a token to
-`.kindgirc.json`, so the commands below find the runtime by themselves.
+`.kindgirc.json`, so the next commands find the runtime by themselves.
 Leave it running.
 
 The first address its banner prints is the console's, where you can see each
@@ -74,11 +87,13 @@ run: what it was asked, the steps it took and what it answered:
                Sign in: "Sign in as seeded user" on the sign-in page (the dev token, below)
 ```
 
-Open it in your browser (the port is `4000`, or the next free one; the
-runtime's own address, `http://127.0.0.1:4000/`, leads there too), or run
-`uv run kindgi console`, which opens it for you. On the sign-in page, click
-**Sign in as seeded user**. `kindgi dev --open` opens the console as soon as
-Kindgi is up. Open the console in Chrome or Firefox. Safari can't keep the local sign-in over http yet ([Known limitations](../../deploy/operate/#known-limitations-in-015)).
+To open the console, run `uv run kindgi console`, or go to the banner's
+`Console` address. Its port is `4000`, or the next free one. On the sign-in
+page, click **Sign in as seeded user**.
+
+:::tip
+`kindgi dev --open` opens the console as soon as Kindgi is up.
+:::
 
 ## 3. Run the agent and the flow
 
@@ -89,6 +104,11 @@ uv run kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada
 uv run kindgi runs start --flow=my-pack.echo-flow --input='{"message":"Ada"}'
 ```
 
+- `--agent=my-pack.echo-agent` and `--flow=my-pack.echo-flow` name what to
+  run, by its id.
+- `--input` is the run's input, as JSON. An agent takes the person's message
+  as `userMessage`.
+
 ```text tutorial=expect
   "status": "completed",
 …
@@ -97,11 +117,11 @@ uv run kindgi runs start --flow=my-pack.echo-flow --input='{"message":"Ada"}'
     "echo": "Ada",
 ```
 
-Without a model, the agent's answer comes from `dev-echo`, a stand-in that
-calls the agent's first tool with `{"message": <your userMessage>}` and
-replies with what it returned, after a first line that says it isn't a real
-model (the run carries the `fallback-provider` and `dev-echo-not-a-model`
-warnings). The flow runs the `echo` tool on its input and returns what the
+Without a model, the agent's answer comes from `dev-echo`, a stand-in. It
+calls the agent's first tool with `{"message": <your userMessage>}`, and
+replies with what the tool returned, after a first line that says it isn't a
+real model. The run carries the `fallback-provider` and
+`dev-echo-not-a-model` warnings. The flow runs the `echo` tool on its input and returns what the
 tool returned. Either way, your Python tool ran: the runtime called it over
 HTTP in the pack service.
 
@@ -173,21 +193,51 @@ echo_agent = Agent(
 )
 ```
 
-`uv run python -m kindgi.pack index --pack-dir .` prints what Kindgi sees.
-A file with an error is reported with its path, and the rest of the pack
+`uv run python -m kindgi.pack index --pack-dir .` prints what Kindgi sees in
+the pack. `--pack-dir .` is the pack's folder, here the current one. A file
+with an error is reported with its path, and the rest of the pack
 keeps serving.
 
 ## 5. Connect a real model
 
-Store an Anthropic key as a secret (you're prompted for it; it isn't
-echoed), then register the provider:
+Store your AI model provider's API key as a secret, then register the
+provider:
 
 ```sh
-uv run kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
-uv run kindgi providers register --preset=anthropic
+uv run kindgi secrets set <KEY_NAME> --env=local --scope=tenant
+uv run kindgi providers register --preset=<preset>
 ```
 
-It takes over from `dev-echo` at the next turn. Gemini on Vertex AI has a
+`<KEY_NAME>` and `<preset>` depend on the provider:
+
+| Provider | `<KEY_NAME>` | `<preset>` |
+| --- | --- | --- |
+| Anthropic | `ANTHROPIC_API_KEY` | `anthropic` |
+| OpenAI | `OPENAI_API_KEY` | `openai` |
+| Gemini (a Google AI Studio key) | `GEMINI_API_KEY` | `gemini-api` |
+| Groq | `GROQ_API_KEY` | `groq` |
+| OpenRouter (a hosted gateway) | `OPENROUTER_API_KEY` | `openrouter` |
+
+- `secrets set <KEY_NAME>` asks for the key without showing it, and
+  writes it to Kindgi's own `.kindgi/secrets.env`.
+- `--env=local` is the environment the secret belongs to. Under
+  `kindgi dev`, `local` is the pack's env files, that one among them.
+- `--scope=tenant` is where the secret lives: the tenant, rather than one
+  org (`org:<orgId>`) or project (`project:<projectId>`).
+- `--preset=<preset>` registers the provider's models from Kindgi's built-in
+  preset, which reads the `<KEY_NAME>` secret. `kindgi providers presets`
+  lists every preset.
+
+With Anthropic's key, for example, the two commands print:
+
+```text
+…
+  Set ANTHROPIC_API_KEY at tenant in local.
+…
+✓ Registered anthropic: claude-opus-5-5, claude-sonnet-5-5 (default), claude-haiku-5-5, claude-haiku-4-5 — key ANTHROPIC_API_KEY (env local)
+```
+
+The provider takes over from `dev-echo` at the next turn. Gemini on Vertex AI has a
 preset too; any OpenAI-compatible endpoint registers from a short spec file.
 
 The registration is in this project's dev database. To have `kindgi dev`
@@ -196,7 +246,7 @@ declare it in `pyproject.toml`: [Declare them in your pack's config](../../guide
 
 ## Next
 
-- [Add Kindgi to an existing Python app](../existing-app/#a-python-app):
+- [Add Kindgi to an existing Python app](../existing-app-python/):
   your app's own modules as tools.
 - [Build a support desk](../../tutorials/support-desk-python/) in Python.
 - [Guides](../../guides/): one task at a time.

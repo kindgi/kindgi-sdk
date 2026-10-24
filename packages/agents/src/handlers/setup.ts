@@ -10,9 +10,10 @@ import { evaluateSessionGate } from '../guardrails-gate.js';
 import { emitTurnEvent } from '../streaming.js';
 
 import type { TurnContext } from './context.js';
-import { throwAgentTurnFailure } from './errors.js';
+import { approvalsPendingLimitOf, throwAgentTurnFailure } from './errors.js';
 import { SESSION_GATE_SUBJECT, readGateDecision, withdrawnGateFailure } from './gate-decision.js';
 import { followReplaySessionGate } from './replay.js';
+import { requestedBy } from './requested-by.js';
 import { writeRunSnapshot } from './run-snapshot.js';
 import {
   loadTurnConversation,
@@ -149,6 +150,7 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
       const { waitTokenId, timeoutMs } = gate;
       const expiresAt = new Date(Date.now() + timeoutMs).toISOString();
 
+      const asker = requestedBy(ctx.input.principal);
       if (ctx.bindings.hitl?.enqueue !== undefined) {
         try {
           await ctx.bindings.hitl.enqueue({
@@ -163,15 +165,21 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
               threshold: gate.threshold,
             },
             requiredRole: gate.requiredRole,
+            // Who asked: the person the turn runs for.
+            ...(asker !== undefined && { requestedBy: asker }),
             title: `HITL review required for ${ctx.input.agent.name}`,
             description: gate.reason,
             waitTokenId,
             provenanceRef: { runId: kctx.runId },
             expiresAt: expiresAt as never,
           });
-        } catch {
-          // Failing sink must not affect turn outcome — swallow. The
-          // waitForToken below will still park; if no reviewer sees the
+        } catch (cause) {
+          // Past the tenant's limit on approvals waiting, the turn fails
+          // naming it: no approval was opened, so nobody would decide.
+          const limit = approvalsPendingLimitOf(cause);
+          if (limit !== undefined) throwAgentTurnFailure(limit);
+          // Any other failing sink must not affect the turn's outcome. The
+          // waitForToken below still parks; if no reviewer sees the
           // approval row, the kernel timeout cancels the wait per policy.
         }
       }

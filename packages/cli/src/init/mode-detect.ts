@@ -9,8 +9,9 @@
  *     `pnpm-workspace.yaml`, `agents/`, `tools/`, etc.). The
  *     historical `kindgi init <pack-name>` shape.
  *   - **augment** — adds Kindgi files alongside an existing project: a
- *     Node.js app (`kindgi.config.ts`, `kindgi/**`, `.claude/skills/`, the
- *     existing `package.json` patched — "add Kindgi to my Next.js app")
+ *     Node.js app (`kindgi.config.ts`, `kindgi/**`, `.claude/skills/` and
+ *     `.agents/skills/`, the existing `package.json` patched — "add Kindgi
+ *     to my Next.js app")
  *     or a Python app (`[tool.kindgi]` appended to its `pyproject.toml`,
  *     `kindgi/**`, the Python-pack skills).
  *

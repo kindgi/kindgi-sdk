@@ -5,44 +5,71 @@ sidebar:
   order: 9
 ---
 
-An **artifact** is a file kept in the runtime: a report a run's output became,
-a document your app sent in, an export. Each one belongs to a project, and
-can name the run it came from. Its name, type, size and sha256 are kept in
-the runtime's database; its bytes on disk or in a Google Cloud Storage
-bucket ([Turn them on](#turn-them-on)).
+This guide keeps a file in the runtime with the run it came from, then
+finds it, downloads it and deletes it.
+
+A file kept in the runtime is an **artifact**, such as a report a run's
+output became, a document your app sent in, or an export. Each one belongs to
+a project, and can name the run it came from. Its name, type, size and sha256
+are kept in the runtime's database. Its bytes are kept on disk or in a
+Google Cloud Storage bucket.
+
+## Before you start
+
+- **A runtime that keeps artifacts.** `kindgi dev` keeps them in the pack's
+  `.kindgi/dev/artifacts`. Another runtime keeps them once you
+  [turn them on](#turn-them-on).
+- **Kindgi 0.2's CLI**, and a file to keep, such as `report.pdf`.
+- **A run's id,** to keep the file with that run.
 
 ## Upload one
 
+Uploading the file keeps it with its run:
+
 ```sh
-kindgi artifacts upload report.pdf --run=<run-id> --content-type=application/pdf --tag=kind=summary
+pnpm exec kindgi artifacts upload report.pdf --run=<run-id> --content-type=application/pdf --tag=kind=summary
 ```
+
+- `report.pdf` is the file to upload.
+- `--run=<run-id>` is the run it came from, where `<run-id>` is the run's
+  id.
+- `--content-type` is its type, `application/octet-stream` unless you say.
+- `--tag=key=value` labels it. You can give it more than once.
 
 It prints the artifact's record, with its `blobId`.
 
-- **Its project:** with `--run`, the run's project; else `--project`'s; else
-  the tenant's Default project. A `--project` that isn't the run's is
-  refused, and so is a run that doesn't exist (`404 run-not-found`).
-- **Its name** is the file's, unless `--name` gives another. `--content-type`
-  is `application/octet-stream` unless you say. `--tag=key=value` labels it
-  (repeatable).
-- **Its size:** the runtime refuses a bigger upload than its cap, 100 MB by
-  default (`413 artifact-too-large`, with the cap in `details.maxBytes`).
+- **Its project:** with `--run`, it's the run's project. Without `--run`,
+  it's `--project`'s, or else the tenant's Default project. A `--project`
+  that isn't the run's is refused, and so is a run that doesn't exist, with
+  `404 run-not-found`. With an API key limited to a project, an upload that
+  names no project goes to the key's project. One whose project, named or its
+  run's, is another is refused with `403 key-project-mismatch`.
+- **Its name** is the file's, unless `--name` gives another.
+- **Its size:** the runtime refuses a bigger upload than its cap, 100 MiB by
+  default. It answers `413 artifact-too-large`, with the cap in
+  `details.maxBytes`.
 
-From your app, `artifacts.upload` (TypeScript) sends the file; `download`
+From your app, in TypeScript, `artifacts.upload` sends the file. `download`
 streams it back, and `head` reads what's kept without the bytes.
 
 ## Find and download them
 
+Listing a run's artifacts gives each one's id, which you read and download
+it by:
+
 ```sh
-kindgi artifacts list --run=<run-id> --table
-kindgi artifacts get <blob-id>
-kindgi artifacts download <blob-id> -o report.pdf
+pnpm exec kindgi artifacts list --run=<run-id> --table
+pnpm exec kindgi artifacts get <blob-id>
+pnpm exec kindgi artifacts download <blob-id> -o report.pdf
 ```
 
-`list` is newest first; `--run`, `--project` and `--content-type` narrow it.
-`get` gives an artifact's name, type, size and sha256, without its bytes.
-`download` writes the file under its own name in this directory unless `-o`
-names one, and keeps a file that's already there unless you add `--force`.
+- `list` is newest first. `--run`, `--project` and `--content-type` narrow
+  it, and `--table` prints a table instead of JSON.
+- `<blob-id>` is an artifact's `blobId`, from the list.
+- `get` gives an artifact's name, type, size and sha256, without its bytes.
+- `download` writes the file under its own name in this directory, unless
+  `-o` names one. It keeps a file that's already there, unless you add
+  `--force`.
 
 With [authorization](../../../deploy/authorization/) on, listing and
 downloading need `read` on the artifact's project, and uploading and deleting
@@ -52,23 +79,30 @@ there, and lists leave it out.
 ## Delete one
 
 ```sh
-kindgi artifacts delete <blob-id>
+pnpm exec kindgi artifacts delete <blob-id>
 ```
 
-It's gone from lists and downloads at once. Its record and bytes stay until a
-retention policy on `artifact` purges them
-([Keep and purge deleted data](../../../deploy/retention/)).
+`<blob-id>` is the artifact's `blobId`. It's gone from lists and downloads
+at once. Its record and bytes stay until a retention policy on `artifact`
+purges them, as [Keep and purge deleted data](../../../deploy/retention/)
+describes.
 
 ## Turn them on
 
 The runtime keeps artifacts once `KINDGI_ARTIFACTS` says where their bytes
 go:
 
-- `local:<absolute directory>`: a directory on the runtime's machine;
+- `local:<absolute directory>`: a directory on the runtime's machine.
 - `gcs:<bucket>[/<prefix>]`: a Google Cloud Storage bucket, reached with the
-  runtime's own Google identity (Application Default Credentials), so there's
-  no key to store.
+  runtime's own Google identity, its Application Default Credentials. So
+  there's no key to store.
 
 Without it, the runtime serves no artifacts. `kindgi dev` keeps them in the
 pack's `.kindgi/dev/artifacts`. `KINDGI_ARTIFACT_MAX_BYTES` sets the upload
 cap. The startup output says where artifacts go, or that they're off.
+
+## Next
+
+- [Read a run's journal](../read-the-journal/)
+- [Show runs in your app](../show-runs-in-your-app/)
+- [Keep and purge deleted data](../../../deploy/retention/)

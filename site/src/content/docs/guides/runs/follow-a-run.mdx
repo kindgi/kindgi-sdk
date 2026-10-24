@@ -1,6 +1,6 @@
 ---
 title: Follow a run's events
-description: Get each step of a run as it starts and ends, from your app or the CLI, through to the run's end.
+description: Get each step of a run as it starts and ends, from your app (TypeScript, Python, Java or Scala) or the CLI, through to the run's end.
 sidebar:
   order: 3
 ---
@@ -11,10 +11,19 @@ A run's events are its journal as it's written: the run starting, each step
 starting and ending, waits, and the run's end. Follow them to show progress,
 or to react when the run ends without polling.
 
+Ask your coding agent: "I want my app to show a run's progress as it
+happens." For reference, the code looks like this. It starts a run in the
+background, then prints each event until the run ends:
+
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```ts
+// scripts/follow-a-run.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient();
+
 const run = await kindgi.runs.start({
   flow: 'acme.reserve-order',
   input: { orderId: 'A-400' },
@@ -40,6 +49,11 @@ for await (const event of kindgi.runs.follow(run.id)) {
 <TabItem label="Python">
 
 ```python
+# scripts/follow_a_run.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()
+
 run = kindgi.runs.start(
     flow="acme.reserve-order", input={"orderId": "A-400"}, options={"wait": False}
 )
@@ -47,6 +61,91 @@ run = kindgi.runs.start(
 for event in kindgi.runs.follow(run.id):
     print(event.sequence, event.kind, event.node_id or "")
 # The loop ends after run.completed, run.failed or run.cancelled.
+```
+
+```text
+0 run.started 
+2 run.step-started reserve
+3 run.step-retry-scheduled reserve
+4 run.step-retry-scheduled reserve
+5 run.step-completed reserve
+7 run.completed 
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/FollowRun.java
+package com.acme.app;
+
+import com.kindgi.client.EventStream;
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.Run;
+import com.kindgi.client.models.RunEvent;
+import com.kindgi.client.models.StartRunBody;
+import java.util.Map;
+import java.util.Objects;
+
+public final class FollowRun {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create();
+
+    Run run = kindgi.runs().start(StartRunBody.WithFlow.builder()
+        .flow("acme.reserve-order")
+        .input(Map.of("orderId", "A-400"))
+        .options(StartRunBody.WithFlow.Options.builder().wait_(false).build())
+        .build());
+
+    try (EventStream<RunEvent> events = kindgi.runs().follow(run.id())) {
+      for (RunEvent event : events) {
+        System.out.println(event.sequence() + " " + event.kind() + " " + Objects.toString(event.nodeId(), ""));
+      }
+    }
+    // The loop ends after run.completed, run.failed or run.cancelled.
+  }
+}
+```
+
+```text
+0 run.started 
+2 run.step-started reserve
+3 run.step-retry-scheduled reserve
+4 run.step-retry-scheduled reserve
+5 run.step-completed reserve
+7 run.completed 
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/FollowRun.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.StartRunBody
+import scala.jdk.CollectionConverters._
+import scala.util.Using
+
+object FollowRun {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create()
+
+    val run = kindgi.runs().start(StartRunBody.WithFlow.builder()
+      .flow("acme.reserve-order")
+      .input(Map("orderId" -> "A-400").asJava)
+      .options(StartRunBody.WithFlow.Options.builder().wait_(false).build())
+      .build())
+
+    Using.resource(kindgi.runs().follow(run.id)) { events =>
+      events.forEachRemaining { event =>
+        println(s"${event.sequence} ${event.kind} ${Option(event.nodeId).getOrElse("")}")
+      }
+    }
+    // The loop ends after run.completed, run.failed or run.cancelled.
+  }
+}
 ```
 
 ```text
@@ -91,23 +190,53 @@ The server ends a stream after 5 minutes; a run that waits longer needs a new
 one. Each event's id is `<run id>:<sequence>`, and a new stream opened with
 the last id you saw (the `Last-Event-Id` header) starts after it.
 
-`runs.follow` does this for you, in TypeScript and Python: it reconnects
-after a dropped connection or the server's limit, and ends only with the run.
-`runs.followProgress` (Python: `runs.follow_progress`) follows the
+`runs.follow` does this for you, in TypeScript, Python, Java and Scala (the
+Java client's `runs().follow`): it reconnects after a dropped connection or
+the server's limit, and ends only with the run. `runs.followProgress`
+(Python: `runs.follow_progress`; Java: `runs().followProgress`) follows the
 [progress stream](../follow-from-the-browser/) (no payloads) the same way.
 
 - In Python, `runs.stream` is the plain call: it ends when the server closes
   the stream, and `last_event_id=f"{run.id}:{event.sequence}"` opens it again
   after that event.
+- In Java and Scala, `runs().stream(runId)` is the plain call too, and
+  `RunsStreamParams.builder().lastEventId(…)` opens it again after an event.
 - In TypeScript, `runs.stream` still follows the run to its end, as `follow`
   does, but it's deprecated: in a later release, announced in advance, it
   becomes the plain call, as in Python.
 
 ## From the CLI
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs stream <run-id>
+pnpm exec kindgi runs stream <run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs stream <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs stream <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs stream <run-id>
+```
+
+</TabItem>
+</Tabs>
 
 It prints one event per line, as JSON:
 

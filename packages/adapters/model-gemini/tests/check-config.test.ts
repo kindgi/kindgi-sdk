@@ -32,8 +32,17 @@ const metadata = (region: string): ProviderMetadata => ({
 });
 
 /** The check's problems, and what the factory does with the same registration. */
-function both(region: string, config: AdapterConfig | undefined, hasSecretRef: boolean) {
-  const input = { metadata: metadata(region), ...(config !== undefined && { config }) };
+function both(
+  region: string,
+  config: AdapterConfig | undefined,
+  hasSecretRef: boolean,
+  serverCredentials?: boolean,
+) {
+  const input = {
+    metadata: metadata(region),
+    ...(config !== undefined && { config }),
+    ...(serverCredentials !== undefined && { serverCredentials }),
+  };
   const problems = geminiCheckConfig({ ...input, hasSecretRef });
   let thrown: string | undefined;
   try {
@@ -130,5 +139,37 @@ describe('geminiCheckConfig agrees with the factory', () => {
       capabilityKind: 'llm-inference',
       checkConfig: geminiCheckConfig,
     });
+  });
+});
+
+describe("a deployment that refuses the server's own credentials (serverCredentials: false)", () => {
+  test('Vertex without a key: the check points at secret_ref, and the factory throws the same message', () => {
+    const { problems, thrown } = both('global', { project: 'acme-project' }, false, false);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatchObject({ path: '/secret_ref' });
+    expect(problems[0]?.message).toContain('Application Default Credentials');
+    expect(problems[0]?.message).toContain('KINDGI_TENANT_HOST_ACCESS');
+    expect(thrown).toBe(adapterConfigError(GEMINI_ADAPTER_ID, 'acme-gemini', problems[0]!).message);
+  });
+
+  test.each([
+    ['Vertex with a service-account key', { project: 'acme-project' }],
+    ['the Developer API with its key', { api: 'developer' }],
+  ] as const)('%s: no problems, and the factory builds it', (_name, config) => {
+    const { problems, thrown } = both('global', config, true, false);
+    expect(problems).toEqual([]);
+    expect(thrown).toBeUndefined();
+  });
+
+  test('allowed (true), Vertex without a key builds, as when nothing is said', () => {
+    expect(both('global', { project: 'acme-project' }, false, true)).toEqual({
+      problems: [],
+      thrown: undefined,
+    });
+  });
+
+  test('a bad project is reported with the missing key', () => {
+    const { problems } = both('global', { project: 'x' }, false, false);
+    expect(problems.map((p) => p.path)).toEqual(['/adapter_config/project', '/secret_ref']);
   });
 });

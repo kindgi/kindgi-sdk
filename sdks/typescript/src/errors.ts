@@ -57,6 +57,12 @@ export interface RateLimitedError {
   readonly message: string;
   /** Suggested seconds to wait before retry (from server `Retry-After`). */
   readonly retryAfterSeconds?: number;
+  /**
+   * Which of the tenant's limits refused it (the wire's `details.limit`),
+   * such as `schema-compile-time` or `template-render-time`; absent for a
+   * limit the server doesn't name.
+   */
+  readonly limit?: string;
 }
 
 export interface NotFoundError {
@@ -141,6 +147,12 @@ export interface ServerError {
   readonly serverCode: string;
   readonly message: string;
   readonly fields?: Readonly<Record<string, unknown>>;
+  /**
+   * On a 503 that carries `Retry-After` (such as `database-busy`): the
+   * seconds the server asked to wait before a retry. The client doesn't
+   * retry on its own.
+   */
+  readonly retryAfterSeconds?: number;
 }
 
 /**
@@ -255,6 +267,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
       return { code: 'auth', message, reason: 'forbidden' };
     case 'rate-limited':
     case 'rate-limit-exceeded':
+    case 'invite-capped':
       return rateLimited(message, obj);
     case 'not-found':
     case 'run-not-found':
@@ -331,6 +344,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'seed-user-admin':
     case 'identity-user-unregister-refused':
     case 'identity-user-unregistered':
+    case 'identity-user-not-invited':
     case 'provider-key-in-use':
       return conflict(code, message, details);
     case 'invalid-request':
@@ -452,12 +466,14 @@ function invalidRequest(
 }
 
 function rateLimited(message: string, obj: WireFields): KindgiError {
+  const limit = (obj.details as { readonly limit?: unknown } | undefined)?.limit;
   return {
     code: 'rate-limited',
     message,
     ...(typeof obj.retryAfterSeconds === 'number'
       ? { retryAfterSeconds: obj.retryAfterSeconds as number }
       : {}),
+    ...(typeof limit === 'string' && { limit }),
   };
 }
 

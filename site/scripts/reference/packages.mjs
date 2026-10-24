@@ -62,13 +62,42 @@ function rewriteLinks(markdown, pkg, bySlugDir, ref) {
   );
 }
 
+/** A TypeScript fence, and a first line that names a whole file (`// src/index.ts`). */
+const TS_FENCE = /^(\s*)(`{3,}|~{3,})(ts|typescript|tsx)(\s.*)?$/;
+const NAMES_A_FILE = /^\/\/\s*\S+\.(?:ts|tsx|mts)\s*$/;
+
+/**
+ * A README's TypeScript examples are written for GitHub and npm: most are
+ * fragments, not files to paste. Each one that doesn't name a file on its
+ * first line is marked `excerpt`.
+ */
+export function markFragments(markdown) {
+  const lines = markdown.split('\n');
+  let close;
+  for (let i = 0; i < lines.length; i++) {
+    if (close) {
+      if (lines[i].trim() === close) close = undefined;
+      continue;
+    }
+    const fence = lines[i].match(/^\s*(`{3,}|~{3,})/);
+    if (!fence) continue;
+    close = fence[1];
+    const ts = lines[i].match(TS_FENCE);
+    const meta = ts?.[4] ?? '';
+    if (ts && !NAMES_A_FILE.test(lines[i + 1] ?? '') && !/\bexcerpt\b/.test(meta)) {
+      lines[i] = `${ts[1]}${ts[2]}${ts[3]} excerpt${meta}`;
+    }
+  }
+  return lines.join('\n');
+}
+
 export function packagePages() {
   const ref = process.env.KINDGI_DOCS_REF ?? 'main';
   const packages = publicPackages();
   const bySlugDir = new Map(packages.map((pkg) => [pkg.dir, pkg]));
   const pages = packages.map((pkg) => {
     const readme = readFileSync(join(pkg.dir, README), 'utf8').replace(/^# .*\n+/, '');
-    const body = rewriteLinks(readme, pkg, bySlugDir, ref);
+    const body = markFragments(rewriteLinks(readme, pkg, bySlugDir, ref));
     return {
       slug: `reference/packages/${pkg.slug}`,
       content: [

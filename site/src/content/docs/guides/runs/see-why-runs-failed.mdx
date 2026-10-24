@@ -7,14 +7,53 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-A failed run says why in `failure`. Across a project, `runs.failures` counts
-a window's failed runs by cause and by version, so a new version that fails
-in a new way shows up as a line of its own.
+This guide finds why one run failed, and counts a project's failed runs by
+cause and by version, so a version that fails in a new way stands out.
+
+## Before you start
+
+- **Failed runs,** on a runtime such as `kindgi dev`, with Kindgi 0.2's CLI.
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
+  Java 17 or later, with Kindgi 0.2's client, `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set, and `read` on the project.
 
 ## Why one run failed
 
-A run with `status: "failed"` has `failure`. Here a guardrail halted an agent's
-turn (`GET /v1/runs/{runId}`, `runs.get` in the clients):
+A failed run says why in its `failure`. Read the run:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi runs get <run-id>
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs get <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs get <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs get <run-id>
+```
+
+</TabItem>
+</Tabs>
+
+`<run-id>` is the failed run's id. In the clients, it's `runs.get`, and over
+HTTP `GET /v1/runs/{runId}`. Here a guardrail halted an agent's turn:
 
 ```json
 {
@@ -40,16 +79,16 @@ turn (`GET /v1/runs/{runId}`, `runs.get` in the clients):
 ```
 
 - **`code`:** the error's own code, such as `guardrail-violation`,
-  `capability-routing-failed` or `budget-exceeded`; `run-failed` when it has
-  none.
+  `capability-routing-failed` or `budget-exceeded`. It's `run-failed` when
+  the error has none.
 - **`message`:** what happened.
-- **`reason`:** the error's own reason, when it gives one: for a turn whose
-  approval was cancelled (`hitl-cancelled`), `timeout` when nobody decided in
-  time.
+- **`reason`:** the error's own reason, when it gives one. A turn whose
+  approval was cancelled, `hitl-cancelled`, has `timeout` when nobody decided
+  in time.
 - **`cause`:** what the error came from, when it says. A turn that no model
   could serve, because the agent needs a feature no registered model has:
 
-  ```json
+  ```json excerpt
   "failure": {
     "code": "capability-routing-failed",
     "message": "No registered provider satisfies the capability declaration",
@@ -67,16 +106,30 @@ meant for the runtime.
 
 ## A project's failed runs, by cause and version
 
+Counting a window's failed runs by cause and version shows a version that
+fails in a new way as a line of its own. Ask your coding agent: "I want my
+app to count a project's failed runs from the last week, by cause and
+version." For reference, this function prints a project's failed runs of the
+last week:
+
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```ts
-const to = new Date();
-const from = new Date(to.getTime() - 7 * 24 * 60 * 60 * 1000); // the last week
-const failures = await kindgi.runs.failures({ projectId, from, to });
-for (const g of failures.groups) console.log(g.code, g.subject.id, g.version, g.count);
-for (const g of failures.outcomes) console.log(g.code, g.subject.id, g.version, g.count);
-for (const g of failures.unrecorded) console.log('unrecorded', g.subject.id, g.version, g.count);
+// app/failures.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
+/** Prints a project's failed runs of the last week, by cause and version. */
+export async function printFailures(projectId: string) {
+  const to = new Date();
+  const from = new Date(to.getTime() - 7 * 24 * 60 * 60 * 1000); // the last week
+  const failures = await kindgi.runs.failures({ projectId, from, to });
+  for (const g of failures.groups) console.log(g.code, g.subject.id, g.version, g.count);
+  for (const g of failures.outcomes) console.log(g.code, g.subject.id, g.version, g.count);
+  for (const g of failures.unrecorded) console.log('unrecorded', g.subject.id, g.version, g.count);
+}
 ```
 
 ```text
@@ -90,18 +143,26 @@ unrecorded acme.refunds 1.0.0 2
 <TabItem label="Python">
 
 ```python
+# app/failures.py
 from datetime import datetime, timedelta, timezone
 
-to = datetime.now(timezone.utc)
-failures = kindgi.runs.failures(
-    project_id=project_id, from_=(to - timedelta(days=7)).isoformat(), to=to.isoformat()
-)
-for g in failures.groups:
-    print(g.code, g.subject.id, g.version, g.count)
-for g in failures.outcomes:
-    print(g.code, g.subject.id, g.version, g.count)
-for g in failures.unrecorded:
-    print("unrecorded", g.subject.id, g.version, g.count)
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
+
+
+def print_failures(project_id: str) -> None:
+    """Prints a project's failed runs of the last week, by cause and version."""
+    to = datetime.now(timezone.utc)
+    failures = kindgi.runs.failures(
+        project_id=project_id, from_=(to - timedelta(days=7)).isoformat(), to=to.isoformat()
+    )
+    for g in failures.groups:
+        print(g.code, g.subject.id, g.version, g.count)
+    for g in failures.outcomes:
+        print(g.code, g.subject.id, g.version, g.count)
+    for g in failures.unrecorded:
+        print("unrecorded", g.subject.id, g.version, g.count)
 ```
 
 ```text
@@ -112,14 +173,105 @@ unrecorded acme.refunds 1.0.0 2
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/Failures.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.FailureGroup;
+import com.kindgi.client.models.RunFailureGroups;
+import com.kindgi.client.resources.RunsFailuresParams;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+
+public final class Failures {
+  private static final Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
+  /** Prints a project's failed runs of the last week, by cause and version. */
+  public static void printFailures(String projectId) {
+    OffsetDateTime to = OffsetDateTime.now(ZoneOffset.UTC);
+    OffsetDateTime from = to.minusDays(7); // the last week
+    RunFailureGroups failures = kindgi.runs().failures(
+        RunsFailuresParams.builder().projectId(projectId).from(from).to(to).build());
+    for (FailureGroup g : failures.groups()) {
+      System.out.println(g.code() + " " + g.subject().id() + " " + g.version() + " " + g.count());
+    }
+    for (FailureGroup g : failures.outcomes()) {
+      System.out.println(g.code() + " " + g.subject().id() + " " + g.version() + " " + g.count());
+    }
+    for (FailureGroup g : failures.unrecorded()) {
+      System.out.println("unrecorded " + g.subject().id() + " " + g.version() + " " + g.count());
+    }
+  }
+
+  private Failures() {}
+}
+```
+
+On a project where two turns of `acme.echo-agent` failed because their
+conversation was closed, and two runs of `acme.review-order` failed, it
+prints:
+
+```text
+conversation-closed acme.echo-agent 0.1.0 2
+run-failed acme.review-order 0.1.0 2
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/Failures.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.resources.RunsFailuresParams
+import java.time.{OffsetDateTime, ZoneOffset}
+import scala.jdk.CollectionConverters._
+
+object Failures {
+  private val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
+
+  /** Prints a project's failed runs of the last week, by cause and version. */
+  def printFailures(projectId: String): Unit = {
+    val to = OffsetDateTime.now(ZoneOffset.UTC)
+    val from = to.minusDays(7) // the last week
+    val failures = kindgi.runs().failures(
+      RunsFailuresParams.builder().projectId(projectId).from(from).to(to).build())
+    for (g <- failures.groups.asScala) {
+      println(s"${g.code} ${g.subject.id} ${g.version} ${g.count}")
+    }
+    for (g <- failures.outcomes.asScala) {
+      println(s"${g.code} ${g.subject.id} ${g.version} ${g.count}")
+    }
+    for (g <- failures.unrecorded.asScala) {
+      println(s"unrecorded ${g.subject.id} ${g.version} ${g.count}")
+    }
+  }
+}
+```
+
+On a project where two turns of `acme.echo-agent` failed because their
+conversation was closed, and two runs of `acme.review-order` failed, it
+prints:
+
+```text
+conversation-closed acme.echo-agent 0.1.0 2
+run-failed acme.review-order 0.1.0 2
+```
+
+</TabItem>
 </Tabs>
 
 In this project, version 1.1.0 of `acme.refunds` had three turns halted by a
 guardrail, and `acme.vision` one turn no model could serve. A reviewer
-rejected a turn of `acme.desk`. Two turns of `acme.refunds` 1.0.0 failed on a
-runtime from before 0.1.6, which didn't record causes.
+rejected a turn of `acme.desk`. Two turns of `acme.refunds` 1.0.0 failed with
+no cause recorded.
 
-The answer in full (`GET /v1/runs/failures?projectId=…&from=…&to=…`):
+The answer in full, as `GET /v1/runs/failures?projectId=…&from=…&to=…`
+gives it:
 
 ```json
 {
@@ -171,15 +323,15 @@ The answer in full (`GET /v1/runs/failures?projectId=…&from=…&to=…`):
 ```
 
 - **`groups`:** failed runs with the same cause (`code`), subject and version,
-  the most first. The subject is an agent (its turns) or a flow (its runs), and
-  the version is the agent's or the flow's. `count` is how many failed in the
-  window, `firstSeen` and `lastSeen` when the first and the latest did, and
-  `exampleRunId` is the latest, to open.
-- **`outcomes`:** people's decisions, which aren't errors: a turn a reviewer
-  rejected (`hitl-rejected`), or whose approval was cancelled
-  (`hitl-cancelled`, with `reason: "timeout"` when nobody decided in time).
-- **`unrecorded`:** runs that failed on a runtime from before 0.1.6, which
-  didn't record a cause. They're counted by subject and version only.
+  the most first. The subject is an agent, for its turns, or a flow, for its
+  runs. The version is the agent's or the flow's. `count` is how many failed
+  in the window. `firstSeen` and `lastSeen` are when the first and the latest
+  did, and `exampleRunId` is the latest, to open.
+- **`outcomes`:** people's decisions, which aren't errors. A turn a reviewer
+  rejected is `hitl-rejected`. A turn whose approval was cancelled is
+  `hitl-cancelled`, with `reason: "timeout"` when nobody decided in time.
+- **`unrecorded`:** failed runs with no cause recorded, such as runs an
+  older runtime ran. They're counted by subject and version only.
 - **`total`:** every failed run in the three lists.
 
 What's counted:
@@ -189,7 +341,7 @@ What's counted:
   inside a flow counts under its agent, and the flow's run under the flow.
 - **Failed runs go with their retention,** so a window can hold fewer than
   failed then.
-- **Each list** holds 50 groups at most (`limit`, up to 200).
+- **Each list** holds 50 groups at most. `limit` raises it, up to 200.
 
 It needs `read` on the project.
 
@@ -227,15 +379,16 @@ It needs `read` on the project.
 }
 ```
 
-`groupBy: ['code']` groups by cause alone, across versions; the default is
+`groupBy: ['code']` groups by cause alone, across versions. The default is
 both.
 
 ## In the console
 
-A project's **What failed** page, under **Runs**, shows the same read for 24
-hours, 7, 30 or 90 days. On the runs above it says "In the last 7 days, 7
-runs failed: 4 errors (in 2 groups), 1 people's decision on approvals, 2
-from before causes were recorded.", then a table for each kind:
+A project's **What failed** page, under **Runs**, shows the same count for
+24 hours, or 7, 30 or 90 days. For a project with seven failed runs in the
+last week, it says "In the last 7 days, 7 runs failed: 4 errors (in 2
+groups), 1 people's decision on approvals, 2 from before causes were
+recorded.", then a table for each kind:
 - **Errors,** by cause and version: "A guardrail blocked the answer." for
   acme.refunds 1.1.0, 3 runs; "No model provider could take the call." for
   acme.vision 1.0.0, 1 run.
@@ -244,15 +397,15 @@ from before causes were recorded.", then a table for each kind:
 - **From before causes were recorded:** "These failed on a runtime that didn't
   record why; each run's page shows its message."
 
-Each row opens its latest run and its failed runs. [List runs](../list-runs/#what-failed)
-has the rest of the page.
+Each row opens its latest run and its failed runs.
+[What failed](../list-runs/#what-failed) has the rest of the page.
 
 ![What failed for the last 7 days: 7 runs failed; Errors: A guardrail blocked the answer. (guardrail-violation, acme.refunds 1.1.0, 3 runs) and No model provider could take the call. (capability-routing-failed, acme.vision 1.0.0, 1 run); People's decisions on approvals: A reviewer rejected it. (hitl-rejected, acme.desk 1.0.0, 1 run); From before causes were recorded: acme.refunds 1.0.0, 2 runs. Each table has sortable headers and a Columns button.](../../../../assets/runs/failures-what-failed.png)
 
 A failed run's page names its cause in the same words, then the runtime's
-own and the code. A turn a guardrail halted keeps the answer back ("Blocked
+own and the code. A turn a guardrail halted keeps the answer back: "Blocked
 by a guardrail, not sent: the answer the model wrote", with **Show what was
-blocked**) and names the guardrail:
+blocked**. It names the guardrail:
 
 ```text
 A guardrail blocked the answer.
@@ -262,3 +415,9 @@ Code guardrail-violation
 ```
 
 ![A halted turn's page: acme.refunds 1.1.0, Failed; "Blocked by a guardrail, not sent: the answer the model wrote" with Show what was blocked; then A guardrail blocked the answer., the runtime's message, Guardrail: acme.no-secret and Code guardrail-violation.](../../../../assets/runs/failures-run-halted.png)
+
+## Next
+
+- [Read a run's journal](../read-the-journal/)
+- [List runs](../list-runs/)
+- [Configure a guardrail](../../guardrails/configure-a-guardrail/)

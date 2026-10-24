@@ -9,11 +9,11 @@
   <groupId>com.kindgi</groupId>
   <artifactId>kindgi-java-parent</artifactId>
   <!-- Moves in lockstep with the npm packages and the Python SDK. -->
-  <version>0.1.6</version>
+  <version>0.1.10</version>
   <packaging>pom</packaging>
 
   <name>Kindgi Java SDK (parent)</name>
-  <description>Java SDK for Kindgi™: call the Kindgi API from a Java app, and write a pack's tools in Java or Scala. In preview: tested and supported, but the API may still change in 0.1.6 without the usual deprecation period.</description>
+  <description>Java SDK for Kindgi™: call the Kindgi API from a Java app, and write a pack's tools in Java or Scala. In preview: tested and supported, but the API may still change in a later release without the usual deprecation period.</description>
   <url>https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java</url>
   <inceptionYear>2026</inceptionYear>
   <organization>

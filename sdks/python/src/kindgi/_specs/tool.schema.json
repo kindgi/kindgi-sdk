@@ -68,6 +68,10 @@
       "type": "boolean",
       "description": "Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use."
     },
+    "needsApprovalWhenUnattended": {
+      "type": "boolean",
+      "description": "`true` when a person must say yes to every call of this tool in a run no person started (a schedule, a webhook, an event or a service account's key started it). In such a run an agent's call waits for a person's yes whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`. Optional additive field."
+    },
     "limits": {
       "type": "object",
       "additionalProperties": false,

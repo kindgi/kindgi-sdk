@@ -9,12 +9,12 @@
   <parent>
     <groupId>com.kindgi</groupId>
     <artifactId>kindgi-java-parent</artifactId>
-    <version>0.1.6</version>
+    <version>0.1.10</version>
   </parent>
 
   <artifactId>kindgi-pack</artifactId>
   <name>Kindgi Java packs</name>
-  <description>Write a Kindgi™ pack's tools and guardrail checks in Java: define them, index the pack, and serve them to the Kindgi runtime over the pack protocol. In preview: tested and supported, but the API may still change in 0.1.6 without the usual deprecation period.</description>
+  <description>Write a Kindgi™ pack's tools and guardrail checks in Java: define them, index the pack, and serve them to the Kindgi runtime over the pack protocol. In preview: tested and supported, but the API may still change in a later release without the usual deprecation period.</description>
 
   <properties>
     <!--
@@ -137,6 +137,7 @@
         <includes>
           <include>pack-index.schema.json</include>
           <include>flow.schema.json</include>
+          <include>tool.schema.json</include>
         </includes>
       </resource>
     </resources>

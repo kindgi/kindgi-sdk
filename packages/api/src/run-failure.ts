@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { parseFailureMessage } from '@kindgi/agents';
+import { type InvokeAgentError, parseFailureMessage } from '@kindgi/agents';
 
 /** Why a run failed, on the wire (`Run.failure`). */
 export interface RunFailure {
@@ -16,6 +16,38 @@ export interface RunFailure {
    * Absent from an older runtime, and from errors without one: read `code`.
    */
   readonly reason?: string;
+  /**
+   * The error's own facts, for a code that has them: for
+   * `rate-limit-exceeded`, `limit` and `budgetMs`, as the API's 429 names
+   * them. Never a wait: one read back later is stale. Absent for any
+   * other code, and from an older runtime.
+   */
+  readonly details?: Readonly<Record<string, unknown>>;
+}
+
+/** A field of the turn error with code `C`, other than the ones a `RunFailure` has. */
+type Detail<C extends InvokeAgentError['code']> = Exclude<
+  Extract<keyof Extract<InvokeAgentError, { readonly code: C }>, string>,
+  'code' | 'message' | 'cause' | 'reason'
+>;
+
+/**
+ * The fields a turn's error keeps in `details` when its run is read back,
+ * by code. Only these: an error's other fields can hold the turn's
+ * content (a tool's input), and a wait (`retryAfterMs`) is stale by then.
+ */
+const DETAILS_BY_CODE: { readonly [C in InvokeAgentError['code']]?: readonly Detail<C>[] } = {
+  'rate-limit-exceeded': ['limit', 'budgetMs'],
+};
+
+/** `error`'s `DETAILS_BY_CODE` fields that it has, or `undefined` for none. */
+function detailsOf(error: InvokeAgentError): Readonly<Record<string, unknown>> | undefined {
+  const fields: readonly string[] = DETAILS_BY_CODE[error.code] ?? [];
+  const own = error as unknown as Readonly<Record<string, unknown>>;
+  const details = Object.fromEntries(
+    fields.filter((field) => own[field] !== undefined).map((field) => [field, own[field]]),
+  );
+  return Object.keys(details).length > 0 ? details : undefined;
 }
 
 /**
@@ -35,11 +67,13 @@ export function runFailure(row: {
   const error = parseFailureMessage(raw);
   if (error !== undefined) {
     const { cause, reason } = error as { readonly cause?: unknown; readonly reason?: unknown };
+    const details = detailsOf(error);
     return {
       code: error.code,
       message: error.message,
       ...(cause !== undefined && cause !== null && { cause }),
       ...(typeof reason === 'string' && reason !== '' && { reason }),
+      ...(details !== undefined && { details }),
     };
   }
   return {

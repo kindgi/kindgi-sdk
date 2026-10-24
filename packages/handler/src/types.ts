@@ -119,19 +119,19 @@ export interface NodeContext {
    * exists so handlers can be written uniformly for runs with and
    * without authorization.
    *
-   * Not enforced in 0.1.7: the runtime doesn't yet decide these checks
-   * inside a run (route-level permissions apply). Planned for 0.1.8.
-   * The same goes for `can` and `check`.
+   * From runtime 0.1.8, the Kindgi runtime starts every run a person or
+   * a key starts with `authz`, so this, `can` and `check` are decided
+   * against the run's principal.
    */
   authorize(action: Action, resource: ResourceRef): Promise<void>;
   /**
    * Non-throwing check — returns a boolean. For conditional logic.
-   * Not enforced in 0.1.7 (see `authorize`).
+   * Decided as `authorize` is.
    */
   can(action: Action, resource: ResourceRef): Promise<boolean>;
   /**
    * Full Decision — for advanced cases needing reason/evidence.
-   * Not enforced in 0.1.7 (see `authorize`).
+   * Decided as `authorize` is.
    */
   check(action: Action, resource: ResourceRef): Promise<Decision>;
   /**

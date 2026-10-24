@@ -7,12 +7,29 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-A tool that is a single HTTP request needs no handler. You declare the
-request; Kindgi makes it on every call, fills the URL from the tool's input
-and adds the credential. The examples call httpbin.org, which echoes requests
-back, so they run without an account.
+This guide declares a tool that is one HTTP request, with no handler, and
+sends a credential with it.
+
+## Before you start
+
+- **A pack,** on a runtime such as `kindgi dev`, with Kindgi 0.2's CLI.
+  This guide uses the quickstart's pack, `my-pack`.
+- **A one-step flow for each tool,** to try it, built like the one in
+  [Write a tool](../write-a-tool/#try-it-from-a-flow). This guide uses
+  `my-pack.note-order` and `my-pack.try-token`.
+- **Access to httpbin.org,** which echoes requests back, so the examples run
+  without an account.
 
 ## Declare the request
+
+A tool that is a single HTTP request needs no handler. You declare the
+request. Kindgi makes it on every call, fills the URL from the tool's input
+and adds the credential.
+
+Ask your coding agent: "I want a tool that adds a note to an order with one
+HTTP request, no code." Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+tool looks like this. This guide calls it `my-pack.add-order-note`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -53,7 +70,7 @@ if (defined.kind === 'err') {
 export default defined.value;
 ```
 
-`spec` takes the place of `handler`; a tool has one or the other.
+`spec` takes the place of `handler`. A tool has one or the other.
 
 </TabItem>
 <TabItem label="Python">
@@ -91,30 +108,106 @@ add_order_note = http_tool(
 `http_tool` declares the tool at module level, like `@tool`, with no function.
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/mypack/tools/AddOrderNote.java
+package mypack.tools;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.kindgi.pack.Tool;
+import com.kindgi.pack.http.HttpMethod;
+import com.kindgi.pack.http.HttpToolSpec;
+import jakarta.validation.constraints.Size;
+
+public final class AddOrderNote {
+  public record Input(String orderId, @Size(min = 1) String text) {}
+
+  // The API answers with more fields than these; @JsonIgnoreProperties keeps them.
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public record Output(String method, String url) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("my-pack.add-order-note")
+      .description("Adds a note to an order.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      .effect("writes", "external:orders")
+      .http(HttpToolSpec.builder()
+          .method(HttpMethod.POST)
+          .urlTemplate("https://httpbin.org/anything/orders/{orderId}/notes")
+          .header("Accept", "application/json")
+          .timeoutMs(10_000)
+          .build());
+
+  private AddOrderNote() {}
+}
+```
+
+`.http(spec)` takes the place of `.handler`. A tool has one or the other.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/mypack/tools/AddOrderNote.scala
+package mypack.tools
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import com.kindgi.pack.http._
+import com.kindgi.pack.scaladsl._
+import jakarta.validation.constraints.Size
+
+object AddOrderNote {
+  final case class Input(orderId: String, @Size(min = 1) text: String)
+
+  // The API answers with more fields than these; @JsonIgnoreProperties keeps them.
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  final case class Output(method: String, url: String)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("my-pack.add-order-note")
+    .description("Adds a note to an order.")
+    .version("0.1.0")
+    .effect("writes", "external:orders")
+    .http(HttpToolSpec.builder()
+      .method(HttpMethod.POST)
+      .urlTemplate("https://httpbin.org/anything/orders/{orderId}/notes")
+      .header("Accept", "application/json")
+      .timeoutMs(10_000)
+      .build())
+}
+```
+
+`.http(spec)` takes the place of `.handler`, on a `val` of an object under
+`tools/` like any tool.
+
+</TabItem>
 </Tabs>
 
 - **The URL.** Each `{name}` in the URL template is filled from the input
-  field with that name (its wire name), URL-encoded. Every placeholder must be
-  an input field.
+  field with that wire name, URL-encoded. Every placeholder must be an input
+  field.
 - **The body.** A `POST`, `PUT`, `PATCH` or `DELETE` sends the input fields
   the URL didn't use, as JSON: here `{"text": …}`. A `GET` sends no body.
-  For another shape, set the request body: `input-passthrough` (the whole
-  input) or `text` with a template (sent as `text/plain`).
+  For another shape, set the request body. `input-passthrough` sends the
+  whole input. `text` sends a template's result as `text/plain`.
 - **The answer.** The response's JSON is the tool's output, checked against
   the output schema. A Zod `z.object` rejects fields it doesn't list, and
-  most APIs return more than you need, so use `z.looseObject` (TypeScript).
-  A pydantic model allows extra fields as it is.
-- **Failures.** A status outside 200 to 299 fails the call (change the range
-  with `successStatus` / `success_status`), as does a response slower than
-  the timeout (30 seconds by default). Kindgi doesn't retry.
+  most APIs return more than you need. So in TypeScript, use
+  `z.looseObject`. A pydantic model allows extra fields as it is. In Java and
+  Scala, annotate the output type `@JsonIgnoreProperties(ignoreUnknown = true)`
+  to keep the fields it doesn't list.
+- **Failures.** A status outside 200 to 299 fails the call. `successStatus`,
+  or `success_status` in Python, changes the range. A response slower than
+  the timeout fails it too: 30 seconds by default. Kindgi doesn't retry.
 
 The tool writes, so it doesn't say `mutating: false`. See
 [Mark a tool read-only](../read-only-tools/).
 
 ## Run it
 
-From `my-pack.note-order`, a one-step flow that calls the tool, built like
-the one in [Write a tool](../write-a-tool/#try-it-from-a-flow):
+Run the tool from `my-pack.note-order`, a one-step flow that calls it.
+`--flow` is the flow, and `--input` its input:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -128,6 +221,20 @@ pnpm exec kindgi runs start --flow=my-pack.note-order --input='{"orderId":"ord_1
 
 ```sh
 uv run kindgi runs start --flow=my-pack.note-order --input='{"orderId":"ord_1001","text":"Customer called"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=my-pack.note-order --input='{"orderId":"ord_1001","text":"Customer called"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=my-pack.note-order --input='{"orderId":"ord_1001","text":"Customer called"}'
 ```
 
 </TabItem>
@@ -162,16 +269,20 @@ uv run kindgi runs start --flow=my-pack.note-order --input='{"orderId":"ord_1001
 A request that fails fails the call, and the run's `failureMessage` says
 why: `got status 404 NOT FOUND`, or `timed out after 1000ms`.
 
-`timeoutMs` (30 seconds by default) covers the whole call, reading the
-answer included, and so does a run's cancel: a server that sends its
-headers and then stalls fails the call too. An answer longer than 10 MiB,
+`timeoutMs` covers the whole call, reading the answer included. It's 30
+seconds by default. A run's cancel covers the whole call too. So a server
+that sends its headers and then stalls fails the call. An answer longer than 10 MiB,
 counted after it's decompressed, fails the call:
 `http-tool "my-pack.add-order-note": the response body is longer than 10485760 bytes, the most this tool reads`.
 
 ## Send a credential
 
-`authorization` names a secret; Kindgi resolves it on every call and sends it
-as a header. Your code never holds the value.
+`authorization` names a secret. Kindgi resolves it on every call and sends
+it as a header. Your code never holds the value.
+
+Ask your coding agent: "I want a tool that checks the API accepts my token."
+For reference, the tool looks like this. It sends the secret
+`HTTPBIN_TOKEN`, which you store below:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -208,7 +319,7 @@ export default defined.value;
 </TabItem>
 <TabItem label="Python">
 
-```python
+```python excerpt
 # in tools/orders_api.py
 class NoInput(BaseModel):
     pass
@@ -231,6 +342,71 @@ check_token = http_tool(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/mypack/tools/CheckToken.java
+package mypack.tools;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.kindgi.pack.Tool;
+import com.kindgi.pack.http.HttpAuthSpec;
+import com.kindgi.pack.http.HttpMethod;
+import com.kindgi.pack.http.HttpToolSpec;
+import com.kindgi.pack.http.ToolSecretRef;
+
+public final class CheckToken {
+  public record Input() {}
+
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public record Output(boolean authenticated) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("my-pack.check-token")
+      .description("Checks that the API accepts our token.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      .mutating(false)
+      .http(HttpToolSpec.builder()
+          .method(HttpMethod.GET)
+          .urlTemplate("https://httpbin.org/bearer")
+          .authorization(new HttpAuthSpec.Bearer(new ToolSecretRef("local", "HTTPBIN_TOKEN")))
+          .build());
+
+  private CheckToken() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/mypack/tools/CheckToken.scala
+package mypack.tools
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import com.kindgi.pack.http._
+import com.kindgi.pack.scaladsl._
+
+object CheckToken {
+  final case class Input()
+
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  final case class Output(authenticated: Boolean)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("my-pack.check-token")
+    .description("Checks that the API accepts our token.")
+    .version("0.1.0")
+    .readOnly
+    .http(HttpToolSpec.builder()
+      .method(HttpMethod.GET)
+      .urlTemplate("https://httpbin.org/bearer")
+      .authorization(new HttpAuthSpec.Bearer(new ToolSecretRef("local", "HTTPBIN_TOKEN")))
+      .build())
+}
+```
+
+</TabItem>
 </Tabs>
 
 - `bearer` sends `Authorization: Bearer <value>`. For an API that wants the
@@ -238,12 +414,12 @@ check_token = http_tool(
   `{ kind: 'header', headerName: 'X-Api-Key', secretRef: … }`.
 - `secretRef` names the secret and the environment it lives in. Under
   `kindgi dev`, `local` is your app's `.env` and `.env.local`, then Kindgi's
-  own `.kindgi/secrets.env`; any other name is that environment's file,
+  own `.kindgi/secrets.env`. Any other name is that environment's file,
   `.env.<name>`.
 - A secret a header can't carry, such as a value pasted with a line break
   inside it, fails the call by its header's name, never showing the value:
 
-  ```json
+  ```json excerpt
   "message":"Tool \"acme.probe\" handler threw: http-tool \"acme.probe\": its secret local/K for the header \"X-Api-Key\" has a line break, which a header can't carry: store the secret without it"
   ```
 
@@ -251,14 +427,13 @@ check_token = http_tool(
 
 Until the secret exists, the call fails and names it:
 
-```json
+```json excerpt
   "status": "failed",
   "failureMessage": "handler-error: Tool \"my-pack.check-token\" handler threw: secret-unavailable: tool \"my-pack.check-token\" needs secret \"HTTPBIN_TOKEN\" in env \"local\": No secret \"HTTPBIN_TOKEN\" for env \"local\" in .env, .env.local, .kindgi/secrets.env at /pack",
 ```
 
-Store it (here from stdin; without `--from-stdin` the command prompts for it
-without echoing), then run `my-pack.try-token`, a one-step flow that calls
-the tool:
+Store it, then run `my-pack.try-token`, a one-step flow that calls the
+tool:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -277,7 +452,32 @@ uv run kindgi runs start --flow=my-pack.try-token --input='{}'
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```sh
+printf 'demo-token-123' | ./kindgiw secrets set HTTPBIN_TOKEN --env=local --scope=tenant --from-stdin
+./kindgiw runs start --flow=my-pack.try-token --input='{}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+printf 'demo-token-123' | ./kindgiw secrets set HTTPBIN_TOKEN --env=local --scope=tenant --from-stdin
+./kindgiw runs start --flow=my-pack.try-token --input='{}'
+```
+
+</TabItem>
 </Tabs>
+
+- **`--env=local`** is the env `kindgi dev` serves, and `--scope=tenant`
+  stores the secret for the whole tenant.
+- **`--from-stdin`** reads the value from the pipe. Without it, the command
+  prompts for the value without echoing it.
+
+The first command prints the secret's name, scope, environment and version
+as JSON, then that it set `HTTPBIN_TOKEN` at tenant in `local`. The run
+completes:
 
 ```json
   "status": "completed",
@@ -288,18 +488,26 @@ uv run kindgi runs start --flow=my-pack.try-token --input='{}'
   },
 ```
 
-The next call picks the secret up; nothing restarts. (httpbin echoes the
-token back; a real API doesn't.) [Store a secret](../../secrets/store-a-secret/)
-covers `kindgi secrets`.
+httpbin echoes the token back. A real API doesn't. The next call picks the
+secret up, and nothing restarts.
+[Store a secret](../../secrets/store-a-secret/) covers `kindgi secrets`.
 
 ## When to write a handler instead
 
 An HTTP tool is one request and its JSON answer. Paging, retries, several
 calls, or reshaping the answer belong in a [code tool](../write-a-tool/).
 
-In Python, calling an HTTP tool's object raises: Kindgi makes the request,
-not Python. Try it through `kindgi dev` instead of a unit test:
+In Python, Java and Scala, calling an HTTP tool in-process raises: Kindgi
+makes the request, not your SDK. Try it through `kindgi dev` instead of a unit
+test. In Python it's a `RuntimeError`; in Java and Scala, an
+`UnsupportedOperationException` that says the same:
 
 ```text
 RuntimeError: Tool "my-pack.add-order-note" is an HTTP tool: the Kindgi runtime makes its request, not Python. Call it through Kindgi (an agent, a flow, `kindgi dev`).
 ```
+
+## Next
+
+- [Give a tool a secret](../give-a-tool-a-secret/)
+- [Mark a tool read-only](../read-only-tools/)
+- [Write a tool](../write-a-tool/)

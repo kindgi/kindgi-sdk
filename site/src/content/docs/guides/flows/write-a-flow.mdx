@@ -13,8 +13,11 @@ agent, one flow.
 
 ## The tools
 
-`acme.get-order` only reads, so it says `mutating: false`.
-`acme.confirm-order` changes something, so it doesn't:
+Ask your coding agent: "I want a tool that looks up an order, and one that
+confirms an order with a note." Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+tools look like this. `acme.get-order` only reads, so it says
+`mutating: false`. `acme.confirm-order` changes something, so it doesn't:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -163,12 +166,134 @@ def confirm_order(input: ConfirmInput) -> Confirmed:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/tools/GetOrder.java
+package acme.tools;
+
+import com.kindgi.pack.Tool;
+import jakarta.validation.constraints.Size;
+import java.util.List;
+import java.util.Map;
+
+public final class GetOrder {
+  public record Input(@Size(min = 1) String orderId) {}
+
+  public record Item(String sku, int quantity) {}
+
+  public record Order(String orderId, String customer, double total, List<Item> items) {}
+
+  private static final Map<String, Order> ORDERS = Map.of(
+      "A-100", new Order("A-100", "ada@example.com", 42.5, List.of(new Item("mug", 2))),
+      "A-200", new Order("A-200", "grace@example.com", 1250,
+          List.of(new Item("desk", 1), new Item("lamp", 2))));
+
+  public static final Tool<Input, Order> TOOL = Tool.define("acme.get-order")
+      .description("Looks up an order by id.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Order.class)
+      .mutating(false) // only reads
+      .handler((input, ctx) -> {
+        Order order = ORDERS.get(input.orderId());
+        if (order == null) throw new IllegalArgumentException("No order " + input.orderId());
+        return order;
+      });
+
+  private GetOrder() {}
+}
+```
+
+```java
+// src/main/java/acme/tools/ConfirmOrder.java
+package acme.tools;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.kindgi.pack.Tool;
+import org.jspecify.annotations.Nullable;
+
+public final class ConfirmOrder {
+  public record Input(String orderId, @Nullable String note) {}
+
+  public enum Status {
+    @JsonProperty("confirmed") CONFIRMED
+  }
+
+  public record Confirmed(String orderId, Status status, @Nullable String note) {}
+
+  public static final Tool<Input, Confirmed> TOOL = Tool.define("acme.confirm-order")
+      .description("Confirms an order and emails the customer.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Confirmed.class)
+      // no mutating(false): it changes something
+      .handler((input, ctx) -> new Confirmed(input.orderId(), Status.CONFIRMED, input.note()));
+
+  private ConfirmOrder() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/tools/GetOrder.scala
+package acme.tools
+
+import com.kindgi.pack.scaladsl._
+import jakarta.validation.constraints.Size
+
+object GetOrder {
+  final case class Input(@Size(min = 1) orderId: String)
+  final case class Item(sku: String, quantity: Int)
+  final case class Order(orderId: String, customer: String, total: Double, items: Seq[Item])
+
+  private val orders = Map(
+    "A-100" -> Order("A-100", "ada@example.com", 42.5, Seq(Item("mug", 2))),
+    "A-200" -> Order("A-200", "grace@example.com", 1250, Seq(Item("desk", 1), Item("lamp", 2))))
+
+  val tool: Tool[Input, Order] = Tool[Input, Order]("acme.get-order")
+    .description("Looks up an order by id.")
+    .version("0.1.0")
+    .readOnly // only reads
+    .handler((in, _) =>
+      orders.getOrElse(in.orderId, throw new NoSuchElementException(s"No order ${in.orderId}")))
+}
+```
+
+```scala
+// src/main/scala/acme/tools/ConfirmOrder.scala
+package acme.tools
+
+import com.kindgi.pack.scaladsl._
+
+object ConfirmOrder {
+  final case class Input(orderId: String, note: Option[String])
+
+  enum Status {
+    case confirmed
+  }
+
+  final case class Confirmed(orderId: String, status: Status, note: Option[String])
+
+  val tool: Tool[Input, Confirmed] = Tool[Input, Confirmed]("acme.confirm-order")
+    .description("Confirms an order and emails the customer.")
+    .version("0.1.0")
+    // no readOnly: it changes something
+    .handler((in, _) => Confirmed(in.orderId, Status.confirmed, in.note))
+}
+```
+
+</TabItem>
 </Tabs>
 
 ## The agent
 
-The agent has no tools: it reads the order's customer and total from its
-input and answers with one sentence.
+Ask your coding agent: "I want an agent that writes a one-sentence thank-you
+note for an order." For reference, the agent looks like this. It has no tools:
+it reads the order's customer and total from its input and answers with one
+sentence:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -220,9 +345,61 @@ note_writer = Agent(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/agents/NoteWriter.java
+package acme.agents;
+
+import com.kindgi.pack.Agent;
+import java.util.List;
+import java.util.Map;
+
+public final class NoteWriter {
+  public static final Agent AGENT = Agent.define("acme.note-writer")
+      .version("0.1.0")
+      .name("Note writer")
+      .description("Writes a one-sentence thank-you note for an order.")
+      .instructions("Write a one-sentence thank-you note to {{ input.customer }} for their order of "
+          + "{{ input.total }} USD. Answer with the note only.")
+      .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
+      .set("budget", Map.of("maxSteps", 2, "maxCostUsd", 0.05, "maxWallMs", 30_000))
+      .build();
+
+  private NoteWriter() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/agents/NoteWriter.scala
+package acme.agents
+
+import com.kindgi.pack.scaladsl._
+
+object NoteWriter {
+  val agent: Agent = Agent("acme.note-writer")
+    .version("0.1.0")
+    .name("Note writer")
+    .description("Writes a one-sentence thank-you note for an order.")
+    .instructions("Write a one-sentence thank-you note to {{ input.customer }} for their order of " +
+      "{{ input.total }} USD. Answer with the note only.")
+    .capability(Map("needs" -> Seq(Map("feature" -> "tool-use"))))
+    .set("budget", Map("maxSteps" -> 2, "maxCostUsd" -> 0.05, "maxWallMs" -> 30000))
+    .build()
+}
+```
+
+</TabItem>
 </Tabs>
 
 ## The flow
+
+Ask your coding agent: "I want a flow that looks up an order, has the agent
+write a thank-you note, then confirms the order with that note." For
+reference, the flow looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -323,11 +500,104 @@ process_order = Flow(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/flows/ProcessOrder.java
+package acme.flows;
+
+import acme.agents.NoteWriter;
+import acme.tools.ConfirmOrder;
+import acme.tools.GetOrder;
+import com.kindgi.pack.Flow;
+import java.util.Map;
+
+public final class ProcessOrder {
+  public static final Flow FLOW = Flow.define("acme.process-order")
+      .version("0.1.0")
+      .set("name", "Process an order")
+      .set("description", "Looks up an order, writes a thank-you note, and confirms the order with it.")
+      .node(Map.of(
+          "id", "order",
+          "kind", "tool",
+          "ref", GetOrder.TOOL,
+          "inputMapping", Map.of("orderId", Map.of("path", "runInput.orderId"))))
+      .node(Map.of(
+          "id", "note",
+          "kind", "agent",
+          "ref", NoteWriter.AGENT,
+          "inputMapping", Map.of(
+              "customer", Map.of("path", "nodeOutputs.order.customer"),
+              "total", Map.of("path", "nodeOutputs.order.total"))))
+      .node(Map.of(
+          "id", "confirm",
+          "kind", "tool",
+          "ref", ConfirmOrder.TOOL,
+          "inputMapping", Map.of(
+              "orderId", Map.of("path", "runInput.orderId"),
+              "note", Map.of("path", "nodeOutputs.note.text"))))
+      .edge("e1", "$start", "order")
+      .edge("e2", "order", "note")
+      .edge("e3", "note", "confirm")
+      .edge("e4", "confirm", "$end")
+      .build();
+
+  private ProcessOrder() {}
+}
+```
+
+A step with no `inputMapping` can be shorter: `.toolNode("order", GetOrder.TOOL)`
+or `.agentNode("note", NoteWriter.AGENT)`.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/flows/ProcessOrder.scala
+package acme.flows
+
+import acme.agents.NoteWriter
+import acme.tools.{ConfirmOrder, GetOrder}
+import com.kindgi.pack.scaladsl._
+
+object ProcessOrder {
+  val flow: Flow = Flow("acme.process-order")
+    .version("0.1.0")
+    .set("name", "Process an order")
+    .set("description", "Looks up an order, writes a thank-you note, and confirms the order with it.")
+    .node(Map(
+      "id" -> "order",
+      "kind" -> "tool",
+      "ref" -> GetOrder.tool,
+      "inputMapping" -> Map("orderId" -> Map("path" -> "runInput.orderId"))))
+    .node(Map(
+      "id" -> "note",
+      "kind" -> "agent",
+      "ref" -> NoteWriter.agent,
+      "inputMapping" -> Map(
+        "customer" -> Map("path" -> "nodeOutputs.order.customer"),
+        "total" -> Map("path" -> "nodeOutputs.order.total"))))
+    .node(Map(
+      "id" -> "confirm",
+      "kind" -> "tool",
+      "ref" -> ConfirmOrder.tool,
+      "inputMapping" -> Map(
+        "orderId" -> Map("path" -> "runInput.orderId"),
+        "note" -> Map("path" -> "nodeOutputs.note.text"))))
+    .edge("e1", "$start", "order")
+    .edge("e2", "order", "note")
+    .edge("e3", "note", "confirm")
+    .edge("e4", "confirm", "$end")
+    .build()
+}
+```
+
+</TabItem>
 </Tabs>
 
 - **`nodes`** are the steps. Each has an `id` (unique in the flow), a `kind`
-  and a `ref`: the id of the tool or agent it runs. In Python, `ref` can also
-  be the `Tool` or `Agent` object you import.
+  and a `ref`: the id of the tool or agent it runs. In Python, Java and Scala,
+  `ref` can also be the tool or agent itself.
 - **`edges`** connect them. `$start` and `$end` are where the run enters and
   leaves; an edge without a condition fires when its source step completes.
 - **`inputMapping`** builds each step's input from the run's input
@@ -343,9 +613,36 @@ doesn't have is refused before anything runs.
 
 With `kindgi dev` running in the pack, start a run from a second terminal:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.process-order --input='{"orderId":"A-100"}'
+pnpm exec kindgi runs start --flow=acme.process-order --input='{"orderId":"A-100"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.process-order --input='{"orderId":"A-100"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.process-order --input='{"orderId":"A-100"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.process-order --input='{"orderId":"A-100"}'
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {

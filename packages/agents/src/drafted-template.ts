@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Liquid } from 'liquidjs';
-
 import type { BlockIssue, PromptBlockContent } from './blocks.js';
+import { templateProblem, tenantLiquid } from './liquid.js';
 
 /**
  * What a drafted prompt template (an improvement pass's candidate) is
@@ -28,10 +27,10 @@ const HARMLESS_VARS: ReadonlySet<string> = new Set(['today', 'now', 'agent', 'co
 /** A dotted id (`acme.export`): two or more segments, the first at least two characters. */
 const DOTTED_ID = /\b[a-z][a-z0-9_-]+(?:\.[a-z0-9_-]+)+\b/gi;
 
-const liquid = new Liquid();
-
 function rootsOf(template: string): Array<readonly (string | number)[]> {
-  return liquid.globalVariableSegmentsSync(template).map((s) => s as readonly (string | number)[]);
+  return tenantLiquid()
+    .globalVariableSegmentsSync(template)
+    .map((s) => s as readonly (string | number)[]);
 }
 
 /**
@@ -40,7 +39,8 @@ function rootsOf(template: string): Array<readonly (string | number)[]> {
  * judges' reasons and case data, so a template is held to what the agent
  * already has, whatever the model was told:
  *
- *   - it parses as Liquid;
+ *   - it passes the check every template passes (`templateProblem`):
+ *     Liquid the renderer parses, no partials, within the bounds;
  *   - the variables it reads are the declared parameters, the variables
  *     the current template reads, the turn's clock and identity, and
  *     `settings["<id>"]` of a settings block the version pins;
@@ -55,29 +55,25 @@ export function checkDraftedTemplate(
   context: DraftedTemplateContext,
 ): BlockIssue[] {
   const current = context.current.template;
-  const issues: BlockIssue[] = [];
   if (candidate.trim() === '') return [{ path: '/template', message: 'the template is empty' }];
   if (candidate === current) {
     return [{ path: '/template', message: 'the template is the current one' }];
   }
+  // Too long is refused before it's parsed.
   const max = Math.min(DRAFTED_TEMPLATE_MAX, Math.max(2 * current.length, 2000));
   if (candidate.length > max) {
-    issues.push({
-      path: '/template',
-      message: `the template is ${candidate.length} characters; at most ${max} (twice the current one)`,
-    });
+    return [
+      {
+        path: '/template',
+        message: `the template is ${candidate.length} characters; at most ${max} (twice the current one)`,
+      },
+    ];
   }
+  const problem = templateProblem(candidate);
+  if (problem !== undefined) return [{ path: '/template', message: problem }];
 
-  let read: Array<readonly (string | number)[]>;
-  try {
-    read = rootsOf(candidate);
-  } catch (cause) {
-    issues.push({
-      path: '/template',
-      message: `the template isn't valid Liquid: ${cause instanceof Error ? cause.message : String(cause)}`,
-    });
-    return issues;
-  }
+  const issues: BlockIssue[] = [];
+  const read = rootsOf(candidate);
   const parameters = new Set((context.current.parameters ?? []).map((p) => p.name));
   let currentRoots: Set<string>;
   try {

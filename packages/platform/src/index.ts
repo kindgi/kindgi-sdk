@@ -16,8 +16,8 @@ export { scopeKey } from './scope.js';
 export type {
   OrgBinding,
   OrgCreateOutcome,
+  OrgDeleteOutcome,
   OrgListFilter,
-  OrgDeleteConflict,
   OrgUpdateOutcome,
 } from './org-binding.js';
 export type {
@@ -33,11 +33,13 @@ export type {
 export type {
   ProjectBinding,
   ProjectCreateOutcome,
+  ProjectDeleteOutcome,
   ProjectListFilter,
   ProjectMembershipAddInput,
   ProjectMembershipAddOutcome,
   ProjectMembershipBinding,
   ProjectMembershipUpdateRoleOutcome,
+  ProjectProductionOutcome,
   ProjectUpdateOutcome,
 } from './project-binding.js';
 export type {
@@ -51,7 +53,10 @@ export {
   makeInMemoryTeamBinding,
   makeInMemoryProjectBinding,
 } from './in-memory/index.js';
-export type { InMemoryHierarchyOptions } from './in-memory/index.js';
+export type {
+  InMemoryHierarchyOptions,
+  InMemoryOrgBindingOptions,
+} from './in-memory/index.js';
 
 export type {
   AddProjectMemberError,
@@ -71,9 +76,12 @@ export type {
   RemoveProjectMemberParams,
   RemoveTeamMemberParams,
   RemoveTeamProjectGrantParams,
+  RenameTenantOutcome,
+  RenameTenantParams,
   TeamProjectGrantParams,
   TeamProjectGrantUpdateRoleOutcome,
   TenantHierarchyBinding,
+  TenantLimits,
   TenantSummary,
   UpdateProjectMemberRoleParams,
   UpdateTeamMemberRoleParams,

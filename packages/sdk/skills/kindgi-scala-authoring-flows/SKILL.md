@@ -16,7 +16,7 @@ description: >
   kindgi-scala-authoring-agents.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.0"
+version: "0.1.2"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -32,7 +32,7 @@ sources:
 > `kindgi <command>` below runs as `./kindgiw <command>`.
 >
 > Scala support is in preview: tested and supported, but the API may still
-> change in 0.1.6 without the usual deprecation period.
+> change in a later release without the usual deprecation period.
 
 A **flow** is a versioned, durable graph of steps: tools (your code) and
 agents (a model's judgment), joined by edges that can carry conditions. It
@@ -228,6 +228,12 @@ object TriageTicket {
   `outputSchema`). `convergence` decides the result: `all-succeed`,
   `any-succeed` (the first success wins), or `settle-all` (wait for every
   branch and report each).
+  Every branch gets the fanout's whole input: the output of the step
+  before it (the run input after `$start`). A case class refuses
+  properties it doesn't name, so when a branch tool takes only some of
+  them, its input case class says `@JsonIgnoreProperties(ignoreUnknown = true)`
+  (`com.fasterxml.jackson.annotation`). Without it, the branch fails with
+  `input-validation-failed`.
 - **A sub-flow** (`"kind" -> "subgraph"`) is part of the flow schema, but a
   run refuses it today (`flow-unbound`). Inline the steps instead.
 

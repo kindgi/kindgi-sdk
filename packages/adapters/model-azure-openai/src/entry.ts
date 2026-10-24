@@ -61,6 +61,7 @@ export const azureOpenAIAdapterFactory: AdapterFactory = (input) => {
     ...(input.config !== undefined && { config: input.config }),
     hasSecretRef: input.resolveApiKey !== undefined,
     identities: identitiesPresent(input.identities),
+    ...(input.serverCredentials !== undefined && { serverCredentials: input.serverCredentials }),
   });
   if (read.kind === 'err') {
     throw adapterConfigError(

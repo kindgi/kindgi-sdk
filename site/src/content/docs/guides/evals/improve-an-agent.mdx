@@ -5,23 +5,39 @@ sidebar:
   order: 7
 ---
 
+This guide has a pass search for better settings or a better prompt for an
+agent version, within a budget, and write its best candidate as a proposal a
+person reviews.
+
 An **improvement pass** does the search a [proposal](../propose-a-change/)
 starts from. It tries candidates on part of a test set, within a budget,
 proves the best one on the rest, and writes it as a proposal only when it's
 better. A person still decides: the proposal waits for a reviewer.
 
-A pass needs what a proposal does: an agent whose prompt or settings are
-data blocks, a judged test set, a live version of the agent for the whole
-tenant (`proposal-needs-pin` otherwise), and a deployed runtime
-(`registry-read-only` under `kindgi dev`). Starting one needs `publish` on
-the agent.
+## Before you start
+
+A pass needs what a proposal does, as
+[Propose a change, and test it](../propose-a-change/#before-you-start)
+lists:
+
+- **an agent whose prompt or settings are data blocks;**
+- **a judged test set;**
+- **a live version of the agent for the whole tenant.** Without one, the
+  pass is refused with `proposal-needs-pin`;
+- **a deployed runtime,** with Kindgi 0.2's CLI. Under `kindgi dev`, it's
+  refused with `registry-read-only`;
+- **`publish` on the agent,** to start one.
 
 ## Mark what a pass may tune
 
-A settings pass changes only the keys a settings block's schema marks with
-`"x-kindgi-tunable": true`: a number or an integer with a `minimum` below its
-`maximum`, or an `enum`. Any other mark is refused when the block is
-published.
+A pass changes only what you let it. A settings pass changes only the keys a
+settings block's schema marks with `"x-kindgi-tunable": true`: a number or an
+integer with a `minimum` below its `maximum`, or an `enum`. Any other mark is
+refused when the block is published.
+
+Ask your coding agent: "Let an improvement pass tune my reply length and
+tone, but not the refund limit." For reference, it marks them in the settings
+block's schema like this:
 
 ```json
 {
@@ -35,25 +51,29 @@ published.
 ```
 
 Here a pass may try other sentence limits and tones, and never touches the
-refund limit. Publish the schema with the block's next version
-(`kindgi blocks publish … --schema=@reply-style.schema.json`,
-[Publish the blocks](../change-a-prompt-or-setting/#publish-the-blocks)).
-A version that pins no block with a marked key has nothing to tune, and the
-pass is refused, saying so.
+refund limit. Publish the schema with the block's next version, with
+`kindgi blocks publish … --schema=@reply-style.schema.json`, as
+[Publish the blocks](../change-a-prompt-or-setting/#publish-the-blocks)
+shows. A version that pins no block with a marked key has nothing to tune,
+and the pass is refused, saying so.
 
 ## Start a pass
 
+A pass searches for a better version of the agent's marked settings:
+
 ```sh
-kindgi proposals improve --agent=acme.rank.scorer --tenant --test-set=acme.rank-prompt-52080 --max-candidates=4 --wait
+pnpm exec kindgi proposals improve --agent=acme.rank.scorer --tenant --test-set=acme.rank-prompt-52080 --max-candidates=4 --wait
 ```
 
+- **The agent and scope:** `--agent` and `--tenant`, or another scope flag.
 - **The version** is the one serving the scope, unless `--from-version` names
   another.
-- **The budget:** `--max-cost` in US dollars (default 5, at most 100) and
-  `--max-candidates` (default 30, at most 200). A pass stops at whichever it
-  reaches first. It checks the cost between comparisons, so the one already
-  running can take it a little over `--max-cost`.
-- **What better means:** `--objective`, `weightedYesShare` (the default) or
+- **The test set:** `--test-set`, a judged one.
+- **The budget:** `--max-cost` in US dollars, 5 by default and at most 100,
+  and `--max-candidates`, 30 by default and at most 200. A pass stops at
+  whichever it reaches first. It checks the cost between comparisons, so the
+  one already running can take it a little over `--max-cost`.
+- **What better means:** `--objective`, `weightedYesShare` by default or
   `weightedPrecisionAtK`, as in a
   [comparison](../compare-an-agent-version/#read-the-result).
 - **How it decides:** it searches on 70% of the test set's cases and proves
@@ -61,25 +81,26 @@ kindgi proposals improve --agent=acme.rank.scorer --tenant --test-set=acme.rank-
   candidate that beats the recorded outputs there, by more than the noise,
   becomes a proposal.
 
-It answers at once with the pass. `--wait` waits for its outcome (at most 30
-minutes) and prints it:
+It answers at once with the pass. `--wait` waits for its outcome, at most 30
+minutes, and prints it:
 
-- **`proposed`**, with the proposal it wrote, which a reviewer decides
-  (`kindgi proposals request <proposal-id>`, then the approval);
-- **`nothing-found`**, with why: no candidate beat the current version by
-  more than the noise (with the best one's numbers on the hold-out part); the
-  best one is a change an existing proposal already holds; or nothing could
-  be measured, because no candidate's output had an item the test set's
-  judgments cover (a changed free-text answer is a new item no one has
-  judged: [judge the new answers, then rescore](../propose-a-change/#judge-the-new-answers-then-rescore)),
-  and then the reason also says if the pass ran out of budget before
-  comparing the rest;
+- **`proposed`**, with the proposal it wrote, which a reviewer decides: run
+  `kindgi proposals request <proposal-id>`, then decide the approval.
+- **`nothing-found`**, with why. No candidate beat the current version by
+  more than the noise, and the reason gives the best one's numbers on the
+  hold-out part. Or the best one is a change an existing proposal already
+  holds. Or nothing could be measured, because no candidate's output had an
+  item the test set's judgments cover. A changed free-text answer is a new
+  item no one has judged: then
+  [judge the new answers, then rescore](../propose-a-change/#judge-the-new-answers-then-rescore).
+  The reason also says if the pass ran out of budget before comparing the
+  rest.
 - **`failed`**, with the reason.
 
 A pass is `running`, then `completed`, `failed` or `cancelled`. Here a pass
 tried four candidates. On the search part, setting `fit` to 0 scored best,
-but an earlier proposal already held that change, so the pass wrote none
-(the cost is 0 on `dev-echo`, which costs nothing):
+but an earlier proposal already held that change, so the pass wrote none.
+The cost is 0 on `dev-echo`, which costs nothing:
 
 ```json
 {
@@ -126,24 +147,30 @@ but an earlier proposal already held that change, so the pass wrote none
 
 A pass counts only judgments recorded under a
 [restricted judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class)
-by default (`classWeights: "restricted-only"`), so who may steer it is a
+by default, `classWeights: "restricted-only"`. So who may steer it is a
 choice you make. `"as-recorded"` counts every judgment, by its class's
-weight; set it in the API or the clients.
+weight: set it in the API or the clients.
 
 ## Draft a prompt instead
 
-A pass can also draft prompt templates: `tiers: ["prompt"]`, with `model`,
-the provider and model of yours that drafts them, and `candidates`, how many
-templates it drafts (1 to 5, default 3). The agent version must take its
+A pass can also draft prompt templates. The agent version must take its
 instructions from a [prompt block](../change-a-prompt-or-setting/) it pins.
-The CLI starts settings passes; start a prompt pass from the API or the
+The CLI starts settings passes, so start a prompt pass from the API or the
 clients:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/proposals/improve" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{"agentId":"acme-ops.reply-drafter","scope":{"kind":"tenant"},"suiteId":"acme.reply-cases","tiers":["prompt"],"model":{"providerId":"anthropic","model":"claude-sonnet-5-5"},"candidates":3}'
 ```
+
+- `$KINDGI_API_URL` and `$KINDGI_API_TOKEN` are your runtime's URL and API
+  token.
+- `tiers: ["prompt"]` drafts prompt templates.
+- `model` is the provider and model of yours that drafts them.
+- `candidates` is how many templates it drafts: 1 to 5, 3 by default.
+
+It answers at once (`202`) with the pass, as the CLI does without `--wait`.
 
 The drafter sees the cases judged wrong and their reasons. A template it
 writes is compared only if it stays within what the agent already has:
@@ -154,17 +181,17 @@ writes is compared only if it stays within what the agent already has:
   `settings["<id>"]` of a settings block the version pins;
 - it names no tool, agent or block id the agent doesn't already use;
 - it isn't empty or the current template, and it's at most twice as long as
-  the current one (at least 2,000 characters, never over 20,000);
+  the current one: at least 2,000 characters, never over 20,000;
 - it quotes no test case: a run of 8 or more words in a row from what the
   drafter was shown is refused, and cut from the hypothesis it keeps.
 
-A refused template shows in the pass's `comparisons` with its issues
-(`refused`), and each drafted one with its `hypothesis`. Here a local model
-drafted a template reading a variable the agent doesn't have (the drafts are
-that model's words; yours will differ):
+A refused template shows in the pass's `comparisons` with its issues, as
+`refused`, and each drafted one with its `hypothesis`. Here a local model
+drafted a template reading a variable the agent doesn't have. The drafts are
+that model's words, and yours will differ:
 
 ```sh
-kindgi proposals passes get <pass-id>
+pnpm exec kindgi proposals passes get <pass-id>
 ```
 
 ```json
@@ -207,23 +234,31 @@ it goes live.
 ## Read passes back, or stop one
 
 ```sh
-kindgi proposals passes list --table
-kindgi proposals passes get <pass-id>
-kindgi proposals passes cancel <pass-id>
+pnpm exec kindgi proposals passes list --table
+pnpm exec kindgi proposals passes get <pass-id>
+pnpm exec kindgi proposals passes cancel <pass-id>
 ```
 
-The table has each pass's agent version, scope, status, the candidates
-compared, the cost and the outcome. `get` adds its comparisons, each an eval
-run you can open. `cancel` stops a running pass: it ends `cancelled` and
-writes no proposal. A pass that already ended answers
-`409 improvement-pass-finished`.
+- `list --table` prints each pass's agent version, scope, status, the
+  candidates compared, the cost and the outcome.
+- `get` adds its comparisons, each an eval run you can open. `<pass-id>` is
+  the pass's `id`.
+- `cancel` stops a running pass: it ends `cancelled` and writes no proposal.
+  A pass that already ended answers `409 improvement-pass-finished`.
 
 From your app: `proposals.improve` and `improvementPasses.list`, `get` and
 `cancel` in TypeScript; `proposals.improve` and `improvement_passes` in
 Python. An endpoint subscribed to `improvement-pass.finished` gets each pass
-when it ends ([Get a webhook when a run finishes](../../webhooks/receive-run-finished/#improvement-passes)).
+when it ends ([Webhook events and deliveries](../../webhooks/webhook-events/#improvement-passes)).
 
 ## Run passes on a schedule
 
-A schedule can start a pass when enough new trusted judgments have come in:
-[Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule).
+A schedule can start a pass when enough new trusted judgments have come in,
+as [Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule)
+shows.
+
+## Next
+
+- [Propose a change, and test it](../propose-a-change/)
+- [Judge a run's output](../judge-a-runs-output/)
+- [Run on a schedule](../../runs/run-on-a-schedule/)

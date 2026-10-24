@@ -252,6 +252,28 @@ describe('an improve schedule', () => {
     expect(fires.data.find((f) => f.outcome === 'skipped')?.detail).toContain('4 of 5');
   });
 
+  test("a fire refused for a limit says it didn't count toward the auto-pause", async () => {
+    const { built, registry } = app();
+    const id = (
+      (await (await built.request('/v1/schedules', send('POST', hourly))).json()) as {
+        scheduleId: string;
+      }
+    ).scheduleId;
+    registry.recordFire({
+      triggerId: id as TriggerId,
+      kind: 'schedule',
+      scheduledFor: '2026-10-07T10:00:00.000Z',
+      firedAt: '2026-10-07T10:00:01.000Z',
+      outcome: 'refused',
+      detail: "rate-limited: agent acme.digest didn't start: rate-limit-exceeded: …",
+      countsTowardPause: false,
+    });
+    const fires = (await (
+      await built.request(`/v1/schedules/${id}/fires`, send('GET'))
+    ).json()) as { data: Record<string, unknown>[] };
+    expect(fires.data[0]).toMatchObject({ outcome: 'refused', countsTowardPause: false });
+  });
+
   test('retargeting an agent schedule to improve needs pass options, not a user message', async () => {
     const { built } = app();
     const created = await built.request(

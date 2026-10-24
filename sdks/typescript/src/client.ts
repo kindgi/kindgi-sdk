@@ -14,6 +14,11 @@ import { type ConversationsClient, makeConversationsClient } from './resources/c
 import { type CostClient, makeCostClient } from './resources/cost.js';
 import { type DeploymentsClient, makeDeploymentsClient } from './resources/deployments.js';
 import { type EnvClient, makeEnvClient } from './resources/env.js';
+import {
+  type EnvironmentOrdersClient,
+  makeEnvironmentOrdersClient,
+} from './resources/environment-orders.js';
+import { type EnvironmentsClient, makeEnvironmentsClient } from './resources/environments.js';
 import { type EvalRunsClient, makeEvalRunsClient } from './resources/eval-runs.js';
 import { type EvalSuitesClient, makeEvalSuitesClient } from './resources/eval-suites.js';
 import { type EventsClient, makeEventsClient } from './resources/events.js';
@@ -52,10 +57,22 @@ import {
 } from './resources/service-accounts.js';
 import { type SigningKeysClient, makeSigningKeysClient } from './resources/signing-keys.js';
 import { type SupervisorClient, makeSupervisorClient } from './resources/supervisor.js';
+import {
+  type SystemDeploymentsClient,
+  makeSystemDeploymentsClient,
+} from './resources/system-deployments.js';
+import { type SystemKeysClient, makeSystemKeysClient } from './resources/system-keys.js';
+import { type SystemTenantsClient, makeSystemTenantsClient } from './resources/system-tenants.js';
 import { type TeamsClient, makeTeamsClient } from './resources/teams.js';
 import { type TenantClient, makeTenantClient } from './resources/tenant.js';
 import { type TokensClient, makeTokensClient } from './resources/tokens.js';
 import { type ToolsClient, makeToolsClient } from './resources/tools.js';
+import {
+  type SystemUsageClient,
+  type TenantUsageClient,
+  makeSystemUsageClient,
+  makeTenantUsageClient,
+} from './resources/usage.js';
 import { type UsersClient, makeUsersClient } from './resources/users.js';
 import {
   type WebhookEndpointsClient,
@@ -96,6 +113,8 @@ export interface KindgiClient {
   // Platform & configuration
   readonly tenant: TenantClient;
   readonly cost: CostClient;
+  /** Your workspace's usage, aggregated, over the projects you may read. */
+  readonly usage: TenantUsageClient;
   readonly capabilities: CapabilitiesClient;
   readonly adapters: AdaptersClient;
   readonly providers: ProvidersClient;
@@ -106,6 +125,10 @@ export interface KindgiClient {
   readonly projects: ProjectsClient;
   readonly env: EnvClient;
   readonly secrets: SecretsClient;
+  /** The tenant's env names, across env values and secrets (tenant admin). */
+  readonly environments: EnvironmentsClient;
+  /** The order a tenant runs a project through on its way to live (its "environments"). */
+  readonly environmentOrders: EnvironmentOrdersClient;
   readonly deployments: DeploymentsClient;
   readonly compliance: ComplianceClient;
   readonly audit: AuditResourceClient;
@@ -125,6 +148,18 @@ export interface KindgiClient {
   /** The keys this deployment signs its exports with (audit bundles, provenance, compliance evidence). */
   readonly exportSigningKeys: ExportSigningKeysClient;
   readonly license: LicenseClient;
+  /** The operator's system keys, on a runtime serving many tenants: the full system capability only. */
+  readonly systemKeys: SystemKeysClient;
+  /**
+   * Per-deployment routing's system routes, on a runtime serving many
+   * tenants: what an orchestrator lists and records (`system:deployments`),
+   * and a pack's suspension (`system:suspend`).
+   */
+  readonly systemDeployments: SystemDeploymentsClient;
+  /** What the control plane sets on a tenant: production allowed, and limits. System keys only. */
+  readonly systemTenants: SystemTenantsClient;
+  /** Usage across tenants, aggregated. System keys only. */
+  readonly systemUsage: SystemUsageClient;
   readonly tokens: TokensClient;
   /** Non-human principals with their own grants; they act through API keys. */
   readonly serviceAccounts: ServiceAccountsClient;
@@ -172,6 +207,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     approvals: makeApprovalsClient(transport),
     tenant: makeTenantClient(transport),
     cost: makeCostClient(transport),
+    usage: makeTenantUsageClient(transport),
     capabilities: makeCapabilitiesClient(transport),
     adapters: makeAdaptersClient(transport),
     providers: makeProvidersClient(transport),
@@ -181,6 +217,8 @@ export function createClient(options: ClientOptions): KindgiClient {
     projects: makeProjectsClient(transport),
     env: makeEnvClient(transport),
     secrets: makeSecretsClient(transport),
+    environments: makeEnvironmentsClient(transport),
+    environmentOrders: makeEnvironmentOrdersClient(transport),
     deployments: makeDeploymentsClient(transport),
     compliance: makeComplianceClient(transport),
     audit: makeAuditClient(transport),
@@ -197,6 +235,10 @@ export function createClient(options: ClientOptions): KindgiClient {
     signingKeys: makeSigningKeysClient(transport),
     exportSigningKeys: makeExportSigningKeysClient(transport),
     license: makeLicenseClient(transport),
+    systemKeys: makeSystemKeysClient(transport),
+    systemDeployments: makeSystemDeploymentsClient(transport),
+    systemTenants: makeSystemTenantsClient(transport),
+    systemUsage: makeSystemUsageClient(transport),
     tokens: makeTokensClient(transport),
     serviceAccounts: makeServiceAccountsClient(transport),
     mcp: makeMcpClient(transport),

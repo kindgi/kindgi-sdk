@@ -9,16 +9,9 @@
  * call is refused up front instead.
  */
 
+import { TenantBudgetError } from '@kindgi/bounds';
+import { compileJsonSchema } from '@kindgi/schema';
 import type { ValidateFunction } from 'ajv';
-import * as addFormatsModule from 'ajv-formats';
-import { Ajv2020 } from 'ajv/dist/2020.js';
-
-type AddFormatsFn = (ajv: InstanceType<typeof Ajv2020>, opts?: unknown) => unknown;
-const addFormatsRaw = addFormatsModule as unknown;
-const addFormats: AddFormatsFn =
-  typeof addFormatsRaw === 'function'
-    ? (addFormatsRaw as AddFormatsFn)
-    : (addFormatsRaw as { default: AddFormatsFn }).default;
 
 /**
  * One way a guardrail's config doesn't fit its check: `path` is a JSON
@@ -39,10 +32,6 @@ export interface GuardrailConfigProblemsInput {
   /** The guardrail's config; absent is checked as `{}`. */
   readonly config: unknown;
 }
-
-/** Compiled validators by schema, oldest first. */
-const compiled = new Map<string, ValidateFunction | null>();
-const MAX_COMPILED = 256;
 
 /**
  * Every way `config` doesn't fit `configSchema`, checked as declared (the
@@ -88,24 +77,19 @@ export function describeGuardrailConfigProblems(
   return `${head} doesn't fit check "${input.check}": ${first.message.replace(/\.$/, '')}${more}.`;
 }
 
+/**
+ * The schema's validator, or null when it doesn't compile or is over the
+ * process's bounds. `compileJsonSchema` keeps it compiled. A compile the
+ * tenant's budget refuses throws: the config isn't checked, so it isn't
+ * passed either.
+ */
 function validatorFor(schema: Readonly<Record<string, unknown>>): ValidateFunction | null {
-  const key = JSON.stringify(schema);
-  const cached = compiled.get(key);
-  if (cached !== undefined) return cached;
-  let validate: ValidateFunction | null;
   try {
     // Not strict: a schema keyword Ajv doesn't know (a generator's
     // annotation) mustn't stop the check of the keywords it does.
-    const ajv = new Ajv2020({ strict: false, allErrors: true });
-    addFormats(ajv);
-    validate = ajv.compile(schema as object);
-  } catch {
-    validate = null;
+    return compileJsonSchema(schema, { dialects: ['2020-12'], strict: false });
+  } catch (cause) {
+    if (cause instanceof TenantBudgetError) throw cause;
+    return null;
   }
-  if (compiled.size >= MAX_COMPILED) {
-    const oldest = compiled.keys().next().value;
-    if (oldest !== undefined) compiled.delete(oldest);
-  }
-  compiled.set(key, validate);
-  return validate;
 }

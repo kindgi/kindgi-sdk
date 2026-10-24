@@ -7,16 +7,58 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-The journal is the ordered record of a run: every step that started,
-completed or failed, with its input and output, and every edge the run
-evaluated. It's written before the run moves on, so it's also how the run
-continues after a wait.
+This guide reads a run's journal: every step it took, with its input and
+output, the branches it followed, and the agent turns inside it.
+
+The journal is the ordered record of a run, written before the run moves on.
+[Runs, the journal and durability](../../../concepts/runs/#the-journal)
+explains what it holds and why.
+
+## Before you start
+
+- **A run's id,** on a runtime such as `kindgi dev`, with Kindgi 0.2's CLI.
+  [List runs](../list-runs/) finds one.
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
+  Java 17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
+
+## Read it from the CLI
+
+The journal shows what the run did, step by step:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi runs journal <run-id>
+pnpm exec kindgi runs journal <run-id>
 ```
 
-For a run of `acme.review-order` with order `A-200`:
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs journal <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs journal <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs journal <run-id>
+```
+
+</TabItem>
+</Tabs>
+
+`<run-id>` is the run's id. For a run of `acme.review-order` with order
+`A-200`, it prints:
 
 ```json
 {
@@ -54,17 +96,22 @@ For a run of `acme.review-order` with order `A-200`:
 }
 ```
 
-Read it top to bottom: the input, the order looked up, the branch taken
-(`e2` fired, `e3` didn't, so `confirm` never ran), the hold, the result.
+Read it top to bottom: the input, the order looked up, the branch taken,
+the hold, and the result. `e2` fired and `e3` didn't, so `confirm` never
+ran.
 
-`--since=<sequence>` returns only the entries after that one, to read what's
-new since you last looked.
+To read only what's new since you last looked, add `--since=<sequence>`,
+where `<sequence>` is the last entry you read. It returns the entries after
+that one.
+
+To page it, add `--limit=<n>`, then `--cursor=<nextCursor>` from the page
+before.
 
 ## The entries
 
 | `kind` | |
 | --- | --- |
-| `run.started`, `run.completed`, `run.failed`, `run.cancelled` | The run's start (with its input) and end (with its output, or why it failed). |
+| `run.started`, `run.completed`, `run.failed`, `run.cancelled` | The run's start, with its input, and its end, with its output or why it failed. |
 | `step.started`, `step.completed`, `step.failed` | A step, with the input it got after mapping, its output, or its error. |
 | `edge.evaluated` | An edge and its `decision`. |
 | `step.retry-scheduled` | A failed attempt that will be retried. |
@@ -75,30 +122,73 @@ new since you last looked.
 
 ## Agent turns
 
-An agent step runs the agent's turn as a run of its own. Its id is in the
-step's output (`runId`), and the turn's run has the flow's run as its
-`parentRunId`:
+An agent step runs the agent's turn as a run of its own. When an agent step
+answered something you didn't expect, the turn's journal shows why.
+
+The turn's id is in the step's output, as `runId`. The turn's run has the
+flow's run as its `parentRunId`, so
+[List runs](../list-runs/#the-runs-inside-a-run) finds it too. Read its
+journal:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi runs journal <the turn's run id>
+pnpm exec kindgi runs journal <the turn's run id>
 ```
 
-The turn's journal has the model calls (the messages sent, the answer, the
-tokens and the cost of each) and the tool calls. That's where to look when an
-agent step answered something you didn't expect.
-[List runs](../list-runs/) shows how to find the turns of a run.
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs journal <the turn's run id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs journal <the turn's run id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs journal <the turn's run id>
+```
+
+</TabItem>
+</Tabs>
+
+`<the turn's run id>` is the turn's `runId`. Its journal has the model calls
+and the tool calls. Each model call has the messages sent, the answer, and
+its tokens and cost.
 
 ## From your app
+
+Your app reads a journal with `runs.journal`. Ask your coding agent: "I want
+my app to show every step a run took." For reference, this function prints a
+run's journal, one entry a line:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```ts
+// app/print-journal.ts
+import { createClient } from '@kindgi/sdk/client';
+import type { RunId } from '@kindgi/sdk/types';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
 type JournalEntry = { sequence: number; kind: string; nodeId?: string; payload?: unknown };
 
-const { data } = await kindgi.runs.journal(runId);
-for (const entry of data as JournalEntry[]) {
-  console.log(entry.sequence, entry.kind, entry.nodeId ?? '');
+/** Prints a run's journal, one entry a line. */
+export async function printJournal(runId: RunId) {
+  const { data } = await kindgi.runs.journal(runId);
+  for (const entry of data as JournalEntry[]) {
+    console.log(entry.sequence, entry.kind, entry.nodeId ?? '');
+  }
 }
 ```
 
@@ -106,14 +196,77 @@ for (const entry of data as JournalEntry[]) {
 <TabItem label="Python">
 
 ```python
-for entry in kindgi.runs.journal(run_id).data:
-    print(entry.sequence, entry.kind, entry.node_id or "")
+# app/print_journal.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
+
+
+def print_journal(run_id: str) -> None:
+    """Prints a run's journal, one entry a line."""
+    for entry in kindgi.runs.journal(run_id).data:
+        print(entry.sequence, entry.kind, entry.node_id or "")
 ```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/PrintJournal.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.RunJournalPage;
+import java.util.Objects;
+import java.util.UUID;
+
+public final class PrintJournal {
+  private static final Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
+  /** Prints a run's journal, one entry a line. */
+  public static void printJournal(UUID runId) {
+    for (RunJournalPage.DataItem entry : kindgi.runs().journal(runId).data()) {
+      String nodeId = Objects.toString(entry.nodeId(), "");
+      System.out.println(entry.sequence() + " " + entry.kind() + " " + nodeId);
+    }
+  }
+
+  private PrintJournal() {}
+}
+```
+
+Each entry is a record: `sequence()`, `kind()`, `nodeId()`, `payload()`,
+`timestamp()`.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/PrintJournal.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import java.util.UUID
+import scala.jdk.CollectionConverters._
+
+object PrintJournal {
+  private val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
+
+  /** Prints a run's journal, one entry a line. */
+  def printJournal(runId: UUID): Unit =
+    for (entry <- kindgi.runs().journal(runId).data.asScala) {
+      println(s"${entry.sequence} ${entry.kind} ${Option(entry.nodeId).getOrElse("")}")
+    }
+}
+```
+
+Each entry is a Java record: `sequence`, `kind`, `nodeId`, `payload`,
+`timestamp`.
 
 </TabItem>
 </Tabs>
 
-For a run of `acme.escalate-order` that waited for an approval:
+For a run of `acme.escalate-order` that waited for an approval, it prints:
 
 ```text
 0 run.started 
@@ -133,3 +286,14 @@ For a run of `acme.escalate-order` that waited for an approval:
 14 edge.evaluated 
 15 run.completed 
 ```
+
+`runs.journal` returns the whole journal in one answer. To read a long one
+in pages, pass `limit` (1 to 100): each page has `hasMore` (`has_more` in
+Python), and `nextCursor` (`next_cursor`) while more remain, which you pass
+as `cursor` for the next page. Paging needs a runtime of 0.1.8 or later.
+
+## Next
+
+- [See why runs failed](../see-why-runs-failed/)
+- [Trace an answer](../../observability/trace-an-answer/)
+- [List runs](../list-runs/)

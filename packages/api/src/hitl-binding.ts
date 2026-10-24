@@ -117,6 +117,11 @@ export interface ListApprovalsBindingInput {
    */
   readonly assignedTo?: ReviewerId;
   /**
+   * Only approvals this reviewer decided. A binding that ignores it lists
+   * more: the route keeps only these (`decision.reviewerId`).
+   */
+  readonly decidedBy?: ReviewerId;
+  /**
    * `asc`: oldest first (`createdAt` asc, then `id` asc), and `after`
    * continues in that order. Default `desc`. A binding says which it
    * applied in `ListApprovalsBindingResult.order`.
@@ -179,6 +184,13 @@ export interface SubmitReviewBindingInput {
   readonly reviewerId: ReviewerId;
   readonly decision: ReviewDecisionKind;
   readonly rationale?: string;
+  /**
+   * The provider of the session the reviewer decided with (`site:<id>`
+   * for a site's sign-in, an identity provider's id for a single sign-on
+   * session). Absent for an API key. Kept with the decision, so an
+   * exported audit bundle names the trust behind it without a join.
+   */
+  readonly sessionProvider?: string;
 }
 
 /**
@@ -212,6 +224,13 @@ export interface ReviewDecisionRecord {
   readonly reviewerRoleAtDecision: ReviewerRole;
   readonly decidedAt: Timestamp;
   readonly rationale?: string;
+  /** The provider of the session the reviewer decided with; see `SubmitReviewBindingInput.sessionProvider`. */
+  readonly sessionProvider?: string;
+  /**
+   * The reviewer's display name when they decided: a person renamed since
+   * (a site may rename its people) still shows as they were.
+   */
+  readonly deciderName?: string;
 }
 
 // ---------- error shape ----------

@@ -173,6 +173,78 @@ function toSchemaValidationError(err: {
   };
 }
 
+// ============ every inline schema, for a flow that skipped loadFlow ============
+
+/** An inline schema in a flow that doesn't compile: where it sits, and why. */
+export interface FlowSchemaProblem {
+  /** A JSON Pointer into the flow: `/nodes/2/branches/0/outputSchema`, `/output/schema`. */
+  readonly path: string;
+  /** `doesn't compile: ` and the compiler's own words, as `loadFlow` gives them. */
+  readonly message: string;
+}
+
+/**
+ * Every inline schema in `flow` that doesn't compile, as a run compiles
+ * it (`compileInlineSchema`, bounded): each loop's, fanout branch's and
+ * subgraph node's `outputSchema`, at any depth of loop bodies, which a
+ * run compiles whether or not one is there, and the flow's
+ * `output.schema` when it has one. These are `loadFlow`'s checks 10, 12,
+ * 13 and 15, over every schema rather than to the first, and nothing
+ * else `loadFlow` checks. For a flow that never went through `loadFlow`
+ * (a deployment's index, which a tenant can write by hand), so a schema
+ * every run would refuse is refused where the flow arrives. A node or
+ * branch that isn't an object is passed over: its shape isn't what this
+ * asks. Throws `SchemaCompileBudgetError`, as `compileInlineSchema` does.
+ */
+export function flowSchemaProblems(flow: unknown): readonly FlowSchemaProblem[] {
+  const out: FlowSchemaProblem[] = [];
+  const check = (path: string, schema: unknown): void => {
+    const why = compileProblem(schema);
+    if (why !== undefined) out.push({ path, message: `doesn't compile: ${why}` });
+  };
+  const walk = (nodes: unknown, at: string): void => {
+    if (!Array.isArray(nodes)) return;
+    nodes.forEach((node: unknown, i) => {
+      if (isRecord(node)) visit(node, `${at}/${i}`);
+    });
+  };
+  const visit = (node: Record<string, unknown>, here: string): void => {
+    if (node.kind === 'loop') {
+      check(`${here}/outputSchema`, node.outputSchema);
+      if (isRecord(node.body)) walk(node.body.nodes, `${here}/body/nodes`);
+    } else if (node.kind === 'subgraph') {
+      check(`${here}/outputSchema`, node.outputSchema);
+    } else if (node.kind === 'fanout' && Array.isArray(node.branches)) {
+      node.branches.forEach((branch: unknown, k) => {
+        if (isRecord(branch)) check(`${here}/branches/${k}/outputSchema`, branch.outputSchema);
+      });
+    }
+  };
+  if (!isRecord(flow)) return out;
+  walk(flow.nodes, '/nodes');
+  if (isRecord(flow.output) && flow.output.schema !== undefined) {
+    check('/output/schema', flow.output.schema);
+  }
+  return out;
+}
+
+/**
+ * Why an inline schema doesn't compile, in the compiler's own words, or
+ * undefined when it compiles: what each schema check here says.
+ */
+function compileProblem(schema: unknown): string | undefined {
+  const compiled = compileInlineSchema(schema);
+  if (compiled.kind === 'ok') return undefined;
+  const cause = compiled.error;
+  return cause.code === 'schema-compile-error'
+    ? String((cause.cause as Error)?.message ?? cause.message)
+    : cause.message;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 // ============ reserved ids ============
 
 function checkReservedIds(flow: Flow): ReservedIdError | undefined {
@@ -838,13 +910,8 @@ function checkFanoutNode(flow: Flow, fanout: FanoutNode): InvalidFanoutNodeError
         branch.branchId,
       );
     }
-    const compiled = compileInlineSchema(branch.outputSchema);
-    if (compiled.kind === 'err') {
-      const cause = compiled.error;
-      const primary =
-        cause.code === 'schema-compile-error'
-          ? String((cause.cause as Error)?.message ?? cause.message)
-          : cause.message;
+    const primary = compileProblem(branch.outputSchema);
+    if (primary !== undefined) {
       return {
         code: 'invalid-fanout-node',
         message: `Fanout node "${fanout.id}" branch "${branch.branchId}" outputSchema failed to compile: ${primary}`,
@@ -1008,13 +1075,8 @@ function checkSubflowNode(flow: Flow, subgraph: SubflowNode): InvalidSubflowNode
       'must be a JSON Schema (draft 2020-12) — the typed escape contract',
     );
   }
-  const compiled = compileInlineSchema(subgraph.outputSchema);
-  if (compiled.kind === 'err') {
-    const cause = compiled.error;
-    const primary =
-      cause.code === 'schema-compile-error'
-        ? String((cause.cause as Error)?.message ?? cause.message)
-        : cause.message;
+  const primary = compileProblem(subgraph.outputSchema);
+  if (primary !== undefined) {
     return {
       code: 'invalid-subgraph-node',
       message: `Subgraph node "${subgraph.id}" outputSchema failed to compile: ${primary}`,
@@ -1063,13 +1125,8 @@ void 0 as unknown as SubflowConvergence;
 
 function checkAllLoopOutputSchemas(flow: Flow): LoopOutputSchemaError | undefined {
   for (const loop of collectAllLoopNodes(flow)) {
-    const compiled = compileInlineSchema(loop.outputSchema);
-    if (compiled.kind === 'ok') continue;
-    const cause = compiled.error;
-    const primaryMessage =
-      cause.code === 'schema-compile-error'
-        ? String((cause.cause as Error)?.message ?? cause.message)
-        : cause.message;
+    const primaryMessage = compileProblem(loop.outputSchema);
+    if (primaryMessage === undefined) continue;
     return {
       code: 'loop-invalid-output-schema',
       message: `Loop node "${loop.id}" outputSchema failed to compile: ${primaryMessage}`,
@@ -1153,13 +1210,8 @@ function mappingErr(
 function checkFlowOutputSchema(flow: Flow): InvalidFlowOutputError | undefined {
   const schema = flow.output?.schema;
   if (schema === undefined) return undefined;
-  const compiled = compileInlineSchema(schema);
-  if (compiled.kind === 'ok') return undefined;
-  const cause = compiled.error;
-  const primaryMessage =
-    cause.code === 'schema-compile-error'
-      ? String((cause.cause as Error)?.message ?? cause.message)
-      : cause.message;
+  const primaryMessage = compileProblem(schema);
+  if (primaryMessage === undefined) return undefined;
   return {
     code: 'invalid-flow-output',
     message: `Flow output schema failed to compile: ${primaryMessage}`,

@@ -4,13 +4,16 @@
 import type { SchedulesClient } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
+import { type Rendered, renderJson } from '../output.js';
 import { scopeCell } from './agents.js';
 import {
   type TableSpec,
+  allowUnattendedField,
   integerFlag,
   readJsonInput,
   requiredPositional,
   runSdk,
+  runSdkRendered,
   segmentsFlag,
   stringFlag,
 } from './helpers.js';
@@ -100,7 +103,7 @@ const TARGET_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
   },
 };
 
-const WHEN_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
+const WHEN_FLAGS = {
   cron: {
     type: 'string',
     description: 'A cron expression: `0 7 * * 1-5` (07:00 on weekdays), `@daily`, …',
@@ -128,6 +131,37 @@ const WHEN_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
     description: 'Seconds a run may start late and still count as on time (default 600).',
   },
   label: { type: 'string', description: 'A short label.' },
+} satisfies Readonly<Record<string, ParseArgsOption>>;
+
+/**
+ * `update`'s: the same flags (its type holds it to `WHEN_FLAGS`' keys), with
+ * no defaults. A flag left out keeps the schedule's value.
+ */
+const UPDATE_WHEN_FLAGS: Readonly<Record<keyof typeof WHEN_FLAGS, ParseArgsOption>> = {
+  cron: {
+    type: 'string',
+    description: 'A new cron expression: `0 7 * * 1-5` (07:00 on weekdays), `@daily`, …',
+  },
+  timezone: { type: 'string', description: 'A new IANA timezone, such as America/Toronto.' },
+  input: {
+    type: 'string',
+    description:
+      'The input each run gets from now on, as JSON or `@<file>`. An agent needs `{"userMessage": "…"}`; a flow takes its own input; --improve takes its pass options.',
+  },
+  'catch-up': {
+    type: 'string',
+    description:
+      'After a gap (the runtime was down): `latest` runs once for the latest missed time; `skip` drops them.',
+  },
+  overlap: {
+    type: 'string',
+    description: 'While the previous run is still going: `skip` or `allow` another run.',
+  },
+  'starting-deadline': {
+    type: 'string',
+    description: 'Seconds a run may start late and still count as on time.',
+  },
+  label: { type: 'string', description: 'A new short label.' },
 };
 
 /**
@@ -246,13 +280,36 @@ const get: LeafCommand = {
     }),
 };
 
+/**
+ * `--run-as`: the schedule's runs act as this service account, not you. Needs
+ * `act_as` on the account. Shared by `create` and `take-ownership`.
+ */
+const RUN_AS_FLAG: Readonly<Record<string, ParseArgsOption>> = {
+  'run-as': {
+    type: 'string',
+    description:
+      "A service account, by id: the schedule's owner, so its runs act as that account from the next fire (not as you). Needs `act_as` on the account; omit it to own the schedule yourself.",
+  },
+};
+
+/** `--allow-unattended`, as `create` and `update` each word it. */
+function allowUnattendedFlag(on: 'register' | 'update'): Record<string, ParseArgsOption> {
+  return {
+    'allow-unattended': {
+      type: 'string',
+      multiple: true,
+      description: `A tool, by id, whose calls in this schedule's runs needn't wait for a person's yes, though the tool asks for one when no person started the run (repeatable; only tools its agent or flow calls, no wildcard). Needs \`admin\` on the schedule's project. The tenant's and the agent's approval rules still apply.${on === 'update' ? ' Replaces the list; `none` clears it; left out, the list is kept, and a new --agent or --flow must name it again (or `none`).' : ''}`,
+    },
+  };
+}
+
 const create: LeafCommand = {
   kind: 'leaf',
   name: 'create',
   description:
     "Run an agent or a flow on a schedule, or start improvement passes on an agent (--improve). Its runs act as you, checked again at every run; they're in your project's runs, naming the schedule.",
   usage:
-    'kindgi schedules create --cron=<expr> (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…) [--timezone=<tz>] [--input=<json-or-@file>] [--project=<project-id>] [--catch-up=latest|skip] [--overlap=skip|allow] [--starting-deadline=<s>] [--label=<text>]',
+    'kindgi schedules create --cron=<expr> (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…) [--timezone=<tz>] [--input=<json-or-@file>] [--project=<project-id>] [--catch-up=latest|skip] [--overlap=skip|allow] [--starting-deadline=<s>] [--label=<text>] [--run-as=<service-account-id>] [--allow-unattended=<tool-id>]…',
   optionSpec: {
     ...TARGET_FLAGS,
     ...WHEN_FLAGS,
@@ -260,17 +317,22 @@ const create: LeafCommand = {
       type: 'string',
       description: "The schedule's project, by id (default: the tenant's Default project).",
     },
+    ...RUN_AS_FLAG,
+    ...allowUnattendedFlag('register'),
   },
   run: (ctx) =>
     runSdk(ctx, 'schedules create', async () => {
       const config = await configFields(ctx);
       if (config.cronExpression === undefined) throw new Error('--cron=<expression> is required');
       const project = stringFlag(ctx, 'project');
+      const runAs = stringFlag(ctx, 'run-as');
       return await ctx.client().schedules.register({
         ...targetFields(ctx),
         config: { ...config, cronExpression: config.cronExpression },
         ...(project !== undefined && { projectId: project }),
         ...policyFields(ctx),
+        ...(runAs !== undefined && { runAsServiceAccountId: runAs }),
+        ...allowUnattendedField(ctx, 'register'),
       } as RegisterInput);
     }),
 };
@@ -278,16 +340,18 @@ const create: LeafCommand = {
 const update: LeafCommand = {
   kind: 'leaf',
   name: 'update',
-  description: 'Change a schedule: when it runs, what it runs, or its policies.',
+  description:
+    "Change a schedule: when it runs, what it runs, its policies, or the tools its runs may call unattended. A flag left out keeps the schedule's value.",
   usage:
-    'kindgi schedules update <schedule-id> [--cron=<expr>] [--timezone=<tz>] [--input=<json-or-@file>] [--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…] [--catch-up=…] [--overlap=…] [--starting-deadline=<s>] [--label=<text>]',
+    'kindgi schedules update <schedule-id> [--cron=<expr>] [--timezone=<tz>] [--input=<json-or-@file>] [--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…] [--catch-up=…] [--overlap=…] [--starting-deadline=<s>] [--label=<text>] [--allow-unattended=<tool-id>|none]…',
   optionSpec: {
     ...TARGET_FLAGS,
-    ...WHEN_FLAGS,
+    ...UPDATE_WHEN_FLAGS,
     project: {
       type: 'string',
       description: "With --improve: the scope's project (the schedule's own).",
     },
+    ...allowUnattendedFlag('update'),
   },
   run: (ctx) =>
     runSdk(ctx, 'schedules update', async () => {
@@ -297,6 +361,7 @@ const update: LeafCommand = {
         ...targetFields(ctx),
         ...(Object.keys(config).length > 0 && { config }),
         ...policyFields(ctx),
+        ...allowUnattendedField(ctx, 'update'),
       });
     }),
 };
@@ -317,6 +382,33 @@ function byId(
       ),
   };
 }
+
+const takeOwnership: LeafCommand = {
+  kind: 'leaf',
+  name: 'take-ownership',
+  description:
+    "Become a schedule's owner, so its runs act as you from the next fire (for a schedule whose owner left). With --run-as, a service account becomes the owner instead.",
+  usage: 'kindgi schedules take-ownership <schedule-id> [--run-as=<service-account-id>]',
+  optionSpec: { ...RUN_AS_FLAG },
+  run: (ctx) =>
+    runSdkRendered(ctx, 'schedules take-ownership', async (): Promise<Rendered> => {
+      const id = requiredPositional(ctx, 0, 'schedule-id');
+      const runAs = stringFlag(ctx, 'run-as');
+      const schedulesClient = ctx.client().schedules;
+      const schedule = await (runAs !== undefined
+        ? schedulesClient.takeOwnership(id, { runAsServiceAccountId: runAs })
+        : schedulesClient.takeOwnership(id));
+      const rendered = renderJson(schedule, ctx.globals.format);
+      const kept = schedule.toolsAllowedUnattended ?? [];
+      return {
+        stdout: rendered.stdout,
+        stderr:
+          kept.length > 0
+            ? `\n  It keeps its tools allowed unattended (${kept.join(', ')}): their calls in its runs still don't wait for a person's yes just because no person started them, now as the new owner. \`kindgi schedules update ${schedule.scheduleId} --allow-unattended=none\` clears them.\n\n`
+            : rendered.stderr,
+      };
+    }),
+};
 
 const fires: LeafCommand = {
   kind: 'leaf',
@@ -357,11 +449,7 @@ export const schedulesCommand: Command = {
       (s, id) => s.runNow(id),
     ),
     fires,
-    byId(
-      'take-ownership',
-      "Become a schedule's owner, so its runs act as you (for a schedule whose owner left).",
-      (s, id) => s.takeOwnership(id),
-    ),
+    takeOwnership,
     byId('unregister', 'Remove a schedule: it stops running.', (s, id) => s.unregister(id)),
   ],
 };

@@ -5,10 +5,9 @@ import { pickVersion } from '@kindgi/tools';
 
 import {
   type BlockDefinition,
-  MODEL_SETTINGS_SCHEMA,
   type ModelSettings,
   type PromptBlockContent,
-  settingsSchemaIssues,
+  modelSettingsIssues,
 } from '../blocks.js';
 
 import type { TurnContext } from './context.js';
@@ -81,6 +80,7 @@ export async function resolveTurnBlocks(
       tenantId: ctx.input.tenantId,
       blockId: ref.id,
       version,
+      projectId: ctx.input.projectId,
     });
     if (block === null) {
       fail(ref, `${describe(ref)} runs version ${version}, which isn't published`);
@@ -132,6 +132,7 @@ async function resolveRange(ctx: TurnContext, ref: Ref): Promise<string> {
     (await ctx.bindings.blockReader?.activeVersions({
       tenantId: ctx.input.tenantId,
       blockId: ref.id,
+      projectId: ctx.input.projectId,
     })) ?? [];
   const pick = pickVersion(available, ref.range);
   if (pick.kind === 'ok') return pick.version;
@@ -162,7 +163,7 @@ function turnBlocks(
     }
     const values = overrides?.settings?.[block.id] ?? block.content.values;
     if (ref.role === 'model-settings') {
-      const issues = settingsSchemaIssues(values, MODEL_SETTINGS_SCHEMA);
+      const issues = modelSettingsIssues(values);
       if (issues.length > 0) {
         fail(
           ref,

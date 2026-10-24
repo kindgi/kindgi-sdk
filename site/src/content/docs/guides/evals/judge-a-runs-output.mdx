@@ -7,21 +7,72 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide records people's yes or no on what a run returned, weights some
+judges more than others, and queues the runs that need judging.
 
 A **judgment** is a yes or no, with an optional reason, about one item of a
 finished run's output: the whole answer, or one element of a list it
-returned. People who know the work, your users or your experts, judge; the
-judgments then tell you how an agent or flow version does:
+returned. People who know the work, your users or your experts, judge. The
+judgments then tell you how an agent or flow version does: you
 [build a test set](../build-a-test-set/) from them, and
 [compare a new version](../compare-an-agent-version/) on it.
+[Judging reference](../judging-reference/) has every field, rule and console
+page.
+
+## Before you start
+
+- **A finished run to judge,** and its id, on a runtime such as `kindgi dev`,
+  with Kindgi 0.2's CLI. [List runs](../../runs/list-runs/) finds one.
+- **Write access to the run's project,** when authorization is on.
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
+  Java 17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
 
 ## Judge an item
 
-From the CLI, on the run's answer:
+A judgment records whether one item of the run's output was right.
+
+From the CLI, judge the run's answer:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+pnpm exec kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+```
+
+</TabItem>
+</Tabs>
+
+- `--run=<run-id>` is the run's id.
+- `--item=answer` is your id for the item: `answer` for the whole answer.
+- `--pointer=/response/content` is where the item is in the run's output, as
+  a JSON Pointer.
+- `--yes` is the verdict, or `--no`.
+- `--reason` (optional) says why.
+
+It prints the judgment:
 
 ```json
 {
@@ -38,7 +89,9 @@ kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --
 }
 ```
 
-From your app, when your users judge in your own UI:
+From your app, when your users judge in your own UI, ask your coding agent:
+"I want to record my user's yes or no on a run's answer." For reference, the
+script looks like this, with the run's id as its argument:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -81,107 +134,261 @@ print(judgment.id, judgment.verdict, judgment.asserted_by)
 ```
 
 </TabItem>
-</Tabs>
+<TabItem label="Java">
 
-- **`item.key`** is your stable id for the item: `answer` for the whole
-  answer, or, for a list, the id of the element (a matched case's id, say).
-- **`item.pointer`** (optional) is where the item is in the run's output, as
-  a JSON Pointer such as `/matches/2`. Its value is kept with the judgment.
-  **`item.rank`** (optional) is its place in a ranked list, 0 first.
-- **Who judged** comes from the token: `assertedBy`. An app that judges for
-  its own users adds `participantId`, its own opaque id for the user.
-- **Judging the same item again,** as the same caller and participant,
-  under any class or none, replaces the earlier judgment; the earlier one
-  stays in the history. So each person has one verdict per item, and its
-  class only says how much it counts.
+```java
+// src/main/java/com/acme/app/Judge.java
+package com.acme.app;
 
-Only a finished run can be judged, and the pointer must find something:
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.CreateJudgmentBody;
+import com.kindgi.client.models.JudgedItem;
+import com.kindgi.client.models.Judgment;
 
-```text
-Run "fc26b436-611b-4962-9913-2f2669ade7e1" has no output to judge yet (status suspended).
-Nothing at "/no/such" in run "bc6d1b53-3562-48c9-9f29-719779e3d110"'s output.
+public final class Judge {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    Judgment judgment = kindgi.judgments().create(CreateJudgmentBody.builder()
+        .runId(args[0])
+        .item(JudgedItem.builder().key("answer").pointer("/response/content").build())
+        .verdict(CreateJudgmentBody.Verdict.YES)
+        .reason("Echoes the message back")
+        .participantId("customer-user-19") // your id for the user who judged, if you judge for your users
+        .build());
+    System.out.println(judgment.id() + " " + judgment.verdict() + " " + judgment.assertedBy());
+  }
+}
 ```
 
-Judging a run takes write access to its project, as cancelling it does.
+```text
+42a5cdac-a5b4-4bf1-a777-d46ead4ec743 yes JudgmentAssertedBy[kind=user, id=ebdba929-5422-4cb2-b6bb-2c046109feb8]
+```
 
-In the console, a finished run's page has **Judge this run** (a **Judgments**
-tab once it has judgments). It lists the answer and each element of a list in
-the output, each with **Yes** and **No**, the counts so far, and each judgment
-with who made it, its class and its reason.
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/Judge.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{CreateJudgmentBody, JudgedItem}
+
+object Judge {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    val judgment = kindgi.judgments().create(CreateJudgmentBody.builder()
+      .runId(args(0))
+      .item(JudgedItem.builder().key("answer").pointer("/response/content").build())
+      .verdict(CreateJudgmentBody.Verdict.YES)
+      .reason("Echoes the message back")
+      .participantId("customer-user-20") // your id for the user who judged, if you judge for your users
+      .build())
+    println(s"${judgment.id} ${judgment.verdict} ${judgment.assertedBy}")
+  }
+}
+```
+
+```text
+339dbf38-f4b0-4a9a-a1f6-0dc4585dae93 yes JudgmentAssertedBy[kind=user, id=ebdba929-5422-4cb2-b6bb-2c046109feb8]
+```
+
+</TabItem>
+</Tabs>
+
+- **`participantId`** is your app's own opaque id for the user who judged.
+  Who called comes from the token, as `assertedBy`.
+- **Judging the same item again,** as the same caller and participant,
+  replaces the earlier judgment, and the earlier one stays in the history.
+
+The run now has the judgment. Only a finished run can be judged, and the
+pointer must find something.
+[Judgments](../judging-reference/#judgments) has the rules and the
+refusals.
+
+In the console, a finished run's page has **Judge this run**, or a
+**Judgments** tab once it has judgments. It lists the answer and each element
+of a list in the output, each with **Yes** and **No** and the counts so far.
+It lists each judgment with who made it, its class and its reason.
 
 ## See the judgments
 
+A run's judgments say how its output was judged, and by whom:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
-kindgi judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
-kindgi judgments remove <judgment-id>
+pnpm exec kindgi judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
+pnpm exec kindgi judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
+pnpm exec kindgi judgments remove <judgment-id>
 ```
 
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
+uv run kindgi judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
+uv run kindgi judgments remove <judgment-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
+./kindgiw judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
+./kindgiw judgments remove <judgment-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
+./kindgiw judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
+./kindgiw judgments remove <judgment-id>
+```
+
+</TabItem>
+</Tabs>
+
+- `<run-id>` is the run's id, and `<judgment-id>` a judgment's `id`, from the
+  list.
+- `list` also filters by agent and version, flow, verdict, judge class,
+  participant and project.
+
+`list` prints a page of judgments as JSON: `data`, `hasMore`, and
+`nextCursor` when there's another page. `show` prints one judgment, and
+`remove` prints its id with `"removed": true`.
+
 A judgment keeps copies of the run's input and output, so it outlives the
-run's own retention. `list` also filters by agent and version, flow, verdict,
-judge class and participant, and by project. The clients
-have the same: `judgments.list`, `judgments.get` and `judgments.unregister`.
+run's own retention. The clients have the same: `judgments.list`,
+`judgments.get` and `judgments.unregister`.
 
 ## Weight judges by class
 
-Without a class, every judgment counts once. To count some judges more, add
-a **judge class**, for the tenant, a project, or an agent in a project:
+Without a class, every judgment counts once. A **judge class** counts some
+judges more, for the tenant, a project, or an agent in a project.
+
+Add a class, then judge as it:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi judge-classes add --name=expert --weight=3 --project=<project-id>
-kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+pnpm exec kindgi judge-classes add --name=expert --weight=3 --project=<project-id>
+pnpm exec kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
 ```
 
-A judgment made with `--class` (`judgeClassId` in the clients) counts with
-that class's weight. The project's id: see
-[Build a test set](../build-a-test-set/#build-the-test-set).
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi judge-classes add --name=expert --weight=3 --project=<project-id>
+uv run kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw judge-classes add --name=expert --weight=3 --project=<project-id>
+./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw judge-classes add --name=expert --weight=3 --project=<project-id>
+./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+```
+
+</TabItem>
+</Tabs>
+
+- `--name` names the class, and `--weight=3` counts its judgments three
+  times.
+- `--project=<project-id>` is the project it applies to.
+  [Build the test set](../build-a-test-set/#build-the-test-set) shows how to
+  find a project's id.
+- `--class=<judge-class-id>` is the class's `id`, which `add` printed. In the
+  clients, it's `judgeClassId`.
+
+The judgment now counts with the class's weight.
 
 ### Restrict who may judge as a class
 
-A class can say who may judge as it, so the people using your app can't move
-the figures that release a version:
+A restricted class says who may judge as it, so the people using your app
+can't move the figures that release a version.
+
+Add the class with a restriction, before your reviewers judge:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+pnpm exec kindgi judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
 ```
 
-- **`--min-reviewer-role`**: `standard`, `senior` or `admin`, a
-  [reviewer](../../approvals/decide-an-approval/#reviewers-and-roles) of that
-  role or above;
-- **`--principal-kind`**: `user` (people) or `service` (service tokens);
-- **`--principal-id`**: named users or tokens, by id.
+</TabItem>
+<TabItem label="Python">
 
-The last two repeat; a caller must meet each one you set (`assertableBy` in
-the API and the clients). One who doesn't is refused with `403`, and nothing
-is recorded:
+```sh
+uv run kindgi judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+```
+
+</TabItem>
+</Tabs>
+
+- `--tenant` makes it the tenant's class.
+- `--min-reviewer-role=senior` lets only a
+  [reviewer](../../approvals/decide-an-approval/#reviewers-and-roles) of that
+  role or above judge as it: `standard`, `senior` or `admin`.
+- `--description` says who it is for.
+- `--principal-kind=user|service` and `--principal-id=<id>`, which repeat,
+  restrict it to people or service tokens, or to named ones.
+
+A caller must meet each restriction you set. One who doesn't is refused with
+`403`, and nothing is recorded:
 
 ```text
 Error [auth]: You can't judge as "expert": it needs a senior reviewer or above; you're a standard reviewer.
 Error [auth]: You can't judge as "tokens": only service tokens may assert it.
 ```
 
-Whom a class names is for the admins of its scope: anyone else who reads the
-class gets how many it names (`principalCount`), not their ids.
-
-A judgment made under a restriction carries `"restricted": true` (in
-`kindgi judgments list` too). It's decided when the judgment is made, so:
-
-- **Restrict the class before your reviewers judge.** Judgments recorded
-  before the restriction don't count as restricted.
-- **Lifting a restriction** (`kindgi judge-classes set <judge-class-id> --unrestricted`)
-  keeps the earlier judgments restricted; new ones aren't.
-
-`kindgi judge-classes set` with restriction flags replaces the whole
-restriction. A test set counts restricted judgments apart, and a comparison
-can count only them: see
-[Compare a version on a test set](../compare-an-agent-version/#count-only-restricted-judges).
+A judgment made under a restriction carries `"restricted": true`. It's
+decided when the judgment is made, so judgments recorded before the
+restriction don't count as restricted.
+[Judge classes](../judging-reference/#judge-classes) has the rest.
 
 ## Queue the runs to judge
 
-Rather than have your experts pick runs one at a time, give the project
-**judging rules**: which of its runs need a person's judgment. As a run of
-the project ends, each rule checks it, and a run that any rule matches joins
-the project's **judging queue**, once.
+**Judging rules** pick the project's runs that need a person's judgment, so
+your experts don't pick runs one at a time. As a run of the project ends,
+each rule checks it. A run that any rule matches joins the project's
+**judging queue**, once.
+
+To make a rule, ask your coding agent: "Queue a sample of my agent's live runs
+for people to judge." For reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -223,10 +430,79 @@ print(rule.rule_id, rule.version)
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/JudgingRule.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.JudgingRuleSpec;
+import com.kindgi.client.models.JudgingRuleWhen;
+import com.kindgi.client.models.Project;
+import java.util.List;
+
+public final class JudgingRule {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    Project project = kindgi.projects().getDefault();
+    var rule = kindgi.projects().judgingRules().create(project.id(), JudgingRuleSpec.builder()
+        .name("Live refund runs")
+        .when(JudgingRuleWhen.builder().agentIds(List.of("acme.refunds")).versions(List.of("live")).build())
+        .sample(0.05) // 5% of them
+        .maxOpen(20L) // at most 20 waiting at once
+        .build());
+    System.out.println(rule.ruleId() + " " + rule.version());
+  }
+}
+```
+
+```text
+0867c21c-c911-4d68-9fca-bf3234768931 1
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/JudgingRule.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{JudgingRuleSpec, JudgingRuleWhen}
+import scala.jdk.CollectionConverters._
+
+object JudgingRule {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    val project = kindgi.projects().getDefault()
+    val rule = kindgi.projects().judgingRules().create(project.id, JudgingRuleSpec.builder()
+      .name("Live refund runs")
+      .when(JudgingRuleWhen.builder().agentIds(List("acme.refunds").asJava).versions(List("live").asJava).build())
+      .sample(0.05) // 5% of them
+      .maxOpen(20L) // at most 20 waiting at once
+      .build())
+    println(s"${rule.ruleId} ${rule.version}")
+  }
+}
+```
+
+```text
+d57204bd-e0d2-4a2c-ade9-d87b83761e41 1
+```
+
+</TabItem>
 </Tabs>
 
-A rule as the runtime returns it, its version 1, here one made with `sample: 1`
-and `maxOpen: 2`:
+- `when` is which runs it matches: here, runs of `acme.refunds`'s live
+  version.
+- `sample` is the share of them to queue, `0.05` for 5%.
+- `maxOpen` stops the rule adding runs while that many of its runs wait.
+
+It prints the rule's id and its version, `1`. A rule as the runtime returns
+it, here one made with `sample: 1` and `maxOpen: 2`:
 
 ```json
 {
@@ -250,60 +526,104 @@ and `maxOpen: 2`:
 }
 ```
 
-What a rule matches (`when`, each field narrowing it):
-
-- **`agentIds`** or **`flowIds`**: runs of these agents or flows (one or the
-  other, not both). A rule naming an agent matches the agent's own runs, not
-  its turns as a step of a flow.
-- **`versions`**: these versions exactly, or `live`: runs that ran the
-  agent's live version rather than one the caller named, so the rule follows
-  each release.
-- **`status`**: how the run ended. Only `completed` for now, since only a
-  completed run can be judged; it's also the default.
-- **`includeDryRuns`**: dry runs are left out unless this is `true`. A
-  comparison's runs on a test set are never queued.
-
-And how much of it to queue:
-
-- **`sample`**: the share of matching runs, `0.05` for 5%. The same run and
-  rule always give the same answer, across the rule's versions too: raising
-  it later keeps the runs it took before, and adds more.
-- **`maxOpen`**: the rule adds nothing while this many of its runs wait, and
-  starts again as they're judged.
-- **`judgeClassId`**: whose judgment the rule wants, a
-  [judge class](#weight-judges-by-class). Without it, any judgment does.
-
-A rule applies to runs that end after it's made. To try one before you make
-it, `judgingRules.preview` takes the same fields and answers how many of the
-project's last 100 runs (`last`, up to 500) it would have queued, with its
-`sample` but not its `maxOpen`. Give an existing rule's `ruleId` to sample
-as it does; without one, the count is an estimate. Runs from before the runtime recorded how
-their version was chosen never match `live`.
-
-A rule only lists runs: it never runs a model or spends anything.
+From now on, the runs it matches join the queue as they end. It never runs a
+model or spends anything. [Judging rules](../judging-reference/#judging-rules)
+has every field, and how to try a rule before you make it.
 
 ### Work through the queue
 
-`judgingQueue.list` gives the queue, oldest first:
+The queue lists the runs waiting for a judgment, oldest first. To list the
+ones you can close, ask your coding agent: "Show me the runs waiting for my
+judgment." For reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```ts
+// judging-queue.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient();
+const project = await kindgi.projects.getDefault();
+
 const waiting = await kindgi.projects.judgingQueue.list(project.id, { forMe: true });
+console.log(waiting.total, waiting.data.length);
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```python
+# judging_queue.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()
+project = kindgi.projects.get_default()
+
 waiting = kindgi.projects.judging_queue.list(project.id, for_me=True)
+print(waiting.total, len(waiting.data))
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/JudgingQueue.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.JudgingQueuePage;
+import com.kindgi.client.models.Project;
+import com.kindgi.client.resources.ProjectsJudgingQueueListParams;
+
+public final class JudgingQueue {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    Project project = kindgi.projects().getDefault();
+    JudgingQueuePage waiting = kindgi.projects().judgingQueue()
+        .list(project.id(), ProjectsJudgingQueueListParams.builder().forMe(true).build());
+    System.out.println(waiting.total() + " " + waiting.data().size());
+  }
+}
+```
+
+```text
+0 0
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/JudgingQueue.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.resources.ProjectsJudgingQueueListParams
+
+object JudgingQueue {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    val project = kindgi.projects().getDefault()
+    val waiting = kindgi.projects().judgingQueue()
+      .list(project.id, ProjectsJudgingQueueListParams.builder().forMe(true).build())
+    println(s"${waiting.total} ${waiting.data.size}")
+  }
+}
+```
+
+```text
+0 0
 ```
 
 </TabItem>
 </Tabs>
 
-One item, as that rule queued it:
+`forMe: true` keeps the items you can close: those that want a class you
+may judge as, or any judgment. It prints how many such items wait in all,
+and how many are on this page. One item, as that rule queued it:
 
 ```json
 {
@@ -335,234 +655,18 @@ One item, as that rule queued it:
 }
 ```
 
-- **Each item** is a run: its agent or flow and version, how it ended, the
-  rules that queued it (each at the version that did), the judge classes
-  they want, and the judgments on it so far, by class. It carries none of
-  the run's content: open the run to judge it.
-- **`forMe: true`** keeps the items you can close: those that want a class
-  you may judge as, or any judgment.
-- **An item closes** as `judged` once each rule that queued it has the
-  judgment it wants: one of its class, or any judgment for a rule without a
-  class.
-- **`judgingQueue.dismiss`**, with an optional reason, takes a run not worth
-  judging out of the queue, and `judgingQueue.reopen` puts it back. Each
-  item's `can` says whether you may.
-- **Counts:** `limit: 0` answers only the `total`. With `state`,
-  `addedAfter` and `closedAfter`, it gives "N waiting, M judged this week".
-- **When a run's content is gone,** erased or purged by
-  [retention](../../../deploy/retention/), its waiting item closes as
-  `erased` and shows nothing of the run.
+Judge each item's run, as [Judge an item](#judge-an-item) shows. An item
+closes as `judged` once each rule that queued it has the judgment it wants.
+`judgingQueue.dismiss`, with an optional reason, takes a run not worth
+judging out of the queue. [The judging queue](../judging-reference/#the-judging-queue)
+has every field and count.
 
-Reading the rules and the queue takes read access to the project. Changing
-a rule, and dismissing or reopening an item, take write access, as judging
-a run does.
+Reading the rules and the queue takes read access to the project. Changing a
+rule, and dismissing or reopening an item, take write access, as judging a
+run does.
 
-### Change a rule, and read its results
+## Next
 
-- **`judgingRules.update`** writes a new version of the rule, and
-  `judgingRules.versions` lists them all, newest first, with who wrote each
-  and when. Runs queued from then on count toward the new version. `null`
-  removes `maxOpen` or `judgeClassId`.
-- **`judgingRules.unregister`** stops a rule. It queues nothing more; its
-  versions and the runs it queued stay.
-- **`judgingRules.results`** gives a group for each version of the rule and
-  each agent version: the runs it queued (waiting, judged, dismissed,
-  erased), the judgments on them with their weighted `yes` share, and the
-  judgments by class.
-  - **The `yes` share is per judgment:** one person's verdict on one item
-    of a run's output.
-  - **`runsWithJudgments`** counts the runs those judgments come from: the
-    queued runs with at least one live judgment, whatever their item's state
-    now (still open, closed as `judged`, or dismissed after someone judged
-    it). `judgments` counts verdicts, so several people judging one run make
-    several judgments but one run here: to see how much a share rests on,
-    count runs, not judgments. A runtime before Kindgi 0.1.7 doesn't send it.
-
-    From a 0.1.7 runtime: a rule that wants an expert's judgment queued four
-    runs. An expert (weight 3) and a peer judged the first; a peer judged the
-    second `no`, and it's still open; a peer judged the third, which was then
-    dismissed; the fourth was never judged. So `judgments` is 4,
-    `runsWithJudgments` 3, and `yesShare` 0.83: 5 of 6 weighted verdicts.
-
-    ```json
-    {
-      "ruleId": "fd7a1785-717b-404e-bcdc-3b819806d784",
-      "groups": [
-        {
-          "ruleVersion": 1,
-          "agentVersion": "1.0.0",
-          "added": 4,
-          "open": 2,
-          "judged": 1,
-          "dismissed": 1,
-          "erased": 0,
-          "skippedByCap": 0,
-          "judgments": 4,
-          "runsWithJudgments": 3,
-          "yesShare": 0.8333333333333334,
-          "byClass": [
-            {
-              "judgeClassId": "2da17046-eb37-4157-b175-3381a926545a",
-              "judgments": 3,
-              "yes": 2
-            },
-            {
-              "judgeClassId": "787b6f6f-30cf-4bac-bf27-ac5ef32cb6d3",
-              "judgments": 1,
-              "yes": 1
-            }
-          ]
-        }
-      ]
-    }
-    ```
-
-  - **`skippedByCap`** counts the runs the rule matched and sampled but
-    didn't queue because `maxOpen` were waiting, even when another rule
-    queued them, so `added` + `skippedByCap` is every run it matched and
-    sampled. When it isn't 0, the queued runs
-    lean toward quiet times.
-  - **Never pooled:** each version of each rule is a sample of its own
-    `when`, so its results are never added to another's.
-
-That rule's results from a 0.1.6 runtime (capped at 2 waiting), after three
-live runs: one judged `yes`, one dismissed, and one skipped while both waited.
-
-```json
-{
-  "ruleId": "19191620-85c3-4e2a-bd87-a0270d15ab53",
-  "groups": [
-    {
-      "ruleVersion": 1,
-      "agentVersion": "2.1.0",
-      "added": 2,
-      "open": 0,
-      "judged": 1,
-      "dismissed": 1,
-      "erased": 0,
-      "skippedByCap": 1,
-      "judgments": 1,
-      "yesShare": 1,
-      "byClass": [
-        {
-          "judgeClassId": null,
-          "judgments": 1,
-          "yes": 1
-        }
-      ]
-    }
-  ]
-}
-```
-
-## In the console
-
-A project's **Quality** section is the judging queue and its rules in the
-console. Its headline says where judging stands:
-
-> 5 runs wait for a judgment (3 for you) · 1 judged this week · 1 dismissed
-> this week · 7 added this week · 0 proposals to review.
-
-When a proposal waits for a reviewer, "· 1 waiting for a reviewer" follows.
-The section has five tabs: **Waiting**, **Rules**, **Trends**, **Judge
-classes** and **Proposals**. Their tables sort by a column's header, and
-**Columns** chooses which columns each shows. The tab, the filters and each
-table's view go in the page's address (`?tab=rules`), so a link opens the
-same view.
-
-### Waiting
-
-![The Quality section's Waiting tab: the headline, the filters, "2 more wait for other judges.", the Columns menu, and three runs of demo.echo-agent 1.0.0 queued by the Everything and Support sample rules, each needing an expert judgment, with Dismiss.](../../../../assets/quality/quality-waiting.png)
-
-Each row is a run in the queue:
-- **What ran:** the agent or flow and its version, and when it finished. It
-  links the run's **Judgments** tab, where you judge it (see
-  [Judge an item](#judge-an-item)).
-- **Why it's here:** the rules that queued it.
-- **Where it stands:** what it still needs ("Needs an expert judgment (1 so
-  far, unclassified)"), or how a closed one ended.
-
-Filter it by state (**Waiting**, **Judged**, **Dismissed**, **Erased**), by
-**For me** or **Everyone's** ("2 more wait for other judges."), by rule and
-by agent. **Dismiss** takes a run out of the queue with a reason, and
-**Reopen** puts a dismissed one back.
-
-![The Waiting tab filtered to Dismissed and Everyone's: a run of demo.echo-agent 1.0.0 queued by the Everything and Support sample rules, "Dismissed by a person (11111111…) 2026-10-11 12:23 UTC: A test order", with Reopen.](../../../../assets/quality/quality-dismissed.png)
-
-### Rules
-
-![The Rules tab: "3 judging rules." with New rule, a search box and the Columns menu, and the Support sample, Everything and Bot review rules, each with which runs it takes, what it wants, its cap, its open items, and History, Change and Unregister.](../../../../assets/quality/quality-rules.png)
-
-Each rule is in words:
-- **Which runs:** "Completed runs of Dev-Echo Agent", and how many it takes
-  ("Takes every matching run", or "Takes 1 in 10").
-- **What it wants:** "An expert judgment", "Any judgment" or "A bot
-  judgment".
-- **Its cap:** "No cap", or no new items while that many are open.
-- **What it has open now:** for example "3 open", linking **Waiting**.
-
-A rule matches an agent's or a flow's own runs, not an agent's turns as a
-flow's step; replays never match.
-
-Project editors see **New rule**, and **Change** on each rule. The editor
-shows what the rule would have queued from the recent runs, and saving makes
-a new version of the rule. **History** lists what each version changed, who
-changed it and when. **Unregister** stops a rule; the runs it queued stay in
-the queue.
-
-![The New judging rule dialog, over the Rules tab.](../../../../assets/quality/quality-rule-editor.png)
-
-![Echo half: its versions, over the Rules tab: "Version 2 · a person (11111111…) · 2026-10-11 12:23 UTC" changed "Cap: No new items while 5 are open → No cap" and "Wants: any judgment → an expert judgment"; Version 1, by the same person at the same time, "Created".](../../../../assets/quality/quality-rule-history.png)
-
-### Trends
-
-![The Trends tab: each rule by its latest version, with the share of yes for each agent version. The Trend check rule's chart shows 1.1.0 at about 95% yes and 1.0.0 at about 25%, "1.1.0 is judged better than 1.0.0."](../../../../assets/quality/quality-trends.png)
-
-**Trends** shows, per rule and by its latest version, the share of yes
-among people's judgments of each agent version, over all time or the last 90
-or 30 days. These are [`judgingRules.results`](#change-a-rule-and-read-its-results)'
-numbers:
-- **A version shows from 10 judgments.** Below that it says so: "1.0.0: too
-  few judgments to say (2 so far)".
-- **Each line names its judgments and its range:** "1.1.0: about 95% yes,
-  from 12 judgments (12 runs judged so far); range 64–100%".
-- **A comparison only when the ranges are apart:** "1.1.0 is judged better
-  than 1.0.0."
-- **The weights, in words:** "Weighted by judge class: An expert's judgment
-  counts 3× an unclassified one; a bot's judgment counts the same as an
-  unclassified one."
-- **What the numbers leave out:** an earlier version of the rule is "shown
-  apart, never added in", and runs the cap kept out are counted ("1 matched
-  run wasn't queued because the rule already had its most open runs
-  waiting, so the queued ones lean toward quieter times.").
-
-**Every count** opens the counts behind a rule's trend.
-
-![A rule's trend after the rule changed, now at rule version 2: too few judgments to chart yet, 1.2.0 with too few judgments to say, the one matched run the cap kept out, and rule version 1 shown apart, never added in.](../../../../assets/quality/quality-trends-changed.png)
-
-### Judge classes
-
-![The Judge classes tab: "2 judge classes apply to this project's runs. An unclassified judgment counts 1." The expert class counts 3×, applies to this project, may be given only by people and is wanted by the Echo half and Support sample rules; the bot class counts the same, only services.](../../../../assets/quality/quality-classes.png)
-
-Each [judge class](#weight-judges-by-class) that applies to the project's runs, in words:
-- how much it counts ("Counts 3× an unclassified one");
-- where it applies ("This project");
-- who may give it ("Only people", "Only services"); who may give a
-  restricted class is counted here, never listed;
-- the rules that want it.
-
-Project admins add, change and remove a project's classes (a tenant's
-classes: tenant admins). Removing a class names the rules that want it.
-
-![The Remove expert? dialog, over the Judge classes tab: "No new judgment can name it. Judgments that named it keep it, and still count with its weight in trends." and "2 rules want its judgment (Echo half, Support sample): change them first, or their items wait for a class nobody can give."](../../../../assets/quality/quality-class-remove.png)
-
-### Proposals
-
-![The Proposals tab: "0 to review · 0 waiting for a reviewer · 1 being evaluated · 1 needs a look." Tuned agent's proposals: one drafted and not evaluated yet, one "Not better on the test set", and a withdrawn one under Closed.](../../../../assets/quality/quality-proposals.png)
-
-The project's agents' [proposals](../improve-an-agent/), grouped by what
-they wait for: **To review**, **Waiting for a reviewer**, **Being
-evaluated**, **Need a look** and **Closed**. Each says where it stands
-("Not better on the test set", with the judged yes share it was evaluated
-on) and links its page: "Each proposal's page holds its actions: evaluate,
-request, roll back, withdraw."
+- [Build a test set](../build-a-test-set/)
+- [Compare a version on a test set](../compare-an-agent-version/)
+- [Judging reference](../judging-reference/)

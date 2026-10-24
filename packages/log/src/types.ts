@@ -34,7 +34,12 @@ export interface LogRecord {
   readonly [field: string]: unknown;
 }
 
-/** An error, as a record carries it. `stack` at `error`, or when the logger is at `debug` or below. */
+/**
+ * An error, as a record carries it. `stack` at `error`, or when the logger
+ * is at `debug` or below. A plain object in an error's place (a storage
+ * error) carries its non-empty string name (else `Object`), code and
+ * message only: no stack, and its own cause isn't walked.
+ */
 export interface SerializedError {
   readonly name: string;
   readonly message: string;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `kindgi webhooks`, through the client's `webhooks` (and `secrets`, for a generated secret). */
+/** `kindgi webhooks`, through the client's `webhooks`. */
 
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -11,7 +11,6 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { KindgiApiError } from '@kindgi/client';
 
-import { generateSigningSecret } from '../src/commands/webhooks.js';
 import { runCli } from '../src/main.js';
 
 let home: string;
@@ -58,11 +57,8 @@ async function webhooks(
   argv: readonly string[],
   options: {
     trigger?: Record<string, unknown>;
-    secretExists?: boolean;
     /** Thrown by the call of that name. */
-    refuse?: { readonly register?: unknown; readonly 'secrets.set'?: unknown };
-    /** A secret of that name stored between the check and the store. */
-    storedMeanwhile?: boolean;
+    refuse?: { readonly register?: unknown };
   } = {},
 ) {
   const calls: unknown[][] = [];
@@ -92,18 +88,6 @@ async function webhooks(
           unregister: record('unregister', { triggerId: ID, unregistered: true }),
           fires: record('fires', { data: [FIRE], hasMore: false }),
           takeOwnership: record('takeOwnership', trigger),
-        },
-        secrets: {
-          get: record(
-            'secrets.get',
-            options.secretExists === true ? { name: 'acme-woo-secret', currentVersion: 1 } : null,
-          ),
-          set: record(
-            'secrets.set',
-            options.storedMeanwhile === true
-              ? { kind: 'version-conflict', currentVersion: 1 }
-              : { kind: 'ok', versionId: 1, record: { scope: { kind: 'tenant' } } },
-          ),
         },
       }) as never,
   });
@@ -159,113 +143,70 @@ describe('kindgi webhooks register', () => {
     });
   });
 
-  test('--generate-secret stores a letters-and-digits secret in --env and shows it once', async () => {
-    const { out, calls } = await webhooks([
-      'register',
-      '--flow=acme.refund-review',
-      '--flow-version=1.0.0',
-      '--secret=acme-woo-secret',
-      '--generate-secret',
-      '--env=local',
-      '--preset=woocommerce',
-    ]);
-    expect(out.exitCode, out.stderr).toBe(0);
-    // Checked free first, stored only once the trigger exists.
-    expect(calls.map((c) => c[0])).toEqual(['secrets.get', 'register', 'secrets.set']);
-    expect(calls[0]?.[1]).toMatchObject({
-      scope: { kind: 'tenant' },
-      envName: 'local',
-      name: 'acme-woo-secret',
-    });
-    const set = calls[2] as [string, { value: string; name: string; envName: string }];
-    expect(set[1]).toMatchObject({
-      scope: { kind: 'tenant' },
-      envName: 'local',
-      name: 'acme-woo-secret',
-      writeMode: 'create-new',
-    });
-    expect(set[1].value).toMatch(/^[A-Za-z0-9]{40}$/);
-    expect(out.stderr).toContain(`shown this once): ${set[1].value}`);
-  });
-
-  test("--generate-secret needs --env, and won't overwrite a secret that exists", async () => {
-    const noEnv = await webhooks([
-      'register',
-      '--flow=a',
-      '--flow-version=1',
-      '--secret=s',
-      '--generate-secret',
-    ]);
-    expect(noEnv.out.exitCode).not.toBe(0);
-    expect(noEnv.out.stderr).toContain('--generate-secret needs --env=<env>');
-    expect(noEnv.calls).toEqual([]);
-
-    const exists = await webhooks(
-      [
-        'register',
-        '--flow=a',
-        '--flow-version=1',
-        '--secret=s',
-        '--generate-secret',
-        '--env=local',
-      ],
-      { secretExists: true },
-    );
-    expect(exists.out.exitCode).not.toBe(0);
-    expect(exists.out.stderr).toContain('A secret named s already exists in local');
-    expect(exists.calls.map((c) => c[0])).toEqual(['secrets.get']);
-  });
-
   const GENERATE = [
     'register',
     '--flow=acme.refund-review',
     '--flow-version=1.0.0',
     '--secret=acme-woo-secret',
     '--generate-secret',
-    '--env=local',
     '--preset=woocommerce',
   ];
 
-  test('--generate-secret with a refused register stores nothing, so the same command can run again', async () => {
+  test('--generate-secret asks the runtime to make it, and shows it once', async () => {
+    const value = 'Q7mZp2Lk9Xv4Rt8Bn3Wc6Yh1Jd5Fg0Sa2Ke7Uo4Hi';
     const { out, calls } = await webhooks(GENERATE, {
+      trigger: {
+        ...TRIGGER,
+        hmacSecretScope: { kind: 'project', projectId: 'p-1' },
+        signingSecret: value,
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    // One call: the runtime makes and stores it, in the trigger's project.
+    expect(calls.map((c) => c[0])).toEqual(['register']);
+    expect(calls[0]?.[1]).toMatchObject({
+      hmacSecretName: 'acme-woo-secret',
+      generateSecret: true,
+    });
+    expect(out.stderr).toContain(
+      `Signing secret (stored as acme-woo-secret in project p-1; shown this once): ${value}`,
+    );
+  });
+
+  test('a secret its registrant administers no scope for: said plainly, with the fix', async () => {
+    const { out } = await webhooks(
+      GENERATE.filter((a) => a !== '--generate-secret'),
+      {
+        trigger: { ...TRIGGER, hmacSecretScope: null },
+      },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain(
+      `Nothing is read for acme-woo-secret until a project admin names it again (\`kindgi webhooks update ${ID} --secret=acme-woo-secret\`)`,
+    );
+  });
+
+  test('a named secret: nothing is made, and nothing is shown', async () => {
+    const { out, calls } = await webhooks(GENERATE.filter((a) => a !== '--generate-secret'));
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls[0]?.[1]).not.toHaveProperty('generateSecret');
+    expect(out.stderr).not.toContain('shown this once');
+  });
+
+  test('--generate-secret refused (the name is taken): the error as it came, and nothing shown', async () => {
+    const { out } = await webhooks(GENERATE, {
       refuse: {
         register: new KindgiApiError({
-          code: 'auth',
-          reason: 'forbidden',
-          message: 'Not allowed to start runs of acme.refund-review',
+          code: 'conflict',
+          reason: 'secret-write-conflict',
+          message:
+            'A secret named acme-woo-secret already exists in local: name another, or name this one without `generateSecret`.',
         }),
       },
     });
     expect(out.exitCode).not.toBe(0);
-    expect(out.stderr).toContain('Not allowed to start runs of acme.refund-review');
-    expect(calls.map((c) => c[0])).toEqual(['secrets.get', 'register']);
-  });
-
-  test('--generate-secret with a refused store: the error as it came, the trigger, and the way out', async () => {
-    const forbidden = await webhooks(GENERATE, {
-      refuse: {
-        'secrets.set': new KindgiApiError({
-          code: 'auth',
-          reason: 'forbidden',
-          message: 'Not allowed to write secrets in local',
-        }),
-      },
-    });
-    expect(forbidden.out.exitCode).not.toBe(0);
-    expect(forbidden.out.stderr).toContain('Not allowed to write secrets in local');
-    expect(forbidden.out.stderr).not.toContain('already exists');
-    expect(forbidden.out.stderr).toContain(
-      `Registered webhook trigger ${ID}, but its signing secret wasn't stored`,
-    );
-    expect(forbidden.out.stderr).toContain(`kindgi webhooks unregister ${ID}`);
-    expect(forbidden.out.stdout).toContain(ID);
-    // The value no one stored is never shown.
-    expect(forbidden.out.stderr).not.toContain('shown this once');
-
-    const raced = await webhooks(GENERATE, { storedMeanwhile: true });
-    expect(raced.out.exitCode).not.toBe(0);
-    expect(raced.out.stderr).toContain('A secret named acme-woo-secret already exists in local');
-    expect(raced.out.stderr).toContain(`kindgi webhooks unregister ${ID}`);
+    expect(out.stderr).toContain('A secret named acme-woo-secret already exists in local');
+    expect(out.stderr).not.toContain('shown this once');
   });
 
   test('custom scheme flags; a preset and custom flags together are refused; an unknown preset too', async () => {
@@ -364,20 +305,78 @@ describe('kindgi webhooks: the rest of the group', () => {
       expect(calls).toEqual([[call, ID]]);
     }
   });
-});
 
-describe('a generated signing secret', () => {
-  test('letters and digits for HMAC senders; `whsec_` and base64 for Standard Webhooks', () => {
-    expect(generateSigningSecret(undefined)).toMatch(/^[A-Za-z0-9]{40}$/);
-    expect(
-      generateSigningSecret({
-        kind: 'hmac-sha256',
-        encoding: 'base64',
-        header: 'X-WC-Webhook-Signature',
-      }),
-    ).toMatch(/^[A-Za-z0-9]{40}$/);
-    const sw = generateSigningSecret({ kind: 'standard-webhooks' });
-    expect(sw).toMatch(/^whsec_[A-Za-z0-9+/]{43}=$/);
-    expect(Buffer.from(sw.slice(6), 'base64')).toHaveLength(32);
+  test('--run-as names a service account on register and take-over', async () => {
+    const BOT = '22222222-2222-4222-8222-222222222222';
+    const reg = await webhooks([
+      'register',
+      '--flow=acme.refund-review',
+      '--flow-version=1.0.0',
+      '--secret=acme-woo-secret',
+      `--run-as=${BOT}`,
+    ]);
+    expect(reg.out.exitCode, reg.out.stderr).toBe(0);
+    expect(reg.calls[0]).toMatchObject(['register', { runAsServiceAccountId: BOT }]);
+
+    const take = await webhooks(['take-ownership', ID, `--run-as=${BOT}`]);
+    expect(take.calls).toEqual([['takeOwnership', ID, { runAsServiceAccountId: BOT }]]);
+  });
+
+  test('--allow-unattended: repeatable on register and update; `none` clears on update only', async () => {
+    const reg = await webhooks([
+      'register',
+      '--flow=acme.refund-review',
+      '--flow-version=1.0.0',
+      '--secret=acme-woo-secret',
+      '--allow-unattended=acme.refund',
+      '--allow-unattended=acme.notify',
+    ]);
+    expect(reg.out.exitCode, reg.out.stderr).toBe(0);
+    expect(reg.calls[0]).toMatchObject([
+      'register',
+      { toolsAllowedUnattended: ['acme.refund', 'acme.notify'] },
+    ]);
+
+    const cleared = await webhooks(['update', ID, '--allow-unattended=none']);
+    expect(cleared.calls).toEqual([['update', ID, { toolsAllowedUnattended: [] }]]);
+    const replaced = await webhooks(['update', ID, '--allow-unattended=acme.refund']);
+    expect(replaced.calls).toEqual([['update', ID, { toolsAllowedUnattended: ['acme.refund'] }]]);
+    const kept = await webhooks(['update', ID, '--label=orders']);
+    expect(kept.calls).toEqual([['update', ID, { label: 'orders' }]]);
+
+    const noneAtRegister = await webhooks([
+      'register',
+      '--flow=acme.refund-review',
+      '--flow-version=1.0.0',
+      '--secret=acme-woo-secret',
+      '--allow-unattended=none',
+    ]);
+    expect(noneAtRegister.out.exitCode).not.toBe(0);
+    expect(noneAtRegister.out.stderr).toContain(
+      '--allow-unattended=none clears the list on update',
+    );
+    expect(noneAtRegister.calls).toEqual([]);
+    const noneWithIds = await webhooks([
+      'update',
+      ID,
+      '--allow-unattended=none',
+      '--allow-unattended=acme.refund',
+    ]);
+    expect(noneWithIds.out.exitCode).not.toBe(0);
+    expect(noneWithIds.calls).toEqual([]);
+  });
+
+  test('take-ownership names the tools the trigger keeps allowed unattended, when it lists any', async () => {
+    const listed = await webhooks(['take-ownership', ID], {
+      trigger: { ...TRIGGER, toolsAllowedUnattended: ['acme.refund'] },
+    });
+    expect(listed.out.exitCode, listed.out.stderr).toBe(0);
+    expect(listed.out.stderr).toContain('It keeps its tools allowed unattended (acme.refund)');
+    expect(listed.out.stderr).toContain(
+      "their calls in its runs still don't wait for a person's yes just because no person started them, now as the new owner.",
+    );
+    expect(listed.out.stderr).toContain(`kindgi webhooks update ${ID} --allow-unattended=none`);
+    const none = await webhooks(['take-ownership', ID]);
+    expect(none.out.stderr).not.toContain('allowed unattended');
   });
 });

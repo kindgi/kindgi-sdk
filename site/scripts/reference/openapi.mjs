@@ -37,3 +37,15 @@ export function writeOpenApiForDocs(specFile, outFile) {
 }
 
 export const OPENAPI_FOR_DOCS = join('generated', 'openapi.json');
+
+/**
+ * An operation page's slug under the API reference, as starlight-openapi
+ * makes it from the `operationId` (github-slugger): `agents.get` →
+ * `agentsget`. Every operation id in the spec is unique.
+ */
+export function operationSlug(operationId) {
+  return operationId
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s_-]/gu, '')
+    .replace(/\s/g, '-');
+}

@@ -11,7 +11,7 @@ import {
   pinsDigest,
 } from '@kindgi/agents';
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
-import type { Cursor, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
+import type { Cursor, LiveScope, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
 
 import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
 import { resolveAgentPins } from '../agent-pins.js';
@@ -22,20 +22,45 @@ import {
   deriveAgentVersion,
   nextFreeAgentVersion,
 } from '../derive-agent-version.js';
+import {
+  environmentTakesPromotionsResponse,
+  firstEnvironmentOf,
+  laterEnvironment,
+} from '../environment-entry.js';
+import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
+import {
+  type ItemCheck,
+  type ItemRights,
+  type ItemServing,
+  itemMiddleware,
+  itemPathCheck,
+  liveChangeRefusal,
+  readCheck,
+  shownLatest,
+  underItem,
+} from '../item-rights.js';
 import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
+import {
+  type ReferenceScopeBinding,
+  agentReferences,
+  outOfScopeResponse,
+  referencesOutOfScope,
+} from '../reference-scope.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import {
   type AgentReleaseGateDeps,
+  isLiveSet,
   isPromotionCheck,
   isPromotionWrite,
   mountAgentReleaseRoutes,
 } from './agent-releases.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
-import { liveScopeToWire } from './live-scope-wire.js';
+import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
@@ -68,8 +93,22 @@ export function agentsRouter(
   gateDeps?: AgentReleaseGateDeps,
   /** What the deployment can do for an agent's turns, for publish warnings. */
   capabilities: AgentPublishCapabilities = {},
+  /** What an agent's project may reference (`reference-scope.ts`); absent → as named. */
+  referenceScope?: ReferenceScopeBinding,
+  /**
+   * The tenant's environment orders: a publish, or a derived version, aimed
+   * at a later environment is refused (`environment-entry.ts`). Absent: no
+   * project is a later environment.
+   */
+  environmentOrders?: Pick<EnvironmentOrderBinding, 'orderOf'>,
+  /** Rights on an agent more than one project serves (`item-rights.ts`); absent → the agent's own. */
+  itemRights?: ItemRights,
+  /** With no authorizer: which projects serve it, for `?projectId=` (`itemServingOf`). */
+  itemServing?: ItemServing,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // Every schema a publish compiles counts against its tenant's budget.
+  const publishCompiles = publishCompilesMiddleware();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
   // every write before anything else runs.
   r.use(
@@ -125,28 +164,97 @@ export function agentsRouter(
       const mw = authorizer.authorize('read', () => ref('project', scopeProjectId));
       return mw(c, next);
     });
+    // Changing what's live is its own permission (`promote`, granted to the
+    // agent's admins), checked as a deployment's promotion that makes what
+    // it moved live checks it (`liveChangeRefusal`).
     r.use('/:agentId/*', async (c, next) => {
-      // Deriving a version (POST …/versions) is `publish` on the agent;
-      // changing what's live is its own permission (`promote`, granted to
-      // the agent's admins); unregister and reinstate are `admin`.
-      const action =
-        c.req.method === 'GET' || isPromotionCheck(c.req.method, c.req.path)
-          ? 'read'
-          : isPromotionWrite(c.req.method, c.req.path)
-            ? 'promote'
-            : c.req.path.endsWith('/versions')
-              ? 'publish'
-              : 'admin';
-      const agentId = c.req.param('agentId') ?? '';
-      const mw = authorizer.authorize(action, () => ref('agent', agentId));
-      return mw(c, next);
+      if (!isPromotionWrite(c.req.method, c.req.path)) return next();
+      const refused = await liveChangeRefusal(c, {
+        authorizer,
+        rights: itemRights,
+        agentId: c.req.param('agentId') ?? '',
+        scope: await bodyScope(c),
+        setsLive: isLiveSet(c.req.method, c.req.path),
+      });
+      return refused ?? next();
     });
-    r.use('/:agentId', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
-      const agentId = c.req.param('agentId') ?? '';
-      const mw = authorizer.authorize('read', () => ref('agent', agentId));
-      return mw(c, next);
-    });
+    // An agent more than one project serves is checked on those projects
+    // instead (`item-rights.ts`, `agentCheck`).
+    r.use(
+      '/:agentId/*',
+      itemMiddleware({
+        authorizer,
+        rights: itemRights,
+        kind: 'agent',
+        id: (c) => c.req.param('agentId') ?? '',
+        // Deriving a version (POST …/versions) is `publish` on the agent;
+        // unregister and reinstate are `admin`. A change to what's live is
+        // checked above.
+        today: (c) =>
+          c.req.method === 'GET' || isPromotionCheck(c.req.method, c.req.path)
+            ? 'read'
+            : isPromotionWrite(c.req.method, c.req.path)
+              ? undefined
+              : c.req.path.endsWith('/versions')
+                ? 'publish'
+                : 'admin',
+        check: (c, projects) => agentCheck(c, projects),
+        versionNotFound: agentVersionNotFound,
+      }),
+    );
+    r.use(
+      '/:agentId',
+      itemMiddleware({
+        authorizer,
+        rights: itemRights,
+        kind: 'agent',
+        id: (c) => c.req.param('agentId') ?? '',
+        today: (c) => (c.req.method === 'GET' ? 'read' : undefined),
+        check: () => ({ rule: 'read' }),
+        versionNotFound: agentVersionNotFound,
+      }),
+    );
+  }
+
+  /**
+   * What a route under an agent more than one project serves asks
+   * (`item-rights.ts`). Reads are rules 1 and 2. A derived version is
+   * made in the first environment of the agent's order, so deriving is
+   * `write` there (`deriveAgentVersion`). Unregistering or reinstating a
+   * version is `admin` on each project it can run in; anything else, on
+   * each of the agent's. A change to what's live is `liveChangeRefusal`'s.
+   */
+  async function agentCheck(
+    c: Context<AppEnv>,
+    projects: readonly ProjectId[],
+  ): Promise<ItemCheck> {
+    const under = underItem(c);
+    if (c.req.method === 'GET') return readCheck(under);
+    if (isPromotionCheck(c.req.method, c.req.path)) return { rule: 'read' };
+    if (under.length === 1 && under[0] === 'versions') {
+      const home = projects[0] as ProjectId;
+      const tenantId = c.get('tenantId') as TenantId;
+      const madeIn = (await firstEnvironmentOf(environmentOrders, tenantId, home)) ?? home;
+      return { rule: 'on', action: 'write', projectId: madeIn as unknown as string };
+    }
+    return itemPathCheck(c);
+  }
+
+  /** A version of the agent that isn't there, or that the caller can't see: one 404 for both. */
+  function agentVersionNotFound(c: Context<AppEnv>, version: string): Response {
+    const agentId = c.req.param('agentId') ?? '';
+    c.status(statusFor('agent-not-found') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'agent-not-found',
+          message: `No agent "${agentId}" at version "${version}"`,
+          agentId,
+          version,
+        },
+        c.get('requestId'),
+      ),
+    );
   }
 
   // ---------- GET / (list, cursor-paginated) ----------
@@ -179,13 +287,30 @@ export function agentsRouter(
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
       ...(includeRetired && { includeRetired: true }),
     });
-    // Only what the caller may read (T243 A), as `GET …/:id` asks.
+    // Only what the caller may read (T243 A), as `GET …/:id` asks; an
+    // agent more than one project serves at its newest version the caller
+    // can see (`item-rights.ts`).
     const visible =
       authorizer === undefined
         ? page.data
-        : await authorizer.filterByCan(c, 'read', page.data, (a) =>
-            ref('agent', a.id as unknown as string),
-          );
+        : itemRights === undefined
+          ? await authorizer.filterByCan(c, 'read', page.data, (a) =>
+              ref('agent', a.id as unknown as string),
+            )
+          : await itemRights.filterItems(c, 'agent', page.data, {
+              idOf: (a) => a.id as unknown as string,
+              todayRef: (a) => ref('agent', a.id as unknown as string),
+              versions: {
+                versionOf: (a) => a.version as unknown as string,
+                getVersion: (id, version) =>
+                  binding.getVersion({
+                    tenantId,
+                    agentId: id as AgentId,
+                    version: version as Semver,
+                  }),
+              },
+              retired: (a) => a.unregisteredAt !== undefined,
+            });
     return c.json({
       data: visible.map(serializeAgent),
       hasMore: page.nextCursor !== undefined,
@@ -199,8 +324,8 @@ export function agentsRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const agentId = c.req.param('agentId') as AgentId;
 
-    const agent = await binding.get({ tenantId, agentId });
-    if (agent === null) {
+    const latest = await binding.get({ tenantId, agentId });
+    if (latest === null) {
       // Distinguish 410 gone (identity exists — head row present, no
       // active version) from 404 not-found (never registered).
       // Retirement is a derived state (no active
@@ -231,7 +356,39 @@ export function agentsRouter(
         ),
       );
     }
-    return c.json(serializeAgent(agent));
+    // The newest version the caller can see, or the newest in
+    // `?projectId=` (`item-rights.ts`).
+    const shown = await shownLatest(
+      c,
+      itemRights ?? itemServing,
+      'agent',
+      agentId as unknown as string,
+      latest,
+      {
+        versionOf: (a) => a.version as unknown as string,
+        projectOf: (a) => a.projectId as unknown as string | undefined,
+        getVersion: (version) =>
+          binding.getVersion({ tenantId, agentId, version: version as Semver }),
+      },
+    );
+    if (shown.kind === 'bad-input') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: shown.message }, requestId));
+    }
+    if (shown.kind === 'not-found') {
+      c.status(statusFor('agent-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'agent-not-found',
+            message: `No agent registered with id "${agentId as unknown as string}"`,
+            agentId: agentId as unknown as string,
+          },
+          requestId,
+        ),
+      );
+    }
+    return c.json(serializeAgent(shown.row));
   });
 
   // ---------- GET /:agentId/versions (list versions) ----------
@@ -274,8 +431,22 @@ export function agentsRouter(
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
       ...(includeTombstoned && { includeTombstoned: true }),
     });
+    // An agent more than one project serves: only the versions the caller
+    // can see (`item-rights.ts`).
+    const projects = await itemRights?.multi(c, 'agent', agentId as unknown as string);
+    const data =
+      itemRights === undefined || projects === undefined
+        ? page.data
+        : await itemRights.visibleVersions(
+            c,
+            'agent',
+            agentId as unknown as string,
+            projects,
+            page.data,
+            (a) => a.version as unknown as string,
+          );
     return c.json({
-      data: page.data.map(serializeAgent),
+      data: data.map(serializeAgent),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -283,31 +454,17 @@ export function agentsRouter(
 
   // ---------- GET /:agentId/versions/:version ----------
   r.get('/:agentId/versions/:version', async (c) => {
-    const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const agentId = c.req.param('agentId') as AgentId;
     const version = c.req.param('version') as Semver;
 
     const agent = await binding.getVersion({ tenantId, agentId, version });
-    if (agent === null) {
-      c.status(statusFor('agent-not-found') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'agent-not-found',
-            message: `No agent "${agentId as unknown as string}" at version "${version as unknown as string}"`,
-            agentId: agentId as unknown as string,
-            version: version as unknown as string,
-          },
-          requestId,
-        ),
-      );
-    }
+    if (agent === null) return agentVersionNotFound(c, version as unknown as string);
     return c.json(serializeAgent(agent));
   });
 
   // ---------- POST / (publish) ----------
-  r.post('/', async (c) => {
+  r.post('/', publishCompiles, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
 
@@ -341,6 +498,16 @@ export function agentsRouter(
       );
     }
     const projectId = projectIdRaw as ProjectId;
+    const later = await laterEnvironment(environmentOrders, tenantId, projectId);
+    if (later !== undefined) {
+      return environmentTakesPromotionsResponse(
+        c,
+        requestId,
+        authorizer,
+        { kind: 'publish', noun: 'agent' },
+        later,
+      );
+    }
 
     // Validate via defineAgent — same rules as the runtime primitive,
     // so an agent published through the API is byte-identical to one
@@ -363,6 +530,16 @@ export function agentsRouter(
         ),
       );
     }
+
+    // Every tool, guardrail and data block it names must be one its
+    // project reaches (`reference-scope.ts`), asked before pinning.
+    const outOfScope = await referencesOutOfScope(
+      referenceScope,
+      tenantId,
+      projectId,
+      agentReferences(defined.value),
+    );
+    if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
 
     // Pin the version: every tool range resolves now, once, to the
     // version its runs use. A range nothing satisfies refuses the
@@ -437,7 +614,7 @@ export function agentsRouter(
   });
 
   // ---------- POST /:agentId/versions (derive a version) ----------
-  r.post('/:agentId/versions', async (c) => {
+  r.post('/:agentId/versions', publishCompiles, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const agentId = c.req.param('agentId') as AgentId;
@@ -468,13 +645,14 @@ export function agentsRouter(
       ...(parsed.label !== undefined && { label: parsed.label }),
       ...(userId !== undefined && { by: `user:${userId as unknown as string}` }),
       ...(parsed.projectId !== undefined && { projectId: parsed.projectId }),
+      ...(environmentOrders !== undefined && { orders: environmentOrders }),
       tuplesFor: (projectId) => (id) =>
         tuplesForCreate(
           { kind: 'agent', id: id as AgentId, tenantId, projectId },
           userId ?? ('00000000-0000-0000-0000-000000000000' as UserId),
         ),
     });
-    return derived(c, agentId, parsed.from, outcome);
+    return derived(c, agentId, parsed.from, outcome, authorizer);
   });
 
   // ---------- POST /:agentId/versions/:version/unregister ----------
@@ -535,6 +713,20 @@ export function agentsRouter(
     const agentId = c.req.param('agentId') as AgentId;
     const version = c.req.param('version') as Semver;
 
+    // Reinstating makes a version's references live again, so they're
+    // asked as at publish (`reference-scope.ts`): a version from before
+    // the check, naming what its project doesn't reach, stays retired.
+    const retired = await binding.getVersion({ tenantId, agentId, version });
+    if (retired?.unregisteredAt !== undefined && retired.projectId !== undefined) {
+      const outOfScope = await referencesOutOfScope(
+        referenceScope,
+        tenantId,
+        retired.projectId,
+        agentReferences(retired),
+      );
+      if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+    }
+
     const outcome = await binding.reinstateVersion({ tenantId, agentId, version });
     if (outcome.kind === 'not-found') {
       c.status(statusFor('agent-not-found') as never);
@@ -557,9 +749,23 @@ export function agentsRouter(
     });
   });
 
-  if (releases !== undefined) mountAgentReleaseRoutes(r, binding, releases, gateDeps);
+  if (releases !== undefined) {
+    mountAgentReleaseRoutes(r, binding, releases, gateDeps, referenceScope, itemRights);
+  }
 
   return r;
+}
+
+/** The scope a promotion, rollback or unpin body names; `undefined` when it names none (the route's 400). */
+async function bodyScope(c: Context<AppEnv>): Promise<LiveScope | undefined> {
+  try {
+    const body: unknown = await c.req.json();
+    if (body === null || typeof body !== 'object') return undefined;
+    const scope = parseLiveScopeBody((body as Record<string, unknown>).scope);
+    return scope.kind === 'ok' ? scope.scope : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -656,6 +862,7 @@ function derived(
   agentId: AgentId,
   from: string,
   outcome: DeriveAgentVersionOutcome,
+  authorizer: Authorizer | undefined,
 ) {
   const requestId = c.get('requestId');
   const fail = (
@@ -699,6 +906,14 @@ function derived(
       });
     case 'project-mismatch':
       return projectMismatch(c, 'agent', agentId as unknown as string, outcome.projectId, 'derive');
+    case 'environment-takes-promotions':
+      return environmentTakesPromotionsResponse(
+        c,
+        requestId,
+        authorizer,
+        { kind: 'derive' },
+        outcome.later,
+      );
   }
 }
 
@@ -811,6 +1026,20 @@ function semanticWarnings(agent: Agent): { readonly code: string; readonly messa
   });
 }
 
+/**
+ * A conversation policy as an answer carries it: without
+ * `autoCloseAfterInactiveSeconds`, which an agent stored before the setting
+ * was taken out may still have. The stored agent is left as it is.
+ */
+function answeredPolicy(
+  policy: NonNullable<AgentVersionRecord['conversationPolicy']>,
+): NonNullable<AgentVersionRecord['conversationPolicy']> {
+  const { autoCloseAfterInactiveSeconds: _gone, ...rest } = policy as typeof policy & {
+    readonly autoCloseAfterInactiveSeconds?: unknown;
+  };
+  return rest;
+}
+
 function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
   return {
     id: a.id as unknown as string,
@@ -827,9 +1056,13 @@ function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
     retrieval: a.retrieval,
     ...(a.memory !== undefined && { memory: a.memory }),
     guardrails: a.guardrails,
-    ...(a.conversationPolicy !== undefined && { conversationPolicy: a.conversationPolicy }),
+    ...(a.conversationPolicy !== undefined && {
+      conversationPolicy: answeredPolicy(a.conversationPolicy),
+    }),
     ...(a.budget !== undefined && { budget: a.budget }),
     ...(a.tags !== undefined && { tags: a.tags }),
+    ...(a.output !== undefined && { output: a.output }),
+    ...(a.toolErrors !== undefined && { toolErrors: a.toolErrors }),
     ...(a.preferredProvider !== undefined && { preferredProvider: a.preferredProvider }),
     ...(a.preferredModel !== undefined && { preferredModel: a.preferredModel }),
     ...(a.pins !== undefined && { pins: a.pins }),

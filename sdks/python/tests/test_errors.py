@@ -52,6 +52,18 @@ def test_an_unlisted_code_is_read_by_its_status(status: int, kind: type) -> None
     assert error.server_code == "org-not-found"
 
 
+def test_an_agent_turn_refused_by_its_tenants_render_budget_is_rate_limited() -> None:
+    error = from_wire(
+        body("rate-limit-exceeded", limit="template-render-time", budgetMs=5000, runId="run-1"),
+        429,
+        retry_after="12",
+    )
+    assert isinstance(error, RateLimitedError)
+    assert error.server_code == "rate-limit-exceeded"
+    assert error.retry_after_seconds == 12
+    assert error.details == {"limit": "template-render-time", "budgetMs": 5000, "runId": "run-1"}
+
+
 def test_an_unlisted_not_found_names_its_resource() -> None:
     error = from_wire(body("org-not-found", id="o-1"), 404)
     assert isinstance(error, NotFoundError)

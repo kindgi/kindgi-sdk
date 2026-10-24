@@ -39,8 +39,9 @@ field is optional:
   a pack's code (its tools and guardrail checks). The pack service's
   target lists `KINDGI_PACK_SERVICE_TOKEN`, `KINDGI_PACK_INDEX`,
   `KINDGI_PACK_SERVICE_MAX_CONCURRENCY`, `KINDGI_PACK_ENV_CHECK`,
-  `KINDGI_PACK_ENV_FILTER` and `KINDGI_PACK_ENV_DECLARED`, and none of the
-  server's vars.
+  `KINDGI_PACK_ENV_FILTER`, `KINDGI_PACK_ENV_DECLARED` and
+  `KINDGI_PACK_TENANT_ID` (the one tenant it serves, when set), and none of
+  the server's vars.
   It also listens on `PORT` (default 8080), the platform convention,
   which isn't a Kindgi variable.
 - **`secretsBackend`**, **`secretsBackendKms`**: the server's secrets
@@ -48,7 +49,13 @@ field is optional:
 - **`packTransport`**: `http` when the server calls a pack service at
   `KINDGI_PACK_SERVICE_URL`. Its token (`KINDGI_PACK_SERVICE_TOKEN`,
   shared with the pack service) is then required, and
-  `KINDGI_PACK_CALL_TIMEOUT_MS` and `KINDGI_PACK_SERVICE_AUTH` apply.
+  `KINDGI_PACK_CALL_TIMEOUT_MS` and `KINDGI_PACK_SERVICE_AUTH` apply. The
+  server's `KINDGI_PACK_ROUTING` (`single` by default, or `per-deployment`,
+  which needs `KINDGI_TENANCY=multi`, with `KINDGI_PACK_ENDPOINT_HOSTS`)
+  picks the pack service for each call; their parsers
+  (`parsePackRouting`, `parsePackEndpointHosts`, `packEndpointHostAllowed`,
+  `parsePackTenantId`) are exported, so the server and the pack service
+  read them the same way.
 
 ## What lives here
 

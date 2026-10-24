@@ -1,6 +1,6 @@
 ---
 title: Models
-description: Connect the models your agents run on, from a preset or a spec file, and manage the connections.
+description: Every preset, provider spec field, model setting and command for the models your agents run on.
 sidebar:
   order: 0
   label: Overview
@@ -8,10 +8,18 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This page lists what you can set when you connect a model to Kindgi: the
+presets, a provider spec's fields, each model's temperature and thinking
+settings, the providers a pack declares, and the commands that manage them.
+
 An agent doesn't name an API. It says what its model must support, and Kindgi
 picks a model from the **providers** registered for your tenant. A provider is
-one connection, to a vendor's API or to an endpoint you serve, with the models
-it offers: each model's features, context window and price.
+one connection, to a vendor's API or to an endpoint you serve. It lists the
+models it offers, with each model's features, context window and price.
+[Choose the model an agent uses](../agents/choose-a-model/) explains how a
+turn picks among them.
+
+To connect a provider, follow its guide:
 
 - [Connect Anthropic](anthropic/): Claude, from a preset.
 - [Connect OpenAI, Gemini, Groq or OpenRouter](api-key-presets/): from a
@@ -23,95 +31,277 @@ it offers: each model's features, context window and price.
 - [Connect a model you serve](serve-your-own-model/): an open model on your own
   hardware or in your own network.
 
-How a turn picks among them is on
-[Choose the model an agent uses](../agents/choose-a-model/).
+## Retries
 
-A model call that fails with a temporary error (a timeout, `408`; a rate
-limit, `429`; an overloaded or failing server, `500`, `502`, `503` or `504`)
-is tried again, waiting longer each time, three attempts in all, before the
-turn fails. Every adapter does this: the Gemini adapter sets it, and the
-Anthropic and OpenAI-compatible ones keep their SDKs' defaults. The waits
-count against the turn's time budget (`maxWallMs`).
+A model call that fails with a temporary error is tried again, each time
+after a longer wait. After three attempts in all, the turn fails. These
+errors are temporary:
+
+- a timeout: `408`;
+- a rate limit: `429`;
+- an overloaded or failing server: `500`, `502`, `503` or `504`.
+
+Every adapter retries. The Anthropic adapter keeps its SDK's defaults; the
+others set their retries themselves. The OpenAI-compatible, Azure OpenAI and
+Bedrock adapters also retry a conflict (`409`), any other `5xx`, and a
+connection dropped before an answer; a vendor that asks to wait more than a
+minute ends the call at once, naming the wait. They don't retry a connection
+the runtime itself refuses (an egress or body-size guard stops it, or it
+would follow a redirect): the turn fails at once, with the refusal's own
+words rather than a generic connection error. The Gemini adapter retries no
+failed connection, dropped or refused. The waits count against the turn's
+time budget, `maxWallMs`.
 
 ## Before you register one
 
-A new pack's tenant has `dev-echo`, a stand-in that answers without a model
-(it calls the agent's first tool and replies with what the tool returned,
-after a first line saying it isn't a real model). It's
-a **fallback**: it answers only while no other provider fits the agent, so a
-provider you register takes over at the next turn, with nothing to switch off
-and no restart.
+A new pack's tenant has `dev-echo`, a stand-in that answers without a model.
+It calls the agent's first tool. It replies with a first line saying it isn't
+a real model, then with what the tool returned.
+
+`dev-echo` is a **fallback**: it answers only while no other provider fits the
+agent. A provider you register takes over at the next turn. You switch nothing
+off, and nothing restarts.
 
 ## Presets
 
+A preset is a ready-made registration for a vendor's API. To list the presets
+with every model they register:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi providers presets
+pnpm exec kindgi providers presets
 ```
 
-It prints each preset as JSON: its adapter, models, key and when its prices
-were checked. They are:
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi providers presets
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw providers presets
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw providers presets
+```
+
+</TabItem>
+</Tabs>
+
+It prints each preset as JSON: its adapter, its models, the name of its key
+and the date its prices were checked.
 
 | Preset | What | Key |
 | --- | --- | --- |
 | `anthropic` | Claude on the Anthropic API | `ANTHROPIC_API_KEY` |
-| `azure-openai` | GPT on your Azure OpenAI deployments (`--resource-name=<resource> --deployments=<model=deployment,…>`); to sign in as the runtime's Entra identity instead, register with a spec | `AZURE_OPENAI_API_KEY` |
-| `bedrock` | Nova, Claude and GPT on Amazon Bedrock, as the runtime's AWS identity (`--region=<a US region>`; the runtime needs `KINDGI_AWS_IDENTITY`; Claude and GPT need your account's access to them) | none |
+| `azure-openai` | GPT on your Azure OpenAI deployments | `AZURE_OPENAI_API_KEY` |
+| `bedrock` | Nova, Claude and GPT on Amazon Bedrock, as the runtime's AWS identity | none |
 | `gemini-api` | Gemini on the Gemini Developer API, with an API key from Google AI Studio | `GEMINI_API_KEY` |
-| `gemini` | Gemini on Vertex AI, with Google Application Default Credentials (`--project=<gcp-project>`; in `kindgi dev`, set `KINDGI_DEV_GOOGLE_CREDENTIALS=adc`) | none |
+| `gemini` | Gemini on Vertex AI, with Google Application Default Credentials | none |
 | `groq` | Open-weight models on Groq's fast inference | `GROQ_API_KEY` |
 | `openai` | GPT on the OpenAI API | `OPENAI_API_KEY` |
 | `openrouter` | A hosted service in front of several vendors: your prompts pass through OpenRouter | `OPENROUTER_API_KEY` |
 
-A preset carries its models' features, context windows, default output caps
-and prices. `pricesCheckedAt` is when the prices were last compared with the
-vendor's. `--max-output-tokens=<n>` registers the models with another cap.
+You register a preset with `kindgi providers register --preset=<name>`. These
+flags go with it:
 
-A model's `maxOutputTokens` is the most a call asks it for when the agent sets
-no `maxOutputTokens` of its own; an agent's own value replaces it, to ask for
-less, for example. It isn't the model's own limit, which its vendor sets.
+- **`--models=<a,b>`** registers only these of the preset's models,
+  comma-separated. Without it, the preset registers all of them.
+- **`--max-output-tokens=<n>`** gives each model another output cap, thinking
+  included, in place of the preset's.
+- **`--secret=<NAME>`** names the secret that holds the API key, in place of
+  the preset's own key name.
+- **`--env=<name>`** is the environment of that secret. It's `local` unless
+  you say otherwise. On Kindgi Cloud, it's `prod`, and another is refused.
+- **`--project=<gcp-project>`**, for `gemini`, is the Google Cloud project
+  Vertex AI runs and bills in. In `kindgi dev`, also set
+  `KINDGI_DEV_GOOGLE_CREDENTIALS=adc`.
+- **`--resource-name=<resource>`**, for `azure-openai`, is your Azure OpenAI
+  resource, as in `<resource>.openai.azure.com`.
+- **`--deployments=<model=deployment,…>`**, for `azure-openai`, is the
+  deployment that serves each model, such as `gpt-6.1-sol=gpt-6-1-sol`. To
+  sign in as the runtime's Entra identity instead of with a key, register
+  with a spec. A runtime with `KINDGI_TENANT_HOST_ACCESS=isolated` refuses
+  that ([What a tenant can't make the server do](../../concepts/security/#what-a-tenant-cant-make-the-server-do)).
+- **`--region=<region>`**, for `bedrock`, is the US AWS Region Bedrock runs
+  in, such as `us-east-2`. The runtime needs `KINDGI_AWS_IDENTITY`, and a
+  runtime with `KINDGI_TENANT_HOST_ACCESS=isolated` refuses the preset
+  ([With a Bedrock API key](#with-a-bedrock-api-key)).
+
+A preset carries its models' features, context windows, default output caps
+and prices. `pricesCheckedAt` is the date the prices were last compared with
+the vendor's.
+
+A model's `maxOutputTokens` is the most a call asks it for when the agent
+sets no `maxOutputTokens` of its own. An agent's own value replaces it, for
+example to ask for less. It isn't the model's own limit: the model's vendor
+sets that.
 
 ### Claude and GPT on Amazon Bedrock
 
 The `bedrock` preset's default model is Amazon Nova Pro
-(`us.amazon.nova-pro-v1:0`), Amazon's own. Its Claude and GPT models are one
-setting away:
+(`us.amazon.nova-pro-v1:0`), Amazon's own. To register one of its Claude or
+GPT models instead, name it with `--models`:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi providers register --preset=bedrock --region=us-east-2 \
+pnpm exec kindgi providers register --preset=bedrock --region=us-east-2 \
   --models=us.anthropic.claude-haiku-4-5-20251001-v1:0
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi providers register --preset=bedrock --region=us-east-2 \
+  --models=us.anthropic.claude-haiku-4-5-20251001-v1:0
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw providers register --preset=bedrock --region=us-east-2 \
+  --models=us.anthropic.claude-haiku-4-5-20251001-v1:0
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw providers register --preset=bedrock --region=us-east-2 \
+  --models=us.anthropic.claude-haiku-4-5-20251001-v1:0
+```
+
+</TabItem>
+</Tabs>
+
+- `--region=us-east-2` is the Region your account uses Bedrock in.
+- `--models` names the Bedrock model id to register.
+
+It prints the provider's id as JSON, then `✓ Registered bedrock:` with the
+model it registered.
+
+The Bedrock model ids are:
 
 - **Claude Haiku 4.5** (`us.anthropic.claude-haiku-4-5-20251001-v1:0`): works
   with tool calls, and with a turn paused and resumed with its reasoning
   carried.
-- **Claude Sonnet 5.5** (`us.anthropic.claude-sonnet-5-5`): once your AWS
-  account has access to Anthropic's 5.5 models.
+- **Claude Sonnet 5.5** (`us.anthropic.claude-sonnet-5-5`): works once your
+  AWS account has access to Anthropic's 5.5 models.
 - **GPT-6.1 Sol and GPT-6 Luna** (`us.openai.gpt-6.1-sol`,
-  `us.openai.gpt-6-luna`): once your AWS account has access to OpenAI's models
-  on Bedrock.
+  `us.openai.gpt-6-luna`): work once your AWS account has access to OpenAI's
+  models on Bedrock.
 
 Claude and GPT on Bedrock need your AWS account's access to their vendor's
-models. A new account may be asked for Anthropic's one-time use-case form in
-the Bedrock console, or answered that the model "is not available for this
-account" and to contact AWS, which takes a support case. AWS's guide:
+models. A new account may be asked to fill in Anthropic's one-time use-case
+form in the Bedrock console. It may instead be told that the model "is not
+available for this account" and to contact AWS, which takes a support case.
+AWS's guide is
 [Request access to models](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html).
 
 A model's lifecycle on Bedrock is AWS's own, and its dates can differ from its
-vendor's. In each Region, a model is Active, Legacy or end-of-life, and
-`GetFoundationModel` gives its state (`modelLifecycle`). For a model launched
-before 2026-09-07, such as Claude Haiku 4.5, the dates are on
-[Model lifecycle (Legacy)](https://docs.aws.amazon.com/bedrock/latest/userguide/model-lifecycle-legacy.html).
-For one launched since, they're on its model card
-([Model lifecycle](https://docs.aws.amazon.com/bedrock/latest/userguide/model-lifecycle.html)
-explains). A Legacy model keeps working until its end-of-life date. But an
-account that hasn't called it for 15 days may lose access, and in its last
-months it may cost more. Past that date a request to it fails, so an agent
-that prefers or requires it needs a new version naming another model.
+vendor's:
+
+- In each Region, a model is Active, Legacy or end-of-life.
+  `GetFoundationModel` gives its state, `modelLifecycle`.
+- For a model launched before 2026-09-07, such as Claude Haiku 4.5, the dates
+  are on
+  [Model lifecycle (Legacy)](https://docs.aws.amazon.com/bedrock/latest/userguide/model-lifecycle-legacy.html).
+  For a model launched since, they're on its model card.
+  [Model lifecycle](https://docs.aws.amazon.com/bedrock/latest/userguide/model-lifecycle.html)
+  explains both.
+- A Legacy model keeps working until its end-of-life date. An account that
+  hasn't called it for 15 days may lose access to it. In its last months, it
+  may cost more.
+- Past its end-of-life date, a request to it fails. An agent that prefers or
+  requires it then needs a new version that names another model.
+
+#### With a Bedrock API key
+
+The `bedrock` preset signs in as the runtime's AWS identity. A runtime with
+`KINDGI_TENANT_HOST_ACCESS=isolated` refuses that
+([What a tenant can't make the server do](../../concepts/security/#what-a-tenant-cant-make-the-server-do)).
+There, register Bedrock from a [spec](#a-provider-spec) with a Bedrock API
+key:
+
+1. Make a long-term API key in the Region the provider uses. A short-term key
+   lasts 12 hours at most, so a registration can't keep one. AWS recommends
+   long-term keys for exploration only, and one works only in the Region it
+   was made in
+   ([Amazon Bedrock API keys](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html)).
+2. Store it as a tenant secret, such as
+   `kindgi secrets set BEDROCK_API_KEY --env=production --scope=tenant`
+   ([Keys](#keys)).
+3. Register a spec whose `adapter_config.auth` is `api-key` and whose
+   `secret_ref` names that secret. Ask your coding agent to write it.
+   Kindgi's skills in your pack tell it how
+   ([How it knows Kindgi](../../start/coding-agents/)):
+
+```text
+I want to use Bedrock with my Bedrock API key.
+```
+
+For reference, the spec it writes looks like this:
+
+```json
+{
+  "adapter_id": "@kindgi/adapter-model-bedrock",
+  "adapter_config": { "auth": "api-key" },
+  "secret_ref": { "envName": "production", "name": "BEDROCK_API_KEY" },
+  "metadata": {
+    "id": "bedrock",
+    "region": "us-east-2",
+    "models": [
+      { "name": "us.anthropic.claude-haiku-4-5-20251001-v1:0", "contextWindow": 200000,
+        "maxOutputTokens": 16000, "features": ["tool-use", "parallel-tool-use"],
+        "cost": { "promptUsdPer1kTokens": 0.0011, "completionUsdPer1kTokens": 0.0055 } }
+    ]
+  }
+}
+```
+
+:::note[On Kindgi Cloud]
+Use `prod` for the environment: `--env=prod` when you store the key, and
+`"envName": "prod"` in the spec.
+:::
+
+With the spec saved as `bedrock.json`,
+`kindgi providers register --spec=@bedrock.json` prints the provider's id:
+
+```json
+{
+  "providerId": "bedrock"
+}
+```
+
+The key is read when a turn calls the model, not when you register.
 
 ## A provider spec
 
-Anything that isn't a preset registers from a spec: a JSON file you pass with
-`kindgi providers register --spec=@<file>`.
+Anything that isn't a preset registers from a spec. A spec is a JSON file you
+pass with `kindgi providers register --spec=@<file>`, where `<file>` is the
+spec's path. The `@` tells the CLI to read the file. Ask your coding agent to
+write one:
+
+```text
+I want to use llama3.1 with Ollama on this machine as a model provider.
+```
+
+For reference, the spec it writes looks like this. It connects a local
+Ollama:
 
 ```json
 {
@@ -130,34 +320,37 @@ Anything that isn't a preset registers from a spec: a JSON file you pass with
 
 - **`adapter_id`** is the adapter's full package name.
 - **`adapter_config`** holds the connection's settings, such as the endpoint's
-  URL: flat keys with string, number or boolean values. Never a key.
+  URL. Its keys are flat, with string, number or boolean values. It never
+  holds a key.
 - **`secret_ref`** names the secret that holds the key:
   `{ "envName": "local", "name": "GROQ_API_KEY" }`. Leave it out for an
-  endpoint that takes none.
+  endpoint that takes no key.
 - **`send_traceparent`** (optional, `true` or `false`) sends each model call's
-  W3C `traceparent` to the provider as a request header, so its request logs
-  can be matched to the run that made the call
-  ([Follow a request or a run](../../deploy/logs/#follow-a-request-or-a-run)).
-  Only the ids go: the trace id and a span id, never a prompt or an answer.
-  It's off by default: nothing about a run's trace leaves your deployment
-  unless you turn it on (see below).
-- **`metadata.id`** names the connection; agents prefer it by this id.
-  **`metadata.models`** lists the models, by the name the endpoint knows them
-  by, each with its `contextWindow`, its `features` (what agents can require)
-  and its `cost`; optionally its `maxOutputTokens`, `sampling` and `thinking`
-  (see [Temperature and thinking](#temperature-and-thinking)).
+  W3C `traceparent` to the provider as a request header. The provider's
+  request logs can then be matched to the run that made the call, as
+  [Follow a request or a run](../../deploy/self-hosted/logs/#follow-a-request-or-a-run)
+  shows. Only the ids go: the trace id and a span id, never a prompt or an
+  answer. It's off by default, so nothing about a run's trace leaves your
+  deployment unless you turn it on.
+- **`metadata.id`** names the connection. Agents prefer a provider by this id.
+- **`metadata.models`** lists the models, by the name the endpoint knows them
+  by. Each has its `contextWindow`, its `features` (what agents can require)
+  and its `cost`. A model can also set `maxOutputTokens`, `sampling` and
+  `thinking`: see [Temperature and thinking](#temperature-and-thinking).
 - **`metadata.defaultModel`** (optional) is the model an agent gets when
-  nothing else decides: no preference, and equal weights. Without it, the
-  first model by name. Another name is refused:
+  nothing else decides: no preference, and equal weights. Without it, that's
+  the first model by name. A name that isn't one of the models is refused:
   `provider "ollama" defaultModel must be one of its models (llama3.1), got "llama3.2"`.
 - **`metadata.attributes`** (optional) are labels agents can rank by, such as
-  `"local"`; **`metadata.fallback: true`** makes the provider a fallback, like
+  `"local"`.
+- **`metadata.fallback: true`** makes the provider a fallback, like
   `dev-echo`.
 - **`metadata.labels`** (optional) are your own key-value notes, such as who
-  manages the registration: `{ "kindgi.com/managed-by": "terraform" }`. Routing
-  ignores them; `kindgi providers get` shows them. Up to 32, each key 1 to 63
-  lowercase letters and digits (with `.`, `-`, `_` or `/` inside), each value up
-  to 256 characters. Another key is refused:
+  manages the registration: `{ "kindgi.com/managed-by": "terraform" }`.
+  Routing ignores them, and `kindgi providers get` shows them. A provider has
+  up to 32 labels. Each key is 1 to 63 lowercase letters and digits, with
+  `.`, `-`, `_` or `/` inside. Each value is up to 256 characters. Another
+  key is refused:
   `provider "ollama" labels key "Team Name" must be 1-63 lowercase letters and digits, with ".", "-", "_" or "/" inside`.
 
 With `send_traceparent: true`, a model call's request to the provider carries
@@ -167,8 +360,9 @@ the run's trace id and a span of its own:
 traceparent: 00-57fb198d8afd340a2b81454221085849-6fef3833e512d758-01
 ```
 
-`kindgi runs get <run-id>` shows the same trace id as the run's `traceId`. A
-value other than `true` or `false` is refused, and nothing is registered:
+`kindgi runs get <run-id>` shows the same trace id as the run's `traceId`,
+where `<run-id>` is the run's id. A value other than `true` or `false` is
+refused, and nothing is registered:
 
 ```text
 Error [invalid-request]: Provider "acme-vendor": send_traceparent must be true or false.
@@ -177,19 +371,19 @@ Error [invalid-request]: Provider "acme-vendor": send_traceparent must be true o
 
 :::caution[Prices are per thousand tokens]
 `promptUsdPer1kTokens` and `completionUsdPer1kTokens` are per **thousand**
-tokens; vendors quote per million. Divide their price by 1000: "$2 per million
-input tokens" is `0.002`. Agents' cost budgets are computed from these prices,
-so copy them from the vendor's page when you register. Kindgi's costs are
-estimates from them; your provider's invoice is what you pay.
+tokens, and vendors quote per million. Divide their price by 1000: "$2 per
+million input tokens" is `0.002`. Agents' cost budgets are computed from these
+prices, so copy them from the vendor's page when you register. Kindgi's costs
+are estimates from them. Your provider's invoice is what you pay.
 :::
 
 ### A spec its adapter can't use
 
-The runtime checks a spec against its adapter when you register it, without
-calling the endpoint or reading the key. A setting the adapter can't use is
+The runtime checks a spec against its adapter when you register it. It
+doesn't call the endpoint or read the key. A setting the adapter can't use is
 refused, with each problem on a line of its own, and nothing is registered.
-Here, the spec above without its `baseURL`, and with an `api` it doesn't
-take:
+Here is the Ollama spec from [A provider spec](#a-provider-spec), without its
+`baseURL` and with an `api` it doesn't take:
 
 ```text
 Error [invalid-request]: Provider "ollama" doesn't fit adapter @kindgi/adapter-model-openai-compat: needs adapter_config.baseURL, an http(s) URL (e.g. https://api.openai.com/v1) (and 1 more).
@@ -202,33 +396,37 @@ Error [invalid-request]: Provider "ollama" doesn't fit adapter @kindgi/adapter-m
   `✗ /secret_ref: needs secret_ref: its Anthropic API key.`
 - **An adapter the runtime doesn't have:**
   `This runtime has no adapter "@kindgi/adapter-model-nope", so it can't build provider "ollama".`
-- **What isn't checked:** whether the key works, the endpoint answers, or it
-  serves the models you list. The first turn finds that out.
+- **What isn't checked:** whether the key works, whether the endpoint
+  answers, and whether it serves the models you list. The first turn finds
+  that out.
 - **From the API:** `POST /v1/providers` answers `422`
-  `provider-config-invalid`, with each problem in `details.issues`: its
-  `path`, a JSON pointer into the spec, and its `message`. The clients read it
-  as an invalid request with those `issues` (TypeScript
-  `code: 'invalid-request'`, Python `InvalidRequestError`).
+  `provider-config-invalid`, with each problem in `details.issues`. An issue
+  has a `path`, a JSON pointer into the spec, and a `message`. The clients
+  read it as an invalid request with those `issues`: `code: 'invalid-request'`
+  in TypeScript, `InvalidRequestError` in Python.
 
 ## Temperature and thinking
 
 Some models take no `temperature`: the Claude 5.5 models and OpenAI's GPT-6
 models reject one. Their registrations say `"sampling": false`, and Kindgi
 sends their calls without it. The turn then carries a `sampling-unsupported`
-warning instead of failing, and `kindgi runs start` prints it. Here from a
-local `llama3.1` registered with `"sampling": false` and a model-settings
-block asking for `0.2`:
+warning instead of failing, and `kindgi runs start` prints it. This warning
+came from a local `llama3.1` registered with `"sampling": false` and a
+model-settings block asking for `0.2`:
 
 ```text
 ⚠ llama3.1 doesn't take a temperature, so the call went without one (it asked for 0.2).
 ```
 
 Some models think before they answer. A model's `thinking` says how:
-`"mode": "adaptive"` (on unless turned down) or `"always"`, and `lowest`, the
-vendor's own setting for the least thinking. Thinking counts against the
-call's output cap (`maxOutputTokens`) and bills as output, so it's in a
-turn's tokens and cost. A guardrail's model judge asks for the least thinking,
-and allows 2,048 tokens for it on top of the 256 its verdict gets.
+
+- **`"mode"`** is `"adaptive"`, on unless turned down, or `"always"`.
+- **`lowest`** is the vendor's own setting for the least thinking.
+
+Thinking counts against the call's output cap, `maxOutputTokens`, and bills
+as output, so it's in a turn's tokens and cost. A guardrail's model judge
+asks for the least thinking. It allows 2,048 tokens for thinking, on top of
+the 256 its verdict gets.
 
 | Preset | Model | Takes a temperature | Thinks | Least thinking |
 | --- | --- | --- | --- | --- |
@@ -245,23 +443,31 @@ and allows 2,048 tokens for it on top of the 256 its verdict gets.
 
 `groq`'s models take a temperature and set no thinking. On `openrouter`,
 `anthropic/claude-sonnet-5.5`, `openai/gpt-6.1-sol` and `openai/gpt-6-luna`
-take no temperature. A model without `thinking` gets nothing sent for it: it
-thinks, or not, as its vendor's default.
+take no temperature. A model without `thinking` gets nothing sent for it, so
+it thinks, or not, as its vendor's default says.
 
-A preset registered before 0.1.4 has none of these marks: register it again
-to pick them up.
+A registration made from an older preset may lack these settings. To pick
+them up, unregister it and register it again.
 
 ## Declare them in your pack's config
 
 Under `kindgi dev`, each project and each git worktree has its own database,
-and a provider you register by hand is in that one only. Declare it in the
-pack's config instead, and `kindgi dev` registers it on every boot: in a new
+and a provider you register by hand is in that one only. A provider declared
+in the pack's config is registered by `kindgi dev` on every boot: in a new
 worktree, after `--reset`, and on a teammate's machine.
+
+Commit the declaration with the rest of the config. It holds a key's name,
+never the key, and it's how a teammate's `kindgi dev`, or another
+worktree's, gets the same providers. The key itself stays out of git: each
+teammate, and each worktree, sets it in its own env files.
+
+Ask your coding agent: "Declare my model providers in the pack's config." For
+reference, it adds them to `providers`, like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 // in kindgi.config.ts
 providers: [
   { preset: 'anthropic', models: ['claude-sonnet-5-5'] }, // its key, ANTHROPIC_API_KEY, from the env files
@@ -279,7 +485,7 @@ providers: [
 </TabItem>
 <TabItem label="Python">
 
-```toml
+```toml excerpt
 # in pyproject.toml
 [[tool.kindgi.providers]]
 preset = "anthropic"
@@ -300,21 +506,70 @@ models = ["gpt-6.1-sol"]
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```jsonc excerpt
+// in kindgi.config.json
+"providers": [
+  { "preset": "anthropic", "models": ["claude-sonnet-5-5"] },
+  { "preset": "gemini", "project": "acme-gcp", "models": ["gemini-3.8-flash"] },
+  {
+    "preset": "azure-openai",
+    "resourceName": "acme-openai",
+    "deployments": { "gpt-6.1-sol": "gpt-6-1-sol" },
+    "models": ["gpt-6.1-sol"]
+  }
+]
+```
+
+The `anthropic` entry reads its key, `ANTHROPIC_API_KEY`, from the env
+files, and `deployments` maps each model to the deployment serving it.
+
+</TabItem>
+<TabItem label="Scala">
+
+```jsonc excerpt
+// in kindgi.config.json
+"providers": [
+  { "preset": "anthropic", "models": ["claude-sonnet-5-5"] },
+  { "preset": "gemini", "project": "acme-gcp", "models": ["gemini-3.8-flash"] },
+  {
+    "preset": "azure-openai",
+    "resourceName": "acme-openai",
+    "deployments": { "gpt-6.1-sol": "gpt-6-1-sol" },
+    "models": ["gpt-6.1-sol"]
+  }
+]
+```
+
+The `anthropic` entry reads its key, `ANTHROPIC_API_KEY`, from the env
+files, and `deployments` maps each model to the deployment serving it.
+
+</TabItem>
 </Tabs>
 
-A preset entry takes `models`, the settings its preset asks for (`project` for
-`gemini`; `resourceName` and `deployments` for `azure-openai`; `region` for
-`bedrock`), `maxOutputTokens`, and `secret`: the key's name, in place of the
-preset's own. Its own settings are required, and another preset's are refused.
-`deployments` is a map of model to deployment here (a table in
-`pyproject.toml`, with each model name quoted), where the `--deployments` flag
-takes `model=deployment,…`. It names exactly the models the entry registers.
-The keys are spelled the same in `pyproject.toml`. `kindgi dev` checks each
-entry against its preset when it starts, and a `kindgi.config.ts` that
-`satisfies KindgiConfig` (`@kindgi/handler-runtime`) gets the same check from
-TypeScript. A `spec` entry is what `--spec`
-takes. A key is always a secret's name, read from the env files; a `spec` with
-a credential in `adapter_config` is refused.
+A preset entry takes these keys, spelled the same in `kindgi.config.ts`,
+`pyproject.toml` and `kindgi.config.json`:
+
+- **`preset`** is the preset's name.
+- **`models`** names the models to register.
+- **The preset's own settings:** `project` for `gemini`, `resourceName` and
+  `deployments` for `azure-openai`, and `region` for `bedrock`. A preset's own
+  settings are required, and another preset's are refused.
+- **`deployments`** maps each model to its deployment. It's a table in
+  `pyproject.toml`, with each model name quoted. It names exactly the models
+  the entry registers. The `--deployments` flag takes the same map as
+  `model=deployment,…`.
+- **`maxOutputTokens`** gives the models another output cap.
+- **`secret`** is the key's name, in place of the preset's own.
+
+A `spec` entry takes what `--spec` takes. A key is always a secret's name,
+read from the env files, and a `spec` with a credential in `adapter_config` is
+refused.
+
+`kindgi dev` checks each entry against its preset when it starts. A
+`kindgi.config.ts` that `satisfies KindgiConfig` (from
+`@kindgi/handler-runtime`) gets the same check from TypeScript.
 
 At each boot, `kindgi dev` says what it did:
 
@@ -326,7 +581,7 @@ At each boot, `kindgi dev` says what it did:
 ```
 
 - A provider whose key isn't in the env files is skipped. The config isn't
-  watched: restart `kindgi dev` after setting the key.
+  watched, so restart `kindgi dev` after setting the key.
 - A key in `.env`, which your app loads too, gets a line of its own:
 
   ```text
@@ -334,76 +589,175 @@ At each boot, `kindgi dev` says what it did:
   ```
 
   See [A key your app's env files already hold](../secrets/env-files/#a-key-your-apps-env-files-already-hold).
-- One `kindgi dev` registered and whose declaration changed is registered
-  again (`qwen-local: registered again (changed in kindgi.config.ts)`); one the
+- A provider that `kindgi dev` registered, and whose declaration changed, is
+  registered again:
+  `qwen-local: registered again (changed in kindgi.config.ts)`. One the
   config no longer declares is unregistered.
 - If the runtime already has a provider with that id that `kindgi dev` didn't
-  register, `kindgi dev` leaves it as it is. When its region or models (names,
-  limits, prices) differ from the config's, a ⚠ line names the
-  `kindgi providers unregister` that lets the config's version apply. The
-  runtime doesn't list a provider's adapter, its settings or its key's name,
-  so one that differs only there is left with a plain line.
+  register, `kindgi dev` leaves it as it is. When its region or models differ
+  from the config's, a ⚠ line names the `kindgi providers unregister` command
+  that lets the config's version apply. Models differ when their names,
+  limits or prices do. The runtime doesn't list a provider's adapter, its
+  settings or its key's name, so a provider that differs only there gets a
+  plain line.
 
-`kindgi dev` keeps track of the ones it registered in
-`.kindgi/dev/providers.json`. A runtime that `kindgi dev` doesn't run, such as
-your staging or production one, gets its providers with
-`kindgi providers register`.
+`kindgi dev` keeps track of the providers it registered in
+`.kindgi/dev/providers.json`. That's a local record, under the gitignored
+`.kindgi/`, not the place to declare a provider.
+
+A runtime that `kindgi dev` doesn't run, such as your staging or production
+one, doesn't read the declaration. Register its providers there by hand with
+`kindgi providers register`, once per runtime: a registration is shared by
+every environment the runtime serves. Register again when you add a provider.
+To change one, unregister it first, then register it again. The key isn't
+shared: set it first in each environment that runs the pack, with
+`kindgi secrets set <KEY> --env=<environment>`. `kindgi deploy` doesn't
+register providers, and `kindgi promote` stops while the target has none.
+
+:::note[On Kindgi Cloud]
+Register a preset with `--env=prod`, or leave `--env` out: there it's `prod`.
+A spec's key names `"envName": "prod"`. A key under another environment is
+refused with `env-not-served`. A model key is the workspace's: runs
+in every project use it. To try a change before it's live, see
+[Change your agent once it's live](../../hosted/deploy-your-agent/#change-your-agent-once-its-live).
+:::
 
 ## Keys
 
-With `kindgi dev`, a provider's key is read from your app's env files, `.env`
-and then `.env.local`, and then Kindgi's own `.kindgi/secrets.env`, which wins
-on a clash, when a turn calls the model. To store one without
-echoing it, with `kindgi dev` running:
+With `kindgi dev`, a provider's key is read when a turn calls the model. It's
+read from your app's env files, `.env` and then `.env.local`, and then from
+Kindgi's own `.kindgi/secrets.env`, which wins on a clash.
+
+To store a key without echoing it, with `kindgi dev` running:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
+pnpm exec kindgi secrets set <KEY_NAME> --env=local --scope=tenant
 ```
 
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi secrets set <KEY_NAME> --env=local --scope=tenant
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw secrets set <KEY_NAME> --env=local --scope=tenant
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw secrets set <KEY_NAME> --env=local --scope=tenant
+```
+
+</TabItem>
+</Tabs>
+
+- `<KEY_NAME>` is the secret's name: the key name the provider reads, such as
+  `OPENAI_API_KEY`. The [presets](#presets) table names each preset's key.
+- `--env=local` is the environment the secret belongs to. Under
+  `kindgi dev`, `local` is the pack's env files.
+- `--scope=tenant` is where the secret lives: the tenant, rather than one org
+  (`org:<orgId>`) or project (`project:<projectId>`). Under `kindgi dev`, the
+  files hold one value for every scope. On a runtime, a run reads a
+  provider's key at its project, else its org, else the tenant (runtime
+  0.1.9 or later; an older runtime reads the tenant's only), so the
+  tenant's key serves every project without one of its own.
+
 It prompts for the value and writes it to `.kindgi/secrets.env`, which your
-app doesn't load. In a script, pipe it
-in with `--from-stdin`. To replace a key that's already set, add
-`--write-mode=add-version`.
+app doesn't load. In a script, pipe the value in and add `--from-stdin`. To
+replace a key that's already set, add `--write-mode=add-version`.
 
 A provider's key is used by that provider only. No tool, MCP endpoint or
 webhook endpoint gets a secret that a provider registration names, in any
-environment: a tool that calls a model itself
+environment. A tool that calls a model itself
 [declares a key of its own](../tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools).
 Registering a provider whose key a tool or an endpoint already uses is
-refused (`provider-key-in-use`), and the error names each one: store the
+refused with `provider-key-in-use`, and the error names each one. Store the
 provider's key under a name of its own, then register.
 
 ## List, change and remove
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi providers list                          # every provider, with its models
-kindgi providers list --feature=structured-output
-kindgi providers get ollama
-kindgi providers unregister ollama
+pnpm exec kindgi providers list                          # every provider, with its models
+pnpm exec kindgi providers list --feature=structured-output
+pnpm exec kindgi providers get ollama
+pnpm exec kindgi providers unregister ollama
 ```
 
-`list` and `get` show the metadata only, never `adapter_config` or the key. A
-registration can't be edited: registering an id that exists is refused, so
-unregister it first, then register the new spec.
+</TabItem>
+<TabItem label="Python">
 
-Unregistering takes a provider out of `list`, `get` and routing at once, and
-its id is free to register again; Kindgi keeps the record until a retention
-policy on `provider` ("Removed model providers" in the console) purges it:
-
-```text
-Error [not-found]: No provider registered with id "ollama"
+```sh
+uv run kindgi providers list                          # every provider, with its models
+uv run kindgi providers list --feature=structured-output
+uv run kindgi providers get ollama
+uv run kindgi providers unregister ollama
 ```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw providers list                          # every provider, with its models
+./kindgiw providers list --feature=structured-output
+./kindgiw providers get ollama
+./kindgiw providers unregister ollama
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw providers list                          # every provider, with its models
+./kindgiw providers list --feature=structured-output
+./kindgiw providers get ollama
+./kindgiw providers unregister ollama
+```
+
+</TabItem>
+</Tabs>
+
+- `--feature=<name>` lists only the providers with a model that has this
+  feature, such as `structured-output` or `tool-use`.
+- `ollama` is the provider's id, its `metadata.id`.
+
+`list` and `get` show the metadata only, never `adapter_config` or the key.
+
+A registration can't be edited. Registering an id that exists is refused:
 
 ```text
 Error [conflict]: Provider "ollama" is already registered
 ```
 
+To change one, unregister it, then register the new spec.
+
+Unregistering takes a provider out of `list`, `get` and routing at once, and
+its id is free to register again. Once it's unregistered, `get` answers:
+
+```text
+Error [not-found]: No provider registered with id "ollama"
+```
+
+Kindgi keeps the record of a removed provider until a retention policy on
+`provider` purges it. The console calls that policy "Removed model providers".
+
 ### Check a registration
 
-A registration stored before 0.1.5 wasn't checked when it was registered.
-`GET /v1/providers/{providerId}/check` (`providers.check(id)` in the clients)
-runs the same check over a stored one. Here, an Ollama registration whose
-`api` doesn't fit:
+`GET /v1/providers/{providerId}/check` runs the registration check over a
+stored provider. In the clients, it's `providers.check(id)`. Here, an Ollama
+registration whose `api` doesn't fit:
 
 ```json
 {"providerId":"ollama","adapterId":"@kindgi/adapter-model-openai-compat","checked":true,"issues":[{"path":"/adapter_config/api","message":"adapter_config.api must be one of responses, chat-completions."}]}
@@ -411,6 +765,7 @@ runs the same check over a stored one. Here, an Ollama registration whose
 
 An empty `issues` means the runtime can build the provider. `checked` is
 `false` for an adapter this runtime has no check for, such as `dev-echo`'s.
-`kindgi doctor` asks this for every provider and names each problem
-([Check this machine](../../start/install/#check-this-machine)). To fix one,
-unregister it and register it again with a spec that fits.
+`kindgi doctor` asks this for every provider and names each problem, as
+[Check this machine](../../start/install/#check-this-machine) shows. To fix a
+problem, unregister the provider and register it again with a spec that
+fits.

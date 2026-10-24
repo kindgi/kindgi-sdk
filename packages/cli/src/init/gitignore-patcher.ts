@@ -40,7 +40,10 @@ const KINDGI_PATTERNS = ['.env.local', '.kindgi/', '.kindgirc.json'] as const;
  * like the rest of the app; `.kindgi/` is already out via `.gitignore`,
  * which Prettier 3 honours.
  */
-const FORMATTER_IGNORE_PATTERNS = ['.claude/skills/kindgi-*/'] as const;
+export const FORMATTER_IGNORE_PATTERNS = [
+  '.claude/skills/kindgi-*/',
+  '.agents/skills/kindgi-*/',
+] as const;
 
 export interface PatchResult {
   /** `absent` — the file doesn't exist and was not created (formatter ignores). */
@@ -59,9 +62,10 @@ export function patchGitignore(gitignorePath: string): Promise<PatchResult> {
 }
 
 /**
- * Add the Kindgi-managed skills to an existing `.prettierignore`. A
- * project without one is left alone — Kindgi doesn't introduce a
- * formatter config the app never had.
+ * Add the Kindgi-managed skills to an existing `.prettierignore` (adding
+ * Kindgi to an app, and `kindgi skills sync`). A project without one is
+ * left alone — Kindgi doesn't introduce a formatter config the app never
+ * had.
  */
 export function patchPrettierignore(path: string): Promise<PatchResult> {
   return patchIgnoreFile(path, FORMATTER_IGNORE_PATTERNS, { createIfMissing: false });

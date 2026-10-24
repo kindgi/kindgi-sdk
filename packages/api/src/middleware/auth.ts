@@ -10,8 +10,16 @@ import type { ApiTokenId, SessionId, TenantId, UserId } from '@kindgi/types';
 import type { SigningKeyBinding } from '@kindgi/crypto';
 
 import { statusFor, toWireError } from '../errors.js';
+import type { PersonCapabilitiesBinding } from '../person-capabilities-binding.js';
 import { PUBLIC_RUN_TOKEN_PREFIX, verifyPublicRunToken } from '../public-run-token.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
+import {
+  FULL_SYSTEM_CAPABILITY,
+  SYSTEM_TENANT_ID,
+  type SystemPrincipal,
+  isSystemCapability,
+  isSystemKeysPath,
+} from '../system.js';
 
 /**
  * Resolve an API token → tenant identity. For static bearer tokens this
@@ -72,6 +80,21 @@ export interface TokenResolution {
    */
   readonly tokenProjectId?: string;
   /**
+   * Set when the token is the deployment's operator's, acting in no tenant:
+   * a system key (`kgi_sy_…`), or the deployment's own token on a runtime
+   * serving many tenants. Its scopes are its `capabilities`. The middleware
+   * gives such a request `SYSTEM_TENANT_ID` whatever `tenantId` says.
+   */
+  readonly system?: SystemPrincipal;
+  /**
+   * Set on the deployment's own token by a runtime serving one tenant: on
+   * `/v1/system/keys` (and under it) the token is this system principal,
+   * with the full system capability and nothing of the tenant's, so it
+   * mints, lists and revokes the system keys. Everywhere else it is what
+   * the rest of this resolution says.
+   */
+  readonly systemKeysOperator?: SystemPrincipal;
+  /**
    * Optional session id. Populated by the session-token verifier path
    * (`kgi_sk_*` tokens) so `/v1/identity/whoami` and `/v1/auth/logout`
    * can introspect / revoke the caller's own session without a second
@@ -105,7 +128,8 @@ export interface TokenResolution {
    */
   readonly rotated?: boolean;
   /**
-   * Optional framework capabilities granted to the bearer. Route
+   * Optional framework capabilities granted to the bearer (a session's
+   * are its person's, from `personCapabilities`). Route
    * handlers gate write / reveal ops on
    * specific capability strings (`env:write`, `secrets:write`,
    * `secrets:rotate`, `secrets:revoke`, `secrets:revoke:hard`,
@@ -218,6 +242,13 @@ export function encodeSessionToken(sessionId: SessionId): string {
 export interface BearerAuthMiddlewareOptions {
   readonly sessionStore?: SessionStoreBinding;
   /**
+   * What a session's person holds, read on each session request once the
+   * session is found valid: the session carries those capabilities. A
+   * system capability among them is dropped. Absent → a session carries
+   * none. An API key's are its own, never its person's.
+   */
+  readonly personCapabilities?: PersonCapabilitiesBinding;
+  /**
    * Inactivity timeout — sessions whose `lastActiveAt` is older than
    * `Date.now() - inactivityTimeoutMs` are rejected with 401
    * `session-inactive`. Absent → inactivity enforcement disabled
@@ -289,7 +320,7 @@ export function bearerAuthMiddleware(
     const isSessionToken = sessionStore !== undefined && token.startsWith(SESSION_TOKEN_PREFIX);
     const resolution = isSessionToken
       ? await resolveSessionToken(sessionStore!, token)
-      : await resolve(token);
+      : operatorOnSystemKeys(await resolve(token), c.req.path);
     if (resolution === null) {
       const body = toWireError(
         { code: 'auth-missing', message: 'Bearer token is not recognized' },
@@ -353,7 +384,12 @@ export function bearerAuthMiddleware(
       }
     }
 
-    c.set('tenantId', resolution.tenantId);
+    if (resolution.system !== undefined) {
+      c.set('systemPrincipal', resolution.system);
+      c.set('tenantId', SYSTEM_TENANT_ID);
+    } else {
+      c.set('tenantId', resolution.tenantId);
+    }
     if (resolution.reviewerRole !== undefined) {
       c.set('reviewerRole', resolution.reviewerRole);
     }
@@ -384,8 +420,11 @@ export function bearerAuthMiddleware(
     if (resolution.scopes !== undefined) {
       c.set('scopes', resolution.scopes);
     }
-    if (resolution.capabilities !== undefined) {
-      c.set('capabilities', resolution.capabilities);
+    const capabilities = isSessionToken
+      ? await sessionCapabilities(options.personCapabilities, resolution)
+      : resolution.capabilities;
+    if (capabilities !== undefined) {
+      c.set('capabilities', capabilities);
     }
 
     // Bump `lastActiveAt` (throttled) so the inactivity timeout has
@@ -459,6 +498,44 @@ export function bearerAuthMiddleware(
 }
 
 /**
+ * Serving one tenant, the deployment's own token on `/v1/system/keys`:
+ * the system principal `systemKeysOperator` names, holding `kindgi:system`,
+ * in no tenant. Elsewhere, and for any other token, the resolution as it is.
+ */
+function operatorOnSystemKeys(
+  resolution: TokenResolution | null,
+  path: string,
+): TokenResolution | null {
+  const operator = resolution?.systemKeysOperator;
+  if (resolution === null || operator === undefined || !isSystemKeysPath(path)) return resolution;
+  return {
+    tenantId: SYSTEM_TENANT_ID,
+    system: operator,
+    capabilities: [FULL_SYSTEM_CAPABILITY],
+    ...(resolution.expiresAt !== undefined && { expiresAt: resolution.expiresAt }),
+    ...(resolution.revoked !== undefined && { revoked: resolution.revoked }),
+  };
+}
+
+/**
+ * A valid session's capabilities: its person's, without any system one.
+ * A person's are never the operator's powers, whatever the store holds.
+ * A read that fails fails the request, as a failed session lookup does:
+ * answering as if they held none would blame them for the store.
+ */
+async function sessionCapabilities(
+  personCapabilities: PersonCapabilitiesBinding | undefined,
+  resolution: TokenResolution,
+): Promise<readonly string[] | undefined> {
+  if (personCapabilities === undefined || resolution.userId === undefined) return undefined;
+  const held = await personCapabilities.held({
+    tenantId: resolution.tenantId,
+    userId: resolution.userId,
+  });
+  return held.filter((cap) => !isSystemCapability(cap));
+}
+
+/**
  * Session-token verification path. Distinct from `TokenResolver` because
  * a session carries structured OAuth context (userId + providerId +
  * scopes + expiration + revocation) that the store returns natively —
@@ -487,6 +564,12 @@ async function resolveSessionToken(
     scopes: session.scopes,
     expiresAt: new Date(session.expiresAt as unknown as string),
     revoked: session.revokedAt !== undefined,
+    // A session's limits are read exactly as a key's (`keyCeilingDeny`,
+    // `refuseOtherProjectForKey`, `inKeyProject`).
+    ...(session.projectId !== undefined && {
+      tokenProjectId: session.projectId as unknown as string,
+    }),
+    ...(session.role !== undefined && { tokenRole: session.role }),
     ...(session.rotatedAt !== undefined && { rotated: true }),
     ...(session.lastActiveAt !== undefined && {
       lastActiveAt: new Date(session.lastActiveAt as unknown as string),

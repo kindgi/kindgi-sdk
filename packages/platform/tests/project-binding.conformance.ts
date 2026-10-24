@@ -63,6 +63,19 @@ export function runProjectBindingConformance(
     readonly projects: ProjectBinding;
     readonly memberships: ProjectMembershipBinding;
     readonly grants: TeamProjectGrantBinding;
+    /**
+     * With `productionLimit`: set the tenant's limit on projects in
+     * production (`undefined` for none) where this binding reads it.
+     */
+    readonly setProductionLimit?: (tenantId: TenantId, limit: number | undefined) => Promise<void>;
+    /**
+     * With `checksEnvironmentOrders`: put the project in an environment order
+     * and return that order's id, or clear it from its order. The store backs
+     * this however it holds orders — the in-memory adapter a map, the durable
+     * one a `project_stages` row — so the one guard suite runs on both.
+     */
+    readonly putInEnvironmentOrder?: (tenantId: TenantId, projectId: ProjectId) => Promise<string>;
+    readonly clearEnvironmentOrder?: (tenantId: TenantId, projectId: ProjectId) => Promise<void>;
   },
   label = 'ProjectBinding',
   options: {
@@ -72,6 +85,25 @@ export function runProjectBindingConformance(
      * `org-not-found`.
      */
     readonly checksOrgs?: boolean;
+    /**
+     * The binding implements `setProduction`: a project put in production
+     * and taken out, with repeats changing nothing.
+     */
+    readonly production?: boolean;
+    /**
+     * Its `setProduction` reads the tenant's limit (set through
+     * `setProductionLimit`) and counts against it: only the tenant's own
+     * projects, only going in, the limit as it is at the call, and two at
+     * once can't both take the last place.
+     */
+    readonly productionLimit?: boolean;
+    /**
+     * The binding refuses to delete, or to move to another parent, a project
+     * that is a member of an environment order (`project-in-environment-order`),
+     * while allowing a rename or slug change. Needs `putInEnvironmentOrder` +
+     * `clearEnvironmentOrder` on the binding.
+     */
+    readonly checksEnvironmentOrders?: boolean;
   } = {},
 ): void {
   describe(`${label} — project CRUD`, () => {
@@ -105,13 +137,295 @@ export function runProjectBindingConformance(
       const id = await createProject(projects, T1, { name: 'A', slug: 'a' });
       await memberships.add(T1, { projectId: id, userId: U1, role: 'editor' });
       await grants.add(T1, { teamId: TEAM_A, projectId: id, role: 'editor' });
-      await projects.delete(T1, id);
+      expect(await projects.delete(T1, id)).toEqual({ kind: 'ok' });
       const mPage = await memberships.listForUser(T1, U1, {});
       expect(mPage.items).toHaveLength(0);
       const gPage = await grants.listForTeam(T1, TEAM_A, {});
       expect(gPage.items).toHaveLength(0);
     });
   });
+
+  if (options.checksEnvironmentOrders === true) {
+    describe(`${label} — environment-order guard`, () => {
+      function orderOps(binding: ReturnType<typeof makeBinding>) {
+        const put = binding.putInEnvironmentOrder;
+        const clear = binding.clearEnvironmentOrder;
+        if (put === undefined || clear === undefined) {
+          throw new Error(
+            'checksEnvironmentOrders needs putInEnvironmentOrder + clearEnvironmentOrder',
+          );
+        }
+        return { put, clear };
+      }
+
+      it('refuses to delete a project in an environment order; the project stays', async () => {
+        const binding = makeBinding();
+        const { projects } = binding;
+        const { put } = orderOps(binding);
+        const id = await createProject(projects, T1, { name: 'Staging', slug: 'staging' });
+        const orderId = await put(T1, id);
+        expect(await projects.delete(T1, id)).toEqual({
+          kind: 'project-in-environment-order',
+          orderId,
+        });
+        expect((await projects.get(T1, id))?.id).toBe(id);
+      });
+
+      it('refuses to move a project in an environment order to another parent', async () => {
+        const binding = makeBinding();
+        const { projects } = binding;
+        const { put } = orderOps(binding);
+        // A project under the tenant (no org); the move adds a parent, refused.
+        const id = await createProject(projects, T1, { name: 'Prod', slug: 'prod' });
+        const orderId = await put(T1, id);
+        expect(await projects.update(T1, id, { orgId: ORG_A })).toEqual({
+          kind: 'project-in-environment-order',
+          orderId,
+        });
+        expect((await projects.get(T1, id))?.orgId).toBeUndefined();
+      });
+
+      it('allows a rename or slug change for a project in an environment order', async () => {
+        const binding = makeBinding();
+        const { projects } = binding;
+        const { put } = orderOps(binding);
+        const id = await createProject(projects, T1, { name: 'Dev', slug: 'dev' });
+        await put(T1, id);
+        expect(await projects.update(T1, id, { name: 'Dev-renamed', slug: 'dev-2' })).toEqual({
+          kind: 'ok',
+        });
+        const got = await projects.get(T1, id);
+        expect(got?.name).toBe('Dev-renamed');
+        expect(got?.slug).toBe('dev-2');
+      });
+
+      it("allows a patch naming an org-less project's current (no) org — a no-op move, not a refusal", async () => {
+        const binding = makeBinding();
+        const { projects } = binding;
+        const { put } = orderOps(binding);
+        // The project has no org; `orgId: null` names that same parent, so the
+        // patch isn't a move and isn't refused — only an actual change of parent
+        // is. A form that always sends `orgId` can still rename an ordered project.
+        const id = await createProject(projects, T1, { name: 'Staging', slug: 'staging' });
+        const orderId = await put(T1, id);
+        expect(await projects.update(T1, id, { name: 'Staging-2', orgId: null })).toEqual({
+          kind: 'ok',
+        });
+        const afterNoOrg = await projects.get(T1, id);
+        expect(afterNoOrg?.name).toBe('Staging-2');
+        expect(afterNoOrg?.orgId).toBeUndefined();
+        // Still in its order: an actual move is still refused, naming the order.
+        expect(await projects.update(T1, id, { orgId: ORG_A })).toEqual({
+          kind: 'project-in-environment-order',
+          orderId,
+        });
+      });
+
+      it("allows a patch naming an org project's current org, and refuses it leaving the order", async () => {
+        const binding = makeBinding();
+        const { projects } = binding;
+        const { put } = orderOps(binding);
+        // The project is under ORG_A; `orgId: ORG_A` names that same parent — a
+        // no-op move, allowed — while leaving the org (`orgId: null`) is a real
+        // move and refused while the project is in the order.
+        const id = await createProject(projects, T1, { name: 'Prod', slug: 'prod', orgId: ORG_A });
+        const orderId = await put(T1, id);
+        expect(await projects.update(T1, id, { name: 'Prod-2', orgId: ORG_A })).toEqual({
+          kind: 'ok',
+        });
+        const afterSameOrg = await projects.get(T1, id);
+        expect(afterSameOrg?.name).toBe('Prod-2');
+        expect(afterSameOrg?.orgId).toBe(ORG_A);
+        expect(await projects.update(T1, id, { orgId: null })).toEqual({
+          kind: 'project-in-environment-order',
+          orderId,
+        });
+      });
+
+      it('deletes a project once it is cleared from its order', async () => {
+        const binding = makeBinding();
+        const { projects } = binding;
+        const { put, clear } = orderOps(binding);
+        const id = await createProject(projects, T1, { name: 'Staging', slug: 'staging' });
+        await put(T1, id);
+        await clear(T1, id);
+        expect(await projects.delete(T1, id)).toEqual({ kind: 'ok' });
+        expect(await projects.get(T1, id)).toBeUndefined();
+      });
+    });
+  }
+
+  if (options.production === true) {
+    describe(`${label} — production`, () => {
+      function setter(projects: ProjectBinding) {
+        const set = projects.setProduction?.bind(projects);
+        if (set === undefined) throw new Error('this binding has no setProduction');
+        return set;
+      }
+
+      it('puts a project in production, then takes it out', async () => {
+        const { projects } = makeBinding();
+        const id = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+        const set = setter(projects);
+        const on = await set(T1, id, true);
+        expect(on.kind).toBe('ok');
+        const since = on.kind === 'ok' ? on.productionSince : null;
+        expect(typeof since).toBe('string');
+        expect(on.kind === 'ok' && on.changed).toBe(true);
+        expect((await projects.get(T1, id))?.productionSince).toBe(since);
+        expect((await projects.list(T1, {})).items.find((p) => p.id === id)?.productionSince).toBe(
+          since,
+        );
+
+        expect(await set(T1, id, false)).toEqual({
+          kind: 'ok',
+          productionSince: null,
+          changed: true,
+        });
+        expect((await projects.get(T1, id))?.productionSince).toBeUndefined();
+      });
+
+      it('a repeat changes nothing, and keeps the first productionSince', async () => {
+        const { projects } = makeBinding();
+        const id = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+        const set = setter(projects);
+        const first = await set(T1, id, true);
+        const since = first.kind === 'ok' ? first.productionSince : null;
+        expect(await set(T1, id, true)).toEqual({
+          kind: 'ok',
+          productionSince: since,
+          changed: false,
+        });
+        await set(T1, id, false);
+        expect(await set(T1, id, false)).toEqual({
+          kind: 'ok',
+          productionSince: null,
+          changed: false,
+        });
+      });
+
+      it('an update keeps productionSince', async () => {
+        const { projects } = makeBinding();
+        const id = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+        const on = await setter(projects)(T1, id, true);
+        expect(await projects.update(T1, id, { name: 'Shop, renamed' })).toEqual({ kind: 'ok' });
+        expect((await projects.get(T1, id))?.productionSince).toBe(
+          on.kind === 'ok' ? on.productionSince : 'not ok',
+        );
+      });
+
+      it("an unknown project, or another tenant's: project-not-found, nothing changed", async () => {
+        const { projects } = makeBinding();
+        const id = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+        const set = setter(projects);
+        expect(await set(T1, 'project-missing' as ProjectId, true)).toEqual({
+          kind: 'project-not-found',
+        });
+        expect(await set(T2, id, true)).toEqual({ kind: 'project-not-found' });
+        expect((await projects.get(T1, id))?.productionSince).toBeUndefined();
+      });
+    });
+  }
+
+  if (options.productionLimit === true) {
+    describe(`${label} — the limit on projects in production`, () => {
+      async function threeProjects(projects: ProjectBinding, tenant: TenantId) {
+        const ids: ProjectId[] = [];
+        for (const name of ['One', 'Two', 'Three']) {
+          ids.push(await createProject(projects, tenant, { name, slug: name.toLowerCase() }));
+        }
+        return ids as [ProjectId, ProjectId, ProjectId];
+      }
+
+      /** A fresh binding, its `setProduction`, and the setter of the tenant's limit. */
+      function limited() {
+        const made = makeBinding();
+        const set = made.projects.setProduction?.bind(made.projects);
+        if (set === undefined) throw new Error('this binding has no setProduction');
+        const limit = made.setProductionLimit;
+        if (limit === undefined) throw new Error('productionLimit needs setProductionLimit');
+        return { projects: made.projects, set, limit };
+      }
+
+      it('at the limit: limit-reached, and nothing changes', async () => {
+        const { projects, set, limit } = limited();
+        const [a, b, c] = await threeProjects(projects, T1);
+        await limit(T1, 2);
+        expect((await set(T1, a, true)).kind).toBe('ok');
+        expect((await set(T1, b, true)).kind).toBe('ok');
+        expect(await set(T1, c, true)).toEqual({
+          kind: 'limit-reached',
+          projectsInProduction: 2,
+          inProduction: 2,
+        });
+        expect((await projects.get(T1, c))?.productionSince).toBeUndefined();
+      });
+
+      it("only the tenant's own projects count", async () => {
+        const { projects, set, limit } = limited();
+        const theirs = await threeProjects(projects, T2);
+        for (const id of theirs) await set(T2, id, true);
+        const [mine] = await threeProjects(projects, T1);
+        await limit(T1, 1);
+        expect((await set(T1, mine, true)).kind).toBe('ok');
+      });
+
+      it('a repeat, and taking one out, are never counted', async () => {
+        const { projects, set, limit } = limited();
+        const [a, b] = await threeProjects(projects, T1);
+        await limit(T1, 1);
+        expect((await set(T1, a, true)).kind).toBe('ok');
+        expect(await set(T1, a, true)).toMatchObject({ kind: 'ok', changed: false });
+        expect(await set(T1, a, false)).toMatchObject({ kind: 'ok', changed: true });
+        expect((await set(T1, b, true)).kind).toBe('ok');
+      });
+
+      it('the limit as it is at the call: raised, lowered, then unset', async () => {
+        const { projects, set, limit } = limited();
+        const [a, b, c] = await threeProjects(projects, T1);
+        await limit(T1, 1);
+        expect((await set(T1, a, true)).kind).toBe('ok');
+        expect((await set(T1, b, true)).kind).toBe('limit-reached');
+        await limit(T1, 2);
+        expect((await set(T1, b, true)).kind).toBe('ok');
+        await limit(T1, 1);
+        expect(await set(T1, c, true)).toEqual({
+          kind: 'limit-reached',
+          projectsInProduction: 1,
+          inProduction: 2,
+        });
+        await limit(T1, undefined);
+        expect((await set(T1, c, true)).kind).toBe('ok');
+      });
+
+      it('a limit below the count refuses the next, and takes none out', async () => {
+        const { projects, set, limit } = limited();
+        const [a, b, c] = await threeProjects(projects, T1);
+        await set(T1, a, true);
+        await set(T1, b, true);
+        await limit(T1, 1);
+        expect(await set(T1, c, true)).toEqual({
+          kind: 'limit-reached',
+          projectsInProduction: 1,
+          inProduction: 2,
+        });
+        expect((await projects.get(T1, a))?.productionSince).toBeDefined();
+        expect((await projects.get(T1, b))?.productionSince).toBeDefined();
+      });
+
+      it('two projects put in production at once, with one place left: one goes in', async () => {
+        const { projects, set, limit } = limited();
+        const [a, b] = await threeProjects(projects, T1);
+        await limit(T1, 1);
+        const outcomes = await Promise.all([set(T1, a, true), set(T1, b, true)]);
+        expect(outcomes.map((o) => o.kind).sort()).toEqual(['limit-reached', 'ok']);
+        const live = [await projects.get(T1, a), await projects.get(T1, b)].filter(
+          (p) => p?.productionSince !== undefined,
+        );
+        expect(live).toHaveLength(1);
+      });
+    });
+  }
 
   describe(`${label} — Default project`, () => {
     it('getDefault returns undefined before any Default is created', async () => {

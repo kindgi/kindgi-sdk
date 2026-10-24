@@ -5,17 +5,26 @@ sidebar:
   order: 1
 ---
 
-You'll build the first line of a support desk: an agent reads a ticket,
-classifies it, sets its priority and drafts a reply, and a flow escalates the
-urgent tickets and records a reply on the rest. Along the way you'll write
-two tools over your own code (one that reads, one that writes), an agent with
-a typed answer, and a flow that branches on that answer.
+You'll build the first line of a support desk. An agent reads a ticket,
+classifies it, sets its priority and drafts a reply. A flow then escalates
+the urgent tickets and records a reply on the rest.
 
-You need Node 22.12, Docker with access to the runtime image
-([Install](../../start/install/)), and an Anthropic API key for step 6.
-About 20 minutes.
+Along the way, you'll write two tools over your own code, one that reads and
+one that writes. You'll also write an agent with a typed answer, and a flow
+that branches on that answer. It takes about 20 minutes.
+
+## Before you start
+
+- **Node 22.12 or later**, and **pnpm**.
+- **Docker**, with access to the runtime image, as
+  [Install](../../start/install/) sets up.
+- **An API key from an AI model provider** (Anthropic, OpenAI, Gemini, Groq
+  or OpenRouter), for step 6.
 
 ## 1. Create the pack
+
+A pack is the folder Kindgi runs your code from. Create one from the
+`minimal` template, and install its dependencies:
 
 ```sh tutorial=run
 npx @kindgi/cli init acme-desk --template=minimal
@@ -23,22 +32,18 @@ cd acme-desk
 pnpm install
 ```
 
-The `minimal` template gives you the pack's folders (`tools/`, `agents/`,
-`guardrails/`, `flows/`) and nothing in them.
+- `acme-desk` is the pack's name, and the folder it's created in.
+- `--template=minimal` starts the pack with its folders and nothing in them.
 
-:::note[On Kindgi 0.1.0 (fixed in 0.1.1)]
-`init` from npm writes no `.gitignore`, so git would track `.env` (where
-your model key goes) and `.kindgirc.json` (the dev token):
-
-```sh
-printf '%s\n' node_modules/ dist/ .kindgi/ .kindgirc.json '*.tsbuildinfo' .env .env.local >> .gitignore
-```
-:::
+`init` lists the files it made, and `pnpm install` installs the pack's
+packages. You now have the pack's folders, `tools/`, `agents/`, `guardrails/`
+and `flows/`, all empty.
 
 ## 2. Your code
 
-The tools will work on tickets. In your app they'd come from a database; here
-it's a small module of the pack's own, so the tutorial runs anywhere:
+The tools will work on tickets. In your app, tickets would come from a
+database. Here they come from a small module of the pack's own, so the
+tutorial runs anywhere. Write it:
 
 ```ts tutorial=write
 // src/tickets.ts
@@ -68,9 +73,14 @@ export function addNote(id: string, note: string): number {
 }
 ```
 
+The pack now has two tickets, `T-100` and `T-101`, and functions to read
+one and add a note to it.
+
 ## 3. Two tools
 
-One tool reads a ticket. It changes nothing, and says so with
+Tools are how an agent or a flow reaches your code. Write two.
+
+The first tool reads a ticket. It changes nothing, and says so with
 `mutating: false`:
 
 ```ts tutorial=write
@@ -131,10 +141,16 @@ if (defined.kind === 'err') throw new Error(defined.error.message);
 export default defined.value;
 ```
 
-A tool imports your code like any other module (with the `.js` extension the
-pack's TypeScript settings ask for).
+A tool imports your code like any other module, with the `.js` extension the
+pack's TypeScript settings ask for.
+
+The pack now has two tools: `get-ticket` reads a ticket, and `add-note`
+writes to one.
 
 ## 4. An agent with a typed answer
+
+The agent reads a ticket with `get-ticket`, and answers in a shape your flow
+can act on. Write it:
 
 ```ts tutorial=write
 // agents/triage/index.ts
@@ -172,10 +188,16 @@ export default defined.value;
 ```
 
 `output` is the answer's shape. The model has to answer with JSON that fits
-it; an answer that doesn't is sent back once with what's wrong, and the turn
-fails if it still doesn't fit.
+it. An answer that doesn't fit is sent back once, with what's wrong. If it
+still doesn't fit, the turn fails.
+
+The pack now has an agent whose answer always has a `category`, a `priority`
+and a `reply`.
 
 ## 5. A flow that acts on the answer
+
+The flow runs the agent, then escalates the ticket or records the reply,
+depending on the agent's answer. Write it:
 
 ```ts tutorial=write
 // flows/handle-ticket/index.ts
@@ -250,7 +272,11 @@ Check that everything compiles:
 pnpm exec tsc --noEmit
 ```
 
+It prints nothing when everything compiles. The pack is complete.
+
 ## 6. Run it
+
+`kindgi dev` starts the runtime and loads your pack. Start it:
 
 ```sh tutorial=background ready="Kindgi is up"
 pnpm exec kindgi dev
@@ -260,23 +286,55 @@ pnpm exec kindgi dev
 ✓ loaded: 2 tools, 0 guardrails, 1 agents, 1 flows
 ```
 
-Leave it running, and continue in a second terminal, in `acme-desk`. The agent
-needs a real model for its typed answer (the stand-in `kindgi dev` starts with
-can't produce one). Store your Anthropic key as a secret (you're prompted for
-it; it isn't echoed) and register the provider:
+It has loaded the pack's two tools, its agent and its flow. Leave it
+running, and continue in a second terminal, in `acme-desk`.
+
+The agent needs a real model for its typed answer. The stand-in that
+`kindgi dev` starts with can't produce one. Store your AI model provider's
+API key as a secret, then register the provider:
 
 ```sh
-pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
-pnpm exec kindgi providers register --preset=anthropic
+pnpm exec kindgi secrets set <KEY_NAME> --env=local --scope=tenant
+pnpm exec kindgi providers register --preset=<preset>
 ```
+
+`<KEY_NAME>` and `<preset>` depend on the provider:
+
+| Provider | `<KEY_NAME>` | `<preset>` |
+| --- | --- | --- |
+| Anthropic | `ANTHROPIC_API_KEY` | `anthropic` |
+| OpenAI | `OPENAI_API_KEY` | `openai` |
+| Gemini (a Google AI Studio key) | `GEMINI_API_KEY` | `gemini-api` |
+| Groq | `GROQ_API_KEY` | `groq` |
+| OpenRouter (a hosted gateway) | `OPENROUTER_API_KEY` | `openrouter` |
+
+- `secrets set` prompts for the key, and doesn't echo it.
+- `--env=local` is the environment the secret belongs to. Under
+  `kindgi dev`, `local` is the pack's env files.
+- `--scope=tenant` is where the secret lives: the tenant, rather than one
+  org (`org:<orgId>`) or project (`project:<projectId>`).
+- `--preset=<preset>` registers the provider's models from Kindgi's built-in
+  preset, which reads the `<KEY_NAME>` secret.
+
+`secrets set` then prints the secret's name, scope, environment and version
+as JSON, then `Set <KEY_NAME> at tenant in local.` `providers register`
+prints the provider's id as JSON, then `✓ Registered <preset>:` with the
+preset's models, its default marked. Your agent's turns now go to that
+provider's default model.
 
 ## 7. Triage a ticket
 
-Run the agent on its own first:
+Running the agent on its own shows its answer before the flow acts on it:
 
 ```sh
 pnpm exec kindgi runs start --agent=acme-desk.triage --input='{"userMessage":"Triage ticket T-101"}'
 ```
+
+- `--agent=acme-desk.triage` is the agent to run.
+- `--input` is the turn's input, as JSON: `userMessage` is what the agent is
+  asked.
+
+It prints the run, with the agent's answer in `output`:
 
 ```text
   "status": "completed",
@@ -289,18 +347,21 @@ pnpm exec kindgi runs start --agent=acme-desk.triage --input='{"userMessage":"Tr
 ```
 
 The agent called `get-ticket`, read the ticket, and answered in the shape
-you gave it. Your reply will read differently: it's the model's. To see the
-run's page, with each step, the tool call and the cost, run
-`pnpm exec kindgi console` and open **Runs**. Open the console in Chrome or Firefox. Safari can't keep the local sign-in over http yet ([Known limitations](../../deploy/operate/#known-limitations-in-015)).
+you gave it. Your reply will read differently, because it's the model's. To
+see the run's page, with each step, the tool call and the cost, run
+`pnpm exec kindgi console` and open **Runs**.
 
 ## 8. Handle tickets
 
-Now the flow, once for each ticket:
+The flow acts on the agent's answer. Run it once for each ticket:
 
 ```sh
 pnpm exec kindgi runs start --flow=acme-desk.handle-ticket --input='{"ticketId":"T-100"}'
 pnpm exec kindgi runs start --flow=acme-desk.handle-ticket --input='{"ticketId":"T-101"}'
 ```
+
+`--flow` is the flow to run, and `--input` its run's input. Each prints its
+run, with the flow's output:
 
 ```text
   "output": {
@@ -322,6 +383,9 @@ The journal shows which way each run went. For `T-101`:
 pnpm exec kindgi runs journal <run-id>
 ```
 
+`<run-id>` is the `id` that `T-101`'s `runs start` printed. Its journal shows
+the `triage` step, then `escalate`:
+
 ```text
       "kind": "step.completed",
       "nodeId": "triage",
@@ -333,9 +397,14 @@ pnpm exec kindgi runs journal <run-id>
 `T-100` went through `record-reply` instead, and its ticket now has the
 drafted reply as a note.
 
+You've built a pack whose agent triages tickets and whose flow acts on its
+answer.
+
 ## Next
 
 - [Call it from your app](../../start/existing-app/#starting-runs-from-your-app):
   start the flow from your own code and read its output.
 - [Ask before a tool runs](../../guides/approvals/ask-before-a-tool-runs/):
   have a person approve the escalation first.
+- [Get a webhook when a run finishes](../../guides/webhooks/receive-run-finished/):
+  hear about each ticket's run when it ends.

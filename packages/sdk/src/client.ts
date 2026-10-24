@@ -51,9 +51,10 @@ export type { KindgiClient } from '@kindgi/client';
  *
  * @example
  * ```ts
+ * // src/lib/kindgi.ts
  * import { createClient } from '@kindgi/sdk/client';
  *
- * const kindgi = createClient();
+ * export const kindgi = createClient();
  * ```
  */
 export function createClient(options: Partial<ClientOptions> = {}): KindgiClient {
@@ -163,6 +164,7 @@ export type {
   TeamsClient,
   TenantClient,
   TenantConfigClient,
+  TenantUsageClient,
   TokenFilter,
   TokensClient,
   ReinstateToolVersionResult,
@@ -172,6 +174,10 @@ export type {
   Transport,
   TransportRequest,
   UsageClient,
+  UsageGroup,
+  UsageGroupKey,
+  UsagePage,
+  UsageQuery,
   UsageSummaryInput,
   UserFilter,
   UsersClient,

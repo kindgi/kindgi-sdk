@@ -19,7 +19,7 @@
  * mutating verbs.
  */
 
-import { KindgiApiError, type NetworkError, fromWire } from './errors.js';
+import { KindgiApiError, type KindgiError, type NetworkError, fromWire } from './errors.js';
 import type { AuthConfig, ClientOptions } from './types.js';
 
 /** Signature the resource clients call into. */
@@ -173,10 +173,33 @@ export function createTransport(options: ClientOptions): Transport {
         body = undefined;
       }
       throw new KindgiApiError(
-        fromWire(unwrapErrorEnvelope(body, response.status), response.status),
+        withRetryAfter(
+          fromWire(unwrapErrorEnvelope(body, response.status), response.status),
+          response.status,
+          response.headers.get('Retry-After'),
+        ),
       );
     },
   };
+}
+
+/**
+ * A rate-limited error's wait, or a 503's, from the response's
+ * `Retry-After` when the body gives none: whole seconds, or an HTTP date.
+ */
+function withRetryAfter(error: KindgiError, status: number, header: string | null): KindgiError {
+  const waits = error.code === 'rate-limited' || (error.code === 'server' && status === 503);
+  if (!waits || error.retryAfterSeconds !== undefined || header === null) {
+    return error;
+  }
+  const value = header.trim();
+  const at = Date.parse(value);
+  const seconds = /^\d+$/.test(value)
+    ? Number(value)
+    : Number.isNaN(at)
+      ? undefined
+      : Math.max(0, Math.ceil((at - Date.now()) / 1000));
+  return seconds === undefined ? error : { ...error, retryAfterSeconds: seconds };
 }
 
 /** A timeout must be a positive number of milliseconds. */

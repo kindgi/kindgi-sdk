@@ -10,6 +10,7 @@ import type { TenantId } from '@kindgi/types';
 import { callerIdentity } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
+import { requestBodyBytes } from './request-body.js';
 
 /**
  * Idempotency-key store: `(tenantId, caller, route, key) → cached response`,
@@ -133,6 +134,8 @@ const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_HOLD_MS = 30 * 1000;
 /** What a repeat in flight is told to wait, in seconds. */
 const IN_FLIGHT_RETRY_AFTER_S = 5;
+/** The statuses a stored answer can have that never carry a body. */
+const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([204, 205, 304]);
 
 /**
  * Idempotency-Key middleware per API-ROUTE-CONVENTIONS.md §3.1.
@@ -141,7 +144,8 @@ const IN_FLIGHT_RETRY_AFTER_S = 5;
  * - Only applies to mutating methods (POST/PUT/PATCH/DELETE).
  * - No `Idempotency-Key` header → pass through.
  * - Cached hit with matching body hash → replay stored response
- *   byte-identical (status, content-type, body).
+ *   byte-identical (status, content-type, body). A 204, 205 or 304 is
+ *   replayed with no body and no content-type: those never carry a body.
  * - Cached hit with different body hash → 409
  *   `idempotency-key-body-mismatch`.
  * - Cache miss → run the handler, then store the response when the
@@ -190,8 +194,7 @@ export function idempotencyMiddleware(
       return next();
     }
 
-    const bodyText = await readRawBody(c.req.raw);
-    const bodyHash = sha256Hex(bodyText);
+    const bodyHash = await fingerprint(c as Context<AppEnv>);
     const cacheKey = `${tenantId}|${callerIdentity(c as Context<AppEnv>)}|${c.req.method.toUpperCase()}:${c.req.path}|${rawKey}`;
     const hit = await store.get(cacheKey);
     if (hit !== null) return replay(c, hit, bodyHash, requestId, ttlMs);
@@ -222,9 +225,6 @@ export function idempotencyMiddleware(
       }
     }
 
-    // Re-attach the buffered body so downstream handlers reading
-    // `c.req.json()` see the same bytes.
-    if (bodyText.length > 0) rebindBody(c, bodyText);
     const renewal =
       holds === undefined
         ? undefined
@@ -293,6 +293,11 @@ function replay(
       ),
     );
   }
+  // A Response refuses a body with these statuses, even an empty one, so
+  // replaying the stored `''` would throw and answer 500.
+  if (NULL_BODY_STATUSES.has(hit.status)) {
+    return c.body(null, hit.status as never, { 'X-Idempotent-Replay': 'true' });
+  }
   return c.body(hit.bodyText, hit.status as never, {
     'Content-Type': hit.contentType,
     'X-Idempotent-Replay': 'true',
@@ -313,26 +318,14 @@ function bodyMismatch(c: Context, requestId: string) {
   );
 }
 
-async function readRawBody(req: Request): Promise<string> {
-  const method = req.method.toUpperCase();
-  if (method === 'GET' || method === 'HEAD') return '';
-  try {
-    return await req.clone().text();
-  } catch {
-    return '';
-  }
-}
-
-function sha256Hex(text: string): string {
-  return createHash('sha256').update(text).digest('hex');
-}
-
-function rebindBody(c: { req: { raw: Request } }, body: string): void {
-  const original = c.req.raw;
-  const rebuilt = new Request(original.url, {
-    method: original.method,
-    headers: original.headers,
-    body,
-  });
-  Object.defineProperty(c.req, 'raw', { value: rebuilt, configurable: true });
+/**
+ * sha256 of the body's bytes as they came, so a body that text decoding
+ * would change (a byte-order mark, invalid UTF-8, a binary upload) keeps
+ * its own fingerprint. Only the hash comes back: nothing here holds the
+ * body while the request runs.
+ */
+async function fingerprint(c: Context<AppEnv>): Promise<string> {
+  return createHash('sha256')
+    .update(await requestBodyBytes(c))
+    .digest('hex');
 }

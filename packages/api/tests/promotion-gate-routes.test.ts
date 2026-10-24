@@ -415,6 +415,21 @@ describe('POST /v1/agents/:agentId/promotions, through the gate', () => {
     const res = await app.request(`/v1/agents/${AGENT}/promotions`, promote());
     expect(res.status).toBe(409);
   });
+
+  test("the gate wants an approval past the tenant's limit on approvals waiting → 429, naming it", async () => {
+    const { app, state } = setup();
+    state.policy = policy({ ...PASSING, approvals: {} });
+    state.evalRun = evalRun(summary());
+    state.requestError = {
+      code: 'approvals-pending-limit',
+      message: "This tenant's limit on approvals waiting for a decision (5) is reached.",
+    };
+    const res = await app.request(`/v1/agents/${AGENT}/promotions`, promote());
+    expect(res.status).toBe(429);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'approvals-pending-limit',
+    );
+  });
 });
 
 describe('POST /v1/agents/:agentId/promotions/check', () => {

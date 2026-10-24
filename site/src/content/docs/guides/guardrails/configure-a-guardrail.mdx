@@ -7,15 +7,29 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-A check's settings (a limit, a list of words, a tool's id) don't belong in
-its code. The guardrail declares them as `config`, and the check runs with
-them. The [answer-length guardrail](../write-a-guardrail/) has one setting,
-`maxChars`:
+This guide gives a guardrail's check its settings, so you change a limit
+without touching the check's code.
+
+## Before you start
+
+- **The answer-length guardrail** from
+  [Write a guardrail](../write-a-guardrail/), in the pack `my-pack`, with
+  `kindgi dev` running and Kindgi 0.2's CLI.
+
+## Declare the settings
+
+A check's settings don't belong in its code: a limit, a list of words or a
+tool's id, for example. The guardrail declares them as `config`, and the
+check runs with them. Ask your coding agent, for example: "I want to change
+my guardrail's limit without touching its check." Kindgi's skills in your
+pack tell it how ([How it knows Kindgi](../../../start/coding-agents/)).
+
+For reference, the answer-length guardrail has one setting, `maxChars`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 // in guardrails/answer-length/index.ts
 export const check = defineCheck({
   id: 'my-pack.checks.answer-length',
@@ -36,14 +50,14 @@ export default {
 };
 ```
 
-`configSchema` describes the settings; `config` in the declaration gives
+`configSchema` describes the settings. `config` in the declaration gives
 their values. The check's `evaluate` gets those values, typed from the
 schema.
 
 </TabItem>
 <TabItem label="Python">
 
-```python
+```python excerpt
 # in guardrails/answer_length.py
 class Config(BaseModel):
     max_chars: int = Field(500, alias="maxChars", gt=0)
@@ -58,22 +72,93 @@ def answer_length(config: Config, trace: RunTrace) -> CheckResult:
     ...
 ```
 
-The type of the check's first parameter describes the settings; `config=`
-gives their values, keyed by their wire names, the aliases: `maxChars`, not
-`max_chars`.
+The type of the check's first parameter describes the settings. `config=`
+gives their values, keyed by their wire names, which are the aliases:
+`maxChars`, not `max_chars`.
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/mypack/guardrails/AnswerLength.java
+  public record Config(@JsonProperty(defaultValue = "500") @Positive int maxChars) {}
+
+  public static final Guardrail<Config> GUARDRAIL = Guardrail.define("my-pack.answer-length")
+      // …
+      .config(Config.class)
+      .set("config", Map.of("maxChars", 60))
+      .check((config, trace) -> {
+        // config.maxChars(): 60 here, or 500 when the declaration gives none
+        // …
+      });
+```
+
+The `Config` record describes the settings: its fields' types and
+annotations make the schema, and `@JsonProperty(defaultValue = …)` a
+default. `set("config", …)` gives their values, keyed by their wire names.
+The check gets those values as a `Config`.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/mypack/guardrails/AnswerLength.scala
+  final case class Config(@Positive maxChars: Int = 500)
+
+  val guardrail: Guardrail[Config] = Guardrail[Config]("my-pack.answer-length")
+    // …
+    .set("config", Map("maxChars" -> 60))
+    .check { (config, trace) =>
+      // config.maxChars: 60 here, or 500 when the declaration gives none
+      // …
+    }
+```
+
+The case class describes the settings: a field's default value is the
+schema's default. `set("config", …)` gives their values, keyed by their wire
+names. The check gets those values as a `Config`.
 
 </TabItem>
 </Tabs>
 
 ## Change a setting
 
-Edit the value and save; the next turn uses it. With `maxChars: 300`, the
-`dev-echo` answer from [Write a guardrail](../write-a-guardrail/#run-it)
-passes:
+A new value takes effect without a restart. Edit the value and save. The
+next turn uses it. With `maxChars: 300`, the `dev-echo` answer from
+[Write a guardrail](../write-a-guardrail/#run-it) passes:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+pnpm exec kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+</TabItem>
+</Tabs>
+
+`--agent` is the agent the guardrail is on, and `--input` its input.
 
 ```json
   "status": "completed",
@@ -81,13 +166,40 @@ kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
     "violations": [],
 ```
 
-The registered guardrail shows the values it runs with:
+The registered guardrail shows the values it runs with. Get it by its id:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi guardrails get my-pack.answer-length
+pnpm exec kindgi guardrails get my-pack.answer-length
 ```
 
-```json
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi guardrails get my-pack.answer-length
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw guardrails get my-pack.answer-length
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw guardrails get my-pack.answer-length
+```
+
+</TabItem>
+</Tabs>
+
+```json excerpt
   "config": {
     "maxChars": 300
   },
@@ -95,12 +207,13 @@ kindgi guardrails get my-pack.answer-length
 
 ## What the check receives
 
-The check gets `config` resolved by its schema, in both SDKs:
+The check gets `config` resolved by its schema:
 
 - **Defaults are filled in.** A guardrail without `config` runs with the
   schema's defaults; here, a limit of 500.
-- **A value that doesn't fit is refused** before any turn runs, and the
-  message names the setting.
+- **A value that doesn't fit is refused,** and the message names the
+  setting. In TypeScript and Python that happens before any turn runs; in
+  Java and Scala, on the turns the guardrail checks.
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -120,10 +233,10 @@ A setting the schema requires, with no default, must be in `config`:
 guardrails/answer-length/index.ts: guardrail my-pack.answer-length's config doesn't fit its configSchema: must have required property 'maxChars'
 ```
 
-In a deployment, a guardrail registered through the API
-(`kindgi guardrails register`) names the pack's check with its own `config`.
-A config that doesn't fit the check's `configSchema` is refused
-(`422 guardrail-config-invalid`), and nothing is registered:
+In a deployment, a guardrail registered through the API, with
+`kindgi guardrails register`, names the pack's check with its own `config`.
+A config that doesn't fit the check's `configSchema` is refused with
+`422 guardrail-config-invalid`, and nothing is registered:
 
 ```text
 Error [invalid-request]: Guardrail "acme.strict-length" doesn't fit check "my-pack.checks.answer-length": config.maxChars must be > 0.
@@ -132,18 +245,17 @@ Error [invalid-request]: Guardrail "acme.strict-length" doesn't fit check "my-pa
 
 Under `kindgi dev` the indexer has refused such a config already.
 
-A guardrail registered before 0.1.5, or against a pack deployed before
-0.1.5, wasn't checked. The pack service checks the config on every call, as
-sent, against the indexed `configSchema`, so the check doesn't run, and every
-turn the guardrail checks fails, whatever its action. `kindgi runs start`
-exits 1 with:
+The pack service also checks the config on every call, as sent, against the
+indexed `configSchema`. A registered guardrail whose config doesn't fit
+fails every turn it checks, whatever its action: the check doesn't run.
+`kindgi runs start` exits 1 with:
 
 ```text
 Error [run-failed]: input-validation-failed: Check "my-pack.checks.answer-length" config failed validation at /maxChars: must be > 0
 ```
 
-To fix it, unregister it and register it again with a config that fits. A
-pack deployed before 0.1.5 needs one redeploy for registration to check it.
+To fix it, unregister the guardrail and register it again with a config that
+fits.
 
 </TabItem>
 <TabItem label="Python">
@@ -155,8 +267,8 @@ The check gets `config` parsed into its type:
   the guardrail checks, whatever its action. `kindgi runs start` exits 1 with
   `Error [run-failed]: input-validation-failed: Check "my-pack.req-cfg" config failed validation: must have required property 'maxChars'`.
 - **Values are checked where they're declared.** A value that doesn't fit is
-  a `DefinitionError`, and `python -m kindgi.pack index` (and `kindgi dev`)
-  reports the file:
+  a `DefinitionError`. `kindgi dev` reports the file, and so does
+  `python -m kindgi.pack index`, which indexes the pack:
 
   ```text
   Guardrail "my-pack.answer-length": config does not fit its type: 1 validation error for Config
@@ -168,4 +280,53 @@ The check gets `config` parsed into its type:
   isn't an error: the field keeps its default.
 
 </TabItem>
+<TabItem label="Java">
+
+The check gets `config` as a `Config`:
+
+- **Defaults are filled in.** A guardrail without `set("config", …)` runs
+  with the schema's defaults; here, a limit of 500.
+- **A value that doesn't fit isn't caught before a turn.** Indexing the pack
+  and `kindgi dev` accept `Map.of("maxChars", -5)`. The pack service checks
+  the config on every call, so the check can't run: with `halt`, every turn
+  the guardrail checks fails, and `./kindgiw runs start` exits 1 with:
+
+  ```text
+  Error [guardrail-violation]: Turn blocked: guardrail 'my-pack.answer-length' couldn't run its check (check-failed: guardrail "my-pack.answer-length": its check threw: input-validation-failed: Check "my-pack.checks.answer-length" config failed validation at /maxChars: must be > 0)
+  ```
+
+  With another action, the turn completes, and the error is recorded as
+  [When the check can't run](../halt-or-record/#when-the-check-cant-run)
+  describes. Fix the value and save.
+- **`set("config", …)` is keyed by wire names**, as the schema names them:
+  `maxChars`.
+
+</TabItem>
+<TabItem label="Scala">
+
+The check gets `config` as a `Config`:
+
+- **Defaults are filled in** from the case class's default values: without
+  `set("config", …)`, a limit of 500.
+- **A value that doesn't fit isn't caught before a turn.** Indexing and
+  `kindgi dev` accept `Map("maxChars" -> -5)`. The pack service checks the
+  config on every call, so the check can't run: with `halt`, every turn the
+  guardrail checks fails, and `./kindgiw runs start` exits 1 with:
+
+  ```text
+  Error [guardrail-violation]: Turn blocked: guardrail 'my-pack.answer-length' couldn't run its check (check-failed: guardrail "my-pack.answer-length": its check threw: input-validation-failed: Check "my-pack.checks.answer-length" config failed validation at /maxChars: must be > 0)
+  ```
+
+  With another action, the turn completes, and the error is recorded as
+  [When the check can't run](../halt-or-record/#when-the-check-cant-run)
+  describes. Fix the value and save.
+- **`set("config", …)` is keyed by wire names**, as the schema names them.
+
+</TabItem>
 </Tabs>
+
+## Next
+
+- [Stop a turn or record a violation](../halt-or-record/)
+- [Use a built-in check](../use-a-built-in-check/)
+- [Write a guardrail](../write-a-guardrail/)

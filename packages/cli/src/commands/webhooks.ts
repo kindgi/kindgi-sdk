@@ -1,16 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { randomBytes, randomInt } from 'node:crypto';
-
 import type { WebhookSignature, WebhooksClient } from '@kindgi/client';
-import type { EnvName } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
-import { formatThrown } from '../errors.js';
 import { type Rendered, renderJson } from '../output.js';
 import {
   type TableSpec,
+  allowUnattendedField,
   integerFlag,
   readJsonInput,
   requiredPositional,
@@ -169,6 +166,39 @@ const SIGNATURE_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
   label: { type: 'string', description: 'A short label.' },
 };
 
+/**
+ * `--run-as`: the trigger's runs act as this service account, not you. Needs
+ * `act_as` on the account. Shared by `register` and `take-ownership`.
+ */
+const RUN_AS_FLAG: Readonly<Record<string, ParseArgsOption>> = {
+  'run-as': {
+    type: 'string',
+    description:
+      "A service account, by id: the trigger's owner, so its runs act as that account from the next delivery (not as you). Needs `act_as` on the account; omit it to own the trigger yourself.",
+  },
+};
+
+/** `--allow-unattended`, as `register` and `update` each word it. */
+function allowUnattendedFlag(on: 'register' | 'update'): Record<string, ParseArgsOption> {
+  return {
+    'allow-unattended': {
+      type: 'string',
+      multiple: true,
+      description: `A tool, by id, whose calls in this trigger's runs needn't wait for a person's yes, though the tool asks for one when no person started the run (repeatable; only tools its flow calls, no wildcard). Needs \`admin\` on the trigger's project. The tenant's and the agent's approval rules still apply.${on === 'update' ? ' Replaces the list; `none` clears it; left out, the list is kept.' : ''}`,
+    },
+  };
+}
+
+/** The kept list, as take-ownership's note names it, when there's one. */
+function keptToolsNote(t: Trigger): string[] {
+  const ids = t.toolsAllowedUnattended ?? [];
+  return ids.length === 0
+    ? []
+    : [
+        `  It keeps its tools allowed unattended (${ids.join(', ')}): their calls in its runs still don't wait for a person's yes just because no person started them, now as the new owner. \`kindgi webhooks update ${t.triggerId} --allow-unattended=none\` clears them.`,
+      ];
+}
+
 /** The scheme and delivery fields from `--preset` or the `--signature-*` flags. */
 function signatureFields(ctx: CommandContext): {
   signature?: WebhookSignature;
@@ -225,21 +255,6 @@ function limitFields(ctx: CommandContext): {
   };
 }
 
-/**
- * A new signing secret. `standard-webhooks`: `whsec_` and 32 random bytes in
- * base64. Otherwise 40 letters and digits: WooCommerce HTML-decodes its
- * secret before signing, so anything else could sign differently.
- */
-export function generateSigningSecret(signature: WebhookSignature | undefined): string {
-  if (signature?.kind === 'standard-webhooks') {
-    return `whsec_${randomBytes(32).toString('base64')}`;
-  }
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let out = '';
-  for (let i = 0; i < 40; i++) out += alphabet[randomInt(alphabet.length)];
-  return out;
-}
-
 /** Where to point the sender, or why there's nothing to point it at yet. */
 function receiveNote(t: Trigger): string {
   return t.receiveUrl !== undefined
@@ -247,59 +262,24 @@ function receiveNote(t: Trigger): string {
     : `  No receive URL: this deployment has no public URL configured. Set KINDGI_PUBLIC_URL on the runtime to the address your sender reaches it at, then \`kindgi webhooks get ${t.triggerId}\` shows it.\n`;
 }
 
-function secretExists(name: string, env: string): string {
-  return `A secret named ${name} already exists in ${env}: pick another --secret, or store your own value with \`kindgi secrets set\` and drop --generate-secret`;
-}
-
-/**
- * Store a generated secret once its trigger exists, so a refused register
- * leaves no secret behind (the trigger refuses deliveries until it's stored,
- * and no sender has the value yet). What went wrong, or `undefined`.
- */
-async function storeGenerated(
-  ctx: CommandContext,
-  name: string,
-  generated: { readonly value: string; readonly env: string },
-): Promise<unknown> {
-  try {
-    const stored = await ctx.client().secrets.set({
-      scope: { kind: 'tenant' },
-      envName: generated.env as EnvName,
-      name,
-      value: generated.value,
-      writeMode: 'create-new',
-    });
-    return stored.kind === 'version-conflict'
-      ? new Error(secretExists(name, generated.env))
-      : undefined;
-  } catch (err) {
-    return err;
-  }
-}
-
 const register: LeafCommand = {
   kind: 'leaf',
   name: 'register',
   description:
     "Start a flow's run when a signed request arrives: from WooCommerce, Drupal's Webhooks module, GitHub, Shopify, or any sender that signs with HMAC-SHA256 or Standard Webhooks. Its runs act as you, checked again at every delivery. The event the flow gets is data from outside, never instructions: check it in a step before any agent, and keep the agent that reads it read-only.",
-  usage: `kindgi webhooks register --flow=<id> --flow-version=<v> (--secret=<name> | --generate-secret --secret=<name> --env=<env>) [--preset=${PRESET_NAMES} | --signature-header=<h> --signature-encoding=hex|base64 [--signature-prefix=<p>]] [--delivery-id-header=<h>] [--input=<json-or-@file>] [--project=<project-id>] [--body-limit=<bytes>] [--rate-limit=<per-minute>] [--label=<text>]`,
+  usage: `kindgi webhooks register --flow=<id> --flow-version=<v> --secret=<name> [--generate-secret] [--preset=${PRESET_NAMES} | --signature-header=<h> --signature-encoding=hex|base64 [--signature-prefix=<p>]] [--delivery-id-header=<h>] [--input=<json-or-@file>] [--project=<project-id>] [--body-limit=<bytes>] [--rate-limit=<per-minute>] [--label=<text>] [--run-as=<service-account-id>] [--allow-unattended=<tool-id>]…`,
   optionSpec: {
     flow: { type: 'string', description: 'The flow each delivery starts.' },
     'flow-version': { type: 'string', description: 'The flow version.' },
     secret: {
       type: 'string',
       description:
-        "The signing secret's name (written with `kindgi secrets set`, at the tenant, in the env the runtime serves). Never a model provider's key.",
+        "The signing secret's name: one written with `kindgi secrets set` in the env the runtime serves (it's read at the trigger's project, its org or the tenant, whichever you administer that has it), or the name --generate-secret stores it under. Never a model provider's key. Under `kindgi dev`, --generate-secret writes it to an env file, so the name is capital letters, digits and underscores, not starting with a digit (`ACME_WOO_ORDERS`).",
     },
     'generate-secret': {
       type: 'boolean',
       description:
-        'Make a new signing secret, store it as --secret in --env (at the tenant), and show it once, to paste into the sender. Letters and digits only (WooCommerce HTML-decodes its secret); `whsec_…` with --preset=standard-webhooks.',
-    },
-    env: {
-      type: 'string',
-      description:
-        'With --generate-secret: the env the runtime serves, where the secret is stored (`local` under `kindgi dev`).',
+        "The runtime makes a new signing secret, stores it as --secret in the trigger's project, and shows it once, to paste into the sender. Letters and digits only (WooCommerce HTML-decodes its secret); `whsec_…` with --preset=standard-webhooks.",
     },
     input: {
       type: 'string',
@@ -311,6 +291,8 @@ const register: LeafCommand = {
       description: "The trigger's project, by id (default: the tenant's Default project).",
     },
     ...SIGNATURE_FLAGS,
+    ...RUN_AS_FLAG,
+    ...allowUnattendedFlag('register'),
   },
   run: (ctx) =>
     runSdkRendered(
@@ -326,67 +308,45 @@ const register: LeafCommand = {
         if (secretName === undefined) throw new Error('--secret=<name> is required');
         const signing = signatureFields(ctx);
         const generate = ctx.options['generate-secret'] === true;
-        let generated: { value: string; env: string } | undefined;
-        if (generate) {
-          const env = stringFlag(ctx, 'env');
-          if (env === undefined) {
-            throw new Error(
-              '--generate-secret needs --env=<env>: the env the runtime serves (`local` under `kindgi dev`)',
-            );
-          }
-          // A generated secret never replaces one; checked before anything is made.
-          const existing = await ctx.client().secrets.get({
-            scope: { kind: 'tenant' },
-            envName: env as EnvName,
-            name: secretName,
-          });
-          if (existing !== null) throw new Error(secretExists(secretName, env));
-          generated = { value: generateSigningSecret(signing.signature), env };
-        }
         const input = stringFlag(ctx, 'input');
         const project = stringFlag(ctx, 'project');
         const label = stringFlag(ctx, 'label');
+        const runAs = stringFlag(ctx, 'run-as');
         const deliveryIdHeader = signing.deliveryIdHeader;
         const trigger = await ctx.client().webhooks.register({
           flowId,
           flowVersion,
           hmacSecretName: secretName,
+          ...(generate && { generateSecret: true }),
           ...(signing.signature !== undefined && { signature: signing.signature }),
           ...(typeof deliveryIdHeader === 'string' && { deliveryIdHeader }),
           ...limitFields(ctx),
           ...(input !== undefined && { config: { input: await readJsonInput(input) } }),
           ...(project !== undefined && { projectId: project }),
           ...(label !== undefined && { label }),
+          ...(runAs !== undefined && { runAsServiceAccountId: runAs }),
+          ...allowUnattendedField(ctx, 'register'),
         } as RegisterInput);
         const preset = stringFlag(ctx, 'preset');
         const rendered = renderJson(trigger, ctx.globals.format);
-        if (generated !== undefined) {
-          const failed = await storeGenerated(ctx, secretName, generated);
-          if (failed !== undefined) {
-            const cliErr = formatThrown(failed, {
-              commandLabel: 'webhooks register',
-              verbose: ctx.globals.verbose,
-            });
-            return {
-              stdout: rendered.stdout,
-              stderr: [
-                cliErr.stderr.trimEnd(),
-                `  Registered webhook trigger ${trigger.triggerId}, but its signing secret wasn't stored. It refuses every delivery until ${secretName} holds a value in ${generated.env}: store one with \`kindgi secrets set ${secretName} --env=${generated.env} --scope=tenant --from-stdin\` and paste the same value into the sender, or remove the trigger with \`kindgi webhooks unregister ${trigger.triggerId}\`.`,
-                '',
-              ].join('\n'),
-              exitCode: cliErr.exitCode,
-            };
-          }
-        }
         return {
           stdout: rendered.stdout,
           stderr: [
             '',
             `  Registered webhook trigger ${trigger.triggerId}: each signed delivery starts ${flowId}@${flowVersion}.`,
+            ...(runAs !== undefined
+              ? [`  Its runs act as service account ${trigger.owner.id} (${trigger.owner.kind}).`]
+              : []),
             receiveNote(trigger).trimEnd(),
-            ...(generated !== undefined
+            ...(trigger.signingSecret !== undefined
               ? [
-                  `  Signing secret (stored as ${secretName} in ${generated.env}; shown this once): ${generated.value}`,
+                  `  Signing secret (stored as ${secretName} in project ${trigger.projectId}; shown this once): ${trigger.signingSecret}`,
+                ]
+              : []),
+            // You administer no scope its secret could be read at: say so plainly.
+            ...(trigger.hmacSecretScope === null
+              ? [
+                  `  Nothing is read for ${secretName} until a project admin names it again (\`kindgi webhooks update ${trigger.triggerId} --secret=${secretName}\`): you don't administer a scope it could be read at. Or register with --generate-secret, which stores a new one in the project.`,
                 ]
               : []),
             ...(preset !== undefined ? [`  ${WEBHOOK_PRESETS[preset]?.where ?? ''}`] : []),
@@ -446,8 +406,8 @@ const update: LeafCommand = {
   kind: 'leaf',
   name: 'update',
   description:
-    'Change a webhook trigger: its flow version, input, secret, scheme, delivery-id header or limits. Its flow stays: register another trigger for another flow.',
-  usage: `kindgi webhooks update <trigger-id> [--flow-version=<v>] [--input=<json-or-@file>] [--secret=<name>] [--preset=${PRESET_NAMES} | --signature-header=<h> --signature-encoding=hex|base64 [--signature-prefix=<p>]] [--delivery-id-header=<h>|none] [--body-limit=<bytes>] [--rate-limit=<per-minute>] [--label=<text>]`,
+    'Change a webhook trigger: its flow version, input, secret, scheme, delivery-id header, limits or the tools its runs may call unattended. Its flow stays: register another trigger for another flow.',
+  usage: `kindgi webhooks update <trigger-id> [--flow-version=<v>] [--input=<json-or-@file>] [--secret=<name>] [--preset=${PRESET_NAMES} | --signature-header=<h> --signature-encoding=hex|base64 [--signature-prefix=<p>]] [--delivery-id-header=<h>|none] [--body-limit=<bytes>] [--rate-limit=<per-minute>] [--label=<text>] [--allow-unattended=<tool-id>|none]…`,
   optionSpec: {
     'flow-version': { type: 'string', description: 'Start this flow version instead.' },
     input: {
@@ -460,6 +420,7 @@ const update: LeafCommand = {
         "Verify with another secret, by name. To change a secret's value, use `kindgi secrets rotate`.",
     },
     ...SIGNATURE_FLAGS,
+    ...allowUnattendedFlag('update'),
   },
   run: (ctx) =>
     runSdk(ctx, 'webhooks update', async () => {
@@ -475,6 +436,7 @@ const update: LeafCommand = {
         ...signatureFields(ctx),
         ...limitFields(ctx),
         ...(label !== undefined && { label }),
+        ...allowUnattendedField(ctx, 'update'),
       });
     }),
 };
@@ -531,6 +493,35 @@ const fires: LeafCommand = {
     ),
 };
 
+const takeOwnership: LeafCommand = {
+  kind: 'leaf',
+  name: 'take-ownership',
+  description:
+    "Become a webhook trigger's owner, so its runs act as you from the next delivery (for a trigger whose owner left). With --run-as, a service account becomes the owner instead.",
+  usage: 'kindgi webhooks take-ownership <trigger-id> [--run-as=<service-account-id>]',
+  optionSpec: { ...RUN_AS_FLAG },
+  run: (ctx) =>
+    runSdkRendered(ctx, 'webhooks take-ownership', async () => {
+      const triggerId = requiredPositional(ctx, 0, 'trigger-id');
+      const runAs = stringFlag(ctx, 'run-as');
+      const webhooksClient = ctx.client().webhooks;
+      const trigger = await (runAs !== undefined
+        ? webhooksClient.takeOwnership(triggerId, { runAsServiceAccountId: runAs })
+        : webhooksClient.takeOwnership(triggerId));
+      const rendered = renderJson(trigger, ctx.globals.format);
+      return {
+        stdout: rendered.stdout,
+        stderr: [
+          '',
+          `  Trigger ${trigger.triggerId} now runs as ${trigger.owner.displayName ?? trigger.owner.id} (${trigger.owner.kind}), from the next delivery.`,
+          ...keptToolsNote(trigger),
+          '',
+          '',
+        ].join('\n'),
+      };
+    }),
+};
+
 export const webhooksCommand: Command = {
   kind: 'group',
   name: 'webhooks',
@@ -546,11 +537,7 @@ export const webhooksCommand: Command = {
       w.resume(id),
     ),
     fires,
-    byId(
-      'take-ownership',
-      "Become a webhook trigger's owner, so its runs act as you (for a trigger whose owner left).",
-      (w, id) => w.takeOwnership(id),
-    ),
+    takeOwnership,
     byId(
       'unregister',
       'Remove a webhook trigger: its sender is answered 410 from now on.',

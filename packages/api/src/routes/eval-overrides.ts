@@ -13,8 +13,8 @@
 
 import {
   type AgentId,
-  MODEL_SETTINGS_SCHEMA,
   checkDraftedTemplate,
+  modelSettingsIssues,
   settingsSchemaIssues,
 } from '@kindgi/agents';
 import type { Semver, TenantId } from '@kindgi/types';
@@ -74,9 +74,14 @@ export async function checkSettingsOverrides(
       issues.push({ path, message: `settings block "${id}" version ${version} isn't published` });
       continue;
     }
-    const schema = found.modelSettings?.id === id ? MODEL_SETTINGS_SCHEMA : block.content.schema;
-    if (schema === undefined) continue;
-    for (const issue of settingsSchemaIssues(values, schema)) {
+    const schema = block.content.schema;
+    const problems =
+      found.modelSettings?.id === id
+        ? modelSettingsIssues(values)
+        : schema === undefined
+          ? []
+          : settingsSchemaIssues(values, schema);
+    for (const issue of problems) {
       issues.push({ path: `${path}${issue.path}`, message: issue.message });
     }
   }

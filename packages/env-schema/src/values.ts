@@ -39,6 +39,12 @@ export const AUTH_SECRET_PATH_VAR = 'KINDGI_AUTH_SECRET_PATH';
 /** The same secret, base64. */
 export const AUTH_SECRET_VAR = 'KINDGI_AUTH_SECRET';
 
+/** While the sign-in secret rotates, the one before it (a file): it still opens second-factor keys sealed under it. */
+export const AUTH_PREVIOUS_SECRET_PATH_VAR = 'KINDGI_AUTH_PREVIOUS_SECRET_PATH';
+
+/** The previous sign-in secret, base64. */
+export const AUTH_PREVIOUS_SECRET_VAR = 'KINDGI_AUTH_PREVIOUS_SECRET';
+
 /** Identity provider origins on a private network the operator allows. */
 export const AUTH_PRIVATE_IDP_ORIGINS_VAR = 'KINDGI_AUTH_PRIVATE_IDP_ORIGINS';
 
@@ -73,13 +79,20 @@ export const AUTH_EMAIL_SMTP_URL_PATH_VAR = 'KINDGI_AUTH_EMAIL_SMTP_URL_PATH';
 /** The emailed sign-in link's From address. */
 export const AUTH_EMAIL_FROM_VAR = 'KINDGI_AUTH_EMAIL_FROM';
 
-/** At most this many emailed links to one address in 24 hours. Default 10. */
+/** At most this many emailed links to one address in 24 hours. Default 20. */
 export const AUTH_EMAIL_LINK_DAILY_CAP_VAR = 'KINDGI_AUTH_EMAIL_LINK_DAILY_CAP';
+
+/** At most this many invitation emails in 24 hours from the whole deployment, all its tenants together. Default 500. */
+export const AUTH_INVITE_EMAIL_DAILY_CAP_VAR = 'KINDGI_AUTH_INVITE_EMAIL_DAILY_CAP';
 
 /** Cloudflare Turnstile on asking for an emailed link: its secret (or a file holding it) and its site key. */
 export const AUTH_TURNSTILE_SECRET_VAR = 'KINDGI_AUTH_TURNSTILE_SECRET';
 export const AUTH_TURNSTILE_SECRET_PATH_VAR = 'KINDGI_AUTH_TURNSTILE_SECRET_PATH';
 export const AUTH_TURNSTILE_SITE_KEY_VAR = 'KINDGI_AUTH_TURNSTILE_SITE_KEY';
+
+/** The deployment's terms and privacy policy, which the sign-in page links: each an absolute https URL. */
+export const AUTH_TERMS_URL_VAR = 'KINDGI_AUTH_TERMS_URL';
+export const AUTH_PRIVACY_URL_VAR = 'KINDGI_AUTH_PRIVACY_URL';
 
 /** Which hops in front of the runtime to trust for the client's address: a hop count, or IPs/CIDRs. */
 export const TRUSTED_PROXIES_VAR = 'KINDGI_TRUSTED_PROXIES';
@@ -117,6 +130,161 @@ export function parsePackServiceToken(raw: string | undefined): string | undefin
     );
   }
   return token;
+}
+
+/** The tenant a pack service serves: it refuses calls for any other (`KINDGI_PACK_TENANT_ID`). */
+export const PACK_TENANT_ID_VAR = 'KINDGI_PACK_TENANT_ID';
+
+const TENANT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The id no tenant has: a request the operator makes in no tenant carries
+ * it (`SYSTEM_TENANT_ID` in `@kindgi/api`). No pack call does, so a pack
+ * service pinned to it would refuse every call.
+ */
+const NO_TENANT_ID = '00000000-0000-4000-8000-000000000000';
+
+/**
+ * `KINDGI_PACK_TENANT_ID` as the pack service reads it, without surrounding
+ * whitespace: it's compared with the `kindgi-tenant-id` header, which never
+ * carries any. Unset or blank: `undefined` (no tenant pin). Throws unless
+ * it's a tenant's id, a UUID, so a typo fails at startup instead of
+ * refusing every call; and throws on the id no tenant has.
+ */
+export function parsePackTenantId(raw: string | undefined): string | undefined {
+  const id = raw?.trim();
+  if (id === undefined || id === '') return undefined;
+  if (!TENANT_UUID.test(id)) {
+    throw new Error(
+      `${PACK_TENANT_ID_VAR} must be the tenant's id, a UUID such as 3f2b8c1e-4a5d-4e6f-9a0b-1c2d3e4f5a6b. Got a value that isn't one.`,
+    );
+  }
+  if (id.toLowerCase() === NO_TENANT_ID) {
+    throw new Error(
+      `${PACK_TENANT_ID_VAR} is ${NO_TENANT_ID}, the id no tenant has: no pack call carries it. Set the tenant's own id.`,
+    );
+  }
+  return id;
+}
+
+/** How the server picks the pack service for a call (`KINDGI_PACK_ROUTING`). */
+export const PACK_ROUTING_VAR = 'KINDGI_PACK_ROUTING';
+
+/** `single`: one pack service for every call. `per-deployment`: the service of the deployment that shipped the tool or check. */
+export type PackRouting = 'single' | 'per-deployment';
+
+/** Parse `KINDGI_PACK_ROUTING`. Unset or blank: `single`. Throws on any other value. */
+export function parsePackRouting(raw: string | undefined): PackRouting {
+  const value = raw?.trim();
+  if (value === undefined || value === '' || value === 'single') return 'single';
+  if (value === 'per-deployment') return 'per-deployment';
+  throw new Error(`${PACK_ROUTING_VAR} is \`single\` or \`per-deployment\`. Got "${value}".`);
+}
+
+/** The hosts a deployment's pack endpoint may name (`KINDGI_PACK_ENDPOINT_HOSTS`). */
+export const PACK_ENDPOINT_HOSTS_VAR = 'KINDGI_PACK_ENDPOINT_HOSTS';
+
+/**
+ * One allowed host:
+ * - `exact` (`pack.internal`);
+ * - `suffix`, from `*.<suffix>`: one more label in front of the suffix
+ *   (`*.example.internal` matches `pack-a.example.internal`, but neither
+ *   `example.internal` itself nor `a.b.example.internal`). Never `run.app`
+ *   or a domain under it: that's Cloud Run's shared domain, so the entry
+ *   would admit any project's services;
+ * - `tail`, from `*-<tail>.<domain>`: one more label that ends with `-<tail>`
+ *   (`*-123456789012.us-central1.run.app` matches
+ *   `kp-abc-123456789012.us-central1.run.app`). On Cloud Run, whose URLs are
+ *   `<service>-<project number>.<region>.run.app` for every project, this is
+ *   the form that admits only one project's services; under `run.app`, the
+ *   tail must be one (digits only).
+ */
+export type PackEndpointHost =
+  | { readonly kind: 'exact'; readonly host: string }
+  | { readonly kind: 'suffix'; readonly suffix: string }
+  | { readonly kind: 'tail'; readonly tail: string; readonly domain: string };
+
+const HOST_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/**
+ * Cloud Run's shared domain. Under it, a `*.` entry, or a `*-` tail that
+ * isn't a project number, would admit any project's services.
+ */
+const CLOUD_RUN_DOMAIN = 'run.app';
+
+function onCloudRun(domain: string): boolean {
+  return domain === CLOUD_RUN_DOMAIN || domain.endsWith(`.${CLOUD_RUN_DOMAIN}`);
+}
+
+function cloudRunRefusal(item: string): Error {
+  return new Error(
+    `${PACK_ENDPOINT_HOSTS_VAR} refuses "${item}": ${CLOUD_RUN_DOMAIN} is Cloud Run's shared domain, whose URLs are \`<service>-<project number>.<region>.run.app\` in every project, so it would admit anyone's service. List the exact hosts, or name one project with \`*-<project number>.<region>.run.app\`.`,
+  );
+}
+
+function isHostName(name: string): boolean {
+  const labels = name.split('.');
+  return labels.length >= 2 && labels.every((label) => HOST_LABEL.test(label));
+}
+
+/**
+ * Parse `KINDGI_PACK_ENDPOINT_HOSTS`: comma-separated host names, lowercase,
+ * with no scheme, port or path, each exact, `*.` and a domain, or `*-`, a tail
+ * and a domain (`*-123456789012.us-central1.run.app`); a domain has at least
+ * two labels. Unset or blank: none, so every endpoint is refused. Throws on
+ * anything else, so a typo fails at startup rather than refusing every
+ * endpoint later. Throws, too, on `*.`, or a `*-` tail that isn't a
+ * project number, with `run.app` or a domain under it
+ * (`*.us-central1.run.app`, `*-uc.a.run.app`): either would admit anyone's
+ * Cloud Run service.
+ */
+export function parsePackEndpointHosts(raw: string | undefined): readonly PackEndpointHost[] {
+  if (raw === undefined || raw.trim() === '') return [];
+  return raw.split(',').map((entry) => {
+    const item = entry.trim();
+    if (item.startsWith('*-')) {
+      const dot = item.indexOf('.');
+      const tail = dot < 0 ? '' : item.slice(2, dot);
+      const domain = dot < 0 ? '' : item.slice(dot + 1);
+      if (HOST_LABEL.test(tail) && isHostName(domain)) {
+        if (onCloudRun(domain) && !/^[0-9]+$/.test(tail)) throw cloudRunRefusal(item);
+        return { kind: 'tail' as const, tail, domain };
+      }
+      throw new Error(
+        `${PACK_ENDPOINT_HOSTS_VAR} takes host names, \`*.\` and a domain, or \`*-\`, a tail and a domain, comma-separated: lowercase, with no scheme, port or path (for example \`*-123456789012.us-central1.run.app\`). Got "${item}".`,
+      );
+    }
+    const suffix = item.startsWith('*.') ? item.slice(2) : undefined;
+    const name = suffix ?? item;
+    if (!isHostName(name)) {
+      throw new Error(
+        `${PACK_ENDPOINT_HOSTS_VAR} takes host names, \`*.\` and a domain, or \`*-\`, a tail and a domain, comma-separated: lowercase, with no scheme, port or path (for example \`*-123456789012.us-central1.run.app\`). Got "${item}".`,
+      );
+    }
+    if (suffix === undefined) return { kind: 'exact' as const, host: name };
+    if (onCloudRun(suffix)) throw cloudRunRefusal(item);
+    return { kind: 'suffix' as const, suffix };
+  });
+}
+
+/**
+ * Whether `host` is one `KINDGI_PACK_ENDPOINT_HOSTS` allows (compared
+ * lowercase). Pass the URL's `hostname` (`new URL(endpoint).hostname`), not
+ * its `host`: a port makes it no host name, so it's refused.
+ */
+export function packEndpointHostAllowed(
+  host: string,
+  allowed: readonly PackEndpointHost[],
+): boolean {
+  const name = host.toLowerCase();
+  return allowed.some((entry) => {
+    if (entry.kind === 'exact') return name === entry.host;
+    const domain = entry.kind === 'suffix' ? entry.suffix : entry.domain;
+    if (!name.endsWith(`.${domain}`)) return false;
+    const first = name.slice(0, name.length - domain.length - 1);
+    if (!HOST_LABEL.test(first)) return false;
+    return entry.kind === 'suffix' || first.endsWith(`-${entry.tail}`);
+  });
 }
 
 /**

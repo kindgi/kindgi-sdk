@@ -5,33 +5,53 @@ sidebar:
   order: 6
 ---
 
-A **proposal** is new content for one data block an agent version pins (new
-settings values, or a new prompt template), for one live scope. You draft
-it; Kindgi publishes the block version, makes the agent version that runs
-it, compares it on a test set, and promotes it through the scope's gate when
-you ask. Nothing serves any scope until then, and a promoted proposal can be
+This guide drafts new settings or a new prompt for an agent version, tests it
+on a test set, and sends it through the scope's gate, with a way back.
+
+A **proposal** is new content for one data block an agent version pins, for
+one live scope: new settings values, or a new prompt template. You draft it.
+Kindgi publishes the block version, makes the agent version that runs it,
+compares it on a test set, and promotes it through the scope's gate when you
+ask. Nothing serves any scope until then, and a promoted proposal can be
 rolled back.
 
-Before you start, you need:
+## Before you start
 
-- **an agent that keeps its prompt or settings as data blocks**
-  ([Change a prompt or a setting without a deploy](../change-a-prompt-or-setting/));
-- **a judged test set** for it ([Build a test set from judgments](../build-a-test-set/));
-- **a live version of the agent for the whole tenant**
-  (`kindgi agents promote <agent-id> <version> --tenant`,
-  [Make a version live](../release-an-agent-version/#make-a-version-live)).
-  Without one, the version a proposal makes would serve every scope nothing
-  is pinned for, so evaluating is refused with `409 proposal-needs-pin`;
-- **a deployed runtime.** Under `kindgi dev`, the pack is the source of
-  agents, so evaluating is refused with `registry-read-only`.
+- **An agent that keeps its prompt or settings as data blocks,** as
+  [Change a prompt or a setting without a deploy](../change-a-prompt-or-setting/)
+  shows.
+- **A judged test set** for it, as
+  [Build a test set from judgments](../build-a-test-set/) shows.
+- **A live version of the agent for the whole tenant,** as
+  [Make a version live](../release-an-agent-version/#make-a-version-live)
+  shows: `kindgi agents promote <agent-id> <version> --tenant`. Without one,
+  the version a proposal makes would serve every scope nothing is pinned for.
+  So evaluating is refused with `409 proposal-needs-pin`.
+- **A deployed runtime,** with Kindgi 0.2's CLI. Under `kindgi dev`, the pack
+  is the source of agents, so evaluating is refused with
+  `registry-read-only`.
+- **`publish` on the agent** to draft and evaluate, and **`promote`** to
+  request and roll back.
 
 ## Draft one
 
+A draft says what to change, for which scope, and why:
+
 ```sh
-kindgi proposals draft --agent=acme.rank.scorer --from-version=1.0.0 --tenant \
+pnpm exec kindgi proposals draft --agent=acme.rank.scorer --from-version=1.0.0 --tenant \
   --block=acme.rank.weights --values='{"recency":0.2,"fit":0.8}' \
   --hypothesis="Fit matters more than recency for acme rankings."
 ```
+
+- **What it changes:** `--agent` and `--from-version` are the agent version.
+  `--block` names a block the version pins. `--values` gives a settings
+  block's new values, and `--template` a prompt block's new template. Either
+  takes a file as `@<file>`.
+- **For which scope:** `--tenant`, `--org=<org-id>`, or
+  `--project=<project-id>` with `--segment=<key:value>`s for a segment.
+- **Why:** `--hypothesis` says what the change should improve. Each
+  `--judgment=<judgment-id>` keeps a judgment behind the change as evidence.
+  Repeat it for several.
 
 It prints the proposal, with its `id` and the status `draft`:
 
@@ -65,29 +85,25 @@ It prints the proposal, with its `id` and the status `draft`:
 }
 ```
 
-- **What it changes:** `--block` names a block the version pins. `--values`
-  gives a settings block's new values; `--template` gives a prompt block's new
-  template. Either takes a file as `@<file>`.
-- **For which scope:** `--tenant`, `--org=<org-id>`, or
-  `--project=<project-id>` with `--segment=<key:value>`s for a segment.
-- **Why:** `--hypothesis` says what the change should improve. Each
-  `--judgment=<judgment-id>` (repeat it) keeps a judgment behind the change as
-  evidence.
-- **Checked now:** the content is checked as publishing that block version
-  would be, and content equal to what the version pins is refused. The same
-  change from the same version for the same scope returns the proposal
-  drafted before.
-
-Drafting needs `publish` on the agent.
+The content is checked as publishing that block version would be, and
+content equal to what the version pins is refused. The same change from the
+same version for the same scope returns the proposal drafted before.
 
 ## Evaluate it
 
+An evaluation tests the change on your test set before anything serves it:
+
 ```sh
-kindgi proposals evaluate <proposal-id> --test-set=acme.rank-prompt-52080 --wait
+pnpm exec kindgi proposals evaluate <proposal-id> --test-set=acme.rank-prompt-52080 --wait
 ```
 
+- `<proposal-id>` is the proposal's `id`.
+- `--test-set` is the judged test set to compare on.
+- `--wait` waits for the result, at most 30 minutes, and prints the
+  proposal.
+
 The first evaluation publishes the block version and derives the agent
-version that pins it (its `derivedFrom` names the proposal). Neither serves
+version that pins it. Its `derivedFrom` names the proposal. Neither serves
 any scope. The comparison replays the candidate on each case of the test set,
 as [Compare a version on a test set](../compare-an-agent-version/) does, and
 takes the same options: `--objective`, `--reads`, `--repetitions`, `--k` and
@@ -100,9 +116,8 @@ The proposal is `evaluating`, then:
 - `not-better`: it didn't;
 - `evaluation-failed`: the comparison failed or was cancelled.
 
-`--wait` waits until then (at most 30 minutes) and prints the proposal.
 Here the candidate scored the same as the recorded outputs on the test set's
-20 cases (`delta` 0), so it's `not-better`:
+20 cases, with a `delta` of 0, so it's `not-better`:
 
 ```json
 {
@@ -133,15 +148,17 @@ Here the candidate scored the same as the recorded outputs on the test set's
 ### Judge the new answers, then rescore
 
 A comparison counts what people have judged. When a change rewrites an
-agent's answers, each new answer is an item no one has judged, so nothing on
-the candidate's side is counted and the proposal can't be better. Here a
-prompt change ("Answer briefly." to "Answer warmly.") rewrote the answer in
-each of a test set's three cases. The comparison, the proposal's
-`evaluation.evalRunId`, lists them case by case:
+agent's answers, each new answer is an item no one has judged. So nothing on
+the candidate's side is counted, and the proposal can't be better. Here a
+prompt change from "Answer briefly." to "Answer warmly." rewrote the answer
+in each of a test set's three cases. The comparison lists them case by case:
 
 ```sh
-kindgi eval-runs show <eval-run-id>
+pnpm exec kindgi eval-runs show <eval-run-id>
 ```
+
+`<eval-run-id>` is the proposal's `evaluation.evalRunId`. It prints the
+comparison:
 
 ```json
 {
@@ -184,17 +201,19 @@ kindgi eval-runs show <eval-run-id>
 
 `runIds` are the comparison's replay runs. Judge each new answer on its
 replay run, at the `pointer` the comparison names. A replay's answer is at
-`/appended/1/content`, not at a turn's `/response/content`; a pointer
-that isn't in the run's output is refused (`400 item-not-found`):
+`/appended/1/content`, not at a turn's `/response/content`. A pointer that
+isn't in the run's output is refused with `400 item-not-found`:
 
 ```sh
-kindgi judgments add --run=c839338c-cfc1-4bf3-b4e3-c7f24e38a473 --item=answer --pointer=/appended/1/content --yes
+pnpm exec kindgi judgments add --run=c839338c-cfc1-4bf3-b4e3-c7f24e38a473 --item=answer --pointer=/appended/1/content --yes
 ```
+
+It prints the judgment as JSON.
 
 Then rescore the proposal:
 
 ```sh
-kindgi proposals evaluate <proposal-id> --rescore --wait
+pnpm exec kindgi proposals evaluate <proposal-id> --rescore --wait
 ```
 
 A rescore is a new comparison, with the same test set version and settings,
@@ -245,14 +264,14 @@ metric's `freshWeight` is the weight of those judgments, and per case,
 ```
 
 - **The comparison rescored stays as it was.** A case whose replay run is
-  gone since (deleted with its retention, say) keeps the scores it had, with
-  `rescored: false`.
+  gone since, such as one deleted with its retention, keeps the scores it
+  had, with `rescored: false`.
 - **Rescoring needs `publish` on the agent,** from `evaluated`, `not-better`,
   `refused`, `superseded` or `expired`.
 - **A comparison you started yourself,** not through a proposal, rescores
   with `kindgi eval-runs rescore <eval-run-id> --wait`.
 - **In the clients:** `proposals.rescore(proposalId)` and
-  `evalRuns.rescore(runId)` (`eval_runs.rescore(run_id)` in Python).
+  `evalRuns.rescore(runId)`, or `eval_runs.rescore(run_id)` in Python.
 
 #### In the console
 
@@ -281,25 +300,28 @@ set**.
 
 ## Request it
 
+A request promotes the candidate for the proposal's scope, through the
+scope's gate, with the evaluation as its comparison:
+
 ```sh
-kindgi proposals request <proposal-id> --reason="Live check: promote by hand."
+pnpm exec kindgi proposals request <proposal-id> --reason="Live check: promote by hand."
 ```
 
-This promotes the candidate for the proposal's scope, through the scope's
-gate, with the evaluation as its comparison
-([Gate a release](../release-an-agent-version/#gate-a-release)). The proposal
-is then:
+`--reason` is kept with the promotion.
+[Gate a release](../release-an-agent-version/#gate-a-release) describes the
+gate. The proposal is then:
 
 - `promoted`: the candidate is live for the scope;
-- `in-review`: the gate passed and a reviewer decides
-  (`kindgi approvals complete`); then `promoted`, `rejected`, or `expired`
+- `in-review`: the gate passed and a reviewer decides, with
+  `kindgi approvals complete`. Then it's `promoted` or `rejected`, `expired`
   if nobody decides in time, or `superseded` if the scope's live version or
   its policy changed meanwhile;
 - `refused`: the gate refused it, listing every check.
 
 A request is allowed once the proposal was evaluated, `not-better` included:
-the gate decides. The proposal above was `not-better`, and the tenant's gate
-let it through:
+the gate decides. This guide's proposal stayed `not-better` after its
+[rescore](#judge-the-new-answers-then-rescore), and the tenant's gate let it
+through:
 
 ```json
 {
@@ -322,9 +344,13 @@ no approval. Requesting needs `promote` on the agent.
 
 ## Roll it back, or withdraw it
 
+A rollback puts the scope back on the version that served it before:
+
 ```sh
-kindgi proposals rollback <proposal-id> --reason="Live check: put it back."
+pnpm exec kindgi proposals rollback <proposal-id> --reason="Live check: put it back."
 ```
+
+It prints the proposal, now `rolled-back`:
 
 ```json
 {
@@ -342,29 +368,34 @@ kindgi proposals rollback <proposal-id> --reason="Live check: put it back."
 }
 ```
 
+The proposal and its versions stay, as history. A rollback needs `promote`
+on the agent.
+
+A withdrawal closes a proposal before review, or after its promotion was
+refused, superseded or expired:
+
 ```sh
-kindgi proposals withdraw <proposal-id> --reason="Superseded by a better draft"
+pnpm exec kindgi proposals withdraw <proposal-id> --reason="Superseded by a better draft"
 ```
 
-- **`rollback`** puts the scope back on the version that served it before
-  (`rolled-back`). The proposal and its versions stay, as history. It needs
-  `promote` on the agent.
-- **`withdraw`** closes a proposal before review, or after its promotion was
-  refused, superseded or expired (`withdrawn`). `--reason` is required. It
-  needs `publish` on the agent.
+It prints the proposal, now `withdrawn`. `--reason` is required, and
+withdrawing needs `publish` on the agent.
 
 ## Find them
 
 ```sh
-kindgi proposals list --agent=acme.rank.scorer --table
-kindgi proposals get <proposal-id>
+pnpm exec kindgi proposals list --agent=acme.rank.scorer --table
+pnpm exec kindgi proposals get <proposal-id>
 ```
 
-The table has each proposal's agent version, scope, block, status, and the
-evaluation's delta. `--status`, `--tier=settings-block|prompt-block` and a
-scope flag (for exactly that scope) narrow the list. `get` shows the change,
-the candidate versions, the comparison and the promotion. Proposals are
-authorized on their agent: `read` to see one.
+- `--agent` lists one agent's proposals, and `--table` prints a table: each
+  proposal's agent version, scope, block, status, and the evaluation's delta.
+- `--status`, `--tier=settings-block|prompt-block` and a scope flag narrow
+  the list. A scope flag keeps exactly that scope.
+- `get` shows the change, the candidate versions, the comparison and the
+  promotion.
+
+Proposals are authorized on their agent: `read` to see one.
 
 | Status | What it means |
 | --- | --- |
@@ -384,3 +415,9 @@ authorized on their agent: `read` to see one.
 
 From your app, the clients have the same calls: `proposals.create`, `list`,
 `get`, `evaluate`, `rescore`, `request`, `rollback` and `withdraw`.
+
+## Next
+
+- [Let a pass look for something better](../improve-an-agent/)
+- [Release an agent version](../release-an-agent-version/)
+- [Decide an approval](../../approvals/decide-an-approval/)

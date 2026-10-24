@@ -7,19 +7,64 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-A run that waits for a person (a [gated tool call](../ask-before-a-tool-runs/)
-or a [long conversation](../ask-after-n-turns/)) creates an **approval**. A
-**reviewer** decides it, and the run moves on.
+This guide gets a waiting approval decided, so the run that waits on it goes
+on.
+
+A run that waits for a person creates an **approval**, such as a
+[gated tool call](../ask-before-a-tool-runs/) or a
+[long conversation](../ask-after-n-turns/). A **reviewer** decides it, and the
+run moves on. [Approvals reference](../approvals-reference/) has every field,
+decision, code and console page.
+
+## Before you start
+
+- **A run that waits for an approval.**
+  [Ask before a tool runs](../ask-before-a-tool-runs/) makes one.
+- **`kindgi dev` running** in your pack's directory, with Kindgi 0.2's CLI.
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or Java
+  17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
 
 ## Reviewers and roles
 
-Only reviewers see approvals. Under `kindgi dev` you're one already: when it
-starts on a database where you aren't a reviewer yet, it registers you, the
-user of its token, as an `admin`:
+Whoever decides an approval must be a reviewer. A tenant admin reads
+approvals without being one ([Approvals reference](../approvals-reference/)),
+but registers to decide.
+
+Under `kindgi dev`, you're one already. When it starts on a database where
+you aren't a reviewer yet, it registers you, the user of its token, as an
+`admin`. List the reviewers:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi reviewers list
+pnpm exec kindgi reviewers list
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi reviewers list
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw reviewers list
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw reviewers list
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -36,13 +81,47 @@ kindgi reviewers list
 }
 ```
 
-On any other runtime, register each person who reviews, the user their API
-token belongs to, with a role. That covers any token of theirs: an API key or
-a console sign-in.
+On any other runtime, register each person who reviews, with a role. Run it
+as that person: the reviewer is the user the API token belongs to. That
+covers any token of theirs, an API key or a console sign-in:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+pnpm exec kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+```
+
+</TabItem>
+</Tabs>
+
+`--spec` is the reviewer, as JSON:
+
+- `role` is `standard`, `senior` or `admin`.
+- `displayName` is the name the console shows.
+
+It prints the new reviewer:
 
 ```json
 {
@@ -55,56 +134,27 @@ kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace
 }
 ```
 
-The roles rank `standard`, `senior`, `admin`. Each approval has a
-`requiredRole`, and a reviewer sees and decides the approvals that need their
-role or a lower one. An approval that needs a higher role doesn't show up in
-the list, and fetching or deciding it answers `not-found`.
-
-Registering again changes the role. `kindgi reviewers list` shows the
-reviewers; `kindgi reviewers unregister <reviewer-id>` removes one (their
-past decisions stay). The list names people, so with authorization on only
-a tenant admin or a reviewer reads it; anyone else, a project's viewer say,
-gets `permission-denied`. A user who isn't a reviewer is refused:
-
-```text
-Error [auth]: The caller isn't a reviewer: its token carries no reviewer role, and its user isn't registered as one (`kindgi reviewers register`). The approvals surface is reviewer-only.
-```
-
-`kindgi dev` leaves a role you set as it is, and doesn't register you again
-after you unregister yourself.
-
-### In the console
-
-A project's **Approvals** page leads to **Reviewers**: the tenant's roster,
-with each reviewer's role, when they were added, and whether they're
-active. Like the list, it's shown to tenant admins and reviewers only;
-anyone else reads "Who reviews approvals is shown to tenant admins and
-reviewers."
-
-A tenant admin adds a reviewer with **Add a reviewer**: find the person
-among the tenant's people by name or email, choose the role ("They decide
-approvals of this role and below."), and confirm with the button, which
-names them, such as **Make Eddie Park a standard reviewer**. Someone on the
-roster already isn't added again: "Eddie Park is already on the roster."
-**Remove** takes a reviewer off the roster at once; their past decisions
-stay.
-
-![Approvals → Reviewers with the form open: Who, searched for "Ed", lists Eddie Park and Eda Brooks with their emails; Role, with "They decide approvals of this role and below."; and the roster: you, the seed user (admin, shown by id), and Ada Lovelace (standard), each active with a Remove button. Above it: "Email notifications: off."](../../../../assets/approvals/reviewers.png)
-
-The page also says whether reviewers are emailed (see
-[Reviewer email](#reviewer-email)): "Email notifications: off. Reviewers
-find waiting approvals here; KINDGI_REVIEWER_EMAIL=on emails them.", or,
-when it's on, that the first email goes at once, then a digest every five
-minutes at most.
+The roles rank `standard`, `senior`, `admin`. A reviewer sees and decides the
+approvals that need their role or a lower one. Registering again changes the
+role. A tenant admin can also add reviewers in the console, on
+[the Reviewers page](../approvals-reference/#the-reviewers-page).
 
 ## Reviewer email
 
-With `KINDGI_REVIEWER_EMAIL=on`, the runtime emails reviewers when an
-approval starts waiting, and when a waiting approval is assigned:
+Email lets reviewers hear about an approval without watching the console.
+It's optional, and off by default.
+
+Set `KINDGI_REVIEWER_EMAIL=on` in the runtime's environment. It sends through
+the emailed sign-in link's server, so `KINDGI_AUTH_EMAIL_SMTP_URL` and
+`KINDGI_AUTH_EMAIL_FROM` must be set too. Turned on without them, the
+runtime refuses to start.
+
+The runtime then emails reviewers when an approval starts waiting, and when a
+waiting approval is assigned:
 
 - **Who:** the people the approvals list would show it to: its assigned
   reviewer, or else every active reviewer of its required role or above.
-  Only those who may read its project.
+  Only those who may read its project are emailed.
 - **Assigned later:** a reviewer an approval is assigned to after it started
   waiting is emailed then, unless they were already emailed about it.
 - **What:** its title, project, required role and when it was asked, and a
@@ -114,7 +164,7 @@ approval starts waiting, and when a waiting approval is assigned:
   them within five minutes comes as one digest at the end of the five
   minutes. An approval decided in the meantime is left out.
 
-One approval, as a reviewer gets it (ids elided):
+One approval, as a reviewer gets it, with the ids elided:
 
 ```text
 Subject: Approval needed: Refund over the limit
@@ -133,75 +183,133 @@ You're getting this because you're a reviewer in Kindgi.
 ```
 
 Several in one digest have the subject "2 approvals are waiting for you",
-with the same lines for each.
-
-It uses the emailed sign-in link's server (`KINDGI_AUTH_EMAIL_SMTP_URL` and
-`KINDGI_AUTH_EMAIL_FROM`). Turned on without them, the runtime refuses to
-start. It's off by default. For a system of your own, an
-[`approval.requested` webhook](../../webhooks/receive-run-finished/#approvals)
+with the same lines for each. For a system of your own, an
+[`approval.requested` webhook](../../webhooks/webhook-events/#approvals)
 carries the same facts.
 
 ## Find what's waiting
 
-```sh
-kindgi approvals list --status=pending
-kindgi approvals get <approval-id>
-```
+The approval's id is what you decide it by.
 
-Without `--status`, the list includes decided approvals too. To see the
-approvals assigned to you, oldest first:
+List the approvals waiting for a reviewer, then read one:
 
-```sh
-kindgi approvals list --status=assigned,in_review --assigned-to=me --order=asc
-```
-
-Approvals nobody is assigned to yet are `pending`, for any reviewer of their
-role:
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi approvals list --status=pending --order=asc
+pnpm exec kindgi approvals list --status=pending
+pnpm exec kindgi approvals get <approval-id>
 ```
 
-`--status` takes several statuses, comma-separated. `--assigned-to=me` keeps
-the approvals assigned to you (assigning one moves it to `assigned`), and
-`--order=asc` lists the oldest first. In the API these are
-`GET /v1/approvals?status=assigned,in_review&assignedTo=me&order=asc` and
-`GET /v1/approvals?status=pending&order=asc`, and the page says which order
-it's in (`order`). These need the runtime 0.1.6 or later: an earlier one takes
-one status and lists newest first.
+</TabItem>
+<TabItem label="Python">
 
-In each approval:
-
-- **`subjectKind`** is what waits: `tool-call:pending` is a tool call (the
-  `subjectRef` has the `toolId` and the `arguments`);
-  `agent-turn:session-hitl-gate` is a conversation that reached its turn limit
-  (the `subjectRef` has the `conversationId` and the `turnCount`).
-- **`requiredRole`** is the lowest role that may decide it.
-- **`provenanceRef.runId`** is the run that waits.
-- **`decision`**, once someone decided it: the decision, the rationale, who
-  (`decidedBy`, as `user:<id>`, and their `reviewerId`), their role then, and
-  when. There's none while it's open, nor when it ended without a decision
-  (it expired, or a timeout escalated it).
-
-```json
-"decision": {
-  "decision": "approve",
-  "decidedBy": "user:26fc414a-b49f-4e1f-a022-162865770178",
-  "reviewerId": "974b5bb3-c690-4886-a609-c7fe0cbd5659",
-  "reviewerRoleAtDecision": "standard",
-  "decidedAt": "2026-10-05T16:25:52.878Z",
-  "rationale": "Confirmed with the on-call engineer"
-}
+```sh
+uv run kindgi approvals list --status=pending
+uv run kindgi approvals get <approval-id>
 ```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals list --status=pending
+./kindgiw approvals get <approval-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals list --status=pending
+./kindgiw approvals get <approval-id>
+```
+
+</TabItem>
+</Tabs>
+
+- `--status=pending` lists the approvals nobody is assigned to yet, for any
+  reviewer of their role. Without `--status`, the list includes decided
+  approvals too.
+- `<approval-id>` is an approval's `id`, from the list.
+
+To see the approvals assigned to you, oldest first:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi approvals list --status=assigned,in_review --assigned-to=me --order=asc
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals list --status=assigned,in_review --assigned-to=me --order=asc
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals list --status=assigned,in_review --assigned-to=me --order=asc
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals list --status=assigned,in_review --assigned-to=me --order=asc
+```
+
+</TabItem>
+</Tabs>
+
+- `--status` takes several statuses, comma-separated.
+- `--assigned-to=me` keeps the approvals assigned to you. Assigning one moves
+  it to `assigned`.
+- `--order=asc` lists the oldest first.
+
+Each approval says what waits, who may decide it and which run waits on it.
+[An approval's fields](../approvals-reference/#an-approvals-fields) lists
+them.
 
 ### What a run waits for
 
-From a run, `kindgi runs resume <run-id>` says what it waits for, and how
-it goes on:
+From a run, `kindgi runs resume <run-id>` says what it waits for, and how it
+goes on. `<run-id>` is the run's id:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi runs resume 45d986f1-8a8d-4341-a786-5ddcf239bb93
+pnpm exec kindgi runs resume 45d986f1-8a8d-4341-a786-5ddcf239bb93
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs resume 45d986f1-8a8d-4341-a786-5ddcf239bb93
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs resume 45d986f1-8a8d-4341-a786-5ddcf239bb93
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs resume 45d986f1-8a8d-4341-a786-5ddcf239bb93
+```
+
+</TabItem>
+</Tabs>
 
 ```text
 Run 45d986f1-8a8d-4341-a786-5ddcf239bb93 waits for approval b3fcf729-0137-430e-92a3-2ff10f4a6bde ("HITL review required for Chat desk"), for a standard reviewer or above. It continues once the approval is decided: kindgi approvals complete b3fcf729-0137-430e-92a3-2ff10f4a6bde --decision=approve (or --decision=reject).
@@ -232,81 +340,55 @@ Its exit code says which:
 | Exit | The run |
 | --- | --- |
 | `0` | isn't waiting: `Run … is completed: it isn't waiting, so there's nothing to resume.` |
-| `3` | waits for an approval, named as above |
+| `3` | waits for an approval, named in the sentence |
 | `4` | waits on the runtime: a queued start, a child run, a retry, a lease |
 
-Once the approval is decided, the run goes on by itself.
+Once the approval is decided, the run goes on by itself. From your app,
+`runs.get` answers the same as the run's
+[`waitingFor`](../approvals-reference/#a-runs-waitingfor).
 
-From your app, `kindgi.runs.get(runId)` answers the same for a suspended run,
-as `waitingFor` (runtime 0.1.6 and later): `approvals`, the ones still to be
-decided, and `other`, the rest (a child run to finish, an approval already
-decided, a wait no approval is linked to). The CLI's answer is `runs resume`;
-the API's is `waitingFor`:
-
-```json
-{
-  "id": "45d986f1-8a8d-4341-a786-5ddcf239bb93",
-  …
-  "status": "suspended",
-  …
-  "waitingFor": {
-    "approvals": [
-      {
-        "approvalId": "b3fcf729-0137-430e-92a3-2ff10f4a6bde",
-        "status": "pending",
-        "requiredRole": "standard",
-        "title": "HITL review required for Chat desk",
-        "createdAt": "2026-10-11T07:55:48.728Z",
-        "expiresAt": "2026-10-12T07:55:48.703Z",
-        "subjectKind": "agent-turn:session-hitl-gate"
-      }
-    ],
-    "other": []
-  }
-}
-```
-
-`kindgi.approvals.list({ waitTokenIds: [...] })` (`wait_token_id=[...]` in
-Python, `?waitTokenId=` over HTTP) lists the approvals behind given waits.
-
-### In the console: your Inbox
-
-A reviewer's **Inbox** lists every open approval they may
-decide, across the projects they can read, the one that has waited longest
-first. Its headline says how many and for how long, such as "4 approvals
-wait for you: the oldest for 3 h. 1 is assigned to you.", or "Nothing waits
-for you."
-
-- **Filters** by project, tier, **Assigned to you** or **No one assigned**,
-  kept in the page's link.
-- **Who it's assigned to** reads "You", "A reviewer" or "No one", never a
-  name.
-- **Choose one** to see it beside the list (in the list's place on a narrow
-  screen) and decide it there. After a decision, the next one is chosen.
-- **Approve or reject several in one go** (see
-  [Several in one go](#several-in-one-go)), and move through the list by
-  keyboard (see [By keyboard](#by-keyboard)).
-- **It reads again** every 15 seconds and when you come back to the tab. One
-  that left without your decision says so: "No longer waiting: … (decided
-  by someone else, withdrawn or expired)."
-- **One you asked for** reads "You asked: someone else approves it".
-- **Past 500 open approvals,** it holds those that have waited longest, and
-  still lists every one assigned to you. The headline then says "More may
-  wait than the inbox could read: it holds those that have waited longest.
-  Each project's Approvals page lists them all."
-
-An approval's own link, `/console/approvals/<approval-id>`, finds its
-project by itself: one still waiting opens in your Inbox, chosen; a decided
-one opens its own page. The link in a [reviewer email](#reviewer-email) is
-that link.
+In the console, a reviewer's **Inbox** lists every approval they may decide,
+as [The Inbox](../approvals-reference/#the-inbox) describes.
 
 ## Decide
 
+Deciding the approval lets the run go on, or ends what it asked for.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi approvals complete <approval-id> --decision=approve --rationale="Confirmed with the on-call engineer"
+pnpm exec kindgi approvals complete <approval-id> --decision=approve --rationale="Confirmed with the on-call engineer"
 ```
 
-`--rationale` is optional and is kept with the decision. The four decisions:
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals complete <approval-id> --decision=approve --rationale="Confirmed with the on-call engineer"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals complete <approval-id> --decision=approve --rationale="Confirmed with the on-call engineer"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals complete <approval-id> --decision=approve --rationale="Confirmed with the on-call engineer"
+```
+
+</TabItem>
+</Tabs>
+
+- `<approval-id>` is the approval's `id`.
+- `--decision` is one of the four decisions in the table.
+- `--rationale` (optional) is kept with the decision, and goes into the audit
+  trail.
 
 | Decision | The approval | The run |
 | --- | --- | --- |
@@ -315,144 +397,52 @@ kindgi approvals complete <approval-id> --decision=approve --rationale="Confirme
 | `escalate` | `escalated`, and a new approval for the next role up | Keeps waiting for the new approval. |
 | `withdraw` | `withdrawn` | Ends: its turn fails with `hitl-withdrawn`. |
 
-An approve, reject or withdraw resolves the run within the same call, so the
-run has moved on by the time the command returns.
+An approve, reject or withdraw resolves the run within the same call. So the
+run has moved on by the time the command returns. A decision can be
+refused, such as on an approval that's no longer waiting:
+[Decisions](../approvals-reference/#decisions) lists why.
 
-An approval that's no longer waiting (decided, expired, or withdrawn by a
-reviewer or by its run's end) can't be decided again. The decision is
-refused with `409 approval-terminal`, saying how the approval ended, and
-nothing is recorded:
-
-```text
-Approval … was withdrawn: its run was cancelled
-```
-
-A turn that ends at its approval fails with one of these codes, each a
-person's outcome, not an error:
-
-- `hitl-rejected`: a reviewer rejected the turn (its session gate; a rejected
-  tool call skips only the tool, and the turn goes on).
-- `hitl-withdrawn`: a reviewer withdrew the approval.
-- `hitl-cancelled`: nobody decided in time, so the approval expired at the
-  `admin` role.
-
-A run cancelled while it waits ends `cancelled`, with no failure code.
-
-An approval a run waits on (a tool call's or a turn's) that's still open
-when that run, or a run it's a step of, has already ended can't be decided
-either: the decision is refused with `409 run-already-terminal`, and nothing
-is recorded. Its `details` name
-the run that ended (it may be the run the approval's run is a step of) and
-its `status`. A decision recorded just before its run ended stands: the
-answer has `waitpointResolved: false` and the run's `runStatus`.
-
-Each decision also goes into the audit trail, as an `hitl-decision` event:
-who decided, how it ended and the rationale. It's kept for good, even when the
-runtime purges other audit events (see
-[Audit events](../../../deploy/retention/#audit-events)).
-
-### In the console
-
-An approval's page (or the Inbox, with it chosen) offers the decisions the
-reviewer may make, each saying what it does, and an optional rationale:
-"It goes to the audit log with your rationale." On a run's gate:
-
-| Choice | What it says it does |
-| --- | --- |
-| **Approve** | "The waiting run goes on with it." |
-| **Reject** | "The waiting run is told no: what it asked for does not happen." |
-| **Send to a senior reviewer** (**Send to an admin reviewer** on one that needs a `senior`; none at `admin`) | "A new approval opens for senior reviewers; the run waits for that one." See [Escalate](#escalate). |
-| **Withdraw this request** | "Nothing is decided, and the run waiting on it ends: it fails, saying the approval was withdrawn." See [Withdraw](#withdraw). |
-
-![An approval's page, "Approve the next turn of acme.support", pending, needing a standard reviewer. Your decision offers Approve, Reject, Send to a senior reviewer and Withdraw this request; Send to a senior reviewer is chosen, with "A new approval opens for senior reviewers; the run waits for that one.", a rationale, and a Send to a senior reviewer button. Below: the subject, required role, when it was requested and when it expires, and the waiting run, agent and conversation.](../../../../assets/approvals/decide.png)
-
-An agent promotion's approval says what each does to the version instead:
-"The version goes live where it was asked for.", or "The promotion is
-dropped; nothing changes where it runs." Once a decision is recorded, the
-page says what it did, such as "The waiting run continues." or "The waiting
-run is told no.", with **Open the run**.
-
-- **Someone who can't decide it** reads why, in place of the choices: "You
-  aren't on the reviewer roster, so you can't decide approvals. A tenant
-  admin can add you.", or, below its role, "This one needs a senior
-  reviewer."
-- **Whoever asked for it,** a person or a service account, isn't offered
-  **Approve** when it needs someone else's (`separateApprover`): "You asked
-  for this, so someone else approves it."
-- **A closed approval says why,** when no decision does: "Withdrawn: its run
-  was cancelled, so nothing is left to decide.", "Withdrawn: its run ended,
-  so nothing is left to decide.", "Sent on to senior reviewers: that
-  approval decides it." (with a link, and a link back from the one it was
-  sent on to), or "It expired before anyone decided it."
-- **One decided or closed elsewhere while you were on it:** "Someone decided
-  it a moment ago: the page now shows how." or "It closed a moment ago: the
-  page now shows why."
-- **One whose run already ended:** the decision is refused, and the page
-  says how the run ended and that nothing was recorded.
-- **The run, after a reject:** its page says the run ended at its approval,
-  as a review outcome, not an error: "A reviewer rejected it." (or that its
-  approval was withdrawn, closed, or not decided in time), with your
-  rationale ([Start a run](../../runs/start-a-run/#in-the-console)).
-
-#### Several in one go
-
-In the Inbox, choose approvals with their checkboxes (or `x`, below). A bar
-says how many are chosen, such as "3 chosen.", and offers **Approve 3**,
-**Reject 3** and **Clear**. Approving leaves out any you asked for that need
-someone else's approval: "Approving leaves out 1 you asked for." You still
-send on or withdraw an approval one at a time.
-
-A step asks, for example, "Approve 3 approvals?", and takes one rationale
-for all. Nothing is sent before you confirm. Then each approval is decided
-on its own, in order, just as if you'd decided it alone, and each keeps its
-own rules (its tier, who asked, who it's assigned to). Each rationale ends
-"Decided in a batch of 3 (batch …).", with the batch's id. That's how you
-find a batch's `hitl-decision` events in the audit trail. **Stop after this
-one** leaves the rest unsent.
-
-The step then says how each one went, with a line such as "1 approved; 1
-refused; 1 not known (look before trying again)." Back in the Inbox, the
-line reads "In one go: …", and the decided ones leave the list.
-
-- **Refused** means nothing was recorded for you, and it says why. One
-  that closed while the batch ran says "It closed meanwhile (decided,
-  withdrawn or expired); nothing was recorded for you."
-- **A rate limit** is waited out, and the decision is tried again up to
-  twice. One that's still limited after that is offered again with **Try
-  again what failed**.
-- **Not known** means the runtime failed or didn't answer, so the decision
-  may or may not have been recorded: "Look at it before trying again." The
-  batch never sends it again, and it stays chosen in the Inbox.
-
-#### By keyboard
-
-The Inbox's keys work while the list has the focus (click a row, or Tab to
-it), and never while you're typing in a field. `?` lists them:
-
-| Key | Does |
-| --- | --- |
-| `j` / `k` | Next / previous approval |
-| `x` | Choose it for a batch |
-| `a` | Approve: the rationale opens first; Enter records it |
-| `r` | Reject: the same |
-| `e` | Send on to the next tier: the same |
-| `o` | Open its own page |
-| `?` | These keys |
-
-A key never decides by itself. `a`, `r` or `e` opens a step that asks, for
-example, "Reject the next turn of acme.billing?", with the rationale box
-focused. Enter records it, Shift+Enter starts a new line, and Esc leaves it.
-If you can't make that decision, the step says why instead, such as "You
-asked for this, so someone else approves it." or "It's at the top tier:
-there's no one to send it on to."
+In the console, a reviewer decides on the approval's page or in the Inbox,
+as [Deciding in the console](../approvals-reference/#deciding-in-the-console)
+shows.
 
 ### Escalate
 
-A `standard` reviewer who wants a second opinion escalates:
+Escalating asks a reviewer of the next role up instead. A `standard` reviewer
+who wants a second opinion escalates:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi approvals complete 2134897a-d176-4ca8-b000-8bc00d79ad04 --decision=escalate --rationale="Needs sign-off from the incident lead"
+pnpm exec kindgi approvals complete 2134897a-d176-4ca8-b000-8bc00d79ad04 --decision=escalate --rationale="Needs sign-off from the incident lead"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals complete 2134897a-d176-4ca8-b000-8bc00d79ad04 --decision=escalate --rationale="Needs sign-off from the incident lead"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals complete 2134897a-d176-4ca8-b000-8bc00d79ad04 --decision=escalate --rationale="Needs sign-off from the incident lead"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals complete 2134897a-d176-4ca8-b000-8bc00d79ad04 --decision=escalate --rationale="Needs sign-off from the incident lead"
+```
+
+</TabItem>
+</Tabs>
+
+It prints the escalated approval and the new one:
 
 ```json
 {
@@ -477,81 +467,57 @@ kindgi approvals complete 2134897a-d176-4ca8-b000-8bc00d79ad04 --decision=escala
 ```
 
 The new approval needs a `senior` reviewer, so the `standard` reviewer no
-longer sees it. A `senior` (or `admin`) reviewer approves or rejects
+longer sees it. A `senior` or `admin` reviewer approves or rejects
 `a65cd23c-…`, and the run continues.
-
-In the console, it's **Send to a senior reviewer** (to an admin one, on an
-approval that needs a `senior`). The page then says "A new approval is open
-for senior reviewers; the run waits for it.", with **Open it**, and from
-then on "Sent on to senior reviewers: that approval decides it.", with
-**Open the approval it went to**:
-
-![The same approval after it was sent on, marked Escalated: "Sent on. A new approval is open for senior reviewers; the run waits for it." with Open it and Open the run, then "Sent on to senior reviewers: that approval decides it." with Open the approval it went to.](../../../../assets/approvals/sent-on.png)
-
-The new approval links back: "Sent on from an earlier approval: open it".
-It offers **Send to an admin reviewer** in its turn.
 
 ### Withdraw
 
-Withdraw closes an approval without deciding what it asked, when the
-request is moot. The run waiting on it can't go on, so it ends: its turn
-fails with `hitl-withdrawn` ("The approval for tool call acme-desk.echo was
-withdrawn").
+Withdrawing closes an approval without deciding what it asked, when the
+request is moot. The run waiting on it can't go on, so it ends:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi approvals complete <approval-id> --decision=withdraw --rationale="Asked by mistake"
+pnpm exec kindgi approvals complete <approval-id> --decision=withdraw --rationale="Asked by mistake"
 ```
 
-In the console, it's **Withdraw this request**. On a run's gate, the page
-then says "The request is withdrawn; nothing was decided, and the run
-waiting on it ends.", with **Open the run**, and from then on "You withdrew
-it: nothing was decided." Its run fails with `hitl-withdrawn` ("The
-approval for the session-HITL gate was withdrawn").
+</TabItem>
+<TabItem label="Python">
 
-![Another approval after Withdraw this request, marked Withdrawn: "Withdrawn. The request is withdrawn; nothing was decided, and the run waiting on it ends." with Open the run, then "You withdrew it: nothing was decided."](../../../../assets/approvals/withdrawn.png)
-
-Cancelling a run withdraws the approvals it waits on by itself: see
-[Cancel a run](../../runs/cancel-a-run/#approvals-of-a-cancelled-run).
-Those approvals show `withdrawnBecause: "run-cancelled"` (or `run-ended`,
-when a run ended otherwise while they waited, e.g. it failed) and no
-`decision`. An approval a run asked for without waiting on it, such as a
-project-wide memory fact's review or a memory erasure's, names the run only
-as where it came from: it stays pending after the run ends, and is decided
-as usual.
-
-### When nobody decides
-
-Each approval has a deadline, its `expiresAt`: 24 hours after it's asked for,
-or the agent's own `hitl.timeoutMs` (one hour:
-`conversationPolicy: { hitl: { tools: {}, timeoutMs: 3_600_000 } }`). When the
-deadline passes with no decision:
-
-- **Below `admin`,** the approval becomes `escalated`, and a new one asks the
-  next role up (`standard`, then `senior`, then `admin`), with a deadline as
-  long again. The run keeps waiting.
-- **At `admin`,** the approval becomes `expired`, and the run's turn fails:
-
-  ```text
-  "error":{"code":"hitl-cancelled","message":"Tool-call HITL cancelled for acme-desk.echo: timeout","reason":"timeout"}
-  ```
-
-  The run's `failure` says the same as data: `code: "hitl-cancelled"`,
-  `reason: "timeout"`. Read `reason` rather than the message; a runtime from
-  before 0.1.6 doesn't send it, so go by `code` alone there.
-
-A decision made before the deadline always wins. A deadline always escalates
-this way: `hitl.onTimeout` takes only `'escalate'`, the default. An agent that
-asks for anything else is refused when it's defined:
-
-```text
-hitl.onTimeout 'auto-approve' isn't supported: an approval that times out escalates one reviewer tier, and at admin it expires (the turn fails with hitl-cancelled). Use 'escalate', or leave it out.
+```sh
+uv run kindgi approvals complete <approval-id> --decision=withdraw --rationale="Asked by mistake"
 ```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals complete <approval-id> --decision=withdraw --rationale="Asked by mistake"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals complete <approval-id> --decision=withdraw --rationale="Asked by mistake"
+```
+
+</TabItem>
+</Tabs>
+
+Its turn fails with `hitl-withdrawn`: "The approval for tool call
+acme-desk.echo was withdrawn".
 
 ## From your app
 
 A reviewer usually decides in your app, not in a terminal. The client lists
-the pending approvals and records the decision; the reviewer is the user the
+the pending approvals and records the decision. The reviewer is the user the
 API token belongs to.
+
+Ask your coding agent: "In my app, let a reviewer see the pending approvals
+and approve one." For reference, the code looks like this, with what it
+prints:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -576,6 +542,8 @@ if (first) {
   console.log(result.approval.status, result.waitpointResolved);
 }
 ```
+
+It prints each pending approval, then the decision's outcome:
 
 ```text
 46f0f9ad-f22d-4a93-8337-25b7c32a7473 HITL review: acme-ops.post-update {
@@ -609,33 +577,107 @@ if pending.data:
     print(result.approval.status, result.waitpoint_resolved)
 ```
 
+It prints each pending approval, then the decision's outcome:
+
 ```text
 0afd1543-fe4e-45ca-af34-2effc1095bab HITL review: acme-ops.post-update {'callId': 'dev-echo-call-1', 'toolId': 'acme-ops.post-update', 'agentId': 'acme-ops.status-agent', …, 'arguments': {'message': 'Search is back.'}, …}
 approved True
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/Review.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.Approval;
+import com.kindgi.client.models.ApprovalCollectionPage;
+import com.kindgi.client.models.ApprovalStatus;
+import com.kindgi.client.models.CompleteApprovalBody;
+import com.kindgi.client.models.CompleteApprovalResult;
+import com.kindgi.client.resources.ApprovalsListParams;
+import java.util.List;
+
+public final class Review {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    ApprovalCollectionPage pending = kindgi.approvals().list(
+        ApprovalsListParams.builder().status(List.of(ApprovalStatus.PENDING)).build());
+    for (Approval approval : pending.data()) {
+      System.out.println(approval.id() + " " + approval.title() + " " + approval.subjectRef());
+    }
+
+    if (!pending.data().isEmpty()) {
+      CompleteApprovalResult result = kindgi.approvals().complete(pending.data().get(0).id(),
+          CompleteApprovalBody.builder()
+              .decision(CompleteApprovalBody.Decision.APPROVE)
+              .rationale("Checked the dashboard")
+              .build());
+      System.out.println(result.approval().status() + " " + result.waitpointResolved());
+    }
+  }
+}
+```
+
+It prints each pending approval, then the decision's outcome:
+
+```text
+6faa8787-ff70-476e-b68b-74044b3711cc HITL review: acme-ops.post-update {callId=dev-echo-call-1, toolId=acme-ops.post-update, agentId=acme-ops.status-agent, …, arguments={message=Checkout is slow for some customers.}, …}
+approved true
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/Review.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{ApprovalStatus, CompleteApprovalBody}
+import com.kindgi.client.resources.ApprovalsListParams
+import scala.jdk.CollectionConverters._
+
+object Review {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    val pending = kindgi.approvals().list(
+      ApprovalsListParams.builder().status(List(ApprovalStatus.PENDING).asJava).build()).data.asScala
+    for (approval <- pending) println(s"${approval.id} ${approval.title} ${approval.subjectRef}")
+
+    for (first <- pending.headOption) {
+      val result = kindgi.approvals().complete(first.id,
+        CompleteApprovalBody.builder()
+          .decision(CompleteApprovalBody.Decision.APPROVE)
+          .rationale("Checked the dashboard")
+          .build())
+      println(s"${result.approval.status} ${result.waitpointResolved}")
+    }
+  }
+}
+```
+
+It prints each pending approval, then the decision's outcome:
+
+```text
+d7ae0dec-8c01-41f9-bc18-df650233847c HITL review: acme-ops.post-update {callId=dev-echo-call-1, toolId=acme-ops.post-update, agentId=acme-ops.status-agent, …, arguments={message=Search is back.}, …}
+approved true
+```
+
+</TabItem>
 </Tabs>
 
-`list` takes a `scope` to see one project's approvals, or every project's in
-an org: `{ kind: 'project', projectId }` (`scope_kind="project", scope_id=…`)
-or `{ kind: 'org', orgId }`. An agent's approval is in its turn's project.
-Approvals from before Kindgi 0.1.3 have no project, so only a list without a
-scope shows them. `runId` lists the approvals one run asked for, and with
-`includeDescendants: true` those of the runs inside it.
+The first pending approval is approved, and its run went on:
+`waitpointResolved` is true. [Listing approvals](../approvals-reference/#listing-approvals)
+has the list's other options, such as one project's approvals or one run's.
 
-An approval also says:
+## Next
 
-- **who asked for it** (`requestedBy`: `user:<id>`, `service_account:<id>`
-  or `system:<what>`), and whether that person may approve it
-  (`separateApprover: true` means they may not). Compare `requestedBy` with
-  the caller's `actor` from `identity.whoami()` to leave out an Approve
-  button they can't use.
-- **where an escalation came from and went:** `escalatedFrom` and
-  `escalatedTo`, approval ids.
-
-## Reference
-
-- [`kindgi approvals`](../../../reference/cli/approvals/) and
-  [`kindgi reviewers`](../../../reference/cli/reviewers/)
-- [Approvals in the HTTP API](../../../reference/api/operations/tags/approvals/)
+- [Approvals reference](../approvals-reference/)
+- [Ask before a tool runs](../ask-before-a-tool-runs/)
+- [Cancel a run](../../runs/cancel-a-run/)
+- [Webhook events and deliveries](../../webhooks/webhook-events/#approvals)

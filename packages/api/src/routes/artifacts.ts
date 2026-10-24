@@ -6,15 +6,18 @@ import type { BlobFilter, BlobMeta, BlobPutInput, BlobStorageBinding } from '@ki
 import type { ProjectBinding, Scope } from '@kindgi/platform';
 import type { RunBinding } from '@kindgi/runtime';
 import type { ArtifactId, Cursor, ProjectId, RunId, TenantId } from '@kindgi/types';
-import type { Context } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { databaseBusyAnswer } from '../middleware/error-mapper.js';
+import { takeBody } from '../middleware/request-body.js';
 import type { AppEnv } from '../types.js';
+import { refused } from './denied.js';
 import { clampLimit } from './pagination.js';
 
-/** The default upload cap: 100 MB. */
+/** The default upload cap: 100 MiB. */
 export const DEFAULT_ARTIFACT_MAX_BYTES = 100 * 1024 * 1024;
 
 export interface ArtifactsRouterDeps {
@@ -24,8 +27,30 @@ export interface ArtifactsRouterDeps {
   readonly projectBinding?: ProjectBinding;
   /** Reads need `read` on the artifact's project; uploads and deletes need `write`. */
   readonly authorizer?: Authorizer;
-  /** The most bytes an upload may carry (default 100 MB); more is `413 artifact-too-large`. */
-  readonly maxBytes?: number;
+}
+
+/**
+ * An upload's size limit: more than `maxBytes` (default 100 MiB) is
+ * `413 artifact-too-large`. The app checks it before the body is read
+ * (`readBodyOnce`), once the caller is known.
+ */
+export function artifactUploadLimit(maxBytes: number): MiddlewareHandler<AppEnv> {
+  return bodyLimit({
+    maxSize: maxBytes,
+    onError: (c) => {
+      c.status(statusFor('artifact-too-large') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'artifact-too-large',
+            message: `An artifact may be at most ${maxBytes} bytes`,
+            maxBytes,
+          },
+          c.get('requestId'),
+        ),
+      );
+    },
+  });
 }
 
 /**
@@ -50,10 +75,13 @@ export interface ArtifactsRouterDeps {
  * `?projectId=`.
  *
  * Every artifact belongs to a project: its owner run's, else the
- * upload's `projectId`, else the tenant's default project. With an
- * authorizer, listing and downloading need `read` there (an artifact the
- * caller can't read is `404`, as if absent), and uploading and deleting
- * need `write`. An upload over `maxBytes` is `413 artifact-too-large`.
+ * upload's `projectId`, else the project the caller's API key is limited
+ * to, else the tenant's default project. A key limited to a project
+ * uploads only into that project: any other is `403 key-project-mismatch`.
+ * With an authorizer, listing and downloading need `read` there (an
+ * artifact the caller can't read is `404`, as if absent), and uploading
+ * and deleting need `write`. An upload's size limit is
+ * `artifactUploadLimit`'s.
  */
 export function artifactsRouter(
   binding: BlobStorageBinding,
@@ -61,7 +89,6 @@ export function artifactsRouter(
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   const { authorizer } = deps;
-  const maxBytes = deps.maxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES;
   /** The artifact's project; a blob stored before projects were recorded answers to the tenant. */
   const scopeOf = (c: Context<AppEnv>, m: BlobMeta): ResourceRef =>
     m.projectId !== undefined
@@ -90,6 +117,8 @@ export function artifactsRouter(
       limit,
     );
     if (page.kind === 'err') {
+      const busy = databaseBusyAnswer(page.error, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(page.error.code) as never);
       return c.json(toWireError(page.error as never, requestId));
     }
@@ -107,25 +136,6 @@ export function artifactsRouter(
   });
 
   // ---------- POST / (multipart upload) ----------
-  r.post(
-    '/',
-    bodyLimit({
-      maxSize: maxBytes,
-      onError: (c) => {
-        c.status(statusFor('artifact-too-large') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'artifact-too-large',
-              message: `An artifact may be at most ${maxBytes} bytes`,
-              maxBytes,
-            },
-            c.get('requestId'),
-          ),
-        );
-      },
-    }),
-  );
   r.post('/', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -146,7 +156,10 @@ export function artifactsRouter(
 
     let form: FormData;
     try {
-      form = await c.req.raw.formData();
+      // From the body `readBodyOnce` kept, handed over whole to the parser.
+      form = await new Response(takeBody(c), {
+        headers: { 'content-type': contentType },
+      }).formData();
     } catch {
       c.status(statusFor('bad-input') as never);
       return c.json(
@@ -163,6 +176,18 @@ export function artifactsRouter(
     if (project.kind === 'err') {
       c.status(statusFor(project.code) as never);
       return c.json(toWireError({ code: project.code, message: project.message }, requestId));
+    }
+    const keyProject = c.get('tokenProjectId');
+    if (keyProject !== undefined && project.projectId !== keyProject) {
+      const named = project.projectId as unknown as string;
+      return refused(c, authorizer, {
+        action: 'write',
+        resource: ref('project', named),
+        message: `This API key is limited to project ${keyProject}; the upload belongs to project ${named}`,
+        failing: 'scope',
+        code: 'key-project-mismatch',
+        details: { keyProjectId: keyProject, projectId: named },
+      });
     }
     if (
       authorizer !== undefined &&
@@ -198,7 +223,7 @@ export function artifactsRouter(
     return c.json(serializeMeta(outcome.value));
   });
 
-  // ---------- GET /:blobId (stream download) ----------
+  // ---------- GET /:blobId (stream download), and HEAD /:blobId ----------
   r.get('/:blobId', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -206,6 +231,12 @@ export function artifactsRouter(
 
     const found = await binding.head(tenantId, blobId);
     if (found === null || !(await may(c, 'read', found))) return notFound(c, blobId);
+    // Hono answers a HEAD with this GET route and drops the body. So a HEAD
+    // answers the GET's headers from the metadata and never opens the blob:
+    // a blob opened and never read stays open (a file handle, a connection).
+    if (c.req.method === 'HEAD') {
+      return new Response(null, { status: 200, headers: downloadHeaders(found, requestId) });
+    }
     const outcome = await binding.get(tenantId, blobId);
     if (outcome.kind === 'err') {
       c.status(statusFor(outcome.error.code) as never);
@@ -213,25 +244,6 @@ export function artifactsRouter(
     }
     const { meta, stream } = outcome.value;
     return new Response(stream, {
-      status: 200,
-      headers: downloadHeaders(meta, requestId),
-    });
-  });
-
-  // ---------- HEAD /:blobId (metadata-only) ----------
-  r.on('HEAD', '/:blobId', async (c) => {
-    const requestId = c.get('requestId');
-    const tenantId = c.get('tenantId') as TenantId;
-    const blobId = c.req.param('blobId') as ArtifactId;
-
-    const meta = await binding.head(tenantId, blobId);
-    if (meta === null || !(await may(c, 'read', meta))) {
-      return new Response(null, {
-        status: 404,
-        headers: { 'X-Request-Id': requestId },
-      });
-    }
-    return new Response(null, {
       status: 200,
       headers: downloadHeaders(meta, requestId),
     });
@@ -287,7 +299,8 @@ type UploadProject =
 /**
  * The project an upload belongs to: its owner run's (the upload's
  * `projectId`, if any, must agree), else the upload's `projectId`, else
- * the tenant's default project.
+ * the project the caller's API key is limited to, else the tenant's
+ * default project.
  */
 async function uploadProject(
   c: Context<AppEnv>,
@@ -316,6 +329,8 @@ async function uploadProject(
     return { kind: 'ok', projectId: runProject };
   }
   if (named !== undefined) return { kind: 'ok', projectId: named };
+  const keyProject = c.get('tokenProjectId');
+  if (keyProject !== undefined) return { kind: 'ok', projectId: keyProject as ProjectId };
   const fallback = (await deps.projectBinding?.getDefault(tenantId))?.id;
   return { kind: 'ok', ...(fallback !== undefined && { projectId: fallback }) };
 }

@@ -7,14 +7,28 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide gives a tool values that differ per project, such as a base URL
+or a region, and reads them in the tool's code.
+
+## Before you start
+
+- **A pack,** on a runtime such as `kindgi dev`, with Kindgi 0.2's CLI.
+  This guide uses the quickstart's pack, `my-pack`.
+- **A project's id,** to set a value for one project. `kindgi projects list`
+  lists the projects with their ids.
+
+## Declare the values
+
 Some of what a tool needs differs from one customer or project to the next,
 without being secret: a base URL, an account or region id, a queue name. A
 tool declares these **env values** by name. You set them for the whole
-tenant, an org or a single project, and on every call Kindgi hands the tool
+tenant, an org or a single project. On every call, Kindgi hands the tool
 the most specific value in the call's context.
 
-This tool looks up an order in a system whose address and region differ per
-project:
+Ask your coding agent: "I want a tool that looks up an order in our order
+system. Its address and region differ per project." Kindgi's skills in your
+pack tell it how ([How it knows Kindgi](../../../start/coding-agents/)). For
+reference, the tool looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -88,28 +102,101 @@ def find_order(lookup: Lookup, ctx: ToolContext) -> Found:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/mypack/tools/FindOrder.java
+package mypack.tools;
+
+import com.kindgi.pack.Tool;
+import java.util.List;
+import java.util.Map;
+
+public final class FindOrder {
+  public record Input(String orderId) {}
+
+  public record Output(String url) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("my-pack.find-order")
+      .description("Finds an order in the order system.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      .mutating(false)
+      .set("needsSpec", Map.of("env", Map.of(
+          "ORDERS_BASE_URL", Map.of("type", "string", "pattern", "^https://"),
+          "ORDERS_REGION", Map.of("type", "string", "enum", List.of("eu", "us"), "default", "eu"))))
+      .handler((input, ctx) -> {
+        Object base = ctx.env().get("ORDERS_BASE_URL");
+        if (base == null) throw new IllegalStateException("ORDERS_BASE_URL is not set");
+        return new Output(base + "/" + ctx.env().get("ORDERS_REGION") + "/orders/" + input.orderId());
+      });
+
+  private FindOrder() {}
+}
+```
+
+`needsSpec` goes in with `set("needsSpec", …)`, as the API names it.
+`ctx.env()` holds the declared values, by name, with a `default` filled in
+where no scope sets one.
+
+</TabItem>
+
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/mypack/tools/FindOrder.scala
+package mypack.tools
+
+import com.kindgi.pack.scaladsl._
+
+object FindOrder {
+  final case class Input(orderId: String)
+  final case class Output(url: String)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("my-pack.find-order")
+    .description("Finds an order in the order system.")
+    .version("0.1.0")
+    .readOnly
+    .set("needsSpec", Map("env" -> Map(
+      "ORDERS_BASE_URL" -> Map("type" -> "string", "pattern" -> "^https://"),
+      "ORDERS_REGION" -> Map("type" -> "string", "enum" -> List("eu", "us"), "default" -> "eu"))))
+    .handler { (in, ctx) =>
+      val base = Option(ctx.env.get("ORDERS_BASE_URL"))
+        .getOrElse(throw new IllegalStateException("ORDERS_BASE_URL is not set"))
+      Output(s"$base/${ctx.env.get("ORDERS_REGION")}/orders/${in.orderId}")
+    }
+}
+```
+
+`needsSpec` goes in with `set("needsSpec", …)`, as the API names it.
+`ctx.env` holds the declared values, by name, with a `default` filled in
+where no scope sets one.
+
+</TabItem>
 </Tabs>
 
 - **The declaration** maps each name to a JSON Schema for its value. Values
-  are strings, as in a process environment, and the schema checks the
-  string (`enum`, `pattern`, `minLength`…). A name with a `default` is
-  optional; every other declared name is required. Each schema must compile
-  as the runtime compiles it, strictly (an unknown keyword is an error), and
-  a `default` must be a string. A tool with one that doesn't is refused when
-  it's defined, registered or deployed:
+  are strings, as in a process environment. The schema checks the string,
+  with keywords such as `enum`, `pattern` or `minLength`. A name with a
+  `default` is optional. Every other declared name is required. Each schema
+  must compile as the runtime compiles it, strictly: an unknown keyword is
+  an error. A `default` must be a string. A tool with a schema that doesn't
+  compile is refused when it's defined, registered or deployed:
 
   ```text
   Tool "my-pack.find-order": the schema for needsSpec.env.ORDERS_REGION doesn't compile: strict mode: unknown keyword: "enmu"
   ```
 - **On every call**, Kindgi resolves each declared name for the call: the
-  project's value, else its org's, else the tenant's, in the env the runtime
-  serves (`KINDGI_ENV`; under `kindgi dev`, `local`). A name no scope sets
-  gets its `default`. A required name with no value, or a value that doesn't
-  fit its schema, fails the call before the handler runs; the failure names
-  the tool and the value, and gives the command that sets it.
-- **The values a call used are recorded with it**, so the call re-run after a
-  wait (an approval, say) or a retry sees the same ones, even after someone
-  changes them. A comparison that replays the run sends a read-only tool it
+  project's value, else its org's, else the tenant's. It reads them in the
+  env the runtime serves, which `KINDGI_ENV` names. Under `kindgi dev`, the
+  env is `local`. A name no scope sets gets its `default`. A required name
+  with no value, or a value that doesn't fit its schema, fails the call
+  before the handler runs. The failure names the tool and the value, and
+  gives the command that sets it.
+- **The values a call used are recorded with it.** A call re-run after a
+  wait or a retry sees the same ones, even after someone changes them. An
+  approval is one such wait. A comparison that replays the run sends a read-only tool it
   runs live the values the run's call saw, so a changed value can't skew it.
 - **The context** holds only what the tool declares. `ctx.env` is optional in
   the TypeScript type because a unit test builds its own context.
@@ -137,24 +224,50 @@ uv run kindgi env set ORDERS_REGION us --scope=project:<project-id> --env=local
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw env set ORDERS_BASE_URL https://orders.example.com --scope=tenant --env=local
+./kindgiw env set ORDERS_REGION us --scope=project:<project-id> --env=local
+```
+
+</TabItem>
+
+<TabItem label="Scala">
+
+```sh
+./kindgiw env set ORDERS_BASE_URL https://orders.example.com --scope=tenant --env=local
+./kindgiw env set ORDERS_REGION us --scope=project:<project-id> --env=local
+```
+
+</TabItem>
 </Tabs>
 
+Each command prints JSON with the value's env, scope, key and revision, and
+whether it replaced a value, then a line that confirms it. The first ends
+with:
+
 ```text
+…
   ✓ Set ORDERS_BASE_URL at tenant in env local. A tool that declares it (`needsSpec.env`) gets it on its next call.
 ```
 
-- **`--scope`** is `tenant`, `org:<orgId>` or `project:<projectId>`. A call
-  in that project now gets `ORDERS_REGION=us`; every other call gets the
-  default, `eu`.
-- **`--env`** is required with `--scope`: name the env the runtime serves
-  (`KINDGI_ENV`; under `kindgi dev`, `local`). A value under another env name
-  never reaches a call.
+The second prints the same line for `ORDERS_REGION` at `project:<project-id>`.
+
+- **`--scope`** is where the value lives: `tenant`, `org:<orgId>` or
+  `project:<projectId>`.
+- **`<project-id>`** is the project's id. A call in that project now gets
+  `ORDERS_REGION=us`. Every other call gets the default, `eu`.
+- **`--env`** is required with `--scope`. Name the env the runtime serves,
+  which `KINDGI_ENV` names. Under `kindgi dev`, it's `local`. A value under
+  another env name never reaches a call.
 - **A new value counts on the next call.** Nothing restarts, and no new agent
   version is needed.
 - **Changing a value** that's already set takes `--force`.
-  `kindgi env list --scope=… --env=…` shows a scope's values, and
-  `kindgi env unset NAME --scope=… --env=…` removes one, so a call gets the
-  next scope's value again.
+- **`kindgi env list`**, with a `--scope` and an `--env`, shows that scope's
+  values.
+- **`kindgi env unset NAME`**, with the same two flags, removes one. A call
+  then gets the next scope's value again.
 
 ### A value nobody set
 
@@ -169,14 +282,16 @@ precondition-failed: Tool "acme-orders.needs-account" was not run: env-value-mis
 
 :::note
 Without `--scope`, `kindgi env set`, `list` and `unset` edit the pack's own
-env files, as before. Those files are the pack service's process
-environment, not `ctx.env`: under `kindgi dev` too, a tool's env values come
-only from what `--scope` sets.
+env files. Those files are the pack service's process environment, not
+`ctx.env`. Under `kindgi dev` too, a tool's env values come only from what
+`--scope` sets.
 :::
 
 ## Test it
 
-A test passes the values in the context it builds.
+A test passes the values in the context it builds. Ask your coding agent:
+"Add a test for the order lookup tool." For reference, the test looks like
+this.
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -186,9 +301,10 @@ A test passes the values in the context it builds.
 - each value is checked against its schema;
 - the handler sees the declared names only.
 
-A missing or invalid value is `precondition-failed` (`env-value-missing`,
-`env-value-invalid`), and the handler doesn't run. Its third argument is the
-context, over a test's defaults (`toolContextForTest`):
+A missing or invalid value is `precondition-failed`, with the reason
+`env-value-missing` or `env-value-invalid`, and the handler doesn't run. Its
+third argument is the context. What it sets goes over the defaults of a
+test's context, which `toolContextForTest` builds:
 
 ```ts
 // tools/find-order/index.test.ts
@@ -229,6 +345,66 @@ def test_builds_the_url_from_the_env_values():
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+`new ToolContext(…)` takes the env values as the handler gets them. Nothing
+fills in a default or checks a value against its schema, as
+`invokeToolForTest` does in TypeScript, so the test sets each name the
+handler reads.
+
+```java
+// src/test/java/mypack/tools/FindOrderTest.java
+package mypack.tools;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import com.kindgi.log.Logger;
+import com.kindgi.pack.Cancellation;
+import com.kindgi.pack.ToolContext;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+
+class FindOrderTest {
+  @Test
+  void buildsTheUrlFromTheEnvValues() throws Exception {
+    Map<String, Object> env = Map.of("ORDERS_BASE_URL", "https://orders.example.com", "ORDERS_REGION", "us");
+    ToolContext ctx = new ToolContext("test-tenant", "test-run", null, null, null, env,
+        Map.of(), Map.of(), Map.of(), new Cancellation(), Logger.noop());
+    FindOrder.Output output = FindOrder.TOOL.call(new FindOrder.Input("ord_1001"), ctx);
+    assertEquals("https://orders.example.com/us/orders/ord_1001", output.url());
+  }
+}
+```
+
+</TabItem>
+
+<TabItem label="Scala">
+
+`new ToolContext(…)` takes the env values as the handler gets them. Nothing
+fills in a default or checks a value against its schema, as
+`invokeToolForTest` does in TypeScript, so the test sets each name the
+handler reads.
+
+```scala
+// src/test/scala/mypack/tools/FindOrderSuite.scala
+package mypack.tools
+
+import com.kindgi.log.Logger
+import com.kindgi.pack.{Cancellation, ToolContext}
+import java.util.Map as JMap
+
+class FindOrderSuite extends munit.FunSuite {
+  test("builds the URL from the env values") {
+    val env = JMap.of[String, Object]("ORDERS_BASE_URL", "https://orders.example.com", "ORDERS_REGION", "us")
+    val ctx = new ToolContext("test-tenant", "test-run", null, null, null, env,
+      JMap.of(), JMap.of(), JMap.of(), new Cancellation(), Logger.noop())
+    val output = FindOrder.tool.call(FindOrder.Input("ord_1001"), ctx)
+    assertEquals(output.url, "https://orders.example.com/us/orders/ord_1001")
+  }
+}
+```
+
+</TabItem>
 </Tabs>
 
 ## Env values, settings, secrets, process env
@@ -244,5 +420,11 @@ A pack's code gets four kinds of values. Pick by what the value is:
 
 Env values aren't secret: they're recorded with each run that uses them and
 shown in its journal. `kindgi env set` warns about a name that looks like a
-credential (`…_TOKEN`, `…_KEY`, `…_PASSWORD`). Store those with
-`kindgi secrets`; [Give a tool a secret](../give-a-tool-a-secret/) shows how.
+credential, such as `…_TOKEN`, `…_KEY` or `…_PASSWORD`. Store those with
+`kindgi secrets`, as [Give a tool a secret](../give-a-tool-a-secret/) shows.
+
+## Next
+
+- [Give a tool a secret](../give-a-tool-a-secret/)
+- [Change a prompt or a setting without a deploy](../../evals/change-a-prompt-or-setting/)
+- [Organize work by org and project](../../projects/organize-by-org-and-project/)

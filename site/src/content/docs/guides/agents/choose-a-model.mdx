@@ -7,17 +7,32 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide says what an agent's model must support, prefers or requires a
+provider or a model, and shows which one answered.
+
 An agent doesn't name a model. Its `capabilities` say what the model must
-support, and when a turn starts, Kindgi picks one from the providers registered
-for your tenant ([Models](../../models/) shows how to register them). You can
-prefer a provider or a model, or require one.
+support. When a turn starts, Kindgi picks one from the providers registered
+for your tenant. You can prefer a provider or a model, or require one.
+
+## Before you start
+
+- **An agent,** in a pack on a runtime such as `kindgi dev`, with Kindgi
+  0.1's CLI. This guide uses `acme.order-desk`.
+- **Providers registered for your tenant,** as [Models](../../models/)
+  shows. Without one, `dev-echo` answers.
 
 ## What the model must support
+
+Ask your coding agent: "My agent needs a model that can call tools."
+Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, it
+adds `capabilities` to the agent's definition. This one needs a model that
+calls tools:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 // in agents/order-desk/index.ts
   capabilities: [{ needs: [{ feature: 'tool-use' }] }],
 ```
@@ -25,9 +40,25 @@ prefer a provider or a model, or require one.
 </TabItem>
 <TabItem label="Python">
 
-```python
+```python excerpt
 # in agents/order_desk.py
     capabilities=[{"needs": [{"feature": "tool-use"}]}],
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .capability(Map("needs" -> Seq(Map("feature" -> "tool-use"))))
 ```
 
 </TabItem>
@@ -40,14 +71,14 @@ all of them:
   `tool-use`, `parallel-tool-use`, `structured-output`, `long-context`,
   `thinking`, `vision` and others. An agent that calls tools needs `tool-use`.
   `structured-output` says the model can follow a JSON schema itself; Kindgi
-  doesn't send it the schema yet. An agent's
-  [typed answer](../typed-answer/) comes from its instructions, then a check
-  against the schema and repairs, on every model, so needing
-  `structured-output` only narrows which models qualify.
+  doesn't use that. On every model, an agent's
+  [typed answer](../typed-answer/) comes from its instructions and the schema
+  at the end of its system message, then a check against the schema and
+  repairs. So needing `structured-output` only narrows which models qualify.
 - **`{ contextWindow: { op: '>=', value: 500000 } }`**: a context window.
 - **`{ region: 'on-prem' }`**: a provider registered with this `region`.
 - **`{ models: { allow: […] } }`**, **`{ providers: { allow: […] } }`**: only
-  these models or providers (`deny` excludes instead).
+  these models or providers. `deny` excludes them instead.
 
 `needs: []` takes any model. Only the first entry of `capabilities` picks the
 turn's model.
@@ -55,6 +86,8 @@ turn's model.
 `kindgi capabilities list --table` lists the features an agent can require,
 what each one means, and which of your providers' models have it.
 `kindgi capabilities get feature:tool-use` gives one.
+
+The agent's turns now run only on a model that meets its needs.
 
 ## How Kindgi picks
 
@@ -66,24 +99,30 @@ what each one means, and which of your providers' models have it.
    provider's **default model** before its others, then by model name.
 
 The last step decides more often than you might expect. Each preset names a
-mid-priced default (`claude-sonnet-5-5` for `anthropic`), so with one preset
-registered, an agent with no preference gets its default. A provider registered without a `defaultModel` falls back
-to its first model by name, which can be its dearest. Prefer or require the
-model you mean.
+mid-priced default, such as `claude-sonnet-5-5` for `anthropic`. So with one
+preset registered, an agent with no preference gets its default. A provider
+registered without a `defaultModel` falls back to its first model by name,
+which can be its dearest. Prefer or require the model you mean.
 
 A turn routed to a model its provider has retired fails, so an agent that
 prefers or requires one needs a new version naming another model. Anthropic
 lists each Claude model's status, and any retirement date, on its
-[model deprecations](https://platform.claude.com/docs/en/about-claude/model-deprecations) page. An Anthropic provider registered before
-0.1.4 has no default: register it again (see
-[Connect Anthropic](../../models/anthropic/#if-you-registered-it-before-014)).
+[model deprecations](https://platform.claude.com/docs/en/about-claude/model-deprecations)
+page. An Anthropic provider registered without a default falls back to its
+first model by name too. Register it again, as
+[Connect Anthropic](../../models/anthropic/#register-the-preset-again)
+shows.
 
 ## Prefer a provider or a model
+
+A preference ranks a provider or a model first, without excluding the others.
+Ask your coding agent: "Prefer Claude Sonnet 5.5 for my agent." For reference,
+it adds the preference to the agent's definition:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 // in agents/order-desk/index.ts
   capabilities: [{ needs: [{ feature: 'tool-use' }] }],
   preferredProvider: 'anthropic',
@@ -93,7 +132,7 @@ lists each Claude model's status, and any retirement date, on its
 </TabItem>
 <TabItem label="Python">
 
-```python
+```python excerpt
 # in agents/order_desk.py
     capabilities=[{"needs": [{"feature": "tool-use"}]}],
     preferred_provider="anthropic",
@@ -101,13 +140,63 @@ lists each Claude model's status, and any retirement date, on its
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
+      .set("preferredProvider", "anthropic")
+      .set("preferredModel", "claude-sonnet-5-5")
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .capability(Map("needs" -> Seq(Map("feature" -> "tool-use"))))
+    .set("preferredProvider", "anthropic")
+    .set("preferredModel", "claude-sonnet-5-5")
+```
+
+</TabItem>
 </Tabs>
 
 A dry run shows the pick without calling the model:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
+pnpm exec kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
+```
+
+</TabItem>
+</Tabs>
+
+`--dry-run` runs the turn without its model call. Its output names the
+provider and model the turn would use:
 
 ```json
 {
@@ -128,19 +217,21 @@ kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my o
   serves it.
 - Only `preferredProvider`: its models are ranked first.
 
-`preferredProvider` is a provider id (`anthropic`) and `preferredModel` a model
-name (`claude-sonnet-5-5`); a combined `anthropic/claude-sonnet-5-5` matches
-nothing. A preference never excludes: if the provider isn't registered, or its
-models don't meet the needs, the turn takes the next model in line.
+`preferredProvider` is a provider id, such as `anthropic`, and
+`preferredModel` a model name, such as `claude-sonnet-5-5`. A combined
+`anthropic/claude-sonnet-5-5` matches nothing. A preference never excludes: if
+the provider isn't registered, or its models don't meet the needs, the turn
+takes the next model in line.
 
 ## Require a model
 
-To make sure a turn runs on one model, put it in the needs:
+To make sure a turn runs on one model, ask your coding agent: "My agent must
+only run on Claude Sonnet 5.5." For reference, it puts the model in the needs:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 // in agents/order-desk/index.ts
   capabilities: [{ needs: [{ feature: 'tool-use' }, { models: { allow: ['claude-sonnet-5-5'] } }] }],
 ```
@@ -148,9 +239,29 @@ To make sure a turn runs on one model, put it in the needs:
 </TabItem>
 <TabItem label="Python">
 
-```python
+```python excerpt
 # in agents/order_desk.py
     capabilities=[{"needs": [{"feature": "tool-use"}, {"models": {"allow": ["claude-sonnet-5-5"]}}]}],
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .capability(Map.of("needs", List.of(
+          Map.of("feature", "tool-use"),
+          Map.of("models", Map.of("allow", List.of("claude-sonnet-5-5"))))))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .capability(Map("needs" -> Seq(
+      Map("feature" -> "tool-use"),
+      Map("models" -> Map("allow" -> Seq("claude-sonnet-5-5"))))))
 ```
 
 </TabItem>
@@ -163,10 +274,9 @@ another one:
 Error [capability-routing-failed]: No registered provider satisfies the capability declaration
 ```
 
-The run's journal says why, model by model, in the failed `setup` step
-(`kindgi runs journal <run-id>`, with the run's `id` from the JSON that
-`kindgi runs start` prints).
-For `models: { allow: ['gpt-5'] }`:
+The run's journal says why, model by model, in the failed `setup` step. Read
+it with `kindgi runs journal <run-id>`, where `<run-id>` is the `id` in the
+JSON that `kindgi runs start` prints. For `models: { allow: ['gpt-5'] }`:
 
 ```json
 {
@@ -186,17 +296,28 @@ For `models: { allow: ['gpt-5'] }`:
 }
 ```
 
+A provider registered for the tenant that the runtime couldn't set up, such as
+one whose
+[settings the deployment no longer allows](../../../concepts/security/#what-a-tenant-cant-make-the-server-do),
+is never a candidate. The reasons name it under `provider set up`, by its
+provider id alone, with the code `provider-setup-failed`. The error's message
+gives the first one's why, and counts the rest. A registration's settings can
+be checked at any time with
+[`GET /v1/providers/{providerId}/check`](../../models/#check-a-registration).
+
 ## Rank with weights
 
 `prefer` adds a weight for each match, against a model's features or a
 provider's `attributes`, and ranks the higher total first. A weight can be
-negative. With a local model registered with `"attributes": ["local"]` (see
-[Connect an OpenAI-compatible endpoint](../../models/openai-compatible/)):
+negative. Here a local model is registered with `"attributes": ["local"]`, as
+[Connect an OpenAI-compatible endpoint](../../models/openai-compatible/)
+shows. Ask your coding agent: "Rank my local models above the others for my
+agent." For reference, it adds a weight for `local`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 // in agents/order-desk/index.ts
   capabilities: [{ needs: [{ feature: 'tool-use' }], prefer: [{ feature: 'local', weight: 1 }] }],
 ```
@@ -204,23 +325,43 @@ negative. With a local model registered with `"attributes": ["local"]` (see
 </TabItem>
 <TabItem label="Python">
 
-```python
+```python excerpt
 # in agents/order_desk.py
     capabilities=[{"needs": [{"feature": "tool-use"}], "prefer": [{"feature": "local", "weight": 1}]}],
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .capability(Map.of(
+          "needs", List.of(Map.of("feature", "tool-use")),
+          "prefer", List.of(Map.of("feature", "local", "weight", 1))))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .capability(Map(
+      "needs" -> Seq(Map("feature" -> "tool-use")),
+      "prefer" -> Seq(Map("feature" -> "local", "weight" -> 1))))
+```
+
+</TabItem>
 </Tabs>
 
-the dry run picks `{ "id": "ollama", "model": "llama3.1" }` over the Anthropic
-models.
+With it, the dry run picks `{ "id": "ollama", "model": "llama3.1" }` over the
+Anthropic models.
 
 ## `dev-echo`, the fallback
 
 `kindgi dev` gives your tenant `dev-echo`, a stand-in that needs no key. It
-calls the agent's first tool with `{"message": <the user message>}` and answers
-`Tool responded: <the result>`; an agent with no tools gets its user message
-back. Its text answers start with a line that says what it is:
+calls the agent's first tool with `{"message": <the user message>}`, and
+answers `Tool responded: <the result>`. An agent with no tools gets its user
+message back. Its text answers start with a line that says what it is:
 
 ```text
 ⚠ dev-echo isn't a real model: it only repeats what it's given. Add an LLM provider key (Anthropic, OpenAI, Gemini, Groq, OpenRouter…) to get real answers.
@@ -249,14 +390,20 @@ When it does answer, the turn says so, in its result and on the CLI's stderr:
 ⚠ dev-echo answered, and it isn't a real model: it only repeats what it's given. Add an LLM provider key: kindgi secrets set <KEY> --env=local --scope=tenant (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY…), then kindgi providers register --preset=<anthropic|openai|gemini-api|groq|openrouter>. kindgi providers presets lists them.
 ```
 
-If you registered a model and still see this, the agent's needs don't match it:
-compare its `capabilities` with the models' `features`
-(`kindgi providers list`). `dev-echo` has only `tool-use`, so an agent that
-needs anything else fails with no model registered.
+If you registered a model and still see this, the agent's needs don't match
+it. Compare its `capabilities` with the models' `features`, which
+`kindgi providers list` shows. `dev-echo` has only `tool-use`, so an agent
+that needs anything else fails with no model registered.
 
 ## See which model answered
 
-The turn's result names it in `output.provider`
-(`{ "id": "anthropic", "model": "claude-sonnet-5-5" }`), and each model call in
-the turn's provenance record names its model and cost: see
-[Trace an answer and its cost](../../observability/trace-an-answer/).
+The turn's result names it in `output.provider`, such as
+`{ "id": "anthropic", "model": "claude-sonnet-5-5" }`. Each model call in the
+turn's provenance record names its model and cost, as
+[Trace an answer and its cost](../../observability/trace-an-answer/) shows.
+
+## Next
+
+- [Models](../../models/)
+- [Set an agent's budget](../budgets/)
+- [Give an agent a typed answer](../typed-answer/)

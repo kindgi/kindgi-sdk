@@ -9,8 +9,10 @@ import {
   ModelProviderError,
   type RetryableFailure,
   backoffMs,
+  isTransport,
   kindOf,
   modelProviderError,
+  refusedConnection,
   vendorWaitMs,
   withRetries,
 } from '../src/index.js';
@@ -167,5 +169,84 @@ describe('withRetries', () => {
     expect(removed.mock.calls).toEqual(
       added.mock.calls.map(([type, listener]) => [type, listener]),
     );
+  });
+});
+
+describe('isTransport', () => {
+  test.each([
+    'ECONNRESET',
+    'ECONNREFUSED',
+    'ETIMEDOUT',
+    'ENOTFOUND',
+    'UND_ERR_SOCKET',
+    'ConnectionClosed',
+  ])('a %s code on the error is a dropped connection', (code) => {
+    expect(isTransport(Object.assign(new Error('down'), { code }))).toBe(true);
+  });
+
+  test('a transport code on a cause, not the top error, still counts', () => {
+    const top = new Error('fetch failed', {
+      cause: Object.assign(new Error('reset'), { code: 'ECONNRESET' }),
+    });
+    expect(isTransport(top)).toBe(true);
+  });
+
+  test('a "fetch failed" TypeError is a dropped connection', () => {
+    expect(isTransport(new TypeError('fetch failed'))).toBe(true);
+    expect(isTransport(new TypeError('Failed to fetch'))).toBe(true);
+  });
+
+  test('a plain error is not a dropped connection, and a cause cycle does not loop', () => {
+    expect(isTransport(new Error('bad request'))).toBe(false);
+    const a = new Error('a');
+    const b = new Error('b', { cause: a });
+    (a as { cause?: unknown }).cause = b;
+    expect(isTransport(a)).toBe(false);
+  });
+});
+
+describe('refusedConnection', () => {
+  test.each([
+    ['EKINDGIEGRESS', 'egress refused: link-local host'],
+    ['EKINDGIBODY', 'the request body is over the limit'],
+    // A system-style code the runtime adds later is caught by the generic rule, with no change here.
+    ['EKINDGISOMETHINGNEW', 'a code the runtime adds later'],
+  ])(
+    'a system-style code (%s) that is not a dropped connection is a policy refusal',
+    (code, message) => {
+      expect(refusedConnection(Object.assign(new Error(message), { code }))).toEqual({
+        kind: 'network',
+        words: message,
+      });
+    },
+  );
+
+  test('the code on a cause, as the OpenAI and AI SDKs wrap it, is found', () => {
+    const wrapped = new Error('Connection error.', {
+      cause: Object.assign(new Error('egress refused'), { code: 'EKINDGIEGRESS' }),
+    });
+    expect(refusedConnection(wrapped)).toEqual({ kind: 'network', words: 'egress refused' });
+  });
+
+  test('a redirect the request will not follow is unavailable, saying why', () => {
+    const refused = refusedConnection(new Error('unexpected redirect'));
+    expect(refused?.kind).toBe('unavailable');
+    expect(refused?.words).toContain("isn't followed");
+  });
+
+  test('a dropped-connection code is not a refusal (the transport check takes it)', () => {
+    expect(
+      refusedConnection(Object.assign(new Error('reset'), { code: 'ECONNRESET' })),
+    ).toBeUndefined();
+  });
+
+  test('an ERR_-prefixed code (a Node or library error, not a system refusal) is not a refusal', () => {
+    expect(
+      refusedConnection(Object.assign(new Error('bad'), { code: 'ERR_INVALID_URL' })),
+    ).toBeUndefined();
+  });
+
+  test('a plain error with no code and no redirect is not a refusal', () => {
+    expect(refusedConnection(new Error('something'))).toBeUndefined();
   });
 });

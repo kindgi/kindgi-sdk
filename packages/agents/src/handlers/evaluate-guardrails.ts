@@ -2,9 +2,10 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { UsageSink } from '@kindgi/capabilities';
-import type { EvaluationOutcome, GuardrailCheckOutcome } from '@kindgi/guardrails';
+import type { EvaluationOutcome, Guardrail, GuardrailCheckOutcome } from '@kindgi/guardrails';
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
-import type { Timestamp } from '@kindgi/types';
+import type { KernelRunRecord, RunBinding } from '@kindgi/runtime';
+import type { FlowId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
 import {
   buildRunTrace,
@@ -34,7 +35,9 @@ import { parseJsonAnswer } from './structured-output.js';
  * `guardrail-violation` whose `evaluationErrors` say why), and the step's
  * output lists every error, so the journal shows it. Also records the
  * response's `model-output` provenance node, which the guardrail checks
- * link to.
+ * link to. When one of the turn's guardrails is scoped to flows, the
+ * trace names the flow whose step started the turn (`flowOfTurn`), which
+ * that guardrail applies by.
  */
 export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
   return async (input: unknown, kctx) => {
@@ -81,6 +84,7 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
       ctx.input.agent.output !== undefined && !kctx.dryRun
         ? parseJsonAnswer(final.message.content)
         : undefined;
+    const flowId = await flowOfTurn(ctx, kctx);
     const trace = buildRunTrace({
       runId: kctx.runId,
       tenantId: ctx.input.tenantId,
@@ -89,6 +93,7 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
       conversationId: ctx.input.conversationId,
       turnNumber: (ctx.conversation?.turnCount ?? 0) + 1,
       agent: ctx.input.agent,
+      ...(flowId !== undefined && { flowId }),
       userMessage: ctx.input.userMessage,
       ...(ctx.input.input !== undefined && { stepInput: ctx.input.input }),
       ...(structured?.kind === 'ok' && { structuredOutput: structured.value }),
@@ -201,6 +206,110 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
       })),
     };
   };
+}
+
+/** The most replays `parentOfRun` follows back to the run they replay. */
+const MAX_REPLAY_HOPS = 10;
+
+/**
+ * The flow whose step started this turn, which a guardrail scoped to
+ * flows (`scope.flows`) applies by: the flow of the turn's parent run.
+ * Undefined for a turn outside any flow, and unread unless one of the
+ * turn's guardrails is scoped to flows: no other guardrail needs it, so
+ * a turn without one reads no run and never fails on one. A started
+ * turn's input names the parent (`parent`); a resumed turn's doesn't, so
+ * its own run's record does. A replay's run has no parent, so a replay
+ * takes the flow of the run it replays (`replay.of`), as the original
+ * turn did. A run that can't be read, or a replayed run that's gone,
+ * fails the step, so a guardrail scoped to flows never passes over a
+ * turn whose flow went unread.
+ */
+async function flowOfTurn(ctx: TurnContext, kctx: NodeContext): Promise<FlowId | undefined> {
+  if (ctx.guardrails === undefined || !ctx.guardrails.some(scopedToFlows)) return undefined;
+  const runs = ctx.bindings.runBinding;
+  if (runs === undefined) {
+    throw new Error('evaluate-guardrails: bindings.runBinding is required.');
+  }
+  const { tenantId } = ctx.input;
+  const replayed = ctx.input.replay?.of;
+  const parentRunId =
+    ctx.input.parent?.runId ??
+    (await parentOfRun(runs, tenantId, replayed ?? kctx.runId, replayed !== undefined));
+  if (parentRunId === undefined) return undefined;
+  return (await readRun(runs, tenantId, parentRunId, false)).flowId as FlowId;
+}
+
+/** Whether the guardrail applies by flow, as the engine's scope check reads `scope.flows`. */
+function scopedToFlows(guardrail: Guardrail): boolean {
+  return (guardrail.scope?.flows?.length ?? 0) > 0;
+}
+
+/**
+ * The run's parent, or, for a replay's run, the parent of the run it
+ * replays (`replayOf`), followed through a replay of a replay. Undefined
+ * when the chain ends at a run outside any flow. `replayed` says the
+ * turn replays `start`, so a run of the chain that's gone is a replayed
+ * run that's gone. A chain that comes back to a run, or goes past
+ * `MAX_REPLAY_HOPS` replays, fails the step as an unreadable run does.
+ */
+async function parentOfRun(
+  runs: RunBinding,
+  tenantId: TenantId,
+  start: RunId,
+  replayed: boolean,
+): Promise<RunId | undefined> {
+  const seen = new Set<RunId>();
+  let runId = start;
+  for (let hops = 0; ; hops++) {
+    seen.add(runId);
+    const run = await readRun(runs, tenantId, runId, replayed);
+    if (run.parentRunId !== undefined && run.parentRunId !== null) return run.parentRunId;
+    if (run.replayOf === undefined || run.replayOf === null) return undefined;
+    if (seen.has(run.replayOf)) {
+      throwAgentTurnFailure({
+        code: 'persistence-error',
+        message: `Run ${run.replayOf} comes back in run ${start}'s replay chain, so the turn's flow is unknown`,
+        cause: null,
+      });
+    }
+    if (hops === MAX_REPLAY_HOPS) {
+      throwAgentTurnFailure({
+        code: 'persistence-error',
+        message: `Run ${start}'s replay chain goes on past ${MAX_REPLAY_HOPS} replays, so the turn's flow is unknown`,
+        cause: null,
+      });
+    }
+    runId = run.replayOf;
+  }
+}
+
+/** Reads the run; `replayed` says the turn replays it, for the message when it's gone. */
+async function readRun(
+  runs: RunBinding,
+  tenantId: TenantId,
+  runId: RunId,
+  replayed: boolean,
+): Promise<KernelRunRecord> {
+  let run: KernelRunRecord | null;
+  try {
+    run = await runs.getRun(tenantId, runId);
+  } catch (cause) {
+    throwAgentTurnFailure({
+      code: 'persistence-error',
+      message: `Run ${runId} couldn't be read to find the turn's flow: ${cause instanceof Error ? cause.message : String(cause)}`,
+      cause,
+    });
+  }
+  if (run === null) {
+    throwAgentTurnFailure({
+      code: 'persistence-error',
+      message: replayed
+        ? `Run ${runId}, which this turn replays, is gone, so the turn's flow is unknown`
+        : `Run ${runId} wasn't found, so the turn's flow is unknown`,
+      cause: null,
+    });
+  }
+  return run;
 }
 
 /**

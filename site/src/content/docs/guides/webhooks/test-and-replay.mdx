@@ -7,22 +7,46 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide checks a webhook receiver end to end, sees how each delivery
+went, and sends a failed one again.
+
+## Before you start
+
+- **A webhook endpoint registered,** and its `endpointId`, as
+  [Get a webhook when a run finishes](../receive-run-finished/) shows.
+- **A receiver listening at its URL,** such as one from
+  [Verify a webhook](../verify-a-webhook/).
+- **Node 22.12 or later, Python 3.11 or later, or Java 17 or later,** with
+  Kindgi 0.2's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+
 ## Send a test event
 
-`sendTest` (`send_test`) queues a signed `webhook.test` event for an endpoint,
-to check the receiver end to end:
+A test event checks the receiver end to end, without a run.
+
+`sendTest`, or `send_test` in Python, queues a signed `webhook.test` event
+for an endpoint. Ask your coding agent: "I want to send my webhook endpoint a
+test event and see whether it arrived." For reference, this function sends
+one, then reads how it was delivered:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```ts
-const queued = await kindgi.webhookEndpoints.sendTest(endpointId);
-console.log(queued.deliveryId, queued.event.type, queued.status);
+// scripts/test-endpoint.ts
+import { createClient } from '@kindgi/sdk/client';
 
-// A few seconds later
-await new Promise((resolve) => setTimeout(resolve, 5000));
-const { data } = await kindgi.webhookEndpoints.listDeliveries(endpointId, { limit: 1 });
-console.log(data[0]?.status, data[0]?.attempts, data[0]?.lastResponseStatus);
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
+/** Sends the endpoint a test event, and prints how it was delivered. */
+export async function testEndpoint(endpointId: string) {
+  const queued = await kindgi.webhookEndpoints.sendTest(endpointId);
+  console.log(queued.deliveryId, queued.event.type, queued.status);
+
+  // A few seconds later
+  await new Promise((resolve) => setTimeout(resolve, 5000));
+  const { data } = await kindgi.webhookEndpoints.listDeliveries(endpointId, { limit: 1 });
+  console.log(data[0]?.status, data[0]?.attempts, data[0]?.lastResponseStatus);
+}
 ```
 
 ```text
@@ -34,14 +58,22 @@ delivered 1 204
 <TabItem label="Python">
 
 ```python
+# scripts/test_endpoint.py
 import time
 
-queued = kindgi.webhook_endpoints.send_test(endpoint_id)
-print(queued.delivery_id, queued.event.type, queued.status)
+from kindgi.client import Kindgi
 
-time.sleep(5)  # a few seconds later
-delivery = kindgi.webhook_endpoints.list_deliveries(endpoint_id, limit=1).data[0]
-print(delivery.status, delivery.attempts, delivery.last_response_status)
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
+
+
+def test_endpoint(endpoint_id: str) -> None:
+    """Sends the endpoint a test event, and prints how it was delivered."""
+    queued = kindgi.webhook_endpoints.send_test(endpoint_id)
+    print(queued.delivery_id, queued.event.type, queued.status)
+
+    time.sleep(5)  # a few seconds later
+    delivery = kindgi.webhook_endpoints.list_deliveries(endpoint_id, limit=1).data[0]
+    print(delivery.status, delivery.attempts, delivery.last_response_status)
 ```
 
 ```text
@@ -50,9 +82,81 @@ delivered 1 204
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/TestEndpoint.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.WebhookDelivery;
+import com.kindgi.client.resources.WebhookEndpointsListDeliveriesParams;
+
+public final class TestEndpoint {
+  private static final Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+  /** Sends the endpoint a test event, and prints how it was delivered. */
+  public static void testEndpoint(String endpointId) throws InterruptedException {
+    WebhookDelivery queued = kindgi.webhookEndpoints().sendTest(endpointId);
+    System.out.println(queued.deliveryId() + " " + queued.event().type() + " " + queued.status());
+
+    Thread.sleep(5000); // a few seconds later
+    WebhookDelivery delivery = kindgi.webhookEndpoints()
+        .listDeliveries(endpointId, WebhookEndpointsListDeliveriesParams.builder().limit(1L).build())
+        .data().get(0);
+    System.out.println(delivery.status() + " " + delivery.attempts() + " " + delivery.lastResponseStatus());
+  }
+
+  public static void main(String[] args) throws InterruptedException {
+    testEndpoint(args[0]);
+  }
+}
+```
+
+```text
+3fab48a3-50d2-4de7-a3a1-46822c41fc54 webhook.test pending
+delivered 1 204
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/TestEndpoint.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.resources.WebhookEndpointsListDeliveriesParams
+
+object TestEndpoint {
+  private val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+  /** Sends the endpoint a test event, and prints how it was delivered. */
+  def testEndpoint(endpointId: String): Unit = {
+    val queued = kindgi.webhookEndpoints().sendTest(endpointId)
+    println(s"${queued.deliveryId} ${queued.event.`type`} ${queued.status}")
+
+    Thread.sleep(5000) // a few seconds later
+    val delivery = kindgi.webhookEndpoints()
+      .listDeliveries(endpointId, WebhookEndpointsListDeliveriesParams.builder().limit(1L).build())
+      .data.get(0)
+    println(s"${delivery.status} ${delivery.attempts} ${delivery.lastResponseStatus}")
+  }
+
+  def main(args: Array[String]): Unit = testEndpoint(args(0))
+}
+```
+
+```text
+09f002b1-3d30-43a5-9580-2683e6627868 webhook.test pending
+delivered 1 204
+```
+
+</TabItem>
 </Tabs>
 
-The test event is signed like any other:
+It prints the queued delivery, then its outcome: delivered at the first
+attempt, with the receiver's `204`. The test event is signed like any other:
 
 ```json
 {
@@ -67,8 +171,9 @@ The test event is signed like any other:
 
 ## See the deliveries
 
-Each event sent to an endpoint is a **delivery**. `listDeliveries`
-(`list_deliveries`) shows them, newest first, with how the endpoint answered:
+Each event sent to an endpoint is a **delivery**. `listDeliveries`, or
+`list_deliveries` in Python, shows them, newest first, with how the endpoint
+answered:
 
 ```json
 {
@@ -86,33 +191,46 @@ Each event sent to an endpoint is a **delivery**. `listDeliveries`
 }
 ```
 
-- **`status`**: `pending` (waiting for its next attempt), `delivered` (the
-  endpoint answered 2xx) or `failed` (every attempt failed).
-- **`lastResponseStatus`** and **`lastError`** say what went wrong:
-  `connection-refused` when nothing listened at the URL, for example, or
-  `url-refused` when the deployment refuses the receiver's address (see
-  [the `url`](../receive-run-finished/#2-register-the-endpoint)).
-- **`nextAttemptAt`** is when a pending delivery is tried again.
+- **`status`:** `pending` while it waits for its next attempt, `delivered`
+  once the endpoint answered 2xx, or `failed` once every attempt failed.
+- **`lastResponseStatus`** and **`lastError`** say what went wrong.
+  `lastError` is `connection-refused` when nothing listened at the URL, for
+  example. It's `url-refused` when the deployment refuses the receiver's
+  address, as [the `url`](../receive-run-finished/#2-register-the-endpoint)
+  describes.
+- **`nextAttemptAt`** is when a pending delivery is due to be tried again.
+  The attempt starts within about 30 seconds of it.
 
-Pass `status: 'failed'` (`status="failed"`) to list only the ones that gave up.
+Pass `status: 'failed'`, or `status="failed"` in Python, to list only the
+ones that gave up.
 
 ## Fix and send again
 
-When an endpoint's URL is wrong, its deliveries stay `pending`: the first
+A delivery sent again now, after you fix its cause, doesn't wait for its
+next attempt.
+
+When an endpoint's URL is wrong, its deliveries stay `pending`. The first
 attempt's `lastError` is `connection-refused` when nothing listens there, and
-`nextAttemptAt` is a minute later. Fix the URL and send the delivery again,
-now:
+`nextAttemptAt` is a minute later. Fix the URL, and send the delivery again
+now. Ask your coding agent: "I want to fix my webhook endpoint's URL and send
+its delivery again now." For reference, this function does both, for an
+endpoint and one of its deliveries:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```ts
-// Point the endpoint at the right URL
-await kindgi.webhookEndpoints.update(endpointId, { url: 'http://localhost:8787/hooks/kindgi' });
+// scripts/fix-endpoint.ts
+import { createClient } from '@kindgi/sdk/client';
 
-// Send a delivery again now, instead of at its next attempt
-const again = await kindgi.webhookEndpoints.redeliver(endpointId, deliveryId);
-console.log(again.status);
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
+/** Points the endpoint at the right URL, and sends the delivery again now. */
+export async function fixEndpoint(endpointId: string, deliveryId: string) {
+  await kindgi.webhookEndpoints.update(endpointId, { url: 'http://localhost:8787/hooks/kindgi' });
+  const again = await kindgi.webhookEndpoints.redeliver(endpointId, deliveryId);
+  console.log(again.status);
+}
 ```
 
 ```text
@@ -123,12 +241,78 @@ pending
 <TabItem label="Python">
 
 ```python
-# Point the endpoint at the right URL
-kindgi.webhook_endpoints.update(endpoint_id, url="http://localhost:8788/hooks/kindgi")
+# scripts/fix_endpoint.py
+from kindgi.client import Kindgi
 
-# Send a delivery again now, instead of at its next attempt
-again = kindgi.webhook_endpoints.redeliver(endpoint_id, delivery_id)
-print(again.status)
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
+
+
+def fix_endpoint(endpoint_id: str, delivery_id: str) -> None:
+    """Points the endpoint at the right URL, and sends the delivery again now."""
+    kindgi.webhook_endpoints.update(endpoint_id, url="http://localhost:8788/hooks/kindgi")
+    again = kindgi.webhook_endpoints.redeliver(endpoint_id, delivery_id)
+    print(again.status)
+```
+
+```text
+pending
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/FixEndpoint.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.PatchWebhookEndpointBody;
+import com.kindgi.client.models.WebhookDelivery;
+
+public final class FixEndpoint {
+  private static final Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+  /** Points the endpoint at the right URL, and sends the delivery again now. */
+  public static void fixEndpoint(String endpointId, String deliveryId) {
+    kindgi.webhookEndpoints().update(endpointId,
+        PatchWebhookEndpointBody.builder().url("http://localhost:8787/hooks/kindgi").build());
+    WebhookDelivery again = kindgi.webhookEndpoints().redeliver(endpointId, deliveryId);
+    System.out.println(again.status());
+  }
+
+  public static void main(String[] args) {
+    fixEndpoint(args[0], args[1]);
+  }
+}
+```
+
+```text
+pending
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/FixEndpoint.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.PatchWebhookEndpointBody
+
+object FixEndpoint {
+  private val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+  /** Points the endpoint at the right URL, and sends the delivery again now. */
+  def fixEndpoint(endpointId: String, deliveryId: String): Unit = {
+    kindgi.webhookEndpoints().update(endpointId,
+      PatchWebhookEndpointBody.builder().url("http://localhost:8787/hooks/kindgi").build())
+    val again = kindgi.webhookEndpoints().redeliver(endpointId, deliveryId)
+    println(again.status)
+  }
+
+  def main(args: Array[String]): Unit = fixEndpoint(args(0), args(1))
+}
 ```
 
 ```text
@@ -138,8 +322,9 @@ pending
 </TabItem>
 </Tabs>
 
-A few seconds later, the delivery is `delivered`. `update` also changes an
-endpoint's `events`, `filter`, `secretRef` and `description`.
+It prints `pending`: the delivery is queued again. A few seconds later, it's
+`delivered`. `update` also changes an endpoint's `events`, `filter`,
+`secretRef` and `description`.
 
 ## Stop receiving events
 
@@ -148,3 +333,9 @@ and it no longer appears in `list`.
 
 The [webhook endpoints reference](../../../reference/python/resources/webhook-endpoints/)
 lists every operation.
+
+## Next
+
+- [Verify a webhook](../verify-a-webhook/)
+- [Webhook events and deliveries](../webhook-events/)
+- [Get a webhook when a run finishes](../receive-run-finished/)

@@ -38,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          # The docs-ship check diffs the branch against origin/main.
+          # The docs-ship check reads the pull request's history back to its base.
           fetch-depth: 0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
@@ -58,6 +58,9 @@ jobs:
 
       - name: No package dependency cycles
         run: pnpm run check:cycles
+
+      - name: Constructors with parameter properties call super at their root (tsc's emit)
+        run: pnpm run check:constructor-super
 
       - name: README package table
         run: pnpm run check:readme
@@ -191,6 +194,13 @@ jobs:
           KINDGI_CONFORMANCE_PYTHON=/tmp/kindgi-floors/bin/python pnpm --filter @kindgi/pack-conformance exec vitest run tests/python.test.ts tests/python-supervisor.test.ts
       - name: Publish-readiness (publint + attw on publishable packages)
         run: pnpm run check:publish
+      # The site's build scripts' own tests (node:test, site/scripts): which
+      # versions build and from where, the version fixes, the agents'
+      # Markdown, the pinned tutorials, the samples check. Before the build.
+      # The samples check's end-to-end test makes fresh packs and adds
+      # libraries to them with uv and pnpm, so it needs the network.
+      - name: Docs site scripts
+        run: pnpm run docs:test-scripts
       # The documentation site (docs.kindgi.com) builds, with its link check
       # and search index, from the workspace built above.
       - name: Docs site
@@ -268,3 +278,52 @@ jobs:
       - name: The wheel's core metadata is 2.3
         run: |
           unzip -p dist/*.whl '*.dist-info/METADATA' | grep -qx 'Metadata-Version: 2.3'
+
+  wordpress:
+    name: WordPress plugin (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    strategy:
+      fail-fast: false
+      matrix:
+        # The plugin's floor (its header's `Requires PHP`), and a current PHP.
+        php: ["7.4", "8.3"]
+    defaults:
+      run:
+        working-directory: integrations/wordpress/kindgi
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: sodium, mbstring
+          tools: none
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          # Only `node --test` runs here: no pnpm, so no package-manager cache.
+          package-manager-cache: false
+      - name: PHP syntax
+        run: find . -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: The plugin's tests
+        run: php tests/run.php
+      - name: A statement the plugin signs verifies as Kindgi checks it
+        run: node --test tests/statement.test.mjs
+
+  wordpress-sodium-compat:
+    name: WordPress plugin (sodium_compat)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    # Some hosts have no ext/sodium; WordPress then loads the sodium_compat it
+    # bundles. WordPress's own image loads ext/sodium as a shared extension,
+    # so `php -n` runs without it, on that bundled sodium_compat.
+    container: wordpress:php8.3
+    defaults:
+      run:
+        working-directory: integrations/wordpress/kindgi
+    steps:
+      - uses: actions/checkout@v5
+      - name: The plugin's tests, without ext/sodium
+        env:
+          KINDGI_SODIUM_COMPAT: /usr/src/wordpress/wp-includes/sodium_compat/autoload.php
+        run: php -n tests/run.php

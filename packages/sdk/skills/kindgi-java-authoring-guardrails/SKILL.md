@@ -5,16 +5,18 @@ description: >
   pack in Java (`com.kindgi:kindgi-pack`): `Guardrail.define(id)` as a
   `public static final` field, a `(config, trace)` check returning a
   `CheckResult`, `RunTrace`, config records and the values a check runs
-  with, actions (halt / retry / escalate / log-only / compensate), severity
-  and scope, unit tests with `evaluate`, and wiring a guardrail onto an
-  agent. Load this whenever you are authoring or editing code in a Java
-  pack's guardrails packages (a pack whose `kindgi.config.json` says
+  with, actions, severity and scope, unit tests with `evaluate`, and wiring
+  a guardrail onto an agent. In 0.1 only the halt action acts (retry /
+  escalate / compensate are only recorded: nothing runs the turn again), and
+  a check sees only the current turn: its user message and tool results, not
+  earlier turns'. Load this whenever you are authoring or editing code in a
+  Java pack's guardrails packages (a pack whose `kindgi.config.json` says
   `"language": "java"`), defining a check, or wiring a guardrail onto an
   agent. Java agents are covered by kindgi-java-authoring-agents, Java tools
   by kindgi-java-authoring-tools.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.0"
+version: "0.1.2"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -31,7 +33,7 @@ sources:
 > `./mvnw`.
 >
 > Java support is in preview: tested and supported, but the API may still
-> change in 0.1.6 without the usual deprecation period.
+> change in a later release without the usual deprecation period.
 
 A **guardrail** is a rule an agent's turn must satisfy: a **check** (a
 function over the turn's trace) plus an **action** (what happens when it
@@ -42,6 +44,41 @@ stored.
 
 Ask what the rule should catch before writing one. The sample
 `response-not-empty` guardrail is a demonstration, not a template.
+
+## What a guardrail can do in 0.1
+
+Read this before you plan a guardrail. Three limits decide what can be
+built:
+
+- **Only `halt` acts.** A failed `halt` guardrail fails the turn with
+  `guardrail-violation`, and the answer is not stored. `retry`, `escalate`
+  and `compensate` are recorded on the turn's violations, as `log-only`
+  is, and the turn completes: nothing runs the turn again, escalates or
+  calls a compensating tool. So "block the reply and make the agent try
+  again" can't be a guardrail. Use `halt`: the error names the guardrail
+  and the check's reason, and the message is sent again (by the person, or
+  by your app when it gets `guardrail-violation`).
+- **A check sees one turn.** The trace holds the current turn only: its
+  user message (`trace.userInput()`), its tool calls and their results
+  (`toolCalls()`, `toolResults()`) and its answer (`output()`). Earlier
+  turns' messages, tool results and answers aren't in it. A check that
+  every figure in the answer comes from a tool result or the user's
+  message therefore blocks an answer that repeats a figure seen only in an
+  earlier turn.
+- **A check's in-memory state doesn't last.** The check runs in the pack
+  service's process, so anything it keeps in a `static` field (say, a map
+  of conversations) is lost when that process is replaced: under `kindgi
+  dev`, on every reload after a save and on a restart; in a deployment,
+  whenever an instance stops. With more than one instance, each keeps its
+  own copy, and one conversation's turns can land on different instances.
+  Don't keep a conversation's history this way.
+
+What works today for a check on figures: tell the agent, in its
+instructions, to call its tools again in every answer that quotes a
+figure, so the figure is in that turn's tool results. It depends on the
+model following the instruction, and it doesn't cover figures the user
+typed in an earlier turn: `trace.userInput()` is only the current turn's
+message, so an answer that repeats them is still blocked.
 
 ## A guardrail
 

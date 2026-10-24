@@ -4,7 +4,7 @@
 import type { AgentId } from '@kindgi/agents';
 import type { Principal } from '@kindgi/authz';
 import type { FlowVersionOverrides } from '@kindgi/flow';
-import type { RunIdempotencyKey, RunTriggerRef } from '@kindgi/runtime';
+import type { RunIdempotencyKey, RunStartedBy, RunTriggerRef } from '@kindgi/runtime';
 import type { FlowId, ProjectId, RunId, ScopeSegment, Semver, TenantId } from '@kindgi/types';
 
 /**
@@ -123,6 +123,19 @@ export interface InvokeAgentBindingInput {
   /** Set when a trigger starts the run; the run records it (`RunTriggerRef`). */
   readonly trigger?: RunTriggerRef;
   /**
+   * How the run started (`RunStartedBy`), set by whoever starts it: the
+   * route from the caller, a trigger's fire from its kind. The run records
+   * it. Absent: the run records none, and counts as unattended.
+   */
+  readonly startedBy?: RunStartedBy;
+  /**
+   * What the run may call without a person's yes though no person started
+   * it (`RunFlowInput.toolsAllowedUnattended`): set by a webhook's or a
+   * schedule's fire from its trigger, never by a route from a body. The
+   * run records it.
+   */
+  readonly toolsAllowedUnattended?: readonly string[];
+  /**
    * Who started the run (the authenticated caller), when known: whom the
    * turn acts for, e.g. whose own memory its retrievals may read. Set by
    * the route, never from the body. On its own it enforces nothing.
@@ -156,6 +169,10 @@ export interface InvokeFlowBindingInput {
   readonly idempotencyKey?: RunIdempotencyKey;
   /** Set when a trigger starts the run; the run records it (`RunTriggerRef`). */
   readonly trigger?: RunTriggerRef;
+  /** How the run started, as for `InvokeAgentBindingInput.startedBy`. */
+  readonly startedBy?: RunStartedBy;
+  /** What it may call without a person's yes, as for `InvokeAgentBindingInput.toolsAllowedUnattended`. */
+  readonly toolsAllowedUnattended?: readonly string[];
   /** Agents and tools to run at other exact versions than the flow version's pins (`RunFlowInput.versions`). */
   readonly versions?: FlowVersionOverrides;
   /** Who started the run, as for `InvokeAgentBindingInput.principal`: its agent steps act for them. */
@@ -187,6 +204,8 @@ export interface RunHandlerFailure {
    * `details`, which clients hydrate into typed errors. A binding
    * forwards them as-is: for `guardrail-violation`, `violations` and
    * `evaluationErrors` from `@kindgi/agents`' `GuardrailViolationError`.
+   * For `rate-limit-exceeded` (`RateLimitExceededError`), `retryAfterMs`
+   * is answered as `Retry-After`, not in the body.
    */
   readonly details?: Readonly<Record<string, unknown>>;
 }

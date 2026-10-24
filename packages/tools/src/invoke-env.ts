@@ -15,10 +15,15 @@
 import { type CompiledInlineSchema, compileInlineSchema } from '@kindgi/schema';
 import type { Result } from '@kindgi/types';
 
+import { envDefaultOf } from './env-names.js';
 import { ToolPreconditionError } from './precondition.js';
 import type { JsonSchema, Tool } from './types.js';
 
-/** Compiled env schemas, by schema object (a tool's are defined once and reused). */
+/**
+ * Compiled env schemas, by schema object (a tool's are defined once and
+ * reused). Each keeps its schema's cache key, not its validator
+ * (`compileInlineSchema`), so the cache's bounds hold.
+ */
 const compiled = new WeakMap<object, CompiledInlineSchema>();
 
 /**
@@ -35,7 +40,7 @@ export function envForCall(
   const chosen = declared.map(([name, schema]) => ({
     name,
     schema,
-    value: given !== undefined && Object.hasOwn(given, name) ? given[name] : defaultOf(schema),
+    value: given !== undefined && Object.hasOwn(given, name) ? given[name] : envDefaultOf(schema),
   }));
   // As the runtime: a missing value refuses the call first, then each value is checked.
   const missing = chosen.filter((c) => c.value === undefined).map((c) => c.name);
@@ -77,12 +82,6 @@ function checkValue(
     'env-value-invalid',
     `env value "${name}" is "${value}", which doesn't match the schema tool "${id}" declares for it: ${constraintsBroken(checked.error.errors)}`,
   );
-}
-
-/** A schema's `default`, when it's a string (env values are strings; `defineTool` checks it). */
-function defaultOf(schema: JsonSchema): string | undefined {
-  const fallback = (schema as { readonly default?: unknown }).default;
-  return typeof fallback === 'string' ? fallback : undefined;
 }
 
 function validatorFor(schema: JsonSchema): Result<CompiledInlineSchema, string> {

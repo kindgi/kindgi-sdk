@@ -7,9 +7,24 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide runs several tools on the same input at the same time, with a
+fanout step, and chooses how their results come back.
+
 A `fanout` step runs several tools at once, on the same input, and collects
-their outputs into one. `acme.assess-order` scores an order's risk and quotes
-its shipping at the same time, with two new read-only tools:
+their outputs into one.
+
+## Before you start
+
+- **A pack with the tools** from [Write a flow](../write-a-flow/), such as
+  `acme.get-order`, on a runtime such as `kindgi dev`, with Kindgi 0.2's CLI.
+
+## Fan out to several tools
+
+Ask your coding agent: "I want a flow that scores an order's risk and quotes
+its shipping at the same time." Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+tools and the flow look like this. This guide calls the flow
+`acme.assess-order`, and it uses two new read-only tools:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -219,18 +234,251 @@ assess_order = Flow(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/tools/ScoreRisk.java
+package acme.tools;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.kindgi.pack.Tool;
+
+public final class ScoreRisk {
+  // A branch gets the whole order: its other fields are left out.
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public record Input(double total) {}
+
+  public enum Level {
+    @JsonProperty("low") LOW,
+    @JsonProperty("high") HIGH
+  }
+
+  public record Output(Level level) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("acme.score-risk")
+      .description("Scores the fraud risk of an order.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      .mutating(false)
+      .handler((input, ctx) -> new Output(input.total() > 1000 ? Level.HIGH : Level.LOW));
+
+  private ScoreRisk() {}
+}
+```
+
+```java
+// src/main/java/acme/tools/QuoteShipping.java
+package acme.tools;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.kindgi.pack.Tool;
+import java.util.List;
+
+public final class QuoteShipping {
+  public record Item(String sku, double quantity) {}
+
+  // A branch gets the whole order: its other fields are left out.
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public record Input(List<Item> items) {}
+
+  public record Output(int days) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("acme.quote-shipping")
+      .description("Quotes how many days an order takes to ship.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      .mutating(false)
+      .handler((input, ctx) -> new Output(2 + input.items().size()));
+
+  private QuoteShipping() {}
+}
+```
+
+```java
+// src/main/java/acme/flows/AssessOrder.java
+package acme.flows;
+
+import com.kindgi.pack.Flow;
+import java.util.List;
+import java.util.Map;
+
+public final class AssessOrder {
+  public static final Flow FLOW = Flow.define("acme.assess-order")
+      .version("0.1.0")
+      .set("name", "Assess an order")
+      .set("description", "Scores the risk and quotes shipping for an order, at the same time.")
+      .node(Map.of("id", "order", "kind", "tool", "ref", "acme.get-order",
+          "inputMapping", Map.of("orderId", Map.of("path", "runInput.orderId"))))
+      .node(Map.of(
+          "id", "assess",
+          "kind", "fanout",
+          "convergence", "all-succeed",
+          "branches", List.of(
+              Map.of("branchId", "risk", "handler", "acme.score-risk",
+                  "outputSchema", Map.of("type", "object",
+                      "properties", Map.of("level", Map.of("type", "string")), "required", List.of("level"))),
+              Map.of("branchId", "shipping", "handler", "acme.quote-shipping",
+                  "outputSchema", Map.of("type", "object",
+                      "properties", Map.of("days", Map.of("type", "integer")), "required", List.of("days"))))))
+      .edge("e1", "$start", "order")
+      .edge("e2", "order", "assess")
+      .edge("e3", "assess", "$end")
+      .set("output", Map.of("mapping", Map.of(
+          "risk", Map.of("path", "nodeOutputs.assess.risk.level"),
+          "shippingDays", Map.of("path", "nodeOutputs.assess.shipping.days"))))
+      .build();
+
+  private AssessOrder() {}
+}
+```
+
+A branch gets the whole output of the step before it (the order). A record
+refuses properties it doesn't name, so each branch's input says
+`@JsonIgnoreProperties(ignoreUnknown = true)`; a TypeScript zod object drops
+them by itself.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/tools/ScoreRisk.scala
+package acme.tools
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import com.kindgi.pack.scaladsl._
+
+object ScoreRisk {
+  // A branch gets the whole order: its other fields are left out.
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  final case class Input(total: Double)
+
+  enum Level {
+    case low, high
+  }
+
+  final case class Output(level: Level)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme.score-risk")
+    .description("Scores the fraud risk of an order.")
+    .version("0.1.0")
+    .readOnly
+    .handler((in, _) => Output(if (in.total > 1000) Level.high else Level.low))
+}
+```
+
+```scala
+// src/main/scala/acme/tools/QuoteShipping.scala
+package acme.tools
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import com.kindgi.pack.scaladsl._
+
+object QuoteShipping {
+  final case class Item(sku: String, quantity: Double)
+
+  // A branch gets the whole order: its other fields are left out.
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  final case class Input(items: Seq[Item])
+
+  final case class Output(days: Int)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme.quote-shipping")
+    .description("Quotes how many days an order takes to ship.")
+    .version("0.1.0")
+    .readOnly
+    .handler((in, _) => Output(2 + in.items.size))
+}
+```
+
+```scala
+// src/main/scala/acme/flows/AssessOrder.scala
+package acme.flows
+
+import com.kindgi.pack.scaladsl._
+
+object AssessOrder {
+  val flow: Flow = Flow("acme.assess-order")
+    .version("0.1.0")
+    .set("name", "Assess an order")
+    .set("description", "Scores the risk and quotes shipping for an order, at the same time.")
+    .node(Map("id" -> "order", "kind" -> "tool", "ref" -> "acme.get-order",
+      "inputMapping" -> Map("orderId" -> Map("path" -> "runInput.orderId"))))
+    .node(Map(
+      "id" -> "assess",
+      "kind" -> "fanout",
+      "convergence" -> "all-succeed",
+      "branches" -> List(
+        Map("branchId" -> "risk", "handler" -> "acme.score-risk",
+          "outputSchema" -> Map("type" -> "object",
+            "properties" -> Map("level" -> Map("type" -> "string")), "required" -> List("level"))),
+        Map("branchId" -> "shipping", "handler" -> "acme.quote-shipping",
+          "outputSchema" -> Map("type" -> "object",
+            "properties" -> Map("days" -> Map("type" -> "integer")), "required" -> List("days"))))))
+    .edge("e1", "$start", "order")
+    .edge("e2", "order", "assess")
+    .edge("e3", "assess", "$end")
+    .set("output", Map("mapping" -> Map(
+      "risk" -> Map("path" -> "nodeOutputs.assess.risk.level"),
+      "shippingDays" -> Map("path" -> "nodeOutputs.assess.shipping.days"))))
+    .build()
+}
+```
+
+A branch gets the whole order, and a case class refuses properties it
+doesn't name, so each branch's input says
+`@JsonIgnoreProperties(ignoreUnknown = true)`.
+
+</TabItem>
 </Tabs>
 
 - Each **branch** has a `branchId`, the tool it runs (`handler`), and the
-  `outputSchema` its output must match.
+  `outputSchema` its output must match. A branch's `outputSchema` that
+  doesn't compile is refused when the flow is loaded or deployed
+  (`/nodes/<i>/branches/<k>/outputSchema`), not at each run.
 - Every branch gets the fanout step's input: the output of the step before it,
-  here the whole order. Each tool takes the fields its input declares
-  (`total`, `items`) and drops the rest.
-- **`convergence`** decides when the step is done and what it returns (below).
+  here the whole order. Each tool takes the fields its input declares, such
+  as `total` and `items`, and drops the rest.
+- **`convergence`** decides when the step is done and what it returns, as
+  [Convergence](#convergence) shows.
+
+Run it:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi runs start --flow=acme.assess-order --input='{"orderId":"A-200"}'
+pnpm exec kindgi runs start --flow=acme.assess-order --input='{"orderId":"A-200"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.assess-order --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.assess-order --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.assess-order --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+</Tabs>
+
+`--flow` is the flow, and `--input` its input. It prints the run, with both
+tools' results:
 
 ```json
 {
@@ -245,7 +493,8 @@ kindgi runs start --flow=acme.assess-order --input='{"orderId":"A-200"}'
 }
 ```
 
-In the journal, both branches are dispatched before either completes:
+In the journal, which `kindgi runs journal <run-id>` prints, both branches
+are dispatched before either completes:
 
 ```json
 {"sequence": 6, "kind": "fanout.dispatched", "nodeId": "assess", "payload": {…, "handler": "acme.score-risk", "branchId": "risk", "fanoutNodeId": "assess"}, …}
@@ -259,13 +508,13 @@ In the journal, both branches are dispatched before either completes:
 
 | `convergence` | Done when | The step's output |
 | --- | --- | --- |
-| `all-succeed` | every branch succeeded; the first failure fails the step and cancels the others | `{ "<branchId>": <output>, … }` |
-| `any-succeed` | the first branch succeeds (the others are cancelled); fails only if every branch fails | `{ "winnerBranchId": "<branchId>", "output": <output> }` |
-| `settle-all` | every branch finished, succeeded or failed; the step itself succeeds | `{ "<branchId>": { "status": "succeeded", "output": … } \| { "status": "failed", "error": "…" }, … }` |
+| `all-succeed` | every branch succeeded. The first failure fails the step and cancels the others | `{ "<branchId>": <output>, … }` |
+| `any-succeed` | the first branch succeeds, and the others are cancelled. It fails only if every branch fails | `{ "winnerBranchId": "<branchId>", "output": <output> }` |
+| `settle-all` | every branch finished, succeeded or failed. The step itself succeeds | `{ "<branchId>": { "status": "succeeded", "output": … } \| { "status": "failed", "error": "…" }, … }` |
 
 With `settle-all`, a failed branch is data for the next step, not a failed
-run. Adding a branch that runs `acme.check-stock` (whose input the order
-doesn't fit) to the fanout above gives:
+run. Here a `settle-all` fanout's `stock` branch runs `acme.check-stock` with
+an input that doesn't fit it, next to `risk`. The step's output:
 
 ```json
 {
@@ -287,4 +536,10 @@ With `all-succeed`, the same branch fails the run:
 
 A fanout runs **different** tools on the **same** input. To run the **same**
 steps on each element of a list, several at a time, use a `foreach` loop with
-`concurrency`: [Repeat steps in a loop](../loop/).
+`concurrency`, as [Repeat steps in a loop](../loop/) shows.
+
+## Next
+
+- [Repeat steps in a loop](../loop/)
+- [Join branches](../join-branches/)
+- [Retry a failing step](../retry-a-step/)

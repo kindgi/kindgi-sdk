@@ -7,13 +7,62 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide checks a flow's wiring against real data, by running its
+read-only steps and stopping before the first step that would change
+something.
+
 A dry run runs a flow for real up to the first step that could change
-something, and stops there. Use it to check a flow's wiring (mappings,
-conditions, the data each step gets) against real data, without the writes.
+something, and stops there. It checks the flow's mappings, its conditions and
+the data each step gets, without the writes.
+
+## Before you start
+
+- **A flow,** registered on a runtime such as `kindgi dev`, with Kindgi 0.2's
+  CLI. This guide uses `acme.handle-order` and `acme.check-order-stock`.
+- **Tools declared truthfully:** `mutating: false` on every tool that only
+  reads, and never on one that writes, as [What runs](#what-runs) explains.
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or Java 17
+  or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
+
+## Dry-run it
+
+Start the run with `--dry-run`:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}' --dry-run
+pnpm exec kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}' --dry-run
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}' --dry-run
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.handle-order --input='{"orderId":"A-100"}' --dry-run
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.handle-order --input='{"orderId":"A-100"}' --dry-run
+```
+
+</TabItem>
+</Tabs>
+
+`--flow` is the flow, and `--input` its input. `--dry-run` runs only the
+tools declared read-only, as [What runs](#what-runs) shows. It prints the
+run, which stopped at the first step that writes:
 
 ```json
 {
@@ -30,8 +79,9 @@ kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}' --dry-r
 ```
 
 `acme.get-order` ran, the branch was decided, and the run stopped at
-`acme.email-customer`, before calling it. The journal shows how far it got and
-the input the next step would have had:
+`acme.email-customer`, before calling it. Its journal, which
+`kindgi runs journal <run-id>` prints, shows how far it got. It shows the
+input the next step would have had:
 
 ```json
 {"sequence": 3, "kind": "step.completed", "nodeId": "order", "payload": {"output": {"items": [{"sku": "mug", "quantity": 2}], "total": 42.5, "orderId": "A-100", "customer": "ada@example.com"}}, …}
@@ -43,9 +93,36 @@ the input the next step would have had:
 
 A flow whose steps all only read completes, with its output:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.check-order-stock --input='{"orderId":"A-200"}' --dry-run
+pnpm exec kindgi runs start --flow=acme.check-order-stock --input='{"orderId":"A-200"}' --dry-run
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.check-order-stock --input='{"orderId":"A-200"}' --dry-run
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.check-order-stock --input='{"orderId":"A-200"}' --dry-run
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.check-order-stock --input='{"orderId":"A-200"}' --dry-run
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -64,11 +141,12 @@ kindgi runs start --flow=acme.check-order-stock --input='{"orderId":"A-200"}' --
 
 ## What runs
 
-- **A tool step** runs if the tool is declared read-only (`mutating: false`)
-  and its `effects` declare no `writes`, `deletes`, `spawns-run`,
-  `emits-event` or `external-side-effect`. A tool that leaves `mutating` out
-  counts as one that changes something. The first other tool stops the run
-  with `dry-run-effectful-tool`; everything before it really ran.
+- **A tool step** runs if the tool is declared read-only, with
+  `mutating: false`, and its `effects` declare no `writes`, `deletes`,
+  `spawns-run`, `emits-event` or `external-side-effect`. A tool that leaves
+  `mutating` out counts as one that changes something. The first other tool
+  stops the run with `dry-run-effectful-tool`. Everything before it really
+  ran.
 - **An agent step** runs its turn without calling the model: its answer is
   `[dry-run: model call skipped]`, and it costs nothing. The steps after it get
   that text, so the dry run shows the wiring, not the agent's judgment.
@@ -78,10 +156,18 @@ So a dry run is only as safe as the tools' declarations. Declare
 
 ## From your app
 
+Ask your coding agent: "I want my app to start a dry run of my flow." For
+reference, your app starts a dry run with `options: { dryRun: true }`:
+
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```ts
+// scripts/dry-run.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
 const run = await kindgi.runs.start({
   flow: 'acme.check-order-stock',
   input: { orderId: 'A-200' },
@@ -93,9 +179,63 @@ const run = await kindgi.runs.start({
 <TabItem label="Python">
 
 ```python
+# scripts/dry_run.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
+
 run = kindgi.runs.start(
     flow="acme.check-order-stock", input={"orderId": "A-200"}, options={"dryRun": True}
 )
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/DryRun.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.Run;
+import com.kindgi.client.models.StartRunBody;
+import java.util.Map;
+
+public final class DryRun {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
+    Run run = kindgi.runs().start(StartRunBody.WithFlow.builder()
+        .flow("acme.check-order-stock")
+        .input(Map.of("orderId", "A-200"))
+        .options(StartRunBody.WithFlow.Options.builder().dryRun(true).build())
+        .build());
+  }
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/DryRun.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.StartRunBody
+import scala.jdk.CollectionConverters._
+
+object DryRun {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
+
+    val run = kindgi.runs().start(StartRunBody.WithFlow.builder()
+      .flow("acme.check-order-stock")
+      .input(Map("orderId" -> "A-200").asJava)
+      .options(StartRunBody.WithFlow.Options.builder().dryRun(true).build())
+      .build())
+  }
+}
 ```
 
 </TabItem>
@@ -104,3 +244,9 @@ run = kindgi.runs.start(
 A dry run is a run like the others, marked `dryRun: true`, with a journal.
 [Webhook endpoints](../../webhooks/receive-run-finished/) leave dry runs out
 unless their filter says `includeDryRuns: true`.
+
+## Next
+
+- [Write a flow](../write-a-flow/)
+- [Read a run's journal](../../runs/read-the-journal/)
+- [Branch a flow](../branch-a-flow/)

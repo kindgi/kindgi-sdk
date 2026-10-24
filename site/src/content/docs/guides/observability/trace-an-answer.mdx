@@ -7,27 +7,63 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide reads a turn's provenance record, to see where an answer came
+from and what it cost.
+
 Every agent turn leaves a **provenance record**: a graph of the turn, from the
 user's message through each model call and tool call to the answer. It names
 the model of each call and the version of each tool, and, beside the graph,
 each call's tokens and cost.
 Use it to answer "where did this answer come from?" and "what did it cost?".
 
+## Before you start
+
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.2's CLI.
+- **The id of an agent turn's run.** `kindgi runs list` shows it.
+- **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set in your shell, for the
+  HTTP requests. With `kindgi dev`, they're the URL and token it prints. They're
+  also in the pack's `.kindgirc.json`.
+
 ## Read a turn's record
 
 Fetch it by the run's id:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi provenance get a64ce71c-9cfc-4263-87b1-b5562f09079c
+pnpm exec kindgi provenance get a64ce71c-9cfc-4263-87b1-b5562f09079c
 ```
 
-Over HTTP it's `GET /v1/provenance/<run-id>`. With `kindgi dev`,
-`$KINDGI_API_URL` and `$KINDGI_API_TOKEN` are the URL and token it prints
-(they're also in the pack's `.kindgirc.json`):
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi provenance get a64ce71c-9cfc-4263-87b1-b5562f09079c
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw provenance get a64ce71c-9cfc-4263-87b1-b5562f09079c
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw provenance get a64ce71c-9cfc-4263-87b1-b5562f09079c
+```
+
+</TabItem>
+</Tabs>
+
+Over HTTP it's `GET /v1/provenance/<run-id>`:
 
 ```sh
 curl "$KINDGI_API_URL/v1/provenance/a64ce71c-9cfc-4263-87b1-b5562f09079c" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN"
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 Both answer the record:
@@ -62,10 +98,14 @@ Both answer the record:
 }
 ```
 
-Read it from the answer backwards: the answer (`model-output:2`) was
-produced by the second model call. That call answered the user's message
-(`caused-by input:0`) and read the echo tool's result (`influenced-by`), which
-the tool call the first model call made (`invoked`) produced.
+Read it from the answer backwards:
+
+- The answer, `model-output:2`, was produced by the second model call.
+- That call answered the user's message: it's `caused-by` `input:0`.
+- It also read the echo tool's result: it's `influenced-by` that
+  `tool-result`.
+- The tool call that produced the result was `invoked` by the first model
+  call.
 
 | Node | What it is |
 | --- | --- |
@@ -79,9 +119,9 @@ Edges point from an effect to its cause: `caused-by`, `invoked`, `produced`,
 and `influenced-by` from a model call to each tool result it read.
 
 `callUsage` holds each model call's tokens, cost in USD, duration and the
-model version that answered (`servedModel`), by the call's `callId`. A token
-count the provider reports is there, 0 included (`cacheReadTokens: 0`); one it
-doesn't report is absent.
+model version that answered, `servedModel`, by the call's `callId`. A token
+count the provider reports is there, 0 included, as in `cacheReadTokens: 0`.
+One it doesn't report is absent.
 
 A turn that waited for an approval is recorded whole, before and after the
 wait. The wait sits between the tool call and its result: the `tool-call`
@@ -97,9 +137,15 @@ approval's id. A call a reviewer rejected:
 Its `tool-call` is there too, and its `tool-result` is the rejection the model
 read.
 
-`kindgi runs get <run-id>` shows the same graph, under `output.provenance`, without `callUsage`.
+`kindgi runs get <run-id>` shows the same graph, under `output.provenance`,
+without `callUsage`.
 
 ## From your app
+
+Read the record in your app's code. Ask your coding agent: "I want to see
+which model calls and tool calls produced a run's answer, and what each model
+call cost." For reference, the code looks like this. Each script takes the
+run's id as its first argument:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -139,9 +185,70 @@ for node in record.dag.nodes:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/Trace.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.ProvenanceRecord;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+
+public final class Trace {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    ProvenanceRecord record = kindgi.provenance().get(UUID.fromString(args[0]));
+    Map<String, ProvenanceRecord.CallUsageValue> usage =
+        Objects.requireNonNullElse(record.callUsage(), Map.of());
+    for (ProvenanceRecord.Dag.NodesItem node : record.dag().nodes()) {
+      Object callId = node.attributes() == null ? null : node.attributes().get("callId");
+      ProvenanceRecord.CallUsageValue call = callId instanceof String id ? usage.get(id) : null;
+      System.out.println(node.kind() + " " + Objects.toString(node.modelVersion(), "") + " "
+          + (call == null ? ""
+              : call.usage().promptTokens() + "+" + call.usage().completionTokens() + " tokens, "
+                  + call.costUsd() + " USD"));
+    }
+  }
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/Trace.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.ProvenanceRecord
+import java.util.UUID
+import scala.jdk.CollectionConverters._
+
+object Trace {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    val record = kindgi.provenance().get(UUID.fromString(args(0)))
+    val usage: Map[String, ProvenanceRecord.CallUsageValue] =
+      Option(record.callUsage).map(_.asScala.toMap).getOrElse(Map.empty)
+    for (node <- record.dag.nodes.asScala) {
+      val callId = Option(node.attributes).flatMap(a => Option(a.get("callId"))).collect { case id: String => id }
+      val call = callId.flatMap(usage.get)
+      val cost = call.map(c => s"${c.usage.promptTokens}+${c.usage.completionTokens} tokens, ${c.costUsd} USD").getOrElse("")
+      println(s"${node.kind} ${Option(node.modelVersion).getOrElse("")} $cost")
+    }
+  }
+}
+```
+
+</TabItem>
 </Tabs>
 
-Both print each node, with the tokens and cost of each model call:
+Each prints every node, with the tokens and cost of each model call:
 
 ```text
 input
@@ -155,14 +262,42 @@ model-output anthropic/claude-sonnet-5-5
 ## What a turn cost
 
 Each model call's cost, in `callUsage`, is its tokens times the prices its
-provider was registered with (see [Connect a model](../../models/)). The whole
-turn's total is in the run's output, under `usage`:
+provider was registered with, as [Models](../../models/) describes. The whole
+turn's total is in the run's output, under `usage`. Get the run.
+`<run-id>` is its id:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi runs get <run-id>
+pnpm exec kindgi runs get <run-id>
 ```
 
-```json
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs get <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs get <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs get <run-id>
+```
+
+</TabItem>
+</Tabs>
+
+```json excerpt
     "usage": {
       "steps": 2,
       "durationMs": 4971,
@@ -173,7 +308,8 @@ kindgi runs get <run-id>
 ```
 
 For the cost of several runs, a flow's whole run, or one customer's month,
-read the cost API: [Cost per run and per customer](../cost-per-run/).
+read the cost API, as [Cost per run and per customer](../cost-per-run/)
+shows.
 
 ## A flow's answers
 
@@ -184,11 +320,39 @@ A flow run has no record of its own:
 ```
 
 Each agent step is a run of its own, with its own record. The step's output
-in the flow's journal has that run's id:
+in the flow's journal has that run's id. `<flow-run-id>` is the flow run's
+id:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi runs journal <flow-run-id>
+pnpm exec kindgi runs journal <flow-run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs journal <flow-run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs journal <flow-run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs journal <flow-run-id>
+```
+
+</TabItem>
+</Tabs>
 
 ```json
   {
@@ -212,9 +376,36 @@ Fetch the record for that run: `kindgi provenance get 4bdae2f9-…`.
 or `--org=<id>` one project's or one org's. `--table` prints a row per
 record:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi provenance list --created-after=2026-10-06T17:00:00Z --limit=3 --table
+pnpm exec kindgi provenance list --created-after=2026-10-06T17:00:00Z --limit=3 --table
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi provenance list --created-after=2026-10-06T17:00:00Z --limit=3 --table
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw provenance list --created-after=2026-10-06T17:00:00Z --limit=3 --table
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw provenance list --created-after=2026-10-06T17:00:00Z --limit=3 --table
+```
+
+</TabItem>
+</Tabs>
 
 ```text
 RUN                                   CREATED                   FLOW  SIGNED
@@ -227,7 +418,7 @@ Over HTTP it's `GET /v1/provenance`, filtered by `runId`, `agentId` or
 
 ```sh
 curl "$KINDGI_API_URL/v1/provenance?createdAfter=2026-10-05T16:25:00Z&limit=3" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN"
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 ```json
@@ -236,14 +427,21 @@ curl "$KINDGI_API_URL/v1/provenance?createdAfter=2026-10-05T16:25:00Z&limit=3" \
 
 Each record carries its run's `projectId`. `scopeKind=project&scopeId=<id>`
 lists one project's records, and `scopeKind=org&scopeId=<id>` every
-project's in an org (`scope` in the clients). Records from before Kindgi
-0.1.3 have no project and don't name their agent, so only a list without a
-scope or `--agent` shows them.
+project's in an org. The clients call it `scope`. A record with no project is
+listed only without a scope, and one whose run doesn't name its agent isn't
+matched by `--agent`.
 
-`signed` is `false` for now: the records themselves aren't signed as
-they're written. To hand a run's provenance to someone, export it signed
-by the deployment, `kindgi provenance export <run-id> > provenance.json`,
-and check it with `kindgi exports verify provenance.json`: see
-[Export signed evidence](../export-signed-evidence/).
+`signed` is `false`: the records themselves aren't signed as they're
+written. To hand a run's provenance to someone, export it signed by the
+deployment, with `kindgi provenance export <run-id> > provenance.json`.
+Check it with `kindgi exports verify provenance.json`, as
+[Export signed evidence](../export-signed-evidence/) shows.
 
-See [Provenance in the HTTP API](../../../reference/api/operations/tags/provenance/).
+[Provenance in the HTTP API](../../../reference/api/operations/tags/provenance/)
+has every operation.
+
+## Next
+
+- [Cost per run and per customer](../cost-per-run/)
+- [Export signed evidence](../export-signed-evidence/)
+- [Read a run's journal](../../runs/read-the-journal/)

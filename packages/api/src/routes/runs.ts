@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
-import type { KernelRunRecord, ListRunsInput, RunBinding, RunStatus } from '@kindgi/runtime';
+import type {
+  KernelRunRecord,
+  ListRunsInput,
+  RunBinding,
+  RunStartedBy,
+  RunStatus,
+} from '@kindgi/runtime';
 import type {
   FlowId,
   ListScope,
@@ -19,7 +25,7 @@ import type {
 
 import { type Principal, denyPayload, ref } from '@kindgi/authz';
 
-import { type WireErrorBody, statusFor, toWireError } from '../errors.js';
+import { type WireErrorBody, retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type { EventBusBinding, EventPayload, Subscription } from '../event-bus-binding.js';
 import type {
   RunHandlerBinding,
@@ -28,8 +34,15 @@ import type {
   RunTrace,
 } from '../handler-binding.js';
 import type { HitlBinding } from '../hitl-binding.js';
+import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
+import {
+  type ReferenceScopeBinding,
+  outOfScopeResponse,
+  referencesOutOfScope,
+} from '../reference-scope.js';
 import { type RunFailure, runFailure } from '../run-failure.js';
 import { runWaitingFor } from '../run-waiting-for.js';
 import type { AppEnv } from '../types.js';
@@ -37,6 +50,7 @@ import { deniedBy } from './denied.js';
 import { liveScopeToWire } from './live-scope-wire.js';
 import type { DecodedCursor } from './pagination.js';
 import { clampLimit, decodeCursor, isCursorTime } from './pagination.js';
+import { participantRefusal } from './participant-access.js';
 import { runFailuresHandler } from './run-failures.js';
 import { parseListScope } from './scope-params.js';
 import { parseSegmentsBody } from './segments.js';
@@ -44,9 +58,12 @@ import {
   formatSseFrame,
   isTerminalWireKind,
   parseLastEventId,
+  pause,
   projectJournalEntry,
+  readingOf,
   toRunProgressEvent,
 } from './sse.js';
+import { type TurnConversation, closedRefusal, hiddenOr, turnRefusal } from './turn-access.js';
 import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
 
 const KERNEL_RUN_CHANNEL_PREFIX = 'kernel:run:';
@@ -82,6 +99,36 @@ export interface RunsRouterOptions {
     tenantId: TenantId,
     target: { readonly kind: 'agent' | 'flow'; readonly id: string },
   ) => Promise<boolean>;
+  /**
+   * What a run filed under a named project may run (`reference-scope.ts`):
+   * an agent or flow that project doesn't reach is refused with
+   * `reference-out-of-scope`. Absent: as named.
+   */
+  readonly referenceScope?: ReferenceScopeBinding;
+  /**
+   * What a turn posted into a conversation is checked against
+   * (`turnRefusal`, `participantRefusal`, `closedRefusal`). `null`: no such
+   * conversation.
+   * Any other failure throws, so the turn never runs unchecked. Required,
+   * as `targetProject` is: a router without it would check no conversation.
+   */
+  readonly conversationOf: (
+    tenantId: TenantId,
+    conversationId: string,
+  ) => Promise<TurnConversation | null>;
+  /**
+   * Rights on an agent or flow more than one project serves
+   * (`item-rights.ts`): running it in one of its projects is that
+   * project's `call` (agents) or `execute` (flows), and a project-scoped
+   * key's unnamed run lands in the key's project. Absent: every target has
+   * one project.
+   */
+  readonly itemRights?: ItemRights;
+  /** The project a target is registered in: the agent's or flow's own. */
+  readonly targetProject: (
+    tenantId: TenantId,
+    target: { readonly kind: 'agent' | 'flow'; readonly id: string },
+  ) => Promise<string | undefined>;
 }
 
 /** How far up the parent chain a public token's grant reaches. */
@@ -100,7 +147,7 @@ const refuseMalformedRunId = refuseMalformedUuidParam('runId', 'a run id');
 export function runsRouter(
   binding: RunHandlerBinding,
   runBinding: RunBinding,
-  options: RunsRouterOptions = {},
+  options: RunsRouterOptions,
   authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
@@ -185,47 +232,108 @@ export function runsRouter(
       parsed.value.kind === 'agent'
         ? { kind: 'agent' as const, id: parsed.value.agentId as unknown as string }
         : { kind: 'flow' as const, id: parsed.value.flowId as unknown as string };
-    if ((await options.targetExists?.(tenantId, target)) !== false) {
-      const refused = await deniedBy(authorizer, c, 'execute', ref(target.kind, target.id));
-      if (refused !== undefined) return refused;
+    const turnInput =
+      typeof parsed.value.input === 'object' && parsed.value.input !== null
+        ? (parsed.value.input as Record<string, unknown>)
+        : {};
+    const conversationId =
+      typeof turnInput.conversationId === 'string' ? turnInput.conversationId : undefined;
+    // The conversation the turn continues, asked at most once. Conversation
+    // ids are uuids: another id names no conversation (the run handler
+    // answers it).
+    let continued: Promise<Awaited<ReturnType<RunsRouterOptions['conversationOf']>>> | undefined;
+    const conversation = () => {
+      continued ??=
+        conversationId === undefined || !UUID_RE.test(conversationId)
+          ? Promise.resolve(null)
+          : options.conversationOf(tenantId, conversationId);
+      return continued;
+    };
+
+    // An agent or flow more than one project serves, run in one of its
+    // projects: that project's right alone (`servedRun`).
+    const ran = await servedRun(
+      c,
+      authorizer === undefined ? undefined : options.itemRights,
+      target,
+      parsed.value,
+      conversation,
+    );
+    const refused =
+      ran === undefined
+        ? await refusedAsBefore(c, authorizer, options.targetExists, target, parsed.value)
+        : ran.refused;
+    if (refused !== undefined) return refused;
+    const start = ran?.start ?? parsed.value;
+    // A run filed under a named project runs only what that project
+    // reaches (`reference-scope.ts`).
+    if (start.projectId !== undefined) {
+      const outOfScope = await referencesOutOfScope(
+        options.referenceScope,
+        tenantId,
+        start.projectId,
+        [{ path: `/${target.kind}`, kind: target.kind, id: target.id }],
+      );
+      if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
-    // A run filed under a project the caller names needs `write` on it:
-    // the run lands there, readable by that project's viewers (T307).
-    // Unnamed, the runtime files it under the conversation's, the agent's
-    // or the flow's own project, so a caller who may only run it needs no
-    // more, and the refusal says so.
-    if (authorizer !== undefined && parsed.value.projectId !== undefined) {
-      const named = ref('project', parsed.value.projectId as unknown as string);
-      const decision = await authorizer.check(c, 'write', named);
-      if (!decision.allowed) {
-        const deny = denyPayload('write', named.type, named.id, decision.reason);
-        c.status(403);
-        return c.json(
-          toWireError(
-            {
-              code: deny.code,
-              message: `Permission denied: naming project ${named.id} needs write on it; omit \`projectId\` to run in the ${target.kind}'s own project`,
-              action: deny.action,
-              resource: deny.resource,
-              reason: deny.reason,
-            },
-            requestId,
-          ),
-        );
+
+    // Who may add a turn to the conversation it continues, and under which
+    // project (`turnRefusal`). Another id than a uuid names no conversation
+    // (the run handler answers it), so only the body's participant is checked.
+    const opened = await conversation();
+    if (conversationId !== undefined && UUID_RE.test(conversationId)) {
+      const refusal = await turnRefusal(c, authorizer, {
+        conversationId,
+        conversation: opened,
+        namedProjectId: parsed.value.projectId as unknown as string | undefined,
+      });
+      if (refusal !== undefined) return refusal;
+    }
+    // Whose memory the turn runs with: a conversation's stored participant
+    // (it wins, as the turn reads it), else the one the body names. Running
+    // as someone takes what reading their memory takes.
+    const named = typeof turnInput.participantId === 'string' ? turnInput.participantId : undefined;
+    if (authorizer !== undefined && (named !== undefined || opened !== null)) {
+      const participantId = opened?.participantId ?? named;
+      if (participantId !== undefined) {
+        const projectId =
+          opened?.projectId ??
+          (start.projectId as unknown as string | undefined) ??
+          (await options.targetProject(tenantId, target));
+        const refusal = await participantRefusal(c, authorizer, {
+          participantId,
+          projectId,
+          ...(opened !== null && { conversationId }),
+        });
+        // Refused on the conversation's own participant: as if it didn't
+        // exist, unless the caller can read it (`hiddenOr`). A participant
+        // the body names keeps its 403: the conversation rule above has
+        // already let the caller into the conversation.
+        if (refusal !== undefined) {
+          return opened?.participantId !== undefined && conversationId !== undefined
+            ? hiddenOr(c, authorizer, conversationId, opened, refusal)
+            : refusal;
+        }
       }
     }
+    // A closed conversation takes no new turns: refused before a run is
+    // made, once the rules above let the caller add the turn.
+    const closed = closedRefusal(c, conversationId, opened);
+    if (closed !== undefined) return closed;
 
     const trace = c.get('trace');
     const invocation = await invokeFromBody(
       binding,
       tenantId,
-      parsed.value,
+      start,
       c.get('principal') as Principal | undefined,
+      c.get('serviceAccountId') !== undefined,
       trace !== undefined ? { traceId: trace.traceId, spanId: trace.spanId } : undefined,
     );
 
     if (invocation.kind === 'err') {
       c.status(statusFor(invocation.error.code) as never);
+      answerBudgetWait(c, invocation.error);
       return c.json(runFailureToWire(invocation.error, requestId));
     }
 
@@ -430,12 +538,35 @@ export function runsRouter(
       );
     }
 
+    const headers = {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Request-Id': requestId,
+    };
+    // Nobody will read this stream when the request is a HEAD (Hono answers a
+    // HEAD with this GET route and drops the body unread, and nothing cancels
+    // it) or when the client left during the read above (its request aborts,
+    // but the server cancels only a body it's writing). Then the route
+    // answers the stream's status and headers, before the stream exists, and
+    // starts none of its work.
+    if (c.req.method === 'HEAD' || c.req.raw.signal.aborted) {
+      return new Response(null, { status: 200, headers });
+    }
+
     const encoder = new TextEncoder();
     let lastEmittedSeq = since ?? -1;
     const POLL_MS = 200;
     const MAX_WAIT_MS = 5 * 60_000;
+    // Aborted when the client goes away: the reader cancels the stream, or
+    // the request aborts. The poll, the wait and the subscription below end
+    // on it at once.
+    const reading = readingOf(c.req.raw);
 
     const body = new ReadableStream<Uint8Array>({
+      cancel() {
+        reading.abort();
+      },
       async start(controller) {
         const startedAt = Date.now();
         let closed = false;
@@ -491,6 +622,12 @@ export function runsRouter(
         // whether we're on the push or poll path.
         if (eventBus !== undefined) {
           const abortCtrl = new AbortController();
+          const stop = (): void => abortCtrl.abort();
+          // `reading` can't have aborted yet: the route answers an aborted
+          // request without a stream, and `start()` runs inside the stream's
+          // constructor up to its first await, so no cancel or abort comes
+          // before this listener.
+          reading.signal.addEventListener('abort', stop, { once: true });
           let subscription: Subscription | null = null;
           let fallBackToPoll = false;
           try {
@@ -534,6 +671,7 @@ export function runsRouter(
               close();
               return;
             }
+            if (abortCtrl.signal.aborted) return;
             const subOutcome = await eventBus.subscribe(
               tenantId,
               `${KERNEL_RUN_CHANNEL_PREFIX}${runId}`,
@@ -572,19 +710,14 @@ export function runsRouter(
               fallBackToPoll = true;
             } else {
               subscription = subOutcome.value;
-              // Wait until close or max-wait window elapses. We rely
-              // on the subscription callback to write frames.
-              await new Promise<void>((resolve) => {
-                const timer = setTimeout(() => resolve(), MAX_WAIT_MS);
-                const onDone = (): void => {
-                  clearTimeout(timer);
-                  resolve();
-                };
-                abortCtrl.signal.addEventListener('abort', onDone, { once: true });
-              });
+              // Wait until a terminal entry, the reader's cancel or the
+              // max-wait window, whichever is first. We rely on the
+              // subscription callback to write frames.
+              await pause(MAX_WAIT_MS, abortCtrl.signal);
               return;
             }
           } finally {
+            reading.signal.removeEventListener('abort', stop);
             abortCtrl.abort();
             if (subscription !== null) {
               try {
@@ -632,13 +765,15 @@ export function runsRouter(
           return { terminal: sawTerminal };
         };
         try {
+          if (reading.signal.aborted) return;
           const first = await pollEmit();
           if (first.terminal) {
             close();
             return;
           }
           while (Date.now() - startedAt < MAX_WAIT_MS) {
-            await new Promise((r) => setTimeout(r, POLL_MS));
+            await pause(POLL_MS, reading.signal);
+            if (reading.signal.aborted) break;
             const step = await pollEmit();
             if (step.terminal) break;
           }
@@ -648,15 +783,7 @@ export function runsRouter(
       },
     });
 
-    return new Response(body, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        'X-Request-Id': requestId,
-      },
-    });
+    return new Response(body, { status: 200, headers });
   };
   r.get('/:runId/stream', refuseMalformedRunId, (c) => streamRun(c, 'full'));
   r.get('/:runId/progress/stream', refuseMalformedRunId, (c) => streamRun(c, 'progress'));
@@ -668,21 +795,37 @@ export function runsRouter(
     const runId = c.req.param('runId') as RunId;
     const sinceRaw = c.req.query('since');
     const since = sinceRaw !== undefined ? Number.parseInt(sinceRaw, 10) : undefined;
+    // Paging is opt-in: with `limit`, at most that many entries after
+    // `cursor`; without it, the whole journal, as before paging.
+    const paging = parseJournalPaging(c.req.query('limit'), c.req.query('cursor'));
+    if (paging.kind === 'err') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: paging.message }, requestId));
+    }
+    const { limit, after } = paging;
 
     const journal = await runBinding.readJournal(tenantId, runId);
     if (journal.kind === 'err') {
       const err = journal.error;
+      const busy = databaseBusyAnswer(err, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(err.code) as never);
       return c.json(toWireError(err as never, requestId));
     }
 
-    const filtered =
-      since !== undefined && Number.isFinite(since)
-        ? journal.value.filter((e) => e.sequence > since)
-        : journal.value;
+    // `readJournal` gives the entries in sequence order.
+    const filtered = journal.value.filter(
+      (e) =>
+        (since === undefined || !Number.isFinite(since) || e.sequence > since) &&
+        (after === undefined || e.sequence > after),
+    );
+    const page = limit !== undefined ? filtered.slice(0, limit) : filtered;
+    // The page's last entry, when more remain after it.
+    const endsBefore = page.length < filtered.length ? page.at(-1) : undefined;
     return c.json({
-      data: filtered,
-      hasMore: false,
+      data: page,
+      hasMore: endsBefore !== undefined,
+      ...(endsBefore !== undefined && { nextCursor: encodeJournalCursor(endsBefore.sequence) }),
     });
   });
 
@@ -697,7 +840,168 @@ export function runsRouter(
  */
 function runFailureToWire(failure: RunHandlerFailure, requestId: string): WireErrorBody {
   const { details, ...rest } = failure as RunHandlerFailure & Readonly<Record<string, unknown>>;
-  return toWireError({ ...details, ...rest }, requestId);
+  // A budget's wait is answered in `Retry-After` (`budgetWaitOf`), not in the body.
+  const { retryAfterMs: _answered, ...withoutWait } = details ?? {};
+  const shown = budgetWaitOf(failure) === undefined ? details : withoutWait;
+  return toWireError({ ...shown, ...rest }, requestId);
+}
+
+/**
+ * `Retry-After` for a turn refused by a budget kept per tenant
+ * (`budgetWaitOf`), as the API's own refusal by that budget answers it.
+ */
+function answerBudgetWait(c: Context<AppEnv>, failure: RunHandlerFailure): void {
+  const wait = budgetWaitOf(failure);
+  if (wait !== undefined) c.header('Retry-After', String(retryAfterSeconds(wait)));
+}
+
+/**
+ * The wait of a turn refused by a budget kept per tenant
+ * (`rate-limit-exceeded`, `details.retryAfterMs`): answered in
+ * `Retry-After`, as the API's own refusal by that budget is, with
+ * `details.limit` and `details.budgetMs` in the body.
+ */
+function budgetWaitOf(failure: RunHandlerFailure): number | undefined {
+  const wait = failure.details?.retryAfterMs;
+  return failure.code === 'rate-limit-exceeded' && typeof wait === 'number' ? wait : undefined;
+}
+
+/**
+ * How a run the API starts began (`RunStartedBy`), from its caller:
+ * `person` when it's a person, signed in or with their own key; `key` when
+ * it's a service account, or the request came with a service account's
+ * key whoever it names. Any other caller (an agent, on its own or for
+ * someone; the system) records none, so its run counts as unattended.
+ */
+export function startedByCaller(
+  principal: Principal | undefined,
+  serviceAccountKey: boolean,
+): RunStartedBy | undefined {
+  if (principal === undefined) return undefined;
+  if (serviceAccountKey || principal.actor.kind === 'service_account') return 'key';
+  if (principal.actor.kind === 'user' && principal.onBehalfOf === undefined) return 'person';
+  return undefined;
+}
+
+/**
+ * A run checked as before (no item more than one project serves, or one
+ * landing outside its projects): `execute` on the agent or flow, and a run
+ * filed under a project the caller names needs `write` on it: the run
+ * lands there, readable by that project's viewers (T307). Unnamed, the
+ * runtime files it under the conversation's, the agent's or the flow's
+ * own project, so a caller who may only run it needs no more, and the
+ * refusal says so.
+ */
+async function refusedAsBefore(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  targetExists: RunsRouterOptions['targetExists'],
+  target: { readonly kind: 'agent' | 'flow'; readonly id: string },
+  start: ParsedStartRunBody,
+): Promise<Response | undefined> {
+  const tenantId = c.get('tenantId') as TenantId;
+  if ((await targetExists?.(tenantId, target)) !== false) {
+    const refused = await deniedBy(authorizer, c, 'execute', ref(target.kind, target.id));
+    if (refused !== undefined) return refused;
+  }
+  if (authorizer === undefined || start.projectId === undefined) return undefined;
+  const named = ref('project', start.projectId as unknown as string);
+  const decision = await authorizer.check(c, 'write', named);
+  if (decision.allowed) return undefined;
+  const deny = denyPayload('write', named.type, named.id, decision.reason);
+  c.status(403);
+  return c.json(
+    toWireError(
+      {
+        code: deny.code,
+        message: `Permission denied: naming project ${named.id} needs write on it; omit \`projectId\` to run in the ${target.kind}'s own project`,
+        action: deny.action,
+        resource: deny.resource,
+        reason: deny.reason,
+      },
+      c.get('requestId'),
+    ),
+  );
+}
+
+/**
+ * Running an agent or a flow more than one project serves in one of its
+ * projects is that project's right alone (`item-rights.ts`), asked of the
+ * project the run lands in, by the runtime's order: the one named; else,
+ * for an agent, the conversation's; else a project-scoped key's own, when
+ * it serves the target (and the run is filed there: `start` names it);
+ * else the first. `undefined`: no such item, one project serving it, or a
+ * run landing outside its projects, checked as before.
+ *
+ * It asks only about the project the run lands in, never for every
+ * project the item is in. A project that serves the item and isn't its
+ * first means more than one does (`servesIn`); for its first, one other
+ * project is enough to know (`servedElsewhere`).
+ */
+async function servedRun(
+  c: Context<AppEnv>,
+  itemRights: ItemRights | undefined,
+  target: { readonly kind: 'agent' | 'flow'; readonly id: string },
+  start: ParsedStartRunBody,
+  conversation: () => Promise<{ readonly projectId?: string } | null>,
+): Promise<{ start: ParsedStartRunBody; refused: Response | undefined } | undefined> {
+  if (itemRights === undefined) return undefined;
+  const named = start.projectId as unknown as string | undefined;
+  if (named !== undefined) {
+    return (await servedThere(c, itemRights, target, named))
+      ? { start, refused: await runIn(c, itemRights, target, named) }
+      : undefined;
+  }
+  const served = await itemRights.servedElsewhere(c, target.kind, target.id);
+  if (served === undefined || !served.elsewhere) return undefined;
+  const continued = target.kind === 'agent' ? (await conversation())?.projectId : undefined;
+  if (continued !== undefined) {
+    return (await oneOfItsProjects(c, itemRights, target, served.own, continued))
+      ? { start, refused: await runIn(c, itemRights, target, continued) }
+      : undefined;
+  }
+  const keyProject = c.get('tokenProjectId');
+  const keyed =
+    keyProject !== undefined &&
+    (await oneOfItsProjects(c, itemRights, target, served.own, keyProject))
+      ? keyProject
+      : undefined;
+  return {
+    start: keyed === undefined ? start : { ...start, projectId: keyed as ProjectId },
+    refused: await runIn(c, itemRights, target, keyed ?? served.own),
+  };
+}
+
+/**
+ * Whether `projectId` is one of the target's projects, and more than one
+ * serves it: its first one alone isn't enough.
+ */
+async function servedThere(
+  c: Context<AppEnv>,
+  itemRights: ItemRights,
+  target: { readonly kind: 'agent' | 'flow'; readonly id: string },
+  projectId: string,
+): Promise<boolean> {
+  const there = await itemRights.servesIn(c, target.kind, target.id, projectId);
+  if (there === undefined || !there.serves) return false;
+  return (
+    projectId !== there.own ||
+    (await itemRights.servedElsewhere(c, target.kind, target.id))?.elsewhere === true
+  );
+}
+
+/** Whether `projectId` is one of the target's projects, `own` (its first) among them. */
+async function oneOfItsProjects(
+  c: Context<AppEnv>,
+  itemRights: ItemRights,
+  target: { readonly kind: 'agent' | 'flow'; readonly id: string },
+  own: string,
+  projectId: string,
+): Promise<boolean> {
+  return (
+    projectId === own ||
+    (await itemRights.servesIn(c, target.kind, target.id, projectId))?.serves === true
+  );
 }
 
 /** Hand a parsed start body to the binding: an agent turn or a flow run. */
@@ -706,12 +1010,16 @@ function invokeFromBody(
   tenantId: TenantId,
   body: ParsedStartRunBody,
   principal: Principal | undefined,
+  serviceAccountKey: boolean,
   trace?: RunTrace,
 ): Promise<RunHandlerOutcome> {
+  const startedBy = startedByCaller(principal, serviceAccountKey);
   const common = {
     tenantId,
     // Whom the run acts for: the authenticated caller, never the body.
     ...(principal !== undefined && { principal }),
+    // How it started: from the caller too, never the body.
+    ...(startedBy !== undefined && { startedBy }),
     ...(trace !== undefined && { trace }),
     ...(body.projectId !== undefined && { projectId: body.projectId }),
     input: body.input,
@@ -782,6 +1090,11 @@ function serializeRun(
         }),
       },
     }),
+    ...(row.startedBy !== undefined && { startedBy: row.startedBy }),
+    ...(row.toolsAllowedUnattended !== undefined &&
+      row.toolsAllowedUnattended.length > 0 && {
+        toolsAllowedUnattended: [...row.toolsAllowedUnattended],
+      }),
     ...(row.versions != null && { versions: row.versions }),
     ...(row.contentErasedAt !== undefined && {
       contentErasedAt: row.contentErasedAt as unknown as string,
@@ -1187,4 +1500,55 @@ function parseStartRunBody(
       ...(wait !== undefined && { wait }),
     },
   };
+}
+
+/**
+ * A journal read's paging: at most `limit` entries (a whole number from 1;
+ * more than 100 gives 100), after the sequence `cursor` names. An empty
+ * one is none. One that isn't one is refused, never read as a default.
+ */
+function parseJournalPaging(
+  limitRaw: string | undefined,
+  cursorRaw: string | undefined,
+):
+  | { readonly kind: 'ok'; readonly limit: number | undefined; readonly after: number | undefined }
+  | { readonly kind: 'err'; readonly message: string } {
+  let limit: number | undefined;
+  if (limitRaw !== undefined && limitRaw !== '') {
+    if (!/^[1-9][0-9]*$/.test(limitRaw)) {
+      return {
+        kind: 'err',
+        message: '`limit` must be a whole number, 1 or more (a page holds at most 100)',
+      };
+    }
+    limit = clampLimit(limitRaw);
+  }
+  let after: number | undefined;
+  if (cursorRaw !== undefined && cursorRaw !== '') {
+    const decoded = decodeJournalCursor(cursorRaw);
+    if (decoded === null) return { kind: 'err', message: '`cursor` is malformed' };
+    after = decoded;
+  }
+  return { kind: 'ok', limit, after };
+}
+
+/**
+ * A journal page's cursor: url-safe base64 of `{ sequence }`, the last
+ * entry the page gave. The next page starts after it.
+ */
+function encodeJournalCursor(sequence: number): string {
+  return Buffer.from(JSON.stringify({ sequence }), 'utf8').toString('base64url');
+}
+
+/** The sequence a journal cursor names, or `null` for one that isn't (answered `400 bad-input`). */
+function decodeJournalCursor(raw: string): number | null {
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown;
+    const sequence = (parsed as { sequence?: unknown } | null)?.sequence;
+    return typeof sequence === 'number' && Number.isSafeInteger(sequence) && sequence >= 0
+      ? sequence
+      : null;
+  } catch {
+    return null;
+  }
 }

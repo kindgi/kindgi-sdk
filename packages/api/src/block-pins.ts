@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { type Agent, MODEL_SETTINGS_SCHEMA, settingsSchemaIssues } from '@kindgi/agents';
+import { type Agent, modelSettingsIssues } from '@kindgi/agents';
 import { pickVersion } from '@kindgi/tools';
 import type { Cursor, TenantId } from '@kindgi/types';
 
@@ -15,7 +15,7 @@ export interface BlockPins {
   readonly issues: readonly UnpinnableRef[];
 }
 
-interface Ref {
+export interface Ref {
   readonly path: string;
   readonly id: string;
   readonly range: string;
@@ -77,7 +77,8 @@ export async function resolveBlockPins(
   return { prompts, settings, issues };
 }
 
-function blockRefs(agent: Agent): Ref[] {
+/** Each data block an agent references, at its path. */
+export function blockRefs(agent: Agent): Ref[] {
   const refs: Ref[] = [];
   if (typeof agent.instructions === 'object') {
     refs.push({
@@ -110,7 +111,7 @@ function misfit(
   if (block.kind !== wanted) return `${describe(ref)} is a ${block.kind} block`;
   if (ref.role !== 'model-settings') return undefined;
   const values = (block.content as { readonly values?: unknown }).values;
-  const issues = settingsSchemaIssues(values, MODEL_SETTINGS_SCHEMA);
+  const issues = modelSettingsIssues(values);
   return issues.length === 0
     ? undefined
     : `${describe(ref)} version ${block.version} isn't model settings: ${issues.map((i) => `${i.path} ${i.message}`).join('; ')}`;

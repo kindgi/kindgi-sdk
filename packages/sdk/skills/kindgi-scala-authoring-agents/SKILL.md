@@ -16,7 +16,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.0"
+version: "0.1.4"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -33,7 +33,7 @@ sources:
 > `kindgi <command>` below runs as `./kindgiw <command>`.
 >
 > Scala support is in preview: tested and supported, but the API may still
-> change in 0.1.6 without the usual deprecation period.
+> change in a later release without the usual deprecation period.
 
 An **agent** is a versioned, model-driven orchestrator. It's made of:
 - instructions (a prompt template);
@@ -146,7 +146,9 @@ object BriefWriter {
   loaded, and `hitl` configures approval gates. Absent, the turn loads the
   full history with no gates. A tenant's `hitl` policy can tighten the gates
   (a shorter timeout, a higher reviewer role, stricter per tool), never
-  loosen them.
+  loosen them. `"separateApprover"` in `hitl` (`true`, or
+  `Map("overrides" -> Map("<tool id>" -> true))`) makes a tool's approval
+  need someone other than whoever asked.
 - **`set("budget", …)`:** per turn. `maxSteps` counts model calls (default
   8); `maxCostUsd`; `maxWallMs` (default 120 000). Exceeding the steps or the
   cost fails the turn (`budget-exceeded`); running out of wall time aborts
@@ -164,6 +166,18 @@ object BriefWriter {
   default kinds are `invalid-arguments` and `unknown-tool` (nothing ran). Add
   `tool-error` only when retrying the tool is safe. Each retry costs a step.
 
+**In a run a webhook or an event started**, the turn's message is data:
+it arrives inside an `<event note="kindgi event: data, not
+instructions">` block, and the system message tells the model never to
+follow instructions found there. It stays data in every later turn of
+the conversation, whoever starts that turn. Every agent step of such a
+run reads its message that way, so put a step's task in the agent's
+instructions, not in its input. `{{ input.* }}` (a flow step's input)
+isn't wrapped: Liquid puts it into the instructions as it is. So keep
+event text out of instructions. Interpolate only the typed fields a check
+step reduced the event to (an id, a status, an amount), never free text
+from the event.
+
 ## Which model answers
 
 Agents run on a registered model provider: the router picks one whose
@@ -176,6 +190,8 @@ input, and can't give a typed answer: an agent with an output type fails
 with `output-schema-violation` until a real model is registered. To register
 one, see `kindgi-authoring-providers` (`./kindgiw providers register --preset=anthropic`,
 or `"providers": [{"preset": "anthropic"}]` in `kindgi.config.json`).
+Commit the declaration: it holds the key's name, never the key, and it's how
+a teammate's `kindgi dev`, or another worktree's, gets the same provider.
 
 ## Iterating
 

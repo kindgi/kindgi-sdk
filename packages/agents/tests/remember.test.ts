@@ -27,6 +27,7 @@ import { describe, expect, test } from 'vitest';
 import { defineAgent } from '../src/define.js';
 import type { TurnContext } from '../src/handlers/context.js';
 import { buildDispatchToolsHandler } from '../src/handlers/dispatch-tools.js';
+import type { ToolCallAuthorization } from '../src/handlers/public-types.js';
 import { type RememberToolOutput, withRememberTool } from '../src/handlers/remember-tool.js';
 import { isReadOnlyTool } from '../src/handlers/replay.js';
 import { resolveEffectiveHitlPolicy } from '../src/hitl-policy.js';
@@ -60,6 +61,8 @@ function lookupTool(): AnyTool {
 
 interface Turn {
   readonly writes: RememberFactInput[];
+  /** The tool ids `authorizeToolCall` was asked for. */
+  readonly asked: readonly string[];
   readonly stored: ConversationMessage[];
   readonly provenance: Provenance;
   readonly definitions: readonly { readonly name: string }[];
@@ -73,8 +76,12 @@ async function rememberTurn(options: {
   readonly principal?: unknown;
   readonly writer?: boolean;
   readonly pending?: boolean;
+  /** The turn's `authorizeToolCall`; what it's asked is in `Turn.asked`. */
+  readonly authorize?: (input: { readonly toolId: string }) => Promise<ToolCallAuthorization>;
 }): Promise<Turn> {
   const writes: RememberFactInput[] = [];
+  const asked: string[] = [];
+  const authorize = options.authorize;
   const stored: ConversationMessage[] = [];
   const agent = {
     id: 'acme.desk',
@@ -129,6 +136,12 @@ async function rememberTurn(options: {
           },
         },
       }),
+      ...(authorize !== undefined && {
+        authorizeToolCall: async (input: { readonly toolId: string }) => {
+          asked.push(input.toolId);
+          return authorize(input);
+        },
+      }),
     },
     turnAbort: new AbortController(),
     appended: [],
@@ -158,7 +171,13 @@ async function rememberTurn(options: {
     },
     testNodeContext({ runId: 'run-42' as RunId }),
   );
-  return { writes, stored, provenance: provenance.snapshot(), definitions: ctx.tools.definitions };
+  return {
+    writes,
+    stored,
+    asked,
+    provenance: provenance.snapshot(),
+    definitions: ctx.tools.definitions,
+  };
 }
 
 const outputOf = (turn: Turn): RememberToolOutput =>
@@ -292,6 +311,49 @@ describe('the remember tool in a turn', () => {
       to: 'tool-call:call-7',
       kind: 'produced',
     });
+  });
+});
+
+describe("the turn's authorizeToolCall", () => {
+  const deny = async () => ({ allowed: false as const, reason: 'Not for you.' });
+
+  test.each([
+    ['same-user', { participantId: 'end-7' }],
+    ['same-conversation', {}],
+    ['same-project', {}],
+  ] as const)(
+    "a %s fact stays in the run's project: not asked, and stored",
+    async (scope, more) => {
+      const turn = await rememberTurn({
+        policy: { types: ['preference'], scope },
+        args: { type: 'preference', content: 'Prefers email' },
+        authorize: deny,
+        ...more,
+      });
+      expect(turn.asked).toEqual([]);
+      expect(turn.writes).toHaveLength(1);
+    },
+  );
+
+  test('a tenant-scope fact reaches every project: asked, under the built-in id', async () => {
+    const turn = await rememberTurn({
+      policy: { types: ['preference'], scope: 'tenant' },
+      args: { type: 'preference', content: 'Prefers email' },
+      authorize: async () => ({ allowed: true }),
+    });
+    expect(turn.asked).toEqual([REMEMBER_TOOL_ID]);
+    expect(turn.writes).toHaveLength(1);
+  });
+
+  test('a denied tenant-scope fact writes nothing, so no review opens', async () => {
+    const turn = await rememberTurn({
+      policy: { types: ['preference'], scope: 'tenant' },
+      args: { type: 'preference', content: 'Prefers email' },
+      authorize: deny,
+    });
+    expect(turn.asked).toEqual([REMEMBER_TOOL_ID]);
+    expect(turn.writes).toEqual([]);
+    expect(outputOf(turn)).toEqual({ status: 'denied', reason: 'Not for you.' });
   });
 });
 

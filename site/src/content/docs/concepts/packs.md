@@ -5,9 +5,13 @@ sidebar:
   order: 2
 ---
 
+This page explains what a pack holds and how Kindgi finds it, so you know
+where each part of your app's Kindgi code goes.
+
 A **pack** is everything Kindgi runs for your app, defined in your app's own
-language. It has an id (`acme-desk`) and a version, and holds four kinds of
-**primitives**, each with its own id under the pack's (`acme-desk.triage`).
+language. It has an id, such as `acme-desk`, and a version. It holds four
+kinds of **primitives**: tools, agents, flows and guardrails. Each has its
+own id under the pack's, such as `acme-desk.triage`.
 
 ## Tools: your code
 
@@ -25,11 +29,14 @@ every call, so an agent can't hand your code something malformed.
 
 ## Agents: a model with instructions and tools
 
-An agent is data: instructions, the tools it may call, the guardrails on its
-answers, a budget (steps, cost, time), and what it needs from a model (tool
-use, typed output). It can answer with a **typed result**, a schema Kindgi
-checks; if the model's answer doesn't fit, Kindgi asks it to repair the
-answer once, then fails the turn instead of passing on bad data.
+An agent is data: its instructions, the tools it may call, the guardrails on
+its answers, a budget and what it needs from a model. The budget caps its
+steps, cost and time. What it needs from a model can be tool use or typed
+output.
+
+An agent can answer with a **typed result**, a schema Kindgi checks. If the
+model's answer doesn't fit, Kindgi asks the model to repair it once. If it
+still doesn't fit, the turn fails instead of passing on bad data.
 
 ## Flows: your process
 
@@ -53,13 +60,13 @@ the turn or be recorded as a violation.
 Kindgi finds primitives by folder: `tools/`, `agents/`, `flows/` and
 `guardrails/` (under `kindgi/` when the pack lives inside an app). The
 **indexer** reads them into the pack's `index.json`, the same file for a
-TypeScript or a Python pack, and the runtime registers what it lists.
-`kindgi dev` re-indexes on every save; `kindgi build` puts the index in the
-image.
+TypeScript or a Python pack. The runtime registers what it lists.
+`kindgi dev` indexes the pack again on every save, and `kindgi build` puts
+the index in the image.
 
 Each tool, guardrail, agent and flow version is defined in one file. A second
-file with the same id and version is refused, naming both files, and
-`kindgi dev` loads the rest of the pack:
+file with the same id and version is refused, with both files named.
+`kindgi dev` still loads the rest of the pack:
 
 ```text
 ✗ indexer: tools/greet/index.ts [manifest-validation-failed] tools/greet/index.ts: duplicate tool 'acme-ops.greet' version 0.1.0 (also defined in tools/greet-copy/index.ts)
@@ -68,5 +75,5 @@ file with the same id and version is refused, naming both files, and
 Two versions of one id, in two files, are fine: see
 [Agent and tool versions](../../guides/agents/agent-and-tool-versions/).
 
-See the [Packages](../../reference/packages/) and
-[JSON Schemas](../../reference/schemas/) reference for every field.
+Every field is in the reference: [Packages](../../reference/packages/) and
+[JSON Schemas](../../reference/schemas/).

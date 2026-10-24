@@ -1,15 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { createHash } from 'node:crypto';
+
 import aws4 from 'aws4';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-import type { TenantId } from '@kindgi/types';
+import type { BlobMeta, BlobPutInput, BlobStorageBinding } from '@kindgi/blob-binding';
+import type { ArtifactId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
+import { createApp } from '../src/app.js';
+import type { RunHandlerBinding } from '../src/index.js';
 import { canonicalRequest, parseSigV4 } from '../src/middleware/sigv4-verify.js';
 import { sigv4Middleware } from '../src/middleware/sigv4.js';
 import type { S3CredentialBinding } from '../src/s3-credential-binding.js';
+import { createStubAppBindings } from '../src/testing/app-bindings.js';
 import type { AppEnv } from '../src/types.js';
 
 // aws4 is an independent SigV4 implementation (the one most JS S3 clients
@@ -21,6 +27,7 @@ const SECRET_KEY = 'kindgi-test-secret-key-0000000000000000000';
 const BUCKET = 'artifacts';
 const TENANT = '00000000-0000-0000-0000-000000000001' as TenantId;
 const T0 = new Date('2026-09-30T12:00:00.900Z');
+const MiB = 1024 * 1024;
 
 const credentials: S3CredentialBinding = {
   async resolve(accessKeyId) {
@@ -30,9 +37,9 @@ const credentials: S3CredentialBinding = {
   },
 };
 
-function makeApp() {
+function makeApp(maxBytes = MiB) {
   const app = new Hono<AppEnv>();
-  app.use('/s3/*', sigv4Middleware(credentials));
+  app.use('/s3/*', sigv4Middleware(credentials, maxBytes));
   app.all('/s3/*', async (c) =>
     c.json({ bucket: c.get('bucket'), tenantId: c.get('tenantId'), body: await c.req.text() }),
   );
@@ -90,6 +97,27 @@ function presign(path: string, expiresSeconds: number): string {
   new RequestSigner(opts, { accessKeyId: ACCESS_KEY, secretAccessKey: SECRET_KEY }).sign();
   return `http://localhost${opts.path}`;
 }
+
+/** A body streamed in `chunk`-byte pieces up to `total`, counting what was pulled. */
+function counted(total: number, chunk = 64 * 1024) {
+  let pulled = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (pulled >= total) return controller.close();
+      pulled += chunk;
+      controller.enqueue(new Uint8Array(chunk).fill(0x78));
+    },
+  });
+  return { stream, pulled: () => pulled };
+}
+
+/** A signed request sent with `body`, which its signature doesn't cover. */
+function withBody(req: Signed, body: ReadableStream<Uint8Array>): RequestInit {
+  return { ...req.init, body, duplex: 'half' } as RequestInit;
+}
+
+/** Signed for a body the signature doesn't cover. */
+const UNSIGNED = { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' };
 
 async function codeOf(res: Response): Promise<string> {
   return /<Code>([^<]+)<\/Code>/.exec(await res.text())?.[1] ?? '';
@@ -229,6 +257,269 @@ describe('SigV4 header auth — only the headers the client signed count', () =>
     const res = await makeApp().request(req.url, req.init);
     expect(res.status).toBe(403);
     expect(await codeOf(res)).toBe('AccessDenied');
+  });
+});
+
+describe('the body: read once the request is signed for its bucket, under the limit', () => {
+  test('a request not signed for its bucket is refused before its body is read', async () => {
+    const path = `/s3/${BUCKET}/a.bin`;
+    const unknownKey = sign({ method: 'PUT', path, headers: UNSIGNED });
+    const headers = { ...(unknownKey.init.headers as Record<string, string>) };
+    headers.Authorization = (headers.Authorization as string).replace(
+      ACCESS_KEY,
+      'AKIAUNKNOWN000000000',
+    );
+    const refused: Record<string, Signed> = {
+      'no signature': { url: `http://localhost${path}`, init: { method: 'PUT', headers: {} } },
+      'an unknown key': { url: unknownKey.url, init: { ...unknownKey.init, headers } },
+      'a wrong secret': sign({ method: 'PUT', path, headers: UNSIGNED, secret: 'not-the-secret' }),
+      'another bucket': sign({ method: 'PUT', path: '/s3/other-bucket/a.bin', headers: UNSIGNED }),
+    };
+    for (const [name, req] of Object.entries(refused)) {
+      const body = counted(20 * MiB);
+      const res = await makeApp().request(req.url, withBody(req, body.stream));
+      expect(res.status, name).toBe(403);
+      expect(body.pulled(), name).toBeLessThanOrEqual(64 * 1024);
+    }
+  });
+
+  test('a body over the limit → 400 EntityTooLarge, unread by its declared length or as soon as a streamed one passes it', async () => {
+    const path = `/s3/${BUCKET}/a.bin`;
+    const declared = counted(20 * MiB);
+    const byLength = sign({
+      method: 'PUT',
+      path,
+      headers: { ...UNSIGNED, 'content-length': String(20 * MiB) },
+    });
+    const refusedByLength = await makeApp().request(
+      byLength.url,
+      withBody(byLength, declared.stream),
+    );
+    expect(refusedByLength.status).toBe(400);
+    expect(await codeOf(refusedByLength)).toBe('EntityTooLarge');
+    expect(declared.pulled()).toBeLessThanOrEqual(64 * 1024);
+
+    const streamed = counted(20 * MiB);
+    const asStreamed = sign({ method: 'PUT', path, headers: UNSIGNED });
+    const refusedAsStreamed = await makeApp().request(
+      asStreamed.url,
+      withBody(asStreamed, streamed.stream),
+    );
+    expect(refusedAsStreamed.status).toBe(400);
+    expect(await codeOf(refusedAsStreamed)).toBe('EntityTooLarge');
+    expect(streamed.pulled()).toBeLessThanOrEqual(MiB + 2 * 64 * 1024);
+  });
+
+  test('a body at the limit is read whole, and is what the route reads', async () => {
+    const body = 'x'.repeat(MiB);
+    const req = sign({ method: 'PUT', path: `/s3/${BUCKET}/a.bin`, body });
+    const res = await makeApp().request(req.url, req.init);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { body: string }).body).toBe(body);
+  });
+
+  test('a body dropped after signing → 400 XAmzContentSHA256Mismatch', async () => {
+    // Signed for a body, with no length to sign (a chunked upload's shape), and sent without it.
+    const req = sign({
+      method: 'PUT',
+      path: `/s3/${BUCKET}/a.txt`,
+      headers: { 'x-amz-content-sha256': createHash('sha256').update('good').digest('hex') },
+    });
+    const res = await makeApp().request(req.url, req.init);
+    expect(res.status).toBe(400);
+    expect(await codeOf(res)).toBe('XAmzContentSHA256Mismatch');
+  });
+});
+
+describe("the app's S3 routes: `artifactMaxBytes`, and the body the middleware read", () => {
+  function s3App(artifactMaxBytes = 16) {
+    const objects: { key: string; bytes: string }[] = [];
+    const parts: { partNumber: number; bytes: string }[] = [];
+    const completed: (readonly { partNumber: number; etag: string }[])[] = [];
+    const text = (bytes: BlobPutInput['bytes']) => new TextDecoder().decode(bytes as Uint8Array);
+    const blobStorage = {
+      async putByKey(_tenant: TenantId, _bucket: string, key: string, input: BlobPutInput) {
+        objects.push({ key, bytes: text(input.bytes) });
+        return { kind: 'ok', value: { hash: 'object-hash' } as BlobMeta };
+      },
+      async uploadPart(
+        _tenant: TenantId,
+        _bucket: string,
+        _key: string,
+        _uploadId: string,
+        partNumber: number,
+        bytes: Uint8Array,
+      ) {
+        parts.push({ partNumber, bytes: text(bytes) });
+        return { kind: 'ok', value: { etag: 'part-etag' } };
+      },
+      async completeMultipartUpload(
+        _tenant: TenantId,
+        _bucket: string,
+        _key: string,
+        _uploadId: string,
+        declared: readonly { partNumber: number; etag: string }[],
+      ) {
+        completed.push(declared);
+        return { kind: 'ok', value: { hash: 'multipart-hash' } as BlobMeta };
+      },
+    } as unknown as BlobStorageBinding;
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken: async () => null,
+      runHandler: {} as RunHandlerBinding,
+      blobStorage,
+      s3Credentials: credentials,
+      artifactMaxBytes,
+    });
+    return { app, objects, parts, completed };
+  }
+
+  test('an object or a part over `artifactMaxBytes` → 400 EntityTooLarge; at it, stored as sent', async () => {
+    const { app, objects, parts } = s3App();
+    const object = `/s3/${BUCKET}/notes.txt`;
+    const part = `${object}?partNumber=1&uploadId=upload-1`;
+    for (const path of [object, part]) {
+      const over = sign({ method: 'PUT', path, body: 'x'.repeat(17) });
+      const refused = await app.request(over.url, over.init);
+      expect(refused.status, path).toBe(400);
+      expect(await codeOf(refused), path).toBe('EntityTooLarge');
+    }
+    expect(objects).toEqual([]);
+    expect(parts).toEqual([]);
+
+    const putObject = sign({ method: 'PUT', path: object, body: 'sixteen bytes ok' });
+    expect((await app.request(putObject.url, putObject.init)).status).toBe(200);
+    const putPart = sign({ method: 'PUT', path: part, body: 'a part, sixteen.' });
+    expect((await app.request(putPart.url, putPart.init)).status).toBe(200);
+    expect(objects).toEqual([{ key: 'notes.txt', bytes: 'sixteen bytes ok' }]);
+    expect(parts).toEqual([{ partNumber: 1, bytes: 'a part, sixteen.' }]);
+  });
+
+  test('CompleteMultipartUpload reads its parts from the body the middleware read', async () => {
+    const { app, completed } = s3App(1024);
+    const req = sign({
+      method: 'POST',
+      path: `/s3/${BUCKET}/notes.txt?uploadId=upload-1`,
+      body: '<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>"part-etag"</ETag></Part></CompleteMultipartUpload>',
+    });
+    const res = await app.request(req.url, req.init);
+    expect(res.status).toBe(200);
+    expect(completed).toEqual([[{ partNumber: 1, etag: 'part-etag' }]]);
+  });
+});
+
+describe("the app's S3 object reads: a HEAD from the metadata, a GET reads the object out or cancels it", () => {
+  const BYTES = 'hello world';
+
+  /** One object, `notes.txt`; each `getByKey` opens a stream that records whether it was read to its end or cancelled. */
+  function objectApp() {
+    const meta: BlobMeta = {
+      blobId: '00000000-0000-4000-8000-0000000000d1' as ArtifactId,
+      tenantId: TENANT,
+      name: 'notes.txt',
+      contentType: 'text/plain',
+      size: BYTES.length,
+      hash: 'a'.repeat(64),
+      tags: {},
+      ownerRunId: '00000000-0000-4000-8000-0000000000d2' as RunId,
+      createdAt: '2026-09-30T11:00:00.000Z' as Timestamp,
+    };
+    const opened: { read: boolean; cancelled: boolean }[] = [];
+    const blobStorage = {
+      async headByKey(_tenant: TenantId, _bucket: string, key: string) {
+        return key === 'notes.txt' ? meta : null;
+      },
+      async getByKey(_tenant: TenantId, _bucket: string, key: string) {
+        if (key !== 'notes.txt') {
+          return { kind: 'err', error: { code: 'blob-not-found', message: 'none' } };
+        }
+        const state = { read: false, cancelled: false };
+        opened.push(state);
+        let sent = false;
+        // No high-water mark: nothing is pulled until a reader asks.
+        const stream = new ReadableStream<Uint8Array>(
+          {
+            pull(controller) {
+              if (sent) {
+                state.read = true;
+                controller.close();
+                return;
+              }
+              sent = true;
+              controller.enqueue(new TextEncoder().encode(BYTES));
+            },
+            cancel() {
+              state.cancelled = true;
+            },
+          },
+          { highWaterMark: 0 },
+        );
+        return { kind: 'ok', value: { meta, stream } };
+      },
+    } as unknown as BlobStorageBinding;
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken: async () => null,
+      runHandler: {} as RunHandlerBinding,
+      blobStorage,
+      s3Credentials: credentials,
+    });
+    const send = async (method: string, key: string, headers: Record<string, string>) => {
+      const req = sign({ method, path: `/s3/${BUCKET}/${key}`, headers });
+      return app.request(req.url, req.init);
+    };
+    return { app, send, opened };
+  }
+
+  test.each([
+    ['the object', 'notes.txt', {}, 200],
+    ['a range of it', 'notes.txt', { range: 'bytes=0-4' }, 206],
+    ['its last bytes', 'notes.txt', { range: 'bytes=-3' }, 206],
+    ['a malformed range', 'notes.txt', { range: 'bytes=x' }, 416],
+    ['a key that is not there', 'missing.txt', {}, 404],
+  ] as const)(
+    "HEAD for %s: a GET's status and headers, and nothing opened",
+    async (_what, key, range, status) => {
+      const { send, opened } = objectApp();
+      const headers = { 'x-request-id': `req-${status}`, ...range };
+      const head = await send('HEAD', key, headers);
+      expect(opened).toEqual([]);
+      const get = await send('GET', key, headers);
+      expect([head.status, get.status]).toEqual([status, status]);
+      // Each request answers its own span; every other header is the same.
+      const { traceresponse: headSpan, ...headHeaders } = Object.fromEntries(
+        head.headers.entries(),
+      );
+      const { traceresponse: getSpan, ...getHeaders } = Object.fromEntries(get.headers.entries());
+      expect([headSpan, getSpan]).toEqual([expect.any(String), expect.any(String)]);
+      expect(headHeaders).toEqual(getHeaders);
+      expect(await head.text()).toBe('');
+    },
+  );
+
+  test('a GET hands the object out as the body, drains it for a range, and cancels it for a malformed range', async () => {
+    const { send, opened } = objectApp();
+    const whole = await send('GET', 'notes.txt', {});
+    expect(opened).toEqual([{ read: false, cancelled: false }]);
+    expect(await whole.text()).toBe(BYTES);
+    expect(opened[0]).toEqual({ read: true, cancelled: false });
+
+    const range = await send('GET', 'notes.txt', { range: 'bytes=6-' });
+    // Read out before the answer, which carries the slice.
+    expect(opened[1]).toEqual({ read: true, cancelled: false });
+    expect([range.status, await range.text()]).toEqual([206, 'world']);
+
+    const malformed = await send('GET', 'notes.txt', { range: 'bytes=x' });
+    expect([malformed.status, await codeOf(malformed)]).toEqual([416, 'InvalidRange']);
+    expect(opened[2]).toEqual({ read: false, cancelled: true });
+  });
+
+  test('a HEAD on the bucket answers 200 with no body', async () => {
+    const { app } = objectApp();
+    const req = sign({ method: 'HEAD', path: `/s3/${BUCKET}` });
+    const res = await app.request(req.url, req.init);
+    expect([res.status, await res.text()]).toEqual([200, '']);
   });
 });
 

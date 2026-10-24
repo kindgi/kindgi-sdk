@@ -5,8 +5,9 @@ your app's code, index the pack, and serve them to the Kindgi runtime over the
 pack protocol. Agents and flows are data, in the same pack.
 
 **Status:** preview. Java and Scala support is tested and supported, but its
-API may still change in 0.1.6 without the usual deprecation period. On Maven Central;
-needs Java 17 or later. Its version is the Kindgi release's (the CLI's).
+API may still change in a later release without the usual deprecation period.
+On Maven Central; needs Java 17 or later. Its version is the Kindgi release's
+(the CLI's).
 
 ```xml
 <dependency>
@@ -55,6 +56,14 @@ never reaches the runtime.
 gates skip it. Left unset, a tool counts as one that writes: a dry run skips it
 and approval gates apply. Leave it unset for a tool that writes, sends or
 charges.
+
+`needsApprovalWhenUnattended(true)` makes each call wait for a person's approval
+in a run no person started (a webhook, a schedule, an event, or a service
+account's key). A flow's tool step that calls it is refused there, since a
+step can't wait. A webhook trigger or a schedule whose
+`toolsAllowedUnattended` names the tool (a project admin's to set) lifts
+that, in its own runs only. A run a person starts is unaffected. Left unset,
+nothing changes.
 
 ## The pack
 

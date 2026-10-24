@@ -109,7 +109,7 @@ function makeApp() {
     mcpEndpointRegistry: {
       list: async () => ({ data: [] }),
       get: async () => null,
-      register: async () => ({ kind: 'ok', endpointId: 'acme.docs' }),
+      register: async () => ({ kind: 'ok', endpointId: 'acme-docs' }),
     } as never,
     webhookEndpoints: {
       list: async () => ({ data: hooks }),
@@ -181,7 +181,7 @@ describe("a model provider's key, named where it's not the provider", () => {
   test('an MCP or a webhook endpoint naming it: 400', async () => {
     const h = makeApp();
     const mcp = await h.call('POST', '/v1/mcp/endpoints', {
-      endpointId: 'acme.docs',
+      endpointId: 'acme-docs',
       name: 'Docs MCP',
       transport: 'stdio',
       config: { transport: 'stdio', command: '/usr/local/bin/docs-mcp', args: ['--stdio'] },
@@ -190,7 +190,7 @@ describe("a model provider's key, named where it's not the provider", () => {
     expect([mcp.status, mcp.body.error?.message]).toEqual([400, REFUSED('an MCP endpoint')]);
     // As an endpoint's auth secret too: a Basic password, an OAuth client secret.
     const http = {
-      endpointId: 'acme.shop',
+      endpointId: 'acme-shop',
       name: 'Shop MCP',
       transport: 'streamable-http',
       config: { transport: 'streamable-http', url: 'https://shop.acme.example/mcp' },
@@ -202,6 +202,13 @@ describe("a model provider's key, named where it's not the provider", () => {
         tokenUrl: 'https://shop.acme.example/oauth/token',
         clientId: 'kindgi',
         secretRef: { envName: 'local', name: MODEL_KEY },
+      },
+      {
+        scheme: 'header',
+        headers: [
+          { name: 'X-Api-Key', secretRef: { envName: 'local', name: 'SHOP_KEY' } },
+          { name: 'X-Api-Secret', secretRef: { envName: 'local', name: MODEL_KEY } },
+        ],
       },
     ]) {
       const named = await h.call('POST', '/v1/mcp/endpoints', { ...http, auth });

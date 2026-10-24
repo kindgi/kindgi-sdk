@@ -197,7 +197,8 @@ export interface RunsClient {
 
   /**
    * Read the durable journal for a run. Journal entries are the
-   * source-of-truth history for replay + audit.
+   * source-of-truth history for replay + audit, in sequence order.
+   * Paging is opt-in: pass `limit` for pages, else the whole journal.
    *
    * @wire `GET /v1/runs/:runId/journal`
    */
@@ -234,9 +235,14 @@ export interface RunFailuresQuery {
 }
 
 export interface RunJournalFilter {
+  /**
+   * The most entries in a page (1 to 100), with `nextCursor` while more
+   * remain. Without it, the whole journal in one answer.
+   */
   readonly limit?: number;
+  /** Where the previous page ended: its `nextCursor`, as it came. */
   readonly cursor?: string;
-  /** Only entries with sequence >= this value. */
+  /** Only entries with a sequence greater than this value. */
   readonly since?: number;
 }
 
@@ -384,6 +390,13 @@ export interface RunFailure {
    * `code` then.
    */
   readonly reason?: string;
+  /**
+   * The error's own facts, for a code that has them: for
+   * `rate-limit-exceeded`, `limit` and `budgetMs`, as the API's 429 names
+   * them. Never the wait: read back later, it's stale. Absent for any
+   * other code, and from an older runtime.
+   */
+  readonly details?: Readonly<Record<string, unknown>>;
 }
 
 /**

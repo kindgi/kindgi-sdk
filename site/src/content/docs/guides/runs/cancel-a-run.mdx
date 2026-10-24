@@ -7,9 +7,54 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide stops a run that's running or waiting, along with the agent turns
+inside it.
+
+## Before you start
+
+- **A run that's running or waiting,** and its id. `kindgi runs list` lists
+  runs, as [List runs](../list-runs/) shows.
+- **`kindgi dev` running** in your pack's directory, with Kindgi 0.2's CLI.
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
+  Java 17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
+
+## Cancel it
+
+A cancel stops the run wherever it is, and ends it as `cancelled`.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs cancel <run-id>
+pnpm exec kindgi runs cancel <run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs cancel <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs cancel <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs cancel <run-id>
+```
+
+</TabItem>
+</Tabs>
+
+`<run-id>` is the run's id. It prints:
 
 ```json
 {
@@ -18,7 +63,7 @@ kindgi runs cancel <run-id>
 }
 ```
 
-The run's status becomes `cancelled`, and the journal ends with
+The run's status is now `cancelled`, and its journal ends with
 `run.cancelled`:
 
 ```json
@@ -27,8 +72,8 @@ The run's status becomes `cancelled`, and the journal ends with
 ```
 
 That run was waiting for an approval. A run can be cancelled while it runs
-too, and cancelling a flow's run cancels the agent turns inside it: see
-[what a cancel stops](#what-a-cancel-stops).
+too, and cancelling a flow's run cancels the agent turns inside it.
+[What a cancel stops](#what-a-cancel-stops) has the details.
 
 A run that already ended can't be cancelled:
 
@@ -93,10 +138,19 @@ ran, answers the waiting start with:
 
 ## From your app
 
+Your app cancels a run with `runs.cancel`. Ask your coding agent: "I want my
+app to cancel a run it started." For reference, this code starts a run in the
+background, then cancels it:
+
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```ts
+// app/cancel-reservation.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
 const run = await kindgi.runs.start({
   flow: 'acme.reserve-order',
   input: { orderId: 'A-500' },
@@ -114,6 +168,11 @@ cancelled
 <TabItem label="Python">
 
 ```python
+# app/cancel_reservation.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
+
 run = kindgi.runs.start(
     flow="acme.reserve-order", input={"orderId": "A-500"}, options={"wait": False}
 )
@@ -126,26 +185,90 @@ cancelled
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/CancelRun.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.Run;
+import com.kindgi.client.models.StartRunBody;
+import java.util.Map;
+
+public final class CancelRun {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
+    Run run = kindgi.runs().start(StartRunBody.WithFlow.builder()
+        .flow("acme.reserve-order")
+        .input(Map.of("orderId", "A-500"))
+        .options(StartRunBody.WithFlow.Options.builder().wait_(false).build())
+        .build());
+    Run cancelled = kindgi.runs().cancel(run.id());
+    System.out.println(cancelled.status());
+  }
+}
+```
+
+```text
+cancelled
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/CancelRun.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.StartRunBody
+import scala.jdk.CollectionConverters._
+
+object CancelRun {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
+
+    val run = kindgi.runs().start(StartRunBody.WithFlow.builder()
+      .flow("acme.reserve-order")
+      .input(Map("orderId" -> "A-500").asJava)
+      .options(StartRunBody.WithFlow.Options.builder().wait_(false).build())
+      .build())
+    val cancelled = kindgi.runs().cancel(run.id)
+    println(cancelled.status)
+  }
+}
+```
+
+```text
+cancelled
+```
+
+</TabItem>
 </Tabs>
 
-`cancel` returns the run. It answers with a conflict error when the run had
-already ended.
+`cancel` returns the run, now `cancelled`. It answers with a conflict error
+when the run had already ended.
 
 ## Approvals of a cancelled run
 
-Cancelling a run withdraws the approvals it was waiting for, and those of the
-runs inside it (a flow's agent steps), in the same step. They leave the
-pending list as `withdrawn`, with `withdrawnBecause: "run-cancelled"`. A
-reviewer who opens one can no longer decide it (`409 approval-terminal`).
-An approval the run asked for without waiting on it (a project-wide memory
-fact's review, a memory erasure's) stays pending, and can still be decided.
+Cancelling a run withdraws the approvals it was waiting for, in the same
+step. So does it for the approvals of the runs inside it, such as a flow's
+agent steps. They leave the pending list as `withdrawn`, with
+`withdrawnBecause: "run-cancelled"`. A reviewer who opens one can no longer
+decide it: it answers `409 approval-terminal`.
+
+An approval the run asked for without waiting on it stays pending, and can
+still be decided. A project-wide memory fact's review is one, and a memory
+erasure's is another.
 
 To see them before you cancel, list the run's approvals with the runs inside
 it: `approvals.list({ runId, includeDescendants: true })` in TypeScript,
 `approvals.list(run_id=…, include_descendants=True)` in Python.
 
-[Decide an approval](../../approvals/decide-an-approval/) has more on
-approvals.
+[Decide an approval](../../approvals/decide-an-approval/) shows how
+reviewers decide them.
 
 ## In the console
 
@@ -158,8 +281,8 @@ This stops the run and every step still going inside it. It ends as cancelled, a
 ```
 
 - **A run waiting for an approval** adds: "If it's waiting for an approval,
-  that approval is withdrawn: it leaves the reviewers' list."
-  ([Approvals of a cancelled run](#approvals-of-a-cancelled-run)).
+  that approval is withdrawn: it leaves the reviewers' list." See
+  [Approvals of a cancelled run](#approvals-of-a-cancelled-run).
 - **Keep it running** closes the dialog. **Cancel the run** cancels it, and
   the dialog says "Cancelled.".
 - **A run that finished meanwhile:** "It had already finished: there was
@@ -171,9 +294,9 @@ This stops the run and every step still going inside it. It ends as cancelled, a
 
 The run's page says **Cancelled**, and so does each step that was still
 going when the cancel landed: a loop's node, and the round that was running.
-Those steps have no end of their own in the journal
-([what a cancel stops](#what-a-cancel-stops)), so the Overview shows each
-with a plain circle and "Cancelled", not as still running. A step that
+Those steps have no end of their own in the journal, as
+[What a cancel stops](#what-a-cancel-stops) explains. So the Overview shows
+each with a plain circle and "Cancelled", not as still running. A step that
 finished as the cancel landed keeps its end.
 
 Here a loop over six orders was cancelled while the turn for A-1002 ran:
@@ -194,5 +317,10 @@ The run was cancelled
 
 A failed run shows its unfinished steps the same way: "Stopped: the run
 failed" on the Overview, and "Stopped when the run failed: no end of its
-own" in the Journal. Before Kindgi 0.1.7, the console showed these steps as
-still running.
+own" in the Journal.
+
+## Next
+
+- [Retry a start safely](../retry-a-start-safely/)
+- [Read a run's journal](../read-the-journal/)
+- [See why runs failed](../see-why-runs-failed/)

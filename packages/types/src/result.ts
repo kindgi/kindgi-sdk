@@ -10,6 +10,7 @@
  * do not invent parallel Ok/Err representations.
  *
  * @example
+ * ```ts excerpt
  * function loadSchema(path: string): Result<Schema, SchemaLoadError> {
  *   try {
  *     return { kind: 'ok', value: parse(readFileSync(path)) };
@@ -20,6 +21,7 @@
  *
  * const r = loadSchema('./flow.schema.json');
  * if (r.kind === 'ok') { use(r.value); } else { handle(r.error); }
+ * ```
  */
 export type Result<T, E> =
   | { readonly kind: 'ok'; readonly value: T }
@@ -29,7 +31,9 @@ export type Result<T, E> =
  * Extract the success type from a Result.
  *
  * @example
+ * ```ts excerpt
  * type Value = OkOf<Result<number, string>>; // number
+ * ```
  */
 export type OkOf<R> = R extends { readonly kind: 'ok'; readonly value: infer T } ? T : never;
 
@@ -37,6 +41,8 @@ export type OkOf<R> = R extends { readonly kind: 'ok'; readonly value: infer T }
  * Extract the error type from a Result.
  *
  * @example
+ * ```ts excerpt
  * type Failure = ErrOf<Result<number, string>>; // string
+ * ```
  */
 export type ErrOf<R> = R extends { readonly kind: 'err'; readonly error: infer E } ? E : never;

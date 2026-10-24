@@ -9,8 +9,22 @@
  * (which process reads it, the secrets backend, its KMS, the pack
  * transport). The page states those choices in words by evaluating the
  * predicate over every combination, so it can't drift from the schema.
+ *
+ * Each variable's entry has the reference layout: synopsis, description,
+ * its values with the default, an example, see also. A default, and an
+ * example the schema doesn't give, are written in `entries/env-vars.mjs`;
+ * "see also" is the guides that name the variable, else its group's
+ * hand-picked pages.
  */
 import { ENV_GROUPS, KINDGI_ENV_SCHEMA } from '@kindgi/env-schema';
+
+import { ENV_DEFAULTS, ENV_EXAMPLES, ENV_GROUP_SEE_ALSO } from './entries/env-vars.mjs';
+import { distinctPages, linkTo } from './mentions.mjs';
+
+export const SLUG = 'reference/env-vars';
+export const TITLE = 'Environment variables';
+/** At most this many guides in a variable's "see also". */
+const GUIDE_LINKS = 4;
 
 const BACKENDS = ['none', 'postgres', 'dotenv', 'secret-manager'];
 const KMS = ['gcp', 'azure', 'aws', 'libsodium', 'vault'];
@@ -75,19 +89,59 @@ function conditions(matching) {
   return words.join(', ');
 }
 
-function variable(spec) {
-  const lines = [`### \`${spec.name}\``, '', spec.description, ''];
+/** A variable's default, in words: `required`, or from `entries/env-vars.mjs`. */
+export function envDefault(spec) {
+  return spec.required ? 'none (required)' : ENV_DEFAULTS[spec.name];
+}
+
+/** A variable's example value: the schema's, else `entries/env-vars.mjs`'s. */
+export function envExample(spec) {
+  return spec.example || ENV_EXAMPLES[spec.name]?.value;
+}
+
+/**
+ * A variable's example as lines to paste: a value the reader makes is made
+ * in place (`NAME="$(openssl rand -base64 32)"`), under a comment saying
+ * what it is.
+ */
+function exampleLines(spec) {
+  const make = spec.example ? undefined : ENV_EXAMPLES[spec.name]?.make;
+  if (!make) return [`${spec.name}=${envExample(spec) ?? ''}`];
+  return [`# ${envExample(spec).replace(/^<|>$/g, '')}`, `${spec.name}="$(${make})"`];
+}
+
+/** The guides that name a variable, else its group's hand-picked pages. */
+export function envSeeAlso(spec, mentions, pagesBySlug) {
+  const named = distinctPages(mentions.codeSpans.get(spec.name), GUIDE_LINKS);
+  const pages = named.length
+    ? named
+    : (ENV_GROUP_SEE_ALSO[spec.group ?? 'other'] ?? [])
+        .map((slug) => pagesBySlug.get(slug))
+        .filter(Boolean);
+  return pages.map((page) => `[${page.title}](${linkTo(SLUG, page.slug)})`);
+}
+
+function variable(spec, mentions, pagesBySlug) {
+  const value = spec.allowedValues?.length ? spec.allowedValues.join('|') : '<value>';
+  const lines = [`### \`${spec.name}\``, ''];
+  lines.push('**Synopsis**', '', '```sh signature', `${spec.name}=${value}`, '```', '');
+  lines.push(spec.description, '');
+  lines.push('**Values**', '');
   lines.push(`- **Read by:** ${readBy(spec)}`);
   lines.push(`- **Required:** ${spec.required ? 'yes' : 'no'}`);
   if (spec.allowedValues?.length) {
     lines.push(`- **Values:** ${spec.allowedValues.map((v) => `\`${v}\``).join(', ')}`);
   }
-  if (spec.example) lines.push(`- **Example:** \`${spec.example}\``);
+  lines.push(`- **Default:** ${envDefault(spec) ?? ''}`, '');
+  lines.push('**Example**', '', '```sh', ...exampleLines(spec), '```', '');
+  lines.push('**See also**', '');
+  for (const link of envSeeAlso(spec, mentions, pagesBySlug)) lines.push(`- ${link}`);
   lines.push('');
   return lines.join('\n');
 }
 
-export function envVarsPage() {
+export function envVarsPage({ mentions, pages }) {
+  const pagesBySlug = new Map(pages.map((page) => [page.slug, page]));
   const byGroup = new Map();
   for (const spec of KINDGI_ENV_SCHEMA) {
     const group = spec.group ?? 'other';
@@ -96,7 +150,7 @@ export function envVarsPage() {
   }
   const out = [
     '---',
-    'title: Environment variables',
+    `title: ${TITLE}`,
     'description: Every KINDGI_* variable the Kindgi runtime and the pack service read.',
     '---',
     '',
@@ -111,7 +165,7 @@ export function envVarsPage() {
   ];
   for (const [group, specs] of byGroup) {
     out.push(`## ${ENV_GROUPS[group] ?? 'Other'}`, '');
-    for (const spec of specs) out.push(variable(spec));
+    for (const spec of specs) out.push(variable(spec, mentions, pagesBySlug));
   }
-  return { slug: 'reference/env-vars', content: `${out.join('\n').trimEnd()}\n` };
+  return { slug: SLUG, content: `${out.join('\n').trimEnd()}\n` };
 }

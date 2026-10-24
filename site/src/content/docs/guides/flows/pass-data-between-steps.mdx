@@ -7,9 +7,21 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide builds each flow step's input from the run's input, earlier steps'
+outputs and fixed values, and declares what the run returns.
+
 Each step's `inputMapping` says where every key of its input comes from. The
-flow's `output` says what the run returns. This page uses one more tool,
-`acme.hold-order`, which puts an order on hold:
+flow's `output` says what the run returns.
+
+## Before you start
+
+- **A pack with the tools** from [Write a flow](../write-a-flow/), such as
+  `acme.get-order`, on a runtime such as `kindgi dev`, with Kindgi 0.2's CLI.
+
+This guide adds one more tool. Ask your coding agent: "I want a tool that puts
+an order on hold." Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+tool looks like this. This guide calls it `acme.hold-order`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -65,11 +77,71 @@ def hold_order(input: HoldInput) -> Held:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/tools/HoldOrder.java
+package acme.tools;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.kindgi.pack.Tool;
+
+public final class HoldOrder {
+  public record Input(String orderId, String reason) {}
+
+  public enum Status {
+    @JsonProperty("held") HELD
+  }
+
+  public record Output(String orderId, Status status) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("acme.hold-order")
+      .description("Puts an order on hold for a person to review.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      // no mutating(false): it writes, so a dry run stops before it
+      .handler((input, ctx) -> new Output(input.orderId(), Status.HELD));
+
+  private HoldOrder() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/tools/HoldOrder.scala
+package acme.tools
+
+import com.kindgi.pack.scaladsl._
+
+object HoldOrder {
+  final case class Input(orderId: String, reason: String)
+
+  enum Status {
+    case held
+  }
+
+  final case class Output(orderId: String, status: Status)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme.hold-order")
+    .description("Puts an order on hold for a person to review.")
+    .version("0.1.0")
+    // no readOnly: it writes, so a dry run stops before it
+    .handler((in, _) => Output(in.orderId, Status.held))
+}
+```
+
+</TabItem>
 </Tabs>
 
 ## Map a step's input
 
-`acme.hold-for-stock` looks an order up, then holds it with a fixed reason:
+A mapping gives each step exactly the input it needs. Ask your coding agent:
+"I want a flow that looks up an order, then puts it on hold while it waits for
+stock." For reference, the flow looks like this. `acme.hold-for-stock` looks
+an order up, then holds it with a fixed reason:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -182,6 +254,88 @@ hold_for_stock = Flow(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/flows/HoldForStock.java
+package acme.flows;
+
+import com.kindgi.pack.Flow;
+import java.util.List;
+import java.util.Map;
+
+public final class HoldForStock {
+  public static final Flow FLOW = Flow.define("acme.hold-for-stock")
+      .version("0.1.0")
+      .set("name", "Hold an order for stock")
+      .set("description", "Looks up an order and puts it on hold.")
+      .node(Map.of("id", "order", "kind", "tool", "ref", "acme.get-order",
+          "inputMapping", Map.of("orderId", Map.of("path", "runInput.orderId"))))
+      .node(Map.of("id", "hold", "kind", "tool", "ref", "acme.hold-order",
+          "inputMapping", Map.of(
+              "orderId", Map.of("path", "nodeOutputs.order.orderId"),
+              "reason", Map.of("literal", "Waiting for stock"))))
+      .edge("e1", "$start", "order")
+      .edge("e2", "order", "hold")
+      .edge("e3", "hold", "$end")
+      .set("output", Map.of(
+          "mapping", Map.of(
+              "orderId", Map.of("path", "runInput.orderId"),
+              "customer", Map.of("path", "nodeOutputs.order.customer"),
+              "status", Map.of("path", "nodeOutputs.hold.status")),
+          "schema", Map.of(
+              "type", "object",
+              "properties", Map.of(
+                  "orderId", Map.of("type", "string"),
+                  "customer", Map.of("type", "string"),
+                  "status", Map.of("type", "string")),
+              "required", List.of("orderId", "customer", "status"))))
+      .build();
+
+  private HoldForStock() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/flows/HoldForStock.scala
+package acme.flows
+
+import com.kindgi.pack.scaladsl._
+
+object HoldForStock {
+  val flow: Flow = Flow("acme.hold-for-stock")
+    .version("0.1.0")
+    .set("name", "Hold an order for stock")
+    .set("description", "Looks up an order and puts it on hold.")
+    .node(Map("id" -> "order", "kind" -> "tool", "ref" -> "acme.get-order",
+      "inputMapping" -> Map("orderId" -> Map("path" -> "runInput.orderId"))))
+    .node(Map("id" -> "hold", "kind" -> "tool", "ref" -> "acme.hold-order",
+      "inputMapping" -> Map(
+        "orderId" -> Map("path" -> "nodeOutputs.order.orderId"),
+        "reason" -> Map("literal" -> "Waiting for stock"))))
+    .edge("e1", "$start", "order")
+    .edge("e2", "order", "hold")
+    .edge("e3", "hold", "$end")
+    .set("output", Map(
+      "mapping" -> Map(
+        "orderId" -> Map("path" -> "runInput.orderId"),
+        "customer" -> Map("path" -> "nodeOutputs.order.customer"),
+        "status" -> Map("path" -> "nodeOutputs.hold.status")),
+      "schema" -> Map(
+        "type" -> "object",
+        "properties" -> Map(
+          "orderId" -> Map("type" -> "string"),
+          "customer" -> Map("type" -> "string"),
+          "status" -> Map("type" -> "string")),
+        "required" -> List("orderId", "customer", "status"))))
+    .build()
+}
+```
+
+</TabItem>
 </Tabs>
 
 Each key of `inputMapping` is a key of the tool's input, and its value is one
@@ -196,12 +350,44 @@ Paths are dot-separated field names: `nodeOutputs.order.customer` is the
 `customer` field of the `order` step's output.
 
 In Python, the keys are the tool input's names as they travel: a field's
-alias when it has one (`orderId` for `order_id: str = Field(alias="orderId")`),
-else its name.
+alias when it has one, else its name. `order_id: str = Field(alias="orderId")`
+travels as `orderId`.
+
+Run it:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi runs start --flow=acme.hold-for-stock --input='{"orderId":"A-200"}'
+pnpm exec kindgi runs start --flow=acme.hold-for-stock --input='{"orderId":"A-200"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.hold-for-stock --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.hold-for-stock --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.hold-for-stock --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+</Tabs>
+
+`--flow` is the flow, and `--input` its input. It prints the run, with the
+output the flow declares:
 
 ```json
 {
@@ -220,9 +406,38 @@ kindgi runs start --flow=acme.hold-for-stock --input='{"orderId":"A-200"}'
 
 The journal shows the input each step got, after mapping:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs journal <run-id>
+pnpm exec kindgi runs journal <run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs journal <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs journal <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs journal <run-id>
+```
+
+</TabItem>
+</Tabs>
+
+`<run-id>` is the run's id. It prints:
 
 ```json
     {
@@ -241,9 +456,9 @@ kindgi runs journal <run-id>
 
 ## Without a mapping
 
-A step without `inputMapping` gets the output of the step before it (the
-run's input, after `$start`). The tool's input schema takes the fields it
-declares and drops the rest, so a step that needs exactly what the previous
+A step without `inputMapping` gets the output of the step before it, or the
+run's input after `$start`. The tool's input schema takes the fields it
+declares and drops the rest. So a step that needs exactly what the previous
 step returns doesn't need a mapping. A step with several incoming edges needs
 one.
 
@@ -258,7 +473,7 @@ return, fails the run with:
 input-validation-failed: Input for tool "acme.hold-order" failed validation
 ```
 
-A key that may be missing (because it comes from a branch that may not run)
+A key that may be missing, because it comes from a branch that may not run,
 belongs in the tool's input as optional: `.optional()` in zod, a default in
 pydantic. [Join branches](../join-branches/) has an example.
 
@@ -275,8 +490,10 @@ declares a [typed answer](../../agents/typed-answer/):
 
 `output.mapping` is resolved when the run finishes, from the same roots as
 `inputMapping`. With a `schema`, the result is checked against it, and a run
-whose output doesn't match fails. If `customer` were mapped from a path that
-doesn't resolve, the run above would fail with:
+whose output doesn't match fails. A `schema` that doesn't compile is refused
+when the flow is loaded or deployed, not at each run. If `customer` were
+mapped from a path that doesn't resolve, `acme.hold-for-stock`'s run would
+fail with:
 
 ```text
 output-schema-violation: the run's output does not match the flow's output schema: [{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"customer"},"message":"must have required property 'customer'"}]
@@ -285,3 +502,9 @@ output-schema-violation: the run's output does not match the flow's output schem
 Without `output`, the run returns the output of the step that reached `$end`.
 Declare `output` when callers rely on the shape: it stays the same when you
 add or reorder steps.
+
+## Next
+
+- [Branch a flow](../branch-a-flow/)
+- [Join branches](../join-branches/)
+- [Give an agent a typed answer](../../agents/typed-answer/)

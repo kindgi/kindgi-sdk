@@ -16,7 +16,8 @@
  *   - `kindgi/tools/.gitkeep`
  *   - `kindgi/guardrails/.gitkeep`
  *   - `kindgi/flows/.gitkeep`
- *   - `.claude/skills/kindgi-<name>/SKILL.md` for each shipped skill —
+ *   - `.claude/skills/kindgi-<name>/SKILL.md` and
+ *     `.agents/skills/kindgi-<name>/SKILL.md` for each shipped skill —
  *     merge-not-overwrite: skips files that already exist so user
  *     customizations survive
  *   - `package.json`: `@kindgi/sdk` (dependency) + `@kindgi/cli`
@@ -63,6 +64,7 @@ import {
   detectPackageManager,
   installCommand,
 } from '../package-manager.js';
+import { MODELS_GUIDE } from '../providers/models-guide.js';
 import { agentAccessRows, patchAgentAccess } from './agent-access.js';
 import { type KindgiDependencySpecs, resolveKindgiDependencySpecs } from './dependency-specs.js';
 import { patchGitignore, patchPrettierignore } from './gitignore-patcher.js';
@@ -106,7 +108,7 @@ export interface RunInitAugmentInputs {
   readonly packIdOverride?: string;
   /**
    * Overwrite existing `kindgi.config.ts` + shipped skill files under
-   * `.claude/skills/kindgi-<name>/SKILL.md`. Non-force default:
+   * `.claude/skills/kindgi-<name>/SKILL.md` and `.agents/skills/`. Non-force default:
    * refuse when `kindgi.config.ts` exists; merge (skip) any
    * pre-existing skill files.
    */
@@ -503,7 +505,7 @@ export function augmentNextSteps(
     `Install: ${installCommand(pm)}`,
     `Boot the dev server: ${binDisplay(pm, 'kindgi', ['dev'])}`,
     `Secrets: kindgi dev reads your .env and .env.local — keys there are available, or run ${setSecret}`,
-    `Model provider: until you register one, agents under kindgi dev answer with its dev-echo fallback (canned replies) — e.g. ${binDisplay(pm, 'kindgi', ['providers', 'register', '--preset=anthropic'])} (ANTHROPIC_API_KEY in .env); more in .claude/skills/kindgi-authoring-providers/SKILL.md`,
+    `Models: under kindgi dev, agents give placeholder replies until you connect a model: ${MODELS_GUIDE}`,
     ...(samplePackId === undefined
       ? []
       : [
@@ -719,7 +721,7 @@ async function writeAugmentFiles(args: WriteAugmentFilesInputs): Promise<WriteAu
       dryRun: false,
     });
     for (const o of report.outcomes) {
-      const target = join(args.targetDir, '.claude', 'skills', o.name, 'SKILL.md');
+      const target = join(args.targetDir, o.folder, o.name, 'SKILL.md');
       if (o.status === 'added' || o.status === 'updated') created.push(target);
       else if (o.status !== 'local-only') skipped.push(target);
     }

@@ -7,14 +7,28 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide makes an agent wait for a person before it calls a tool that
+changes something, then approves or rejects the call.
+
 An agent turns on approval gates in its `conversationPolicy`. When the model
 asks for a gated tool, the run stops before the tool is called and waits for a
-reviewer. Approve, and the tool runs; reject, and it doesn't.
+reviewer. Approve, and the tool runs. Reject, and it doesn't.
+
+## Before you start
+
+- **A pack** on a runtime such as `kindgi dev`, with Kindgi 0.2's CLI. This
+  guide uses the pack `acme-ops`, with a read-only tool, `acme-ops.greet`.
+- **A model the agent can route to,** with `tool-use`, as
+  [Models](../../models/) shows.
 
 ## Gate a tool
 
 `acme-ops.post-update` posts to a public status page. It changes something
-outside your app, so it doesn't say `mutating: false`:
+outside your app, so it doesn't say `mutating: false`. Ask your coding agent:
+"I want a tool that posts an update to our public status page." Kindgi's
+skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+tool looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -67,9 +81,62 @@ def post_update(input: Update) -> Posted:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acmeops/tools/PostUpdate.java
+package acmeops.tools;
+
+import com.kindgi.pack.Tool;
+import jakarta.validation.constraints.Size;
+import java.time.Instant;
+
+public final class PostUpdate {
+  public record Input(@Size(min = 1, max = 500) String message) {}
+
+  public record Output(boolean posted, String postedAt) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("acme-ops.post-update")
+      .description("Posts a message to the public status page.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      .effect("external-side-effect", "external:status-page")
+      .handler((input, ctx) -> new Output(true, Instant.now().toString()));
+
+  private PostUpdate() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acmeops/tools/PostUpdate.scala
+package acmeops.tools
+
+import com.kindgi.pack.scaladsl._
+import jakarta.validation.constraints.Size
+import java.time.Instant
+
+object PostUpdate {
+  final case class Input(@Size(min = 1, max = 500) message: String)
+  final case class Output(posted: Boolean, postedAt: String)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme-ops.post-update")
+    .description("Posts a message to the public status page.")
+    .version("0.1.0")
+    .effect("external-side-effect", "external:status-page")
+    .handler((_, _) => Output(posted = true, postedAt = Instant.now().toString))
+}
+```
+
+</TabItem>
 </Tabs>
 
-This agent posts status updates with it, and every post waits for a person:
+This agent posts status updates with it, and every post waits for a person.
+Ask your coding agent: "I want an agent that posts status updates, and asks a
+person before every post." For reference, the agent looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -135,37 +202,295 @@ status_agent = Agent(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acmeops/agents/StatusAgent.java
+package acmeops.agents;
+
+import acmeops.tools.Greet;
+import acmeops.tools.PostUpdate;
+import com.kindgi.pack.Agent;
+import java.util.List;
+import java.util.Map;
+
+public final class StatusAgent {
+  public static final Agent AGENT = Agent.define("acme-ops.status-agent")
+      .version("0.1.0")
+      .name("Status Agent")
+      .description("Posts status updates.")
+      .instructions("Post the update the user gives you with acme-ops.post-update.")
+      .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
+      .tool(PostUpdate.TOOL)
+      .tool(Greet.TOOL)
+      .set("conversationPolicy", Map.of("hitl", Map.of("tools", Map.of(
+          "overrides", Map.of("acme-ops.post-update", "always_ask")))))
+      .build();
+
+  private StatusAgent() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acmeops/agents/StatusAgent.scala
+package acmeops.agents
+
+import acmeops.tools.{Greet, PostUpdate}
+import com.kindgi.pack.scaladsl._
+
+object StatusAgent {
+  val agent: Agent = Agent("acme-ops.status-agent")
+    .version("0.1.0")
+    .name("Status Agent")
+    .description("Posts status updates.")
+    .instructions("Post the update the user gives you with acme-ops.post-update.")
+    .capability(Map("needs" -> Seq(Map("feature" -> "tool-use"))))
+    .tool(PostUpdate.tool)
+    .tool(Greet.tool)
+    .set("conversationPolicy", Map("hitl" -> Map("tools" -> Map(
+      "overrides" -> Map("acme-ops.post-update" -> "always_ask")))))
+    .build()
+}
+```
+
+</TabItem>
 </Tabs>
 
 `hitl.tools` turns tool gates on for this agent. Each tool then gets a gate:
 
 - **`always_ask`**: every call waits for a decision.
 - **`never_ask`**: calls run without asking.
-- **No override:** a tool declared read-only (`mutating: false`) runs without
-  asking; any other tool asks. So `hitl: { tools: {} }` asks before every tool
-  that can change something, and here `acme-ops.greet`, which is read-only,
-  never asks.
+- **No override:** a tool declared read-only, with `mutating: false`, runs
+  without asking. Any other tool asks. So `hitl: { tools: {} }` asks before
+  every tool that can change something. Here `acme-ops.greet`, which is
+  read-only, never asks.
 
 An agent without `hitl.tools` has no tool gates, unless your tenant has
 [approval rules](../approval-rules-for-every-agent/).
 
+### Someone other than whoever asked
+
+**A tool call's approval names who asked:** the person the turn runs for, in
+`requestedBy` (`user:<id>`, or `service_account:<id>` for an app's key). It
+stays the same when someone else's decision resumes the turn.
+
+**By default, that person may approve it too.** `hitl.separateApprover`
+makes the approval need someone else (four eyes):
+
+- **`true`** applies to every gated tool.
+- **Per tool,** set `overrides`, keyed by tool id as in `tools`. An optional
+  `default` covers the tools you don't name.
+
+```ts
+conversationPolicy: {
+  hitl: {
+    tools: { overrides: { 'acme-ops.post-update': 'always_ask' } },
+    separateApprover: { overrides: { 'acme-ops.post-update': true } },
+  },
+},
+```
+
+Every pack language sets it the same way: Python's `conversation_policy`,
+and the map Java and Scala pass to `set("conversationPolicy", …)`, take the
+same keys, `separateApprover` included.
+
+**When four eyes is on:**
+- **The person who asked isn't offered Approve.** That holds on the
+  console's approval page, in its inbox's keyboard decisions ("You asked
+  for this, so someone else approves it."), and on the Kindgi plugin for
+  WordPress's Approvals tab.
+- **The API refuses their approve:**
+
+  ```json
+  {
+    "error": {
+      "code": "separate-approver-required",
+      "message": "Approval ecaaa545-… was asked for by you: someone else must approve it",
+      "details": { "approvalId": "ecaaa545-…" },
+      "requestId": "…"
+    }
+  }
+  ```
+
+- **They may still reject their own request.**
+- **A turn that's already waiting** keeps the rule it parked with.
+- **It compares people.** A turn started with an app's key names the key's
+  service account (`service_account:<id>`), so a person holding that key
+  can still approve the call as themselves.
+- **With `ask_on_first_use`,** only a tool's first call is asked, and
+  someone other than whoever asked approves that one.
+- **The template's tools:** the store agent sets `separateApprover` per tool,
+  and `defineAgent` refuses an override naming a tool the agent doesn't
+  have, so a mistyped id never leaves the real tool without four eyes.
+
+**The `woocommerce` template's store agent turns it on** for
+`<pack>.woo.refund-large`, `<pack>.woo.set-price` and
+`<pack>.woo.publish-product` (`acme-shop.woo.refund-large` in a pack named
+`acme-shop`).
+
+## When no person started the run
+
+**A tool can ask for a person's yes on every call no person is there to
+see:** it declares `needsApprovalWhenUnattended: true`. Declare it on a tool
+that moves money or changes something people rely on. Then, in a run no
+person started:
+
+- **An agent's call of the tool waits** for a reviewer, as `always_ask`
+  does. The agent's `hitl` can't lift it, nor can your tenant's
+  [approval rules](../approval-rules-for-every-agent/): agents are reused,
+  and the tool's author knows what it does.
+- **A flow's tool step that calls it fails,** as [In a flow](#in-a-flow)
+  shows.
+
+In a run a person started, the agent's own gates decide, as for any tool.
+Absent means `false`. Here `acme-ops.post-update`, which posts in public,
+declares it:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+// in tools/post-update/index.ts
+  effects: [{ kind: 'external-side-effect', resource: 'external:status-page' }],
+  needsApprovalWhenUnattended: true,
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+# in tools/post_update.py
+@tool(
+    id="acme-ops.post-update",
+    effects=[{"kind": "external-side-effect", "resource": "external:status-page"}],
+    needs_approval_when_unattended=True,
+)
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acmeops/tools/PostUpdate.java
+      .effect("external-side-effect", "external:status-page")
+      .needsApprovalWhenUnattended(true)
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acmeops/tools/PostUpdate.scala
+    .effect("external-side-effect", "external:status-page")
+    .needsApprovalWhenUnattended(true)
+```
+
+</TabItem>
+</Tabs>
+
+**How a run started** is on the run, as `startedBy`:
+
+| `startedBy` | Who started it | Counts as a person |
+| --- | --- | --- |
+| `person` | A person: signed in (the console, the chat of the Kindgi plugin for WordPress), or with their own API key | Yes |
+| `key` | A service account's key | No |
+| `schedule`, `webhook`, `event` | A trigger | No |
+
+- **A key acts as its person.** A script on your own key starts runs as
+  you, and they count as yours. For automation, use a
+  [service account's key](../../../deploy/people-and-keys/#service-accounts): its runs count as
+  unattended.
+- **A flow's agent step, and any run a run starts,** started the way its run
+  did.
+- **A run from before your runtime recorded it** reads as its trigger's
+  kind when a trigger started it, and has no `startedBy` otherwise. Either
+  way it counts as unattended: it never reads as a person's.
+- **The `woocommerce` template declares it** on `<pack>.woo.refund`,
+  `<pack>.woo.refund-large`, `<pack>.woo.set-price` and
+  `<pack>.woo.publish-product`. A staff member's refund in the store chat
+  runs as the agent says; one an order webhook's run asks for waits for a
+  person.
+
 ## Become a reviewer
 
 Approvals are decided by **reviewers**. Under `kindgi dev` you're one already,
-an `admin`. On any other runtime, register yourself once (the user your API
-token belongs to); it covers any token of yours, a console sign-in too:
+an `admin`. On any other runtime, register yourself once, as the user your API
+token belongs to. It covers any token of yours, a console sign-in too:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+pnpm exec kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+```
+
+</TabItem>
+</Tabs>
+
+`--spec` is the reviewer: its `role` and, optionally, a `displayName`.
+It prints the registered reviewer, as JSON.
 
 [Decide an approval](../decide-an-approval/) covers reviewers and their roles.
 
 ## Run it
 
+Start a turn that asks for the tool. `--agent` is the agent, and `--input`
+its input:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+pnpm exec kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -179,14 +504,43 @@ kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkou
 ```
 
 The run is `suspended`: the model asked for `acme-ops.post-update`, and the
-call waits. `kindgi runs start` returns as soon as the run waits; it doesn't
+call waits. `kindgi runs start` returns as soon as the run waits. It doesn't
 block until someone decides.
 
 ## See what it waits for
 
+List the pending approvals. `--status=pending` lists only the ones still `pending`:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi approvals list --status=pending
+pnpm exec kindgi approvals list --status=pending
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals list --status=pending
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals list --status=pending
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals list --status=pending
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -224,9 +578,39 @@ The approval names the tool and the exact arguments the model chose, and
 
 ## Approve it
 
+Decide it by the approval's `id`. `--decision=approve` lets the tool run,
+and `--rationale` is kept with the decision:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approve --rationale="Confirmed with the on-call engineer"
+pnpm exec kindgi approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approve --rationale="Confirmed with the on-call engineer"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approve --rationale="Confirmed with the on-call engineer"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approve --rationale="Confirmed with the on-call engineer"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approve --rationale="Confirmed with the on-call engineer"
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -253,11 +637,11 @@ The run continues in the same call: the tool runs and the agent finishes its
 turn. The tool runs at the version the turn started with, even when a newer
 version in the agent's range appeared while it waited.
 
-If that version is gone by then (under `kindgi dev`, the tool's file now says
-another version), the turn can't go on. The approval still stands, its answer
-says so in `resume`, and the run fails:
+If that version is gone by then, the turn can't go on. Under `kindgi dev`,
+that happens when the tool's file now says another version. The approval
+still stands, its answer says so in `resume`, and the run fails:
 
-```json
+```json excerpt
 "resume": {
   "kind": "failed",
   "code": "tool-version-unresolvable",
@@ -265,16 +649,45 @@ says so in `resume`, and the run fails:
 }
 ```
 
-Its journal (`kindgi runs journal <run-id>`) says who decided which
-approval:
+Its journal says who decided which approval. `kindgi runs journal <run-id>`
+shows it:
 
 ```json
 {"sequence": 27, "kind": "wait.resumed", "nodeId": "agent-loop", "payload": {"value": {"decided": "approve", "decidedBy": "user:26fc414a-b49f-4e1f-a022-162865770178", "rationale": "Confirmed with the on-call engineer", "approvalId": "a281a631-b48b-4868-b138-213a433e8c40"}, …}, …}
 ```
 
+Get the run by its id to see the tool's result:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758
+pnpm exec kindgi runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -294,12 +707,43 @@ kindgi runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758
 ## Reject it
 
 With `--decision=reject`, the tool doesn't run. The agent gets the rejection
-as the tool's result, with your rationale, and finishes its turn (a real model
-can tell the user why nothing was posted):
+as the tool's result, with your rationale, and finishes its turn. A real
+model can tell the user why nothing was posted. `<approval-id>` is the
+approval's `id`:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi approvals complete <approval-id> --decision=reject --rationale="Not confirmed yet"
+pnpm exec kindgi approvals complete <approval-id> --decision=reject --rationale="Not confirmed yet"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals complete <approval-id> --decision=reject --rationale="Not confirmed yet"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals complete <approval-id> --decision=reject --rationale="Not confirmed yet"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals complete <approval-id> --decision=reject --rationale="Not confirmed yet"
+```
+
+</TabItem>
+</Tabs>
+
+It prints the recorded decision, as approving does. The run's messages then
+hold the rejection as the tool's result:
 
 ```json
       {
@@ -318,11 +762,39 @@ its `tool-call`, and a `tool-result` that is the rejection the model read.
 ## In a flow
 
 When the agent is a step of a flow, the flow waits with it: the flow run is
-`suspended` too, and its journal shows the step waiting:
+`suspended` too, and its journal shows the step waiting. `<flow-run-id>` is
+the flow run's id:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi runs journal <flow-run-id>
+pnpm exec kindgi runs journal <flow-run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs journal <flow-run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs journal <flow-run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs journal <flow-run-id>
+```
+
+</TabItem>
+</Tabs>
 
 ```json
   {
@@ -337,8 +809,19 @@ The approval's `provenanceRef.runId` is the agent step's own run, not the flow
 run. Once the approval is decided, the agent's turn finishes and the flow
 continues from that step.
 
+**A tool step can't wait for a person.** In a run no person started, a step
+whose tool declares `needsApprovalWhenUnattended` fails, and the tool never
+runs. The run's `failureMessage` says why:
+
+```text
+needs-a-person: tool "acme-ops.post-update" needs a person's yes when no person started the run (needsApprovalWhenUnattended), and a flow's tool step can't wait for one. Call it from an agent step instead: there the call waits for a person to approve it.
+```
+
+Call such a tool from an agent step, whose call waits for a reviewer.
+
 ## Next
 
 - [Decide an approval](../decide-an-approval/): escalate, withdraw, roles, and
   deciding from your app.
+- [Set approval rules for every agent](../approval-rules-for-every-agent/).
 - [CLI reference: `kindgi approvals`](../../../reference/cli/approvals/).

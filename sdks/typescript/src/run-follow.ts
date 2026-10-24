@@ -158,7 +158,7 @@ export interface SubscribeToRunOptions {
  * its events (kind, node, sequence, time; no payloads) through to the
  * terminal one. Needs no client and no secret API token.
  *
- * ```ts
+ * ```ts excerpt
  * for await (const event of subscribeToRun({ apiUrl, runId, accessToken, refreshAccessToken })) {
  *   showProgress(event.kind, event.nodeId);
  * }

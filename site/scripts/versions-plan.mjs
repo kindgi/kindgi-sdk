@@ -93,6 +93,273 @@ export function redirects({ lines }) {
 }
 
 /**
+ * `/_headers`: every page's Markdown (`/start/install.md`, at the root and
+ * under every version) is served with `X-Robots-Tag: noindex`, so search
+ * engines list the pages, not their Markdown.
+ *
+ * The Markdown and the `llms*.txt` files say they're UTF-8, whichever
+ * Wrangler uploads them: a deploy has served `llms.txt` as `text/plain` with
+ * no charset, and a browser or HTTP client that assumes another encoding
+ * shows `…` as `â€¦`. A `Content-Type` here replaces the one the file's
+ * extension gives it, not adds to it (checked under `wrangler dev` 4.149).
+ *
+ * The rules, as Cloudflare documents them for Workers static assets
+ * (https://developers.cloudflare.com/workers/static-assets/headers/, the
+ * same as Pages' `_headers`): a URL pattern on one line, its `Name: value`
+ * headers indented below it. "A splat pattern — signified by an asterisk
+ * (`*`) — will greedily match all characters. You may only include a single
+ * splat in the URL", and the page's own example matches `/*.jpg`. So
+ * `/*.md` matches `/index.md` and `/v0.1.7/start/install.md` alike, and
+ * `/*.txt` every `llms*.txt` file and `_llms-txt/`'s, at the root and under
+ * every version: two rules, well within the file's limit of 100.
+ */
+export function headers() {
+  return [
+    '/*.md',
+    '  Content-Type: text/markdown; charset=utf-8',
+    '  X-Robots-Tag: noindex',
+    '/*.txt',
+    '  Content-Type: text/plain; charset=utf-8',
+    '',
+  ].join('\n');
+}
+
+/**
+ * `/robots.txt`: nothing is disallowed, and it names the sitemap of `/`, the
+ * newest release and the only build search engines list. The other builds
+ * (`/vX.Y.Z/`, `/next/`) say `noindex` in their pages, which a crawler reads
+ * only when it may fetch them: a `Disallow` for them would leave their
+ * addresses listable instead.
+ *
+ * The sitemap is the one `/`'s own `sitemap-index.xml` (Starlight's, from
+ * `site`) is on, so robots.txt can't name one the build didn't make. When
+ * the zone has Cloudflare's managed robots.txt on, Cloudflare puts its own
+ * lines before these.
+ *
+ * @param {string | undefined} sitemapIndex `/sitemap-index.xml`, as built
+ */
+export function robots(sitemapIndex) {
+  const loc = /<loc>\s*([^<\s]+)\s*<\/loc>/.exec(sitemapIndex ?? '')?.[1];
+  if (loc === undefined) {
+    throw new Error(
+      'robots: / has no sitemap-index.xml naming a sitemap (Starlight makes one when astro.config.mjs sets `site`)',
+    );
+  }
+  return `User-agent: *\nAllow: /\n\nSitemap: ${new URL('/sitemap-index.xml', loc).href}\n`;
+}
+
+/** The workspace's lockfile: a release's docs branch may change what only the site installs. */
+export const LOCKFILE = 'pnpm-lock.yaml';
+const SITE_IMPORTER = 'site';
+/** The lockfile sections split into blocks by key; the rest is compared whole. */
+const KEYED = ['importers', 'packages', 'snapshots'];
+
+/** `key: value` (or `key:`) at exactly `indent` spaces, the key quoted or not. */
+function keyLine(line, indent) {
+  const match = new RegExp(
+    `^ {${indent}}(?:'((?:[^']|'')*)'|"([^"]*)"|([^\\s'"#][^]*?)):(?: (.*))?$`,
+  ).exec(line);
+  if (!match) return undefined;
+  return {
+    key: match[1]?.replaceAll("''", "'") ?? match[2] ?? match[3],
+    value: match[4] === undefined ? undefined : unquote(match[4]),
+  };
+}
+
+/** A YAML scalar as written, without its quotes. */
+function unquote(value) {
+  const single = /^'(.*)'$/.exec(value);
+  if (single) return single[1].replaceAll("''", "'");
+  return /^"(.*)"$/.exec(value)?.[1] ?? value;
+}
+
+/**
+ * A pnpm lockfile's documents, each as its `importers`, `packages` and
+ * `snapshots` blocks by key (`site`, `foo@1.2.0`,
+ * `bar@2.0.0(react@18.0.0)`), each block exactly as written, and `rest`:
+ * its other lines (its version, settings, overrides). The lockfile is
+ * YAML, and the site has no YAML library: the guard only compares blocks,
+ * so this splits each section at its two-space-indented keys, and a line at
+ * the left margin (the next top-level key) ends it. pnpm can write more
+ * than one document, a `---` line before each: its own version and config
+ * dependencies in one, then the workspace's.
+ *
+ * @param {string} text the lockfile
+ * @returns {{ importers: Map<string, string>, packages: Map<string, string>, snapshots: Map<string, string>, rest: string }[]}
+ */
+export function lockfileDocuments(text) {
+  return groupLines(['---', ...text.split('\n')], (line) => line === '---')
+    .map(([, ...lines]) => lines)
+    .filter((lines) => lines.some((line) => line.trim() !== ''))
+    .map(lockfileDocument);
+}
+
+/** `lines` in groups, each from a line `starts` picks (lines before the first go in none). */
+function groupLines(lines, starts) {
+  const groups = [];
+  for (const line of lines) {
+    if (starts(line)) groups.push([line]);
+    else groups.at(-1)?.push(line);
+  }
+  return groups;
+}
+
+/** One document of a lockfile: its keyed sections' blocks, and the rest. */
+function lockfileDocument(lines) {
+  const document = Object.fromEntries(KEYED.map((name) => [name, new Map()]));
+  const rest = [];
+  for (const [header, ...body] of groupLines(lines, (line) => /^\S/.test(line))) {
+    const name = /^(\w+):$/.exec(header)?.[1];
+    if (!KEYED.includes(name)) {
+      rest.push(header, ...body.filter((line) => line.trim() !== ''));
+      continue;
+    }
+    for (const block of groupLines(body, (line) => keyLine(line, 2) !== undefined)) {
+      document[name].set(keyLine(block[0], 2).key, block.join('\n').trimEnd());
+    }
+  }
+  return { ...document, rest: rest.join('\n') };
+}
+
+/**
+ * The snapshot a dependency resolves to: `name@version`, its peers'
+ * suffix included (`bar@2.0.0(react@18.0.0)`); an alias's version names
+ * its package (`dotenv-expand@10.0.0`); a workspace package (`link:`) has
+ * none.
+ */
+export function snapshotKey(name, version) {
+  if (version.startsWith('link:')) return undefined;
+  return version.split('(')[0].includes('@') ? version : `${name}@${version}`;
+}
+
+/** A snapshot's `packages:` entry: its key without the peers' suffix. */
+const packageKey = (snapshot) => {
+  const at = snapshot.indexOf('(');
+  return at === -1 ? snapshot : snapshot.slice(0, at);
+};
+
+/**
+ * The snapshots an importer's block names: each dependency's `version:`,
+ * whatever its group (`dependencies`, `devDependencies`, pnpm's own).
+ */
+function importerSnapshots(block) {
+  const keys = [];
+  let name;
+  for (const line of block.split('\n')) {
+    const dependency = keyLine(line, 6);
+    if (dependency) name = dependency.value === undefined ? dependency.key : undefined;
+    const version = /^ {8}version: (.+)$/.exec(line);
+    if (version && name !== undefined) keys.push(snapshotKey(name, unquote(version[1])));
+  }
+  return keys.filter((key) => key !== undefined);
+}
+
+/** The snapshots a snapshot's block names: its `dependencies` and `optionalDependencies`. */
+function snapshotSnapshots(block) {
+  const keys = [];
+  let group;
+  for (const line of block.split('\n')) {
+    const header = keyLine(line, 4);
+    if (header) group = header.key;
+    const dependency = keyLine(line, 6);
+    if (
+      dependency?.value !== undefined &&
+      (group === 'dependencies' || group === 'optionalDependencies')
+    ) {
+      keys.push(snapshotKey(dependency.key, dependency.value));
+    }
+  }
+  return keys.filter((key) => key !== undefined);
+}
+
+/** Every snapshot a document's importers but `site` reach, transitively. */
+function reachedOutsideSite(document) {
+  const reached = new Set();
+  const queue = [...document.importers]
+    .filter(([name]) => name !== SITE_IMPORTER)
+    .flatMap(([, block]) => importerSnapshots(block));
+  for (let next = 0; next < queue.length; next += 1) {
+    const key = queue[next];
+    if (reached.has(key)) continue;
+    reached.add(key);
+    const block = document.snapshots.get(key);
+    if (block !== undefined) queue.push(...snapshotSnapshots(block));
+  }
+  return reached;
+}
+
+/** An importer's name in a message: the workspace root's is `.`. */
+const importerName = (name) => (name === '.' ? '. (the workspace root)' : name);
+
+/** How many differing entries a message names; it counts them all. */
+const NAMED = 5;
+
+/**
+ * What differs between one document of the tag's lockfile and the same
+ * document of the branch's, outside what only `site` installs: the
+ * importers but `site` whose blocks differ, and the other entries (the
+ * top-level settings; each snapshot those importers reach, and its package).
+ */
+function documentDifferences(was, is, index) {
+  const importers = [...new Set([...was.importers.keys(), ...is.importers.keys()])].filter(
+    (name) => name !== SITE_IMPORTER && was.importers.get(name) !== is.importers.get(name),
+  );
+  const entries = was.rest === is.rest ? [] : [`its top-level settings (document ${index + 1})`];
+  for (const key of new Set([...reachedOutsideSite(was), ...reachedOutsideSite(is)])) {
+    if (was.snapshots.get(key) !== is.snapshots.get(key)) entries.push(`${key} (snapshot)`);
+    const pkg = packageKey(key);
+    if (was.packages.get(pkg) !== is.packages.get(pkg)) entries.push(`${pkg} (package)`);
+  }
+  return { importers, entries };
+}
+
+/**
+ * The site-only lockfile guard: an error unless the branch's lockfile
+ * installs, for every importer but `site`, exactly what the tag's does.
+ * Checked, document by document: the same number of documents; the same
+ * lines outside `importers`, `packages` and `snapshots` (the lockfile's
+ * version, settings, overrides); every importer's block but `site`'s the
+ * same; and every snapshot those importers reach, through `dependencies`
+ * and `optionalDependencies` at any depth, the same, its `packages` entry
+ * too. What only `site` reaches may change, come or go.
+ */
+function lockfileGuard({ tag, branch, lockfiles }) {
+  const guard = 'the site-only lockfile guard';
+  const refuse = (what) =>
+    `${branch} changes ${what} since ${tag}: ${guard} lets a release's docs branch change only what the site alone installs.`;
+  if (lockfiles === undefined) {
+    return `${branch} changes ${LOCKFILE} since ${tag}, and ${guard} needs the lockfile at both to check it.`;
+  }
+  const before = lockfileDocuments(lockfiles.tag);
+  const after = lockfileDocuments(lockfiles.branch);
+  const unreadable = [
+    [before, tag],
+    [after, branch],
+  ].find(([documents]) => documents.every((document) => document.importers.size === 0));
+  if (unreadable) {
+    return `${guard} finds no importers in ${LOCKFILE} at ${unreadable[1]}: it can't check what ${branch} changes.`;
+  }
+  if (before.length !== after.length) {
+    return refuse(`the number of documents in ${LOCKFILE} (${before.length} to ${after.length})`);
+  }
+  const differences = before.map((was, index) => documentDifferences(was, after[index], index));
+  const importers = [...new Set(differences.flatMap((d) => d.importers))];
+  if (importers.length > 0) {
+    return refuse(
+      `${LOCKFILE} outside the site importer (${importers.map(importerName).join(', ')})`,
+    );
+  }
+  const entries = differences.flatMap((d) => d.entries);
+  if (entries.length > 0) {
+    const more = entries.length > NAMED ? `, and ${entries.length - NAMED} more` : '';
+    return refuse(
+      `${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} of ${LOCKFILE} that importers other than site install (${entries.slice(0, NAMED).join(', ')}${more})`,
+    );
+  }
+  return undefined;
+}
+
+/**
  * Which git ref a release's docs build from (the pre-release on `/next/`
  * too). A release's docs are fixed after it ships on its
  * `release-docs/<version>` branch (reviewed through a PR, as every docs
@@ -103,24 +370,36 @@ export function redirects({ lines }) {
  * fails the build: it would put under the release's docs code the release
  * doesn't have.
  *
- * @param {{ tag: string, branch?: string, startsAtTag?: boolean, changed?: readonly string[] }} source
+ * The one exception is `pnpm-lock.yaml`, so a fix can bring a dependency of
+ * the site's own, behind the site-only lockfile guard (`lockfileGuard`):
+ * the build installs and builds the whole workspace from the branch's
+ * lockfile, so what every importer but `site` installs must be what it
+ * installs at the tag, down to each transitive package. Else the build
+ * fails, naming what differs.
+ *
+ * @param {{ tag: string, branch?: string, startsAtTag?: boolean, changed?: readonly string[], lockfiles?: { tag: string, branch: string } }} source
  *   `branch`: the release's docs branch, if there is one; `startsAtTag`: the
  *   tag is an ancestor of the branch; `changed`: the files the branch changes
- *   since the tag.
+ *   since the tag; `lockfiles`: `pnpm-lock.yaml` at the tag and at the branch,
+ *   when the branch changes it.
  * @returns {{ ref: string } | { error: string }}
  */
-export function docsSource({ tag, branch, startsAtTag = false, changed = [] }) {
+export function docsSource({ tag, branch, startsAtTag = false, changed = [], lockfiles }) {
   if (branch === undefined) return { ref: tag };
   if (!startsAtTag) {
     return {
       error: `${branch} doesn't start at ${tag}: a release's docs branch starts at its tag.`,
     };
   }
-  const outside = changed.filter((file) => !file.startsWith('site/'));
+  const outside = changed.filter((file) => !file.startsWith('site/') && file !== LOCKFILE);
   if (outside.length > 0) {
     return {
-      error: `${branch} changes files outside site/ since ${tag} (${outside.join(', ')}): a release's docs branch may change only its docs.`,
+      error: `${branch} changes files outside site/ since ${tag} (${outside.join(', ')}): a release's docs branch may change only its docs, and ${LOCKFILE} for the site's dependencies.`,
     };
+  }
+  if (changed.includes(LOCKFILE)) {
+    const error = lockfileGuard({ tag, branch, lockfiles });
+    if (error !== undefined) return { error };
   }
   return { ref: branch };
 }

@@ -76,6 +76,15 @@ export interface AdapterConfigCheckInput {
    * the factory refuses instead.
    */
   readonly identities?: AdapterIdentitiesPresent;
+  /**
+   * Whether the registration may sign in as the server: with credentials its
+   * environment holds (Google's Application Default Credentials, for Gemini
+   * on Vertex AI) or as the runtime's own cloud identities (`identities`:
+   * Azure OpenAI `auth: entra`, Bedrock `auth: aws-identity`). `false` under
+   * `KINDGI_TENANT_HOST_ACCESS=isolated`: such a registration is refused,
+   * naming what it needs instead. Absent: allowed.
+   */
+  readonly serverCredentials?: boolean;
 }
 
 /**
@@ -187,6 +196,15 @@ export interface AdapterFactoryInput {
    * has none; an adapter that needs one refuses, naming the setting.
    */
   readonly identities?: AdapterIdentities;
+  /**
+   * Whether the registration may sign in as the server: with credentials its
+   * environment holds (Google's Application Default Credentials, for Gemini
+   * on Vertex AI) or as the runtime's own cloud identities (`identities`:
+   * Azure OpenAI `auth: entra`, Bedrock `auth: aws-identity`). `false` under
+   * `KINDGI_TENANT_HOST_ACCESS=isolated`: such a registration is refused,
+   * naming what it needs instead. Absent: allowed.
+   */
+  readonly serverCredentials?: boolean;
 }
 
 /** The runtime's cloud identities an adapter may sign in with (`AdapterFactoryInput.identities`). */
@@ -242,6 +260,13 @@ export interface AdapterFactoryRegistryOptions {
    * when it registers.
    */
   readonly identities?: AdapterIdentities;
+  /**
+   * `false`: no registration may sign in as the server
+   * (`AdapterFactoryInput.serverCredentials`). Each entry's factory and check
+   * are told; `identities` is withheld, so each check learns there are none;
+   * and an input can't turn either back on.
+   */
+  readonly serverCredentials?: false;
 }
 
 /**
@@ -259,7 +284,7 @@ export function createAdapterFactoryRegistry(
   options: AdapterFactoryRegistryOptions = {},
 ): AdapterFactoryRegistry {
   const entries = new Map<string, AdapterFactoryEntry>();
-  const { identities } = options;
+  const { identities, serverCredentials } = options;
 
   function register(entry: AdapterFactoryEntry): void {
     if (entries.has(entry.adapterId)) {
@@ -269,7 +294,11 @@ export function createAdapterFactoryRegistry(
     }
     entries.set(
       entry.adapterId,
-      identities === undefined ? entry : withIdentities(entry, identities),
+      serverCredentials === false
+        ? withoutServerCredentials(entry)
+        : identities === undefined
+          ? entry
+          : withIdentities(entry, identities),
     );
   }
 
@@ -286,6 +315,20 @@ export function createAdapterFactoryRegistry(
     list(): readonly AdapterFactoryEntry[] {
       return [...entries.values()];
     },
+  };
+}
+
+/** An entry whose factory and check may not sign in as the server: told so, and given no identities. */
+function withoutServerCredentials(entry: AdapterFactoryEntry): AdapterFactoryEntry {
+  const none = identitiesPresent(undefined);
+  const { checkConfig } = entry;
+  return {
+    ...entry,
+    factory: ({ identities: _withheld, ...input }) =>
+      entry.factory({ ...input, serverCredentials: false }),
+    ...(checkConfig !== undefined && {
+      checkConfig: (input) => checkConfig({ ...input, identities: none, serverCredentials: false }),
+    }),
   };
 }
 

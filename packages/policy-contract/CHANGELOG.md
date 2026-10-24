@@ -1,5 +1,79 @@
 # @kindgi/policy-contract
 
+## 0.1.10
+
+### Patch Changes
+
+- @kindgi/types@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/types@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- @kindgi/types@0.1.10-rc.0
+
+## 0.1.9
+
+### Patch Changes
+
+- 66bb5eb: `GET /v1/policies/{policyId}/versions/{version}` answers for a retired (unregistered) version too, with its `unregisteredAt`, as the agent, flow, block and gate-policy version routes already do. It used to answer `404 policy-not-found`, so a link to a retired version from the versions list led nowhere. `PolicyRegistryBinding.getVersion` now returns a `PolicyVersionRow`: the contract already said a tombstoned version is returned, and its `unregisteredAt` is now part of the type. An active version carries no `unregisteredAt`. A version the retention sweep has purged is still `404`. The TypeScript client's `policies.getVersion` (the client now exports `PolicyVersionRow`) and the Python client's `policies.versions.get` return a `PolicyVersionRow`.
+- @kindgi/types@0.1.9
+
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/types@0.1.9-rc.1
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- 66bb5eb: `GET /v1/policies/{policyId}/versions/{version}` answers for a retired (unregistered) version too, with its `unregisteredAt`, as the agent, flow, block and gate-policy version routes already do. It used to answer `404 policy-not-found`, so a link to a retired version from the versions list led nowhere. `PolicyRegistryBinding.getVersion` now returns a `PolicyVersionRow`: the contract already said a tombstoned version is returned, and its `unregisteredAt` is now part of the type. An active version carries no `unregisteredAt`. A version the retention sweep has purged is still `404`. The TypeScript client's `policies.getVersion` (the client now exports `PolicyVersionRow`) and the Python client's `policies.versions.get` return a `PolicyVersionRow`.
+- @kindgi/types@0.1.9-rc.0
+
+## 0.1.8
+
+### Patch Changes
+
+- Updated dependencies [ebf405d]
+  - @kindgi/types@0.1.8
+
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- Updated dependencies [ebf405d]
+  - @kindgi/types@0.1.8-rc.0
+
+## 0.1.7
+
+### Patch Changes
+
+- b90e2c6: A page cursor a list didn't issue answers `400 bad-input` on the agents, flows, policies and eval-suites `/versions` lists and on an agent's promotions, instead of the first page again.
+  - **The bindings say so:** the agent, flow, policy and eval-suite registries gain an optional `issuedCursor(list: 'versions', cursor)`, and the promotions binding an optional `issuedCursor(list: 'promotions', cursor)`. The route asks before it reads the list, and answers `400 bad-input` ("`cursor` is malformed") when the binding says no. A binding without the method gets any cursor, as before.
+  - **Why:** a binding that reads a cursor it didn't issue as no cursor hands back the first page, so a client paging until done would start over. The cursor stays opaque to the API: only the binding that issued it knows its shape.
+  - **The OpenAPI document** now lists the `400` on these operations, and on the blocks and tools `/versions` lists, which already answered it.
+- Updated dependencies [b90e2c6]
+  - @kindgi/types@0.1.7
+
+## 0.1.7-rc.0
+
+### Patch Changes
+
+- b90e2c6: A page cursor a list didn't issue answers `400 bad-input` on the agents, flows, policies and eval-suites `/versions` lists and on an agent's promotions, instead of the first page again.
+  - **The bindings say so:** the agent, flow, policy and eval-suite registries gain an optional `issuedCursor(list: 'versions', cursor)`, and the promotions binding an optional `issuedCursor(list: 'promotions', cursor)`. The route asks before it reads the list, and answers `400 bad-input` ("`cursor` is malformed") when the binding says no. A binding without the method gets any cursor, as before.
+  - **Why:** a binding that reads a cursor it didn't issue as no cursor hands back the first page, so a client paging until done would start over. The cursor stays opaque to the API: only the binding that issued it knows its shape.
+  - **The OpenAPI document** now lists the `400` on these operations, and on the blocks and tools `/versions` lists, which already answered it.
+- Updated dependencies [b90e2c6]
+  - @kindgi/types@0.1.7-rc.0
+
 ## 0.1.6
 
 ### Patch Changes

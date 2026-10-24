@@ -7,14 +7,27 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide reads what a run's model calls cost, sums one customer's month,
+and gets each run's total when it finishes.
+
 Kindgi records every model call a run makes: the model, the tokens, and what
-the call cost at the prices its provider was registered with (see
-[Connect a model](../../models/)). Read the records of one run or of a flow's
-whole run, sum them for one customer's month, or get each run's total when it
-finishes. These costs are Kindgi's estimates from the vendors' published
-prices; your provider's invoice is what you pay.
+the call cost at the prices its provider was registered with, as
+[Models](../../models/) describes. These costs are Kindgi's estimates from
+the vendors' published prices. Your provider's invoice is what you pay.
+
+## Before you start
+
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.2's client: Node 22.12
+  or later, Python 3.11 or later, or Java 17 or later.
+- **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set, or a running
+  `kindgi dev`, which the client finds.
+- **A run's id,** to read its calls. `kindgi runs list` shows it.
 
 ## A run's calls
+
+Read the records of one run. Ask your coding agent: "I want to see what each
+model call in a run cost." For reference, the code looks like this. Each
+script takes the run's id as its first argument:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -50,9 +63,63 @@ for call in calls.data:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/RunCost.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.CostRecord;
+import com.kindgi.client.models.CostRecordCollectionPage;
+import com.kindgi.client.resources.CostRecordsListParams;
+import java.util.UUID;
+
+public final class RunCost {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    CostRecordCollectionPage calls = kindgi.cost().records().list(
+        CostRecordsListParams.builder().runId(UUID.fromString(args[0])).build());
+    for (CostRecord call : calls.data()) {
+      System.out.println(call.step() + " " + call.model() + " " + call.status() + " "
+          + (call.usage() == null ? null : call.usage().promptTokens()) + " "
+          + (call.usage() == null ? null : call.usage().completionTokens()) + " " + call.costUsd());
+    }
+  }
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/RunCost.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.resources.CostRecordsListParams
+import java.util.UUID
+import scala.jdk.CollectionConverters._
+
+object RunCost {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    val calls = kindgi.cost().records().list(CostRecordsListParams.builder().runId(UUID.fromString(args(0))).build())
+    for (call <- calls.data.asScala) {
+      val usage = Option(call.usage)
+      println(s"${call.step} ${call.model} ${call.status} ${usage.map(_.promptTokens).orNull} " +
+        s"${usage.map(_.completionTokens).orNull} ${call.costUsd}")
+    }
+  }
+}
+```
+
+</TabItem>
 </Tabs>
 
-For an agent turn that called a tool once, both print two model calls, the
+For an agent turn that called a tool once, each prints two model calls, the
 newest first:
 
 ```text
@@ -105,10 +172,10 @@ Each record is one model call:
 | `providerRequestId` | The provider's id for the request, to quote to its support. Not every provider sends one. |
 | `callId` | The call's id. The model call's node in the turn's [provenance](../trace-an-answer/) has the same `callId`. |
 
-To see the usage exactly as the provider sent it, add `includeRawUsage: true`
-(Python: `include="rawUsage"`). Each record then has `rawUsage`:
+To see the usage exactly as the provider sent it, add `includeRawUsage: true`,
+or `include="rawUsage"` in Python. Each record then has `rawUsage`:
 
-```json
+```json excerpt
 "rawUsage": {
   "provider": "anthropic",
   "model": "claude-sonnet-5-5",
@@ -120,20 +187,37 @@ To see the usage exactly as the provider sent it, add `includeRawUsage: true`
 
 Each agent step of a flow runs as a run of its own, under the flow's run. The
 flow's run makes no model calls itself, so ask for its whole tree with
-`rootRunId`:
+`rootRunId`. Ask your coding agent: "I want the cost of a flow's whole run."
+For reference, the call looks like this, where `flowRunId` is the flow run's
+id:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-```ts
+```ts excerpt
 const calls = await kindgi.cost.usage.query({ rootRunId: flowRunId });
 ```
 
 </TabItem>
 <TabItem label="Python">
 
-```python
+```python excerpt
 calls = kindgi.cost.records.list(root_run_id=flow_run_id)
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+CostRecordCollectionPage calls =
+    kindgi.cost().records().list(CostRecordsListParams.builder().rootRunId(flowRunId).build());
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+val calls = kindgi.cost().records().list(CostRecordsListParams.builder().rootRunId(flowRunId).build())
 ```
 
 </TabItem>
@@ -145,8 +229,11 @@ flow's run.
 ## One customer's month
 
 Give each of your customers an org, and run their work in a project of that
-org ([Organize work by org and project](../../projects/organize-by-org-and-project/)).
-One call then sums a customer's spend, here by month and model:
+org, as
+[Organize work by org and project](../../projects/organize-by-org-and-project/)
+shows. One call then sums a customer's spend, here by month and model. Ask
+your coding agent: "I want to see what one customer spent this month, by
+model." For reference, the script looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -217,6 +304,110 @@ print(json.dumps(month.model_dump(mode="json", by_alias=True, exclude_none=True)
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/CustomerCost.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.KindgiJson;
+import com.kindgi.client.models.CostAggregateResult;
+import com.kindgi.client.models.CreateResourceResult;
+import com.kindgi.client.models.OrgSpec;
+import com.kindgi.client.models.ProjectSpec;
+import com.kindgi.client.models.ScopeKind;
+import com.kindgi.client.models.StartRunBody;
+import com.kindgi.client.resources.CostAggregateParams;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.Map;
+import java.util.UUID;
+
+public final class CustomerCost {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    // Once per customer: an org, and a project in it.
+    CreateResourceResult org = kindgi.orgs().create(
+        OrgSpec.builder().slug("acme-customer-one").name("Customer one").build());
+    CreateResourceResult project = kindgi.projects().create(
+        ProjectSpec.builder().orgId(org.id()).slug("support").name("Support").build());
+
+    // Each run for that customer names the project.
+    kindgi.runs().start(StartRunBody.WithAgent.builder()
+        .agent("acme-ops.echo-agent")
+        .input(Map.of("userMessage", "Echo hello."))
+        .projectId(UUID.fromString(project.id()))
+        .build());
+
+    // The customer's month so far, by model.
+    OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+    CostAggregateResult month = kindgi.cost().aggregate(CostAggregateParams.builder()
+        .scopeKind(ScopeKind.ORG)
+        .scopeId(org.id())
+        .from(now.withDayOfMonth(1).toLocalDate().atStartOfDay().atOffset(ZoneOffset.UTC))
+        .to(now)
+        .groupBy("month,model")
+        .build());
+    System.out.println(KindgiJson.write(month));
+  }
+}
+```
+
+`groupBy` takes the dimensions comma-separated, as the API does.
+`KindgiJson.write` prints the answer as JSON on one line; the answer below
+is indented to read.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/CustomerCost.scala
+package acme.app
+
+import com.kindgi.client.{Kindgi, KindgiJson}
+import com.kindgi.client.models.{OrgSpec, ProjectSpec, ScopeKind, StartRunBody}
+import com.kindgi.client.resources.CostAggregateParams
+import java.time.{OffsetDateTime, ZoneOffset}
+import java.util.UUID
+import scala.jdk.CollectionConverters._
+
+object CustomerCost {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    // Once per customer: an org, and a project in it.
+    val org = kindgi.orgs().create(OrgSpec.builder().slug("acme-customer-one").name("Customer one").build())
+    val project = kindgi.projects().create(
+      ProjectSpec.builder().orgId(org.id).slug("support").name("Support").build())
+
+    // Each run for that customer names the project.
+    kindgi.runs().start(StartRunBody.WithAgent.builder()
+      .agent("acme-ops.echo-agent")
+      .input(Map("userMessage" -> "Echo hello.").asJava)
+      .projectId(UUID.fromString(project.id))
+      .build())
+
+    // The customer's month so far, by model.
+    val now = OffsetDateTime.now(ZoneOffset.UTC)
+    val month = kindgi.cost().aggregate(CostAggregateParams.builder()
+      .scopeKind(ScopeKind.ORG)
+      .scopeId(org.id)
+      .from(now.withDayOfMonth(1).toLocalDate.atStartOfDay.atOffset(ZoneOffset.UTC))
+      .to(now)
+      .groupBy("month,model")
+      .build())
+    println(KindgiJson.write(month))
+  }
+}
+```
+
+`groupBy` takes the dimensions comma-separated, as the API does.
+`KindgiJson.write` prints the answer as JSON on one line; the answer below
+is indented to read.
+
+</TabItem>
 </Tabs>
 
 The sum covers only that customer's runs:
@@ -241,27 +432,32 @@ The sum covers only that customer's runs:
 }
 ```
 
-- **`scope`** narrows the sum to an org (`{ kind: 'org', orgId }`) or a
-  project (`{ kind: 'project', projectId }`). Python: `scope_kind` and
-  `scope_id`.
-- **Who sees what:** the sum needs `read` on its scope. Across projects
-  (no scope, or an org), it counts only the projects the caller may read,
-  and records with no project; a tenant admin's sum counts every project.
+- **`scope`** narrows the sum to an org, `{ kind: 'org', orgId }`, or a
+  project, `{ kind: 'project', projectId }`. In Python, it's `scope_kind`
+  and `scope_id`.
+- **Who sees what:** the sum needs `read` on its scope. Across projects,
+  with no scope or an org, it counts only the projects the caller may read,
+  and records with no project. A tenant admin's sum counts every project.
   Where the deployment's cost store can't apply the limit, anyone but a
-  tenant admin is refused (`403`).
-- **`from` and `to`**: the time window; `to` is exclusive.
-- **The groups** come most expensive first, at most 1000 of them; `?limit=`
-  on the API (Python: `limit=`), up to 10000, sets another cap. `truncated` says whether some were left
-  out, and `totalGroups` how many there were; the totals always cover every
-  record. To read every record instead, page through
-  [`cost.usage.query`](#a-runs-calls).
+  tenant admin is refused with `403`.
+- **`from` and `to`**: the time window. `to` is exclusive.
+- **The groups** come most expensive first, at most 1000 of them. `?limit=`
+  on the API, or `limit=` in Python, sets another cap, up to 10000.
+  `truncated` says whether some were left out, and `totalGroups` how many
+  there were. The totals always cover every record. To read every record
+  instead, page through [`cost.usage.query`](#a-runs-calls).
 - **`groupBy`** splits the sum. Besides `month` and `model`: `day`, `orgId`,
   `projectId`, `agentId`, `flowId`, `runId`, `rootRunId`, `conversationId`,
   `providerId`, `servedModel`, `category` and `tenant`. With no `groupBy`,
   you get the totals only.
+- **Filters** narrow what's summed, as they narrow `cost.usage.query`.
+  `flowId` keeps one flow's spend: every record of the run trees whose root
+  is a run of that flow, whatever its version. With `groupBy` `day`, that's
+  the flow's spend by day. In Python, it's `flow_id`. It needs runtime
+  0.1.9 or later: an earlier one ignores it and sums every flow.
 
-A tool can check that a run belongs to the right customer: see
-[Check the run's org](../../tools/write-a-tool/#check-the-runs-org).
+A tool can check that a run belongs to the right customer, as
+[Check the run's org](../../tools/write-a-tool/#check-the-runs-org) shows.
 
 ## When a run finishes
 
@@ -326,8 +522,8 @@ failed call costs $0.
 ### A project's cost
 
 Anyone who can read the project sees its **Cost** page: what its model calls
-cost over a range (**7 days**, **30 days**, **90 days**, **12 months** or
-**Custom**), against the range before.
+cost over a range, against the range before. The range is **7 days**,
+**30 days**, **90 days**, **12 months** or **Custom**.
 
 ![A project's Cost page over 30 days: "$24.17 in the last 30 days, 77% more than the 30 days before.", "1,508 model calls · 8.4M tokens", spend by day stacked by agent, and Where it went by agent, with its Columns menu and Support agent at $15.00 (62%), 33% more than the 30 days before.](../../../../assets/cost/cost-30d.png)
 
@@ -338,8 +534,10 @@ cost over a range (**7 days**, **30 days**, **90 days**, **12 months** or
   **Show as a table** gives the numbers. Over 12 months it's by month.
 - **Where it went:** **By agent**, **By model**, **By flow** or **By kind**,
   the costliest against the range before ("33% more (was $11.28)", "new").
-  An agent's or a model's row filters the page to it. The table sorts by
-  a column's header, and **Columns** chooses which columns it shows.
+  An agent's or a model's row filters the page to it. So does a flow's,
+  and a flow's page opens this page filtered to that flow with **Cost**
+  (both runtime 0.1.9 or later). The table sorts by a column's header, and
+  **Columns** chooses which columns it shows.
 - **Biggest changes:** against the range before, by dollars ("Research
   agent new: $8.57", "Legacy summarizer −$1.81 (none now)").
 - **Per-turn caps:** each agent with a budget for one turn, and how close its
@@ -348,8 +546,8 @@ cost over a range (**7 days**, **30 days**, **90 days**, **12 months** or
 - **Details:** the token split, and the exact
   [`GET /v1/cost/aggregate`](#one-customers-month) queries the page made.
 
-The range and the breakdown are in the page's address, so a link opens the
-same view.
+The range, the filters and the breakdown are in the page's address, so a
+link opens the same view.
 
 ### A run's cost
 
@@ -388,5 +586,11 @@ project's Cost page.
 - **Biggest changes** and **Details,** as on a project's page.
 
 Anyone else who opens it is pointed to each project's Cost page instead. As
-with the API (see [One customer's month](#one-customers-month)), a person's
+with the API in [One customer's month](#one-customers-month), a person's
 numbers count only the projects they may read.
+
+## Next
+
+- [Trace an answer and its cost](../trace-an-answer/)
+- [Set an agent's budget](../../agents/budgets/)
+- [Organize work by org and project](../../projects/organize-by-org-and-project/)

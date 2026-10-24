@@ -246,14 +246,18 @@ export type KindgiJavaSource =
 
 /** What a Java or Scala pack's "preview" means, said wherever one is made. */
 export const JVM_PREVIEW =
-  'Java and Scala support is in preview: tested and supported, but the API may still change in 0.1.6 without the usual deprecation period.';
+  'Java and Scala support is in preview: tested and supported, but the API may still change in a later release without the usual deprecation period.';
 
 /**
  * The resolver an sbt build needs for kindgi-pack: none from Maven Central;
- * the local Maven repository for a checkout's (`./mvnw install` puts it there).
+ * for a checkout's, the local Maven repository (`./mvnw install` puts it
+ * there), before Maven Central: the checkout's version can be one already
+ * released there, and that jar lacks what the checkout has added since.
  */
 export function sbtLocalResolver(source: KindgiJavaSource): string | undefined {
-  return source.kind === 'local-checkout' ? 'resolvers += Resolver.mavenLocal' : undefined;
+  return source.kind === 'local-checkout'
+    ? 'externalResolvers := Resolver.mavenLocal +: externalResolvers.value'
+    : undefined;
 }
 
 export async function resolveKindgiJavaSource(

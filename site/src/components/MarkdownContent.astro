@@ -1,0 +1,32 @@
+---
+/*
+ * Starlight's page content, plus "See also" at the end of each HTTP API
+ * operation page (from `scripts/reference/api-see-also.mjs`). It goes
+ * inside `.sl-markdown-content`, so the page's Markdown copy has it too.
+ */
+import Default from '@astrojs/starlight/components/MarkdownContent.astro';
+
+import seeAlso from '../../generated/api-see-also.json';
+
+const base = import.meta.env.BASE_URL.replace(/\/?$/, '/');
+const slug = Astro.url.pathname.slice(base.length).replace(/\/$/, '');
+const links = (seeAlso as Record<string, { html: string; href: string }[]>)[slug];
+---
+
+<Default>
+  <slot />
+  {
+    links && (
+      <>
+        <h2 id="see-also">See also</h2>
+        <ul>
+          {links.map((link) => (
+            <li>
+              <a href={link.href} set:html={link.html} />
+            </li>
+          ))}
+        </ul>
+      </>
+    )
+  }
+</Default>

@@ -3,7 +3,7 @@
 
 import semver from 'semver';
 
-import type { Result, TenantId, ToolId } from '@kindgi/types';
+import type { OrgId, ProjectId, Result, TenantId, ToolId } from '@kindgi/types';
 
 import type {
   DuplicateToolVersionError,
@@ -79,6 +79,18 @@ export interface ToolRegistry {
    * turn's tools through the returned registry.
    */
   forTenant(tenantId: TenantId): Promise<ToolRegistry>;
+  /**
+   * The registry for one project of a tenant: only the tools a run in
+   * `projectId` may reach (the deployment's rule; the Kindgi runtime's:
+   * the project's own, and an MCP endpoint's scoped to it, its org or the
+   * tenant). Callers that resolve a run's tools use it when present, else
+   * `forTenant`. Absent: every tool of the tenant is reachable.
+   */
+  forProject?(input: {
+    readonly tenantId: TenantId;
+    readonly projectId: ProjectId;
+    readonly orgId?: OrgId;
+  }): Promise<ToolRegistry>;
   /**
    * Optional cache invalidation. Storage-backed implementations call
    * this from the write path (`POST /v1/tools`, unregister, reinstate)

@@ -7,6 +7,9 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide moves an agent's prompt and settings into data blocks, so the
+people who know the work change them and make a new agent version, with no
+code change and no deploy.
 
 A **data block** is a prompt, or a set of settings, kept in the runtime
 instead of in your code. Each change is a new version of the block, and an
@@ -22,6 +25,17 @@ There are two kinds:
 - **A settings block** is a JSON object of values, with an optional JSON
   Schema they must satisfy. The agent's instructions and its tools read them.
 
+## Before you start
+
+- **An agent to change,** in a pack on a runtime such as `kindgi dev`, with
+  Kindgi 0.2's CLI. This guide uses the reply drafter from
+  [Give an agent its input](../../agents/give-an-agent-input/).
+- **The project's id:** `kindgi projects get-default` prints the Default
+  project, with its `id`.
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
+  Java 17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
+
 ## Publish the blocks
 
 The examples on this page move the reply drafter's instructions from
@@ -29,7 +43,15 @@ The examples on this page move the reply drafter's instructions from
 block, `acme.reply-prompt`, and add a settings block, `acme.reply-style`:
 how long a reply may be, and up to what amount a refund needs no approval.
 
-A prompt block with parameters is published from a JSON file:
+A prompt block with parameters is published from a JSON file. Ask your
+coding agent to write the prompt block:
+
+```text
+I want my agent's instructions in a prompt block, with the tone as a parameter.
+```
+
+For reference, the block it writes looks like this. This guide saves it as
+`reply-prompt.json`:
 
 ```json
 {
@@ -47,10 +69,53 @@ A prompt block with parameters is published from a JSON file:
 }
 ```
 
+Publish it, and the settings block:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi blocks publish --project=<project-id> @reply-prompt.json
-kindgi blocks publish acme.reply-style --block-version=1.0.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":50}' --schema=@reply-style.schema.json
+pnpm exec kindgi blocks publish --project=<project-id> @reply-prompt.json
+pnpm exec kindgi blocks publish acme.reply-style --block-version=1.0.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":50}' --schema=@reply-style.schema.json
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi blocks publish --project=<project-id> @reply-prompt.json
+uv run kindgi blocks publish acme.reply-style --block-version=1.0.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":50}' --schema=@reply-style.schema.json
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw blocks publish --project=<project-id> @reply-prompt.json
+./kindgiw blocks publish acme.reply-style --block-version=1.0.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":50}' --schema=@reply-style.schema.json
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw blocks publish --project=<project-id> @reply-prompt.json
+./kindgiw blocks publish acme.reply-style --block-version=1.0.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":50}' --schema=@reply-style.schema.json
+```
+
+</TabItem>
+</Tabs>
+
+- `--project=<project-id>` is the project the block lives in, where
+  `<project-id>` is its id.
+- `@reply-prompt.json` reads the whole block from the file.
+- `acme.reply-style` and `--block-version` are the settings block's id and
+  version.
+- `--settings` is its values, as JSON.
+- `--schema=@reply-style.schema.json` reads the JSON Schema its values must
+  satisfy from a file.
+
+Each prints the block's id and version. The second prints:
 
 ```json
 {
@@ -62,25 +127,24 @@ kindgi blocks publish acme.reply-style --block-version=1.0.0 --project=<project-
 - **The template reads a settings block** as
   `{{ settings["acme.reply-style"].maxSentences }}`: the block's id in quotes,
   then the key.
-- **Blocks live in a project.** `kindgi projects get-default` prints the
-  Default project, with its `id`.
-- **A settings block's schema** (`--schema`, a JSON Schema) checks its values,
-  and later versions' too: a version published without one keeps the latest
-  version's, a version that gives one replaces it, and `--schema='{}'` drops
-  the check on purpose. Values that don't fit are refused:
+- **A settings block's schema** checks its values, and later versions' too.
+  A version published without one keeps the latest version's. A version that
+  gives one replaces it, and `--schema='{}'` drops the check on purpose.
+  Values that don't fit are refused:
 
   ```text
   Block "acme.reply-style" can't take this version
     ✗ /content/values/refundLimit: must be >= 0 (the schema of version 1.0.0)
   ```
 
-`kindgi blocks list`, `show` and `versions` read them; `unregister` and
+`kindgi blocks list`, `show` and `versions` read them. `unregister` and
 `reinstate` retire a version and bring it back.
 
 ## Use them in an agent
 
 The agent names its prompt block and its settings blocks by range, as it names
-its tools:
+its tools. Ask your coding agent: "Have my agent use its prompt block and
+settings block." For reference, the agent looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -116,7 +180,7 @@ from kindgi import Agent
 from ..tools.refund_check import refund_check
 
 reply_drafter = Agent(
-    id="my-pack.reply-drafter",
+    id="acme-ops.reply-drafter",
     version="1.0.0",
     name="Reply drafter",
     instructions={"prompt": "acme.reply-prompt", "version": "^1.0.0"},
@@ -127,11 +191,61 @@ reply_drafter = Agent(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acmeops/agents/ReplyDrafter.java
+package acmeops.agents;
+
+import acmeops.tools.RefundCheck;
+import com.kindgi.pack.Agent;
+import java.util.List;
+import java.util.Map;
+
+public final class ReplyDrafter {
+  public static final Agent AGENT = Agent.define("acme-ops.reply-drafter")
+      .version("1.0.0")
+      .name("Reply drafter")
+      .instructions(Map.of("prompt", "acme.reply-prompt", "version", "^1.0.0"))
+      .set("settings", List.of(Map.of("id", "acme.reply-style", "version", "^1.0.0")))
+      .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
+      .tool(RefundCheck.TOOL)
+      .build();
+
+  private ReplyDrafter() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acmeops/agents/ReplyDrafter.scala
+package acmeops.agents
+
+import acmeops.tools.RefundCheck
+import com.kindgi.pack.scaladsl._
+
+object ReplyDrafter {
+  val agent: Agent = Agent("acme-ops.reply-drafter")
+    .version("1.0.0")
+    .name("Reply drafter")
+    .instructions(Map("prompt" -> "acme.reply-prompt", "version" -> "^1.0.0"))
+    .set("settings", Seq(Map("id" -> "acme.reply-style", "version" -> "^1.0.0")))
+    .capability(Map("needs" -> Seq(Map("feature" -> "tool-use"))))
+    .tool(RefundCheck.tool)
+    .build()
+}
+```
+
+</TabItem>
 </Tabs>
 
 The prompt block brings its parameters, so the agent declares none. A tool
 reads the settings blocks of the agent version that calls it, as
-`ctx.settings`:
+`ctx.settings`. Ask your coding agent: "I want a tool that says whether a
+refund needs a person's approval, with the limit from my settings block." For
+reference, the tool looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -180,7 +294,7 @@ class RefundCheck(BaseModel):
     limit: float
 
 
-@tool(id="my-pack.refund-check", mutating=False)
+@tool(id="acme-ops.refund-check", mutating=False)
 def refund_check(refund: RefundAmount, ctx: ToolContext) -> RefundCheck:
     """Says whether a refund of this amount needs a person to approve it."""
     # The agent version's settings block: an expert changes the limit, not this code.
@@ -189,13 +303,111 @@ def refund_check(refund: RefundAmount, ctx: ToolContext) -> RefundCheck:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acmeops/tools/RefundCheck.java
+package acmeops.tools;
+
+import com.kindgi.pack.Tool;
+import jakarta.validation.constraints.Positive;
+import java.util.Map;
+
+public final class RefundCheck {
+  public record Input(@Positive double amount) {}
+
+  public record Output(boolean needsApproval, double limit) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("acme-ops.refund-check")
+      .description("Says whether a refund of this amount needs a person to approve it.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      .mutating(false)
+      .handler((input, ctx) -> {
+        // The agent version's settings block: an expert changes the limit, not this code.
+        Map<String, Object> style = ctx.settings().getOrDefault("acme.reply-style", Map.of());
+        double limit = style.get("refundLimit") instanceof Number n ? n.doubleValue() : 0;
+        return new Output(input.amount() > limit, limit);
+      });
+
+  private RefundCheck() {}
+}
+```
+
+`ctx.settings()` maps each settings block the calling agent version pins, by
+id, to its values.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acmeops/tools/RefundCheck.scala
+package acmeops.tools
+
+import com.kindgi.pack.scaladsl._
+import jakarta.validation.constraints.Positive
+
+object RefundCheck {
+  final case class Input(@Positive amount: Double)
+  final case class Output(needsApproval: Boolean, limit: Double)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme-ops.refund-check")
+    .description("Says whether a refund of this amount needs a person to approve it.")
+    .version("0.1.0")
+    .readOnly
+    .handler { (input, ctx) =>
+      // The agent version's settings block: an expert changes the limit, not this code.
+      val limit = Option(ctx.settings.get("acme.reply-style")).flatMap(s => Option(s.get("refundLimit"))) match {
+        case Some(n: Number) => n.doubleValue
+        case _ => 0.0
+      }
+      Output(needsApproval = input.amount > limit, limit = limit)
+    }
+}
+```
+
+`ctx.settings` maps each settings block the calling agent version pins, by
+id, to its values (a Java map).
+
+</TabItem>
 </Tabs>
 
 A run passes the prompt's parameters as it does an agent's own:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme-ops.reply-drafter --input='{"userMessage":"I was charged twice for my $80 order. Can I get my money back?","parameters":{"tone":"friendly"}}'
+pnpm exec kindgi runs start --agent=acme-ops.reply-drafter --input='{"userMessage":"I was charged twice for my $80 order. Can I get my money back?","parameters":{"tone":"friendly"}}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme-ops.reply-drafter --input='{"userMessage":"I was charged twice for my $80 order. Can I get my money back?","parameters":{"tone":"friendly"}}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme-ops.reply-drafter --input='{"userMessage":"I was charged twice for my $80 order. Can I get my money back?","parameters":{"tone":"friendly"}}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme-ops.reply-drafter --input='{"userMessage":"I was charged twice for my $80 order. Can I get my money back?","parameters":{"tone":"friendly"}}'
+```
+
+</TabItem>
+</Tabs>
+
+`--input`'s `parameters` are the prompt's parameters: here, `tone`. The run's
+`appended` messages show the tool reading the settings block's limit:
 
 ```json
 "appended": [
@@ -206,8 +418,9 @@ kindgi runs start --agent=acme-ops.reply-drafter --input='{"userMessage":"I was 
 ]
 ```
 
-The run's journal (`kindgi runs journal <run-id>`) has the versions it used,
-in its `setup` step, and the instructions as rendered, in `render-prompt`:
+The run's journal, which `kindgi runs journal <run-id>` prints, has the
+versions it used, in its `setup` step. It has the instructions as rendered,
+in `render-prompt`:
 
 ```text
 { "blockVersions": { "prompts": { "acme.reply-prompt": "1.0.0" }, "settings": { "acme.reply-style": "1.0.0" } } }
@@ -218,8 +431,8 @@ in its `setup` step, and the instructions as rendered, in `render-prompt`:
 agent's ranges, so a block version you publish is used at the next run.
 
 **A published agent version pins them.** When it's published, by
-`kindgi deploy` or the API, each range resolves once, like its tools'
-([Agent and tool versions](../../agents/agent-and-tool-versions/)):
+`kindgi deploy` or the API, each range resolves once, like its tools', as
+[Agent and tool versions](../../agents/agent-and-tool-versions/) describes:
 
 ```json
 {
@@ -234,29 +447,66 @@ agent's ranges, so a block version you publish is used at the next run.
 }
 ```
 
-A block version that's missing, of the wrong kind or, for model settings,
-with values a model can't take, refuses the publish, naming each:
+A block version that's missing or of the wrong kind refuses the publish,
+naming each. So do model settings with values a model can't take:
 `Agent "acme-ops.reply-drafter" uses tool or data-block versions it can't pin (1 issue)`.
 
-**Model settings** are a settings block the agent names as `modelSettings`:
-`{ "temperature": 0.2, "maxOutputTokens": 400 }` (a temperature from 0 to 2).
-Its model calls use them, and the version pins the block with its other
-settings. A reply that reaches `maxOutputTokens` stops there, mid-sentence if
-need be, and the run still completes. Some models take no temperature (the
-Claude 5.5 and GPT-6 models): their calls go without it, and the turn carries a
-`sampling-unsupported` warning (see
-[Temperature and thinking](../../models/#temperature-and-thinking)). A model
-that thinks spends part of `maxOutputTokens` on thinking.
+**Model settings** are a settings block the agent names as `modelSettings`,
+such as `{ "temperature": 0.2, "maxOutputTokens": 400 }`. A temperature goes
+from 0 to 2. Its model calls use them, and the version pins the block with
+its other settings.
+
+- **A reply that reaches `maxOutputTokens` stops there,** mid-sentence if
+  need be, and the run still completes.
+- **Some models take no temperature,** such as the Claude 5.5 and GPT-6
+  models. Their calls go without it, and the turn carries a
+  `sampling-unsupported` warning, as
+  [Temperature and thinking](../../models/#temperature-and-thinking)
+  describes.
+- **A model that thinks** spends part of `maxOutputTokens` on thinking.
 
 ## Change a block
 
-A change is a new version of the block. With the CLI:
+A change is a new version of the block, so the people who know the work
+change the values, not the code. With the CLI:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi blocks publish acme.reply-style --block-version=1.1.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":100}'
+pnpm exec kindgi blocks publish acme.reply-style --block-version=1.1.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":100}'
 ```
 
-From your code, an admin page of your own for example:
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi blocks publish acme.reply-style --block-version=1.1.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":100}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw blocks publish acme.reply-style --block-version=1.1.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":100}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw blocks publish acme.reply-style --block-version=1.1.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":100}'
+```
+
+</TabItem>
+</Tabs>
+
+`--block-version=1.1.0` is the new version, and `--settings` its values: a
+higher refund limit. It prints the block's id and version.
+
+From your code, such as an admin page of your own, ask your coding agent: "I
+want to publish a new version of my settings block from my app." For
+reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -307,7 +557,82 @@ print([block.version for block in versions.data])
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/PublishBlock.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.Block;
+import com.kindgi.client.models.BlockKind;
+import com.kindgi.client.models.Project;
+import com.kindgi.client.models.PublishBlockBody;
+import com.kindgi.client.models.SettingsBlockContent;
+import java.util.Map;
+import java.util.UUID;
+
+public final class PublishBlock {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+    Project project = kindgi.projects().getDefault();
+
+    // The settings block's next version: a higher refund limit, and no code change.
+    kindgi.blocks().publish(PublishBlockBody.builder()
+        .projectId(UUID.fromString(project.id()))
+        .id("acme.reply-style")
+        .version("1.1.0")
+        .kind(BlockKind.SETTINGS)
+        .content(SettingsBlockContent.builder().values(Map.of("maxSentences", 3, "refundLimit", 100)).build())
+        .build());
+
+    System.out.println(kindgi.blocks().versions().list("acme.reply-style").data().stream()
+        .map(Block::version).toList());
+  }
+}
+```
+
+It prints the versions below without quotes: `[1.1.0, 1.0.0]`.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/PublishBlock.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{BlockKind, PublishBlockBody, SettingsBlockContent}
+import java.util.UUID
+import scala.jdk.CollectionConverters._
+
+object PublishBlock {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+    val project = kindgi.projects().getDefault()
+
+    // The settings block's next version: a higher refund limit, and no code change.
+    kindgi.blocks().publish(PublishBlockBody.builder()
+      .projectId(UUID.fromString(project.id))
+      .id("acme.reply-style")
+      .version("1.1.0")
+      .kind(BlockKind.SETTINGS)
+      .content(SettingsBlockContent.builder()
+        .values(Map[String, AnyRef]("maxSentences" -> Int.box(3), "refundLimit" -> Int.box(100)).asJava)
+        .build())
+      .build())
+
+    println(kindgi.blocks().versions().list("acme.reply-style").data.asScala.map(_.version).mkString("[", ", ", "]"))
+  }
+}
+```
+
+It prints the versions below without quotes: `[1.1.0, 1.0.0]`.
+
+</TabItem>
 </Tabs>
+
+It prints the block's versions, newest first:
 
 ```text
 [ '1.1.0', '1.0.0' ]
@@ -323,9 +648,42 @@ running the versions it pins. To use the new one, **derive** an agent version:
 the same agent, with some of its block pins swapped. It needs no code change
 and no deploy.
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
+pnpm exec kindgi agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
+```
+
+</TabItem>
+</Tabs>
+
+- `--from=1.0.0` is the version to start from.
+- `--setting=acme.reply-style=1.1.0` swaps in that settings block version.
+- `--label` says what changed.
+
+It prints the new agent version:
 
 ```json
 {
@@ -346,7 +704,8 @@ kindgi agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-st
 }
 ```
 
-From your code:
+From your code, ask your coding agent: "I want a new version of my agent that
+uses the new refund limit." For reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -391,9 +750,9 @@ print(derived.version, derived.pins.settings if derived.pins else None, derived.
 
 - **The new version is the next free patch** after the highest one, and
   `derivedFrom` says where it came from. Runs choose it like any other version.
-  The same swap again returns that version (`200`), not a new one.
-- **Swap prompts with `--prompt=<block-id>=<version>`** (`pins.prompts` in
-  the clients) and settings with `--setting`; repeat either for several.
+  The same swap again returns that version, with `200`, not a new one.
+- **Swap prompts with `--prompt=<block-id>=<version>`,** or `pins.prompts` in
+  the clients, and settings with `--setting`. Repeat either for several.
 - **Only blocks the version already uses** can be swapped, and only on a
   version that has pins.
 - **Under `kindgi dev`, there's nothing to derive:** each run already uses
@@ -406,14 +765,14 @@ print(derived.version, derived.pins.settings if derived.pins else None, derived.
 Before anyone uses the new version,
 [compare it on a test set](../compare-an-agent-version/). Because 1.0.1 pins
 another settings block version than 1.0.0, the comparison runs read-only
-tools such as `acme-ops.refund-check` live rather than reusing the recorded
-results, so the new refund limit shows in the answers. Those cases count as
+tools such as `acme-ops.refund-check` live, rather than reusing the recorded
+results. So the new refund limit shows in the answers. Those cases count as
 `diverged`, which a gate with `replay` and `maxDiverged: 0` refuses.
 
 ## In the console
 
 A project's **Data blocks** section lists its blocks. A block's page shows its
-template or values, its versions (with **Retire**), and the agents using it.
+template or values, its versions with **Retire**, and the agents using it.
 
 1. **Edit as a new version** starts from the version you're viewing and
    proposes the next number, with an optional note for this version.
@@ -428,3 +787,9 @@ a derived version came from: "Derived from 1.0.0 with new data-block versions
 
 Under `kindgi dev`, a block's page says each pack agent "Runs the newest
 version in ^1.0.0 on each run (kindgi dev)", and offers no derive.
+
+## Next
+
+- [Compare a version on a test set](../compare-an-agent-version/)
+- [Release an agent version](../release-an-agent-version/)
+- [Propose a change, and test it](../propose-a-change/)

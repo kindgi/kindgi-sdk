@@ -125,7 +125,13 @@ export function readBedrockConfig(
         "adapter_config.auth = aws-identity (the default) signs in as the runtime's AWS identity: remove secret_ref, or set auth = api-key for a Bedrock API key.",
     });
   }
-  if (auth === 'aws-identity' && input.identities?.aws === false) {
+  if (auth === 'aws-identity' && input.serverCredentials === false) {
+    problems.push({
+      path: at('auth'),
+      message:
+        "adapter_config.auth = aws-identity (the default) signs in as the runtime's own AWS identity, which this deployment doesn't let tenant configuration use (KINDGI_TENANT_HOST_ACCESS). Set auth = api-key, with secret_ref naming a Bedrock API key.",
+    });
+  } else if (auth === 'aws-identity' && input.identities?.aws === false) {
     problems.push({
       path: at('auth'),
       message:

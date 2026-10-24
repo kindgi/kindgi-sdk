@@ -168,7 +168,13 @@ export function readAzureOpenAIConfig(
         "adapter_config.auth = entra signs in as the runtime's Azure identity: remove secret_ref.",
     });
   }
-  if (auth === 'entra' && input.identities?.azure === false) {
+  if (auth === 'entra' && input.serverCredentials === false) {
+    problems.push({
+      path: at('auth'),
+      message:
+        "adapter_config.auth = entra signs in as the runtime's own Azure identity, which this deployment doesn't let tenant configuration use (KINDGI_TENANT_HOST_ACCESS). Leave auth unset (api-key), with secret_ref naming the resource's API key.",
+    });
+  } else if (auth === 'entra' && input.identities?.azure === false) {
     problems.push({
       path: at('auth'),
       message:

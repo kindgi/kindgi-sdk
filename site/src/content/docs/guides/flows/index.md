@@ -6,13 +6,16 @@ sidebar:
   label: Overview
 ---
 
-A **flow** is a graph of steps that runs in a known order: tool steps run
-your code, agent steps ask a model for a judgment, and edges between them
-decide what runs next. A flow is data, versioned and checked when it loads;
-every run of it is recorded step by step in its journal.
+These guides write a flow and shape how it runs: its data, its branches,
+loops and parallel steps, its retries, a person's approval, and dry runs.
 
-Use a flow when you know the order of the work (look up, decide, then act).
-Use a single agent when the model should decide the order.
+A **flow** is a graph of steps that runs in a known order. Tool steps run
+your code, agent steps ask a model for a judgment, and edges between them
+decide what runs next. A flow is data, versioned and checked when it loads.
+Every run of it is recorded step by step in its journal.
+
+Use a flow when you know the order of the work, such as look up, decide, then
+act. Use a single agent when the model should decide the order.
 
 - [Write a flow](write-a-flow/): tool and agent steps, edges, and running it.
 - [Pass data between steps](pass-data-between-steps/): a step's input from
@@ -30,11 +33,10 @@ Use a single agent when the model should decide the order.
 - [Dry-run a flow](dry-run-a-flow/): run the steps that only read, and stop
   before the first one that writes.
 
-The examples build up one pack, `acme`, from the `sample` template
-(`kindgi init acme --template=sample`, or `--template=python`). Each page
-shows the tools it adds; [Write a flow](write-a-flow/) has the first ones.
-Where a model matters, the output is from Claude Haiku 4.5 (outputs on newer
-models, such as Claude Sonnet 5.5, differ in wording, not shape), registered
-with
-`kindgi providers register --preset=anthropic` (see
-[Models](../models/)).
+The examples build up one pack, `acme`, from the `sample` template:
+`kindgi init acme --template=sample`, or `--template=python`. Each page shows
+the tools it adds, and [Write a flow](write-a-flow/) has the first ones.
+Where a model matters, the output is from Claude Haiku 4.5. Outputs on newer
+models, such as Claude Sonnet 5.5, differ in wording, not shape. The model is
+registered with `kindgi providers register --preset=anthropic`, as
+[Models](../models/) shows.

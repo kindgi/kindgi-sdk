@@ -6,12 +6,32 @@ sidebar:
   label: SAML
 ---
 
-Any SAML 2.0 identity provider works. Start with [Set up SSO](../), with
-`--kind=saml`:
+When you finish this page, your workspace's people sign in through any SAML
+2.0 identity provider. The page also lists what Kindgi needs from that
+provider.
+
+## Before you start
+
+- **Sign-in is on for your runtime, and you're an admin of the workspace,**
+  with the `kindgi` CLI set up as [Set up SSO](../#before-you-start) says.
+- **Someone who can create a SAML app in your identity provider.**
+- **`openssl`,** if your identity provider wants signed sign-in requests
+  ([When your identity provider wants signed requests](#when-your-identity-provider-wants-signed-requests)).
+- **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
+  pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
+
+## 1. Get the SAML URLs
+
+`start` with `--kind=saml` gives you the URLs a SAML app asks for:
 
 ```sh
-kindgi sso providers start acme-saml --kind=saml
+npx --yes @kindgi/cli@0.2 sso providers start acme-saml --kind=saml
 ```
+
+- `acme-saml` is the provider's id in your workspace.
+- `--kind=saml` asks for a SAML provider's URLs: its ACS URL and its entity
+  ID.
 
 ```text
 Sign-in with "acme-saml" (SAML). Send this to whoever runs your identity provider:
@@ -33,41 +53,104 @@ Then register it:
 These URLs stay the same after registering and after any `update`.
 ```
 
-## What Kindgi needs from it
+## 2. Create the app in your identity provider
 
-- **A SAML app** with the ACS URL and the entity ID (audience) `start`
-  printed. Many identity providers can read both from Kindgi's service
-  provider metadata URL instead.
+Kindgi needs these from the app:
+
+- **The ACS URL and the entity ID that `start` printed.** The entity ID is
+  also called the audience. Many identity providers can read both from
+  Kindgi's service provider metadata URL instead.
 - **The person's email** as the Name ID, or in an `email` attribute.
 - **Signed assertions.**
-- **Only the people who should use Kindgi** assigned to the app (users or
-  groups).
+- **Only the people who should use Kindgi,** assigned to the app as users or
+  groups.
 
-Send back the identity provider's metadata XML. Then:
+Save the identity provider's metadata XML to a file, such as
+`idp-metadata.xml`.
+
+## 3. Register it
+
+`finish` registers the app with its metadata, and offers it to people at
+your domains:
 
 ```sh
-kindgi sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain>
+npx --yes @kindgi/cli@0.2 sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain>
 ```
+
+- `--kind=saml` says the provider speaks SAML.
+- `--idp-metadata=@<file>` reads the identity provider's metadata from the
+  file. The `@` is required.
+- `<your domain>` is your organization's email domain, such as `acme.com`.
+  For more than one, separate them with commas.
+
+`finish` prints the registration, as in
+[Set up SSO](../#3-register-what-it-sent-back).
 
 ## When your identity provider wants signed requests
 
-If its metadata says `WantAuthnRequestsSigned="true"` (Keycloak's always
-does), Kindgi must sign its sign-in requests, and `finish` refuses without a
-key:
+If the metadata says `WantAuthnRequestsSigned="true"`, Kindgi must sign its
+sign-in requests. Keycloak's metadata always says so. `finish` then refuses
+without a key:
 
 ```text
 Error [identity-provider-invalid]: The identity provider wants signed sign-in requests (its metadata says WantAuthnRequestsSigned="true"): make a signing key and certificate, give IT the certificate, put the key (PEM) in the secret store, and set `spSigningKeyRef` to its name
 ```
 
-Make a key and certificate, store the key by name, and give IT the
-certificate to add to the app:
+Make a key and certificate, and store the key in Kindgi's secret store by
+name:
 
 ```sh
 openssl req -x509 -newkey rsa:2048 -nodes -keyout acme-sp-key.pem -out acme-sp-cert.pem -days 730 -subj "/CN=Kindgi SAML (acme.test)"
-kindgi secrets set ACME_SAML_SIGNING_KEY --env=production --scope=tenant --from-stdin < acme-sp-key.pem
+npx --yes @kindgi/cli@0.2 secrets set ACME_SAML_SIGNING_KEY --env=production --scope=tenant --from-stdin < acme-sp-key.pem
 ```
 
-Then finish with `--sp-signing-key-ref=ACME_SAML_SIGNING_KEY`. Kindgi's
-service provider metadata doesn't carry the certificate yet, so IT adds it
-to the app by hand. [Keycloak](../keycloak/#saml) has the steps, checked
-end to end.
+- `req -x509` makes a self-signed certificate, and `-newkey rsa:2048` a new
+  2048-bit RSA key for it.
+- `-nodes` leaves the key file unencrypted, so Kindgi can read it.
+- `-keyout` and `-out` name the key's file and the certificate's file.
+- `-days 730` makes the certificate last two years.
+- `-subj` sets the certificate's name. Use your own domain in it.
+- `--env` is the runtime's environment, its `KINDGI_ENV`, and
+  `--scope=tenant` stores the key for the whole workspace.
+- `--from-stdin` makes `set` read the key from its input, instead of asking
+  for it. `< acme-sp-key.pem` gives it the key file as that input.
+
+`openssl` prints its progress, then a line of dashes. Then `set` prints what
+it stored:
+
+```text
+…
+-----
+{
+  "name": "ACME_SAML_SIGNING_KEY",
+  "scope": {
+    "kind": "tenant",
+    "tenantId": "6c0bd33e-e941-439b-bd0c-c7e412db29fc"
+  },
+  "envName": "production",
+  "versionId": 1
+}
+
+  Set ACME_SAML_SIGNING_KEY at tenant in production.
+```
+
+Give the certificate, `acme-sp-cert.pem`, to whoever runs your identity
+provider, to add to the app. Kindgi's service provider metadata doesn't
+carry the certificate, so they add it by hand. Then run `finish` again with
+the key's name:
+
+```sh
+npx --yes @kindgi/cli@0.2 sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain> \
+  --sp-signing-key-ref=ACME_SAML_SIGNING_KEY
+```
+
+`--sp-signing-key-ref` is the signing key's name in the secret store.
+[Keycloak](../keycloak/#saml) has these steps for one identity provider,
+checked end to end.
+
+## Next
+
+- [Add people, and try it](../#4-add-people-and-try-it): only people you've
+  added get in.
+- [Sign in to the console](../sign-in/): what your people see.
+- [Change it, list it, remove it](../#change-it-list-it-remove-it).
