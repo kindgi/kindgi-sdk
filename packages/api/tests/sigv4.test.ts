@@ -8,7 +8,7 @@ import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import type { BlobMeta, BlobPutInput, BlobStorageBinding } from '@kindgi/blob-binding';
-import type { TenantId } from '@kindgi/types';
+import type { ArtifactId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
 import { createApp } from '../src/app.js';
 import type { RunHandlerBinding } from '../src/index.js';
@@ -406,6 +406,120 @@ describe("the app's S3 routes: `artifactMaxBytes`, and the body the middleware r
     const res = await app.request(req.url, req.init);
     expect(res.status).toBe(200);
     expect(completed).toEqual([[{ partNumber: 1, etag: 'part-etag' }]]);
+  });
+});
+
+describe("the app's S3 object reads: a HEAD from the metadata, a GET reads the object out or cancels it", () => {
+  const BYTES = 'hello world';
+
+  /** One object, `notes.txt`; each `getByKey` opens a stream that records whether it was read to its end or cancelled. */
+  function objectApp() {
+    const meta: BlobMeta = {
+      blobId: '00000000-0000-4000-8000-0000000000d1' as ArtifactId,
+      tenantId: TENANT,
+      name: 'notes.txt',
+      contentType: 'text/plain',
+      size: BYTES.length,
+      hash: 'a'.repeat(64),
+      tags: {},
+      ownerRunId: '00000000-0000-4000-8000-0000000000d2' as RunId,
+      createdAt: '2026-09-30T11:00:00.000Z' as Timestamp,
+    };
+    const opened: { read: boolean; cancelled: boolean }[] = [];
+    const blobStorage = {
+      async headByKey(_tenant: TenantId, _bucket: string, key: string) {
+        return key === 'notes.txt' ? meta : null;
+      },
+      async getByKey(_tenant: TenantId, _bucket: string, key: string) {
+        if (key !== 'notes.txt') {
+          return { kind: 'err', error: { code: 'blob-not-found', message: 'none' } };
+        }
+        const state = { read: false, cancelled: false };
+        opened.push(state);
+        let sent = false;
+        // No high-water mark: nothing is pulled until a reader asks.
+        const stream = new ReadableStream<Uint8Array>(
+          {
+            pull(controller) {
+              if (sent) {
+                state.read = true;
+                controller.close();
+                return;
+              }
+              sent = true;
+              controller.enqueue(new TextEncoder().encode(BYTES));
+            },
+            cancel() {
+              state.cancelled = true;
+            },
+          },
+          { highWaterMark: 0 },
+        );
+        return { kind: 'ok', value: { meta, stream } };
+      },
+    } as unknown as BlobStorageBinding;
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken: async () => null,
+      runHandler: {} as RunHandlerBinding,
+      blobStorage,
+      s3Credentials: credentials,
+    });
+    const send = async (method: string, key: string, headers: Record<string, string>) => {
+      const req = sign({ method, path: `/s3/${BUCKET}/${key}`, headers });
+      return app.request(req.url, req.init);
+    };
+    return { app, send, opened };
+  }
+
+  test.each([
+    ['the object', 'notes.txt', {}, 200],
+    ['a range of it', 'notes.txt', { range: 'bytes=0-4' }, 206],
+    ['its last bytes', 'notes.txt', { range: 'bytes=-3' }, 206],
+    ['a malformed range', 'notes.txt', { range: 'bytes=x' }, 416],
+    ['a key that is not there', 'missing.txt', {}, 404],
+  ] as const)(
+    "HEAD for %s: a GET's status and headers, and nothing opened",
+    async (_what, key, range, status) => {
+      const { send, opened } = objectApp();
+      const headers = { 'x-request-id': `req-${status}`, ...range };
+      const head = await send('HEAD', key, headers);
+      expect(opened).toEqual([]);
+      const get = await send('GET', key, headers);
+      expect([head.status, get.status]).toEqual([status, status]);
+      // Each request answers its own span; every other header is the same.
+      const { traceresponse: headSpan, ...headHeaders } = Object.fromEntries(
+        head.headers.entries(),
+      );
+      const { traceresponse: getSpan, ...getHeaders } = Object.fromEntries(get.headers.entries());
+      expect([headSpan, getSpan]).toEqual([expect.any(String), expect.any(String)]);
+      expect(headHeaders).toEqual(getHeaders);
+      expect(await head.text()).toBe('');
+    },
+  );
+
+  test('a GET hands the object out as the body, drains it for a range, and cancels it for a malformed range', async () => {
+    const { send, opened } = objectApp();
+    const whole = await send('GET', 'notes.txt', {});
+    expect(opened).toEqual([{ read: false, cancelled: false }]);
+    expect(await whole.text()).toBe(BYTES);
+    expect(opened[0]).toEqual({ read: true, cancelled: false });
+
+    const range = await send('GET', 'notes.txt', { range: 'bytes=6-' });
+    // Read out before the answer, which carries the slice.
+    expect(opened[1]).toEqual({ read: true, cancelled: false });
+    expect([range.status, await range.text()]).toEqual([206, 'world']);
+
+    const malformed = await send('GET', 'notes.txt', { range: 'bytes=x' });
+    expect([malformed.status, await codeOf(malformed)]).toEqual([416, 'InvalidRange']);
+    expect(opened[2]).toEqual({ read: false, cancelled: true });
+  });
+
+  test('a HEAD on the bucket answers 200 with no body', async () => {
+    const { app } = objectApp();
+    const req = sign({ method: 'HEAD', path: `/s3/${BUCKET}` });
+    const res = await app.request(req.url, req.init);
+    expect([res.status, await res.text()]).toEqual([200, '']);
   });
 });
 

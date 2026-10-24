@@ -1,5 +1,59 @@
 # @kindgi/dev-echo-provider
 
+## 0.1.10
+
+### Patch Changes
+
+- @kindgi/capabilities@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/capabilities@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- @kindgi/capabilities@0.1.10-rc.0
+
+## 0.1.9
+
+### Patch Changes
+
+- Updated dependencies [d563887]
+  - @kindgi/capabilities@0.1.9
+
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/capabilities@0.1.9-rc.1
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- Updated dependencies [d563887]
+  - @kindgi/capabilities@0.1.9-rc.0
+
+## 0.1.8
+
+### Patch Changes
+
+- Updated dependencies [76532eb]
+- Updated dependencies [ebf405d]
+  - @kindgi/capabilities@0.1.8
+
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- Updated dependencies [76532eb]
+- Updated dependencies [ebf405d]
+  - @kindgi/capabilities@0.1.8-rc.0
+
 ## 0.1.7
 
 ### Patch Changes

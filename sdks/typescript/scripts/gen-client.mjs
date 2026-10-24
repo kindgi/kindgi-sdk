@@ -55,9 +55,29 @@ if (result.status !== 0) {
   process.exit(result.status ?? 1);
 }
 
-// Prepend SPDX header — typed-openapi output otherwise has no license line.
 const { readFile } = await import('node:fs/promises');
-const body = await readFile(OUT_FILE, 'utf8');
+let body = await readFile(OUT_FILE, 'utf8');
+
+// typed-openapi leaves the type of `EndpointByMethod` (every endpoint's
+// runtime schemas, by method and path) to inference, and once the API has
+// enough operations that type outgrows what tsc writes into a declaration
+// (TS7056). Annotate it with the shape its `satisfies` already checks, as
+// typed-openapi annotates its other maps: the client reads it only through a
+// cast, and every type reads `__TypedOpenapi.EndpointByMethod` instead.
+const ENDPOINTS_CONST = 'export const EndpointByMethod = {';
+if (body.split(ENDPOINTS_CONST).length !== 2) {
+  console.error(`expected one \`${ENDPOINTS_CONST}\` in ${OUT_FILE}`);
+  process.exit(1);
+}
+body = body.replace(
+  ENDPOINTS_CONST,
+  'export const EndpointByMethod: {\n' +
+    '  [M in keyof __TypedOpenapi.EndpointByMethod]: { [P in keyof __TypedOpenapi.EndpointByMethod[M]]: unknown };\n' +
+    '} = {',
+);
+await writeFile(OUT_FILE, body, 'utf8');
+
+// Prepend SPDX header — typed-openapi output otherwise has no license line.
 if (!body.startsWith('// SPDX-License-Identifier')) {
   const header = [
     '// SPDX-License-Identifier: Apache-2.0',

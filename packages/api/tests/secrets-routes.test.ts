@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, EnvName, Result, TenantId } from '@kindgi/types';
@@ -9,7 +9,11 @@ import { makeEnvName } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { createApp, createInMemoryRotationStatusStore } from '../src/index.js';
+import {
+  createApp,
+  createInMemoryRotationStatusStore,
+  secretNameGrammarRefusal,
+} from '../src/index.js';
 import type {
   RotationStatusStore,
   RunHandlerBinding,
@@ -24,6 +28,7 @@ import type {
   SecretVersionRecord,
   TokenResolver,
 } from '../src/index.js';
+import { SecretSetRequestSchema } from '../src/openapi/schemas.js';
 
 /**
  * `/v1/secrets/*` route tests — the HTTP surface for
@@ -629,6 +634,173 @@ describe('API — POST /v1/secrets/:name/rotate — async (202)', () => {
     );
     expect(res.status).toBe(404);
   });
+
+  /** A pending rotation; the store's subscriptions to it counted. */
+  async function pendingRotation() {
+    const secrets = makeInMemorySecretsBinding();
+    secrets.rotateImpl = async () => ({
+      kind: 'ok',
+      value: { kind: 'rotation-pending', resumeToken: 'acme:rot-1', provider: 'acme-vault' },
+    });
+    const inner = createInMemoryRotationStatusStore();
+    const counts = { subscribed: 0, unsubscribed: 0 };
+    let hold: { entered: () => void; released: Promise<void> } | undefined;
+    /** Holds each read of a rotation until `release`; `waiting` resolves once one waits. */
+    const holdReads = () => {
+      let release = (): void => undefined;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const waiting = new Promise<void>((entered) => {
+        hold = { entered, released };
+      });
+      return { waiting, release };
+    };
+    const store: RotationStatusStore = {
+      create: (input) => inner.create(input),
+      get: async (input) => {
+        if (hold !== undefined) {
+          hold.entered();
+          await hold.released;
+        }
+        return inner.get(input);
+      },
+      update: (input) => inner.update(input),
+      subscribe: (input) => {
+        counts.subscribed += 1;
+        const unsubscribe = inner.subscribe(input);
+        return () => {
+          counts.unsubscribed += 1;
+          unsubscribe();
+        };
+      },
+    };
+    const app = makeApp({ secrets, store });
+    const rot = await app.request('/v1/secrets/k/rotate?envName=staging&scopeKind=tenant', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN_ALL}`, 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(rot.status).toBe(202);
+    const { eventsUrl } = (await rot.json()) as { eventsUrl: string };
+    const call = (
+      method: 'GET' | 'HEAD',
+      { url = eventsUrl, signal }: { url?: string; signal?: AbortSignal } = {},
+    ) =>
+      app.request(url, {
+        method,
+        headers: { authorization: `Bearer ${TOKEN_ALL}`, 'x-request-id': 'req-events' },
+        ...(signal !== undefined && { signal }),
+      });
+    // The same events URL for a rotation that isn't there.
+    const absentUrl = eventsUrl.replace(
+      /\/rotations\/[^/]+\//,
+      '/rotations/00000000-0000-0000-0000-000000000000/',
+    );
+    expect(absentUrl).not.toBe(eventsUrl);
+    return { call, counts, absentUrl, holdReads };
+  }
+
+  test("a reader that cancels a pending rotation's events: unsubscribed, and no heartbeat after", async () => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
+    try {
+      const { call, counts } = await pendingRotation();
+      const res = await call('GET');
+      expect(res.status).toBe(200);
+      const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+      const decode = async () => new TextDecoder().decode((await reader.read()).value);
+      expect(await decode()).toContain('"status":"pending"');
+      // The heartbeat, every 15 s while the rotation is pending.
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(await decode()).toContain('event: ping');
+      expect([counts, vi.getTimerCount()]).toEqual([{ subscribed: 1, unsubscribed: 0 }, 1]);
+
+      await reader.cancel();
+      await vi.advanceTimersByTimeAsync(0);
+      expect([counts, vi.getTimerCount()]).toEqual([{ subscribed: 1, unsubscribed: 1 }, 0]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a HEAD on a pending rotation's events answers the stream's status and headers and starts none of its work", async () => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
+    try {
+      const { call, counts, absentUrl } = await pendingRotation();
+      const head = await call('HEAD');
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      // No subscription and no heartbeat: the stream never started.
+      expect([counts, vi.getTimerCount()]).toEqual([{ subscribed: 0, unsubscribed: 0 }, 0]);
+      expect(head.body).toBeNull();
+      const get = await call('GET');
+      await get.body?.cancel();
+      expect([head.status, get.status]).toEqual([200, 200]);
+      // Each request answers its own span; every other header is the same.
+      const { traceresponse: headSpan, ...headHeaders } = Object.fromEntries(head.headers);
+      const { traceresponse: getSpan, ...getHeaders } = Object.fromEntries(get.headers);
+      expect([headSpan, getSpan]).toEqual([expect.any(String), expect.any(String)]);
+      expect(headHeaders).toEqual(getHeaders);
+      expect(headHeaders['content-type']).toBe('text/event-stream; charset=utf-8');
+      // A rotation that isn't there: the GET's 404.
+      const [headMissing, getMissing] = [
+        await call('HEAD', { url: absentUrl }),
+        await call('GET', { url: absentUrl }),
+      ];
+      expect([headMissing.status, getMissing.status, headMissing.body]).toEqual([404, 404, null]);
+      expect(Object.fromEntries(headMissing.headers)).toEqual({
+        ...Object.fromEntries(getMissing.headers),
+        traceresponse: expect.any(String),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a client that leaves during the read of a pending rotation: its events never start', async () => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
+    try {
+      const { call, counts, holdReads } = await pendingRotation();
+      const { waiting, release } = holdReads();
+      const client = new AbortController();
+      const answered = call('GET', { signal: client.signal });
+      await waiting;
+      client.abort();
+      release();
+      const res = await answered;
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      // No subscription and no heartbeat. The body is never touched.
+      expect([counts, vi.getTimerCount()]).toEqual([{ subscribed: 0, unsubscribed: 0 }, 0]);
+      expect([res.status, res.body]).toEqual([200, null]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a client that leaves a pending rotation's events, its body never read: unsubscribed, and no heartbeat after", async () => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
+    try {
+      const { call, counts } = await pendingRotation();
+      const client = new AbortController();
+      const res = await call('GET', { signal: client.signal });
+      expect(res.status).toBe(200);
+      await vi.advanceTimersByTimeAsync(15_000);
+      // Subscribed, with the heartbeat, while the client is there.
+      expect([counts, vi.getTimerCount()]).toEqual([{ subscribed: 1, unsubscribed: 0 }, 1]);
+      client.abort();
+      await vi.advanceTimersByTimeAsync(0);
+      expect([counts, vi.getTimerCount()]).toEqual([{ subscribed: 1, unsubscribed: 1 }, 0]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('API — DELETE /v1/secrets/:name — soft + hard revoke', () => {
@@ -668,6 +840,25 @@ describe('API — DELETE /v1/secrets/:name — soft + hard revoke', () => {
     const body = (await hard.json()) as { revoked: boolean; hard: boolean };
     expect(body.revoked).toBe(true);
     expect(body.hard).toBe(true);
+    expect(body).not.toHaveProperty('recoverableUntil');
+  });
+
+  test('a hard revoke that left a recoverable copy answers until when (recoverableUntil)', async () => {
+    const until = '2026-11-22T21:00:00.000Z';
+    const secrets: SecretBinding = {
+      ...makeInMemorySecretsBinding(),
+      revoke: async () => ({
+        kind: 'ok',
+        value: { revoked: true, hard: true, recoverableUntil: until },
+      }),
+    };
+    const app = makeApp({ secrets });
+    const res = await app.request('/v1/secrets/x?envName=staging&scopeKind=tenant&hard=true', {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${TOKEN_ALL}` },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ revoked: true, hard: true, recoverableUntil: until });
   });
 });
 
@@ -910,4 +1101,198 @@ describe("API — a write the store refuses for its name or its value is the cal
       });
     },
   );
+});
+
+describe('secretNameGrammarRefusal — the shared create-name grammar', () => {
+  test.each([
+    'a',
+    'ACME_KEY',
+    'acme.woo-orders_v2',
+    'kindgi.webhook.1',
+    'A1',
+    '_leads',
+    '9leads',
+    'a.b',
+    '__x--y.9',
+    'a'.repeat(255),
+  ])('allows %s', (name) => {
+    expect(secretNameGrammarRefusal(name)).toBeUndefined();
+  });
+  test.each(['acme/woo', 'has space', 'per%cent', 'hash#1', 'q?x', 'ключ', ''])(
+    'refuses %s with secret-name-invalid',
+    (name) => {
+      expect(secretNameGrammarRefusal(name)?.code).toBe('secret-name-invalid');
+    },
+  );
+  test('refuses a name longer than 255 characters', () => {
+    expect(secretNameGrammarRefusal('a'.repeat(256))?.code).toBe('secret-name-invalid');
+  });
+  // A new name starts with a letter, digit or `_`: a leading dot or dash, or
+  // an all-dots name, is refused. (A mutant that widened the first-character
+  // class to admit `.` or `-`, or dropped the anchor, is caught here.)
+  test.each(['.hidden', '.a', '-foo', '.', '...', '-'])(
+    'refuses %s for its first character',
+    (name) => {
+      expect(secretNameGrammarRefusal(name)?.code).toBe('secret-name-invalid');
+    },
+  );
+  // A dot sits only between two non-dot characters. (A mutant that relaxed the
+  // dot rule back to a flat `[A-Za-z0-9._-]*` class — which admits a doubled or
+  // trailing dot — is caught here.)
+  test.each(['a...b', 'a.', 'foo.'])('refuses %s for its dot placement', (name) => {
+    expect(secretNameGrammarRefusal(name)?.code).toBe('secret-name-invalid');
+  });
+  test.each(['_abc', '9abc', 'Zabc', 'abc'])('allows a name starting with %s', (name) => {
+    expect(secretNameGrammarRefusal(name)).toBeUndefined();
+  });
+  // The create grammar is the server's; the wire request stays additive, so a
+  // generated client can still add a version to a name stored before this
+  // release. Guard that the schema documents the rule without enforcing it.
+  test('SecretSetRequest.name stays additive on the wire — documented, not enforced', () => {
+    const nameSchema = (
+      SecretSetRequestSchema.properties as Record<
+        string,
+        { pattern?: string; maxLength?: number; description?: string }
+      >
+    ).name;
+    expect(nameSchema?.pattern).toBeUndefined();
+    expect(nameSchema?.maxLength).toBeUndefined();
+    expect(nameSchema?.description ?? '').toContain('already stored');
+  });
+});
+
+describe('API — a new secret name is held to the shared grammar at the border (on create, incl. add-version that creates)', () => {
+  const headers = { authorization: `Bearer ${TOKEN_ALL}`, 'content-type': 'application/json' };
+  const writeBody = (name: string, writeMode: 'create-new' | 'add-version') =>
+    JSON.stringify({
+      scope: { kind: 'tenant', tenantId: tenantA },
+      envName: 'staging',
+      name,
+      value: 'v',
+      writeMode,
+    });
+
+  test.each([
+    ['a slash', 'acme/woo-orders'],
+    ['a space', 'acme key'],
+    ['a percent', 'acme%pc'],
+    ['a hash', 'acme#1'],
+    ['a question mark', 'acme?x'],
+    ['a non-ASCII letter', 'ключ'],
+    ['a leading dot', '.acme'],
+    ['a leading dash', '-acme'],
+    ['an all-dots name', '...'],
+  ])(
+    'POST /v1/secrets create-new refuses %s with secret-name-invalid, storing nothing',
+    async (_why, name) => {
+      const secrets = makeInMemorySecretsBinding();
+      let setCalls = 0;
+      const inner = secrets.set.bind(secrets);
+      secrets.set = async (input) => {
+        setCalls += 1;
+        return inner(input);
+      };
+      const res = await makeApp({ secrets }).request('/v1/secrets', {
+        method: 'POST',
+        headers,
+        body: writeBody(name, 'create-new'),
+      });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+        'secret-name-invalid',
+      );
+      expect(setCalls).toBe(0);
+    },
+  );
+
+  test('POST /v1/secrets create-new refuses a name longer than 255', async () => {
+    const secrets = makeInMemorySecretsBinding();
+    const res = await makeApp({ secrets }).request('/v1/secrets', {
+      method: 'POST',
+      headers,
+      body: writeBody('a'.repeat(256), 'create-new'),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'secret-name-invalid',
+    );
+  });
+
+  test('POST /v1/secrets create-new allows a 255-character name of the allowed characters', async () => {
+    const secrets = makeInMemorySecretsBinding();
+    const name = `a.b-c_D9${'x'.repeat(247)}`;
+    expect(name.length).toBe(255);
+    const res = await makeApp({ secrets }).request('/v1/secrets', {
+      method: 'POST',
+      headers,
+      body: writeBody(name, 'create-new'),
+    });
+    expect(res.status).toBe(201);
+  });
+
+  test('POST /v1/secrets add-version refuses a NEW out-of-grammar name, storing nothing', async () => {
+    const secrets = makeInMemorySecretsBinding();
+    let setCalls = 0;
+    const inner = secrets.set.bind(secrets);
+    secrets.set = async (input) => {
+      setCalls += 1;
+      return inner(input);
+    };
+    const res = await makeApp({ secrets }).request('/v1/secrets', {
+      method: 'POST',
+      headers,
+      body: writeBody('acme/new-via-add-version', 'add-version'),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'secret-name-invalid',
+    );
+    expect(setCalls).toBe(0);
+  });
+
+  test('add-version to an EXISTING out-of-grammar name still takes a new value', async () => {
+    const secrets = makeInMemorySecretsBinding();
+    await secrets.set({
+      scope: { kind: 'tenant', tenantId: tenantA },
+      envName: staging,
+      name: 'acme/legacy',
+      value: 'v1',
+      writeMode: 'create-new',
+      enqueueTuples: () => [],
+    });
+    const res = await makeApp({ secrets }).request('/v1/secrets', {
+      method: 'POST',
+      headers,
+      body: writeBody('acme/legacy', 'add-version'),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  test('a name already stored outside the grammar still reads, revokes and takes a new version', async () => {
+    const secrets = makeInMemorySecretsBinding();
+    await secrets.set({
+      scope: { kind: 'tenant', tenantId: tenantA },
+      envName: staging,
+      name: '.legacy',
+      value: 'v1',
+      writeMode: 'create-new',
+      enqueueTuples: () => [],
+    });
+    const app = makeApp({ secrets });
+    const read = await app.request('/v1/secrets/.legacy?envName=staging&scopeKind=tenant', {
+      headers: { authorization: `Bearer ${TOKEN_ALL}` },
+    });
+    expect(read.status).toBe(200);
+    const addV = await app.request('/v1/secrets', {
+      method: 'POST',
+      headers,
+      body: writeBody('.legacy', 'add-version'),
+    });
+    expect(addV.status).toBe(200);
+    const del = await app.request('/v1/secrets/.legacy?envName=staging&scopeKind=tenant', {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${TOKEN_ALL}` },
+    });
+    expect(del.status).toBe(200);
+  });
 });

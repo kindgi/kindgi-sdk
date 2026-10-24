@@ -2,9 +2,11 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { TenantBudgetError } from '@kindgi/bounds';
+import type { TenantId } from '@kindgi/types';
 
 import type { PromptBlockContent } from './blocks.js';
 import { liquidProblem, renderTenantTemplate } from './liquid.js';
+import { TemplateRenderError, type TemplateRenderer } from './template-renderer.js';
 import type { Agent, PromptParameter, PromptRef } from './types.js';
 
 /**
@@ -89,6 +91,11 @@ export interface RenderFailureError {
   readonly cause: unknown;
 }
 
+/** The result of rendering an agent's instructions. */
+export type RenderInstructionsResult =
+  | { readonly ok: true; readonly value: RenderResult }
+  | { readonly ok: false; readonly error: PromptRenderError };
+
 /**
  * Render an agent's instructions template with the given context.
  * Populates framework auto-vars, merges caller parameter values, and
@@ -110,8 +117,85 @@ export function renderInstructions(
   agent: Agent,
   context: RenderContext,
   prompt?: PromptBlockContent,
+): RenderInstructionsResult {
+  const prepared = prepareInstructions(agent, context, prompt);
+  if (!prepared.ok) return prepared;
+  const { template, scope } = prepared.value;
+  // Under the bounds' limits; `include`, `render` and `layout` fail the render.
+  try {
+    const rendered = renderTenantTemplate(template, scope);
+    return { ok: true, value: { rendered, context: scope } };
+  } catch (cause) {
+    // A tenant past its render budget: not the template's failure, and
+    // retryable. The turn answers for it.
+    if (cause instanceof TenantBudgetError) throw cause;
+    return { ok: false, error: renderFailure(cause) };
+  }
+}
+
+/**
+ * `renderInstructions`, with the render done by `renderer` (in a worker
+ * thread, say): the same checks before it, and the same result or error
+ * after. Rejects with `TemplateRenderBudgetError` when the tenant has
+ * spent its render budget.
+ */
+export async function renderInstructionsWith(
+  renderer: TemplateRenderer,
+  tenantId: TenantId,
+  agent: Agent,
+  context: RenderContext,
+  prompt?: PromptBlockContent,
+): Promise<RenderInstructionsResult> {
+  const prepared = prepareInstructions(agent, context, prompt);
+  if (!prepared.ok) return prepared;
+  const { template, scope } = prepared.value;
+  try {
+    const rendered = await renderer.render({ tenantId, template, scope });
+    return { ok: true, value: { rendered, context: scope } };
+  } catch (cause) {
+    if (cause instanceof TenantBudgetError) throw cause;
+    if (cause instanceof TemplateRenderError && cause.code === 'missing-parameter') {
+      return {
+        ok: false,
+        error: {
+          code: 'missing-parameter',
+          message: cause.message,
+          ...(cause.parameterName !== undefined && { parameterName: cause.parameterName }),
+        },
+      };
+    }
+    return {
+      ok: false,
+      error: {
+        code: 'render-failure',
+        message:
+          cause instanceof TemplateRenderError
+            ? cause.message
+            : `Template render failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+        cause,
+      },
+    };
+  }
+}
+
+/** The template a turn renders and what it renders against, once the parameters are checked. */
+export interface PreparedInstructions {
+  readonly template: string;
+  /** The parameters (with their defaults) and the auto-injected variables. */
+  readonly scope: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * What `renderInstructions` does before it renders: the template (the
+ * prompt block's or the agent's own), its required parameters checked,
+ * and the scope it renders against.
+ */
+export function prepareInstructions(
+  agent: Agent,
+  context: RenderContext,
+  prompt?: PromptBlockContent,
 ):
-  | { readonly ok: true; readonly value: RenderResult }
+  | { readonly ok: true; readonly value: PreparedInstructions }
   | { readonly ok: false; readonly error: PromptRenderError } {
   const source = instructionsSource(agent, prompt);
   if (!source.ok) return source;
@@ -127,39 +211,29 @@ export function renderInstructions(
       },
     };
   }
+  return { ok: true, value: { template, scope: mergeContext(agent, declared, context) } };
+}
 
-  const merged = mergeContext(agent, declared, context);
-  // Under the bounds' limits; `include`, `render` and `layout` fail the render.
-  try {
-    const rendered = renderTenantTemplate(template, merged);
-    return { ok: true, value: { rendered, context: merged } };
-  } catch (cause) {
-    // A tenant past its render budget: not the template's failure, and
-    // retryable. The turn answers for it.
-    if (cause instanceof TenantBudgetError) throw cause;
-    // LiquidJS throws UndefinedVariableError for unresolved refs — surface
-    // as missing-parameter so callers get one consistent error code.
-    const message = cause instanceof Error ? cause.message : String(cause);
-    if (message.includes('undefined variable')) {
-      const nameMatch = /undefined variable: ([^,\s]+)/.exec(message);
-      return {
-        ok: false,
-        error: {
-          code: 'missing-parameter',
-          message: `Template references an unresolved variable: ${nameMatch?.[1] ?? '?'}`,
-          ...(nameMatch?.[1] !== undefined && { parameterName: nameMatch[1] }),
-        },
-      };
-    }
+/**
+ * What a render that threw comes to, as `renderInstructions` reports it.
+ * LiquidJS throws UndefinedVariableError for unresolved refs: that's
+ * `missing-parameter`, so callers get one consistent error code.
+ */
+export function renderFailure(cause: unknown): PromptRenderError {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  if (message.includes('undefined variable')) {
+    const nameMatch = /undefined variable: ([^,\s]+)/.exec(message);
     return {
-      ok: false,
-      error: {
-        code: 'render-failure',
-        message: `Template render failed: ${liquidProblem(cause) ?? message}`,
-        cause,
-      },
+      code: 'missing-parameter',
+      message: `Template references an unresolved variable: ${nameMatch?.[1] ?? '?'}`,
+      ...(nameMatch?.[1] !== undefined && { parameterName: nameMatch[1] }),
     };
   }
+  return {
+    code: 'render-failure',
+    message: `Template render failed: ${liquidProblem(cause) ?? message}`,
+    cause,
+  };
 }
 
 /** The template to render and the parameters it declares: the prompt block's, or the agent's own. */

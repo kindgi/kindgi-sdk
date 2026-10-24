@@ -60,6 +60,10 @@ export interface AuthRouterOptions {
 export const OPERATOR_MANAGED_MESSAGE =
   "This deployment's operator manages sign-in (KINDGI_AUTH_TENANT_PROVIDERS=off): identity providers can't be added, changed or removed here, except with the deployment's own token (KINDGI_API_TOKEN).";
 
+/** The answer to adding or changing a provider on a deployment without a secrets store. */
+export const NEEDS_SECRETS_STORE_MESSAGE =
+  "This deployment has no secrets store (KINDGI_SECRETS_BACKEND), and an identity provider's client secret and keys are references into one: identity providers can't be added or changed here until it has one.";
+
 /**
  * Build the auth router, mounted inside the `/v1/*` bearer chain:
  * provider catalog CRUD, refresh, logout.
@@ -143,6 +147,9 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
     }
 
     const outcome = await identityProvider.register({ tenantId, config: parsed.value });
+    if (outcome.kind === 'needs-secrets-store') {
+      return needsSecretsStore(c, parsed.value.providerId);
+    }
     if (outcome.kind === 'invalid') {
       c.status(statusFor('identity-provider-invalid') as never);
       return c.json(
@@ -251,6 +258,7 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
 
       const outcome = await update({ tenantId, config: parsed.value });
       if (outcome.kind === 'not-found') return providerNotFound(c, providerId);
+      if (outcome.kind === 'needs-secrets-store') return needsSecretsStore(c, providerId);
       if (outcome.kind === 'invalid') {
         c.status(statusFor('identity-provider-invalid') as never);
         return c.json(
@@ -329,9 +337,25 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
         ),
       );
     }
+    if (current.projectId !== undefined || current.role !== undefined) {
+      // A session with a key's limits is never refreshed: a store or a
+      // copy below that missed a limit would hand out an unlimited one.
+      // Whatever minted it mints the next.
+      c.status(statusFor('limited-session-not-refreshable') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'limited-session-not-refreshable',
+            message:
+              'A session limited to a project or a role is not refreshed: get a new one where you got this one',
+          },
+          requestId,
+        ),
+      );
+    }
 
     // A new session in place of this one: same person, provider, scopes,
-    // expiry and metadata. Refresh never calls the provider.
+    // expiry, metadata and second factor. Refresh never calls the provider.
     const createdSession = await sessionStore.create({
       tenantId,
       userId: current.userId,
@@ -339,6 +363,7 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
       expiresAt: current.expiresAt,
       scopes: current.scopes,
       ...(current.metadata !== undefined && { metadata: current.metadata }),
+      ...(current.secondFactor !== undefined && { secondFactor: current.secondFactor }),
     });
     const fresh = await sessionStore.get({ tenantId, sessionId: createdSession.sessionId });
     if (fresh === null) throw new Error('session vanished immediately after create');
@@ -380,6 +405,20 @@ function providerNotFound(c: Context<AppEnv>, providerId: string): Response {
       {
         code: 'identity-provider-not-found',
         message: `No identity provider registered with id "${providerId}"`,
+        providerId,
+      },
+      c.get('requestId'),
+    ),
+  );
+}
+
+function needsSecretsStore(c: Context<AppEnv>, providerId: string): Response {
+  c.status(statusFor('identity-providers-need-secrets-store') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'identity-providers-need-secrets-store',
+        message: NEEDS_SECRETS_STORE_MESSAGE,
         providerId,
       },
       c.get('requestId'),

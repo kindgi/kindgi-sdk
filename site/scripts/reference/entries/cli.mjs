@@ -36,7 +36,7 @@ export const CLI_DEFAULTS = {
     log: 'none',
     'log-format': '`pretty`',
     'log-level':
-      "`KINDGI_LOG_LEVEL` (the shell's, then the env files'), else info; with `--quiet`, error",
+      "`KINDGI_LOG_LEVEL` (the shell's, then the env files'), else info; with `--quiet`, warn",
     path: 'the current directory',
     port: "`4000`, or the next free port when it's taken",
     'runtime-image': 'the image this CLI release pins',
@@ -82,6 +82,14 @@ export const CLI_DEFAULTS = {
     tenant:
       "none (no check); an inline build takes the env block's `tenantId`, else `KINDGI_TENANT_ID`",
   },
+  'deployments list': {
+    cursor: 'none',
+    'image-ref-prefix': 'none',
+    limit: '`25` (at most `100`)',
+    pack: 'none: every pack',
+    project: 'none: every project',
+    'signer-key-id': 'none',
+  },
   test: {
     path: 'the current directory',
     reporter: "vitest's own reporter",
@@ -117,6 +125,25 @@ export const CLI_DEFAULTS = {
   'env plan': {
     env: '`staging`',
     format: '`terraform`',
+    path: 'the current directory',
+  },
+  'environments list': {
+    org: "none (the tenant's order)",
+    path: 'the current directory',
+  },
+  'environments set': {
+    org: "none (the tenant's order)",
+    path: 'the current directory',
+    projects: 'none (the environment names are used, resolved through the pack config)',
+  },
+  'environments clear': {
+    org: "none (the tenant's order)",
+  },
+  promote: {
+    from: 'required',
+    to: 'required',
+    deployment: 'none (the one deployment serving in `--from`; in a pack, of this pack)',
+    reason: 'none',
     path: 'the current directory',
   },
   'secrets list': {
@@ -237,6 +264,20 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
+  'projects create': {
+    description: 'none',
+    name: 'required',
+    org: 'none (a project in no org)',
+    slug: 'the name as a slug: lowercase letters and digits, accents dropped, each run of anything else `-`, at most 63 characters (`Support bot` is `support-bot`, `Café` is `cafe`)',
+  },
+  'projects rename': {
+    name: 'unchanged',
+    slug: 'unchanged',
+  },
+  'tenant rename': {
+    name: 'unchanged',
+    slug: 'unchanged',
+  },
   'runs list': {
     agent: 'none',
     cursor: 'none',
@@ -260,6 +301,10 @@ export const CLI_DEFAULTS = {
     'no-wait': 'off (the command waits for the run to finish or wait on an approval)',
     project: "the tenant's Default project",
     segment: 'none',
+  },
+  'runs resume': {
+    output: 'none: the command only says what the run waits for',
+    waitpoint: "the run's only wait for another system's answer (only with `--output`)",
   },
   'agents list': {
     cursor: 'none',
@@ -328,6 +373,7 @@ export const CLI_DEFAULTS = {
   'conversations list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
+    'opened-by': 'none (whoever opened them)',
     replays: '`exclude`',
     status: 'none',
   },
@@ -448,15 +494,22 @@ export const CLI_DEFAULTS = {
   },
   'proposals improve': {
     agent: 'required',
+    'class-weights':
+      "none (counts everyone until the test set's project, its tenant, or the agent improved there has a restricted judge class, then only those)",
+    drafts: '`3` (`1` to `5`; a prompt pass only)',
     'from-version': 'the version serving the scope',
     'idempotency-key': 'none',
     'max-candidates': '`30`',
     'max-cost': '`5` (US dollars)',
+    model: 'none (needed with `--tier=prompt`, with `--provider`)',
     objective: '`weightedYesShare`',
     org: 'none',
+    'pass-project': "the scope's project, else the agent version's",
     project: 'none',
+    provider: 'none (needed with `--tier=prompt`, with `--model`)',
     segment: 'none',
     'test-set': 'required',
+    tier: '`settings`',
   },
   'proposals passes list': {
     agent: 'none',
@@ -526,6 +579,7 @@ export const CLI_DEFAULTS = {
   'schedules create': {
     agent: 'none',
     'agent-version': 'none',
+    'allow-unattended': 'none (a tool that waits for a person still waits)',
     'catch-up': '`latest`',
     cron: 'required',
     flow: 'none',
@@ -535,13 +589,19 @@ export const CLI_DEFAULTS = {
     label: 'none',
     overlap: '`skip`',
     project: "the tenant's Default project",
+    'run-as': 'none (you own the schedule)',
     segment: 'none',
     'starting-deadline': '`600` (seconds)',
     timezone: '`UTC`',
   },
+  'schedules take-ownership': {
+    'run-as': 'none (you own the schedule)',
+  },
   'schedules update': {
     agent: 'unchanged',
     'agent-version': 'unchanged',
+    'allow-unattended':
+      'unchanged; a schedule that has a list and moves to another flow or agent must name it again, or `none`',
     'catch-up': 'unchanged',
     cron: 'unchanged',
     flow: 'unchanged',
@@ -560,6 +620,7 @@ export const CLI_DEFAULTS = {
     limit: '`25` (at most `100`)',
   },
   'webhooks register': {
+    'allow-unattended': 'none (a tool that waits for a person still waits)',
     'body-limit': '`262144` bytes (256 KiB)',
     'delivery-id-header': 'none, or the header the preset sets',
     flow: 'required',
@@ -570,6 +631,7 @@ export const CLI_DEFAULTS = {
     preset: 'none (with no `--signature-header` either: a hex HMAC-SHA256 in `X-Kindgi-Signature`)',
     project: "the tenant's Default project",
     'rate-limit': '`600` a minute',
+    'run-as': 'none (you own the trigger)',
     secret: 'required',
     'signature-encoding': 'required with `--signature-header`',
     'signature-header': 'none',
@@ -582,6 +644,7 @@ export const CLI_DEFAULTS = {
     status: 'none (both active and paused)',
   },
   'webhooks update': {
+    'allow-unattended': 'unchanged',
     'body-limit': 'unchanged',
     'delivery-id-header': 'unchanged',
     'flow-version': 'unchanged',
@@ -598,9 +661,64 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
+  'webhooks take-ownership': {
+    'run-as': 'none (you own the trigger)',
+  },
+  'sites register': {
+    'allowed-role': '`administrator` and `shop_manager`',
+    'approvals-url': 'required',
+    name: 'required',
+    'new-people-per-day': '`20`',
+    origin: 'required',
+    'people-cap': '`50`',
+    project: "the tenant's Default project",
+    'reviewer-ceiling': '`standard`',
+    'role-map':
+      'both default roles may ask, and decide as `standard` reviewers; with `--allowed-role` alone, the entries of the roles it allows',
+    vouching: '`on`',
+  },
+  'sites code': {
+    project: "the tenant's Default project",
+  },
+  'sites list': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+    project: "the tenant's Default project",
+  },
+  'sites get': {
+    project: "the tenant's Default project",
+  },
+  'sites update': {
+    'allowed-role': 'unchanged',
+    'approvals-url': 'unchanged',
+    name: 'unchanged',
+    'new-people-per-day': 'unchanged',
+    origin: 'unchanged',
+    'people-cap': 'unchanged',
+    project: "the tenant's Default project",
+    'reviewer-ceiling': 'unchanged',
+    'role-map': 'unchanged; with `--allowed-role` alone, the entries of the roles still allowed',
+    vouching: 'unchanged',
+  },
+  'sites pause': {
+    project: "the tenant's Default project",
+  },
+  'sites resume': {
+    project: "the tenant's Default project",
+  },
+  'sites revoke-key': {
+    project: "the tenant's Default project",
+  },
+  'sites restore-person': {
+    project: "the tenant's Default project",
+  },
+  'sites unregister': {
+    project: "the tenant's Default project",
+  },
   'approvals list': {
     'assigned-to': 'none (all approvals your role can see)',
     cursor: 'none',
+    'decided-by': 'none (whoever decided them)',
     limit: '`25` (at most `100`)',
     order: '`desc` (newest first)',
     status: 'none (every status)',
@@ -622,6 +740,7 @@ export const CLI_DEFAULTS = {
   },
   'judgments add': {
     class: 'none (the judgment is unclassified)',
+    correction: 'none (an ordinary judgment, with no correction)',
     item: 'required',
     no: 'off (exactly one of `--yes` or `--no` is required)',
     participant: 'none',
@@ -667,6 +786,84 @@ export const CLI_DEFAULTS = {
     'principal-id': 'unchanged',
     'principal-kind': 'unchanged',
     weight: 'unchanged',
+  },
+  'judging-rules create': {
+    project: "the tenant's Default project",
+    name: 'required',
+    agent: 'none (runs of any agent)',
+    flow: 'none (runs of any flow)',
+    'agent-version': 'none (any version)',
+    status: '`completed` (only completed runs match)',
+    sample: '`1` (every matching run)',
+    'max-open': 'none (no cap)',
+    class: 'none (any judgment closes an item)',
+    'queue-last':
+      'none (nothing is queued on create unless `--queue-last` or `--queue-since` is given)',
+    'queue-since': 'none',
+  },
+  'judging-rules list': {
+    project: "the tenant's Default project",
+    limit: '`25` (at most `100`)',
+    cursor: 'none',
+  },
+  'judging-rules show': {
+    project: "the tenant's Default project",
+  },
+  'judging-rules update': {
+    project: "the tenant's Default project",
+    name: 'unchanged',
+    agent: 'unchanged (any match flag replaces `when` whole)',
+    flow: 'unchanged (any match flag replaces `when` whole)',
+    'agent-version': 'unchanged (any match flag replaces `when` whole)',
+    status: 'unchanged (any match flag replaces `when` whole)',
+    sample: 'unchanged',
+    'max-open': 'unchanged',
+    class: 'unchanged',
+  },
+  'judging-rules remove': {
+    project: "the tenant's Default project",
+  },
+  'judging-rules versions': {
+    project: "the tenant's Default project",
+    limit: '`25` (at most `100`)',
+    cursor: 'none',
+  },
+  'judging-rules results': {
+    project: "the tenant's Default project",
+    since: 'none (every result)',
+  },
+  'judging-rules preview': {
+    project: "the tenant's Default project",
+    agent: 'none (runs of any agent)',
+    flow: 'none (runs of any flow)',
+    'agent-version': 'none (any version)',
+    status: '`completed` (only completed runs match)',
+    sample: '`1` (every matching run)',
+    last: '`100` (1 to 500)',
+    rule: 'none (preview the given flags, not an existing rule)',
+  },
+  'judging-rules queue-recent': {
+    project: "the tenant's Default project",
+    last: 'none (give `--last` and/or `--since`)',
+    since: 'none (give `--last` and/or `--since`)',
+  },
+  'judging-queue list': {
+    project: "the tenant's Default project",
+    state: 'none (every state)',
+    agent: 'none',
+    rule: 'none',
+    class: 'none',
+    'added-after': 'none',
+    'closed-after': 'none',
+    limit: '`25` (at most `100`)',
+    cursor: 'none',
+  },
+  'judging-queue dismiss': {
+    project: "the tenant's Default project",
+    reason: 'none',
+  },
+  'judging-queue reopen': {
+    project: "the tenant's Default project",
   },
   'eval-runs start': {
     project: 'required',
@@ -794,9 +991,38 @@ export const CLI_DEFAULTS = {
   'service-accounts ungrant': {
     project: 'none',
   },
+  'connections list': {
+    app: 'none',
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+    project: 'none',
+  },
+  'connections connect': {
+    'app-id': "none: the app's one registration",
+    permissions:
+      "none picked: at a terminal it asks about each one the app's entry offers; required without one",
+    project: 'none',
+  },
+  'connection-apps list': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
+  'connection-apps add': {
+    'client-id': 'required',
+    'client-secret-ref': 'required',
+    'github-app-id': 'required for `github`',
+    'private-key-ref': 'required for `github`',
+    projects: 'none: every project',
+    slug: 'required for `github`',
+    tenant: "none: required where the app's entry names no default (`microsoft`)",
+    'webhook-secret-ref': 'required for `github`',
+  },
   'people add': {
     email: 'none',
     name: 'required',
+  },
+  'sign-in settings': {
+    'require-second-factor': 'unchanged: the settings are read',
   },
   'people list': {
     cursor: 'none',
@@ -842,18 +1068,45 @@ export const CLI_DEFAULTS = {
     severity: '`medium`',
     title: 'required',
   },
+  'feedback submit': {
+    'access-url': '`https://access.kindgi.com`',
+    path: 'the current directory',
+    yes: 'none: at a terminal it asks; with no terminal, nothing is sent',
+  },
+  'feedback status': {
+    'access-url': '`https://access.kindgi.com`',
+    path: 'the current directory',
+  },
+  'feedback withdraw': {
+    'access-url': '`https://access.kindgi.com`',
+    path: 'the current directory',
+  },
   doctor: {
     path: 'the current directory',
+  },
+  usage: {
+    month: 'the current calendar month, in UTC',
+    from: 'none; with `--to` it sets a window instead of a month',
+    to: 'none; the window ends here (exclusive), at most 92 days after `--from`',
+    project: 'none: every project you can read',
+    'group-by': '`project,kind`',
+    kind: 'none: every kind',
+    class: 'none: every run class',
+    state: 'none: every state',
+    limit: '`1000` (`1` to `10000`)',
+    cursor: 'none: the first page',
   },
 };
 
 /** The global flags' defaults, as `CLI_DEFAULTS`. */
 export const GLOBAL_FLAG_DEFAULTS = {
+  hosted:
+    "off, unless the env the command acts in has `build: 'hosted'` in `kindgi.config.ts` (`--env`, else `staging` for `kindgi build` and `kindgi deploy`)",
   json: 'on when no format flag is given: pretty JSON (commands for people, such as `kindgi dev`, print JSON only when asked)',
   table: 'off; a command with no table prints JSON',
   token:
-    "`KINDGI_API_TOKEN`, then a stored key: `./.kindgirc.json`'s, then `~/.kindgi/config.json`'s, and when those are for different addresses, the one stored with the API URL. A stored key goes only to the address stored with it: a command that would send it elsewhere is refused before it sends anything. None of them set: a command that calls the API fails",
-  url: '`KINDGI_API_URL`, then `./.kindgirc.json`, then `~/.kindgi/config.json`; none of them set: a command that calls the API fails',
+    "`KINDGI_API_TOKEN`, then a stored key: `./.kindgirc.json`'s, then `~/.kindgi/config.json`'s, and when those are for different addresses, the one stored with the API URL. A stored key goes only to the address stored with it: a command that would send it elsewhere is refused before it sends anything. With `--hosted`, a `kindgi dev` runtime's `./.kindgirc.json` isn't read. None of them set: a command that calls the API fails",
+  url: "`KINDGI_API_URL`, then `./.kindgirc.json`, then `~/.kindgi/config.json`; with `--hosted`, a `kindgi dev` runtime's `./.kindgirc.json` isn't read. None of them set: a command that calls the API fails",
 };
 
 /**
@@ -863,8 +1116,9 @@ export const GLOBAL_FLAG_DEFAULTS = {
 export const CLI_EXAMPLES = {
   'auth login': [
     {
-      purpose: 'Save the API URL and token to ~/.kindgi/config.json.',
-      line: 'kindgi auth login --url=https://kindgi.acme.example --token=<api-token>',
+      purpose:
+        'Save the API URL, and the API token exported as `KINDGI_API_TOKEN`, to ~/.kindgi/config.json.',
+      line: 'kindgi auth login --url=https://kindgi.acme.example',
     },
   ],
   'auth whoami': [
@@ -908,6 +1162,29 @@ export const CLI_EXAMPLES = {
       line: 'kindgi console --no-open --url=http://127.0.0.1:4000',
     },
   ],
+  'deployments get': [
+    {
+      purpose:
+        "See a deployment's pack service now: when it runs on the values it was last given, why, and the command that sets what's missing.",
+      line: 'kindgi deployments get <deployment-id>',
+    },
+    {
+      purpose: 'The deployment as the API answers it, with its pack service in `endpoint`.',
+      line: 'kindgi deployments get <deployment-id> --json',
+    },
+  ],
+  'deployments list': [
+    {
+      purpose:
+        "Find a deployment's id, with each one's pack service: ready, held on its last values (with the code), pending or cleared.",
+      line: 'kindgi deployments list --table',
+    },
+    {
+      purpose:
+        "One environment's deployments, by its project's slug or id. The Default project's include the deployments that name no project.",
+      line: 'kindgi deployments list --project=staging --table',
+    },
+  ],
   'env unset': [
     {
       purpose: 'Remove a key from the staging env file.',
@@ -936,6 +1213,51 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Scaffold it for a cloud secret manager, writing to a chosen file.',
       line: 'kindgi env init --secrets-backend=secret-manager --secrets-manager=gcp --out=.env.production.example',
+    },
+  ],
+  'environments list': [
+    {
+      purpose: 'Show the order projects go live through, as a table.',
+      line: 'kindgi environments list --table',
+    },
+    {
+      purpose: "List an org's own order instead of the tenant's.",
+      line: 'kindgi environments list --org=<org-id>',
+    },
+  ],
+  'environments set': [
+    {
+      purpose: 'Put staging before prod, naming the environments from the pack config.',
+      line: 'kindgi environments set staging prod',
+    },
+    {
+      purpose: 'Set the order by project id or slug, outside a pack.',
+      line: 'kindgi environments set --projects=staging,default',
+    },
+  ],
+  'environments clear': [
+    {
+      purpose: 'Clear the order; projects then take builds directly again.',
+      line: 'kindgi environments clear',
+    },
+  ],
+  promote: [
+    {
+      purpose: 'Promote the build serving in staging to prod, saying why.',
+      line: 'kindgi promote --from=staging --to=prod --reason="release 12"',
+    },
+    {
+      purpose:
+        'Promote to prod and make each agent the build carries live there, each through its gate.',
+      line: 'kindgi promote --from=staging --to=prod --make-live --reason="release 12"',
+    },
+    {
+      purpose: 'See what would move to prod and which values it lacks, changing nothing.',
+      line: 'kindgi promote --from=staging --to=prod --check',
+    },
+    {
+      purpose: 'Outside a pack, name the two environments by project slug or id.',
+      line: 'kindgi promote --from=acme-staging --to=acme-prod',
     },
   ],
   'secrets list': [
@@ -1067,6 +1389,42 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Show one project by id.',
       line: 'kindgi projects get <project-id>',
+    },
+  ],
+  'projects create': [
+    {
+      purpose: 'Make a project, with the slug `support-bot`, and print it with its id.',
+      line: 'kindgi projects create --name="Support bot"',
+    },
+    {
+      purpose: 'Make a project in an org, with a slug of your own.',
+      line: 'kindgi projects create --name=Support --slug=support --org=<org-id> --description="Answers the support inbox"',
+    },
+  ],
+  'projects rename': [
+    {
+      purpose: "Change a project's name; its slug stays.",
+      line: 'kindgi projects rename <project-id> --name=Storefront',
+    },
+    {
+      purpose: 'Change its name and its slug.',
+      line: 'kindgi projects rename <project-id> --name=Storefront --slug=storefront',
+    },
+  ],
+  'tenant get': [
+    {
+      purpose: 'Print your workspace: its id, name and slug.',
+      line: 'kindgi tenant get',
+    },
+  ],
+  'tenant rename': [
+    {
+      purpose: "Change your workspace's name; its slug, and the console's addresses, stay.",
+      line: 'kindgi tenant rename --name="Acme Store"',
+    },
+    {
+      purpose: 'Change its slug too. Links to the console with the old slug stop opening it.',
+      line: 'kindgi tenant rename --name="Acme Store" --slug=acme-store',
     },
   ],
   'agents list': [
@@ -1351,6 +1709,77 @@ export const CLI_EXAMPLES = {
       line: 'kindgi webhooks unregister <trigger-id>',
     },
   ],
+  'sites register': [
+    {
+      purpose:
+        'Register a WordPress store on the Default project, with the origin and the approvals URL its Kindgi → Settings page shows; the one-time code is shown once.',
+      line: "kindgi sites register --name='Acme store' --origin=https://acme-store.example --approvals-url='https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}'",
+    },
+    {
+      purpose: 'Let only shop managers sign in, as senior reviewers.',
+      line: `kindgi sites register --name='Acme store' --origin=https://acme-store.example --approvals-url='https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}' --allowed-role=shop_manager --reviewer-ceiling=senior --role-map='{"shop_manager": {"ask": true, "reviewer": "senior"}}'`,
+    },
+  ],
+  'sites code': [
+    {
+      purpose: 'A new one-time code: to connect the site again, or to replace its key.',
+      line: 'kindgi sites code <site-id>',
+    },
+  ],
+  'sites list': [
+    {
+      purpose: "The Default project's sites, with their state and keys.",
+      line: 'kindgi sites list --table',
+    },
+  ],
+  'sites get': [
+    {
+      purpose: "A site's settings, and its keys' thumbprints to compare with the plugin's.",
+      line: 'kindgi sites get <site-id>',
+    },
+  ],
+  'sites update': [
+    {
+      purpose: 'Allow more people from the site.',
+      line: 'kindgi sites update <site-id> --people-cap=100 --new-people-per-day=40',
+    },
+    {
+      purpose:
+        "Stop the site's administrators signing in; shop managers keep what the role map gives them.",
+      line: 'kindgi sites update <site-id> --allowed-role=shop_manager',
+    },
+  ],
+  'sites pause': [
+    {
+      purpose: "Stop a site's sign-ins and end its people's sessions now.",
+      line: 'kindgi sites pause <site-id>',
+    },
+  ],
+  'sites resume': [
+    {
+      purpose: "Let a paused site's people sign in again.",
+      line: 'kindgi sites resume <site-id>',
+    },
+  ],
+  'sites revoke-key': [
+    {
+      purpose: "Refuse what a site's key signs from now on.",
+      line: 'kindgi sites revoke-key <site-id> <kid>',
+    },
+  ],
+  'sites restore-person': [
+    {
+      purpose:
+        'Let a person removed in Kindgi back in through their site: the same person, with their history.',
+      line: 'kindgi sites restore-person <site-id> <user-id>',
+    },
+  ],
+  'sites unregister': [
+    {
+      purpose: 'Remove a site; the people it signed in stay, with their records.',
+      line: 'kindgi sites unregister <site-id>',
+    },
+  ],
   'reviewers get': [
     {
       purpose: 'Show one reviewer.',
@@ -1391,6 +1820,99 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Retire a judge class.',
       line: 'kindgi judge-classes remove <judge-class-id>',
+    },
+  ],
+  'judging-rules create': [
+    {
+      purpose: "Queue a quarter of an agent's completed runs for judging.",
+      line: 'kindgi judging-rules create --name="refund tone" --agent=acme.refunds --sample=0.25',
+    },
+    {
+      purpose: 'Create a rule and catch it up at once on the last 500 finished runs.',
+      line: 'kindgi judging-rules create --name="all refunds" --agent=acme.refunds --queue-last=500',
+    },
+  ],
+  'judging-rules list': [
+    {
+      purpose: "List a project's judging rules.",
+      line: 'kindgi judging-rules list --project=<project-id>',
+    },
+  ],
+  'judging-rules show': [
+    {
+      purpose: "Show a rule's latest version.",
+      line: 'kindgi judging-rules show <rule-id>',
+    },
+  ],
+  'judging-rules update': [
+    {
+      purpose: "Raise a rule's open-items cap and enable it.",
+      line: 'kindgi judging-rules update <rule-id> --max-open=50 --enable',
+    },
+    {
+      purpose: 'Replace what the rule matches and drop its cap.',
+      line: 'kindgi judging-rules update <rule-id> --agent=acme.refunds --clear-max-open',
+    },
+  ],
+  'judging-rules remove': [
+    {
+      purpose: 'Unregister a rule so it queues nothing more; its queued items stay.',
+      line: 'kindgi judging-rules remove <rule-id>',
+    },
+  ],
+  'judging-rules versions': [
+    {
+      purpose: 'List every version of a rule, newest first.',
+      line: 'kindgi judging-rules versions <rule-id>',
+    },
+  ],
+  'judging-rules results': [
+    {
+      purpose:
+        "Show a rule's results for runs queued since a date, by the rule's version and the agent's.",
+      line: 'kindgi judging-rules results <rule-id> --since=2026-10-01',
+    },
+  ],
+  'judging-rules preview': [
+    {
+      purpose: 'See how many of the last 200 runs a rule would queue, changing nothing.',
+      line: 'kindgi judging-rules preview --agent=acme.refunds --last=200',
+    },
+    {
+      purpose: 'Preview exactly what an existing rule would take.',
+      line: 'kindgi judging-rules preview --rule=<rule-id>',
+    },
+  ],
+  'judging-rules queue-recent': [
+    {
+      purpose: 'Catch a rule up on the last 1,000 finished runs.',
+      line: 'kindgi judging-rules queue-recent <rule-id> --last=1000',
+    },
+    {
+      purpose: 'Queue its matches among runs finished on or after a date.',
+      line: 'kindgi judging-rules queue-recent <rule-id> --since=2026-10-01',
+    },
+  ],
+  'judging-queue list': [
+    {
+      purpose: 'List the runs waiting for a judgment, as a table.',
+      line: 'kindgi judging-queue list --state=open --table',
+    },
+    {
+      purpose: 'List the open items one of your judgments would close.',
+      line: 'kindgi judging-queue list --state=open --for-me',
+    },
+  ],
+  'judging-queue dismiss': [
+    {
+      purpose: 'Dismiss a queued run that needs no judgment.',
+      line: 'kindgi judging-queue dismiss <run-id> --reason="not a refund"',
+    },
+  ],
+  'judging-queue reopen': [
+    {
+      purpose: 'Reopen a dismissed item so it waits for a judgment again.',
+      line: 'kindgi judging-queue reopen <run-id>',
     },
   ],
   'eval-runs list': [
@@ -1583,10 +2105,132 @@ export const CLI_EXAMPLES = {
       line: 'kindgi service-accounts unregister <service-account-id>',
     },
   ],
+  'connections list': [
+    {
+      purpose: 'List your own connections to Google, as a table.',
+      line: 'kindgi connections list --app=google --mine --table',
+    },
+    {
+      purpose: "List the connections a project's registrations allow.",
+      line: 'kindgi connections list --project=<project-id>',
+    },
+    {
+      purpose: 'List connections, removed ones too, as a table.',
+      line: 'kindgi connections list --include-removed --table',
+    },
+  ],
+  'connections get': [
+    {
+      purpose: 'Show one connection: whose account, its permissions and its state.',
+      line: 'kindgi connections get <connection-id>',
+    },
+  ],
+  'connections connect': [
+    {
+      purpose: 'Connect your Google account to send email; open the link it prints.',
+      line: 'kindgi connections connect google --permissions=gmail.send',
+    },
+    {
+      purpose: "Connect the company's GitHub installation for a project (tenant admins).",
+      line: 'kindgi connections connect github --project=<project-id> --for-company',
+    },
+  ],
+  'connections disconnect': [
+    {
+      purpose: 'Disconnect a connection without being asked (for scripts).',
+      line: 'kindgi connections disconnect <connection-id> --yes',
+    },
+  ],
+  'connection-apps list': [
+    {
+      purpose: "List the tenant's registrations, as a table.",
+      line: 'kindgi connection-apps list --table',
+    },
+    {
+      purpose: 'List every registration, removed ones too, as a table.',
+      line: 'kindgi connection-apps list --include-removed --table',
+    },
+  ],
+  'connection-apps get': [
+    {
+      purpose: 'Show a registration, with the redirect and notices addresses to give the app.',
+      line: 'kindgi connection-apps get <app-id>',
+    },
+  ],
+  'connection-apps add': [
+    {
+      purpose:
+        "Register the company's Google client, its secret stored first with `kindgi secrets set`.",
+      line: 'kindgi connection-apps add google --client-id=<client-id> --client-secret-ref=production/ACME_GOOGLE_CONNECT_SECRET',
+    },
+    {
+      purpose:
+        "Register the company's Microsoft Entra app, a single-tenant one, at its own directory.",
+      line: 'kindgi connection-apps add microsoft --client-id=<client-id> --client-secret-ref=production/ACME_MICROSOFT_CONNECT_SECRET --tenant=<tenant-id>',
+    },
+    {
+      purpose: "Register the company's GitHub App.",
+      line: 'kindgi connection-apps add github --github-app-id=<n> --slug=<slug> --client-id=<client-id> --client-secret-ref=production/ACME_GITHUB_CLIENT_SECRET --private-key-ref=production/ACME_GITHUB_PRIVATE_KEY --webhook-secret-ref=production/ACME_GITHUB_WEBHOOK_SECRET',
+    },
+    {
+      purpose: "Register the company's LinkedIn app.",
+      line: 'kindgi connection-apps add linkedin --client-id=<client-id> --client-secret-ref=production/ACME_LINKEDIN_CONNECT_SECRET',
+    },
+  ],
+  'connection-apps remove': [
+    {
+      purpose: 'Remove a registration and disconnect every connection through it.',
+      line: 'kindgi connection-apps remove <app-id> --with-connections',
+    },
+  ],
+  'people add': [
+    {
+      purpose: 'Add a person and email them their invitation.',
+      line: 'kindgi people add --name="Sam Lee" --email=sam@acme.example',
+    },
+    {
+      purpose: 'Add a person without emailing the invitation: you tell them.',
+      line: 'kindgi people add --name="Sam Lee" --email=sam@acme.example --no-invite',
+    },
+  ],
+  'people invite': [
+    {
+      purpose: "Send a person's invitation again, with a new expiry.",
+      line: 'kindgi people invite <user-id>',
+    },
+  ],
+  'people second-factor': [
+    {
+      purpose:
+        'See whether a person has a second factor set up, and how many recovery codes are left.',
+      line: 'kindgi people second-factor <user-id>',
+    },
+  ],
+  'people reset-second-factor': [
+    {
+      purpose:
+        'Remove the second factor of a person who lost their phone: they set one up again at their next sign-in.',
+      line: 'kindgi people reset-second-factor <user-id>',
+    },
+  ],
+  'sign-in settings': [
+    {
+      purpose: 'See whether signing in takes a second factor.',
+      line: 'kindgi sign-in settings',
+    },
+    {
+      purpose: 'Require a second factor at sign-in (set up your own first).',
+      line: 'kindgi sign-in settings --require-second-factor=on',
+    },
+  ],
   'people list': [
     {
       purpose: 'Find people whose name starts with Sam.',
       line: 'kindgi people list --query=Sam',
+    },
+    {
+      purpose: "List the people invited who haven't signed in yet.",
+      line: 'kindgi people list --pending --table',
     },
     {
       purpose: 'List everyone, removed people too, as a table.',
@@ -1648,8 +2292,43 @@ export const CLI_EXAMPLES = {
   'feedback submit': [
     {
       purpose:
-        'It exits with status `1` and says where the entries are kept: `FEEDBACK.md` at the pack root, to commit or send.',
-      line: 'kindgi feedback submit',
+        'Print exactly what would be sent, after redaction, with its digest. Nothing is sent.',
+      line: 'kindgi feedback submit --preview',
+    },
+    {
+      purpose: 'After the person says yes to that preview, send exactly it.',
+      line: 'kindgi feedback submit --yes=<digest>',
+    },
+    {
+      purpose: 'Preview one entry by its id, to send it (again) on its own.',
+      line: 'kindgi feedback submit 2026-10-15.1 --preview',
+    },
+  ],
+  'feedback status': [
+    {
+      purpose: 'Ask what became of the reports sent: at most once a day each.',
+      line: 'kindgi feedback status',
+    },
+    {
+      purpose: "Ask about one now, by its entry's id or its report id.",
+      line: 'kindgi feedback status 2026-10-15.1',
+    },
+  ],
+  'feedback withdraw': [
+    {
+      purpose: 'Take a report back: the intake clears its text at once.',
+      line: 'kindgi feedback withdraw 2026-10-15.1',
+    },
+  ],
+  egress: [
+    {
+      purpose:
+        "Print the addresses this deployment's calls come from, to admit them on a site that admits only known addresses.",
+      line: 'kindgi egress',
+    },
+    {
+      purpose: "Both lists as JSON, for a script that writes the site's firewall rule.",
+      line: 'kindgi egress --json',
     },
   ],
   health: [
@@ -1664,19 +2343,41 @@ export const CLI_EXAMPLES = {
       line: 'kindgi version',
     },
   ],
+  usage: [
+    {
+      purpose: "This month's usage so far, grouped by project and kind (the default).",
+      line: 'kindgi usage',
+    },
+    {
+      purpose: 'A past month, broken down by agent and kind, as a table.',
+      line: 'kindgi usage --month=2026-09 --group-by=agent,kind --table',
+    },
+  ],
 };
 
 /** "See also" for a command group that no guide runs: page slugs. */
 export const CLI_GROUP_SEE_ALSO = {
   auth: ['start/install', 'deploy/people-and-keys'],
   upgrade: ['start/quickstart-java', 'start/quickstart-scala'],
-  console: ['deploy/sign-in', 'start/introduction'],
+  console: ['deploy/self-hosted/sign-in', 'start/introduction'],
+  sites: ['deploy/self-hosted/sign-in', 'sites/wordpress'],
+  'sign-in': ['deploy/self-hosted/sign-in', 'deploy/people-and-keys'],
   'mcp-launch': ['guides/tools/mcp-servers'],
+  deployments: ['hosted/deploy-your-agent', 'guides/secrets/pack-env'],
   projects: ['guides/projects/organize-by-org-and-project'],
+  connections: ['deploy/people-and-keys'],
+  'connection-apps': ['guides/secrets/store-a-secret', 'deploy/people-and-keys'],
+  tenant: ['guides/projects/organize-by-org-and-project'],
+  environments: ['guides/projects/organize-by-org-and-project'],
+  promote: ['guides/projects/organize-by-org-and-project'],
   flows: ['guides/flows/write-a-flow', 'guides/flows/index'],
   capabilities: ['guides/agents/choose-a-model'],
   adapters: ['guides/models/index', 'guides/models/serve-your-own-model'],
   feedback: ['start/coding-agents'],
-  health: ['deploy/operate'],
+  egress: ['deploy/self-hosted/egress-addresses'],
+  health: ['deploy/self-hosted/operate'],
   version: ['start/install'],
+  usage: ['guides/observability/cost-per-run', 'guides/projects/organize-by-org-and-project'],
+  'judging-rules': ['guides/evals/judge-a-runs-output', 'guides/evals/judging-reference'],
+  'judging-queue': ['guides/evals/judge-a-runs-output', 'guides/evals/judging-reference'],
 };

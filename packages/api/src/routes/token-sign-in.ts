@@ -8,7 +8,7 @@ import { setCookie } from 'hono/cookie';
 
 import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import { ref } from '@kindgi/authz';
-import type { ApiTokenId, Timestamp } from '@kindgi/types';
+import type { ApiTokenId, TenantId, Timestamp } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import { encodeSessionToken } from '../middleware/auth.js';
@@ -51,6 +51,11 @@ export type TokenSignInRouteOptions =
       readonly cookieSecure?: boolean;
       /** `signed-in` events, best effort. */
       readonly auditEvents?: AuditEventBinding;
+      /**
+       * Whether the tenant requires a second factor at sign-in, which a
+       * token can't give: refused then, 403 `second-factor-required`.
+       */
+      readonly secondFactorRequired?: (tenantId: TenantId) => Promise<boolean>;
     };
 
 export function tokenSignInRouter(
@@ -58,6 +63,11 @@ export function tokenSignInRouter(
   authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  /** The tenant requires a second factor at sign-in, which a token can't give. */
+  const needsSecondFactor = async (tenantId: TenantId): Promise<boolean> =>
+    options.enabled && options.secondFactorRequired !== undefined
+      ? options.secondFactorRequired(tenantId)
+      : false;
 
   r.post('/', async (c) => {
     const requestId = c.get('requestId');
@@ -138,6 +148,14 @@ export function tokenSignInRouter(
       return refuse(
         'token-sign-in-not-allowed',
         "A narrowed key (a member role, or one project) can't open a console session: the session would carry all of your permissions. Use a full key, or sign in with your identity provider.",
+        'scope',
+      );
+    }
+
+    if (await needsSecondFactor(tenantId)) {
+      return refuse(
+        'second-factor-required',
+        "This workspace requires a second factor at sign-in, which an API token can't give: sign in another way, with your second factor.",
         'scope',
       );
     }

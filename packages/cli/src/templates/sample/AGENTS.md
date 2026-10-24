@@ -24,13 +24,16 @@ started, tools, guardrails, agents and flows, model providers, MCP servers,
 framework feedback, and guiding the person in using what you built
 (`kindgi-using`). Claude Code loads `.claude/skills/` on its own; Codex and
 Gemini CLI look in `.agents/skills/`; any other coding agent can read
-either. `kindgi skills sync` refreshes both.
+either. After an upgrade, `kindgi dev` refreshes both as it
+starts; `kindgi skills sync` refreshes them any time.
 
 When you diagnose a framework bug (something in Kindgi itself, not in this
 pack's code), append an entry to `FEEDBACK.md` at the pack root via
 `kindgi feedback write` — see the `kindgi-framework-feedback` skill. Mark
 items fixed by adding a `> **Fixed:** <note>` line right after their
 header; the file is a plain markdown list you edit directly.
+Send entries to Kindgi only after the person has seen the preview and said
+yes: `kindgi feedback submit --preview`, then `--yes=<its digest>`.
 
 When the person asks how to use what you built (where something is in
 Kindgi's console, what an agent did, what it cost, who has access), answer

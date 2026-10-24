@@ -136,6 +136,8 @@ const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_HOLD_MS = 30 * 1000;
 /** What a repeat in flight is told to wait, in seconds. */
 const IN_FLIGHT_RETRY_AFTER_S = 5;
+/** The statuses a stored answer can have that never carry a body. */
+const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([204, 205, 304]);
 /** What a write whose store couldn't be read is told to wait, in seconds. */
 const STORE_UNAVAILABLE_RETRY_AFTER_S = 5;
 
@@ -146,7 +148,8 @@ const STORE_UNAVAILABLE_RETRY_AFTER_S = 5;
  * - Only applies to mutating methods (POST/PUT/PATCH/DELETE).
  * - No `Idempotency-Key` header → pass through.
  * - Cached hit with matching body hash → replay stored response
- *   byte-identical (status, content-type, body).
+ *   byte-identical (status, content-type, body). A 204, 205 or 304 is
+ *   replayed with no body and no content-type: those never carry a body.
  * - Cached hit with different body hash → 409
  *   `idempotency-key-body-mismatch`.
  * - Cache miss → run the handler, then store the response when the
@@ -332,6 +335,11 @@ function replay(
         requestId,
       ),
     );
+  }
+  // A Response refuses a body with these statuses, even an empty one, so
+  // replaying the stored `''` would throw and answer 500.
+  if (NULL_BODY_STATUSES.has(hit.status)) {
+    return c.body(null, hit.status as never, { 'X-Idempotent-Replay': 'true' });
   }
   return c.body(hit.bodyText, hit.status as never, {
     'Content-Type': hit.contentType,

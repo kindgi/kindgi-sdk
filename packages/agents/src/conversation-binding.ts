@@ -23,6 +23,8 @@ export interface OpenConversationInput {
   readonly participantId?: string;
   /** The project the conversation is in: its turns' project. Lists filter by it. */
   readonly projectId?: ProjectId;
+  /** Who opens it: the caller's principal, as the server knows it, never a body's. */
+  readonly openedBy?: string;
   readonly scope: Readonly<Record<string, unknown>>;
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
@@ -43,6 +45,8 @@ export interface AppendMessageInput {
   readonly content: string | Readonly<Record<string, unknown>>;
   readonly actor?: string;
   readonly toolCall?: { readonly toolId: string; readonly invocationId: string };
+  /** The message came from outside (`ConversationMessage.fromEvent`): kept with it. */
+  readonly fromEvent?: true;
   /**
    * When true, this message is a mid-turn assistant emission (e.g. the
    * assistant message that contains tool calls before the final
@@ -109,6 +113,12 @@ export interface ListConversationsPageInput {
   readonly agentId?: AgentId;
   /** When set, filter to open (no closedAt) or closed (closedAt set) rows only. */
   readonly status?: 'open' | 'closed';
+  /**
+   * Only the conversations this principal opened (`user:<id>`,
+   * `service_account:<id>`). A binding that ignores it lists more: the
+   * route keeps only these.
+   */
+  readonly openedBy?: string;
   /**
    * Replay conversations (opened by a comparison's replay turn: their
    * `metadata` has `replayOf`): `exclude` leaves them out, `only` returns

@@ -13,7 +13,7 @@ pack lives beside your code: its tools call your app's code.
 **Before you start**, set up what the [Install page](../install/) describes:
 Docker, Node 22.12 or later (or uv, to run the CLI from PyPI), and access to
 the runtime image. You also need a JDK 17 or later, with `JAVA_HOME` set to
-it, and sbt 1.10 or later. In the app's folder, `npx --yes @kindgi/cli@0.1 doctor`
+it, and sbt 1.10 or later. In the app's folder, `npx --yes @kindgi/cli@0.2 doctor`
 checks Node, Docker and access to the runtime image, and says how to fix
 what's missing. Run it again after `kindgi init`, and it checks the JDK and sbt too.
 
@@ -26,7 +26,7 @@ In the app's directory (where its `build.sbt` is), with a JDK 17 or later,
 `JAVA_HOME` set, and sbt:
 
 ```sh
-npx --yes @kindgi/cli@0.1 init   # --pack-id=<id> if the build's name doesn't make one
+npx --yes @kindgi/cli@0.2 init   # --pack-id=<id> if the build's name doesn't make one
 ```
 
 `init` writes `kindgi.config.json`: the pack id from the build's `name`, its
@@ -48,7 +48,10 @@ prints what to add to it:
 …
 ```
 
-Add it to `build.sbt`:
+Ask your coding agent: "Add the Kindgi dependency to our build.sbt."
+Kindgi's skills in your app tell it how
+([How it knows Kindgi](../coding-agents/)). For reference, it adds this
+line to `build.sbt`:
 
 ```scala
 libraryDependencies += "com.kindgi" %% "kindgi-pack-scala" % "…"
@@ -85,7 +88,9 @@ another sbt (such as `["sbt", "-mem", "2048"]`) and `dev.javaHome` another
 JDK. `SBT_OPTS` reaches sbt, never the pack.
 
 A tool is a `val` of an object in a `kindgi.tools` package under your own,
-named like its file, and calls your app's code directly:
+named like its file, and calls your app's code directly. Ask your coding
+agent: "Make a Kindgi tool from our customer order lookup." For reference,
+the tool looks like this:
 
 ```scala
 // src/main/scala/com/acme/kindgi/tools/CustomerOrders.scala

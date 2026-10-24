@@ -21,6 +21,9 @@ A flow with that agent as a step waits with it.
   the number of turns.
 - [Set approval rules for every agent](approval-rules-for-every-agent/): a
   tenant policy that agents can't loosen.
+- [Ask and approve in WordPress](../../sites/wordpress/): a store's
+  staff ask the project's agents and decide approvals in wp-admin, each as
+  themselves.
 
 The examples use a pack named `acme-ops` with the sample template's agent and
 tools, plus `acme-ops.post-update`, a tool that posts to a status page. They
