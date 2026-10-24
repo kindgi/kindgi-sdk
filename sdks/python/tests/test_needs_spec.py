@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from kindgi import DefinitionError, ToolContext, tool
+from kindgi import DefinitionError, PauseAnswer, ToolContext, WaitToken, tool
 from kindgi.pack.needs import resolve_env
 
 
@@ -292,3 +292,23 @@ def test_for_test_without_a_tool_passes_env_and_secrets_through() -> None:
     assert ctx.tenant_id == "tenant-test"
     assert ctx.env["X"] == "1"
     assert ctx.secrets["KEY"] == "k"
+
+
+# --- for_test with a tool that pauses: env from its needs_spec, and the wait token kept --------
+
+
+def test_for_test_fills_env_and_keeps_a_wait_token_for_a_pausing_tool() -> None:
+    @tool(
+        id="acme.carrier.book-pickup",
+        pauses=True,
+        needs_spec={"env": {"REGION": {"type": "string", "default": "eu"}}},
+    )
+    def book_pickup(input: dict[str, Any], ctx: ToolContext) -> dict[str, Any] | PauseAnswer:
+        "Books a pickup and waits for the carrier's confirmation."
+        return ctx.pause()
+
+    token = WaitToken(id="wt_1", url="https://kindgi.example/v1/wait-tokens/wt_1/answer")
+    ctx = ToolContext.for_test(tool=book_pickup, wait_token=token)
+    assert dict(ctx.env) == {"REGION": "eu"}
+    assert ctx.wait_token == token
+    assert book_pickup.handler({}, ctx) == PauseAnswer()
