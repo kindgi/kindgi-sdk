@@ -87,23 +87,48 @@ function imageOf(config: Record<string, unknown>): ResolvedImage {
 }
 
 /**
+ * A Containerfile line, for the walk below: a `FROM <image> AS <stage>`, or
+ * an `ENV` of one name set to one quoted or plain word. Any other form of
+ * either throws, so the walk never skips a stage or a name without saying so.
+ */
+function stageLine(
+  line: string,
+): { readonly from: string; readonly stage: string } | { readonly env: string } | undefined {
+  if (/^\s*FROM\s/i.test(line)) {
+    const at = /^FROM (\S+) AS (\S+)$/.exec(line);
+    if (at?.[1] === undefined || at[2] === undefined) {
+      throw new Error(`A FROM line the walk can't read: ${line}`);
+    }
+    return { from: at[1], stage: at[2] };
+  }
+  if (/^\s*ENV\s/i.test(line)) {
+    const set = /^ENV ([A-Za-z_][A-Za-z0-9_]*)=(?:"(?:[^"\\]|\\.)*"|[^\s"\\]+)$/.exec(line);
+    if (set?.[1] === undefined) throw new Error(`An ENV line the walk can't read: ${line}`);
+    return { env: set[1] };
+  }
+  return undefined;
+}
+
+/**
  * The names the final image sets: the `ENV` lines of the final stage and of
  * each stage it's built `FROM` in the file (not the base image's own).
  */
 function finalImageEnv(text: string): string[] {
   const from = new Map<string, string>();
   const env = new Map<string, string[]>();
-  let stage = '';
+  let stage: string | undefined;
   for (const line of text.split('\n')) {
-    const at = /^FROM (\S+) AS (\S+)$/.exec(line);
-    if (at !== null) {
-      stage = at[2] ?? '';
-      from.set(stage, at[1] ?? '');
+    const read = stageLine(line);
+    if (read === undefined) continue;
+    if ('stage' in read) {
+      stage = read.stage;
+      from.set(stage, read.from);
       env.set(stage, []);
-      continue;
+    } else if (stage === undefined) {
+      throw new Error(`An ENV line the walk can't read, before any FROM: ${line}`);
+    } else {
+      env.get(stage)?.push(read.env);
     }
-    const set = /^ENV ([A-Za-z_][A-Za-z0-9_]*)=/.exec(line);
-    if (set !== null) env.get(stage)?.push(set[1] ?? '');
   }
   const names: string[] = [];
   for (let at = from.has('final') ? 'final' : undefined; at !== undefined; at = from.get(at)) {
@@ -356,6 +381,24 @@ describe('the Containerfile', () => {
           expect(text.match(/COREPACK_ENABLE_DOWNLOAD_PROMPT/g)).toHaveLength(1);
         }
       }
+    }
+  });
+
+  test("the final image's walk refuses a FROM or ENV line it can't read", () => {
+    const final = '\nFROM system AS final\nENV PORT=8080\n';
+    expect(finalImageEnv(`FROM base AS system\nENV ACME_A="a b"${final}`)).toEqual([
+      'PORT',
+      'ACME_A',
+    ]);
+    for (const unread of [
+      'FROM --platform=linux/amd64 base AS system',
+      'FROM base',
+      'FROM base AS system\nENV ACME_A=1 ACME_B=2',
+      'FROM base AS system\nENV ACME_A 1',
+      'FROM base AS system\nENV ACME_A=1 \\',
+      'ENV ACME_A=1\nFROM base AS system',
+    ]) {
+      expect(() => finalImageEnv(`${unread}${final}`)).toThrow("the walk can't read");
     }
   });
 
