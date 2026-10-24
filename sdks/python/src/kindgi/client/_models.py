@@ -557,11 +557,11 @@ class ResumeRunBody(BaseModel):
     )
     waitpoint_id: Annotated[str, Field(alias="waitpointId", min_length=1)]
     """
-    Token id of the pending waitpoint to complete. Ids starting with `child:` are reserved for the runtime. Resuming without a waitpoint id returns `400 bad-input`.
+    Token id of the pending waitpoint to complete: a `pause:` id, from the run's `waitingFor.tokens`. Ids starting with `child:` and `pause:` are reserved for the runtime: a handler never waits on one of its own. Resuming without a waitpoint id returns `400 bad-input`.
     """
     value: Any | None = None
     """
-    Resolved value passed back into the flow handler that suspended.
+    The answer: the paused tool's output, checked against its output schema. Absent: `{}`.
     """
 
 
@@ -7478,6 +7478,25 @@ class SignInOption(BaseModel):
     """
 
 
+class ConsoleLink(BaseModel):
+    """
+    One of the deployment's own links, which the console shows on every page.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    label: Annotated[str, Field(max_length=40, min_length=1)]
+    """
+    The text shown.
+    """
+    url: AnyUrl
+    """
+    An absolute https URL with no username or password.
+    """
+
+
 class EmailLink(BaseModel):
     """
     Present when the deployment emails sign-in links: a sign-in page offers "Email me a sign-in link". With `captchaSiteKey`, the request needs a Cloudflare Turnstile token (`x-captcha-response`).
@@ -7551,6 +7570,10 @@ class SignInOptions(BaseModel):
     legal: Legal | None = None
     """
     The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.
+    """
+    links: Annotated[list[ConsoleLink] | None, Field(max_length=8)] = None
+    """
+    The deployment's own links (its help desk, status page, data processing terms), which the console shows on every page, the sign-in page too, in its operator's order. Absent when there are none, and from older servers.
     """
 
 
@@ -8987,6 +9010,8 @@ class EvidenceKind(RootModel[str]):
                 "secret-revoked",
                 "secret-hard-revoked",
                 "hitl-decision",
+                "wait-token-completed",
+                "wait-token-discarded",
                 "agent-promotion",
                 "agent-promotion-refused",
                 "agent-rollback",
@@ -9154,6 +9179,8 @@ class ComplianceEvidence(BaseModel):
                 "secret-revoked",
                 "secret-hard-revoked",
                 "hitl-decision",
+                "wait-token-completed",
+                "wait-token-discarded",
                 "agent-promotion",
                 "agent-promotion-refused",
                 "agent-rollback",
@@ -9249,6 +9276,8 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "secret-revoked",
                 "secret-hard-revoked",
                 "hitl-decision",
+                "wait-token-completed",
+                "wait-token-discarded",
                 "agent-promotion",
                 "agent-promotion-refused",
                 "agent-rollback",
@@ -9321,6 +9350,8 @@ class Filter(BaseModel):
                 "secret-revoked",
                 "secret-hard-revoked",
                 "hitl-decision",
+                "wait-token-completed",
+                "wait-token-discarded",
                 "agent-promotion",
                 "agent-promotion-refused",
                 "agent-rollback",
@@ -10328,6 +10359,18 @@ class WebhookFirePage(BaseModel):
     data: list[WebhookFire]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class WaitTokenAccepted(BaseModel):
+    """
+    The runtime has the answer. It says nothing about the run: who holds a wait token's link isn't a run reader.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    status: Literal["accepted"]
 
 
 class WebhookReceipt(BaseModel):
@@ -11401,6 +11444,26 @@ class RunWaitingApprovalTool(BaseModel):
     """
 
 
+class RunWaitingTokenTool(BaseModel):
+    """
+    The tool whose call waits.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The tool id.
+    """
+    version: str
+    call_id: Annotated[str | None, Field(alias="callId")] = None
+    """
+    The model's id for the call, for an agent's call.
+    """
+
+
 class Call(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -11982,6 +12045,38 @@ class RunWaitingApproval(BaseModel):
     tool: RunWaitingApprovalTool | None = None
     """
     For a tool call held for review: which tool and which call. Never the call's arguments.
+    """
+
+
+class RunWaitingToken(BaseModel):
+    """
+    A wait for another system's answer: a pack tool that declares `pauses` handed its wait token's link on. Answer it through the link, or with `POST /v1/runs/{runId}/resume` and this `tokenId`. Never the link itself.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    token_id: Annotated[str, Field(alias="tokenId")]
+    """
+    The waitpoint id (`pause:…`), for `POST /v1/runs/{runId}/resume`.
+    """
+    name: str | None = None
+    """
+    What the run waits for, as the tool named it.
+    """
+    tool: RunWaitingTokenTool
+    """
+    The tool whose call waits.
+    """
+    node_id: Annotated[str | None, Field(alias="nodeId")] = None
+    """
+    The flow step that waits, for a flow's tool step.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    times_out_at: Annotated[AwareDatetime, Field(alias="timesOutAt")]
+    """
+    When the wait times out, and the call fails with `wait-token-timed-out`.
     """
 
 
@@ -13221,6 +13316,10 @@ class RegisterToolBody(BaseModel):
     """
     `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`.
     """
+    pauses: bool | None = None
+    """
+    `true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
+    """
     sandbox: Annotated[Literal["none", "context-isolated", "strict"] | str, _open.OPEN] | None = (
         None
     )
@@ -13479,6 +13578,10 @@ class ImproveBody(BaseModel):
     from_version: Annotated[str | None, Field(alias="fromVersion")] = None
     """
     The version whose settings it tunes. Default: the one serving `scope`.
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The project the pass works in: `suiteId` must be a test set it reaches, the version must reach it, and the pass's eval runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.
     """
     scope: Annotated[
         LiveScopeTenant
@@ -15114,7 +15217,7 @@ class RunAgent(BaseModel):
 
 class RunWaitingFor(BaseModel):
     """
-    Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.
+    Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `tokens`: its waits for another system's answer. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.
     """
 
     model_config = ConfigDict(
@@ -15122,6 +15225,10 @@ class RunWaitingFor(BaseModel):
         populate_by_name=True,
     )
     approvals: list[RunWaitingApproval]
+    tokens: list[RunWaitingToken] | None = None
+    """
+    Its waits for another system's answer (a pausing tool's calls). Absent on a runtime that pauses no run, or when they can't be read: those waits are then `unattributed`.
+    """
     other: list[OtherItem]
 
 
@@ -15180,6 +15287,10 @@ class Run(BaseModel):
     ] = None
     """
     How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
+    """
+    acts_for: Annotated[str | None, Field(alias="actsFor")] = None
+    """
+    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule or a webhook fired (`startedBy` `schedule` or `webhook`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
     """
     tools_allowed_unattended: Annotated[list[str] | None, Field(alias="toolsAllowedUnattended")] = (
         None
@@ -15272,6 +15383,10 @@ class Datum(BaseModel):
     """
     How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
     """
+    acts_for: Annotated[str | None, Field(alias="actsFor")] = None
+    """
+    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule or a webhook fired (`startedBy` `schedule` or `webhook`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
+    """
     tools_allowed_unattended: Annotated[list[str] | None, Field(alias="toolsAllowedUnattended")] = (
         None
     )
@@ -15357,6 +15472,10 @@ class Tool(BaseModel):
     ] = None
     """
     `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`.
+    """
+    pauses: bool | None = None
+    """
+    `true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
     """
     sandbox: Annotated[Literal["none", "context-isolated", "strict"] | str, _open.OPEN] | None = (
         None
@@ -15462,6 +15581,10 @@ class ToolVersionRow(BaseModel):
     ] = None
     """
     `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`.
+    """
+    pauses: bool | None = None
+    """
+    `true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
     """
     sandbox: Annotated[Literal["none", "context-isolated", "strict"] | str, _open.OPEN] | None = (
         None

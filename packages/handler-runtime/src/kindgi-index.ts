@@ -342,6 +342,11 @@ export interface IndexedTool {
    * started, each of its calls waits for a person's yes. Absent means `false`.
    */
   readonly needsApprovalWhenUnattended?: boolean;
+  /**
+   * The tool's declared `pauses` (schema-version 1.6.0+): each call gets a
+   * wait token and may answer `pause`. Absent means `false`.
+   */
+  readonly pauses?: boolean;
   readonly modulePath: string;
 }
 
@@ -1577,6 +1582,8 @@ function buildTool(
   if (inputWire.kind === 'err') return inputWire;
   const outputWire = resolveSchema(rec, 'output', 'outputZod', relPath, converter);
   if (outputWire.kind === 'err') return outputWire;
+  const pauses = pausesOf(rec, relPath);
+  if (pauses.kind === 'err') return pauses;
 
   const tool: IndexedTool = {
     id: rec.id,
@@ -1605,9 +1612,29 @@ function buildTool(
     ...(typeof rec.needsApprovalWhenUnattended === 'boolean' && {
       needsApprovalWhenUnattended: rec.needsApprovalWhenUnattended,
     }),
+    ...pauses.value,
     modulePath: normalizeModulePath(relPath),
   };
   return { kind: 'ok', value: tool };
+}
+
+/**
+ * The tool's `pauses`, as the index carries it. Only the pack service's
+ * own run of a handler can answer `pause`: the runtime runs a declarative
+ * spec itself, and an MCP server can't.
+ */
+function pausesOf(
+  rec: Readonly<Record<string, unknown>>,
+  relPath: string,
+): Result<{ readonly pauses?: true }, IndexerError> {
+  if (rec.pauses !== true) return { kind: 'ok', value: {} };
+  if (isObject(rec.spec) || rec.transport === 'mcp') {
+    return manifestErr(
+      relPath,
+      `'pauses: true' needs a handler the pack runs: a tool with a declarative 'spec' or an MCP transport can't pause`,
+    );
+  }
+  return { kind: 'ok', value: { pauses: true } };
 }
 
 /**

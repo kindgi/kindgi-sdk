@@ -4,12 +4,36 @@
 developers) have one version, the same as the npm packages', spelled as PyPI
 spells it: `0.1.8rc0` for npm's `0.1.8-rc.0`. Each user-visible change adds
 its line under **Unreleased** in the pull request that makes it. A release
-turns that heading into its version. `kindgi-cli` carries `@kindgi/cli` of the
-same version, and the CLI's own changes are in
+turns that heading into its version. From 0.2.0 on, a release after release
+candidates lists their changes too, so its section has every change since
+the release before. An earlier release's section has only what came after
+its candidates, and theirs are just below it. `kindgi-cli` carries
+`@kindgi/cli` of the same version, and the CLI's own changes are in
 [`@kindgi/cli`'s changelog](../../packages/cli/CHANGELOG.md).
 
 ## Unreleased
 
+- `kindgi`: **a tool can pause its run until another system answers.**
+  `@tool(pauses=True)`: the handler hands `ctx.wait_token.url` to that system
+  and returns `ctx.pause(timeout_ms=..., name=...)`, 24 hours by default and
+  at most 24 days. Annotate it `-> Answer | PauseAnswer`: the output schema is
+  `Answer`'s. A call from a runtime that sends no wait token fails with
+  `pause-not-available`: reading `ctx.wait_token` raises `PauseNotAvailable`
+  first, so the tool hands nothing on. `ToolContext.for_test(wait_token=...)`
+  tests one. New: `PauseAnswer`, `PauseNotAvailable` and `WaitToken`. The
+  client's `Tool` model carries `pauses`.
+- `kindgi`: **the client answers a run's wait for another system.**
+  `runs.resume(run_id, waitpoint_id=..., value=...)` takes a `pause:` waitpoint
+  from `runs.get(run_id).waiting_for.tokens` (`RunWaitingToken`), with the
+  tool's output as `value`. Any other waitpoint is refused with
+  `run-resume-not-supported`. New error codes: `wait-token-not-found`,
+  `wait-token-closed`, `wait-token-output-invalid` and `unsupported-media-type`.
+- `kindgi`: **a run says whom it acts for.** The client's `Run` gains
+  `acts_for`: `user:<id>` (a person) or `service_account:<id>` (a service
+  account), whose access the run has. A schedule's or a webhook's run acts
+  for the trigger's owner, and a child run for its parent's. It is an id,
+  never a name, and it is `None` on a run that acts for no one and on older
+  runs.
 - `kindgi`: **`SecretRevokeOutcome` and `SecretRevokeResult` gain an optional
   `recoverable_until`**: when a hard revoke left a copy your secret manager can
   still recover, until when it keeps it. It's `None` on a soft revoke, and
@@ -35,6 +59,19 @@ same version, and the CLI's own changes are in
   erases the value at Kindgi and hard-deletes it in a secret manager, and
   can't be undone; backups, and a secret manager's own retention, may keep
   copies for a time. They no longer call it cryptographic erasure.
+- `kindgi`: **a tool's `needs_spec` is checked, and a test can fill its
+  `env`.** `@tool(..., needs_spec=...)` is refused at definition
+  (`DefinitionError`) when a schema under `env` or `secrets` doesn't compile
+  as the runtime compiles it (it isn't valid Draft 2020-12, or it or a schema
+  inside it has a keyword or a `format` the runtime doesn't know, a misspelled
+  one say, or a `$ref` that points nowhere), or an `env` default isn't a
+  string (`None` included).
+  `ToolContext.for_test(tool=...)` builds a context whose `env` is what the
+  tool declares under `needs_spec["env"]` — each name from the `env=` you pass
+  or its schema's string default, checked against its schema — so a handler
+  test resolves env the way the runtime does; names the tool doesn't declare
+  are dropped and `secrets=` pass through.
+  Matches the TypeScript `@kindgi/tools` definition check and test context.
 
 ## 0.1.10
 

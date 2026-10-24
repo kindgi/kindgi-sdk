@@ -30,9 +30,12 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
   started in the background keeps running after its answer.
 - **Your pack's service** (`kindgi-pack`): your tools' code. Internal ingress,
   and IAM-protected: only the runtime's service account may call it, with a
-  Google ID token on every call.
+  Google ID token on every call. Its CPU is allocated only while a call runs,
+  so the instance `pack_min_instances` keeps up bills at Cloud Run's lower
+  idle rate between calls, and any others aren't billed then.
 - **Cloud SQL** (Postgres 16) for the runtime's data, reached through the
-  Cloud SQL socket.
+  Cloud SQL socket, which encrypts the connection and checks the server
+  ([Check the database's certificate](../database-tls/)).
 - **Artifact Registry** for both images. The runtime also reads your pack's
   image from it when you deploy.
 - **Secret Manager** for the runtime's secrets, and **a Cloud KMS key** that
@@ -804,6 +807,29 @@ A new grant can take a minute or two to apply.
   version your server reads, normally `1`
   (`gcloud secrets versions list $N-secrets-aad-key` lists them). Without
   it, `terraform plan` stops and asks for it.
+- **Backups:** Cloud SQL backs the database up daily, with point-in-time
+  recovery. On the module's edition (`ENTERPRISE`) it keeps 7 backups and
+  7 days of transaction logs by default, in the multi-region nearest the
+  instance ([Google: Cloud SQL backup options](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/backup-options)).
+  To keep more, or choose where they're stored, set
+  `database_backup_retention`, `database_point_in_time_days` (at most 7 on
+  `ENTERPRISE`, and at most as many days as backups kept) and
+  `database_backup_location`. A restore reaches any second within the
+  logs' days, or one of the kept backups.
+  - **Where the backups are kept:** the nearest multi-region can be
+    outside the instance's region and country. When you promise where
+    backups are kept, set `database_backup_location` to a region
+    (`northamerica-northeast2`, say) or a multi-region (`us`, `eu`,
+    `asia`); a zone is refused at plan. Point-in-time recovery's
+    transaction logs stay in the instance's own location
+    ([Google: transaction log retention](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/backup-options#sb-log-retention)).
+  - **Setting it on a running deployment** changes the instance in place.
+    The backups taken before stay where they were
+    ([Google: custom backup locations](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/backup-options#sb-custom-backup-location)).
+  - **On a host or a restored instance:** these set the module's own
+    instance only. With `database_host_instance` they're refused at plan:
+    the host's backups are the app's, set where that instance is managed.
+    An instance `database_instance` names keeps its own.
 - **Restore Cloud SQL:** a point-in-time recovery always makes a new
   instance, and a backup can go into one too (restored into the serving
   instance, it overwrites everything on it). `database_instance` moves the

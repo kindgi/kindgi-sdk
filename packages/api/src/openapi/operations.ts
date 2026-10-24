@@ -1464,6 +1464,27 @@ const CommonMutationErrors: Readonly<Record<string, ResponseSpec>> = {
   '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
 };
 
+/** A read of a tenant-wide setting (`tenantResourceAccess`): a tenant member's; without an authorization store, anyone's. */
+const TenantSettingReadErrors: Readonly<Record<string, ResponseSpec>> = {
+  '403': ErrorResponse(
+    'Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.',
+  ),
+};
+
+/** Who a tenant admin is on a runtime without an authorization store, ending a 403's text. */
+const WITHOUT_STORE_ADMIN =
+  "Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.";
+
+/**
+ * A change to a tenant-wide setting (`tenantResourceAccess`), and every
+ * call to one only a tenant admin uses (`tenantAdminAccess`: webhook
+ * endpoints, compliance): a tenant admin's, with an authorization store or
+ * without one.
+ */
+const TenantAdminErrors: Readonly<Record<string, ResponseSpec>> = {
+  '403': ErrorResponse(`Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN}`),
+};
+
 /** A secrets store's external provider (the router's), answering a read or a write: each at its own status. */
 const SecretProviderErrors: Readonly<Record<string, ResponseSpec>> = {
   '429': ErrorResponse(
@@ -1505,7 +1526,7 @@ function conflictOrEnvNotServed(text: string): ResponseSpec {
 
 /** A change to the tenant's identity providers: not a tenant admin, or the operator manages sign-in. */
 const ProviderChangeRefused: ResponseSpec = ErrorResponse(
-  "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
+  `Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN} Or this deployment's operator manages sign-in (\`identity-providers-operator-managed\`, \`KINDGI_AUTH_TENANT_PROVIDERS=off\`): only the deployment's own token can change its providers.`,
 );
 
 /** Adding or changing a provider: the usual conflicts, or a deployment without a secrets store. */
@@ -1801,16 +1822,32 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/runs/:runId/resume',
     openapiPath: '/v1/runs/{runId}/resume',
     operationId: 'runs.resume',
-    summary: 'Resume a suspended run at a waitpoint (not available in this release)',
+    summary: "Answer a run's wait for another system",
     description:
-      'Not available in this release: always `422 run-resume-not-supported`, and no waitpoint is completed. Every waitpoint a run can wait at belongs to an approval or to the runtime itself. A run waiting for an approval continues when a reviewer decides it: `POST /v1/approvals/{approvalId}/complete`.',
+      "Answers a run paused on a tool call until another system answers (a pack tool that declares `pauses`; its waitpoint id starts with `pause:`, as the run's `waitingFor.tokens` lists it), as that system would through the wait token's link, and resumes the run in the same request. `value` is the tool's output, checked against its output schema; absent, `{}`. Answering stands in for the other system, and the run acts on the answer, so it needs `write` on the run's project and `execute` on the agent or flow it runs, as starting it does. The same answer again is accepted again, even after the run has ended; a different one to a wait that's over is `409 wait-token-closed`. Every other waitpoint belongs to an approval or to the runtime itself, and is `422 run-resume-not-supported`: a run waiting for an approval continues when a reviewer decides it (`POST /v1/approvals/{approvalId}/complete`).",
     tags: ['runs'],
     security: 'bearer',
     parameters: [RunIdPathParam, IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('ResumeRunBody') },
     responses: {
+      '200': {
+        description:
+          'The run after the answer: running again, finished, or waiting at its next wait (`waitingFor`).',
+        schema: ref('Run'),
+      },
       ...CommonMutationErrors,
-      '422': ErrorResponse('`run-resume-not-supported`: not available in this release.'),
+      '400': ErrorResponse(
+        "`bad-input`: no `waitpointId`, or a field the body doesn't take. `wait-token-output-invalid` (`details.issues`): the value doesn't fit the tool's output schema, and the wait stays open.",
+      ),
+      '404': ErrorResponse(
+        '`run-not-found`: no run with that id under this tenant. `wait-token-not-found`: the run has no such wait.',
+      ),
+      '409': ErrorResponse(
+        "`wait-token-closed` (`details.state`): the wait is over (`completed`, `timed-out`, `cancelled`, `unused`), or holds a different answer the run hasn't taken yet (`answered`). `project-suspended`: nothing runs in the run's project, and the suspension cancels its runs, so the value wasn't taken. Or an `Idempotency-Key` reused with a different body.",
+      ),
+      '422': ErrorResponse(
+        "`run-resume-not-supported`: a waitpoint that isn't a pause, or a runtime that pauses no run.",
+      ),
     },
   },
   {
@@ -1913,6 +1950,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Trusted.', schema: ref('TrustedSigningKey') },
       '200': { description: 'Already trusted.', schema: ref('TrustedSigningKey') },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        `Not a tenant admin, or the key doesn't carry the \`signing-keys:write\` capability (\`permission-denied\`). ${WITHOUT_STORE_ADMIN}`,
+      ),
       '409': ErrorResponse(
         '`keyId` is already trusted with a different public key (`signing-key-conflict`), or was revoked (`signing-key-revoked`: revocation is final).',
       ),
@@ -1949,6 +1989,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of trusted keys.', schema: ref('TrustedSigningKeyPage') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
     },
   },
   {
@@ -1964,6 +2005,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The key.', schema: ref('TrustedSigningKey') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No signing key with that id under this tenant.'),
     },
   },
@@ -1985,6 +2027,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('RevokeSigningKeyResult'),
       },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        `Not a tenant admin, or the key doesn't carry the \`signing-keys:write\` capability (\`permission-denied\`). ${WITHOUT_STORE_ADMIN}`,
+      ),
     },
   },
 
@@ -2293,7 +2338,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.close',
     summary: 'Close a tenant',
     description:
-      'Starts the end of its contract: the tenant becomes `closing`. Its own keys and sessions still read and export it for its window; nothing runs (its running runs are cancelled), and nothing is written but deletes. One-way: the purge follows the window. A second close keeps the first. Takes `system:tenants`.',
+      'Starts the end of its contract: the tenant becomes `closing`. Its own keys and sessions still read and export it for its window; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. One-way: the purge follows the window. A second close keeps the first. Takes `system:tenants`.',
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [
@@ -2325,7 +2370,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.setSuspended',
     summary: 'Suspend a tenant, or restore it',
     description:
-      "Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).",
+      "Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [
@@ -2398,7 +2443,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.setProjectSuspended',
     summary: "Suspend one of a tenant's projects, or restore it",
     description:
-      "Reversible: nothing new runs or deploys in the project, its running runs are cancelled and its deployments retired; reads and the rest of the tenant are untouched. Its schedules' fires are recorded `skipped` (`project-suspended`) and don't count toward the auto-pause, so a schedule stays on and fires again once the project is restored. A delivery to one of its webhook triggers is answered `skipped: project-suspended`, and nothing is recorded. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).",
+      "Reversible: nothing new runs or deploys in the project, its unfinished runs, waiting ones included, are cancelled, and its deployments retired; reads and the rest of the tenant are untouched. Its schedules' fires are recorded `skipped` (`project-suspended`) and don't count toward the auto-pause, so a schedule stays on and fires again once the project is restored. A delivery to one of its webhook triggers is answered `skipped: project-suspended`, and nothing is recorded. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [
@@ -4715,7 +4760,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'proposals.improve',
     summary: 'Start an improvement pass',
     description:
-      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts for an agent whose project is suspended (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.",
     tags: ['proposals'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -4724,13 +4769,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '202': { description: 'The pass, running.', schema: ref('ImprovementPass') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed request body, or `validation-failed`. Or `reference-out-of-scope`: the test set isn't registered in the agent's project, its org or the tenant, or a project or segment scope doesn't reach the agent (`details.issues`).",
+        "Malformed request body, `validation-failed`, or a project or segment scope that isn't in `projectId`. Or `reference-out-of-scope`: a project or segment scope doesn't reach the agent, the version doesn't reach the pass's project (`/fromVersion`), or the test set isn't one that project reaches (`details.issues`).",
       ),
       '404': ErrorResponse(
-        '`fromVersion` (or the version serving the scope) is not an active version.',
+        "`fromVersion` (or the version serving the scope) is not an active version; or the body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
       '409': ErrorResponse(
-        "`registry-read-only` (under `kindgi dev`, also a scope narrower than the whole tenant), `proposal-needs-pin`, or `project-suspended`: the agent's project is suspended. Or Idempotency-Key was reused with a different body.",
+        "`registry-read-only` (under `kindgi dev`, also a scope narrower than the whole tenant), `proposal-needs-pin`, or `project-suspended`: the pass's project is suspended. Or Idempotency-Key was reused with a different body.",
       ),
       '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
     },
@@ -4742,7 +4787,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'proposals.improveEstimate',
     summary: 'Estimate an improvement pass',
     description:
-      "What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the agent's project doesn't reach answers `400 reference-out-of-scope`, exactly as `improve` would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count times the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt pass's one-off drafting of its templates — a pass can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the pass is expected to spend its whole budget; the pass checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+      "What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the pass's project doesn't reach answers `400 reference-out-of-scope`, exactly as `improve` would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count times the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt pass's one-off drafting of its templates — a pass can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the pass is expected to spend its whole budget; the pass checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.",
     tags: ['proposals'],
     security: 'bearer',
     requestBody: { required: true, schema: ref('ImproveBody') },
@@ -4750,10 +4795,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The estimated cost.', schema: ref('ImprovementPassEstimate') },
       ...CommonAuthErrors,
       '400': ErrorResponse(
-        "Malformed request body (`bad-input`). Or `reference-out-of-scope`: the test set isn't registered in the agent's project, its org or the tenant, or a project or segment scope doesn't reach the agent (`details.issues`).",
+        "Malformed request body (`bad-input`), or a project or segment scope that isn't in `projectId`. Or `reference-out-of-scope`: a project or segment scope doesn't reach the agent, the version doesn't reach the pass's project (`/fromVersion`), or the test set isn't one that project reaches (`details.issues`).",
       ),
       '404': ErrorResponse(
-        '`fromVersion` (or the version serving the scope) is not an active version (`agent-version-not-found`).',
+        "`fromVersion` (or the version serving the scope) is not an active version (`agent-version-not-found`); or the body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
       '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
     },
@@ -5308,6 +5353,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('CapabilityCollectionPage'),
       },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '400': ErrorResponse('Malformed query parameter.'),
     },
   },
@@ -5323,6 +5369,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Capability descriptor.', schema: ref('CapabilityDescriptor') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No capability with that id under this tenant.'),
     },
   },
@@ -5342,6 +5389,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of providers.', schema: ref('ProviderCollectionPage') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '400': ErrorResponse('Malformed query parameter.'),
     },
   },
@@ -5359,6 +5407,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Provider metadata.', schema: ref('ProviderMetadata') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No provider with that id under this tenant.'),
     },
   },
@@ -5379,6 +5428,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('ProviderCapabilitiesResult'),
       },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No provider with that id under this tenant.'),
     },
   },
@@ -5396,6 +5446,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The check.', schema: ref('ProviderCheckResult') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No provider with that id under this tenant.'),
     },
   },
@@ -5414,6 +5465,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Provider registered.', schema: ref('RegisterProviderResult') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse('Validation failed (see `details.reason`).'),
       '409': ErrorResponse(
         `Provider already registered at that id. Or \`provider-key-in-use\`: \`secret_ref\` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint or a webhook trigger uses; \`details.usedBy\` lists each (\`kind\`, \`id\`, a tool's \`version\`). Store the provider's key under its own name. Nothing is stored. Or ${ENV_NOT_SERVED_REFERENCE}`,
@@ -5437,6 +5489,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterProviderResult') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('No provider with that id under this tenant, or already unregistered.'),
     },
   },
@@ -5898,6 +5951,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of adapters.', schema: ref('AdapterCollectionPage') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '400': ErrorResponse('Malformed query parameter (unknown `kind` or `status`).'),
     },
   },
@@ -5915,6 +5969,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Adapter descriptor.', schema: ref('Adapter') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No adapter with that id under this tenant.'),
     },
   },
@@ -5933,6 +5988,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Probe outcome.', schema: ref('AdapterTestOutcome') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('No adapter with that id under this tenant.'),
     },
   },
@@ -5954,6 +6010,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: { type: 'string' },
       },
       ...CommonAuthErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse(
         'Adapter has no prepare() implementation, or adapter factories not wired.',
       ),
@@ -5981,6 +6038,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of policies.', schema: ref('PolicyCollectionPage') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '400': ErrorResponse('Malformed query parameter (unknown `kind`).'),
     },
   },
@@ -5996,6 +6054,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Latest policy version.', schema: ref('Policy') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No policy with that id under this tenant.'),
     },
   },
@@ -6017,6 +6076,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       '400': ErrorResponse("`bad-input`: a `cursor` this list didn't issue."),
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No policy with that id under this tenant.'),
     },
   },
@@ -6033,6 +6093,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Policy at that version.', schema: ref('PolicyVersionRow') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No policy at that (id, version) under this tenant.'),
     },
   },
@@ -6051,6 +6112,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Policy published.', schema: ref('PublishPolicyResult') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse(
         "Validation failed (see `details.issues`); `kind-not-applied`: no runtime consumer applies that kind yet; or `retention-over-limit`: the retention policy keeps its domain's rows longer than this server's limit, or holds them (`details.limitSeconds`).",
       ),
@@ -6071,6 +6133,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterPolicyResult') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('No policy at that (id, version) under this tenant.'),
     },
   },
@@ -6088,6 +6151,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstatePolicyVersionResult') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse(
         "`retention-over-limit`: the version's retention policy keeps its domain's rows longer than this server's limit, or holds them (`details.limitSeconds`); it stays retired.",
       ),
@@ -6649,6 +6713,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('IdentityProviderCollectionPage'),
       },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
     },
   },
   {
@@ -6658,7 +6723,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.signInOptions',
     summary: 'How a person can sign in',
     description:
-      'Public: nobody is signed in yet. With `email`, the ways in for that email\'s domain: the identity providers of the one tenant the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, "Continue with Google"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).',
+      'Public: nobody is signed in yet. With `email`, the ways in for that email\'s domain: the identity providers of the one tenant the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, "Continue with Google"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Lookups with an email are rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`); a read without one, the same for everyone, isn\'t counted.',
     tags: ['auth'],
     security: 'public',
     parameters: [
@@ -6751,6 +6816,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The provider.', schema: ref('GetIdentityProviderResult') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
     },
   },
@@ -6785,6 +6851,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('IdentityProviderSignInUrls'),
       },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '400': ErrorResponse(
         "`kind` missing for a provider that isn't registered, or a kind this deployment doesn't sign in with (`bad-input`).",
       ),
@@ -7778,6 +7845,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('ComplianceEvidenceCollectionPage'),
       },
       ...CommonAuthErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse('Malformed cursor, `from`, or `to`.'),
     },
   },
@@ -7803,6 +7871,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Full evidence record.', schema: ref('ComplianceEvidence') },
       ...CommonAuthErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('No evidence record with that id under this tenant.'),
     },
   },
@@ -7824,6 +7893,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SignedComplianceEvidenceBundle'),
       },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('Signing key id unknown, or signing not configured on this deployment.'),
     },
   },
@@ -10501,6 +10571,62 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
 
+  // ---------- wait tokens (a paused run's answer) ----------
+  {
+    method: 'post',
+    honoPath: '/v1/wait-tokens/:token/complete',
+    openapiPath: '/v1/wait-tokens/{token}/complete',
+    operationId: 'waitTokens.complete',
+    senderOnly:
+      'The system a paused run waits for posts its answer to the link the tool handed it; a Kindgi client answers through `POST /v1/runs/{runId}/resume`.',
+    summary: "Answer a paused run's wait token",
+    description:
+      "A wait token's link: a pack tool that declares `pauses` hands it to the system that will answer, and the run waits for that answer. No sign-in, and a bearer token, if sent, is never read: the token in the path is the credential, and it answers one wait of one run, nothing else. The body is the answer itself, the tool's output, as JSON; an empty body is `{}`. It's checked against the tool's output schema. The same answer again (by its canonical JSON) is accepted again, even after the run has ended, so a sender may retry. An answer that comes before the run reaches its wait is held for it, and dropped if the run never waits on this token (the tool answered at once, or its step was retried); the link then answers `409 wait-token-closed`, `unused`. The answer comes back at once, and the run resumes behind it. The link stops working when the wait ends: the run is cancelled, its time passes, or the tool answered without waiting. The answer is data from outside, never instructions.",
+    tags: ['runs'],
+    security: 'public',
+    parameters: [
+      {
+        name: 'token',
+        in: 'path',
+        required: true,
+        description:
+          "The wait token, from the link. It's a credential: hand the link only to the system that answers.",
+        schema: { type: 'string', minLength: 1 },
+      },
+    ],
+    requestBody: {
+      required: false,
+      description: "The answer: the tool's output, as JSON, at most 1 MiB. An empty body is `{}`.",
+      schema: {},
+    },
+    responses: {
+      '200': {
+        description:
+          'The runtime has the answer, and the run resumes behind it. An answer that came before the run reached its wait is held for it, and dropped if the run never waits on this token (the tool answered at once, or its step was retried); the link then answers `409 wait-token-closed`, `unused`. Nothing about the run: who holds the link is not a run reader.',
+        schema: ref('WaitTokenAccepted'),
+      },
+      '400': ErrorResponse(
+        "`wait-token-output-invalid` (`details.issues`): the answer doesn't fit the tool's output schema, and the wait stays open for a fixed one. `bad-input`: the body isn't JSON, or nests too deep.",
+      ),
+      '404': ErrorResponse(
+        '`wait-token-not-found`: no wait token matches the link (an unknown token and a wrong secret alike), or this runtime pauses no run.',
+      ),
+      '409': ErrorResponse(
+        "`wait-token-closed` (`details.state`): the wait is over (`completed`, `timed-out`, `cancelled`, `unused`), or holds a different answer the run hasn't taken yet (`answered`). `tenant-closing`, `tenant-suspended` (`details.state`) or `project-suspended`: nothing runs where the run is, and closing or suspending cancels its runs, so the answer wasn't taken. Told only for a token that matches.",
+      ),
+      '413': ErrorResponse('`request-too-large` (`details.maxBytes`): past 1 MiB.'),
+      '415': ErrorResponse(
+        '`unsupported-media-type`: a body sent without a JSON content type (`application/json`).',
+      ),
+      '429': ErrorResponse(
+        '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was taken. `Retry-After` says when to send the answer again.',
+      ),
+      '503': ErrorResponse(
+        "`tenant-state-unavailable`: the run's tenant's state couldn't be read, so the answer wasn't taken. `Retry-After` says when to send it again.",
+      ),
+    },
+  },
+
   // ---------- webhook endpoints (outbound) ----------
   {
     method: 'post',
@@ -10517,6 +10643,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Endpoint registered.', schema: ref('WebhookEndpoint') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse(
         "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist (`webhook-secret-not-found`) or is too weak (`webhook-secret-too-weak`), or it's a model provider's key (`provider-key-refused`).",
       ),
@@ -10537,6 +10664,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'A new secret.', schema: ref('GeneratedWebhookSecret') },
       ...CommonAuthErrors,
+      ...TenantAdminErrors,
       '409': ErrorResponse(
         "A retry with the Idempotency-Key of a request that succeeded: the secret isn't kept (`idempotency-key-replay-withheld`).",
       ),
@@ -10554,6 +10682,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of endpoints.', schema: ref('WebhookEndpointCollectionPage') },
       ...CommonAuthErrors,
+      ...TenantAdminErrors,
     },
   },
   {
@@ -10568,6 +10697,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The endpoint.', schema: ref('WebhookEndpoint') },
       ...CommonAuthErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('No endpoint with that id, or it was unregistered.'),
     },
   },
@@ -10586,6 +10716,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The updated endpoint.', schema: ref('WebhookEndpoint') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse(
         "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist or is too weak, or it's a model provider's key (`provider-key-refused`).",
       ),
@@ -10607,6 +10738,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Outcome.', schema: ref('WebhookEndpointUnregisterResult') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
     },
   },
   {
@@ -10627,6 +10759,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of deliveries.', schema: ref('WebhookDeliveryCollectionPage') },
       ...CommonAuthErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse('Unknown `status`.'),
       '404': ErrorResponse('No endpoint with that id.'),
     },
@@ -10644,6 +10777,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '202': { description: 'Queued.', schema: ref('WebhookDelivery') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('No endpoint, or no delivery with that id for it.'),
     },
   },
@@ -10661,6 +10795,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '202': { description: 'Queued.', schema: ref('WebhookDelivery') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('No endpoint with that id.'),
     },
   },

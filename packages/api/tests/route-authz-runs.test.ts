@@ -180,8 +180,7 @@ describe('the run list and a run that is not there', () => {
     const { call } = harness([`read tenant:${tenantId}`]);
     expect((await call('GET', '/v1/runs/None')).status).toBe(400);
     expect((await call('POST', '/v1/runs/None/cancel')).status).toBe(400);
-    // Resume answers with its own refusal.
-    expect((await call('POST', '/v1/runs/None/resume')).status).toBe(422);
+    expect((await call('POST', '/v1/runs/None/resume')).status).toBe(400);
   });
 
   test("another project's run is refused on cancel", async () => {

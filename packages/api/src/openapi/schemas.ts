@@ -778,14 +778,56 @@ export const RunWaitingApprovalSchema: JsonSchema = {
   },
 };
 
+export const RunWaitingTokenSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tokenId', 'tool', 'createdAt', 'timesOutAt'],
+  description:
+    "A wait for another system's answer: a pack tool that declares `pauses` handed its wait token's link on. Answer it through the link, or with `POST /v1/runs/{runId}/resume` and this `tokenId`. Never the link itself.",
+  properties: {
+    tokenId: {
+      type: 'string',
+      description: 'The waitpoint id (`pause:…`), for `POST /v1/runs/{runId}/resume`.',
+    },
+    name: { type: 'string', description: 'What the run waits for, as the tool named it.' },
+    tool: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['id', 'version'],
+      description: 'The tool whose call waits.',
+      properties: {
+        id: { type: 'string', description: 'The tool id.' },
+        version: { type: 'string' },
+        callId: {
+          type: 'string',
+          description: "The model's id for the call, for an agent's call.",
+        },
+      },
+    },
+    nodeId: { type: 'string', description: "The flow step that waits, for a flow's tool step." },
+    createdAt: { type: 'string', format: 'date-time' },
+    timesOutAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the wait times out, and the call fails with `wait-token-timed-out`.',
+    },
+  },
+};
+
 export const RunWaitingForSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['approvals', 'other'],
   description:
-    "Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.",
+    "Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `tokens`: its waits for another system's answer. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.",
   properties: {
     approvals: { type: 'array', items: { $ref: '#/components/schemas/RunWaitingApproval' } },
+    tokens: {
+      type: 'array',
+      description:
+        "Its waits for another system's answer (a pausing tool's calls). Absent on a runtime that pauses no run, or when they can't be read: those waits are then `unattributed`.",
+      items: { $ref: '#/components/schemas/RunWaitingToken' },
+    },
     other: {
       type: 'array',
       items: {
@@ -868,6 +910,11 @@ export const RunSchema: JsonSchema = {
       enum: ['person', 'key', 'schedule', 'webhook', 'event'],
       description:
         "How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.",
+    },
+    actsFor: {
+      type: 'string',
+      description:
+        "Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule or a webhook fired (`startedBy` `schedule` or `webhook`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.",
     },
     toolsAllowedUnattended: {
       type: 'array',
@@ -1015,10 +1062,11 @@ export const ResumeRunBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        'Token id of the pending waitpoint to complete. Ids starting with `child:` are reserved for the runtime. Resuming without a waitpoint id returns `400 bad-input`.',
+        "Token id of the pending waitpoint to complete: a `pause:` id, from the run's `waitingFor.tokens`. Ids starting with `child:` and `pause:` are reserved for the runtime: a handler never waits on one of its own. Resuming without a waitpoint id returns `400 bad-input`.",
     },
     value: {
-      description: 'Resolved value passed back into the flow handler that suspended.',
+      description:
+        "The answer: the paused tool's output, checked against its output schema. Absent: `{}`.",
     },
   },
 };
@@ -3883,6 +3931,11 @@ export const ToolSchema: JsonSchema = {
       description:
         "`true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`.",
     },
+    pauses: {
+      type: 'boolean',
+      description:
+        "`true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.",
+    },
     sandbox: { $ref: '#/components/schemas/SandboxMode' },
     limits: { $ref: '#/components/schemas/RuntimeLimits' },
     network: { $ref: '#/components/schemas/NetworkPolicy' },
@@ -6330,6 +6383,12 @@ export const ImproveBodySchema: JsonSchema = {
     fromVersion: {
       type: 'string',
       description: 'The version whose settings it tunes. Default: the one serving `scope`.',
+    },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The project the pass works in: `suiteId` must be a test set it reaches, the version must reach it, and the pass's eval runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.",
     },
     scope: { $ref: '#/components/schemas/LiveScope' },
     suiteId: {
@@ -9554,6 +9613,21 @@ export const SignInOptionSchema: JsonSchema = {
   },
 };
 
+export const ConsoleLinkSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['label', 'url'],
+  description: "One of the deployment's own links, which the console shows on every page.",
+  properties: {
+    label: { type: 'string', minLength: 1, maxLength: 40, description: 'The text shown.' },
+    url: {
+      type: 'string',
+      format: 'uri',
+      description: 'An absolute https URL with no username or password.',
+    },
+  },
+};
+
 export const SignInOptionsSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -9601,6 +9675,13 @@ export const SignInOptionsSchema: JsonSchema = {
         termsUrl: { type: 'string', format: 'uri', description: 'Its terms.' },
         privacyUrl: { type: 'string', format: 'uri', description: 'Its privacy policy.' },
       },
+    },
+    links: {
+      type: 'array',
+      maxItems: 8,
+      description:
+        "The deployment's own links (its help desk, status page, data processing terms), which the console shows on every page, the sign-in page too, in its operator's order. Absent when there are none, and from older servers.",
+      items: { $ref: '#/components/schemas/ConsoleLink' },
     },
   },
 };
@@ -13695,6 +13776,15 @@ export const WebhookFirePageSchema: JsonSchema = {
   },
 };
 
+export const WaitTokenAcceptedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['status'],
+  description:
+    "The runtime has the answer. It says nothing about the run: who holds a wait token's link isn't a run reader.",
+  properties: { status: { type: 'string', enum: ['accepted'] } },
+};
+
 export const WebhookReceiptSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -14376,6 +14466,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RunAgent', RunAgentSchema],
   ['RunWaitingFor', RunWaitingForSchema],
   ['RunWaitingApproval', RunWaitingApprovalSchema],
+  ['RunWaitingToken', RunWaitingTokenSchema],
   ['RunTrigger', RunTriggerSchema],
   ['ScopeSegment', ScopeSegmentSchema],
   ['LiveScopeTenant', LiveScopeTenantSchema],
@@ -14773,6 +14864,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['GetIdentityProviderResult', GetIdentityProviderResultSchema],
   ['IdentityProviderCollectionPage', IdentityProviderCollectionPageSchema],
   ['SignInOption', SignInOptionSchema],
+  ['ConsoleLink', ConsoleLinkSchema],
   ['SignInOptions', SignInOptionsSchema],
   ['TokenSignInResult', TokenSignInResultSchema],
   ['SignInEvent', SignInEventSchema],
@@ -14988,6 +15080,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WebhookTriggerRecord', WebhookTriggerRecordSchema],
   ['WebhookFire', WebhookFireSchema],
   ['WebhookFirePage', WebhookFirePageSchema],
+  ['WaitTokenAccepted', WaitTokenAcceptedSchema],
   ['WebhookReceipt', WebhookReceiptSchema],
   ['WebhookTriggerCollectionPage', WebhookTriggerCollectionPageSchema],
   ['RegisterWebhookTriggerBody', RegisterWebhookTriggerBodySchema],
