@@ -61,8 +61,8 @@ A pack gets the skills for its language, plus the shared ones.
 
 The skills ship with the CLI, so `kindgi init` copies the ones written for
 the Kindgi version it installs. The agent writes against the API you have,
-not one it half-remembers. After an upgrade, `kindgi dev` tells you the
-skills are behind, and `kindgi skills sync` refreshes them (see
+not one it half-remembers. After an upgrade, `kindgi dev` refreshes them as
+it starts, and `kindgi skills sync` refreshes them any time (see
 [Keeping them current](#keeping-them-current)).
 
 ### What else it reads
@@ -371,8 +371,20 @@ the agent uses yours.
 ## Keeping them current
 
 The skills are copies, made when you ran `kindgi init`: one in
-`.claude/skills/`, one in `.agents/skills/`. After upgrading Kindgi, refresh
-both:
+`.claude/skills/`, one in `.agents/skills/`. After you upgrade Kindgi, the
+next `kindgi dev` refreshes both as it starts, and says so:
+
+```text
+  ✓ Framework skills: 2 updated, 1 added.
+    · 1 you edited is kept: `pnpm exec kindgi skills sync --force` replaces it.
+```
+
+It keeps skills you edited, as `kindgi skills sync` does. A skill you
+deleted stays deleted, and so does a skills folder you deleted: it says
+which are behind, and the command that brings them back. Without the
+manifest (below), it changes nothing and only says the skills are behind.
+
+To refresh them yourself, at any time:
 
 ```sh
 pnpm exec kindgi skills sync
@@ -388,7 +400,7 @@ Which release each copy came from, in both folders, is recorded in
 `.claude/skills/.kindgi-manifest.json`. Keep it, even if you don't use
 Claude Code: without it, `kindgi skills sync` can't tell a copy that's
 behind from one you edited, so it keeps every copy that's behind (`--force`
-replaces them).
+replaces them), and `kindgi dev` doesn't refresh them.
 
 It says what it did in each folder, then prints the same as JSON (with
 `--json`, the JSON alone):
