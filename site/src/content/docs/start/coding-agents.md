@@ -99,7 +99,7 @@ works the way you would: write, run, look, fix.
 | `kindgi runs get`, `runs journal` | Finds out what a run did, step by step, and why it failed |
 | `kindgi providers register` | Connects a model, once its key is in your env file |
 | `kindgi mcp add` | Gives itself access to a database or another service |
-| `kindgi skills sync` | Refreshes its skills after an upgrade |
+| `kindgi skills sync` | Refreshes its skills any time |
 | `kindgi feedback write` | Records a bug it found in Kindgi itself |
 | `kindgi feedback submit` | Shows you that record as it would be sent, and sends it only after you say yes |
 | `kindgi feedback status` | Tells you what became of what you sent: known, fixed, or won't be fixed |
@@ -433,9 +433,9 @@ SDK release: …
 }
 ```
 
-`kindgi dev` tells you when the installed skills are behind the CLI's, in
-either folder. `.claude/skills/.kindgi-manifest.json` records what was
-installed in both.
+`kindgi dev` refreshes the installed skills when they're behind the CLI's,
+in either folder, and says what it left behind. `.claude/skills/.kindgi-manifest.json`
+records what was installed in both.
 
 ## MCP servers for your coding agent
 
