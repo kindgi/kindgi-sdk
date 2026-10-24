@@ -15,6 +15,7 @@ import { renderJson } from '../output.js';
 import { SLUG, slugOf } from '../slug.js';
 import {
   commandResultFromThrown,
+  givenFlag,
   integerFlag,
   requiredPositional,
   runSdk,
@@ -65,19 +66,6 @@ const get: LeafCommand = {
       return await ctx.client().projects.get(id);
     }),
 };
-
-/**
- * A flag's value, trimmed, or `undefined` when it isn't given. Given empty
- * (`--org=$ORG` with `ORG` unset) is a usage error, never the same as not
- * given: a project in no org, or a slug nobody chose, would be made.
- */
-function givenFlag(ctx: CommandContext, name: string): string | undefined {
-  const raw = ctx.options[name];
-  if (raw === undefined) return undefined;
-  const value = typeof raw === 'string' ? raw.trim() : '';
-  if (value === '') throw new UsageError(`--${name} takes a value`);
-  return value;
-}
 
 /**
  * The project, as `projects get` prints it. The change went through before

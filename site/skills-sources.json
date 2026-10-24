@@ -47,7 +47,8 @@
         "guides/models/gemini-on-vertex-ai",
         "guides/models/index",
         "guides/models/openai-compatible",
-        "guides/models/serve-your-own-model"
+        "guides/models/serve-your-own-model",
+        "hosted/deploy-your-agent"
       ],
       "samples": "fragments"
     },
@@ -62,6 +63,10 @@
         "guides/tools/write-a-tool"
       ],
       "samples": "fragments"
+    },
+    "kindgi-fix-corrections": {
+      "pages": ["guides/evals/fix-what-experts-corrected"],
+      "samples": "none"
     },
     "kindgi-framework-feedback": {
       "pages": ["start/coding-agents"],

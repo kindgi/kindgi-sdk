@@ -20,9 +20,9 @@ decision, code and console page.
 
 - **A run that waits for an approval.**
   [Ask before a tool runs](../ask-before-a-tool-runs/) makes one.
-- **`kindgi dev` running** in your pack's directory, with Kindgi 0.1's CLI.
+- **`kindgi dev` running** in your pack's directory, with Kindgi 0.2's CLI.
 - **For the app's half:** Node 22.12 or later, Python 3.11 or later, or Java
-  17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
   `KINDGI_API_TOKEN` set.
 
 ## Reviewers and roles
@@ -35,9 +35,36 @@ Under `kindgi dev`, you're one already. When it starts on a database where
 you aren't a reviewer yet, it registers you, the user of its token, as an
 `admin`. List the reviewers:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi reviewers list
+pnpm exec kindgi reviewers list
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi reviewers list
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw reviewers list
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw reviewers list
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -58,9 +85,36 @@ On any other runtime, register each person who reviews, with a role. Run it
 as that person: the reviewer is the user the API token belongs to. That
 covers any token of theirs, an API key or a console sign-in:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+pnpm exec kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--spec` is the reviewer, as JSON:
 
@@ -98,8 +152,9 @@ runtime refuses to start.
 The runtime then emails reviewers when an approval starts waiting, and when a
 waiting approval is assigned:
 
-- **Who:** the people the approvals list would show it to: its assigned
-  reviewer, or else every active reviewer of its required role or above.
+- **Who:** the people the approvals list would show it to: the one person
+  it's addressed to (its `approver`), else its assigned reviewer, or else
+  every active reviewer of its required role or above.
   Only those who may read its project are emailed.
 - **Assigned later:** a reviewer an approval is assigned to after it started
   waiting is emailed then, unless they were already emailed about it.
@@ -139,10 +194,40 @@ The approval's id is what you decide it by.
 
 List the approvals waiting for a reviewer, then read one:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi approvals list --status=pending
-kindgi approvals get <approval-id>
+pnpm exec kindgi approvals list --status=pending
+pnpm exec kindgi approvals get <approval-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals list --status=pending
+uv run kindgi approvals get <approval-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals list --status=pending
+./kindgiw approvals get <approval-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals list --status=pending
+./kindgiw approvals get <approval-id>
+```
+
+</TabItem>
+</Tabs>
 
 - `--status=pending` lists the approvals nobody is assigned to yet, for any
   reviewer of their role. Without `--status`, the list includes decided
@@ -151,9 +236,36 @@ kindgi approvals get <approval-id>
 
 To see the approvals assigned to you, oldest first:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi approvals list --status=assigned,in_review --assigned-to=me --order=asc
+pnpm exec kindgi approvals list --status=assigned,in_review --assigned-to=me --order=asc
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals list --status=assigned,in_review --assigned-to=me --order=asc
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals list --status=assigned,in_review --assigned-to=me --order=asc
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals list --status=assigned,in_review --assigned-to=me --order=asc
+```
+
+</TabItem>
+</Tabs>
 
 - `--status` takes several statuses, comma-separated.
 - `--assigned-to=me` keeps the approvals assigned to you. Assigning one moves
@@ -169,9 +281,36 @@ them.
 From a run, `kindgi runs resume <run-id>` says what it waits for, and how it
 goes on. `<run-id>` is the run's id:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs resume 45d986f1-8a8d-4341-a786-5ddcf239bb93
+pnpm exec kindgi runs resume 45d986f1-8a8d-4341-a786-5ddcf239bb93
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs resume 45d986f1-8a8d-4341-a786-5ddcf239bb93
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs resume 45d986f1-8a8d-4341-a786-5ddcf239bb93
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs resume 45d986f1-8a8d-4341-a786-5ddcf239bb93
+```
+
+</TabItem>
+</Tabs>
 
 ```text
 Run 45d986f1-8a8d-4341-a786-5ddcf239bb93 waits for approval b3fcf729-0137-430e-92a3-2ff10f4a6bde ("HITL review required for Chat desk"), for a standard reviewer or above. It continues once the approval is decided: kindgi approvals complete b3fcf729-0137-430e-92a3-2ff10f4a6bde --decision=approve (or --decision=reject).
@@ -204,6 +343,12 @@ Its exit code says which:
 | `0` | isn't waiting: `Run … is completed: it isn't waiting, so there's nothing to resume.` |
 | `3` | waits for an approval, named in the sentence |
 | `4` | waits on the runtime: a queued start, a child run, a retry, a lease |
+| `5` | waits for another system's answer to a tool's call, which `kindgi runs resume <run-id> --output=<json>` can also give |
+| `6` | waits for the person who started it to [connect an app](../../connections/use-a-connection/#when-the-connection-is-missing), and the sentence ends with the link they connect from |
+
+A run that waits for more than one of these exits with the first that
+applies, in this order: `3`, `5`, `6`, `4`. `1` and `2` stay the CLI's
+error and usage codes.
 
 Once the approval is decided, the run goes on by itself. From your app,
 `runs.get` answers the same as the run's
@@ -216,9 +361,36 @@ as [The Inbox](../approvals-reference/#the-inbox) describes.
 
 Deciding the approval lets the run go on, or ends what it asked for.
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi approvals complete <approval-id> --decision=approve --rationale="Confirmed with the on-call engineer"
+pnpm exec kindgi approvals complete <approval-id> --decision=approve --rationale="Confirmed with the on-call engineer"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals complete <approval-id> --decision=approve --rationale="Confirmed with the on-call engineer"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals complete <approval-id> --decision=approve --rationale="Confirmed with the on-call engineer"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals complete <approval-id> --decision=approve --rationale="Confirmed with the on-call engineer"
+```
+
+</TabItem>
+</Tabs>
 
 - `<approval-id>` is the approval's `id`.
 - `--decision` is one of the four decisions in the table.
@@ -246,9 +418,36 @@ shows.
 Escalating asks a reviewer of the next role up instead. A `standard` reviewer
 who wants a second opinion escalates:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi approvals complete 2134897a-d176-4ca8-b000-8bc00d79ad04 --decision=escalate --rationale="Needs sign-off from the incident lead"
+pnpm exec kindgi approvals complete 2134897a-d176-4ca8-b000-8bc00d79ad04 --decision=escalate --rationale="Needs sign-off from the incident lead"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals complete 2134897a-d176-4ca8-b000-8bc00d79ad04 --decision=escalate --rationale="Needs sign-off from the incident lead"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals complete 2134897a-d176-4ca8-b000-8bc00d79ad04 --decision=escalate --rationale="Needs sign-off from the incident lead"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals complete 2134897a-d176-4ca8-b000-8bc00d79ad04 --decision=escalate --rationale="Needs sign-off from the incident lead"
+```
+
+</TabItem>
+</Tabs>
 
 It prints the escalated approval and the new one:
 
@@ -278,14 +477,50 @@ The new approval needs a `senior` reviewer, so the `standard` reviewer no
 longer sees it. A `senior` or `admin` reviewer approves or rejects
 `a65cd23c-…`, and the run continues.
 
+**An approval addressed to one person can't be escalated.** That's a tool
+call that acts with the person's own connection: only its `approver`
+decides it, and only they see it among the reviewers. A tenant admin sees
+it too, but can't decide it (`403 named-approver-required`). An escalation
+is refused with `409 invalid-transition`, and at its deadline it expires
+instead ([When nobody decides](../approvals-reference/#when-nobody-decides)).
+The person approves or rejects it
+([Use a connection in a tool](../../connections/use-a-connection/#approvals)).
+
 ### Withdraw
 
 Withdrawing closes an approval without deciding what it asked, when the
 request is moot. The run waiting on it can't go on, so it ends:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi approvals complete <approval-id> --decision=withdraw --rationale="Asked by mistake"
+pnpm exec kindgi approvals complete <approval-id> --decision=withdraw --rationale="Asked by mistake"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals complete <approval-id> --decision=withdraw --rationale="Asked by mistake"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals complete <approval-id> --decision=withdraw --rationale="Asked by mistake"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals complete <approval-id> --decision=withdraw --rationale="Asked by mistake"
+```
+
+</TabItem>
+</Tabs>
 
 Its turn fails with `hitl-withdrawn`: "The approval for tool call
 acme-desk.echo was withdrawn".
@@ -295,6 +530,10 @@ acme-desk.echo was withdrawn".
 A reviewer usually decides in your app, not in a terminal. The client lists
 the pending approvals and records the decision. The reviewer is the user the
 API token belongs to.
+
+Ask your coding agent: "In my app, let a reviewer see the pending approvals
+and approve one." For reference, the code looks like this, with what it
+prints:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

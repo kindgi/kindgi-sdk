@@ -1,0 +1,133 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright (C) 2026 Kindgi Inc. */
+
+/* The Kindgi page: wp-admin's own colors and controls, a little layout. */
+
+.kindgi .kindgi-panel {
+  margin-top: 16px;
+}
+
+.kindgi .kindgi-muted {
+  color: #646970;
+}
+
+.kindgi .kindgi-columns {
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 782px) {
+  .kindgi .kindgi-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.kindgi .kindgi-side select,
+.kindgi .kindgi-side .button {
+  display: block;
+  margin: 4px 0 8px;
+  max-width: 100%;
+}
+
+.kindgi .kindgi-conversations {
+  margin: 0;
+}
+
+.kindgi .kindgi-current {
+  font-weight: 600;
+}
+
+.kindgi .kindgi-messages {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.kindgi .kindgi-message {
+  background: #fff;
+  border: 1px solid #dcdcde;
+  border-radius: 4px;
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.kindgi .kindgi-tool {
+  background: #f6f7f7;
+}
+
+.kindgi .kindgi-tool pre {
+  white-space: pre-wrap;
+  margin: 4px 0 0;
+}
+
+.kindgi .kindgi-user {
+  background: #f0f6fc;
+  border-color: #c5d9ed;
+}
+
+.kindgi .kindgi-main textarea {
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.kindgi .kindgi-steps {
+  margin: 0 0 8px;
+}
+
+.kindgi .kindgi-wait,
+.kindgi .kindgi-card {
+  background: #fff;
+  border: 1px solid #dcdcde;
+  border-left: 4px solid #dba617;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+}
+
+.kindgi .kindgi-cards {
+  max-width: 760px;
+}
+
+.kindgi .kindgi-card h3 {
+  margin: 4px 0 8px;
+}
+
+.kindgi .kindgi-args {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 0 0 8px;
+}
+
+.kindgi .kindgi-args dt {
+  font-weight: 600;
+}
+
+.kindgi .kindgi-args dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.kindgi .kindgi-card pre {
+  background: #f6f7f7;
+  overflow: auto;
+  padding: 8px;
+}
+
+.kindgi .kindgi-card textarea {
+  display: block;
+  width: 100%;
+  max-width: 560px;
+}
+
+.kindgi .kindgi-decision {
+  font-weight: 600;
+}
+
+.kindgi .kindgi-note {
+  font-style: italic;
+}

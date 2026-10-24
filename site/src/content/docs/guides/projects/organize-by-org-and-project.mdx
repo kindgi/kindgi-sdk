@@ -34,7 +34,7 @@ it's in: its `projectId`, with the runtime 0.1.6 or later. A pack
 
 ## Before you start
 
-- **A runtime,** such as `kindgi dev`, with Kindgi 0.1's client and CLI.
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.2's client and CLI.
 - **Node 22.12 or later, Python 3.11 or later, or Java 17 or later,** for the
   client.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set, or a running
@@ -45,7 +45,9 @@ it's in: its `projectId`, with the runtime 0.1.6 or later. A pack
 ## Give a customer an org and a project
 
 Create the customer's org and a project in it once, then run the customer's
-work there. The script prints the run's status and the org's runs:
+work there. Ask your coding agent: "I want each of my customers to have an
+org with a project, and their work to run there." For reference, the script
+looks like this. It prints the run's status and the org's runs:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -201,6 +203,13 @@ the CLI:
 - `kindgi projects list` lists the projects with their ids.
 - `kindgi runs start … --project=<project-id>` runs in a customer's project.
 
+In the console, a tenant admin makes one with **New project** on the tenant
+dashboard's **Projects** card: a name, a slug made from the name until you
+edit it, an org if the tenant has any, and what it's for. The new project then
+opens. A project's admins (an admin of its org, or a tenant admin, is one)
+rename it with **Rename** in its **Dashboard**'s header. Its id stays; a new
+slug changes what `kindgi deploy --project` takes.
+
 **Slugs.** An org's slug is unique in the tenant. A project's slug is unique
 in its org, so every customer can have a `support` project. A project with
 no org has a slug unique among the projects with none. A taken slug is
@@ -222,10 +231,11 @@ pack whose ids all start with its pack id, so two clients' packs never share
 an id:
 
 ```sh
-kindgi projects create --name="Acme shop" --org=<org-id>
-kindgi init acme-shop --template=woocommerce
+npx --yes @kindgi/cli@0.2 projects create --name="Acme shop" --org=<org-id>
+npx --yes @kindgi/cli@0.2 init acme-shop --template=woocommerce
 cd acme-shop
-kindgi deploy --project acme-shop
+pnpm install
+pnpm exec kindgi deploy --project acme-shop
 ```
 
 `--project` takes the project's id or its slug. A slug is unique within an
@@ -240,7 +250,11 @@ What a deploy into a project does, with the runtime 0.1.8 or later:
   `GET /v1/deployments/{deploymentId}`).
 - **`kindgi deploy --sync-secrets`** writes the secrets into that project,
   so one client's credentials stay in its own project. A tenant-wide
-  deploy writes them tenant-wide.
+  deploy writes them tenant-wide. A secret a tool names that's set nowhere
+  yet when it's deployed is read where the sync writes it (runtime 0.1.9
+  or later). So after a deploy into a project, set it later in that project
+  (`kindgi secrets set <name> --env=<env> --scope=project:<project-id>`),
+  not tenant-wide.
 - **It needs admin on that project** (a tenant-wide deploy needs admin on
   the tenant). An API key limited to another project is refused with
   `403 key-project-mismatch`.
@@ -259,6 +273,21 @@ already belong to the first project: `409 tool-project-mismatch` (or
 `agent-…`, `flow-…`, `guardrail-…`), and nothing is deployed. The message
 names the fix: make a copy of the pack for the new client with `kindgi init`,
 which gives every id the new pack's id.
+
+## What a project's runs can use
+
+A run uses its own project's tools, agents, flows, guardrails, data blocks
+and test sets, and the tools of an MCP server registered for its project,
+its org or the tenant. Anything else is refused with
+`reference-out-of-scope`: a publish, a deploy or a run start that names it
+answers `400` before anything is written, and a tool call from the run
+isn't run.
+[What a project's runs can use](../../../concepts/projects-packs-values/#what-a-projects-runs-can-use)
+has the rule and its messages.
+
+To give several clients' projects one tool, run it as an MCP server and
+register it for their org or the tenant
+([Give some projects its tools](../../tools/mcp-servers/#give-some-projects-its-tools)).
 
 ## Read a customer's work
 
@@ -288,14 +317,20 @@ project in production is a **production** run, and a run anywhere else is
 each run with its class for usage counting, so test work is counted apart
 from real work. A run's own read doesn't show it.
 
+To switch it from your app, ask your coding agent: "Put a customer's project
+in production when they go live." For reference, the commands and the code
+look like this:
+
 <Tabs syncKey="lang">
 <TabItem label="CLI">
 
 ```sh
-kindgi projects production <project-id> on
-kindgi projects production <project-id> status
-kindgi projects production <project-id> off
+pnpm exec kindgi projects production <project-id> on
+pnpm exec kindgi projects production <project-id> status
+pnpm exec kindgi projects production <project-id> off
 ```
+
+In a Python project that's `uv run kindgi …`, and in Java or Scala `./kindgiw …`.
 
 Each prints one line: whether the project is in production and, if it is, since when. `--json` prints `{ projectId, productionSince }`. A refusal names its code and exits 1.
 
@@ -414,8 +449,9 @@ to go. A refused switch shows the runtime's own message.
 
 ## Delete an org
 
-Delete an org when its customer leaves. With `kindgi` and `org` from the
-script:
+Delete an org when its customer leaves. Ask your coding agent: "When a
+customer leaves, delete their org." For reference, the code looks like this,
+with `kindgi` and `org` from the script:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -464,6 +500,30 @@ kindgi.orgs().delete(org.id)
 Kindgi keeps the deleted org's record until a
 [retention policy](../../../deploy/retention/) on `org` purges it. That
 comes after its environments' and MCP endpoints' own records are purged.
+
+## Rename your workspace
+
+Your workspace is the tenant your orgs and projects sit in. A tenant admin
+can rename it (runtime 0.1.10 or later): its name, its slug, or both. Its
+id stays, so whatever names it by its id keeps working, your keys and the
+CLI included.
+
+- `kindgi tenant rename --name="Acme Store"` changes its name, and
+  `--slug=acme-store` its slug. It prints the workspace, as
+  `kindgi tenant get` does.
+- The TypeScript and Python clients' `tenant.update` does the same:
+  `PATCH /v1/tenant`, which answers `204`.
+- In the console, use **Rename** in the header of the workspace's home page.
+
+The console's addresses carry the slug. After a new one, a bookmark or a link
+with the old slug opens a page that says the address names another
+workspace, with a link to yours. Another workspace can then take the old
+slug. Nothing in the CLI or the clients uses it.
+
+A workspace's slug is lowercase letters, digits and single hyphens, at most
+63 characters, and unique across the runtime's workspaces. A taken one is
+refused with `409 tenant-slug-taken`, and a closing workspace with
+`409 tenant-closing`.
 
 ## Next
 

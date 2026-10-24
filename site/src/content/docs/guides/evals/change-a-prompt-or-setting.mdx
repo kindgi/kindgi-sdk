@@ -27,13 +27,17 @@ There are two kinds:
 
 ## Before you start
 
-- **An agent to change,** in a pack on a runtime such as `kindgi dev`, with
-  Kindgi 0.1's CLI. This guide uses the reply drafter from
-  [Give an agent its input](../../agents/give-an-agent-input/).
+- **An agent to change,** in a pack on a runtime, with Kindgi 0.2's CLI.
+  This guide uses the reply drafter from
+  [Give an agent its input](../../agents/give-an-agent-input/). Under
+  `kindgi dev`, blocks come only from the pack's files, as
+  [Keep them in the pack](#keep-them-in-the-pack) shows. The publish commands
+  on this page are for a runtime that isn't `kindgi dev`, such as one you
+  deploy to: `kindgi dev` refuses them.
 - **The project's id:** `kindgi projects get-default` prints the Default
   project, with its `id`.
 - **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
-  Java 17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  Java 17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
   `KINDGI_API_TOKEN` set.
 
 ## Publish the blocks
@@ -43,7 +47,14 @@ The examples on this page move the reply drafter's instructions from
 block, `acme.reply-prompt`, and add a settings block, `acme.reply-style`:
 how long a reply may be, and up to what amount a refund needs no approval.
 
-A prompt block with parameters is published from a JSON file,
+A prompt block with parameters is published from a JSON file. Ask your
+coding agent to write the prompt block:
+
+```text
+I want my agent's instructions in a prompt block, with the tone as a parameter.
+```
+
+For reference, the block it writes looks like this. This guide saves it as
 `reply-prompt.json`:
 
 ```json
@@ -64,10 +75,40 @@ A prompt block with parameters is published from a JSON file,
 
 Publish it, and the settings block:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi blocks publish --project=<project-id> @reply-prompt.json
-kindgi blocks publish acme.reply-style --block-version=1.0.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":50}' --schema=@reply-style.schema.json
+pnpm exec kindgi blocks publish --project=<project-id> @reply-prompt.json
+pnpm exec kindgi blocks publish acme.reply-style --block-version=1.0.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":50}' --schema=@reply-style.schema.json
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi blocks publish --project=<project-id> @reply-prompt.json
+uv run kindgi blocks publish acme.reply-style --block-version=1.0.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":50}' --schema=@reply-style.schema.json
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw blocks publish --project=<project-id> @reply-prompt.json
+./kindgiw blocks publish acme.reply-style --block-version=1.0.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":50}' --schema=@reply-style.schema.json
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw blocks publish --project=<project-id> @reply-prompt.json
+./kindgiw blocks publish acme.reply-style --block-version=1.0.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":50}' --schema=@reply-style.schema.json
+```
+
+</TabItem>
+</Tabs>
 
 - `--project=<project-id>` is the project the block lives in, where
   `<project-id>` is its id.
@@ -103,10 +144,67 @@ Each prints the block's id and version. The second prints:
 `kindgi blocks list`, `show` and `versions` read them. `unregister` and
 `reinstate` retire a version and bring it back.
 
+### Keep them in the pack
+
+A pack can bring its blocks instead: one JSON file per block in its `blocks/`
+folder, in the same shape as `reply-prompt.json`. `kindgi deploy` publishes
+them into the project it deploys to, before the agents that use them, so a
+block and its agent ship together. Ask your coding agent: "Keep my agent's
+blocks in the pack."
+
+```text
+blocks/
+  reply-prompt.json
+  reply-prompt.liquid
+  reply-style.json
+```
+
+- **A settings block's file** holds its `values`, and its `schema` when it has
+  one, under `content`.
+- **A long template can have its own file,** named by `templateFile` in
+  place of `template`: `"templateFile": "reply-prompt.liquid"`. The path is
+  from the block's file, and stays inside the blocks folder. The build reads
+  the file into the block.
+- **`kindgi build` checks each block,** its template and its values against
+  its schema, and refuses a pack whose blocks don't hold up, naming each file.
+  `kindgi dev` shows the same problems as you edit, and its runtime reads
+  blocks from these files only. When a Python, Java or Scala pack's
+  `kindgi` package or `com.kindgi:kindgi-pack` is from before blocks in a
+  pack, and so reads none, `kindgi build` refuses the pack and `kindgi dev`
+  says so, each naming the release to upgrade to.
+- **The folder** is the `discovery.blocks` pattern in `kindgi.config.ts`
+  (`kindgi.config.json` in a Java or Scala pack; `blocks` under
+  `[tool.kindgi.discovery]` in a Python pack's `pyproject.toml`),
+  `blocks/**/*.json` unless you change it.
+
+A version never changes. When a deploy brings a version the runtime already
+holds:
+
+- **With the same content,** it keeps it, so a deploy whose blocks didn't
+  change publishes none.
+- **With other content,** the deploy is refused: give the block a new version
+  in its file.
+- **Unregistered,** by `kindgi blocks unregister` or by a deploy that failed
+  after publishing it, the deploy is refused, naming the command that
+  reinstates each such block:
+
+  ```text
+  kindgi blocks reinstate acme.reply-prompt --block-version=1.0.0
+  ```
+
+An agent pins the pack's own version of each block the pack brings, as the
+pack's files are the agent: a newer version published on the runtime since
+isn't picked, even one in the agent's range. If the agent's range doesn't take
+the pack's version, the deploy is refused, naming both. A block the pack
+doesn't bring pins the newest published version in the agent's range, as
+before. A runtime from an earlier release doesn't publish a pack's blocks:
+`kindgi deploy` checks first, and refuses, naming the release it needs.
+
 ## Use them in an agent
 
 The agent names its prompt block and its settings blocks by range, as it names
-its tools:
+its tools. Ask your coding agent: "Have my agent use its prompt block and
+settings block." For reference, the agent looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -205,7 +303,9 @@ object ReplyDrafter {
 
 The prompt block brings its parameters, so the agent declares none. A tool
 reads the settings blocks of the agent version that calls it, as
-`ctx.settings`:
+`ctx.settings`. Ask your coding agent: "I want a tool that says whether a
+refund needs a person's approval, with the limit from my settings block." For
+reference, the tool looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -335,9 +435,36 @@ id, to its values (a Java map).
 
 A run passes the prompt's parameters as it does an agent's own:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme-ops.reply-drafter --input='{"userMessage":"I was charged twice for my $80 order. Can I get my money back?","parameters":{"tone":"friendly"}}'
+pnpm exec kindgi runs start --agent=acme-ops.reply-drafter --input='{"userMessage":"I was charged twice for my $80 order. Can I get my money back?","parameters":{"tone":"friendly"}}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme-ops.reply-drafter --input='{"userMessage":"I was charged twice for my $80 order. Can I get my money back?","parameters":{"tone":"friendly"}}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme-ops.reply-drafter --input='{"userMessage":"I was charged twice for my $80 order. Can I get my money back?","parameters":{"tone":"friendly"}}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme-ops.reply-drafter --input='{"userMessage":"I was charged twice for my $80 order. Can I get my money back?","parameters":{"tone":"friendly"}}'
+```
+
+</TabItem>
+</Tabs>
 
 `--input`'s `parameters` are the prompt's parameters: here, `tone`. The run's
 `appended` messages show the tool reading the settings block's limit:
@@ -360,8 +487,11 @@ in `render-prompt`:
 { "rendered": "You draft short replies to Acme customers, in a friendly tone, in at most 3 sentences.\nWhen a customer asks for money back, check the amount with the refund check tool, and say whether a person needs to approve the refund.\nSign every reply as The Acme team." }
 ```
 
-**Under `kindgi dev`,** each run uses the newest block versions in the
-agent's ranges, so a block version you publish is used at the next run.
+**Under `kindgi dev`,** each run uses the version in the pack's file, so a
+change you save is used at the next run. A block that isn't in the pack, or
+whose version the agent's range doesn't take, fails the run, naming the block
+and saying to add it under the pack's blocks folder. A block published to
+the runtime some other way isn't used: move it into `blocks/`.
 
 **A published agent version pins them.** When it's published, by
 `kindgi deploy` or the API, each range resolves once, like its tools', as
@@ -387,7 +517,9 @@ naming each. So do model settings with values a model can't take:
 **Model settings** are a settings block the agent names as `modelSettings`,
 such as `{ "temperature": 0.2, "maxOutputTokens": 400 }`. A temperature goes
 from 0 to 2. Its model calls use them, and the version pins the block with
-its other settings.
+its other settings. The block can also name the model the turn prefers,
+`model` and `providerId`, in place of the agent's `preferredModel` and
+`preferredProvider` ([never both](../../agents/choose-a-model/#prefer-a-provider-or-a-model)).
 
 - **A reply that reaches `maxOutputTokens` stops there,** mid-sentence if
   need be, and the run still completes.
@@ -403,14 +535,43 @@ its other settings.
 A change is a new version of the block, so the people who know the work
 change the values, not the code. With the CLI:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi blocks publish acme.reply-style --block-version=1.1.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":100}'
+pnpm exec kindgi blocks publish acme.reply-style --block-version=1.1.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":100}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi blocks publish acme.reply-style --block-version=1.1.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":100}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw blocks publish acme.reply-style --block-version=1.1.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":100}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw blocks publish acme.reply-style --block-version=1.1.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":100}'
+```
+
+</TabItem>
+</Tabs>
 
 `--block-version=1.1.0` is the new version, and `--settings` its values: a
 higher refund limit. It prints the block's id and version.
 
-From your code, such as an admin page of your own:
+From your code, such as an admin page of your own, ask your coding agent: "I
+want to publish a new version of my settings block from my app." For
+reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -542,8 +703,10 @@ It prints the block's versions, newest first:
 [ '1.1.0', '1.0.0' ]
 ```
 
-Under `kindgi dev`, that's all: the next run reads 1.1.0, and its tool gets
-`{ "limit": 100, "needsApproval": false }`.
+Under `kindgi dev`, change the block's file instead: its `version` and its
+values. `kindgi dev` reloads it, the next run reads 1.1.0, and its tool gets
+`{ "limit": 100, "needsApproval": false }`. A publish there is refused:
+`Error [registry-read-only]: Under kindgi dev, the pack is the source of data blocks: change the block in the pack's files and kindgi dev reloads it.`
 
 ## Make an agent version that runs it
 
@@ -552,9 +715,36 @@ running the versions it pins. To use the new one, **derive** an agent version:
 the same agent, with some of its block pins swapped. It needs no code change
 and no deploy.
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
+pnpm exec kindgi agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
+```
+
+</TabItem>
+</Tabs>
 
 - `--from=1.0.0` is the version to start from.
 - `--setting=acme.reply-style=1.1.0` swaps in that settings block version.
@@ -581,7 +771,8 @@ It prints the new agent version:
 }
 ```
 
-From your code:
+From your code, ask your coding agent: "I want a new version of my agent that
+uses the new refund limit." For reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -632,7 +823,7 @@ print(derived.version, derived.pins.settings if derived.pins else None, derived.
 - **Only blocks the version already uses** can be swapped, and only on a
   version that has pins.
 - **Under `kindgi dev`, there's nothing to derive:** each run already uses
-  the newest block versions, and a derive is refused:
+  the pack's block versions, and a derive is refused:
   `Error [registry-read-only]: Under kindgi dev, the pack is the source of agents: change the agent in the pack's files and kindgi dev reloads it.`
 - **Then a developer publishing the next number from code** gets told which
   one is free:
@@ -661,8 +852,9 @@ An agent's page says where its instructions and settings come from, and where
 a derived version came from: "Derived from 1.0.0 with new data-block versions
 ("Refund limit 100")".
 
-Under `kindgi dev`, a block's page says each pack agent "Runs the newest
-version in ^1.0.0 on each run (kindgi dev)", and offers no derive.
+Under `kindgi dev`, a block's page says each pack agent "Runs the pack's
+version on each run (kindgi dev)", and offers no edit and no derive: change
+the block's file instead.
 
 ## Next
 

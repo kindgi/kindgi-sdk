@@ -21,7 +21,7 @@ import type {
   TriggerId,
 } from '@kindgi/types';
 
-import type { RunAgentRef, RunTriggerRef } from './inputs.js';
+import type { RunActsFor, RunAgentRef, RunStartedBy, RunTriggerRef } from './inputs.js';
 import type { RunStatus } from './types.js';
 
 /**
@@ -69,6 +69,24 @@ export interface KernelRunRecord {
   readonly segments?: readonly ScopeSegment[];
   /** Set on a run a trigger started (`RunTriggerRef`). */
   readonly trigger?: RunTriggerRef;
+  /**
+   * How the run started (`RunStartedBy`). Absent on a run that records
+   * none, runs from before runs recorded it included: such a run counts
+   * as unattended.
+   */
+  readonly startedBy?: RunStartedBy;
+  /**
+   * Whom the run acts for (`RunActsFor`). Absent on a run that acts for no
+   * one (a system job, an agent on its own, an eval run's replay run), runs
+   * from before runs recorded it included.
+   */
+  readonly actsFor?: RunActsFor;
+  /**
+   * The tools it may call without a person's yes though no person started
+   * it (`RunFlowInput.toolsAllowedUnattended`), from the webhook or
+   * schedule that started it. Absent when there are none.
+   */
+  readonly toolsAllowedUnattended?: readonly string[];
   /**
    * When an erasure cleared the run's content (its input, output, failure
    * message and journal payloads). Absent on every other run.
