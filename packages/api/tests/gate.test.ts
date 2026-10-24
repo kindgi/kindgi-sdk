@@ -146,7 +146,7 @@ describe('the comparison', () => {
         'comparison.suite',
       )?.message,
     ).toBe(
-      'The comparison ran test set acme.drafting-set 1.0.0; the policy needs acme.drafting-set 2.0.0.',
+      'The test run used test cases acme.drafting-set 1.0.0; the policy needs acme.drafting-set 2.0.0.',
     );
   });
 });
@@ -161,7 +161,7 @@ describe('sameContents', () => {
       candidate: { kind: 'agent', agentId: 'acme.drafting', version: '1.3.0', pinsDigest: 'x' },
     });
     expect(check(gate({}, { summary: other }), 'sameContents')?.message).toBe(
-      'The comparison ran acme.drafting 1.3.0, not acme.drafting 1.2.0.',
+      'The test run tried acme.drafting 1.3.0, not acme.drafting 1.2.0.',
     );
     expect(check(gate({}, { pinsDigest: 'sha-other' }), 'sameContents')?.message).toContain(
       'other pins',
@@ -171,7 +171,7 @@ describe('sameContents', () => {
       candidate: { kind: 'agent', agentId: 'acme.drafting', version: '1.2.0' },
     });
     expect(check(gate({}, { summary: old }), 'sameContents')?.message).toContain(
-      're-run the comparison',
+      '(its pinsDigest): re-run it.',
     );
     const flow = summary({ candidate: { kind: 'flow', flowId: 'acme.intake', version: '1.0.0' } });
     expect(check(gate({}, { summary: flow }), 'sameContents')?.passed).toBe(false);
@@ -199,7 +199,7 @@ describe('baselineIsLive', () => {
       },
     });
     expect(check(gate({}, { summary: mixed }), 'baselineIsLive')?.message).toContain(
-      'mixes 2 versions',
+      'measured it against 2 versions',
     );
   });
 });
