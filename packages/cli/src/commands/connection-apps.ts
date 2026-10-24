@@ -103,10 +103,20 @@ async function registrationFor(
     if (given.length > 0) {
       throw new UsageError(`${given.map((f) => `--${f}`).join(', ')}: only a GitHub App takes`);
     }
+    const tenant = stringFlag(ctx, 'tenant');
     return {
       ...common,
-      oauth2: { clientId, clientSecret: await secretRef(ctx, 'client-secret-ref', served) },
+      oauth2: {
+        clientId,
+        clientSecret: await secretRef(ctx, 'client-secret-ref', served),
+        ...(tenant !== undefined && { tenant }),
+      },
     };
+  }
+  if (ctx.options.tenant !== undefined) {
+    throw new UsageError(
+      '--tenant: a GitHub App takes none; only an app that signs people in at a directory of its own does (`microsoft`)',
+    );
   }
   const appNumber = integerFlag(ctx, 'github-app-id');
   if (appNumber === undefined) {
@@ -199,15 +209,20 @@ const add: LeafCommand = {
   kind: 'leaf',
   name: 'add',
   description:
-    "Register the tenant's app at Google (`google`) or GitHub (`github`, with its four GitHub flags), by its client id and the secrets you stored with `kindgi secrets set`. Prints the registration, with the redirect and notices addresses to give the app.",
+    "Register the tenant's app at Google (`google`), Microsoft (`microsoft`, with `--tenant`) or GitHub (`github`, with its four GitHub flags), by its client id and the secrets you stored with `kindgi secrets set`. Prints the registration, with the redirect and notices addresses to give the app.",
   usage:
-    'kindgi connection-apps add <app> --client-id=<id> --client-secret-ref=<env>/<name> [--projects=<id>,…] [--github-app-id=<n> --slug=<slug> --private-key-ref=<env>/<name> --webhook-secret-ref=<env>/<name>]',
+    'kindgi connection-apps add <app> --client-id=<id> --client-secret-ref=<env>/<name> [--tenant=<directory>] [--projects=<id>,…] [--github-app-id=<n> --slug=<slug> --private-key-ref=<env>/<name> --webhook-secret-ref=<env>/<name>]',
   optionSpec: {
     'client-id': { type: 'string', description: "The app's OAuth client id." },
     'client-secret-ref': {
       type: 'string',
       description:
         'The secret holding its client secret: `<env>/<name>`, or `<name>` under the env the runtime serves.',
+    },
+    tenant: {
+      type: 'string',
+      description:
+        "Microsoft: the directory people sign in at: your Microsoft tenant id or domain for a single-tenant app, or `organizations`, `common` or `consumers` for a multi-tenant one. Required where the app's entry names no default, as Microsoft's doesn't.",
     },
     projects: {
       type: 'string',

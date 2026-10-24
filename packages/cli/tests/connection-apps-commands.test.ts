@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `kindgi connection-apps …`: list, get, add (Google and GitHub, secrets by reference), remove. */
+/** `kindgi connection-apps …`: list, get, add (Google, Microsoft and GitHub, secrets by reference), remove. */
 
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -104,6 +104,35 @@ describe('kindgi connection-apps add', () => {
       ],
     ]);
     expect(JSON.parse(out.stdout).redirectUrl).toBe(GOOGLE.redirectUrl);
+  });
+
+  test('microsoft: --tenant names the directory its people sign in at', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      [
+        'connection-apps',
+        'add',
+        'microsoft',
+        '--client-id=0e6f3a2b-3333-4c4d-8e5f-000000000003',
+        '--client-secret-ref=prod/MS_CLIENT_SECRET',
+        '--tenant=acme.onmicrosoft.com',
+      ],
+      { connectionApps: { create: rec('create', { ...GOOGLE, app: 'microsoft' }) } },
+    );
+    expect(out.exitCode).toBe(0);
+    expect(calls).toEqual([
+      [
+        'create',
+        {
+          app: 'microsoft',
+          oauth2: {
+            clientId: '0e6f3a2b-3333-4c4d-8e5f-000000000003',
+            clientSecret: { envName: 'prod', name: 'MS_CLIENT_SECRET' },
+            tenant: 'acme.onmicrosoft.com',
+          },
+        },
+      ],
+    ]);
   });
 
   test('a bare <name> is under the env the runtime serves', async () => {
@@ -251,6 +280,10 @@ describe('kindgi connection-apps add', () => {
       "--github-app-id is the GitHub App's App ID, a number from 1",
     ],
     [['--github-app-id=12'], 'Missing required flag: --slug=<slug>'],
+    [
+      ['--github-app-id=12', '--slug=acme-kindgi', '--tenant=acme.onmicrosoft.com'],
+      '--tenant: a GitHub App takes none',
+    ],
   ] as const)('github with %j is refused', async (flags, said) => {
     const { calls, rec } = recorder();
     const out = await run(

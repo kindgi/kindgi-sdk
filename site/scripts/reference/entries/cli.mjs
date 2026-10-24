@@ -924,6 +924,7 @@ export const CLI_DEFAULTS = {
     'private-key-ref': 'required for `github`',
     projects: 'none: every project',
     slug: 'required for `github`',
+    tenant: "none: required where the app's entry names no default (`microsoft`)",
     'webhook-secret-ref': 'required for `github`',
   },
   'people add': {
@@ -1978,6 +1979,11 @@ export const CLI_EXAMPLES = {
       purpose:
         "Register the company's Google client, its secret stored first with `kindgi secrets set`.",
       line: 'kindgi connection-apps add google --client-id=<client-id> --client-secret-ref=production/ACME_GOOGLE_CONNECT_SECRET',
+    },
+    {
+      purpose:
+        "Register the company's Microsoft Entra app, a single-tenant one, at its own directory.",
+      line: 'kindgi connection-apps add microsoft --client-id=<client-id> --client-secret-ref=production/ACME_MICROSOFT_CONNECT_SECRET --tenant=<tenant-id>',
     },
     {
       purpose: "Register the company's GitHub App.",

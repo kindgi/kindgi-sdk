@@ -141,7 +141,10 @@ const list: LeafCommand = {
       type: 'string',
       description: 'Only those whose registration allows this project.',
     },
-    app: { type: 'string', description: "Only this app's, by its entry id: `google`, `github`." },
+    app: {
+      type: 'string',
+      description: "Only this app's, by its entry id: `google`, `microsoft`, `github`.",
+    },
     mine: { type: 'boolean', description: 'Only your own, even as a tenant admin.' },
     'include-removed': {
       type: 'boolean',
