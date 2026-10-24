@@ -33,7 +33,7 @@ An agent `acme.greeter` 1.0.0 asks for `acme.greet` `^1.0.0` while
 the version shows:
 
 ```sh
-curl "$KINDGI_API_URL/v1/agents/acme.greeter/versions/1.0.0" -H "Authorization: Bearer $KINDGI_API_TOKEN"
+curl "$KINDGI_API_URL/v1/agents/acme.greeter/versions/1.0.0" -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 `$KINDGI_API_URL` and `$KINDGI_API_TOKEN` are your runtime's URL and API
@@ -112,7 +112,9 @@ CLI. An app that runs the latest gets the pinned one.
 ## What unregistering a version does
 
 Unregistering a version stops it from being chosen. It doesn't stop the
-versions that pin it.
+versions that pin it. Ask your coding agent: "I want a script that takes an
+old version of my agent out of use, and can bring it back." For reference,
+the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -152,6 +154,68 @@ print(unregistered.unregistered_at, unregistered.pins.tools if unregistered.pins
 # 1.0.0 can be chosen again, unchanged.
 kindgi.agents.reinstate_version("acme.greeter", "1.0.0")
 ```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/UnregisterVersion.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.Agent;
+
+public final class UnregisterVersion {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+    String agent = "acme.greeter";
+    String version = "1.0.0";
+
+    // No new run gets 1.0.0. What pins it keeps running it.
+    kindgi.agents().unregister(agent, version);
+    Agent unregistered = kindgi.agents().getVersion(agent, version);
+    System.out.println(unregistered.unregisteredAt() + " "
+        + (unregistered.pins() == null ? null : unregistered.pins().tools()));
+
+    // 1.0.0 can be chosen again, unchanged.
+    kindgi.agents().reinstateVersion(agent, version);
+  }
+}
+```
+
+The operation ids name the methods: `agents().unregister`,
+`agents().getVersion`, `agents().reinstateVersion`. The pins print as a
+Java map: `{acme.greet=1.1.0}`.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/UnregisterVersion.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+
+object UnregisterVersion {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+    val agent = "acme.greeter"
+    val version = "1.0.0"
+
+    // No new run gets 1.0.0. What pins it keeps running it.
+    kindgi.agents().unregister(agent, version)
+    val unregistered = kindgi.agents().getVersion(agent, version)
+    println(s"${unregistered.unregisteredAt} ${Option(unregistered.pins).map(_.tools).orNull}")
+
+    // 1.0.0 can be chosen again, unchanged.
+    kindgi.agents().reinstateVersion(agent, version)
+  }
+}
+```
+
+The operation ids name the methods: `agents().unregister`,
+`agents().getVersion`, `agents().reinstateVersion`. The pins print as a
+Java map: `{acme.greet=1.1.0}`.
 
 </TabItem>
 </Tabs>

@@ -11,6 +11,7 @@ import { Hono } from 'hono';
 import { describe, expect, test } from 'vitest';
 
 import { type AuthzCheckBinding, type Decision, ref, userPrincipal } from '@kindgi/authz';
+import { noopLogger } from '@kindgi/log';
 import type { TenantId, UserId } from '@kindgi/types';
 
 import { createAuthorizer } from '../src/middleware/authorize.js';
@@ -108,6 +109,8 @@ describe('a check the authorization model has no relation for (T243 A)', () => {
     const authorizer = createAuthorizer(binding);
     const r = new Hono<AppEnv>();
     r.use('*', async (c, next) => {
+      // The request's logger, as `createApp` sets it: such a check is logged through it.
+      c.set('log', noopLogger);
       c.set('tenantId' as never, tenantId as never);
       c.set('requestId' as never, 'req-authz-2' as never);
       c.set('principal' as never, userPrincipal('u-1' as UserId, tenantId) as never);
@@ -116,7 +119,7 @@ describe('a check the authorization model has no relation for (T243 A)', () => {
     return { authorizer, r, asked };
   }
 
-  test('is refused before the PDP, naming the pair: write on a tenant, execute on a project', async () => {
+  test('is refused before the PDP, naming the pair: write on a tenant, publish on a project, call on an agent', async () => {
     const { authorizer, r, asked } = allowing();
     r.post(
       '/tenant',
@@ -124,11 +127,17 @@ describe('a check the authorization model has no relation for (T243 A)', () => {
       (c) => c.json({ ok: true }),
     );
     r.post(
-      '/projects/:id/resume',
-      authorizer.authorize('execute', (c) => ref('project', c.req.param('id') ?? '')),
+      '/projects/:id/publish',
+      authorizer.authorize('publish', (c) => ref('project', c.req.param('id') ?? '')),
       (c) => c.json({ ok: true }),
     );
-    for (const path of ['/tenant', '/projects/p1/resume']) {
+    // `call` is a project's check alone (`CHECK_ONLY_ACTIONS`), not an agent's.
+    r.post(
+      '/agents/:id/call',
+      authorizer.authorize('call', (c) => ref('agent', c.req.param('id') ?? '')),
+      (c) => c.json({ ok: true }),
+    );
+    for (const path of ['/tenant', '/projects/p1/publish', '/agents/a1/call']) {
       const res = await r.request(path, { method: 'POST' });
       expect(res.status, path).toBe(403);
       const body = (await res.json()) as { error: { details: { reason: string } } };
@@ -148,10 +157,26 @@ describe('a check the authorization model has no relation for (T243 A)', () => {
     expect(asked).toEqual(['admin tenant']);
   });
 
+  test("a project's check-only pairs (`call`, `execute`) reach the PDP", async () => {
+    const { authorizer, r, asked } = allowing();
+    const actions = ['call', 'execute'] as const;
+    for (const action of actions) {
+      r.post(
+        `/projects/:id/${action}`,
+        authorizer.authorize(action, (c) => ref('project', c.req.param('id') ?? '')),
+        (c) => c.json({ ok: true }),
+      );
+    }
+    for (const action of actions) {
+      expect((await r.request(`/projects/p1/${action}`, { method: 'POST' })).status).toBe(200);
+    }
+    expect(asked).toEqual(['call project', 'execute project']);
+  });
+
   test('filterByCan drops such rows without asking the PDP', async () => {
     const { authorizer, r, asked } = allowing();
     r.get('/rows', async (c) =>
-      c.json(await authorizer.filterByCan(c, 'execute', ['p1', 'p2'], (id) => ref('project', id))),
+      c.json(await authorizer.filterByCan(c, 'publish', ['p1', 'p2'], (id) => ref('project', id))),
     );
     expect(await (await r.request('/rows')).json()).toEqual([]);
     expect(asked).toEqual([]);

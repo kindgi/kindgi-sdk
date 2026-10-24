@@ -36,6 +36,12 @@ Tokens are compared in constant time. A wrong or missing token gets `401`:
 {"error":{"code":"auth-missing","message":"Bearer token is not recognized","requestId":"req-88fd4597-bed6-4936-9906-83fafe44712d"}}
 ```
 
+The `curl` examples in these docs pass the header as
+`-H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")`. In bash or
+zsh it reaches curl through a pipe, so the token stays out of the process
+list (`ps`), where `-H "Authorization: Bearer $KINDGI_API_TOKEN"` would show
+it.
+
 To rotate the token, restart the runtime with a new value.
 
 A request's body is at most 10 MiB. A bigger one is refused with
@@ -55,6 +61,16 @@ agent's turn with `model-invocation-failed`:
 `Prompt render failed: Template render failed: the render went over its memory limit of 16777216`.
 No setting changes it.
 
+The template can render in a worker process instead of the server's own
+(it needs runtime 0.1.9 or later): with `KINDGI_TEMPLATE_RENDER_WORKERS`
+at 1 or more, the default on a runtime serving many tenants
+(`KINDGI_TENANCY=multi`).
+The worker's heap has a cap of its own
+(`KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB`, 128 MiB by default): a render
+that runs it out fails the turn with the message above, and the server
+keeps running. A worker takes only the server's timezone and locale from
+its environment, never its database URLs, keys or tokens.
+
 With [authorization](../../deploy/authorization/) on, people and service
 accounts have API keys of their own, `kgi_ak_…`. Each key acts with its
 holder's grants and no more. A revoked key is refused from its next request.
@@ -65,7 +81,7 @@ how keys are made and revoked.
 
 People sign in to the console with their email first. The sign-in page then
 offers the ways in the deployment has, which
-[Turn on sign-in](../../deploy/sign-in/) sets up:
+[Turn on sign-in](../../deploy/self-hosted/sign-in/) sets up:
 
 - **Only people already added to a workspace get in,** by an email their
   provider has proved. Nobody is created by signing in, and roles stay
@@ -104,7 +120,7 @@ A public run token is:
 With it, a browser can follow the run. The same request with `curl`:
 
 ```sh
-curl -H "Authorization: Bearer $PUBLIC_TOKEN" "$KINDGI_API_URL/v1/runs/$RUN_ID/progress"
+curl -H @<(printf 'Authorization: Bearer %s\n' "$PUBLIC_TOKEN") "$KINDGI_API_URL/v1/runs/$RUN_ID/progress"
 ```
 
 - `$PUBLIC_TOKEN` is the public run token, such as the run's
@@ -146,7 +162,8 @@ controls that:
   connects all the same ([Set up SSO](../../guides/sso/)).
 - **`isolated`** is for a runtime whose tenants don't trust one another. It
   refuses all that `deployed` does, and also private networks (RFC 1918,
-  CGNAT and IPv6 unique-local addresses) wherever configuration names a host,
+  CGNAT, and IPv6 unique-local and site-local addresses) wherever
+  configuration names a host,
   and the runtime's own cloud credentials: a model provider can't sign in as
   the runtime. A Gemini provider on Vertex AI then needs a service-account key
   in `secret_ref`, and Azure OpenAI's `auth: entra` and Bedrock's
@@ -162,13 +179,48 @@ Registering a `stdio` endpoint with the default:
 {"error":{"code":"host-access-denied","message":"MCP endpoint \"acme.docs\" uses the stdio transport, which runs a command on the server's host; KINDGI_TENANT_HOST_ACCESS=deployed refuses that. Run the MCP server over HTTP (streamable-http) instead.","requestId":"req-61bc35bf-9ca4-4894-b041-a5babbc7ec3f"}}
 ```
 
+With `isolated`, a provider that would sign in as the runtime is refused
+when it's registered, and nothing is stored. The `bedrock` preset signs in
+as the runtime's AWS identity, so
+`kindgi providers register --preset=bedrock --region=us-east-2` prints:
+
+```text
+Error [invalid-request]: Provider "bedrock" doesn't fit adapter @kindgi/adapter-model-bedrock: adapter_config.auth = aws-identity (the default) signs in as the runtime's own AWS identity, which this deployment doesn't let tenant configuration use (KINDGI_TENANT_HOST_ACCESS). Set auth = api-key, with secret_ref naming a Bedrock API key.
+  ✗ /adapter_config/auth: adapter_config.auth = aws-identity (the default) signs in as the runtime's own AWS identity, which this deployment doesn't let tenant configuration use (KINDGI_TENANT_HOST_ACCESS). Set auth = api-key, with secret_ref naming a Bedrock API key.
+```
+
+A provider registered before the runtime moved to `isolated`, and that signs
+in as the runtime, isn't used there. Here, a `bedrock` preset registration:
+a turn that needs it fails with `422 capability-routing-failed`, and the
+error's message names the setting the adapter refuses:
+
+```json
+{"error":{"code":"capability-routing-failed","message":"No registered provider satisfies the capability declaration. Provider \"bedrock\" can't be set up on this runtime: adapter @kindgi/adapter-model-bedrock refuses its /adapter_config/auth (GET /v1/providers/bedrock/check says why).","details":{"runId":"a6b708ca-d4cc-4cc7-a365-be066858d59f"},"requestId":"req-8b1ef821-9ec2-4f01-9c92-18eeedf4a9b0"}}
+```
+
+[`GET /v1/providers/bedrock/check`](../../guides/models/#check-a-registration)
+gives the adapter's own words, the same as the refusal above, at
+`/adapter_config/auth`. The runtime's log has them too, in its
+`factory throw` line.
+
+Unregister such a provider, and register it again with a key of its own:
+for Bedrock, [an API key](../../guides/models/#with-a-bedrock-api-key); for
+Gemini on Vertex AI,
+[a service-account key](../../guides/models/gemini-on-vertex-ai/#on-a-runtime-that-keeps-tenants-apart);
+for Azure OpenAI, the `azure-openai` preset, with the resource's key.
+
 Outside development, a webhook goes only to a public address, and only over
 https. Kindgi checks this when the webhook is registered, and again at every
 delivery, for every address the receiver's name resolves to. A self-hosted runtime whose receiver is on
 its own private network sets `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`, which
-opens RFC 1918, CGNAT and IPv6 unique-local addresses. Loopback and the
-cloud metadata addresses stay refused. `KINDGI_TENANT_HOST_ACCESS=isolated`
-refuses that setting.
+opens RFC 1918, CGNAT, and IPv6 unique-local and site-local addresses.
+Loopback and the cloud metadata addresses stay refused. A runtime with
+`KINDGI_TENANT_HOST_ACCESS=isolated` doesn't start with that setting (exit
+code 2):
+
+```text
+KINDGI_TENANT_HOST_ACCESS=isolated refuses private networks to tenant configuration, and KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow opens them to webhooks: set one of them, not both.
+```
 
 A model provider's calls carry only its own registration's settings and its
 own key: nothing of the server's environment goes with them.
@@ -208,7 +260,7 @@ The runtime's database user needs `CREATEROLE` and must own the runtime's
 database: the runtime uses it to set up the restricted role that requests run
 as. It needn't be a superuser, so managed Postgres services such as Cloud SQL,
 Amazon RDS and AlloyDB work. Create the `vector` extension once, as
-[Self-host](../../deploy/self-host/) shows.
+[Self-host](../../deploy/self-hosted/self-host/) shows.
 :::
 
 - **Development mode is for development.** `KINDGI_DEV=true` turns on

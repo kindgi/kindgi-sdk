@@ -23,7 +23,10 @@ for your tenant. You can prefer a provider or a model, or require one.
 
 ## What the model must support
 
-Add `capabilities` to the agent's definition. This one needs a model that
+Ask your coding agent: "My agent needs a model that can call tools."
+Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, it
+adds `capabilities` to the agent's definition. This one needs a model that
 calls tools:
 
 <Tabs syncKey="lang">
@@ -40,6 +43,22 @@ calls tools:
 ```python excerpt
 # in agents/order_desk.py
     capabilities=[{"needs": [{"feature": "tool-use"}]}],
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .capability(Map("needs" -> Seq(Map("feature" -> "tool-use"))))
 ```
 
 </TabItem>
@@ -97,6 +116,8 @@ shows.
 ## Prefer a provider or a model
 
 A preference ranks a provider or a model first, without excluding the others.
+Ask your coding agent: "Prefer Claude Sonnet 5.5 for my agent." For reference,
+it adds the preference to the agent's definition:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -119,13 +140,60 @@ A preference ranks a provider or a model first, without excluding the others.
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
+      .set("preferredProvider", "anthropic")
+      .set("preferredModel", "claude-sonnet-5-5")
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .capability(Map("needs" -> Seq(Map("feature" -> "tool-use"))))
+    .set("preferredProvider", "anthropic")
+    .set("preferredModel", "claude-sonnet-5-5")
+```
+
+</TabItem>
 </Tabs>
 
 A dry run shows the pick without calling the model:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
+pnpm exec kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
+```
+
+</TabItem>
+</Tabs>
 
 `--dry-run` runs the turn without its model call. Its output names the
 provider and model the turn would use:
@@ -157,7 +225,8 @@ takes the next model in line.
 
 ## Require a model
 
-To make sure a turn runs on one model, put it in the needs:
+To make sure a turn runs on one model, ask your coding agent: "My agent must
+only run on Claude Sonnet 5.5." For reference, it puts the model in the needs:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -173,6 +242,26 @@ To make sure a turn runs on one model, put it in the needs:
 ```python excerpt
 # in agents/order_desk.py
     capabilities=[{"needs": [{"feature": "tool-use"}, {"models": {"allow": ["claude-sonnet-5-5"]}}]}],
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .capability(Map.of("needs", List.of(
+          Map.of("feature", "tool-use"),
+          Map.of("models", Map.of("allow", List.of("claude-sonnet-5-5"))))))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .capability(Map("needs" -> Seq(
+      Map("feature" -> "tool-use"),
+      Map("models" -> Map("allow" -> Seq("claude-sonnet-5-5"))))))
 ```
 
 </TabItem>
@@ -207,13 +296,23 @@ JSON that `kindgi runs start` prints. For `models: { allow: ['gpt-5'] }`:
 }
 ```
 
+A provider registered for the tenant that the runtime couldn't set up, such as
+one whose
+[settings the deployment no longer allows](../../../concepts/security/#what-a-tenant-cant-make-the-server-do),
+is never a candidate. The reasons name it under `provider set up`, by its
+provider id alone, with the code `provider-setup-failed`. The error's message
+gives the first one's why, and counts the rest. A registration's settings can
+be checked at any time with
+[`GET /v1/providers/{providerId}/check`](../../models/#check-a-registration).
+
 ## Rank with weights
 
 `prefer` adds a weight for each match, against a model's features or a
 provider's `attributes`, and ranks the higher total first. A weight can be
 negative. Here a local model is registered with `"attributes": ["local"]`, as
 [Connect an OpenAI-compatible endpoint](../../models/openai-compatible/)
-shows:
+shows. Ask your coding agent: "Rank my local models above the others for my
+agent." For reference, it adds a weight for `local`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -229,6 +328,26 @@ shows:
 ```python excerpt
 # in agents/order_desk.py
     capabilities=[{"needs": [{"feature": "tool-use"}], "prefer": [{"feature": "local", "weight": 1}]}],
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .capability(Map.of(
+          "needs", List.of(Map.of("feature", "tool-use")),
+          "prefer", List.of(Map.of("feature", "local", "weight", 1))))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .capability(Map(
+      "needs" -> Seq(Map("feature" -> "tool-use")),
+      "prefer" -> Seq(Map("feature" -> "local", "weight" -> 1))))
 ```
 
 </TabItem>

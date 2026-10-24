@@ -420,6 +420,23 @@ export interface ToolManifest {
    * through, a mutating tool asks on first use.
    */
   readonly mutating?: boolean;
+  /**
+   * `true` when a person must say yes to every call of this tool in a run
+   * no person started: one a schedule, a webhook, an event or a service
+   * account's key started (`RunStartedBy` other than `person`, or none).
+   * In such a run, an agent's call of the tool waits for a person's yes
+   * whatever the agent's `conversationPolicy.hitl.tools` says (the
+   * agent's rules can't lift it), and a flow's tool step that calls it is
+   * refused. A webhook trigger or a schedule whose
+   * `toolsAllowedUnattended` names the tool (a project admin's to set)
+   * lifts that, in its own runs only. In a run a person started, the
+   * agent's rules decide, as for any tool. Absent = `false`.
+   *
+   * Declare it on a tool that moves money or changes something people
+   * rely on, so that an agent reused under a trigger can't run it with no
+   * one asked.
+   */
+  readonly needsApprovalWhenUnattended?: boolean;
   /** Isolation posture — see `SandboxMode`. */
   readonly sandbox?: SandboxMode;
   /** Memory + CPU caps enforced by the sandbox at dispatch. */

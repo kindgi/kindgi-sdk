@@ -5,8 +5,18 @@
 # internal only) and the server (the API, agent and flow execution).
 
 locals {
-  sql_connection = google_sql_database_instance.kindgi.connection_name
-  registry_host  = "${local.own_repository ? var.region : var.image_repository.location}-docker.pkg.dev"
+  # The instance the server serves from: database_instance's (a restore
+  # pointer), else database_host_instance's (a shared instance), else the
+  # module's own.
+  sql_connection = (
+    var.database_instance != null ? data.google_sql_database_instance.served[0].connection_name :
+    var.database_host_instance != null ? data.google_sql_database_instance.host[0].connection_name :
+    google_sql_database_instance.kindgi[0].connection_name
+  )
+  database_url_secret = (var.database_instance == null
+    ? google_secret_manager_secret.server["database_url"].secret_id
+  : var.database_instance.url_secret)
+  registry_host = "${local.own_repository ? var.region : var.image_repository.location}-docker.pkg.dev"
 
   # Every name the module sets on the server (some only with an option on),
   # plus KINDGI_DEV: server_env and server_secret_env can't set these.
@@ -19,21 +29,33 @@ locals {
     "KINDGI_PACK_SERVICE_URL", "KINDGI_PUBLIC_TOKEN_SIGNING_KEY", "KINDGI_PUBLIC_URL",
     "KINDGI_SECRETS_AAD_KEY", "KINDGI_SECRETS_BACKEND", "KINDGI_SECRETS_BACKEND_KMS",
     "KINDGI_SECRETS_GCP_KEY_ID", "KINDGI_SECRETS_GCP_KEY_RING_ID", "KINDGI_SECRETS_GCP_LOCATION_ID",
-    "KINDGI_SECRETS_GCP_PROJECT_ID", "KINDGI_SEED_USER_ID", "KINDGI_TENANT_ID", "KINDGI_TRUSTED_PROXIES",
+    "KINDGI_SECRETS_GCP_PROJECT_ID", "KINDGI_SEED_USER_ID", "KINDGI_TENANCY", "KINDGI_TENANT_ID",
+    "KINDGI_TRUSTED_PROXIES",
   ])
   server_extra_env = setunion(keys(var.server_env), keys(var.server_secret_env))
+
+  # What a server serving many tenants needs, each named when it's missing.
+  multi_missing = compact([
+    var.openfga_api_url == "" ? "openfga_api_url (without an authorization store, no tenant would have an admin)" : "",
+    contains(keys(var.server_secret_env), "KINDGI_OPENFGA_PRESHARED_KEY") ? "" : "server_secret_env's KINDGI_OPENFGA_PRESHARED_KEY (a key the authorization store accepts)",
+    lookup(var.server_env, "KINDGI_TENANT_HOST_ACCESS", "") == "isolated" ? "" : "server_env's KINDGI_TENANT_HOST_ACCESS = \"isolated\"",
+    lookup(var.server_env, "KINDGI_PACK_ROUTING", "") == "per-deployment" ? "" : "server_env's KINDGI_PACK_ROUTING = \"per-deployment\"",
+    lookup(var.server_env, "KINDGI_PACK_ENDPOINT_HOSTS", "") != "" ? "" : "server_env's KINDGI_PACK_ENDPOINT_HOSTS (the hosts a deployment's endpoint may be on)",
+    var.secrets_backend == "postgres" ? "" : "secrets_backend = \"postgres\" (each endpoint's token is sealed under the secrets' key)",
+  ])
 }
 
 # ---- the pack service ---------------------------------------------------------
 
 resource "google_cloud_run_v2_service" "pack" {
+  count               = local.pack ? 1 : 0
   name                = "${var.name_prefix}-pack"
   location            = var.region
   ingress             = var.pack_ingress
   deletion_protection = false
 
   template {
-    service_account                  = google_service_account.pack.email
+    service_account                  = google_service_account.pack[0].email
     timeout                          = var.pack_timeout
     max_instance_request_concurrency = var.pack_concurrency
 
@@ -43,9 +65,10 @@ resource "google_cloud_run_v2_service" "pack" {
     }
 
     # Connector mode: the pack's code reaches private IPs (an app
-    # database) through the existing connector.
+    # database) through the existing connector. Not in direct mode (the pack
+    # is internal) or none (no VPC).
     dynamic "vpc_access" {
-      for_each = local.direct ? [] : [1]
+      for_each = var.network_mode == "connector" ? [1] : []
       content {
         connector = var.vpc_connector
         egress    = "PRIVATE_RANGES_ONLY"
@@ -156,7 +179,8 @@ resource "google_cloud_run_v2_service" "pack" {
 # Only the server may call the pack service (with a Google ID token, plus
 # the pack token in Kindgi-Pack-Token).
 resource "google_cloud_run_v2_service_iam_member" "server_invokes_pack" {
-  name     = google_cloud_run_v2_service.pack.name
+  count    = local.pack ? 1 : 0
+  name     = google_cloud_run_v2_service.pack[0].name
   location = var.region
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.server.email}"
@@ -199,7 +223,7 @@ resource "google_cloud_run_v2_service" "server" {
     # connector; everything else leaves through Cloud Run's own egress.
     # With the /cloudsql socket the server needs no VPC at all.
     dynamic "vpc_access" {
-      for_each = !local.direct && local.database_private ? [1] : []
+      for_each = var.network_mode == "connector" && local.database_private ? [1] : []
       content {
         connector = var.vpc_connector
         egress    = "PRIVATE_RANGES_ONLY"
@@ -269,18 +293,24 @@ resource "google_cloud_run_v2_service" "server" {
         name = "KINDGI_DATABASE_URL"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.server["database_url"].secret_id
+            secret  = local.database_url_secret
             version = "latest"
           }
         }
       }
-      env {
-        name  = "KINDGI_TENANT_ID"
-        value = var.seed_tenant_id
-      }
-      env {
-        name  = "KINDGI_SEED_USER_ID"
-        value = var.seed_user_id
+      # The tenant: with "single", the one the server seeds and serves, and
+      # the user its API token acts as; with "multi", neither, since each
+      # request's tenant comes from its key or session. "single" sets no
+      # KINDGI_TENANCY, so its env is the same as before tenancy existed.
+      dynamic "env" {
+        for_each = var.tenancy == "single" ? [
+          ["KINDGI_TENANT_ID", var.seed_tenant_id],
+          ["KINDGI_SEED_USER_ID", var.seed_user_id],
+        ] : [["KINDGI_TENANCY", "multi"]]
+        content {
+          name  = env.value[0]
+          value = env.value[1]
+        }
       }
       env {
         name = "KINDGI_API_TOKEN"
@@ -332,23 +362,35 @@ resource "google_cloud_run_v2_service" "server" {
       }
 
       # The pack service: its internal URL, the shared token, and a Google
-      # ID token per call (KINDGI_PACK_SERVICE_AUTH).
-      env {
-        name  = "KINDGI_PACK_SERVICE_URL"
-        value = google_cloud_run_v2_service.pack.uri
+      # ID token per call (KINDGI_PACK_SERVICE_AUTH). Without a pack image
+      # there's no pack service, and so none of the three: each deployment
+      # is a service of its own (KINDGI_PACK_ROUTING=per-deployment), whose
+      # endpoint carries its own token and auth, and the server refuses them.
+      dynamic "env" {
+        for_each = local.pack ? [google_cloud_run_v2_service.pack[0].uri] : []
+        content {
+          name  = "KINDGI_PACK_SERVICE_URL"
+          value = env.value
+        }
       }
-      env {
-        name = "KINDGI_PACK_SERVICE_TOKEN"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.shared["pack_service_token"].secret_id
-            version = "latest"
+      dynamic "env" {
+        for_each = local.pack ? [google_secret_manager_secret.shared["pack_service_token"].secret_id] : []
+        content {
+          name = "KINDGI_PACK_SERVICE_TOKEN"
+          value_source {
+            secret_key_ref {
+              secret  = env.value
+              version = "latest"
+            }
           }
         }
       }
-      env {
-        name  = "KINDGI_PACK_SERVICE_AUTH"
-        value = "google-id-token"
+      dynamic "env" {
+        for_each = local.pack ? ["google-id-token"] : []
+        content {
+          name  = "KINDGI_PACK_SERVICE_AUTH"
+          value = env.value
+        }
       }
 
       # Reading deployments' images from Artifact Registry with the
@@ -467,12 +509,31 @@ resource "google_cloud_run_v2_service" "server" {
 
   lifecycle {
     precondition {
-      condition     = var.network_mode == "direct" || var.vpc_connector != ""
+      condition     = var.network_mode != "connector" || var.vpc_connector != ""
       error_message = "network_mode = \"connector\" needs vpc_connector (projects/<project>/locations/<region>/connectors/<name>)."
     }
     precondition {
-      condition     = var.network_mode == "direct" || var.pack_ingress == "INGRESS_TRAFFIC_ALL"
-      error_message = "network_mode = \"connector\" needs pack_ingress = \"INGRESS_TRAFFIC_ALL\": a private-ranges-only server can't reach an internal-only pack service (IAM still guards it)."
+      condition     = !local.pack || var.network_mode == "direct" || var.pack_ingress == "INGRESS_TRAFFIC_ALL"
+      error_message = "network_mode = \"connector\" or \"none\" needs pack_ingress = \"INGRESS_TRAFFIC_ALL\": a server without a VPC reaches the pack service over its public URL (IAM still admits only the server's account)."
+    }
+    precondition {
+      condition = local.pack || (
+        length(var.pack_env) == 0 && length(var.pack_secret_env) == 0 && length(var.pack_cloud_sql_instances) == 0
+        && length(var.pack_bucket_readers) == 0 && length(var.pack_run_invokers) == 0
+      )
+      error_message = "pack_env, pack_secret_env, pack_cloud_sql_instances, pack_bucket_readers and pack_run_invokers configure the one pack service, which exists only with pack_image: set pack_image, or unset them."
+    }
+    precondition {
+      condition     = var.tenancy != "single" || local.pack
+      error_message = "tenancy = \"single\" needs pack_image: the one pack service the server calls."
+    }
+    precondition {
+      condition     = var.tenancy != "single" || contains(["", "single"], trimspace(lookup(var.server_env, "KINDGI_PACK_ROUTING", "")))
+      error_message = "tenancy = \"single\" calls the one pack service: server_env's KINDGI_PACK_ROUTING, if set, is empty or \"single\". \"per-deployment\" needs tenancy = \"multi\"."
+    }
+    precondition {
+      condition     = var.tenancy != "multi" || !local.pack
+      error_message = "tenancy = \"multi\" takes no pack_image: each deployment is a service of its own, whose endpoint carries its own URL, token and auth, and the server refuses the one pack service's. Leave it unset."
     }
     precondition {
       condition     = !local.kms || var.secrets_aad_key_version != null
@@ -481,6 +542,42 @@ resource "google_cloud_run_v2_service" "server" {
     precondition {
       condition     = var.export_signing != "kms" || var.export_signing_kms_key != ""
       error_message = "export_signing = \"kms\" needs export_signing_kms_key: the key version that signs."
+    }
+    precondition {
+      condition     = var.database_instance == null || var.database_private_network == ""
+      error_message = "database_instance serves from another instance through the /cloudsql volume, which private-IP mode (database_private_network) doesn't use: unset one."
+    }
+    precondition {
+      condition     = try(var.database_instance.name != var.name_prefix, true)
+      error_message = "database_instance names the module's own instance (${var.name_prefix}): leave database_instance null to serve from it."
+    }
+    precondition {
+      condition     = try(var.database_instance.url_secret != local.server_secrets.database_url, true)
+      error_message = "database_instance.url_secret is the module's own ${local.server_secrets.database_url}, whose URL names the module's own instance: put the other instance's URL in a secret of its own."
+    }
+    precondition {
+      condition     = var.database_host_instance == null || var.database_private_network == ""
+      error_message = "database_host_instance reaches the shared instance through the /cloudsql volume, which private-IP mode (database_private_network) doesn't use: unset one."
+    }
+    precondition {
+      condition     = try(var.database_host_instance != var.name_prefix, true)
+      error_message = "database_host_instance (${var.name_prefix}) names what the module's own instance would be called: the host is a separate, existing instance, so give its own name or leave database_host_instance null."
+    }
+    precondition {
+      condition     = try(var.database_instance.name != var.database_host_instance, true)
+      error_message = "database_instance (the instance the server serves from) names database_host_instance, where Kindgi's database already lives: serve from a clone of it, not from itself."
+    }
+    precondition {
+      condition     = var.database_private_network == "" || var.network_mode != "none"
+      error_message = "network_mode = \"none\" creates no VPC: a private-IP database (database_private_network) needs \"direct\" or \"connector\"."
+    }
+    precondition {
+      condition     = var.network_mode != "none" || !var.nat_static_ip
+      error_message = "network_mode = \"none\" creates no Cloud NAT, so nat_static_ip has nothing to reserve; it applies in \"direct\" and is ignored in \"connector\"."
+    }
+    precondition {
+      condition     = var.network_mode != "direct" || var.nat_max_ports_per_vm > var.nat_min_ports_per_vm
+      error_message = "nat_max_ports_per_vm must be above nat_min_ports_per_vm: the Cloud NAT doubles an instance's ports from the minimum up to the maximum."
     }
     precondition {
       condition     = !(var.server_public && var.server_invoker_iam_disabled)
@@ -493,6 +590,18 @@ resource "google_cloud_run_v2_service" "server" {
     precondition {
       condition     = length(setintersection(keys(var.server_env), keys(var.server_secret_env))) == 0
       error_message = "A name is in both server_env and server_secret_env: keep it in one."
+    }
+    precondition {
+      condition     = var.tenancy != "single" || (var.seed_tenant_id != null && var.seed_user_id != null)
+      error_message = "tenancy = \"single\" needs seed_tenant_id and seed_user_id: the tenant the server seeds and serves, and the user its API token acts as."
+    }
+    precondition {
+      condition     = var.tenancy != "multi" || (var.seed_tenant_id == null && var.seed_user_id == null)
+      error_message = "tenancy = \"multi\" takes no seed_tenant_id or seed_user_id: a server serving many tenants takes each request's tenant from its key or session, and refuses KINDGI_TENANT_ID and KINDGI_SEED_USER_ID. Leave both unset."
+    }
+    precondition {
+      condition     = var.tenancy != "multi" || length(local.multi_missing) == 0
+      error_message = "tenancy = \"multi\" needs: ${join("; ", local.multi_missing)}. The server won't start without them."
     }
     precondition {
       condition     = length(setintersection(local.server_extra_env, toset(["KINDGI_AUTH_SECRET", "KINDGI_AUTH_SECRET_PATH"]))) == 0 || var.public_url != ""
@@ -508,6 +617,7 @@ resource "google_cloud_run_v2_service" "server" {
     google_secret_manager_secret_iam_member.server_reads_export_key,
     google_kms_crypto_key_iam_member.server_signs_exports,
     google_project_iam_member.server_sql_client,
+    google_project_iam_member.server_sql_client_served,
     google_compute_router_nat.nat,
   ]
 }

@@ -19,7 +19,7 @@
  *         edited that way (Poetry 1, dynamic dependencies) gets the command
  *         to run instead.
  *   - `kindgi/{tools,guardrails,agents,flows}/.gitkeep`
- *   - `.claude/skills/` — the skills written for Python packs
+ *   - `.claude/skills/` and `.agents/skills/` — the skills written for Python packs
  *   - `.gitignore` — Kindgi's local-state patterns
  *
  * The app's own code, env files, lockfile and virtualenv are left alone:
@@ -130,7 +130,7 @@ export async function runInitPythonAugment(
       dryRun: false,
     });
     for (const o of report.outcomes) {
-      const target = join(inputs.targetDir, '.claude', 'skills', o.name, 'SKILL.md');
+      const target = join(inputs.targetDir, o.folder, o.name, 'SKILL.md');
       if (o.status === 'added' || o.status === 'updated') created.push(target);
       else if (o.status !== 'local-only') skipped.push(target);
     }
@@ -404,7 +404,7 @@ export function pythonAugmentNextSteps(
     install,
     ...addCli,
     `Boot the dev server: ${binDisplay(runner, 'kindgi', ['dev'])}`,
-    'Write tools, guardrails and agents under kindgi/ — see .claude/skills/kindgi-python-getting-started/SKILL.md',
+    'Write tools, guardrails and agents under kindgi/ — see the kindgi-python-getting-started skill (in .claude/skills/ and .agents/skills/)',
     'Secrets: kindgi dev reads your .env and .env.local; tools read them from os.environ',
     `Models: under kindgi dev, agents give placeholder replies until you connect a model: ${MODELS_GUIDE}`,
   ];

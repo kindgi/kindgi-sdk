@@ -110,7 +110,7 @@ const upload: LeafCommand = {
   kind: 'leaf',
   name: 'upload',
   description:
-    "Upload a file as an artifact: it belongs to its run's project, else --project's, else the tenant's default. The runtime caps an upload (100 MB unless set otherwise).",
+    "Upload a file as an artifact: it belongs to its run's project, else --project's, else the tenant's default. The runtime caps an upload (100 MiB unless set otherwise).",
   usage:
     'kindgi artifacts upload <file> [--name=<name>] [--content-type=<mime>] [--run=<run-id>] [--project=<project-id>] [--tag=<key>=<value>]…',
   optionSpec: {

@@ -21,18 +21,21 @@ recorded runs.
   new version of its agent or flow. Under `kindgi dev`, saving the agent's
   file with its new `version` is enough. On a runtime you deploy to, deploy
   the new version first.
-- **Kindgi 0.1's CLI**, and the project's id.
+- **Kindgi 0.2's CLI**, and the project's id.
 - **The right to start one:** an editor of the test set's project, or anyone
   who may execute the test set, who may write to the project the run lands
   in and run its agent or flow.
 - **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
-  Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+  Kindgi 0.2's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
 
 ## Compare a version
 
 A comparison replays the version on the test set's cases. Version 0.1.0 of
 `acme-ops.article-picker` answered with three articles each time, and people
-said no to most of them. Version 0.2.0 changes its instructions:
+said no to most of them. Version 0.2.0 changes its instructions. Ask your
+coding agent: "Make a new version of my agent that answers with only
+the articles that answer the question." For reference, 0.2.0's instructions
+look like this:
 
 ```ts excerpt
 instructions:
@@ -41,9 +44,36 @@ instructions:
 
 The test set keeps its copies of the 0.1.0 runs. Compare 0.2.0 on it:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+pnpm exec kindgi eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+```
+
+</TabItem>
+</Tabs>
 
 - `acme.article-picks` is the test set.
 - `--project=<project-id>` is the project the replay runs land in.
@@ -81,7 +111,9 @@ It prints the comparison, with its metrics:
 Without `--wait`, the command returns the run's id at once, and
 `kindgi eval-runs show <run-id>` reads it later.
 
-From your code, with the project's id as the script's argument:
+From your code, ask your coding agent: "I want a script that compares my
+new agent version on my test set, and shows me the scores." For reference,
+the script looks like this, with the project's id as its argument:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -161,11 +193,80 @@ weightedPrecisionAtK: 0.3333333333333333 → 1.0
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/Compare.java
+package com.acme.app;
+
+import com.kindgi.client.Comparisons;
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.ComparisonMetric;
+import com.kindgi.client.models.EvalRun;
+import com.kindgi.client.models.EvalRunAgentRef;
+import com.kindgi.client.models.JudgedComparisonSummary;
+import com.kindgi.client.models.StartEvalRunBody;
+import com.kindgi.client.models.StartEvalRunResult;
+import java.util.UUID;
+
+public final class Compare {
+  public static void main(String[] args) throws InterruptedException {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+    UUID projectId = UUID.fromString(args[0]);
+
+    // Replay version 0.2.0 on each case of the test set.
+    StartEvalRunResult started =
+        kindgi.evalRuns().start(
+            "acme.article-picks",
+            StartEvalRunBody.builder()
+                .projectId(projectId)
+                .agentRef(
+                    EvalRunAgentRef.builder().agentId("acme-ops.article-picker").version("0.2.0").build())
+                .build());
+
+    EvalRun run = kindgi.evalRuns().get(started.runId());
+    while (run.status().equals(EvalRun.Status.PENDING) || run.status().equals(EvalRun.Status.RUNNING)) {
+      Thread.sleep(2000);
+      run = kindgi.evalRuns().get(started.runId());
+    }
+
+    // comparisonOf is empty until the run finishes, or for a dry run.
+    Comparisons.comparisonOf(run)
+        .ifPresent(
+            comparison -> {
+              JudgedComparisonSummary.Metrics metrics = comparison.summary().metrics();
+              print("judgedCoverage", metrics.judgedCoverage());
+              print("weightedYesShare", metrics.weightedYesShare());
+              print("weightedPrecisionAtK", metrics.weightedPrecisionAtK());
+            });
+  }
+
+  private static void print(String name, ComparisonMetric metric) {
+    System.out.println(name + ": " + metric.baseline() + " → " + metric.candidate());
+  }
+
+  private Compare() {}
+}
+```
+
+```text
+judgedCoverage: 0.75 → 0.5
+weightedYesShare: 0.3333333333333333 → 1.0
+weightedPrecisionAtK: 0.3333333333333333 → 1.0
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+Scala apps use the Java helper: call `Comparisons.comparisonOf` from `com.kindgi.client` as the Java tab shows. It takes the `EvalRun` and returns a `java.util.Optional` of the `JudgedComparisonResult`: its `summary()`, and each case in `perCase()`.
+
+</TabItem>
 </Tabs>
 
-`comparisonOf`, or `comparison_of` in Python, reads a finished comparison's
-result, typed: its `summary` and each case. It returns `undefined`, or
-`None`, for a comparison that hasn't finished, or a dry run.
+`comparisonOf` reads a finished comparison's result, typed: its `summary`
+and each case. It's `comparison_of` in Python, and `Comparisons.comparisonOf`
+in Java and Scala. For a comparison that hasn't finished, or a dry run, it
+returns `undefined`: `None` in Python, an empty `Optional` in Java and Scala.
 
 A model doesn't answer the same way every time: run the same comparison
 again, and the scores may differ. `--repetitions=<n>` runs each case several
@@ -273,6 +374,15 @@ tool with the same arguments.
   per end user, `same-user`, is offered the same tools as the past turn,
   `kindgi_remember` included, which stores nothing in a replay. A replay's
   conversation is never recalled later as an earlier conversation.
+- **A replay of a run a webhook or an event started reads its message as
+  data** (it needs runtime 0.1.9 or later). Its model reads the turn's
+  message, or a flow's agent step's, as an
+  [`<event>` block](../../webhooks/start-runs-from-webhooks/#what-its-agents-read),
+  data and not instructions, even when the past run was on an earlier runtime
+  and read it as it came: its answer can differ for that alone. The replay's
+  own run records no `startedBy`, as no replay does. A delivery earlier in the
+  conversation reads that way too, unless an earlier runtime kept it: that one
+  reads as it came.
 
 **The replay runs** are ordinary runs, marked with `replayOf`, the past run,
 and `evalRunId`. Lists of runs leave them out. `kindgi runs list
@@ -300,9 +410,36 @@ new flow version, add `--with=<id>@<version>` once for each. Here the flow
 `acme-ops.suggest-articles` 0.1.0 runs its `acme-ops.find-articles` tool at
 0.2.0, which matches only the articles a question asks about:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
+pnpm exec kindgi eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
+```
+
+</TabItem>
+</Tabs>
 
 `--flow` and `--flow-version` are the flow version to compare, and
 `--reads=live` runs read-only tools live. Its summary names the swapped

@@ -13,11 +13,13 @@ import { createApp } from '../src/index.js';
 import type {
   IdentityProviderBinding,
   IdentityProviderRegisterOutcome,
+  IdentityProviderUpdateOutcome,
   ProviderConfig,
   RunHandlerBinding,
   SessionStoreBinding,
   TokenResolver,
 } from '../src/index.js';
+import { NEEDS_SECRETS_STORE_MESSAGE } from '../src/routes/auth.js';
 
 /**
  * `/v1/auth/providers` with one shape per `kind`: `oidc` (issuer +
@@ -25,7 +27,8 @@ import type {
  * Secrets only by reference. A plain OAuth 2.0 provider (`oauth2`) is
  * refused as a deployment refused it (422), and `allowedRedirectUris`
  * (which nothing enforces: sign-in runs in the deployment) is refused on
- * writes, while a provider stored with it still loads without it.
+ * writes, while a provider stored with it still loads without it. A
+ * deployment without a secrets store takes no provider (409).
  */
 
 const tenantId = randomUUID() as TenantId;
@@ -49,6 +52,8 @@ function makeApp(
   }),
   /** A binding that gives URLs whatever the kind (as a runtime's could). */
   signInForAnyKind = false,
+  /** What a change answers instead of being stored; `undefined` stores it. */
+  onUpdate: (config: ProviderConfig) => IdentityProviderUpdateOutcome | undefined = () => undefined,
 ) {
   const stored = new Map<string, ProviderConfig>();
   const identityProvider: IdentityProviderBinding = {
@@ -62,6 +67,8 @@ function makeApp(
     unregister: async ({ providerId }) => ({ unregistered: stored.delete(providerId) }),
     update: async ({ config }) => {
       if (!stored.has(config.providerId)) return { kind: 'not-found' };
+      const refused = onUpdate(config);
+      if (refused !== undefined) return refused;
       stored.set(config.providerId, config);
       return { kind: 'ok', provider: config };
     },
@@ -234,6 +241,52 @@ describe('refusals', () => {
       'a plain OAuth 2.0 provider (`oauth2`) is not one of them',
     );
     expect(error.error.details).toEqual({ providerId: 'github' });
+    expect(stored.size).toBe(0);
+  });
+});
+
+describe('a deployment without a secrets store', () => {
+  test('adding or changing a provider → 409 identity-providers-need-secrets-store; removing one still works', async () => {
+    let hasStore = true;
+    const { app, stored } = makeApp(
+      (config) =>
+        hasStore ? { kind: 'ok', providerId: config.providerId } : { kind: 'needs-secrets-store' },
+      false,
+      () => (hasStore ? undefined : { kind: 'needs-secrets-store' }),
+    );
+    // Registered while the deployment had one.
+    expect((await register(app, OIDC)).status).toBe(201);
+    hasStore = false;
+
+    const added = await register(app, SAML_METADATA);
+    expect(added.status).toBe(409);
+    expect(await added.json()).toMatchObject({
+      error: {
+        code: 'identity-providers-need-secrets-store',
+        message: NEEDS_SECRETS_STORE_MESSAGE,
+        details: { providerId: 'acme-entra' },
+      },
+    });
+    expect(NEEDS_SECRETS_STORE_MESSAGE).toContain('KINDGI_SECRETS_BACKEND');
+    expect(stored.has('acme-entra')).toBe(false);
+
+    const changed = await app.request('/v1/auth/providers/acme-okta', {
+      method: 'PATCH',
+      headers: { authorization: `Bearer ${BEARER}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ displayName: 'Acme' }),
+    });
+    expect(changed.status).toBe(409);
+    expect(await errorOf(changed)).toMatchObject({
+      code: 'identity-providers-need-secrets-store',
+      message: NEEDS_SECRETS_STORE_MESSAGE,
+    });
+    expect(stored.get('acme-okta')?.displayName).toBe('Acme Okta');
+
+    const removed = await app.request('/v1/auth/providers/acme-okta/unregister', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${BEARER}` },
+    });
+    expect(removed.status).toBe(200);
     expect(stored.size).toBe(0);
   });
 });

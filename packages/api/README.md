@@ -100,7 +100,7 @@ The middleware:
    field. Mismatch → `403 AccessDenied` (each credential is scoped to
    one bucket).
 6. Reads the body (not for `GET`, `HEAD` or `DELETE`), at most
-   `artifactMaxBytes` (default 100 MB): more is `400 EntityTooLarge`.
+   `artifactMaxBytes` (default 100 MiB): more is `400 EntityTooLarge`.
    For header auth, verifies `x-amz-content-sha256` matches it, an
    empty body too, unless it's `UNSIGNED-PAYLOAD`: a mismatch is
    `400 XAmzContentSHA256Mismatch`.
@@ -141,7 +141,7 @@ Multipart upload (S3-standard `md5(concat(md5(part_i)))-N` ETag):
 Semantic notes:
 
 - **Size:** a request's body is at most `artifactMaxBytes` (default
-  100 MB), the limit `POST /v1/artifacts` has; more is
+  100 MiB), the limit `POST /v1/artifacts` has; more is
   `400 EntityTooLarge`. A larger object goes up as a multipart upload,
   each part under the limit.
 - **Content-MD5** on PUT (regular OR part upload) is verified;
@@ -171,6 +171,10 @@ Conversely, S3 uploads via `PUT /s3/:bucket/:key` are visible in
 `GET /v1/artifacts` listings under the same `blobId` and are
 downloadable via `GET /v1/artifacts/:blobId`.
 
+A listing's entries and an upload's answer carry the pair as `bucket`
+and `key` when the storage gives the blob one, so a client can match an
+S3 object to its `blobId`.
+
 ### Errors (S3-style XML)
 
 | HTTP | S3 Code                          | When                                     |
@@ -181,7 +185,7 @@ downloadable via `GET /v1/artifacts/:blobId`.
 | 416  | `InvalidRange`                   | Bad `Range` header                       |
 | 400  | `BadDigest`                      | `Content-MD5` mismatch                   |
 | 400  | `XAmzContentSHA256Mismatch`      | Payload hash header mismatch             |
-| 400  | `EntityTooLarge`                 | Body over `artifactMaxBytes` (default 100 MB) |
+| 400  | `EntityTooLarge`                 | Body over `artifactMaxBytes` (default 100 MiB) |
 | 400  | `InvalidPart`                    | Multipart part ETag mismatch             |
 | 403  | `AccessDenied`                   | Credential expired / wrong bucket        |
 | 403  | `InvalidAccessKeyId`             | Unknown access key                       |

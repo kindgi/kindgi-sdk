@@ -214,6 +214,58 @@ describe('createTransport', () => {
     expect(inFlight).not.toHaveProperty('retryAfterSeconds');
   });
 
+  it.each([
+    ['whole seconds', '7', 7],
+    ['an HTTP date', new Date(Date.now() + 30_000).toUTCString(), 30],
+  ])("a 503's Retry-After (%s) is its retryAfterSeconds", async (_, header, seconds) => {
+    const stub = recordingFetch([
+      {
+        status: 503,
+        headers: { 'Retry-After': header },
+        body: JSON.stringify({
+          error: {
+            code: 'database-busy',
+            message: 'The database was too busy to answer in time. Try again after Retry-After.',
+            requestId: 'req-test',
+          },
+        }),
+      },
+    ]);
+    const transport = createTransport({
+      apiUrl: 'https://api.example.com',
+      auth: { kind: 'apiToken', token: 'tk' },
+      fetch: stub.fetch,
+    });
+    const error = await transport
+      .request({ method: 'GET', path: '/v1/runs' })
+      .catch((e: unknown) => (e as KindgiApiError).error);
+    expect(error).toMatchObject({ code: 'server', serverCode: 'database-busy' });
+    const got = (error as { retryAfterSeconds?: number }).retryAfterSeconds ?? -1;
+    // An HTTP date has whole-second precision.
+    expect(Math.abs(got - seconds)).toBeLessThanOrEqual(1);
+  });
+
+  it("a 500's Retry-After is no retryAfterSeconds", async () => {
+    const transport = createTransport({
+      apiUrl: 'https://api.example.com',
+      auth: { kind: 'apiToken', token: 'tk' },
+      fetch: recordingFetch([
+        {
+          status: 500,
+          headers: { 'Retry-After': '3' },
+          body: JSON.stringify({
+            error: { code: 'internal-server-error', message: 'no', requestId: 'req-test' },
+          }),
+        },
+      ]).fetch,
+    });
+    const error = await transport
+      .request({ method: 'GET', path: '/v1/runs' })
+      .catch((e: unknown) => (e as KindgiApiError).error);
+    expect(error).toMatchObject({ code: 'server', serverCode: 'internal-server-error' });
+    expect(error).not.toHaveProperty('retryAfterSeconds');
+  });
+
   it('produces NetworkError on fetch throw', async () => {
     const failingFetch: typeof fetch = async () => {
       throw new Error('DNS blew up');

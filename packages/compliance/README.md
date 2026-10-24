@@ -24,7 +24,7 @@ Evidence is a classification lens over the audit-event stream from [`@kindgi/aud
   - **`Classification`** — `retention` (`days`, `onDenyDays?`, `legalHold?`), `signed`, `exportable`.
   - **`LoadedClassifier`** — `file` plus `resolve(kind)`, which returns the per-kind entry or the default.
 - **`auditEventToEvidence(event)`** — pure transform from an `AuditEvent` to an `Evidence` record (unwraps the `{ v, doc }` payload envelope).
-- **`emitResolveEvent(input)`** / **`emitLifecycleEvent(input)`** — append `env-resolved` / `secret-resolved` and `env-set` / `secret-rotated` / … audit events to an `AuditEventBinding`. Payloads carry metadata only (scope, name, version, caller), never the value. Failures are logged with `console.warn` and never thrown. Inputs: **`EmitResolveEventInput`**, **`EmitLifecycleEventInput`**, **`ResolveContext`**.
+- **`emitResolveEvent(input)`** / **`emitLifecycleEvent(input)`** — append `env-resolved` / `secret-resolved` and `env-set` / `secret-rotated` / … audit events to an `AuditEventBinding`. Payloads carry metadata only (scope, name, version, caller), never the value. An append that fails or throws is never thrown: it's logged at `warn` through the input's `log` (a `@kindgi/log` `Logger`), and without one it isn't logged anywhere. Inputs: **`EmitResolveEventInput`**, **`EmitLifecycleEventInput`**, **`ResolveContext`**.
 - **Errors** — **`ComplianceError`** union of `InvalidEvidenceError`, `PersistenceError`, `SignerFailureError`, `SigningKeyMissingError`, `SigningFailureError`, `InvalidCursorError`, `ProjectNotFoundError`, `UnsupportedVersionError`, each with a `code`. **`EmitResult`** and **`ListResult`** are the `ComplianceProvider` return types.
 
 ## Example

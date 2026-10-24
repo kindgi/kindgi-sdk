@@ -98,6 +98,10 @@ export async function invokeAgent(
       ...(input.replay !== undefined && { replay: input.replay }),
       ...(input.idempotencyKey !== undefined && { idempotencyKey: input.idempotencyKey }),
       ...(input.trigger !== undefined && { trigger: input.trigger }),
+      ...(input.startedBy !== undefined && { startedBy: input.startedBy }),
+      ...(input.toolsAllowedUnattended !== undefined && {
+        toolsAllowedUnattended: input.toolsAllowedUnattended,
+      }),
       ...(input.dryRun === true && { options: { dryRun: true } }),
       // Authorization — carry principal + authz into the run so every
       // tool invocation inside the agent's turn is checked.
@@ -298,8 +302,10 @@ export type {
   SemanticUnavailableError,
   ApprovalsPendingLimitError,
   ToolInvocationError,
+  TurnMemoryLimitReachedError,
   UnresolvedToolError,
 } from './handlers/errors.js';
+export type { TurnMemoryBinding, TurnMemoryCharge } from './handlers/turn-memory.js';
 export type {
   HitlBindings,
   HitlEnqueueInput,
@@ -338,5 +344,20 @@ export function turnInputFromSnapshot(
         authz: snapshot.authz as { readonly fgaApiUrl: string },
       }),
     ...(snapshot.replay !== undefined && snapshot.replay !== null && { replay: snapshot.replay }),
+    // How the run started, as the store read it back (the run's record):
+    // never from whoever resumes it, so an approval doesn't make the rest
+    // of an unattended run attended.
+    ...(snapshot.startedBy !== undefined &&
+      snapshot.startedBy !== null && { startedBy: snapshot.startedBy }),
+    // What the run may call without a person's yes, as recorded when it
+    // started: never from whoever resumes it.
+    ...(snapshot.toolsAllowedUnattended !== undefined &&
+      snapshot.toolsAllowedUnattended !== null && {
+        toolsAllowedUnattended: snapshot.toolsAllowedUnattended,
+      }),
+    // No `messageFromEvent`: a replay doesn't park before its turn has
+    // stored its message (marked) and built its first model call, and a
+    // resumed turn reads that stored mark. If a replay could park sooner,
+    // derive it here from the replay's past run.
   };
 }

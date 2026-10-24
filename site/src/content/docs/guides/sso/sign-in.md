@@ -8,11 +8,11 @@ sidebar:
 This page shows how you sign in to the console, and what each message on its
 sign-in page means. Signing in starts with your email. The console then
 offers the ways in that this deployment has for it. Whoever runs the
-deployment chooses which ones ([Turn on sign-in](../../../deploy/sign-in/)).
+deployment chooses which ones ([Turn on sign-in](../../../deploy/self-hosted/sign-in/)).
 
 ## Your email first
 
-Enter your work email and **Continue**. The page then lists, under **Choose
+Enter your email and **Continue**. The page then lists, under **Choose
 how to sign in:**
 
 - **Sign in with** your workspace's own identity provider, first, when your
@@ -37,6 +37,14 @@ The buttons only point the way. Whichever you choose, you're let in only if
 someone has already added you to a workspace, with the email your provider
 confirms. If you're in several workspaces, the page asks you to **Choose a
 workspace:** (the choice lasts five minutes).
+
+A link to the sign-in page can fill your email in:
+`https://kindgi.acme.com/console/login#email=pat@acme-live.example`. A
+browser never sends the part after `#` to the server, so opening the link
+puts the address in no request log. It reaches the server only when you
+continue, as a typed one does, and the link signs no one in. Write a `+` in the
+address as `%2B` (`#email=pat%2Bops@acme-live.example`): a plain `+` fills
+nothing.
 
 ## A sign-in link by email
 

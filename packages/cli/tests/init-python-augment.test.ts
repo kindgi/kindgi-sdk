@@ -103,6 +103,7 @@ describe('kindgi init in a uv app', () => {
       'kindgi-python-getting-started',
       'kindgi-using',
     ]);
+    expect((await readdir(join(app, '.agents', 'skills'))).sort()).toEqual(skills.sort());
     expect(await readFile(join(app, '.gitignore'), 'utf8')).toContain('.kindgirc.json');
     expect(out.stderr).toContain('Pack id: acme-widgets    Version: 2.3.0');
     expect(out.stderr).toContain('Install: uv sync');

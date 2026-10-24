@@ -22,10 +22,11 @@ page.
 ## Before you start
 
 - **A finished run to judge,** and its id, on a runtime such as `kindgi dev`,
-  with Kindgi 0.1's CLI. [List runs](../../runs/list-runs/) finds one.
+  with Kindgi 0.2's CLI. [List runs](../../runs/list-runs/) finds one.
 - **Write access to the run's project,** when authorization is on.
-- **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
-  Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
+  Java 17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
 
 ## Judge an item
 
@@ -33,9 +34,36 @@ A judgment records whether one item of the run's output was right.
 
 From the CLI, judge the run's answer:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+pnpm exec kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+```
+
+</TabItem>
+</Tabs>
 
 - `--run=<run-id>` is the run's id.
 - `--item=answer` is your id for the item: `answer` for the whole answer.
@@ -61,8 +89,9 @@ It prints the judgment:
 }
 ```
 
-From your app, when your users judge in your own UI, pass the run's id as
-the script's argument:
+From your app, when your users judge in your own UI, ask your coding agent:
+"I want to record my user's yes or no on a run's answer." For reference, the
+script looks like this, with the run's id as its argument:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -105,6 +134,68 @@ print(judgment.id, judgment.verdict, judgment.asserted_by)
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/Judge.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.CreateJudgmentBody;
+import com.kindgi.client.models.JudgedItem;
+import com.kindgi.client.models.Judgment;
+
+public final class Judge {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    Judgment judgment = kindgi.judgments().create(CreateJudgmentBody.builder()
+        .runId(args[0])
+        .item(JudgedItem.builder().key("answer").pointer("/response/content").build())
+        .verdict(CreateJudgmentBody.Verdict.YES)
+        .reason("Echoes the message back")
+        .participantId("customer-user-19") // your id for the user who judged, if you judge for your users
+        .build());
+    System.out.println(judgment.id() + " " + judgment.verdict() + " " + judgment.assertedBy());
+  }
+}
+```
+
+```text
+42a5cdac-a5b4-4bf1-a777-d46ead4ec743 yes JudgmentAssertedBy[kind=user, id=ebdba929-5422-4cb2-b6bb-2c046109feb8]
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/Judge.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{CreateJudgmentBody, JudgedItem}
+
+object Judge {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    val judgment = kindgi.judgments().create(CreateJudgmentBody.builder()
+      .runId(args(0))
+      .item(JudgedItem.builder().key("answer").pointer("/response/content").build())
+      .verdict(CreateJudgmentBody.Verdict.YES)
+      .reason("Echoes the message back")
+      .participantId("customer-user-20") // your id for the user who judged, if you judge for your users
+      .build())
+    println(s"${judgment.id} ${judgment.verdict} ${judgment.assertedBy}")
+  }
+}
+```
+
+```text
+339dbf38-f4b0-4a9a-a1f6-0dc4585dae93 yes JudgmentAssertedBy[kind=user, id=ebdba929-5422-4cb2-b6bb-2c046109feb8]
+```
+
+</TabItem>
 </Tabs>
 
 - **`participantId`** is your app's own opaque id for the user who judged.
@@ -126,11 +217,44 @@ It lists each judgment with who made it, its class and its reason.
 
 A run's judgments say how its output was judged, and by whom:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
-kindgi judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
-kindgi judgments remove <judgment-id>
+pnpm exec kindgi judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
+pnpm exec kindgi judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
+pnpm exec kindgi judgments remove <judgment-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
+uv run kindgi judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
+uv run kindgi judgments remove <judgment-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
+./kindgiw judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
+./kindgiw judgments remove <judgment-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
+./kindgiw judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
+./kindgiw judgments remove <judgment-id>
+```
+
+</TabItem>
+</Tabs>
 
 - `<run-id>` is the run's id, and `<judgment-id>` a judgment's `id`, from the
   list.
@@ -152,10 +276,40 @@ judges more, for the tenant, a project, or an agent in a project.
 
 Add a class, then judge as it:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi judge-classes add --name=expert --weight=3 --project=<project-id>
-kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+pnpm exec kindgi judge-classes add --name=expert --weight=3 --project=<project-id>
+pnpm exec kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi judge-classes add --name=expert --weight=3 --project=<project-id>
+uv run kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw judge-classes add --name=expert --weight=3 --project=<project-id>
+./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw judge-classes add --name=expert --weight=3 --project=<project-id>
+./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+```
+
+</TabItem>
+</Tabs>
 
 - `--name` names the class, and `--weight=3` counts its judgments three
   times.
@@ -174,9 +328,36 @@ can't move the figures that release a version.
 
 Add the class with a restriction, before your reviewers judge:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+pnpm exec kindgi judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+```
+
+</TabItem>
+</Tabs>
 
 - `--tenant` makes it the tenant's class.
 - `--min-reviewer-role=senior` lets only a
@@ -206,7 +387,8 @@ your experts don't pick runs one at a time. As a run of the project ends,
 each rule checks it. A run that any rule matches joins the project's
 **judging queue**, once.
 
-Make a rule:
+To make a rule, ask your coding agent: "Queue a sample of my agent's live runs
+for people to judge." For reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -248,6 +430,70 @@ print(rule.rule_id, rule.version)
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/JudgingRule.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.JudgingRuleSpec;
+import com.kindgi.client.models.JudgingRuleWhen;
+import com.kindgi.client.models.Project;
+import java.util.List;
+
+public final class JudgingRule {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    Project project = kindgi.projects().getDefault();
+    var rule = kindgi.projects().judgingRules().create(project.id(), JudgingRuleSpec.builder()
+        .name("Live refund runs")
+        .when(JudgingRuleWhen.builder().agentIds(List.of("acme.refunds")).versions(List.of("live")).build())
+        .sample(0.05) // 5% of them
+        .maxOpen(20L) // at most 20 waiting at once
+        .build());
+    System.out.println(rule.ruleId() + " " + rule.version());
+  }
+}
+```
+
+```text
+0867c21c-c911-4d68-9fca-bf3234768931 1
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/JudgingRule.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{JudgingRuleSpec, JudgingRuleWhen}
+import scala.jdk.CollectionConverters._
+
+object JudgingRule {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    val project = kindgi.projects().getDefault()
+    val rule = kindgi.projects().judgingRules().create(project.id, JudgingRuleSpec.builder()
+      .name("Live refund runs")
+      .when(JudgingRuleWhen.builder().agentIds(List("acme.refunds").asJava).versions(List("live").asJava).build())
+      .sample(0.05) // 5% of them
+      .maxOpen(20L) // at most 20 waiting at once
+      .build())
+    println(s"${rule.ruleId} ${rule.version}")
+  }
+}
+```
+
+```text
+d57204bd-e0d2-4a2c-ade9-d87b83761e41 1
+```
+
+</TabItem>
 </Tabs>
 
 - `when` is which runs it matches: here, runs of `acme.refunds`'s live
@@ -286,8 +532,9 @@ has every field, and how to try a rule before you make it.
 
 ### Work through the queue
 
-The queue lists the runs waiting for a judgment, oldest first. List the ones
-you can close:
+The queue lists the runs waiting for a judgment, oldest first. To list the
+ones you can close, ask your coding agent: "Show me the runs waiting for my
+judgment." For reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -315,6 +562,60 @@ project = kindgi.projects.get_default()
 
 waiting = kindgi.projects.judging_queue.list(project.id, for_me=True)
 print(waiting.total, len(waiting.data))
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/JudgingQueue.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.JudgingQueuePage;
+import com.kindgi.client.models.Project;
+import com.kindgi.client.resources.ProjectsJudgingQueueListParams;
+
+public final class JudgingQueue {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    Project project = kindgi.projects().getDefault();
+    JudgingQueuePage waiting = kindgi.projects().judgingQueue()
+        .list(project.id(), ProjectsJudgingQueueListParams.builder().forMe(true).build());
+    System.out.println(waiting.total() + " " + waiting.data().size());
+  }
+}
+```
+
+```text
+0 0
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/JudgingQueue.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.resources.ProjectsJudgingQueueListParams
+
+object JudgingQueue {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    val project = kindgi.projects().getDefault()
+    val waiting = kindgi.projects().judgingQueue()
+      .list(project.id, ProjectsJudgingQueueListParams.builder().forMe(true).build())
+    println(s"${waiting.total} ${waiting.data.size}")
+  }
+}
+```
+
+```text
+0 0
 ```
 
 </TabItem>

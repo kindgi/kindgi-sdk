@@ -354,9 +354,9 @@ async function runInitFresh(
   });
 
   // Copy @kindgi/sdk skills into the scaffolded pack's
-  // `.claude/skills/`. Claude Code auto-loads these based on their
-  // frontmatter `description` — no user action after init.
-  const skillsWritten = await copyClaudeSkills({
+  // `.claude/skills/` and `.agents/skills/`. Coding agents load these
+  // based on their frontmatter `description` — no user action after init.
+  const skillsWritten = await copySkills({
     skillsRoot,
     targetDir: args.targetDir,
     language: 'node',
@@ -536,7 +536,7 @@ async function runInitPython(
       ].join(', '),
     },
   });
-  const skillsWritten = await copyClaudeSkills({
+  const skillsWritten = await copySkills({
     skillsRoot,
     targetDir: args.targetDir,
     language: 'python',
@@ -609,7 +609,7 @@ async function runInitJava(
       KINDGI_CLI_VERSION: CLI_VERSION,
     },
   });
-  const skillsWritten = await copyClaudeSkills({
+  const skillsWritten = await copySkills({
     skillsRoot,
     targetDir: args.targetDir,
     language: 'java',
@@ -682,12 +682,12 @@ function runInitLanguageTemplate(
   }
 }
 
-/** build.sbt's resolver line for kindgi-pack from a checkout (the local Maven repository); none from Maven Central. */
+/** build.sbt's resolver line for kindgi-pack from a checkout (the local Maven repository, first); none from Maven Central. */
 function scalaTemplateResolver(source: KindgiJavaSource): string {
   const resolver = sbtLocalResolver(source);
   return resolver === undefined
     ? ''
-    : `\n    // kindgi-pack from the Kindgi checkout this pack was made from (./mvnw install).\n    ${resolver},`;
+    : `\n    // kindgi-pack from the Kindgi checkout this pack was made from (./mvnw install), before\n    // Maven Central: the checkout's version can be one already released there.\n    ${resolver},`;
 }
 
 /**
@@ -727,7 +727,7 @@ async function runInitScala(
     if (wrapper === 'kindgiw') await chmod(dest, 0o755);
     filesWritten.push(dest);
   }
-  for (const s of await copyClaudeSkills({
+  for (const s of await copySkills({
     skillsRoot,
     targetDir: args.targetDir,
     language: 'scala',
@@ -905,7 +905,7 @@ export function defaultTemplatesRoot(): string {
 
 /**
  * Absolute path to the bundled `@kindgi/sdk` skills the CLI copies
- * into the scaffolded pack's `.claude/skills/`. Two candidate
+ * into the scaffolded pack's skills folders. Two candidate
  * locations, checked in order:
  *
  *  1. `../sdk-skills/` relative to this file — the built form, where
@@ -928,14 +928,15 @@ export function defaultSdkSkillsRoot(): string | undefined {
 
 /**
  * Copy every `<skill-name>/SKILL.md` written for packs in `language`
- * from `skillsRoot` into `<targetDir>/.claude/skills/<skill-name>/SKILL.md`. Claude Code
- * auto-loads skills from `.claude/skills/` based on their
- * frontmatter `description` — no user action required after init.
+ * from `skillsRoot` into `<targetDir>/<folder>/<skill-name>/SKILL.md`, for each of
+ * `.claude/skills/` (Claude Code) and `.agents/skills/` (Codex, Gemini CLI and
+ * others). Coding agents load skills based on their frontmatter `description`
+ * — no user action required after init.
  *
  * Silently no-ops when `skillsRoot` is undefined (source-run CLI
  * without a build).
  */
-async function copyClaudeSkills(inputs: {
+async function copySkills(inputs: {
   readonly skillsRoot: string | undefined;
   readonly targetDir: string;
   readonly language: PackLanguage;
@@ -952,5 +953,5 @@ async function copyClaudeSkills(inputs: {
   });
   return report.outcomes
     .filter((o) => o.status === 'added' || o.status === 'updated')
-    .map((o) => join(inputs.targetDir, '.claude', 'skills', o.name, 'SKILL.md'));
+    .map((o) => join(inputs.targetDir, o.folder, o.name, 'SKILL.md'));
 }

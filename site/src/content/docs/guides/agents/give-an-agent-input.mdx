@@ -16,20 +16,48 @@ step's input instead.
 
 ## Before you start
 
-- **A pack on a runtime such as `kindgi dev`,** with Kindgi 0.1's CLI, and the
+- **A pack on a runtime such as `kindgi dev`,** with Kindgi 0.2's CLI, and the
   agents and tools from [Write an agent](../write-an-agent/).
 - **A registered model** for answers worth reading. Without one, `dev-echo`
   answers.
-- **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
-  Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or Java
+  17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
 
 ## A direct run
 
 A direct run gives the agent a message:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
+pnpm exec kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--agent` is the agent, and `--input` the turn's input, as JSON. It has these
 fields:
@@ -47,7 +75,9 @@ Without a `userMessage`, the run is refused:
 Error [invalid-request]: An agent run expects input { userMessage: string, conversationId?: string, participantId?: string, parameters?: { [name]: string | number | boolean } }.
 ```
 
-From your app, the same input goes in `runs.start`. This runs the
+From your app, the same input goes in `runs.start`. Ask your coding agent:
+"I want my app to run an agent with a customer's message, and print its
+answer." For reference, the code looks like this. It runs the
 `acme.reply-drafter` agent from the next section:
 
 <Tabs syncKey="lang">
@@ -91,6 +121,68 @@ print(run.output["response"]["content"])
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/Drafter.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.Run;
+import com.kindgi.client.models.StartRunBody;
+import java.util.Map;
+
+public final class Drafter {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    Run run = kindgi.runs().start(StartRunBody.WithAgent.builder()
+        .agent("acme.reply-drafter")
+        .input(Map.of(
+            "userMessage", "My parcel is a week late.",
+            "parameters", Map.of("tone", "formal", "signature", "Sam at Acme")))
+        .build());
+    if (!(run.output() instanceof Map<?, ?> output)) { // a run that didn't complete has no output
+      throw new IllegalStateException("Run " + run.id() + " ended " + run.status() + ": " + run.failureMessage());
+    }
+    System.out.println(((Map<?, ?>) output.get("response")).get("content"));
+  }
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/Drafter.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.StartRunBody
+import scala.jdk.CollectionConverters._
+
+object Drafter {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    val run = kindgi.runs().start(StartRunBody.WithAgent.builder()
+      .agent("acme.reply-drafter")
+      .input(Map[String, AnyRef](
+        "userMessage" -> "My parcel is a week late.",
+        "parameters" -> Map("tone" -> "formal", "signature" -> "Sam at Acme").asJava).asJava)
+      .build())
+    run.output match {
+      case output: java.util.Map[_, _] =>
+        val response = output.get("response").asInstanceOf[java.util.Map[_, _]]
+        println(response.get("content"))
+      case _ => // a run that didn't complete has no output
+        throw new IllegalStateException(s"Run ${run.id} ended ${run.status}: ${run.failureMessage}")
+    }
+  }
+}
+```
+
+</TabItem>
 </Tabs>
 
 Each prints the agent's answer. A run waits for the turn to end. To get the
@@ -101,7 +193,11 @@ it `completed`, with its `output`, once the turn ends.
 ## Parameters
 
 Parameters are your own variables in the agent's instructions. Declare each
-one, and the caller supplies the values.
+one, and the caller supplies the values. Ask your coding agent: "I want an
+agent that drafts replies to customers in the tone I ask for." Kindgi's
+skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+agent looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -157,6 +253,58 @@ reply_drafter = Agent(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/agents/ReplyDrafter.java
+package acme.agents;
+
+import com.kindgi.pack.Agent;
+import java.util.List;
+import java.util.Map;
+
+public final class ReplyDrafter {
+  public static final Agent AGENT = Agent.define("acme.reply-drafter")
+      .version("0.1.0")
+      .name("Reply drafter")
+      .instructions(String.join("\n",
+          "You draft short replies to Acme customers, in a {{ tone }} tone.",
+          "Sign every reply as {{ signature }}."))
+      .set("parameters", List.of(
+          Map.of("name", "tone", "type", "string", "description", "friendly, formal, …"),
+          Map.of("name", "signature", "type", "string", "default", "The Acme team")))
+      .capability(Map.of("needs", List.of()))
+      .build();
+
+  private ReplyDrafter() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/agents/ReplyDrafter.scala
+package acme.agents
+
+import com.kindgi.pack.scaladsl._
+
+object ReplyDrafter {
+  val agent: Agent = Agent("acme.reply-drafter")
+    .version("0.1.0")
+    .name("Reply drafter")
+    .instructions(Seq(
+      "You draft short replies to Acme customers, in a {{ tone }} tone.",
+      "Sign every reply as {{ signature }}.").mkString("\n"))
+    .set("parameters", Seq(
+      Map("name" -> "tone", "type" -> "string", "description" -> "friendly, formal, …"),
+      Map("name" -> "signature", "type" -> "string", "default" -> "The Acme team")))
+    .capability(Map("needs" -> Seq()))
+    .build()
+}
+```
+
+</TabItem>
 </Tabs>
 
 A parameter is `string`, `number`, `boolean` or `date`. Give it a `default`
@@ -166,9 +314,36 @@ instructions still name the variable, and rendering fails without a value.
 
 Run it with a `tone`:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme.reply-drafter --input='{"userMessage":"My parcel is a week late.","parameters":{"tone":"friendly"}}'
+pnpm exec kindgi runs start --agent=acme.reply-drafter --input='{"userMessage":"My parcel is a week late.","parameters":{"tone":"friendly"}}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme.reply-drafter --input='{"userMessage":"My parcel is a week late.","parameters":{"tone":"friendly"}}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme.reply-drafter --input='{"userMessage":"My parcel is a week late.","parameters":{"tone":"friendly"}}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme.reply-drafter --input='{"userMessage":"My parcel is a week late.","parameters":{"tone":"friendly"}}'
+```
+
+</TabItem>
+</Tabs>
 
 `parameters` in `--input` gives the parameters' values. It prints the run:
 
@@ -207,9 +382,11 @@ Error [model-invocation-failed]: Prompt render failed: Required parameter missin
 
 A flow runs an agent as a step: one turn, as a child run of the flow's run.
 The step's `inputMapping` builds the agent's input, and `config.parameters`
-fills its parameters. This flow looks an order up with `acme.lookup-order`,
-from [Write an agent](../write-an-agent/#the-tool-it-calls). Then it has an
-agent write the customer an update:
+fills its parameters. Ask your coding agent: "I want a flow that looks an
+order up, then has an agent write the customer an update about it." For
+reference, the flow looks like this. It looks the order up with
+`acme.lookup-order`, from [Write an agent](../write-an-agent/#the-tool-it-calls).
+Then it has an agent write the customer an update:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -288,12 +465,140 @@ notify_customer = Flow(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/flows/NotifyCustomer.java
+package acme.flows;
+
+import acme.agents.OrderUpdate;
+import acme.tools.LookupOrder;
+import com.kindgi.pack.Flow;
+import java.util.Map;
+
+public final class NotifyCustomer {
+  public static final Flow FLOW = Flow.define("acme.notify-customer")
+      .version("0.1.0")
+      .set("name", "Notify a customer")
+      .node(Map.of(
+          "id", "lookup",
+          "kind", "tool",
+          "ref", LookupOrder.TOOL,
+          "inputMapping", Map.of("orderId", Map.of("path", "runInput.orderId"))))
+      .node(Map.of(
+          "id", "update",
+          "kind", "agent",
+          "ref", OrderUpdate.AGENT,
+          "inputMapping", Map.of("order", Map.of("path", "nodeOutputs.lookup")),
+          "config", Map.of("parameters", Map.of("tone", "friendly"))))
+      .edge("e-start", "$start", "lookup")
+      .edge("e-update", "lookup", "update")
+      .edge("e-end", "update", "$end")
+      .set("output", Map.of("mapping", Map.of("update", Map.of("path", "nodeOutputs.update.text"))))
+      .build();
+
+  private NotifyCustomer() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/flows/NotifyCustomer.scala
+package acme.flows
+
+import acme.agents.OrderUpdate
+import acme.tools.LookupOrder
+import com.kindgi.pack.scaladsl._
+
+object NotifyCustomer {
+  val flow: Flow = Flow("acme.notify-customer")
+    .version("0.1.0")
+    .set("name", "Notify a customer")
+    .node(Map(
+      "id" -> "lookup",
+      "kind" -> "tool",
+      "ref" -> LookupOrder.tool,
+      "inputMapping" -> Map("orderId" -> Map("path" -> "runInput.orderId"))))
+    .node(Map(
+      "id" -> "update",
+      "kind" -> "agent",
+      "ref" -> OrderUpdate.agent,
+      "inputMapping" -> Map("order" -> Map("path" -> "nodeOutputs.lookup")),
+      "config" -> Map("parameters" -> Map("tone" -> "friendly"))))
+    .edge("e-start", "$start", "lookup")
+    .edge("e-update", "lookup", "update")
+    .edge("e-end", "update", "$end")
+    .set("output", Map("mapping" -> Map("update" -> Map("path" -> "nodeOutputs.update.text"))))
+    .build()
+}
+```
+
+</TabItem>
 </Tabs>
+
+{/* check-samples: stand-ins for the tool the Java and Scala flows above import, from Write an agent's Java and Scala tabs; the docs' sample check reads them, readers don't see them.
+
+```java
+// src/main/java/acme/tools/LookupOrder.java
+package acme.tools;
+
+import com.kindgi.pack.Tool;
+import java.util.Map;
+import org.jspecify.annotations.Nullable;
+
+public final class LookupOrder {
+  public record Input(String orderId) {}
+
+  public record Output(String orderId, String status, @Nullable String eta) {}
+
+  private static final Map<String, Output> ORDERS = Map.of(
+      "A-1001", new Output("A-1001", "shipped", "2026-10-06"),
+      "A-1002", new Output("A-1002", "processing", null));
+
+  public static final Tool<Input, Output> TOOL = Tool.define("acme.lookup-order")
+      .description("Looks up an order by its id (like A-1001): its status and expected delivery date.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      .mutating(false)
+      .handler((input, ctx) ->
+          ORDERS.getOrDefault(input.orderId(), new Output(input.orderId(), "not-found", null)));
+
+  private LookupOrder() {}
+}
+```
+
+```scala
+// src/main/scala/acme/tools/LookupOrder.scala
+package acme.tools
+
+import com.kindgi.pack.scaladsl._
+
+object LookupOrder {
+  final case class Input(orderId: String)
+  final case class Output(orderId: String, status: String, eta: Option[String])
+
+  private val orders = Map(
+    "A-1001" -> Output("A-1001", "shipped", Some("2026-10-06")),
+    "A-1002" -> Output("A-1002", "processing", None))
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme.lookup-order")
+    .description("Looks up an order by its id (like A-1001): its status and expected delivery date.")
+    .version("0.1.0")
+    .readOnly
+    .handler((in, _) => orders.getOrElse(in.orderId, Output(in.orderId, "not-found", None)))
+}
+```
+*/}
 
 The agent gets the step's input two ways:
 
 - as **`{{ input }}`** in its instructions, so it can use the fields;
 - as its **user message**: the input as JSON.
+
+For reference, the agent the flow runs looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -346,13 +651,90 @@ order_update = Agent(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acme/agents/OrderUpdate.java
+package acme.agents;
+
+import com.kindgi.pack.Agent;
+import java.util.List;
+import java.util.Map;
+
+public final class OrderUpdate {
+  public static final Agent AGENT = Agent.define("acme.order-update")
+      .version("0.1.0")
+      .name("Order update")
+      .instructions(String.join("\n",
+          "Write a two-sentence update for the customer about order {{ input.order.orderId }}.",
+          "Its status is {{ input.order.status }}{% if input.order.eta %}, expected on {{ input.order.eta }}{% endif %}.",
+          "Use a {{ tone }} tone."))
+      .set("parameters", List.of(Map.of("name", "tone", "type", "string")))
+      .capability(Map.of("needs", List.of()))
+      .build();
+
+  private OrderUpdate() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/agents/OrderUpdate.scala
+package acme.agents
+
+import com.kindgi.pack.scaladsl._
+
+object OrderUpdate {
+  val agent: Agent = Agent("acme.order-update")
+    .version("0.1.0")
+    .name("Order update")
+    .instructions(Seq(
+      "Write a two-sentence update for the customer about order {{ input.order.orderId }}.",
+      "Its status is {{ input.order.status }}{% if input.order.eta %}, expected on {{ input.order.eta }}{% endif %}.",
+      "Use a {{ tone }} tone.").mkString("\n"))
+    .set("parameters", Seq(Map("name" -> "tone", "type" -> "string")))
+    .capability(Map("needs" -> Seq()))
+    .build()
+}
+```
+
+</TabItem>
 </Tabs>
 
 Run the flow:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
+pnpm exec kindgi runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.notify-customer --input='{"orderId":"A-1001"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--flow` is the flow, and `--input` its input. It prints the run, with the
 agent's update as the flow's output:

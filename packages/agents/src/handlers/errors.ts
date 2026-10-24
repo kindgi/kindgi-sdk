@@ -31,7 +31,8 @@ export type InvokeAgentError =
   | TenantPolicyUnavailableError
   | RunSnapshotError
   | SemanticUnavailableError
-  | ApprovalsPendingLimitError;
+  | ApprovalsPendingLimitError
+  | TurnMemoryLimitReachedError;
 
 /**
  * A gate asked for an approval past the tenant's limit on approvals waiting
@@ -66,6 +67,23 @@ export function approvalsPendingLimitOf(cause: unknown): ApprovalsPendingLimitEr
 }
 
 /**
+ * The turn holds more memory than the runtime's limit leaves it (a
+ * runtime's limit on turn memory, charged by size before each model call;
+ * Kindgi Cloud sets one). `limit` names which: the tenant's share, or the
+ * runtime's whole. Retried later, or with a smaller conversation, it can go
+ * through.
+ */
+export interface TurnMemoryLimitReachedError {
+  readonly code: 'turn-memory-limit-reached';
+  readonly message: string;
+  readonly limit: 'tenant' | 'server';
+  /** What that limit's turns hold now, in bytes. */
+  readonly heldBytes: number;
+  /** The limit, in bytes. */
+  readonly limitBytes: number;
+}
+
+/**
  * A retrieval intent searches by meaning (`mode: 'semantic'`) and the
  * runtime has no embeddings. The turn fails rather than retrieve nothing
  * without a word; the operator turns embeddings on
@@ -93,7 +111,8 @@ export interface RunSnapshotError {
 /**
  * A tenant policy the turn must apply couldn't be: its spec doesn't
  * validate, or the policy registry failed. The turn doesn't run without
- * it — skipping a tenant's `hitl` policy would skip its approvals.
+ * it: skipping a tenant's `hitl` policy would skip its approvals, and its
+ * `model-routing` or `tool-errors` policy, its limits.
  */
 export interface TenantPolicyUnavailableError {
   readonly code: 'tenant-policy-unavailable';

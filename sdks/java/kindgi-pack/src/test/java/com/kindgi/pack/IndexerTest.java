@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.kindgi.pack.internal.CanonicalJson;
 import com.kindgi.pack.internal.Json;
+import com.kindgi.pack.internal.Specs;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -42,16 +43,16 @@ class IndexerTest {
     Map<String, Object> report = value(index("good"));
     assertThat(report.get("fileErrors")).isEqualTo(List.of());
     assertThat(report.get("warnings")).isEqualTo(List.of());
-    assertThat(report.get("counts")).isEqualTo(Map.of("tools", 2, "guardrails", 1, "agents", 1, "flows", 1));
+    assertThat(report.get("counts")).isEqualTo(Map.of("tools", 3, "guardrails", 1, "agents", 1, "flows", 1));
     String text = Files.readString(out.resolve("good.json"), StandardCharsets.UTF_8);
     Map<String, Object> index = (Map<String, Object>) Json.parse(text.getBytes(StandardCharsets.UTF_8));
     assertThat(text).isEqualTo(CanonicalJson.stable(index) + "\n");
     assertThat(index.get("env")).isEqualTo(Map.of("required", List.of("DATABASE_URL"), "optional", List.of("SENTRY_DSN")));
 
     List<Map<String, Object>> tools = (List<Map<String, Object>>) index.get("tools");
-    // Two versions of one tool, side by side; the re-exported one isn't this pack's.
-    assertThat(tools).extracting(t -> t.get("id") + "@" + t.get("version")).containsExactly("acme.greet@1.0.0", "acme.greet@2.0.0");
-    assertThat(tools.get(0)).containsEntry("mutating", false)
+    // Two versions of one tool, side by side, and a third tool; the re-exported one isn't this pack's.
+    assertThat(tools).extracting(t -> t.get("id") + "@" + t.get("version")).containsExactly("acme.greet@1.0.0", "acme.greet@2.0.0", "acme.refund@1.0.0");
+    assertThat(tools.get(0)).containsEntry("mutating", false).containsEntry("needsApprovalWhenUnattended", false)
         .containsEntry("modulePath", "src/main/java/com/kindgi/pack/testpacks/good/tools/Greet.java")
         .containsEntry("input", Map.of("type", "object", "additionalProperties", false,
             "properties", Map.of("name", Map.of("type", "string")), "required", List.of("name")));
@@ -59,6 +60,9 @@ class IndexerTest {
     assertThat(tools.get(1).get("needsSpec")).isEqualTo(Map.of("secrets", Map.of(
         "GREETINGS_KEY", Map.of("type", "string"),
         "TRANSLATE_KEY", Map.of("type", List.of("string", "null")))));
+    // A tool that says nothing about either carries neither: it may change something, and it needs no approval.
+    assertThat(tools.get(1)).doesNotContainKeys("mutating", "needsApprovalWhenUnattended");
+    assertThat(tools.get(2)).containsEntry("mutating", true).containsEntry("needsApprovalWhenUnattended", true);
 
     Map<String, Object> guardrail = ((List<Map<String, Object>>) index.get("guardrails")).get(0);
     assertThat(guardrail).containsEntry("checkId", "acme.checks.not-empty").containsEntry("kind", "zero-llm")
@@ -88,6 +92,34 @@ class IndexerTest {
     byte[] first = Files.readAllBytes(out.resolve("good.json"));
     value(index("good"));
     assertThat(Files.readAllBytes(out.resolve("good.json"))).isEqualTo(first);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void aDeclarativeHttpToolIndexesItsSpecIntoAValidIndex() throws Exception {
+    // A tool built with .http() has no handler of its own; the indexer reads it like any tool and
+    // carries its spec, and the index still satisfies the pack-index schema every SDK produces.
+    Map<String, Object> report = value(index("http"));
+    assertThat(report.get("fileErrors")).isEqualTo(List.of());
+    assertThat(report.get("counts")).isEqualTo(Map.of("tools", 1, "guardrails", 0, "agents", 0, "flows", 0));
+
+    String text = Files.readString(out.resolve("http.json"), StandardCharsets.UTF_8);
+    Map<String, Object> index = (Map<String, Object>) Json.parse(text.getBytes(StandardCharsets.UTF_8));
+    List<Map<String, Object>> tools = (List<Map<String, Object>>) index.get("tools");
+    assertThat(tools).singleElement().satisfies(t -> {
+      assertThat(t).containsEntry("id", "acme.lookup").containsEntry("mutating", false)
+          .containsEntry("modulePath", "src/main/java/com/kindgi/pack/testpacks/httptool/tools/Lookup.java");
+      assertThat((Map<String, Object>) t.get("spec"))
+          .containsEntry("kind", "http")
+          .containsEntry("method", "GET")
+          .containsEntry("urlTemplate", "https://cases.example.com/{court}/{docket}")
+          .containsEntry("authorization", Map.of("kind", "bearer",
+              "secretRef", Map.of("envName", "production", "name", "ACME_TOKEN")))
+          .containsEntry("successStatus", Map.of("min", 200, "max", 299));
+    });
+
+    List<Map<String, Object>> issues = Specs.validator("pack-index").issues(index);
+    assertThat(issues).as(String.valueOf(issues)).isEmpty();
   }
 
   @Test
@@ -133,6 +165,9 @@ class IndexerTest {
     assertThat(errors.get("Unknown.java")).startsWith("manifest-validation-failed: ").contains("tool 'acme.unknown' is invalid at /")
         .contains("('colour')");
     assertThat(errors.get("BadFlow.java")).contains("flow 'acme.bad-flow' is invalid at /nodes/0/kind: must be one of ");
+    assertThat(errors.get("Lingers.java")).isEqualTo("manifest-validation-failed: src/main/java/com/kindgi/pack/testpacks/bad/agents/Lingers.java: "
+        + "agent 'acme.lingers' is invalid at "
+        + "/conversationPolicy/autoCloseAfterInactiveSeconds: must NOT be valid");
     assertThat(errors).doesNotContainKey("Dup.java");
     assertThat(report.get("counts")).isEqualTo(Map.of("tools", 1, "guardrails", 0, "agents", 0, "flows", 0));
     Map<String, Object> boom = ((List<Map<String, Object>>) report.get("fileErrors")).stream()

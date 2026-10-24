@@ -23,8 +23,10 @@ import {
   KINDGI_ACCESS_ORIGIN,
   RENEW_PATH,
   RENEW_SIGNATURE_HEADER,
+  type RenewalUsage,
   type RenewerKey,
   decodeRenewerPrivateKey,
+  readRenewalUsage,
   signRenewRequest,
 } from './protocol.js';
 import type { SecretStore } from './stores.js';
@@ -49,21 +51,34 @@ export interface RenewInput {
   readonly renewer: SecretStore;
   /** access.kindgi.com, or another instance's origin. */
   readonly origin?: string;
+  /**
+   * The deployment's use since the current key was issued, from its
+   * runtime (`--runtime`): sent with the request. Without it, none is sent.
+   */
+  readonly usage?: (since: Date) => Promise<RenewalUsage>;
 }
+
+/** What the request said about the deployment's use: sent, or why not. */
+export type CountsSent =
+  | { readonly sent: true; readonly usage: RenewalUsage }
+  | { readonly sent: false; readonly reason: string };
 
 export type RenewOutcome =
   | {
       readonly kind: 'renewed' | 'unchanged';
       readonly claims: LicenseClaims;
       readonly renewerId: string;
+      /** With a runtime to ask (`usage`): the counts sent, or why none were. */
+      readonly counts?: CountsSent;
     }
-  /** The service said no: its code and message (`renewer-stopped`, `key-revoked`, …). */
+  /** The service said no: its code and message (`renewer-stopped`, `key-revoked`, `held-for-review`, …). */
   | {
       readonly kind: 'refused';
       readonly status: number;
       readonly error: string;
       readonly message: string;
       readonly renewerId?: string;
+      readonly counts?: CountsSent;
     }
   /** Nothing to renew with, nothing usable came back, or the service couldn't be reached. */
   | { readonly kind: 'failed'; readonly message: string; readonly renewerId?: string };
@@ -75,9 +90,15 @@ export async function renewLicense(input: RenewInput, deps: RenewDeps = {}): Pro
   if (held.kind === 'failed') return held;
   const { renewerId } = held.renewer;
 
+  // The counts are the period's since the current key was issued; a runtime
+  // that can't say renews without them (the service records that), never
+  // not at all.
+  const counts =
+    input.usage === undefined ? undefined : await countUsage(input.usage, held.current);
   const request = signRenewRequest(held.renewer, {
     origin,
     now: Math.floor((deps.now ?? Date.now)() / 1000),
+    ...(counts?.sent === true && { usage: counts.usage }),
   });
   const asked = await ask(origin, request, deps);
   if (asked.kind === 'unreachable') {
@@ -105,6 +126,7 @@ export async function renewLicense(input: RenewInput, deps: RenewDeps = {}): Pro
       message:
         typeof body.message === 'string' ? body.message : `${origin} answered ${res.status}.`,
       renewerId,
+      ...(counts !== undefined && { counts }),
     };
   }
 
@@ -118,9 +140,38 @@ export async function renewLicense(input: RenewInput, deps: RenewDeps = {}): Pro
       message: `The key ${origin} sent wasn't written: ${problem}. The key in ${input.key.describe} is unchanged.`,
     };
   }
-  if (answer === held.currentKey) return { kind: 'unchanged', claims: renewed.claims, renewerId };
+  const sent = counts === undefined ? {} : { counts };
+  if (answer === held.currentKey) {
+    return { kind: 'unchanged', claims: renewed.claims, renewerId, ...sent };
+  }
   await input.key.write(answer);
-  return { kind: 'renewed', claims: renewed.claims, renewerId };
+  return { kind: 'renewed', claims: renewed.claims, renewerId, ...sent };
+}
+
+/**
+ * The deployment's use since the current key was issued, or why it wasn't
+ * had: a production key's renewal carries none (counts are for free keys),
+ * and the runtime is asked only for a free one.
+ */
+async function countUsage(
+  usage: (since: Date) => Promise<RenewalUsage>,
+  current: LicenseClaims,
+): Promise<CountsSent> {
+  if (current.use === 'production') {
+    // The Azure module's counts alert leaves out this reason by its text:
+    // keep it.
+    return { sent: false, reason: "a production key's renewal carries no counts" };
+  }
+  let answer: unknown;
+  try {
+    answer = await usage(current.issuedAt);
+  } catch (cause) {
+    return { sent: false, reason: cause instanceof Error ? cause.message : String(cause) };
+  }
+  const counts = readRenewalUsage(answer);
+  return counts === undefined
+    ? { sent: false, reason: "the runtime's answer isn't counts" }
+    : { sent: true, usage: counts };
 }
 
 /** The current key (checked) and the renewer's key, or what's missing. */

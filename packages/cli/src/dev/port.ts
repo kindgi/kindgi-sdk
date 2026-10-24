@@ -10,6 +10,7 @@
 
 import { connect, createServer } from 'node:net';
 
+import { LocalPortsRefused, listenRefusal } from './blocked.js';
 import {
   type DockerRunner,
   docker,
@@ -28,7 +29,8 @@ export const PORT_SEARCH_SPAN = 100;
 /**
  * Whether something holds `port` on `127.0.0.1`: it accepts a connection
  * (a listener on any address, Docker's published ports included), or the
- * port can't be bound.
+ * port can't be bound. Rejects with `LocalPortsRefused` when no port can
+ * be (`listen EPERM`, a sandbox's): every one would read as taken.
  */
 export async function portInUse(port: number): Promise<boolean> {
   return (await accepts(port)) || !(await canListen(port));
@@ -48,9 +50,13 @@ function accepts(port: number, timeoutMs = 300): Promise<boolean> {
 }
 
 function canListen(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const server = createServer();
-    server.once('error', () => resolve(false));
+    server.once('error', (err) => {
+      const refused = listenRefusal(err, port);
+      if (refused === undefined) resolve(false);
+      else reject(new LocalPortsRefused(port, refused));
+    });
     server.listen({ host: HOST, port, exclusive: true }, () => {
       server.close(() => resolve(true));
     });

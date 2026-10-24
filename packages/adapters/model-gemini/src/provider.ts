@@ -21,6 +21,7 @@ import type {
 } from '@kindgi/capabilities';
 import { adapterConfigError, samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
+import { createClientsByKey } from '@kindgi/capabilities/clients-by-key';
 import { headerValueProblem } from '@kindgi/types';
 
 import { type GeminiModelInfo, computeCostUsd, toFrameworkUsage } from './cost.js';
@@ -70,6 +71,32 @@ export interface GeminiProviderOptions {
 const CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 
 /**
+ * The Gemini Developer API host. Given explicitly in `httpOptions.baseUrl` so
+ * the adapter takes its host from configuration, not from `GOOGLE_GEMINI_BASE_URL`
+ * in the server's environment: left unset, `@google/genai` reads that variable
+ * (its `getBaseUrl`).
+ */
+const GEMINI_DEVELOPER_BASE_URL = 'https://generativelanguage.googleapis.com/';
+
+/** The SDK's multi-regional Vertex locations: each has its own host. */
+const VERTEX_MULTI_REGIONAL = new Set(['us', 'eu']);
+
+/**
+ * The Vertex AI host for a location, given explicitly in `httpOptions.baseUrl`
+ * so the adapter takes its host from configuration, not from `GOOGLE_VERTEX_BASE_URL`
+ * in the server's environment (left unset, `@google/genai` reads that variable).
+ * Mirrors the SDK's own construction: `global` and the multi-regional locations
+ * each get a dedicated host, every other location a regional one.
+ */
+export function vertexBaseUrl(location: string): string {
+  if (location === 'global') return 'https://aiplatform.googleapis.com/';
+  if (VERTEX_MULTI_REGIONAL.has(location)) {
+    return `https://aiplatform.${location}.rep.googleapis.com/`;
+  }
+  return `https://${location}-aiplatform.googleapis.com/`;
+}
+
+/**
  * The SDK retries a call only when it's given `retryOptions`: three
  * attempts on a transient status (408, 429, 500, 502, 503, 504), backing
  * off from a second, with jitter, the OpenAI and Anthropic SDKs' default
@@ -90,9 +117,12 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
     metadata.models.map((m) => [m.name, m] as const),
   );
 
-  // One client per credential: reused while the resolved key stays the
-  // same, rebuilt when it rotates. `''` stands for ADC.
-  let cached: { readonly key: string; readonly client: GeminiClient } | undefined;
+  // One client per credential, reused while it resolves to that one: calls
+  // whose keys take turns (a run in each of two projects with keys of their
+  // own) each reuse their own; a rotated key builds a new one. On Vertex AI
+  // a client holds its own auth client and the token it fetched, so a client
+  // built again fetches a token again. `''` stands for ADC.
+  const clients = createClientsByKey<GeminiClient>();
   // Counts each call's HTTP attempts, through the `fetch` the client sends with.
   const attempts = createAttemptCounter();
   async function resolveClient(): Promise<GeminiClient> {
@@ -112,34 +142,46 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
           `${GEMINI_ADAPTER_ID}: provider "${metadata.id}": its API key has ${problem}, which a header can't carry: store the secret without it`,
         );
       }
-      if (cached?.key === key) return cached.client;
-      const client = new GoogleGenAI({
-        apiKey: key,
-        // Given, so GOOGLE_GENAI_USE_VERTEXAI / _ENTERPRISE in the server's environment can't
-        // move a Developer API provider to Vertex AI (the server's project and credentials).
-        vertexai: false,
-        httpOptions: { fetch: attempts.fetch, retryOptions: { attempts: RETRY_ATTEMPTS } },
-      });
-      cached = { key, client };
-      return client;
+      return clients.get(
+        key,
+        () =>
+          new GoogleGenAI({
+            apiKey: key,
+            // Given, so GOOGLE_GENAI_USE_VERTEXAI / _ENTERPRISE in the server's environment can't
+            // move a Developer API provider to Vertex AI (the server's project and credentials).
+            vertexai: false,
+            httpOptions: {
+              // Given, so GOOGLE_GEMINI_BASE_URL in the server's environment can't move the call.
+              baseUrl: GEMINI_DEVELOPER_BASE_URL,
+              fetch: attempts.fetch,
+              retryOptions: { attempts: RETRY_ATTEMPTS },
+            },
+          }),
+      );
     }
     const vertex = options.vertex as NonNullable<GeminiProviderOptions['vertex']>;
     const key = options.credentials !== undefined ? await options.credentials() : '';
-    if (cached?.key === key) return cached.client;
-    const client = new GoogleGenAI({
-      vertexai: true,
-      project: vertex.project,
-      location: vertex.location,
-      httpOptions: { fetch: attempts.fetch, retryOptions: { attempts: RETRY_ATTEMPTS } },
-      ...(key !== '' && {
-        googleAuthOptions: {
-          credentials: parseServiceAccountKey(key),
-          scopes: [CLOUD_PLATFORM_SCOPE],
-        },
-      }),
-    });
-    cached = { key, client };
-    return client;
+    return clients.get(
+      key,
+      () =>
+        new GoogleGenAI({
+          vertexai: true,
+          project: vertex.project,
+          location: vertex.location,
+          httpOptions: {
+            // Given, so GOOGLE_VERTEX_BASE_URL in the server's environment can't move the call.
+            baseUrl: vertexBaseUrl(vertex.location),
+            fetch: attempts.fetch,
+            retryOptions: { attempts: RETRY_ATTEMPTS },
+          },
+          ...(key !== '' && {
+            googleAuthOptions: {
+              credentials: parseServiceAccountKey(key),
+              scopes: [CLOUD_PLATFORM_SCOPE],
+            },
+          }),
+        }),
+    );
   }
 
   return {
@@ -403,10 +445,10 @@ function checkTarget(providerId: string, options: GeminiProviderOptions): void {
 }
 
 /**
- * The SDK puts the project in the request path and builds the hostname
- * from the location (`https://<location>-aiplatform.googleapis.com/`):
- * anything but a project id and one DNS label could move the request,
- * with the server's credentials, to another host.
+ * The project goes in the request path and the location into the host that
+ * `vertexBaseUrl` builds, so each is held to one safe shape before it reaches
+ * a request URL: the project a Google Cloud project id or number, the location
+ * a single DNS label.
  */
 function vertexTargetProblemsOf(
   vertex: NonNullable<GeminiProviderOptions['vertex']>,

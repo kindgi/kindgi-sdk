@@ -45,7 +45,8 @@ const ALLOWED_POSTS: readonly RegExp[] = [
   /\/revoke-sessions$/,
 ];
 
-const DEFAULT_CACHE_MS = 5_000;
+/** How long a tenant's state is kept between reads: a change of state takes effect within it. */
+export const TENANT_STATE_CACHE_MS = 5_000;
 const RETRY_AFTER_S = 5;
 
 /**
@@ -56,11 +57,10 @@ const RETRY_AFTER_S = 5;
  *
  * The state is asked of `states` for every principal of a tenant, whatever
  * way it authenticated (a key, a session, SigV4), so a new way in can't skip
- * it. It's cached per tenant for `cacheMs`, so a change of state takes effect
- * within that. A failed lookup refuses the write (`503
- * tenant-state-unavailable`): it fails closed. A system principal is fenced
- * elsewhere. Without `states` (a runtime serving one tenant) nothing is
- * frozen.
+ * it. A system principal is fenced elsewhere. Without `states` (a runtime
+ * serving one tenant) nothing is frozen. The state is read with
+ * {@link tenantStateReader} and answered with {@link frozenTenantRefusal},
+ * which the webhook receiver uses too.
  *
  * On the S3-compatible surface (`surface: 's3'`) it answers in S3's terms,
  * which S3 clients parse: `403 AllAccessDisabled` for a frozen tenant, and
@@ -70,19 +70,9 @@ export function tenantStateGate(
   states: TenantStateBinding | undefined,
   options: { readonly cacheMs?: number; readonly surface?: 'api' | 's3' } = {},
 ): MiddlewareHandler<AppEnv> {
-  const cacheMs = options.cacheMs ?? DEFAULT_CACHE_MS;
-  const s3 = options.surface === 's3';
-  const cache = new Map<string, { readonly state: string | undefined; readonly at: number }>();
-  const stateOf = async (lookup: TenantStateBinding, tenantId: TenantId) => {
-    const key = tenantId as unknown as string;
-    const hit = cache.get(key);
-    if (hit !== undefined && Date.now() - hit.at < cacheMs) return hit.state;
-    const state = await lookup.of(tenantId);
-    cache.set(key, { state, at: Date.now() });
-    return state;
-  };
+  const stateOf = states === undefined ? undefined : tenantStateReader(states, options.cacheMs);
   return async (c, next) => {
-    if (states === undefined || c.get('systemPrincipal') !== undefined) return next();
+    if (stateOf === undefined || c.get('systemPrincipal') !== undefined) return next();
     const tenantId = c.get('tenantId');
     if (tenantId === undefined) return next();
     const method = c.req.method;
@@ -92,30 +82,75 @@ export function tenantStateGate(
     ) {
       return next();
     }
+    const state = await stateOf(c, tenantId);
+    return state === 'active' ? next() : frozenTenantRefusal(c, state, options.surface);
+  };
+}
+
+/** A tenant's state for a write: `active`, frozen, or `unreadable` when its lookup failed. */
+export type TenantWriteState = 'active' | 'closing' | 'suspended' | 'unreadable';
+
+/**
+ * Reads a tenant's state for a write. It's cached per tenant for `cacheMs`
+ * ({@link TENANT_STATE_CACHE_MS}), so a change of state takes effect within
+ * that. A failed lookup is logged and read as `unreadable`, which every
+ * caller refuses: it fails closed.
+ */
+export function tenantStateReader(
+  states: TenantStateBinding,
+  cacheMs: number = TENANT_STATE_CACHE_MS,
+): (c: Context<AppEnv>, tenantId: TenantId) => Promise<TenantWriteState> {
+  const cache = new Map<string, { readonly state: string | undefined; readonly at: number }>();
+  const stateOf = async (tenantId: TenantId) => {
+    const key = tenantId as unknown as string;
+    const hit = cache.get(key);
+    if (hit !== undefined && Date.now() - hit.at < cacheMs) return hit.state;
+    const state = await states.of(tenantId);
+    cache.set(key, { state, at: Date.now() });
+    return state;
+  };
+  return async (c, tenantId) => {
     let state: string | undefined;
     try {
-      state = await stateOf(states, tenantId);
+      state = await stateOf(tenantId);
     } catch (cause) {
       c.get('log').error("could not read the tenant's state; the write is refused", {
         err: cause,
         tenantId,
       });
-      c.header('Retry-After', String(RETRY_AFTER_S));
-      const message =
-        "This workspace's state can't be read just now, so nothing was changed: try again.";
-      return s3
-        ? s3Answer(c, 'ServiceUnavailable', message, 503)
-        : answer(c, 'tenant-state-unavailable', message);
+      return 'unreadable';
     }
-    if (state !== 'closing' && state !== 'suspended') return next();
-    const message =
-      state === 'closing'
-        ? 'This workspace is closing: it can be read and exported until it is deleted, and nothing in it changes.'
-        : 'This workspace is suspended: it can be read and exported, and nothing in it changes until it is restored.';
-    return s3
-      ? s3Answer(c, 'AllAccessDisabled', message, 403)
-      : answer(c, `tenant-${state}`, message, { state });
+    return state === 'closing' || state === 'suspended' ? state : 'active';
   };
+}
+
+/**
+ * What a frozen tenant's write is answered: `409 tenant-closing` or `409
+ * tenant-suspended` (`details.state`), or `503 tenant-state-unavailable`
+ * with `Retry-After` when its state can't be read. On the S3-compatible
+ * surface, `403 AllAccessDisabled` and `503 ServiceUnavailable`.
+ */
+export function frozenTenantRefusal(
+  c: Context<AppEnv>,
+  state: Exclude<TenantWriteState, 'active'>,
+  surface: 'api' | 's3' = 'api',
+): Response {
+  const s3 = surface === 's3';
+  if (state === 'unreadable') {
+    c.header('Retry-After', String(RETRY_AFTER_S));
+    const message =
+      "This workspace's state can't be read just now, so nothing was changed: try again.";
+    return s3
+      ? s3Answer(c, 'ServiceUnavailable', message, 503)
+      : answer(c, 'tenant-state-unavailable', message);
+  }
+  const message =
+    state === 'closing'
+      ? 'This workspace is closing: it can be read and exported until it is deleted, and nothing in it changes but deletes, revocations and erasures.'
+      : 'This workspace is suspended: it can be read and exported, and nothing in it changes but deletes, revocations and erasures until it is restored.';
+  return s3
+    ? s3Answer(c, 'AllAccessDisabled', message, 403)
+    : answer(c, `tenant-${state}`, message, { state });
 }
 
 function s3Answer(c: Context<AppEnv>, code: string, message: string, status: 403 | 503): Response {

@@ -102,3 +102,75 @@ function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
     signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
+
+// ---------------------------------------------------------------------------
+// Classifying a connection failure, for an adapter's `describe`. Library-free:
+// it reads an error and its causes, not any one engine's error types, so every
+// adapter shares one classifier (the AI SDK's and the OpenAI SDK's alike).
+
+/**
+ * The codes of a failed connection, as Node (`ECONNRESET`), undici (`UND_ERR_SOCKET`) and Bun
+ * (`ConnectionRefused`) set them on an error or its causes: the AI SDK's list, plus DNS.
+ */
+const TRANSPORT_CODES = new Set([
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ECONNABORTED',
+  'ETIMEDOUT',
+  'EPIPE',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'UND_ERR_SOCKET',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'ConnectionRefused',
+  'ConnectionClosed',
+  'FailedToOpenSocket',
+]);
+
+/** A failed connection: `fetch failed`, or a transport code on the error or one of its causes. */
+export function isTransport(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  for (let e = error; e instanceof Error && !seen.has(e); e = e.cause) {
+    seen.add(e);
+    const code = (e as { code?: unknown }).code;
+    if (typeof code === 'string' && TRANSPORT_CODES.has(code)) return true;
+    if (e instanceof TypeError && /^(fetch failed|failed to fetch)$/i.test(e.message)) return true;
+  }
+  return false;
+}
+
+/**
+ * A connection refused by policy, the same every time it's tried: a redirect the request won't
+ * follow (its credential goes to the endpoint only), or a host refused before any connection, by
+ * a system-style code that isn't a dropped connection's (the runtime's egress and body-size rules:
+ * `EKINDGIEGRESS`, `EKINDGIBODY`). Its kind and words, when it's one.
+ */
+export function refusedConnection(
+  error: unknown,
+): { readonly kind: 'unavailable' | 'network'; readonly words: string } | undefined {
+  const seen = new Set<unknown>();
+  for (let e = error; e instanceof Error && !seen.has(e); e = e.cause) {
+    seen.add(e);
+    if (/^unexpected redirect$/i.test(e.message)) {
+      return {
+        kind: 'unavailable',
+        words:
+          "the endpoint answered with a redirect, which isn't followed: a request's credential goes to its endpoint only. Check the endpoint.",
+      };
+    }
+    const code = (e as { code?: unknown }).code;
+    if (
+      typeof code === 'string' &&
+      /^E[A-Z0-9_]+$/.test(code) &&
+      !code.startsWith('ERR_') &&
+      !TRANSPORT_CODES.has(code)
+    ) {
+      return { kind: 'network', words: e.message };
+    }
+  }
+  return undefined;
+}

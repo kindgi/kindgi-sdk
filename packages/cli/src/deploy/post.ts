@@ -20,20 +20,35 @@
  *     actual HTTP POST via the caller-supplied `fetchImpl`, parses the
  *     server's response, discriminates 201 / 200 / 4xx / 5xx. A refusal
  *     carries its `Retry-After` and the limit a `429` names, for the
- *     command to wait out (`rate-limit-wait.ts`).
+ *     command to wait out (`rate-limit-wait.ts`), and the position a
+ *     `409 environment-takes-promotions` names, for its hint.
+ *
+ *   - `listProjectsReal` / `findProjectsReal` / `listEnvironmentOrdersReal`
+ *     — the reads `--project <slug>` and that hint make, every page.
  */
 
 import { createHash } from 'node:crypto';
 
 import { stableStringify } from '../build/envelope.js';
 import type { DeployEnvelope } from '../build/envelope.js';
+import type { ServedEnv } from '../value-target.js';
 import type {
   DeploymentRecord,
+  EnvironmentOrderRow,
   FindProjectsOptions,
   FindProjectsResult,
+  GetDeploymentOptions,
+  GetDeploymentResult,
+  GetPackEnvResult,
+  ListEnvironmentOrdersResult,
+  ListOptions,
+  ListProjectsResult,
+  PackEnvRecord,
   PostDeploymentBody,
   PostDeploymentOptions,
   PostDeploymentResult,
+  ProjectRow,
+  ServedEnvOptions,
   SyncSecretsBody,
   SyncSecretsOptions,
   SyncSecretsResult,
@@ -150,13 +165,27 @@ export async function postDeploymentReal(
   }
 
   // 4xx / 5xx — the api-server wraps errors in `{ error: { code,
-  // message, ...details } }` via `toWireError` in
+  // message, details? } }` via `toWireError` in
   // `packages/api/src/errors.ts`.
   const wire = body as { error?: { code?: string; message?: string; details?: unknown } } | null;
   const code = wire?.error?.code ?? `http-${res.status}`;
   const message = wire?.error?.message ?? `HTTP ${res.status}`;
-  const details = extractDetails(wire?.error);
-  const limit = (wire?.error?.details as { readonly limit?: unknown } | undefined)?.limit;
+  const wireDetails = wire?.error?.details as
+    | {
+        readonly issues?: unknown;
+        readonly limit?: unknown;
+        readonly cause?: unknown;
+        readonly position?: unknown;
+        readonly firstProjectId?: unknown;
+      }
+    | undefined;
+  const details = Array.isArray(wireDetails?.issues)
+    ? (wireDetails.issues as readonly Record<string, unknown>[])
+    : undefined;
+  const limit = wireDetails?.limit;
+  const cause = wireDetails?.cause;
+  const position = wireDetails?.position;
+  const firstProjectId = wireDetails?.firstProjectId;
   const retryAfter = res.headers.get('retry-after')?.trim();
   return {
     kind: 'wire-error',
@@ -170,19 +199,12 @@ export async function postDeploymentReal(
       message,
       ...(details !== undefined && { details }),
       ...(typeof limit === 'string' && { limit }),
+      ...(typeof cause === 'string' && { cause }),
+      ...(Number.isSafeInteger(position) &&
+        (position as number) >= 0 && { position: position as number }),
+      ...(typeof firstProjectId === 'string' && firstProjectId !== '' && { firstProjectId }),
     },
   };
-}
-
-function extractDetails(
-  err: { [k: string]: unknown } | undefined,
-): readonly Record<string, unknown>[] | undefined {
-  if (err === undefined) return undefined;
-  const issues = (err as { issues?: unknown }).issues;
-  if (Array.isArray(issues)) {
-    return issues as readonly Record<string, unknown>[];
-  }
-  return undefined;
 }
 
 /**
@@ -258,61 +280,215 @@ export async function syncSecretsReal(opts: SyncSecretsOptions): Promise<SyncSec
   };
 }
 
-/** The most a page of `GET /v1/projects` holds. */
-const PROJECTS_PAGE_LIMIT = 100;
+/**
+ * whoami's `servedEnv`: the env the runtime serves, and whether it refuses
+ * values under any other. `undefined` when it names none (a runtime that
+ * serves no env, or an older one), or on any failure: the runtime still
+ * refuses the sync itself.
+ */
+export async function servedEnvReal(opts: ServedEnvOptions): Promise<ServedEnv | undefined> {
+  try {
+    const res = await opts.fetchImpl(`${opts.endpoint.replace(/\/+$/, '')}/v1/identity/whoami`, {
+      headers: { Authorization: `Bearer ${opts.token}` },
+      ...(opts.signal !== undefined && { signal: opts.signal }),
+    });
+    if (!res.ok) return undefined;
+    const served = (
+      (await res.json()) as { servedEnv?: { envName?: unknown; refusesOtherEnvs?: unknown } }
+    ).servedEnv;
+    return typeof served?.envName === 'string' && typeof served.refusesOtherEnvs === 'boolean'
+      ? { envName: served.envName, refusesOtherEnvs: served.refusesOtherEnvs }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The most a page of a list holds. */
+const PAGE_LIMIT = 100;
 
 /**
- * Every project of the tenant whose slug is `opts.slug`, read page by page
- * from `GET /v1/projects` (it has no slug filter). The token's own rights
- * decide what it lists.
+ * Every row of a tenant list (`GET /v1/projects`, say), read page by page.
+ * The token's own rights decide what it lists.
  */
-export async function findProjectsReal(opts: FindProjectsOptions): Promise<FindProjectsResult> {
-  const base = `${opts.endpoint.replace(/\/+$/, '')}/v1/projects`;
-  const found: { id: string; name: string; orgId?: string }[] = [];
+async function listAllReal(
+  opts: ListOptions,
+  path: string,
+): Promise<
+  | { readonly kind: 'ok'; readonly rows: readonly unknown[] }
+  | { readonly kind: 'error'; readonly message: string }
+> {
+  const base = `${opts.endpoint.replace(/\/+$/, '')}${path}`;
+  const rows: unknown[] = [];
   let cursor: string | undefined;
   do {
-    const url = `${base}?limit=${PROJECTS_PAGE_LIMIT}${cursor === undefined ? '' : `&cursor=${encodeURIComponent(cursor)}`}`;
-    let res: Response;
-    try {
-      res = await opts.fetchImpl(url, {
-        headers: { Authorization: `Bearer ${opts.token}` },
-        ...(opts.signal !== undefined && { signal: opts.signal }),
-      });
-    } catch (err) {
-      return { kind: 'error', message: `GET ${base} failed: ${(err as Error).message}` };
-    }
-    let page: { data?: unknown; hasMore?: unknown; nextCursor?: unknown };
-    try {
-      page = (await res.json()) as typeof page;
-    } catch {
-      return {
-        kind: 'error',
-        message: `GET ${base} returned HTTP ${res.status} with a body that isn't JSON`,
-      };
-    }
-    if (!res.ok || !Array.isArray(page.data)) {
-      const code = (page as { error?: { code?: unknown } }).error?.code;
-      return {
-        kind: 'error',
-        message: `GET ${base} answered HTTP ${res.status}${typeof code === 'string' ? ` (${code})` : ''}`,
-      };
-    }
-    for (const p of page.data as {
-      id?: unknown;
-      name?: unknown;
-      slug?: unknown;
-      orgId?: unknown;
-    }[]) {
-      if (p.slug === opts.slug && typeof p.id === 'string') {
-        found.push({
-          id: p.id,
-          name: typeof p.name === 'string' ? p.name : p.id,
-          ...(typeof p.orgId === 'string' && { orgId: p.orgId }),
-        });
-      }
-    }
-    cursor =
-      page.hasMore === true && typeof page.nextCursor === 'string' ? page.nextCursor : undefined;
+    const page = await readPage(opts, base, cursor);
+    if (page.kind === 'error') return page;
+    rows.push(...page.data);
+    cursor = page.nextCursor;
   } while (cursor !== undefined);
-  return { kind: 'ok', projects: found };
+  return { kind: 'ok', rows };
+}
+
+/** One page of that list, from `cursor`; `nextCursor` while there's more. */
+async function readPage(
+  opts: ListOptions,
+  base: string,
+  cursor: string | undefined,
+): Promise<
+  | { readonly kind: 'ok'; readonly data: readonly unknown[]; readonly nextCursor?: string }
+  | { readonly kind: 'error'; readonly message: string }
+> {
+  const url = `${base}?limit=${PAGE_LIMIT}${cursor === undefined ? '' : `&cursor=${encodeURIComponent(cursor)}`}`;
+  let res: Response;
+  try {
+    res = await opts.fetchImpl(url, {
+      headers: { Authorization: `Bearer ${opts.token}` },
+      ...(opts.signal !== undefined && { signal: opts.signal }),
+    });
+  } catch (err) {
+    return { kind: 'error', message: `GET ${base} failed: ${(err as Error).message}` };
+  }
+  let page: { data?: unknown; hasMore?: unknown; nextCursor?: unknown };
+  try {
+    page = (await res.json()) as typeof page;
+  } catch {
+    return {
+      kind: 'error',
+      message: `GET ${base} returned HTTP ${res.status} with a body that isn't JSON`,
+    };
+  }
+  if (!res.ok || !Array.isArray(page.data)) {
+    const code = (page as { error?: { code?: unknown } }).error?.code;
+    return {
+      kind: 'error',
+      message: `GET ${base} answered HTTP ${res.status}${typeof code === 'string' ? ` (${code})` : ''}`,
+    };
+  }
+  const more = page.hasMore === true && typeof page.nextCursor === 'string';
+  return { kind: 'ok', data: page.data, ...(more && { nextCursor: page.nextCursor as string }) };
+}
+
+/** Every project the token can read (`GET /v1/projects`, every page). */
+export async function listProjectsReal(opts: ListOptions): Promise<ListProjectsResult> {
+  const listed = await listAllReal(opts, '/v1/projects');
+  if (listed.kind === 'error') return listed;
+  const projects: ProjectRow[] = [];
+  for (const p of listed.rows as {
+    id?: unknown;
+    name?: unknown;
+    slug?: unknown;
+    orgId?: unknown;
+  }[]) {
+    if (typeof p?.id !== 'string') continue;
+    projects.push({
+      id: p.id,
+      name: typeof p.name === 'string' ? p.name : p.id,
+      ...(typeof p.slug === 'string' && { slug: p.slug }),
+      ...(typeof p.orgId === 'string' && { orgId: p.orgId }),
+    });
+  }
+  return { kind: 'ok', projects };
+}
+
+/**
+ * Every project of the tenant whose slug is `opts.slug`, from
+ * `GET /v1/projects` (it has no slug filter).
+ */
+export async function findProjectsReal(opts: FindProjectsOptions): Promise<FindProjectsResult> {
+  const listed = await listProjectsReal(opts);
+  if (listed.kind === 'error') return listed;
+  return {
+    kind: 'ok',
+    projects: listed.projects
+      .filter((p) => p.slug === opts.slug)
+      .map(({ id, name, orgId }) => ({ id, name, ...(orgId !== undefined && { orgId }) })),
+  };
+}
+
+/** Every environment order the token can read a project in (`GET /v1/environment-orders`, every page). */
+export async function listEnvironmentOrdersReal(
+  opts: ListOptions,
+): Promise<ListEnvironmentOrdersResult> {
+  const listed = await listAllReal(opts, '/v1/environment-orders');
+  if (listed.kind === 'error') return listed;
+  const orders: EnvironmentOrderRow[] = [];
+  for (const o of listed.rows as { entries?: unknown }[]) {
+    if (!Array.isArray(o?.entries)) continue;
+    const entries: { position: number; projectId?: string }[] = [];
+    for (const e of o.entries as { position?: unknown; projectId?: unknown }[]) {
+      if (!Number.isSafeInteger(e?.position)) continue;
+      entries.push({
+        position: e.position as number,
+        ...(typeof e.projectId === 'string' && { projectId: e.projectId }),
+      });
+    }
+    orders.push({ entries });
+  }
+  return { kind: 'ok', orders };
+}
+
+/** `GET /v1/deployments/:id`: the deployment as the runtime has it now. */
+export async function getDeploymentReal(opts: GetDeploymentOptions): Promise<GetDeploymentResult> {
+  const url = `${opts.endpoint.replace(/\/+$/, '')}/v1/deployments/${encodeURIComponent(opts.deploymentId)}`;
+  let res: Response;
+  try {
+    res = await opts.fetchImpl(url, {
+      headers: { Authorization: `Bearer ${opts.token}` },
+      ...(opts.signal !== undefined && { signal: opts.signal }),
+    });
+  } catch (err) {
+    return { kind: 'error', message: `GET ${url} failed: ${(err as Error).message}` };
+  }
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    return {
+      kind: 'error',
+      message: `GET ${url} answered HTTP ${res.status} with a body that isn't JSON`,
+    };
+  }
+  if (!res.ok) {
+    const code = (body as { error?: { code?: unknown } } | null)?.error?.code;
+    return {
+      kind: 'error',
+      message: `GET ${url} answered HTTP ${res.status}${typeof code === 'string' ? ` (${code})` : ''}`,
+    };
+  }
+  return { kind: 'ok', record: body as DeploymentRecord };
+}
+
+/** `GET /v1/deployments/:id/pack-env`: where each name the deployment's pack declares is set. */
+export async function getPackEnvReal(opts: GetDeploymentOptions): Promise<GetPackEnvResult> {
+  const url = `${opts.endpoint.replace(/\/+$/, '')}/v1/deployments/${encodeURIComponent(opts.deploymentId)}/pack-env`;
+  let res: Response;
+  try {
+    res = await opts.fetchImpl(url, {
+      headers: { Authorization: `Bearer ${opts.token}` },
+      ...(opts.signal !== undefined && { signal: opts.signal }),
+    });
+  } catch (err) {
+    return { kind: 'error', message: `GET ${url} failed: ${(err as Error).message}` };
+  }
+  // 501: its pack services take their env from how they're run; 404: a server before the route.
+  if (res.status === 501 || res.status === 404) return { kind: 'not-served' };
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    return {
+      kind: 'error',
+      message: `GET ${url} answered HTTP ${res.status} with a body that isn't JSON`,
+    };
+  }
+  const packEnv = body as Partial<PackEnvRecord> | null;
+  if (!res.ok || typeof packEnv?.envName !== 'string' || !Array.isArray(packEnv.data)) {
+    const code = (body as { error?: { code?: unknown } } | null)?.error?.code;
+    return {
+      kind: 'error',
+      message: `GET ${url} answered HTTP ${res.status}${typeof code === 'string' ? ` (${code})` : ''}`,
+    };
+  }
+  return { kind: 'ok', packEnv: packEnv as PackEnvRecord };
 }

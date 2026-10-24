@@ -1,5 +1,123 @@
 # @kindgi/adapter-model-openai-compat
 
+## 0.1.10
+
+### Patch Changes
+
+- @kindgi/capabilities@0.1.10
+  - @kindgi/embedding@0.1.10
+  - @kindgi/types@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/capabilities@0.1.10-rc.1
+  - @kindgi/embedding@0.1.10-rc.1
+  - @kindgi/types@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- @kindgi/capabilities@0.1.10-rc.0
+  - @kindgi/embedding@0.1.10-rc.0
+  - @kindgi/types@0.1.10-rc.0
+
+## 0.1.9
+
+### Patch Changes
+
+- d563887: **A model provider keeps a client per key.** The Anthropic, Gemini and OpenAI-compatible adapters (models and embeddings) kept one SDK client, built again whenever the key changed. Calls whose keys take turns, such as runs in two projects each with a key of its own, built a client on every call, and on Vertex AI a new auth client, which fetched a new token on its next call. Connections live in the `fetch` every client sends with, so they were kept either way. Each provider now keeps up to 16 clients, one per key, held by a SHA-256 of the key, the least recently used dropped first. A rotated key still takes effect on the next call. The cache is `createClientsByKey` from `@kindgi/capabilities/clients-by-key`, for an adapter of your own.
+- Updated dependencies [d563887]
+  - @kindgi/capabilities@0.1.9
+  - @kindgi/embedding@0.1.9
+  - @kindgi/types@0.1.9
+
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/capabilities@0.1.9-rc.1
+  - @kindgi/embedding@0.1.9-rc.1
+  - @kindgi/types@0.1.9-rc.1
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- d563887: **A model provider keeps a client per key.** The Anthropic, Gemini and OpenAI-compatible adapters (models and embeddings) kept one SDK client, built again whenever the key changed. Calls whose keys take turns, such as runs in two projects each with a key of its own, built a client on every call, and on Vertex AI a new auth client, which fetched a new token on its next call. Connections live in the `fetch` every client sends with, so they were kept either way. Each provider now keeps up to 16 clients, one per key, held by a SHA-256 of the key, the least recently used dropped first. A rotated key still takes effect on the next call. The cache is `createClientsByKey` from `@kindgi/capabilities/clients-by-key`, for an adapter of your own.
+- Updated dependencies [d563887]
+  - @kindgi/capabilities@0.1.9-rc.0
+  - @kindgi/embedding@0.1.9-rc.0
+  - @kindgi/types@0.1.9-rc.0
+
+## 0.1.8
+
+### Patch Changes
+
+- 63a06d6: **The OpenAI-compatible adapter surfaces a refused connection instead of retrying it.** The adapter now owns the retry policy on every call path — chat, responses and embeddings — with the OpenAI SDK's own retries off (`maxRetries: 0`).
+  
+  - A connection the runtime refuses the same way every time — an egress or body-size guard, or a redirect the request won't follow — is tried once, and its own words reach the caller rather than the SDK's generic "Connection error."
+  - A transient failure (408, 409, 429, 5xx, or a dropped connection) is still retried, honouring the vendor's `retry-after` and the vendor's `x-should-retry` override; a caller's `clientOptions.maxRetries` keeps its meaning, the retries after the first attempt (the SDK default is 2, so 3 attempts in all).
+  - A failed call now throws the shared `ModelProviderError` (its `kind` and `status`, the OpenAI SDK's error as `cause`) on every path, as the other adapters do, and an aborted call rejects with the turn's reason — where a failed OpenAI-compatible call used to reject with the `openai` SDK's own `APIError`, and an abort with `APIUserAbortError`. Code that caught `OpenAI.APIError` on this path should catch `ModelProviderError`.
+  - `@kindgi/adapter-model-shared` now exports `refusedConnection` and `isTransport`, the one classifier it and the OpenAI-compatible adapter share.
+- Updated dependencies [76532eb]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+  - @kindgi/capabilities@0.1.8
+  - @kindgi/types@0.1.8
+  - @kindgi/embedding@0.1.8
+
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- 63a06d6: **The OpenAI-compatible adapter surfaces a refused connection instead of retrying it.** The adapter now owns the retry policy on every call path — chat, responses and embeddings — with the OpenAI SDK's own retries off (`maxRetries: 0`).
+  
+  - A connection the runtime refuses the same way every time — an egress or body-size guard, or a redirect the request won't follow — is tried once, and its own words reach the caller rather than the SDK's generic "Connection error."
+  - A transient failure (408, 409, 429, 5xx, or a dropped connection) is still retried, honouring the vendor's `retry-after` and the vendor's `x-should-retry` override; a caller's `clientOptions.maxRetries` keeps its meaning, the retries after the first attempt (the SDK default is 2, so 3 attempts in all).
+  - A failed call now throws the shared `ModelProviderError` (its `kind` and `status`, the OpenAI SDK's error as `cause`) on every path, as the other adapters do, and an aborted call rejects with the turn's reason — where a failed OpenAI-compatible call used to reject with the `openai` SDK's own `APIError`, and an abort with `APIUserAbortError`. Code that caught `OpenAI.APIError` on this path should catch `ModelProviderError`.
+  - `@kindgi/adapter-model-shared` now exports `refusedConnection` and `isTransport`, the one classifier it and the OpenAI-compatible adapter share.
+- Updated dependencies [76532eb]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+  - @kindgi/capabilities@0.1.8-rc.0
+  - @kindgi/types@0.1.8-rc.0
+  - @kindgi/embedding@0.1.8-rc.0
+
+## 0.1.7
+
+### Patch Changes
+
+- 2b8f19a: **A provider's calls carry nothing from the server's environment.** The model SDKs fill options a caller leaves out from environment variables, and three of those reached the calls of every provider the server runs:
+  - `@kindgi/adapter-model-anthropic`: the Anthropic SDK reads `ANTHROPIC_AUTH_TOKEN`, sent as a bearer beside the provider's own key, and `ANTHROPIC_BASE_URL`. The adapter now sets no bearer and names Anthropic's API itself when no base URL is given.
+  - `@kindgi/adapter-model-openai-compat`: the OpenAI SDK reads `OPENAI_ORG_ID` and `OPENAI_PROJECT_ID`, sent as headers to whatever base URL the provider names, and `OPENAI_ADMIN_KEY`. The chat and the embeddings providers now set none of them.
+  - `@kindgi/adapter-model-gemini`: `@google/genai` moves to Vertex AI, with the environment's project and location, when `GOOGLE_GENAI_USE_VERTEXAI` or `GOOGLE_GENAI_USE_ENTERPRISE` is set. A Developer API provider now stays on the Developer API.
+- f080a20: **A tool whose id holds `__` can be called.** Anthropic, OpenAI-compatible endpoints, Bedrock and Azure OpenAI don't take dots in tool names, so a tool id goes to the model with `.` as `__`. The model's call used to come back with every `__` as `.`, so a tool named by an MCP server with `__` in it (Drupal's MCP Server Tool Bridge names every tool `tool_api__<id>`) came back as a tool nobody has, and the turn failed with `unresolved-tool`. A call's name is now looked up among the request's own tools. Two tools that would go to the model under one name (`acme.a__b` and `acme.a.b`) are refused before the call, naming both. Gemini takes dots, so its tool names were never changed. New in `@kindgi/capabilities`: `toolIdsBySentName()` and `ToolNameCollisionError`.
+- Updated dependencies [7bd61d6]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [f080a20]
+  - @kindgi/capabilities@0.1.7
+  - @kindgi/types@0.1.7
+  - @kindgi/embedding@0.1.7
+
+## 0.1.7-rc.0
+
+### Patch Changes
+
+- 2b8f19a: **A provider's calls carry nothing from the server's environment.** The model SDKs fill options a caller leaves out from environment variables, and three of those reached the calls of every provider the server runs:
+  - `@kindgi/adapter-model-anthropic`: the Anthropic SDK reads `ANTHROPIC_AUTH_TOKEN`, sent as a bearer beside the provider's own key, and `ANTHROPIC_BASE_URL`. The adapter now sets no bearer and names Anthropic's API itself when no base URL is given.
+  - `@kindgi/adapter-model-openai-compat`: the OpenAI SDK reads `OPENAI_ORG_ID` and `OPENAI_PROJECT_ID`, sent as headers to whatever base URL the provider names, and `OPENAI_ADMIN_KEY`. The chat and the embeddings providers now set none of them.
+  - `@kindgi/adapter-model-gemini`: `@google/genai` moves to Vertex AI, with the environment's project and location, when `GOOGLE_GENAI_USE_VERTEXAI` or `GOOGLE_GENAI_USE_ENTERPRISE` is set. A Developer API provider now stays on the Developer API.
+- f080a20: **A tool whose id holds `__` can be called.** Anthropic, OpenAI-compatible endpoints, Bedrock and Azure OpenAI don't take dots in tool names, so a tool id goes to the model with `.` as `__`. The model's call used to come back with every `__` as `.`, so a tool named by an MCP server with `__` in it (Drupal's MCP Server Tool Bridge names every tool `tool_api__<id>`) came back as a tool nobody has, and the turn failed with `unresolved-tool`. A call's name is now looked up among the request's own tools. Two tools that would go to the model under one name (`acme.a__b` and `acme.a.b`) are refused before the call, naming both. Gemini takes dots, so its tool names were never changed. New in `@kindgi/capabilities`: `toolIdsBySentName()` and `ToolNameCollisionError`.
+- Updated dependencies [7bd61d6]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [f080a20]
+  - @kindgi/capabilities@0.1.7-rc.0
+  - @kindgi/types@0.1.7-rc.0
+  - @kindgi/embedding@0.1.7-rc.0
+
 ## 0.1.6
 
 ### Patch Changes

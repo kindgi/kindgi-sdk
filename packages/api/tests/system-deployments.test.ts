@@ -112,8 +112,17 @@ function makeBinding() {
     async recordProblem({ tenantId, deploymentId, code }) {
       const current = endpoints.get(key(tenantId, deploymentId));
       if (current === undefined) return { kind: 'not-found' };
-      if (current.status !== 'pending') return { kind: 'not-pending', endpoint: current };
-      const endpoint: DeploymentEndpoint = { ...current, problem: { code, since: NOW } };
+      // As the runtime's: pending, or cleared and `waiting`.
+      const waiting =
+        current.status === 'pending' ||
+        (current.status === 'cleared' &&
+          needing.some((e) => e.tenantId === tenantId && e.deploymentId === deploymentId));
+      if (!waiting) return { kind: 'not-pending', endpoint: current };
+      const endpoint: DeploymentEndpoint = {
+        ...current,
+        problem: { code, since: NOW },
+        ...(current.status === 'cleared' && { waiting: true }),
+      };
       endpoints.set(key(tenantId, deploymentId), endpoint);
       return { kind: 'ok', endpoint };
     },
@@ -596,6 +605,36 @@ describe('PUT …/endpoint/problem', () => {
     });
     expect(r.status).toBe(400);
     expect(code(r)).toBe('bad-input');
+  });
+
+  test("a cleared deployment that's waiting (a suspension lifted): its problem, as the tenant will see it", async () => {
+    const { call, deployments } = makeApp();
+    deployments.add(live, 'dep-1');
+    expect((await call(ORCHESTRATOR, 'DELETE', endpointPath(live, 'dep-1'))).status).toBe(200);
+    deployments.needing.push(entry(live, 'dep-1'));
+    const r = await call(ORCHESTRATOR, 'PUT', `${endpointPath(live, 'dep-1')}/problem`, {
+      code: 'service-start-failed',
+    });
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({
+      status: 'cleared',
+      since: NOW,
+      problem: { code: 'service-start-failed', since: NOW },
+      waiting: true,
+    });
+  });
+
+  test('a cleared deployment no pack service is wanted for: 409 endpoint-not-pending, saying so', async () => {
+    const { call, deployments } = makeApp();
+    deployments.add(live, 'dep-1');
+    await call(ORCHESTRATOR, 'DELETE', endpointPath(live, 'dep-1'));
+    const r = await call(ORCHESTRATOR, 'PUT', `${endpointPath(live, 'dep-1')}/problem`, {
+      code: 'service-start-failed',
+    });
+    expect(r.status).toBe(409);
+    expect(code(r)).toBe('endpoint-not-pending');
+    expect(details(r)).toMatchObject({ status: 'cleared' });
+    expect(JSON.stringify(r.body)).toContain('not waiting for a pack service');
   });
 
   test('a ready deployment: 409 endpoint-not-pending, naming its status', async () => {

@@ -193,6 +193,40 @@ def test_eval_suites_unregister_names_the_call_as_the_other_resources_do() -> No
     ] * 2
 
 
+def test_a_usage_group_keeps_a_kind_class_or_state_this_client_does_not_list() -> None:
+    # A runtime may count more kinds, classes and states than this client
+    # was built with: the page still parses, and each value comes as it is.
+    group = {
+        "tenantId": "6f1c2c0e-3b0a-4f1e-9a51-0c1d2e3f4a5b",
+        "kind": "a-later-kind",
+        "class": "a-later-class",
+        "state": "a-later-state",
+        "count": 1,
+        "quantity": 0,
+        "firstAt": "2026-11-02T10:00:00.000Z",
+        "lastAt": "2026-11-02T10:00:00.000Z",
+    }
+    page = {"data": [group], "watermark": "2026-11-04T00:00:00.000Z"}
+    api, seen = client(lambda r: httpx.Response(200, json=page))
+    read = api.system_usage.read(from_="2026-11-01T00:00:00Z", to="2026-12-01T00:00:00Z")
+    (got,) = read.data
+    assert (got.kind, got.class_, got.state) == ("a-later-kind", "a-later-class", "a-later-state")
+    assert seen[0].url.path == "/v1/system/usage"
+
+
+def test_a_tenant_is_renamed_by_its_admins_or_the_operator_and_answers_nothing() -> None:
+    tenant_id = "6f1c2c0e-3b0a-4f1e-9a51-0c1d2e3f4a5b"
+    api, seen = client(lambda r: httpx.Response(204))
+    assert api.tenant.update(name="Acme Store", slug="acme-store", idempotency_key="k-1") is None
+    assert api.system_tenants.update(tenant_id, {"slug": "acme-store"}) is None
+    assert [(r.method, r.url.path, json.loads(r.content)) for r in seen] == [
+        ("PATCH", "/v1/tenant", {"name": "Acme Store", "slug": "acme-store"}),
+        ("PATCH", f"/v1/system/tenants/{tenant_id}", {"slug": "acme-store"}),
+    ]
+    assert seen[0].headers["idempotency-key"] == "k-1"
+    assert seen[1].headers["idempotency-key"]  # generated: the call is safe to retry
+
+
 def test_conversations_list_takes_replays() -> None:
     # A comparison's replay conversations are left out unless asked for.
     api, seen = client(lambda r: httpx.Response(200, json={"data": [], "hasMore": False}))
@@ -1007,6 +1041,136 @@ def test_named_models_keep_their_names() -> None:
         assert hasattr(models, name), name
     for name in ("Team1", "Project1", "Reviewer1", "Tenant1", "FlowId1"):
         assert not hasattr(models, name), name
+
+
+def test_a_model_is_its_schemas_and_its_old_names_stay_gone() -> None:
+    # A judged run's inline `flow` and an approval's inline `tool` once took `Flow` and
+    # `Tool` (the flow graph and the tool were `Flow1`, `Tool1`); a union's members were
+    # numbered in the order codegen met them (`Scope2` the tenant, `Scope4` the project).
+    assert {"nodes", "edges"} <= set(models.Flow.model_fields)
+    assert {"input", "output"} <= set(models.Tool.model_fields)
+    assert set(models.JudgedRunContextFlow.model_fields) == {"calls", "steps", "truncated"}
+    assert set(models.RunWaitingApprovalTool.model_fields) == {"id", "version", "call_id"}
+    assert models.ScopeOrg(kind="org", tenant_id="t", org_id="o").org_id == "o"
+    for name in (
+        "Agent1",
+        "CodeArtifactRef1",
+        "CodeArtifactRef2",
+        "ComparisonCandidate1",
+        "ComparisonCandidate2",
+        "EnvSetOutcome1",
+        "EnvSetOutcome2",
+        "EnvSetOutcome3",
+        "Flow1",
+        "Flow2",
+        "Guardrail1",
+        "HttpAuthSpec1",
+        "HttpAuthSpec2",
+        "HttpRequestBodySpec1",
+        "HttpRequestBodySpec2",
+        "HttpRequestBodySpec3",
+        "JudgeClassScope1",
+        "JudgeClassScope2",
+        "JudgeClassScope3",
+        "RecordedSecretScope1",
+        "RecordedSecretScope2",
+        "RecordedSecretScope3",
+        "Scope",
+        "Scope2",
+        "Scope3",
+        "Scope4",
+        "SecretRotateOutcome1",
+        "SecretRotateOutcome2",
+        "SecretSetOutcome1",
+        "SecretSetOutcome2",
+        "SecretSetOutcome3",
+        "SecretSetOutcome4",
+        "Tool1",
+        "Tool2",
+        "Tool3",
+        "WebhookSignature1",
+        "WebhookSignature2",
+    ):
+        assert not hasattr(models, name), name
+
+
+FLOW = {
+    "id": "acme.triage",
+    "version": "1.2.0",
+    "name": "Triage",
+    "nodes": [
+        {"id": "classify", "kind": "agent", "ref": "acme.classifier@1.0.0"},
+        {"id": "route", "kind": "tool", "ref": "acme.router@2.1.0"},
+    ],
+    "edges": [{"id": "classify-route", "from": "classify", "to": "route"}],
+}
+
+TOOL = {
+    "id": "acme.lookup",
+    "version": "1.0.0",
+    "description": "Look up an order by its number.",
+    "input": {"type": "object", "properties": {"orderNumber": {"type": "string"}}},
+    "output": {"type": "object"},
+}
+
+
+def registry(request: httpx.Request) -> httpx.Response:
+    """A flow or a tool; a version answered by `/versions/` is a retired one."""
+    body = FLOW if request.url.path.startswith("/v1/flows/") else TOOL
+    if "/versions/" in request.url.path:
+        body = {**body, "unregisteredAt": "2026-10-01T14:07:42.379Z"}
+    return httpx.Response(200, json=body)
+
+
+def a_flow(flow: models.Flow, retired: bool) -> None:
+    assert isinstance(flow, models.Flow)
+    assert all(isinstance(node, models.FlowNode) for node in flow.nodes)
+    assert [node.kind for node in flow.nodes] == ["agent", "tool"]
+    assert (flow.edges[0].from_, flow.edges[0].to) == ("classify", "route")
+    assert (flow.unregistered_at is not None) is retired
+
+
+def a_tool(tool: models.Tool, retired: bool) -> None:
+    assert isinstance(tool, models.Tool)
+    assert tool.input["properties"] == {"orderNumber": {"type": "string"}}
+    assert tool.description == TOOL["description"]
+    assert (tool.unregistered_at is not None) is retired
+
+
+def test_flows_get_and_get_version_answer_the_flow() -> None:
+    api, seen = client(registry)
+    a_flow(api.flows.get("acme.triage"), retired=False)
+    a_flow(api.flows.get_version("acme.triage", "1.2.0"), retired=True)
+    assert [r.url.path for r in seen] == [
+        "/v1/flows/acme.triage",
+        "/v1/flows/acme.triage/versions/1.2.0",
+    ]
+
+    async def scenario() -> None:
+        http = httpx.AsyncClient(transport=httpx.MockTransport(registry))
+        async with AsyncKindgi("http://kindgi.test", token="t", http_client=http) as api:
+            a_flow(await api.flows.get("acme.triage"), retired=False)
+            a_flow(await api.flows.get_version("acme.triage", "1.2.0"), retired=True)
+
+    asyncio.run(scenario())
+
+
+def test_tools_get_and_get_version_answer_the_tool() -> None:
+    api, seen = client(registry)
+    a_tool(api.tools.get("acme.lookup"), retired=False)
+    a_tool(api.tools.get_version("acme.lookup", "1.0.0"), retired=True)
+    assert [r.url.path for r in seen] == [
+        "/v1/tools/acme.lookup",
+        "/v1/tools/acme.lookup/versions/1.0.0",
+    ]
+
+    async def scenario() -> None:
+        http = httpx.AsyncClient(transport=httpx.MockTransport(registry))
+        async with AsyncKindgi("http://kindgi.test", token="t", http_client=http) as api:
+            a_tool(await api.tools.get("acme.lookup"), retired=False)
+            a_tool(await api.tools.get_version("acme.lookup", "1.0.0"), retired=True)
+
+    asyncio.run(scenario())
 
 
 OPENAPI = Path(__file__).resolve().parents[3] / "packages" / "api" / "openapi.json"

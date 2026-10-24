@@ -12,6 +12,12 @@ import type { TenantId } from '@kindgi/types';
  * A system principal reaches `/v1/system/*` and the routes in
  * `SYSTEM_PRINCIPAL_ALLOWED_ROUTES`, nothing else: every other route
  * answers `403 system-key-on-tenant-route` before its code runs.
+ *
+ * On a runtime serving one tenant, the deployment's own token is the
+ * system principal on `/v1/system/keys` alone, where it mints, lists and
+ * revokes the system keys (`TokenResolution.systemKeysOperator`), and a
+ * system key holds `system:license` alone: it reads the deployment's
+ * license, nothing else.
  */
 export interface SystemPrincipal {
   /** The system key's id, or `boot` for the deployment's own token. */
@@ -31,12 +37,16 @@ export const FULL_SYSTEM_CAPABILITY = 'kindgi:system';
 
 /**
  * The scopes a system key can hold, each the least one service needs.
- * `kindgi:system` holds them all. None of them reads customer content
- * (runs, conversations, secrets, memory, files); `system:tenants:contacts`
- * reads account contacts only.
+ * `kindgi:system` holds them all, but for one read. None of them reads
+ * customer content (runs, conversations, memory, files);
+ * `system:tenants:contacts` reads account contacts only, and
+ * `system:pack-env` reads the env values a deployment's pack declares. Its
+ * secrets' values are given only when asked (`?secrets=values`), each
+ * audited, and only to a key holding `system:pack-env` itself, never to
+ * one holding `kindgi:system`.
  */
 export const SYSTEM_SCOPES = [
-  /** Create, list, read and close tenants. */
+  /** Create, list, read, rename and close tenants. */
   'system:tenants',
   /**
    * Create tenants only, each with a first admin, production blocked, no
@@ -57,6 +67,14 @@ export const SYSTEM_SCOPES = [
   'system:suspend',
   /** The packs' deployments and their endpoints. */
   'system:deployments',
+  /**
+   * The plain env values each deployment's pack declares, to give its pack
+   * service, and what its service runs on. On a key of its own: the
+   * deployments key can't read a value.
+   */
+  'system:pack-env',
+  /** Usage across tenants: counts and sums only. */
+  'system:usage:read',
   /** The deployment's license: reading it, for its renewal. */
   'system:license',
 ] as const;
@@ -72,6 +90,20 @@ export function isSystemScope(value: string): value is SystemScope {
 /** Whether a capability is the system's: `kindgi:system` or any `system:*`. */
 export function isSystemCapability(value: string): boolean {
   return value === FULL_SYSTEM_CAPABILITY || value.startsWith('system:');
+}
+
+/**
+ * The one system scope a system key holds on a runtime serving one tenant:
+ * its license, for the renewal job that sends the deployment's use.
+ */
+export const ONE_TENANT_SYSTEM_SCOPES: readonly SystemScope[] = ['system:license'];
+
+/**
+ * Whether `path` is `/v1/system/keys` or under it: where, serving one
+ * tenant, the deployment's own token is the system principal.
+ */
+export function isSystemKeysPath(path: string): boolean {
+  return path === '/v1/system/keys' || path.startsWith('/v1/system/keys/');
 }
 
 /** Whether `capabilities` hold `scope`, directly or through `kindgi:system`. */
@@ -92,4 +124,7 @@ export const SYSTEM_PRINCIPAL_ALLOWED_ROUTES: readonly {
   readonly method: string;
   readonly path: string;
   readonly scope: SystemScope;
-}[] = [{ method: 'GET', path: '/v1/license', scope: 'system:license' }];
+}[] = [
+  { method: 'GET', path: '/v1/license', scope: 'system:license' },
+  { method: 'GET', path: '/v1/license/usage', scope: 'system:license' },
+];

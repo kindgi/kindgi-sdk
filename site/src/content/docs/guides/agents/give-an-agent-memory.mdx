@@ -31,7 +31,15 @@ sees what, and the errors.
 
 ## Write and read facts
 
-A fact you write is one the agent can read before a turn. Put it in
+A fact you write is one the agent can read before a turn. Ask your coding
+agent to write the fact:
+
+```text
+I want my agents to know that a customer of mine orders spare parts for a washing machine.
+```
+
+For reference, the fact it writes looks like this. This guide writes it for
+the customer `end-7`, gives it the type `acme.note`, and saves it as
 `fact.json`, where `<project-id>` is your project's id:
 
 ```json
@@ -40,9 +48,36 @@ A fact you write is one the agent can read before a turn. Put it in
 
 Write it:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi memory facts write --input=@fact.json
+pnpm exec kindgi memory facts write --input=@fact.json
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi memory facts write --input=@fact.json
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw memory facts write --input=@fact.json
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw memory facts write --input=@fact.json
+```
+
+</TabItem>
+</Tabs>
 
 `--input=@fact.json` reads the fact from the file.
 
@@ -76,10 +111,40 @@ model that embedded it for search by meaning:
 
 Read facts back:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi memory facts list --type=acme.note
-kindgi memory facts get <fact-id>
+pnpm exec kindgi memory facts list --type=acme.note
+pnpm exec kindgi memory facts get <fact-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi memory facts list --type=acme.note
+uv run kindgi memory facts get <fact-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw memory facts list --type=acme.note
+./kindgiw memory facts get <fact-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw memory facts list --type=acme.note
+./kindgiw memory facts get <fact-id>
+```
+
+</TabItem>
+</Tabs>
 
 `--type` lists one type's facts, and `<fact-id>` is a fact's `id`. `get`
 prints the same fact. `content` is yours to shape: any JSON.
@@ -89,8 +154,11 @@ the client calls.
 ## Retrieve facts before each turn
 
 An agent's `retrieval` lists what it reads before each turn, so the model
-sees the facts it needs. Each entry is a **retrieval intent**. Add one to the
-agent's definition:
+sees the facts it needs. Each entry is a **retrieval intent**. Ask your
+coding agent: "Before each turn, have my agent read the customer's
+preferences." Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, it
+adds one to the agent's definition:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -106,6 +174,24 @@ agent's definition:
 ```python excerpt
 # in agents/order_desk.py
     retrieval=[{"types": ["acme.preference"], "scope": "same-user", "mode": "both", "limit": 5}],
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .set("retrieval", List.of(
+          Map.of("types", List.of("acme.preference"), "scope", "same-user", "mode", "both", "limit", 5)))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .set("retrieval", Seq(
+      Map("types" -> Seq("acme.preference"), "scope" -> "same-user", "mode" -> "both", "limit" -> 5)))
 ```
 
 </TabItem>
@@ -144,8 +230,9 @@ its result's `warnings`:
 
 ## Let an agent remember
 
-An agent that remembers keeps what it's told for later turns. Add `remember`
-to its `memory`:
+An agent that remembers keeps what it's told for later turns. Ask your coding
+agent: "Let my agent remember a customer's preferences." For reference,
+it adds `remember` to the agent's `memory`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -161,6 +248,24 @@ to its `memory`:
 ```python excerpt
 # in agents/order_desk.py
     memory={"remember": {"types": ["acme.preference"], "scope": "same-user", "keepDays": 30}},
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .set("memory", Map.of("remember", Map.of(
+          "types", List.of("acme.preference"), "scope", "same-user", "keepDays", 30)))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .set("memory", Map("remember" -> Map(
+      "types" -> Seq("acme.preference"), "scope" -> "same-user", "keepDays" -> 30)))
 ```
 
 </TabItem>
@@ -203,9 +308,36 @@ before you answer", took a turn on a small local model. A real model's
 wording differs. Its first call left out `type`. The tool's validation said
 so, and it called again:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme.desk '--input={"userMessage":"Please remember that I prefer email for anything about my orders. My washing machine from order 4471 leaks water.","participantId":"end-7"}'
+pnpm exec kindgi runs start --agent=acme.desk '--input={"userMessage":"Please remember that I prefer email for anything about my orders. My washing machine from order 4471 leaks water.","participantId":"end-7"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme.desk '--input={"userMessage":"Please remember that I prefer email for anything about my orders. My washing machine from order 4471 leaks water.","participantId":"end-7"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme.desk '--input={"userMessage":"Please remember that I prefer email for anything about my orders. My washing machine from order 4471 leaks water.","participantId":"end-7"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme.desk '--input={"userMessage":"Please remember that I prefer email for anything about my orders. My washing machine from order 4471 leaks water.","participantId":"end-7"}'
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -272,9 +404,36 @@ kindgi runs start --agent=acme.desk '--input={"userMessage":"Please remember tha
 user's, unverified, attributed to the agent and the call, and expires 30 days
 on:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi memory facts get <fact-id>
+pnpm exec kindgi memory facts get <fact-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi memory facts get <fact-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw memory facts get <fact-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw memory facts get <fact-id>
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -319,7 +478,9 @@ kindgi memory facts get <fact-id>
 
 Recall lets a turn see what the person said in earlier conversations. A
 retrieval intent with `source: 'conversations'` recalls messages of this
-agent's earlier conversations. It takes no `types`:
+agent's earlier conversations. It takes no `types`. Ask your coding agent:
+"Let my agent see what a customer said in their earlier conversations."
+For reference, the retrieval intent it writes looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -335,6 +496,24 @@ agent's earlier conversations. It takes no `types`:
 ```python excerpt
 # in agents/order_desk.py
     retrieval=[{"source": "conversations", "scope": "same-user", "mode": "both", "limit": 3}],
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .set("retrieval", List.of(
+          Map.of("source", "conversations", "scope", "same-user", "mode", "both", "limit", 3)))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .set("retrieval", Seq(
+      Map("source" -> "conversations", "scope" -> "same-user", "mode" -> "both", "limit" -> 3)))
 ```
 
 </TabItem>
@@ -368,9 +547,36 @@ conversation's date, the message and the ones either side. Here end user
 `end-9` writes again about the same washing machine, and the turn recalls
 what they said in an earlier conversation:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme.desk '--input={"userMessage":"My washing machine leaks water. What should I do?","participantId":"end-9"}'
+pnpm exec kindgi runs start --agent=acme.desk '--input={"userMessage":"My washing machine leaks water. What should I do?","participantId":"end-9"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme.desk '--input={"userMessage":"My washing machine leaks water. What should I do?","participantId":"end-9"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme.desk '--input={"userMessage":"My washing machine leaks water. What should I do?","participantId":"end-9"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme.desk '--input={"userMessage":"My washing machine leaks water. What should I do?","participantId":"end-9"}'
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -413,9 +619,36 @@ The run's journal shows what the model was sent: the system message with
 its fixed line about `<memory>` blocks, then the recalled message as data,
 then the user's message:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs journal <run-id>
+pnpm exec kindgi runs journal <run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs journal <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs journal <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs journal <run-id>
+```
+
+</TabItem>
+</Tabs>
 
 `<run-id>` is the run's id.
 
@@ -460,13 +693,52 @@ A conversation that's
 
 A fact changes by revision, so its history stays readable:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi memory facts supersede <fact-id> --input='{"content":"Prefers phone"}' --expect-version=1
-kindgi memory facts verify <fact-id>
-kindgi memory facts delete <fact-id>
-kindgi memory facts revisions <fact-id>
-kindgi memory facts get <fact-id> --as-of=2026-10-01T00:00:00Z
+pnpm exec kindgi memory facts supersede <fact-id> --input='{"content":"Prefers phone"}' --expect-version=1
+pnpm exec kindgi memory facts verify <fact-id>
+pnpm exec kindgi memory facts delete <fact-id>
+pnpm exec kindgi memory facts revisions <fact-id>
+pnpm exec kindgi memory facts get <fact-id> --as-of=2026-10-01T00:00:00Z
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi memory facts supersede <fact-id> --input='{"content":"Prefers phone"}' --expect-version=1
+uv run kindgi memory facts verify <fact-id>
+uv run kindgi memory facts delete <fact-id>
+uv run kindgi memory facts revisions <fact-id>
+uv run kindgi memory facts get <fact-id> --as-of=2026-10-01T00:00:00Z
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw memory facts supersede <fact-id> --input='{"content":"Prefers phone"}' --expect-version=1
+./kindgiw memory facts verify <fact-id>
+./kindgiw memory facts delete <fact-id>
+./kindgiw memory facts revisions <fact-id>
+./kindgiw memory facts get <fact-id> --as-of=2026-10-01T00:00:00Z
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw memory facts supersede <fact-id> --input='{"content":"Prefers phone"}' --expect-version=1
+./kindgiw memory facts verify <fact-id>
+./kindgiw memory facts delete <fact-id>
+./kindgiw memory facts revisions <fact-id>
+./kindgiw memory facts get <fact-id> --as-of=2026-10-01T00:00:00Z
+```
+
+</TabItem>
+</Tabs>
 
 - **`supersede`** writes the fact's next revision, under the same id.
 - **`verify`** marks it verified: a person vouches for it.

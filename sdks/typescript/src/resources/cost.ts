@@ -86,6 +86,7 @@ function filterQuery(
     ...(filter.runId !== undefined && { runId: filter.runId as unknown as string }),
     ...(filter.includeDescendants === true && { includeDescendants: 'true' }),
     ...(filter.rootRunId !== undefined && { rootRunId: filter.rootRunId as unknown as string }),
+    ...(filter.flowId !== undefined && { flowId: filter.flowId }),
     ...(filter.agentId !== undefined && { agentId: filter.agentId as unknown as string }),
     ...(filter.conversationId !== undefined && {
       conversationId: filter.conversationId as unknown as string,

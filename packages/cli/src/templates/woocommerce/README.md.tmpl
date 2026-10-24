@@ -20,7 +20,7 @@ Scaffolded by `kindgi init --template=woocommerce`.
 ├── lib/fake-store.ts                           # a store in memory, for the tools' tests
 ├── tools/
 │   ├── find-orders/index.ts                    # look orders up (read-only)
-│   ├── refund/index.ts                         # refund up to 100, no approval
+│   ├── refund/index.ts                         # refund up to 100, no approval when a person asks
 │   ├── refund/index.test.ts                    # the limit, and each refund once, tested
 │   ├── refund-large/index.ts                   # refund any amount, approved first
 │   ├── refund-large/index.test.ts              # each refund once, tested
@@ -55,6 +55,19 @@ otherwise.
 | `{{PACK_ID}}.woo.refund-large` | waits for a person | not given |
 | `{{PACK_ID}}.woo.set-price` | waits for a person | not given |
 | `{{PACK_ID}}.woo.publish-product` | waits for a person | not given |
+
+The store agent's three that wait need a second person
+(`conversationPolicy.hitl.separateApprover`). Whoever's turn asked for a
+large refund, a price change or a publish isn't offered **Approve** for it:
+another reviewer decides.
+
+The table is for a person's turn. The four tools that refund or change the
+store also declare `needsApprovalWhenUnattended`: in a run no person
+started (a webhook, a schedule or a service account's key started it),
+every call of one waits for a person, whatever the agent's policy says
+(only a project admin can lift that, for one trigger's runs, with
+`--allow-unattended`).
+So `{{PACK_ID}}.woo.refund` runs on its own only when a person asks for it.
 
 A call that waits shows in the console's approvals inbox, and in
 `{{KINDGI}} approvals list`. The tool runs only once a reviewer approves it
@@ -114,12 +127,13 @@ The tools sign in to your store as a WordPress user made for the agent,
 with an Application Password. WordPress has had these since 5.6. Never use
 your own account.
 
-1. **Make the user.** In WordPress, go to Users → Add New User. Use a
-   username like `shop-agent` and the **Shop Manager** role, which can
+1. **Make the user.** In WordPress, go to Users → Add User (Add New User
+   before WordPress 6.8). Use a username like `shop-agent` and the **Shop Manager** role, which can
    manage orders and products but not the site.
 2. **Make its Application Password.** Edit that user (Users → All Users →
    `shop-agent`), find **Application Passwords**, name it `kindgi`, and
-   choose **Add New Application Password**. WordPress shows it once.
+   choose **Add Application Password** (**Add New Application Password**
+   before WordPress 6.8). WordPress shows it once.
    WordPress offers Application Passwords only over HTTPS, except on a
    site whose `WP_ENVIRONMENT_TYPE` is `local`.
 3. **Give them to Kindgi.** With `{{KINDGI}} dev` running, from another
@@ -158,8 +172,7 @@ calls the first tool. For Claude, with `kindgi dev` running:
 {{KINDGI}} providers register --preset=anthropic
 ```
 
-`.claude/skills/kindgi-authoring-providers/SKILL.md` has the other
-providers.
+The `kindgi-authoring-providers` skill has the other providers.
 
 Ask the store agent something:
 
@@ -297,3 +310,34 @@ refused deliveries in a row. `{{KINDGI}} webhooks list` and the trigger's
 fire history show what arrived. So change the signing secret when the store
 is quiet: until WooCommerce has the new one, Kindgi refuses its deliveries,
 and those orders aren't reviewed.
+
+## Ask and approve in WordPress
+
+**The store's staff can ask this pack's agents, and approve the refunds,
+without leaving wp-admin,** each as themselves. The Kindgi plugin for
+WordPress adds a Kindgi page with two tabs, Ask and Approvals. The record
+then says who approved, for example "approved by Jane, via Acme store", not
+"the store".
+
+1. **Install the plugin:** `kindgi-<version>.zip`, on the Kindgi SDK's
+   [latest release](https://github.com/kindgi/kindgi-sdk/releases/latest).
+   Its source is at
+   [`integrations/wordpress/kindgi`](https://github.com/kindgi/kindgi-sdk/tree/main/integrations/wordpress/kindgi).
+2. **Register the store as a site** on this pack's project. A tenant admin
+   runs `kindgi sites register` with `--project`, the store's origin and the
+   approvals URL the plugin's settings page shows.
+3. **Connect.** Paste the one-time code under Kindgi → Settings.
+
+**The runtime needs site sign-in on:**
+- `KINDGI_SITE_SIGN_IN=true`;
+- authorization enforced;
+- `KINDGI_PUBLIC_URL`.
+
+The plugin's README has the details:
+- where the signing key lives;
+- which WordPress roles may sign in;
+- what "the site vouches for its staff" means for four eyes.
+
+**When four eyes must be real,** for example two people for every refund,
+give the refund tools a required reviewer role above the site's ceiling. A
+person signed in to Kindgi directly then decides, never only the store.

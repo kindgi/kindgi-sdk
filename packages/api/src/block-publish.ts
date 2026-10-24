@@ -6,6 +6,8 @@ import { latestVersion, nextVersion } from '@kindgi/tools';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
 import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
+import { firstEnvironmentOf } from './environment-entry.js';
+import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 
 /** One thing wrong with a block version, as `validation-failed` lists them. */
 export interface BlockPublishIssue {
@@ -73,6 +75,13 @@ export interface PublishBlockEditInput {
   /** The version the edit starts from: its schema or parameters and description carry over. */
   readonly from: BlockRecord;
   readonly edit: BlockEdit;
+  /**
+   * The tenant's environment orders: the edit of a block whose project is
+   * in an order is published in that order's first environment, and
+   * reaches the later ones with a promoted build of an agent that pins it.
+   * Absent: in the block's project.
+   */
+  readonly orders?: Pick<EnvironmentOrderBinding, 'orderOf'>;
 }
 
 export type PublishBlockEditOutcome =
@@ -128,7 +137,8 @@ export async function blockEditDefinition(
 /**
  * Publish an edit of a block as its next free version (the first patch
  * after its highest, unregistered versions included, since versions
- * never change), into the block's own project. The edit is checked as
+ * never change), into the block's own project, or the first environment
+ * of its order (`orders`). The edit is checked as
  * `POST /v1/blocks` checks a version: it must be a valid block of the
  * same kind, and settings values must satisfy the schema they keep.
  */
@@ -136,6 +146,8 @@ export async function publishBlockEdit(
   input: PublishBlockEditInput,
 ): Promise<PublishBlockEditOutcome> {
   const { blocks, tenantId, from } = input;
+  const projectId =
+    (await firstEnvironmentOf(input.orders, tenantId, from.projectId)) ?? from.projectId;
   const versions = await allVersions(blocks, tenantId, from.id);
   const highest = latestVersion(versions) ?? from.version;
   let candidate = nextVersion(highest);
@@ -144,13 +156,13 @@ export async function publishBlockEdit(
     if (checked.kind === 'invalid') return checked;
     const outcome = await blocks.publish({
       tenantId,
-      projectId: from.projectId,
+      projectId,
       block: withCarriedSchema(checked.latest, checked.block),
     });
     if (outcome.kind === 'ok') return { kind: 'ok', version: outcome.version };
     if (outcome.kind !== 'already-registered') {
       throw new Error(
-        `block "${from.id}": publishing into its own project ${from.projectId as ProjectId} failed (${outcome.kind})`,
+        `block "${from.id}": publishing into project ${projectId as ProjectId} failed (${outcome.kind})`,
       );
     }
     candidate = nextVersion(candidate);

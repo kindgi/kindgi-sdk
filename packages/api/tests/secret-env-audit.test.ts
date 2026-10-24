@@ -17,6 +17,7 @@ import { describe, expect, test } from 'vitest';
 import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
 import { EVIDENCE_KINDS } from '@kindgi/compliance';
+import { createLogger } from '@kindgi/log';
 import type { ApiTokenId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
@@ -63,8 +64,13 @@ function harness(
     envDelete?: unknown;
   } = {},
   auditEvents: AuditEventBinding | null = createInMemoryAuditEventBinding(),
+  logLines?: string[],
 ) {
   const secretsBinding = {
+    // The POST route reads for an `add-version` to decide whether the name is
+    // being created (and so held to the grammar); `stripe-key` is in-grammar,
+    // so a null read lets the configured `set` answer stand.
+    get: async () => null,
     set: async () => answers.set ?? { kind: 'ok', record: RECORD, versionId: 1 },
     rotate: async () =>
       answers.rotate ?? { kind: 'ok', value: { kind: 'ok', newVersionId: 3, oldVersionId: 2 } },
@@ -85,6 +91,7 @@ function harness(
     secretsBinding,
     envBinding,
     ...(auditEvents !== null && { auditEvents }),
+    ...(logLines !== undefined && { logger: createLogger({ write: (l) => logLines.push(l) }) }),
   });
   const call = async (method: string, path: string, body?: unknown, token = ALICE) => {
     const res = await app.request(path, {
@@ -239,6 +246,17 @@ describe('secret writes are recorded at the route', () => {
     expect(docOf(hard)).toMatchObject({ hard: true });
   });
 
+  test('a hard revoke that left a recoverable copy records until when (recoverableUntil)', async () => {
+    const until = '2026-11-22T21:00:00.000Z';
+    const { call, recorded } = harness({
+      revoke: { kind: 'ok', value: { revoked: true, hard: true, recoverableUntil: until } },
+    });
+    expect(await call('DELETE', `/v1/secrets/stripe-key?${queryScope}&hard=true`)).toBe(200);
+    const [event] = await recorded();
+    expect(event).toMatchObject({ kind: 'secret-hard-revoked', outcome: 'succeeded' });
+    expect(docOf(event)).toMatchObject({ hard: true, recoverableUntil: until });
+  });
+
   test('a revoke that changed nothing is not recorded', async () => {
     const { call, recorded } = harness({
       revoke: { kind: 'ok', value: { revoked: false, hard: false } },
@@ -292,6 +310,49 @@ describe('best effort', () => {
     } as AuditEventBinding;
     const { call } = harness({}, failing);
     expect(await call('POST', '/v1/secrets', setBody())).toBe(201);
+  });
+
+  test("a failed append is logged at warn through the app's logger (subsystem audit), with the request", async () => {
+    const lines: string[] = [];
+    const thrown = {
+      ...createInMemoryAuditEventBinding(),
+      append: async () => {
+        throw new Error('audit store down');
+      },
+    } as AuditEventBinding;
+    expect(await harness({}, thrown, lines).call('POST', '/v1/secrets', setBody())).toBe(201);
+    const refused = {
+      ...createInMemoryAuditEventBinding(),
+      append: async () => ({
+        kind: 'err' as const,
+        error: { code: 'persistence-error' as const, message: 'the audit table is full' },
+      }),
+    } as AuditEventBinding;
+    const { call } = harness({}, refused, lines);
+    expect(
+      await call('PUT', `/v1/env/KB_URL?${queryScope}`, { scope: projectScope, value: VALUE }),
+    ).toBe(200);
+    const audit = lines
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+      .filter((r) => r.subsystem === 'audit');
+    expect(audit).toEqual([
+      expect.objectContaining({
+        level: 'warn',
+        message: 'secret-set audit event failed',
+        kind: 'secret-set',
+        err: expect.objectContaining({ message: 'audit store down' }),
+        requestId: 'req-123',
+        tenantId,
+      }),
+      expect.objectContaining({
+        level: 'warn',
+        message: 'env-set audit event failed: the audit table is full',
+        kind: 'env-set',
+        code: 'persistence-error',
+        requestId: 'req-123',
+        tenantId,
+      }),
+    ]);
   });
 });
 

@@ -17,14 +17,14 @@ credentials, then log in once with `kindgi auth registry`.
 ## 1. Create the pack
 
 ```sh tutorial=run
-npx --yes @kindgi/cli@0.1 init my-pack --template=sample
+npx --yes @kindgi/cli@0.2 init my-pack --template=sample
 cd my-pack
 pnpm install
 ```
 
-- `npx --yes @kindgi/cli@0.1` runs the newest 0.1 release of the Kindgi CLI,
+- `npx --yes @kindgi/cli@0.2` runs the newest 0.2 release of the Kindgi CLI,
   the line these docs describe, without installing it
-  ([Check this machine](../install/#check-this-machine) says how). `@0.1` is
+  ([Check this machine](../install/#check-this-machine) says how). `@0.2` is
   optional: `npx --yes @kindgi/cli init my-pack --template=sample` runs the
   newest release, which may be on a later line than these docs.
 - `init my-pack` makes the pack in a new folder, `my-pack`.
@@ -56,14 +56,16 @@ my-pack/
 ├── agents/echo-agent/index.ts          # an agent that calls the tools
 ├── guardrails/response-not-empty/      # a check on the agent's answers
 ├── flows/echo-flow/index.ts            # a flow: a tool step, then the agent
-└── .claude/skills/                     # skills for your coding agent
+├── .claude/skills/                     # skills for your coding agent
+└── .agents/skills/                     # the same, where Codex and Gemini CLI look
 ```
 
 :::tip[Or ask your coding agent]
-The pack already has Kindgi's skills in `.claude/skills/`. Follow the steps
-below yourself, or ask your coding agent ("run the pack and try the agent",
-"add a tool that looks up an order"): the skills tell it which commands to
-run. [How it knows Kindgi](../coding-agents/).
+The pack already has Kindgi's skills in `.claude/skills/` and
+`.agents/skills/`. Follow the steps below yourself, or ask your coding agent
+("run the pack and try the agent", "add a tool that looks up an order"): the
+skills tell it which commands to run. [How it knows
+Kindgi](../coding-agents/).
 :::
 
 ## 2. Run it

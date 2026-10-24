@@ -25,14 +25,14 @@ JDK 17 or later, with `JAVA_HOME` set to it. Maven comes with the pack.
 ## 1. Create the pack
 
 ```sh tutorial=run
-npx --yes @kindgi/cli@0.1 init my-pack --template=java
+npx --yes @kindgi/cli@0.2 init my-pack --template=java
 cd my-pack
 ./mvnw -q test    # the template's tests: the tools, called directly
 ```
 
-- `npx --yes @kindgi/cli@0.1` runs the newest 0.1 release of the Kindgi CLI,
+- `npx --yes @kindgi/cli@0.2` runs the newest 0.2 release of the Kindgi CLI,
   the line these docs describe, without installing it
-  ([Check this machine](../install/#check-this-machine) says how). `@0.1` is
+  ([Check this machine](../install/#check-this-machine) says how). `@0.2` is
   optional: `npx --yes @kindgi/cli init my-pack --template=java` runs the
   newest release, which may be on a later line than these docs.
 - `init my-pack` makes the pack in a new folder, `my-pack`.
@@ -49,7 +49,7 @@ pass:
 ```
 
 Without Node, run `init` from PyPI instead:
-`uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=java`.
+`uvx --from "kindgi-cli>=0.2,<0.3" kindgi init my-pack --template=java`.
 
 The pack is a Maven project. Its config is `kindgi.config.json`; its tools,
 guardrails, agents and flows are classes in four packages:
@@ -78,10 +78,11 @@ Windows): it uses Node's `npx` when Node is installed, else `uvx` (no Node
 needed). `kindgi upgrade` moves the pin.
 
 :::tip[Skills for your coding agent]
-The pack comes with Kindgi's skills in `.claude/skills/`: how to write
-tools, guardrails, agents and flows in Java, connect a model, and report a
-problem in Kindgi. Claude Code loads the one your request needs
-([Coding agents](../coding-agents/)). `./kindgiw skills sync` refreshes them.
+The pack comes with Kindgi's skills in `.claude/skills/` and
+`.agents/skills/`: how to write tools, guardrails, agents and flows in Java,
+connect a model, and report a problem in Kindgi. Claude Code loads the one
+your request needs; [Coding agents](../coding-agents/) says where other
+agents look. `./kindgiw skills sync` refreshes them.
 :::
 
 ## 2. Run it

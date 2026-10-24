@@ -275,6 +275,22 @@ async function mintRefusal(
     });
   }
   const narrowedTo = c.get('tokenProjectId');
+  // A session with a key's limits (a project, a role) mints no keys: a
+  // key would outlive whatever ends the session (its expiry, its
+  // provider's removal). For a session, `tokenRole` comes only from its
+  // own limit.
+  if (
+    c.get('sessionId') !== undefined &&
+    (narrowedTo !== undefined || c.get('tokenRole') !== undefined)
+  ) {
+    return refuse({
+      action: 'admin',
+      resource: tenant,
+      message: `This session is limited (${narrowedTo !== undefined ? `to project ${narrowedTo}` : `to the ${c.get('tokenRole')} role`}), and a limited session mints no keys`,
+      failing: 'scope',
+      code: 'limited-session-cannot-mint',
+    });
+  }
   if (narrowedTo !== undefined && body.projectId !== (narrowedTo as unknown as ProjectId)) {
     return refuse({
       action: 'admin',

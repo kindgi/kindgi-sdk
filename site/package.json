@@ -1,13 +1,13 @@
 {
   "name": "kindgi-docs",
-  "version": "0.0.7",
+  "version": "0.0.11",
   "private": true,
   "description": "Kindgi's documentation site (docs.kindgi.com), built with Astro Starlight.",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "node scripts/generate-reference.mjs && astro dev",
-    "site:build": "node scripts/check-theme-contrast.mjs && node scripts/check-timeless.mjs && node scripts/check-tabs.mjs && node scripts/generate-reference.mjs && node scripts/check-reference.mjs && KINDGI_DOCS_BASE=/v0.0/ astro build && node scripts/check-links.mjs dist /v0.0/ && astro build",
+    "site:build": "node scripts/check-theme-contrast.mjs && node scripts/check-timeless.mjs && node scripts/check-tabs.mjs && node scripts/check-cli-launch.mjs && node scripts/generate-reference.mjs && node scripts/check-reference.mjs && KINDGI_DOCS_BASE=/v0.0/ astro build && node scripts/check-links.mjs dist /v0.0/ && astro build",
     "site:samples": "node scripts/check-samples.mjs",
     "site:test-scripts": "node --test scripts/*.test.mjs",
     "site:tutorials": "node scripts/run-tutorials.mjs",

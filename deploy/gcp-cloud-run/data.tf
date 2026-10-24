@@ -21,6 +21,7 @@ locals {
 }
 
 resource "google_sql_database_instance" "kindgi" {
+  count               = var.database_host_instance == null ? 1 : 0
   name                = var.name_prefix
   region              = var.region
   database_version    = var.database_version
@@ -47,12 +48,67 @@ resource "google_sql_database_instance" "kindgi" {
       name  = "cloudsql.iam_authentication"
       value = "on"
     }
+
+    # A backstop for every session on the instance; the server's own
+    # connections set a shorter one of their own.
+    database_flags {
+      name  = "idle_in_transaction_session_timeout"
+      value = tostring(var.database_idle_in_transaction_timeout_ms)
+    }
+  }
+}
+
+# The instance the server serves from when it isn't the module's own
+# (database_instance): read, never managed here.
+data "google_sql_database_instance" "served" {
+  count = var.database_instance == null ? 0 : 1
+  name  = var.database_instance.name
+
+  lifecycle {
+    # The server reaches it through Cloud Run's /cloudsql volume, as it does
+    # the module's own instance in public-IP mode.
+    postcondition {
+      condition     = try(self.settings[0].ip_configuration[0].ipv4_enabled, false)
+      error_message = "database_instance names ${self.name}, which has no public IP: the server reaches its instance through the /cloudsql volume, which needs one."
+    }
+  }
+}
+
+# Kindgi's database and user live on this existing instance when
+# database_host_instance is set (the module makes no instance of its own):
+# read, never managed here.
+data "google_sql_database_instance" "host" {
+  count = var.database_host_instance == null ? 0 : 1
+  name  = var.database_host_instance
+
+  lifecycle {
+    # Public IP: the server reaches it through Cloud Run's /cloudsql volume.
+    postcondition {
+      condition     = try(self.settings[0].ip_configuration[0].ipv4_enabled, false)
+      error_message = "database_host_instance names ${self.name}, which has no public IP: the server reaches its instance through the /cloudsql volume, which needs one."
+    }
+    # Postgres 16 or later keeps Kindgi's and the app's databases apart by
+    # their role rules: before 16, CREATEROLE — which Kindgi's user needs —
+    # could grant itself any other user's role.
+    postcondition {
+      condition     = can(regex("^POSTGRES_(1[6-9]|[2-9][0-9])$", self.database_version))
+      error_message = "database_host_instance names ${self.name}, which runs ${self.database_version}: Kindgi shares an instance only with Postgres 16 or later, whose role rules keep the databases apart."
+    }
   }
 }
 
 resource "google_sql_database" "kindgi" {
-  name     = var.database_name
-  instance = google_sql_database_instance.kindgi.name
+  name = var.database_name
+  # A host's name from its read, not from the variable: README's first apply
+  # targets this database, so the host is read in that apply too. Its checks
+  # run there, and sql_connection_name is in the state for step 3.
+  instance = var.database_host_instance != null ? data.google_sql_database_instance.host[0].name : google_sql_database_instance.kindgi[0].name
+
+  # With a host instance the database lives on the app's own instance, so a
+  # destroy or a database_name change must not drop it unless the operator
+  # turned deletion protection off. Without a host it's the module's own
+  # instance, deleted with it (DELETE, the provider default).
+  deletion_policy = var.database_host_instance != null && var.database_deletion_protection ? "ABANDON" : "DELETE"
 }
 
 # The database user and its password are created by the operator (README,
@@ -70,9 +126,11 @@ locals {
     }, local.kms ? {
     secrets_aad_key = "${var.name_prefix}-secrets-aad-key" # 32 random bytes, base64: KINDGI_SECRETS_AAD_KEY (secrets_backend = "postgres" only)
   } : {})
-  shared_secrets = {
+  # Only with the one pack service: under per-deployment routing each
+  # endpoint carries its own token, and the server refuses this one.
+  shared_secrets = local.pack ? {
     pack_service_token = "${var.name_prefix}-pack-service-token" # KINDGI_PACK_SERVICE_TOKEN, both services
-  }
+  } : {}
 }
 
 resource "google_secret_manager_secret" "server" {
@@ -160,18 +218,18 @@ resource "google_kms_crypto_key_iam_member" "server_signs_exports" {
 }
 
 resource "google_secret_manager_secret_iam_member" "pack_reads_token" {
-  for_each  = google_secret_manager_secret.shared
+  for_each  = { for name, secret in google_secret_manager_secret.shared : name => secret if local.pack }
   secret_id = each.value.id
   role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.pack.email}"
+  member    = "serviceAccount:${google_service_account.pack[0].email}"
 }
 
 # The pack's own secrets (`secret_env` from `kindgi env plan`): the
 # operator created them; the pack service gets read access to exactly
 # these. One in another project is granted there, not here (README).
 resource "google_secret_manager_secret_iam_member" "pack_reads_its_secrets" {
-  for_each  = { for name, ref in var.pack_secret_env : name => ref if ref.project == null }
+  for_each  = { for name, ref in var.pack_secret_env : name => ref if local.pack && ref.project == null }
   secret_id = "projects/${var.project_id}/secrets/${each.value.secret}"
   role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.pack.email}"
+  member    = "serviceAccount:${google_service_account.pack[0].email}"
 }

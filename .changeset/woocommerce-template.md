@@ -1,5 +1,0 @@
----
-'@kindgi/cli': patch
----
-
-`kindgi init --template=woocommerce` scaffolds agents for a WooCommerce store. Typed tools call the store's REST API as a dedicated WordPress user with an Application Password, which is kept as a secret. A store agent looks up orders and refunds up to 100 on its own. A larger refund, a price change and publishing a product each wait for a person to approve. Because approval rules name a tool, the limit is two refund tools, enforced by the input schema and by a running total per order. Each refund goes out once: the tools put the call's idempotency key on the refund and look for it before refunding, and again when the store answered with an error, so a step that's resumed, retried or run again returns the refund it made. A flow reviews each new order: a check step keeps only typed fields before any model sees the event, and the agent that reads events can only look orders up.

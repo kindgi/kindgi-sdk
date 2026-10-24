@@ -13,12 +13,18 @@ import {
   inboundSigningKey,
   verifyInboundSignature,
 } from '@kindgi/crypto';
+import type { Logger } from '@kindgi/log';
 import type { Scope } from '@kindgi/platform';
-import type { EnvName, TenantId, TriggerId } from '@kindgi/types';
+import type { EnvName, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import { deepJsonRefusal, nestsDeeperThan } from '../middleware/request-body.js';
 import { type TenantLimiter, tenantLimitReached } from '../middleware/tenant-limits.js';
+import {
+  type TenantStateBinding,
+  frozenTenantRefusal,
+  tenantStateReader,
+} from '../middleware/tenant-state.js';
 import { type ProviderKeys, guardProviderKeys } from '../provider-keys.js';
 import {
   type RateLimitStore,
@@ -73,6 +79,17 @@ export interface HooksRouterOptions {
    * speed bump, not a lock) and the failure logged.
    */
   readonly rateLimitStore?: RateLimitStore;
+  /**
+   * Each tenant's state: a closing tenant takes no delivery, as it takes no
+   * write (`tenantStateGate`), and a suspended one's deliveries are skipped.
+   * Absent (a runtime serving one tenant): none is frozen.
+   */
+  readonly tenantStates?: TenantStateBinding;
+  /**
+   * Whether a project is suspended: its triggers' deliveries are skipped,
+   * as nothing deploys or runs in it. Absent: no check.
+   */
+  readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
   /** Clock in milliseconds, for signed timestamps; default `Date.now`. */
   readonly now?: () => number;
 }
@@ -123,10 +140,12 @@ const WOO_PING_RE = /^webhook_id=\d{1,20}$/;
  * the access audit, never into the answer. A client past its refusals is
  * answered `429` for the rest of them, unrecorded; a delivery that proves
  * its sender is never held back by anyone's refusals, its own address's
- * included. Then: an unregistered trigger is `410`, a paused one takes the
- * delivery without starting a run (`202`, a `skipped` fire), and a delivery
- * whose dedupe key a fire already holds is `200 duplicate`, with no second
- * run.
+ * included. Then: a closing tenant takes no delivery (`409 tenant-closing`),
+ * a suspended tenant or project takes it without keeping it (`202`,
+ * `skipped`, and nothing recorded), an unregistered trigger is `410`, a
+ * paused one takes the delivery without starting a run (`202`, a `skipped`
+ * fire), and a delivery whose dedupe key a fire already holds is `200
+ * duplicate`, with no second run.
  */
 export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
   const { triggers } = options;
@@ -199,9 +218,12 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
    * can't be read or used with the scheme: kept too when only a write can
    * change that (missing, revoked, a provider's key, a value the scheme
    * can't use), and a write through this app drops it at once; a store
-   * failure isn't kept.
+   * failure isn't kept. `log` is where a failed audit append is logged.
    */
-  async function signingKeyOf(found: FoundWebhookTrigger): Promise<KeyObject | undefined> {
+  async function signingKeyOf(
+    found: FoundWebhookTrigger,
+    log: Logger,
+  ): Promise<KeyObject | undefined> {
     // Read where it was recorded when the trigger was registered, and only
     // there (`secret-scope.ts`); none usable, nothing verifies. A trigger
     // from before it was recorded reads the tenant's, as it did.
@@ -228,7 +250,7 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
     const secret =
       found.hmacSecretScope === undefined
         ? await secrets.resolve(read)
-        : await resolveAtScope(secrets, read, options.auditEvents);
+        : await resolveAtScope(secrets, read, options.auditEvents, log);
     const derived =
       secret.kind === 'err' ? undefined : inboundSigningKey(found.signature, secret.value.value);
     const key = derived?.kind === 'ok' ? derived.key : undefined;
@@ -296,6 +318,9 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
     return answer(c, 'webhook-refused', "This request doesn't prove its sender");
   }
 
+  const tenantStateOf =
+    options.tenantStates === undefined ? undefined : tenantStateReader(options.tenantStates);
+
   const r = new Hono<AppEnv>();
   r.post('/:tenantId/:webhookId', async (c) => {
     const request = c.req.raw;
@@ -342,7 +367,7 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
     // 4. The signature, with the trigger's scheme and its signing key. Only
     //    a request that fails it counts against its client: one that
     //    proves its sender goes on, whatever its address's refusals.
-    const key = await signingKeyOf(found);
+    const key = await signingKeyOf(found, c.get('log').child({ subsystem: 'audit' }));
     if (key === undefined) {
       return refusedUnproven(c, client, found, 'secret-unavailable');
     }
@@ -357,7 +382,21 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
       return refusedUnproven(c, client, found, refusalReasonOf(verified.reason));
     }
 
-    // 5. Gone, or paused: known only to a sender that proved itself.
+    // 5. Frozen, gone, or paused: known only to a sender that proved itself.
+    //    A closing tenant takes no delivery, as it takes no write. A
+    //    suspended tenant or project is answered as a paused trigger is (see
+    //    below), but nothing is recorded: a suspended tenant takes no write,
+    //    and a fire would hold the delivery's dedupe key, so a redelivery
+    //    after the restore would be a duplicate.
+    const state = (await tenantStateOf?.(c, found.tenantId)) ?? 'active';
+    if (state === 'suspended') return c.json({ skipped: 'tenant-suspended' }, 202);
+    if (state !== 'active') return frozenTenantRefusal(c, state);
+    if (
+      options.projectSuspended !== undefined &&
+      (await options.projectSuspended(found.tenantId, found.projectId))
+    ) {
+      return c.json({ skipped: 'project-suspended' }, 202);
+    }
     if (found.unregistered) {
       await record(found, 'refused', 'unregistered', client);
       return answer(c, 'webhook-gone', 'This trigger was unregistered');

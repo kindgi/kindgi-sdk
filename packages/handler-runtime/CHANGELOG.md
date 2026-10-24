@@ -1,5 +1,293 @@
 # @kindgi/handler-runtime
 
+## 0.1.10
+
+### Patch Changes
+
+- 2e60ae2: A TypeScript pack's image can carry only what the pack loads: `image: { dependencies: 'loaded' }` in `kindgi.config` keeps the packages the pack's bundles import by name, with their own dependencies, and what `image.keep` names, instead of every production dependency of the app (`'all'`, still the default).
+  
+  - Each package is resolved as Node resolves it, over the layout the package manager made (pnpm's links, npm's and Yarn's hoisting), and kept whole.
+  - Most misses fail the build, naming the package. An import that isn't installed fails the image's closure step, by name. Every package the bundles import is loaded on the trimmed install before indexing, which runs there too. A `require(x)` / `import(x)` with a computed name in the pack's own code fails `kindgi build`, by file and line, until `image.keep` names what it loads.
+  - The build prints what it kept of what's installed, and which of the pack's own dependencies its tools don't import.
+  - What no check can see reaches a run: a package loaded by a name in a string (a plugin named in a config), through a `createRequire` alias or `module.require`, or a dependency's own undeclared one. That call fails, saying what to add to `image.keep`.
+  - `prisma()` keeps Prisma 6's generated `.prisma/client` when it's there.
+  - A Python pack's `[tool.kindgi.image] dependencies = "loaded"` (or `keep`) is refused for now: its image keeps every dependency in the lockfile.
+- Updated dependencies [6b3f48c]
+- Updated dependencies [e03762c]
+- Updated dependencies [fde2432]
+- Updated dependencies [43eafb2]
+- Updated dependencies [05b762e]
+- Updated dependencies [9b6da8a]
+  - @kindgi/env-schema@0.1.10
+  - @kindgi/flow@0.1.10
+  - @kindgi/schema@0.1.10
+  - @kindgi/log@0.1.10
+  - @kindgi/sandbox@0.1.10
+  - @kindgi/types@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/env-schema@0.1.10-rc.1
+  - @kindgi/flow@0.1.10-rc.1
+  - @kindgi/log@0.1.10-rc.1
+  - @kindgi/sandbox@0.1.10-rc.1
+  - @kindgi/schema@0.1.10-rc.1
+  - @kindgi/types@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- 2e60ae2: A TypeScript pack's image can carry only what the pack loads: `image: { dependencies: 'loaded' }` in `kindgi.config` keeps the packages the pack's bundles import by name, with their own dependencies, and what `image.keep` names, instead of every production dependency of the app (`'all'`, still the default).
+  
+  - Each package is resolved as Node resolves it, over the layout the package manager made (pnpm's links, npm's and Yarn's hoisting), and kept whole.
+  - Most misses fail the build, naming the package. An import that isn't installed fails the image's closure step, by name. Every package the bundles import is loaded on the trimmed install before indexing, which runs there too. A `require(x)` / `import(x)` with a computed name in the pack's own code fails `kindgi build`, by file and line, until `image.keep` names what it loads.
+  - The build prints what it kept of what's installed, and which of the pack's own dependencies its tools don't import.
+  - What no check can see reaches a run: a package loaded by a name in a string (a plugin named in a config), through a `createRequire` alias or `module.require`, or a dependency's own undeclared one. That call fails, saying what to add to `image.keep`.
+  - `prisma()` keeps Prisma 6's generated `.prisma/client` when it's there.
+  - A Python pack's `[tool.kindgi.image] dependencies = "loaded"` (or `keep`) is refused for now: its image keeps every dependency in the lockfile.
+- Updated dependencies [6b3f48c]
+- Updated dependencies [e03762c]
+- Updated dependencies [fde2432]
+- Updated dependencies [43eafb2]
+- Updated dependencies [05b762e]
+- Updated dependencies [9b6da8a]
+  - @kindgi/env-schema@0.1.10-rc.0
+  - @kindgi/flow@0.1.10-rc.0
+  - @kindgi/schema@0.1.10-rc.0
+  - @kindgi/log@0.1.10-rc.0
+  - @kindgi/sandbox@0.1.10-rc.0
+  - @kindgi/types@0.1.10-rc.0
+
+## 0.1.9
+
+### Patch Changes
+
+- 6d3ccdd: **A pack service run per deployment can be given the env its pack declares, from the env store.** On a server that runs a pack service per deployment (it wires `systemDeployments`), the names the pack declares in its index (`env`) are looked up in the env store, at the deployment's project, then the project's org, then the tenant (most specific wins), at the env the server serves. A tenant-wide deployment is read at the tenant's Default project.
+  - **Plain values only.** A name set only as a secret can't be given into the pack service's environment yet (`pack-env-secret-not-yet`): a tool reads it per call (`ctx.secrets`). A name set both as a secret and as a plain value is `pack-env-ambiguous`, naming both scopes. A required name set nowhere is `pack-env-missing`. While any of these stands, no value is given, and a running service keeps the values it has.
+  - **`GET /v1/deployments/{deploymentId}/pack-env`** shows a tenant where each declared name is set (`project`, `org` or `tenant`) and why it can't be given, if it can't. Never a value. A server whose pack services take their env from how they're run answers `501 pack-env-not-served`. The TypeScript client has `deployments.packEnv`; the Python client, `deployments.pack_env`.
+  - **For whatever runs the pack services, on a system key of its own (`system:pack-env`):**
+    - `GET /v1/system/pack-env` lists the deployments whose service runs on values that changed;
+    - `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env` gives the values and a `revision`, with each value given out on the audit record (`env-resolved`);
+    - `PUT …/pack-env` records the revision the service runs, or that it was held back and why (compare-and-set: `409 pack-env-conflict`). `pack-env-update-failed` holds a revision whose values were given and didn't start: it's listed again for an hour after it was first held, so it's tried again;
+    - `PUT …/endpoint` takes `packEnvRevision`, the one a new service was made with.
+  
+    `system:deployments` reads no value. The TypeScript client has `systemDeployments.listPackEnvChanged`, `getPackEnv` and `recordPackEnv`.
+  - **A deployment records its pack's declaration** (`packEnv`, optional), and a deploy whose image index carries a malformed `env` is refused (`image-unverifiable`). A ready endpoint can carry `packEnvProblem` (`{ code, since }`) while its service runs on the values it was last given: one of the three codes above, or `pack-env-update-failed` when the newest values didn't start. `@kindgi/api` exports `packEnvCheck`, `PACK_ENV_PROBLEM_CODES`, `PACK_ENV_HELD_CODES` and `PACK_ENV_RETRY_MS`; `@kindgi/handler-runtime` exports its env declaration check at `@kindgi/handler-runtime/pack-env`.
+  - **An env or secret record can carry `recordId`,** the store's own id for its row, never on the wire. The revision carries it, so a removed value set again is a new revision even when its row starts again at 1 in the same millisecond. `@kindgi/env-inmemory` sets it; a store without one has only the update time.
+- cf339d3: **A tool can ask for a person's yes on every call no person is there to see: `needsApprovalWhenUnattended`.** A tool manifest's new optional `needsApprovalWhenUnattended: true` declares it. In a run no person started:
+  - **An agent's call of the tool waits for a reviewer,** as `always_ask` does. Neither the agent's `conversationPolicy.hitl` nor the tenant's approval rules can lift it.
+  - **A flow's tool step that calls it fails,** with `needs-a-person: …` naming the tool, since a tool step can't wait. Call such a tool from an agent step.
+  - In a run a person started, the agent's own gates decide, as for any tool. A tool that doesn't declare it is unchanged.
+  
+  **A run says how it started: `startedBy`** on `GET /v1/runs` and `GET /v1/runs/{runId}`, and on `KernelRunRecord`. It's `person` (signed in, or with their own API key), `key` (a service account's key), or `schedule`, `webhook` or `event` (a trigger). Only `person` counts as attended (`runIsAttended`, `@kindgi/runtime`). It's set from the caller, never from the request body, and never changes: an approval doesn't make a run its approver's. A run that a run starts started the way its run did. A run from before a runtime recorded it has none, and counts as unattended.
+  - **A key acts as its person.** For automation, use a service account's key: its runs count as unattended. A request with a service account's key is `key` whoever else it names. A tenant's first admin key, the one `POST /v1/system/tenants` answers with when it names no `firstAdmin`, is a service account's too: for the work you start, add yourself as a person and use a key of your own.
+  - **The wire `Tool`** carries `needsApprovalWhenUnattended`, so `kindgi tools get` and the console show it. The pack indexer carries it into the pack's index.
+  - **The `woocommerce` template declares it** on `woo.refund`, `woo.refund-large`, `woo.set-price` and `woo.publish-product`. A staff member's refund in the store chat runs as the store agent says; one an order webhook's run asks for waits for a person.
+  - **The authoring skills** (`kindgi-authoring-tools` and the Java, Python and Scala ones) say when to declare it.
+- Updated dependencies [22b619b]
+- Updated dependencies [1ac8e67]
+- Updated dependencies [7be42d0]
+- Updated dependencies [3b90568]
+- Updated dependencies [d563887]
+- Updated dependencies [1dc38b4]
+- Updated dependencies [c44d803]
+- Updated dependencies [ec3dbf9]
+- Updated dependencies [409b9bf]
+  - @kindgi/flow@0.1.9
+  - @kindgi/env-schema@0.1.9
+  - @kindgi/log@0.1.9
+  - @kindgi/schema@0.1.9
+  - @kindgi/sandbox@0.1.9
+  - @kindgi/types@0.1.9
+
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/env-schema@0.1.9-rc.1
+  - @kindgi/flow@0.1.9-rc.1
+  - @kindgi/log@0.1.9-rc.1
+  - @kindgi/sandbox@0.1.9-rc.1
+  - @kindgi/schema@0.1.9-rc.1
+  - @kindgi/types@0.1.9-rc.1
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- 6d3ccdd: **A pack service run per deployment can be given the env its pack declares, from the env store.** On a server that runs a pack service per deployment (it wires `systemDeployments`), the names the pack declares in its index (`env`) are looked up in the env store, at the deployment's project, then the project's org, then the tenant (most specific wins), at the env the server serves. A tenant-wide deployment is read at the tenant's Default project.
+  - **Plain values only.** A name set only as a secret can't be given into the pack service's environment yet (`pack-env-secret-not-yet`): a tool reads it per call (`ctx.secrets`). A name set both as a secret and as a plain value is `pack-env-ambiguous`, naming both scopes. A required name set nowhere is `pack-env-missing`. While any of these stands, no value is given, and a running service keeps the values it has.
+  - **`GET /v1/deployments/{deploymentId}/pack-env`** shows a tenant where each declared name is set (`project`, `org` or `tenant`) and why it can't be given, if it can't. Never a value. A server whose pack services take their env from how they're run answers `501 pack-env-not-served`. The TypeScript client has `deployments.packEnv`; the Python client, `deployments.pack_env`.
+  - **For whatever runs the pack services, on a system key of its own (`system:pack-env`):**
+    - `GET /v1/system/pack-env` lists the deployments whose service runs on values that changed;
+    - `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env` gives the values and a `revision`, with each value given out on the audit record (`env-resolved`);
+    - `PUT …/pack-env` records the revision the service runs, or that it was held back and why (compare-and-set: `409 pack-env-conflict`). `pack-env-update-failed` holds a revision whose values were given and didn't start: it's listed again for an hour after it was first held, so it's tried again;
+    - `PUT …/endpoint` takes `packEnvRevision`, the one a new service was made with.
+  
+    `system:deployments` reads no value. The TypeScript client has `systemDeployments.listPackEnvChanged`, `getPackEnv` and `recordPackEnv`.
+  - **A deployment records its pack's declaration** (`packEnv`, optional), and a deploy whose image index carries a malformed `env` is refused (`image-unverifiable`). A ready endpoint can carry `packEnvProblem` (`{ code, since }`) while its service runs on the values it was last given: one of the three codes above, or `pack-env-update-failed` when the newest values didn't start. `@kindgi/api` exports `packEnvCheck`, `PACK_ENV_PROBLEM_CODES`, `PACK_ENV_HELD_CODES` and `PACK_ENV_RETRY_MS`; `@kindgi/handler-runtime` exports its env declaration check at `@kindgi/handler-runtime/pack-env`.
+  - **An env or secret record can carry `recordId`,** the store's own id for its row, never on the wire. The revision carries it, so a removed value set again is a new revision even when its row starts again at 1 in the same millisecond. `@kindgi/env-inmemory` sets it; a store without one has only the update time.
+- cf339d3: **A tool can ask for a person's yes on every call no person is there to see: `needsApprovalWhenUnattended`.** A tool manifest's new optional `needsApprovalWhenUnattended: true` declares it. In a run no person started:
+  - **An agent's call of the tool waits for a reviewer,** as `always_ask` does. Neither the agent's `conversationPolicy.hitl` nor the tenant's approval rules can lift it.
+  - **A flow's tool step that calls it fails,** with `needs-a-person: …` naming the tool, since a tool step can't wait. Call such a tool from an agent step.
+  - In a run a person started, the agent's own gates decide, as for any tool. A tool that doesn't declare it is unchanged.
+  
+  **A run says how it started: `startedBy`** on `GET /v1/runs` and `GET /v1/runs/{runId}`, and on `KernelRunRecord`. It's `person` (signed in, or with their own API key), `key` (a service account's key), or `schedule`, `webhook` or `event` (a trigger). Only `person` counts as attended (`runIsAttended`, `@kindgi/runtime`). It's set from the caller, never from the request body, and never changes: an approval doesn't make a run its approver's. A run that a run starts started the way its run did. A run from before a runtime recorded it has none, and counts as unattended.
+  - **A key acts as its person.** For automation, use a service account's key: its runs count as unattended. A request with a service account's key is `key` whoever else it names. A tenant's first admin key, the one `POST /v1/system/tenants` answers with when it names no `firstAdmin`, is a service account's too: for the work you start, add yourself as a person and use a key of your own.
+  - **The wire `Tool`** carries `needsApprovalWhenUnattended`, so `kindgi tools get` and the console show it. The pack indexer carries it into the pack's index.
+  - **The `woocommerce` template declares it** on `woo.refund`, `woo.refund-large`, `woo.set-price` and `woo.publish-product`. A staff member's refund in the store chat runs as the store agent says; one an order webhook's run asks for waits for a person.
+  - **The authoring skills** (`kindgi-authoring-tools` and the Java, Python and Scala ones) say when to declare it.
+- Updated dependencies [22b619b]
+- Updated dependencies [1ac8e67]
+- Updated dependencies [7be42d0]
+- Updated dependencies [3b90568]
+- Updated dependencies [d563887]
+- Updated dependencies [1dc38b4]
+- Updated dependencies [c44d803]
+- Updated dependencies [ec3dbf9]
+- Updated dependencies [409b9bf]
+  - @kindgi/flow@0.1.9-rc.0
+  - @kindgi/env-schema@0.1.9-rc.0
+  - @kindgi/log@0.1.9-rc.0
+  - @kindgi/schema@0.1.9-rc.0
+  - @kindgi/sandbox@0.1.9-rc.0
+  - @kindgi/types@0.1.9-rc.0
+
+## 0.1.8
+
+### Patch Changes
+
+- ebf405d: **A pack service can be pinned to one tenant, and the server's settings for routing each call to its own deployment's pack service are declared** (pack protocol 2.7.0).
+  - **`@kindgi/handler-runtime`:**
+    - **`KINDGI_PACK_TENANT_ID`:** the tenant's id, a UUID, checked at startup: anything else, or the id no tenant has (`00000000-0000-4000-8000-000000000000`), stops the service from starting instead of refusing every call. It needs a runtime that sends the header (0.1.8 or later). With it set, the pack service refuses, with **421** and `{"code":"pack-tenant-mismatch"}`, a call to `/v1/invoke` or `/v1/info` whose `kindgi-tenant-id` header is missing or names another tenant, and a tool call whose context names another. It refuses before any pack code runs, and the answer names neither tenant. The health probes stay open. Unset (the default), nothing changes.
+    - **Tenant ids compare without regard to case** (they're UUIDs).
+    - **It's a backstop for a misrouted call to an honest pack.** The boundary is the server's routing.
+    - **`PACK_HEADERS.tenantId`** (`kindgi-tenant-id`): the server sets it on every call to `/v1/invoke` and `/v1/info`, from the deployment it routed the call to.
+    - **`GET /v1/info`** reports `indexHash`: `sha256:` and the hex SHA-256 of the service's index file, byte for byte, which is the hash a deployment signs.
+  - **`@kindgi/env-schema`** (the routing settings are used from runtime 0.1.8; earlier runtimes ignore them):
+    - **`KINDGI_PACK_TENANT_ID`** (the pack service);
+    - **`KINDGI_PACK_ROUTING`:** `single` by default, or `per-deployment`, which needs `KINDGI_TENANCY=multi` (the server refuses it with one tenant). Under `per-deployment`, each endpoint carries its own token and auth, so `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused;
+    - **`KINDGI_PACK_ENDPOINT_HOSTS`:** host names; `*.` and a domain, which matches one more label; or `*-`, a tail and a domain, which matches one more label ending with `-` and the tail. On Cloud Run, the tail form, `*-<project number>.<region>.run.app`, is the one that admits only one project's services. `*.`, or a `*-` tail that isn't a project number, with `run.app` or a domain under it (`*.us-central1.run.app`, `*.a.run.app`, `*-uc.a.run.app`) is refused at startup: Cloud Run's shared domain would admit anyone's service. An endpoint's host must also begin with its deployment's own service name, whatever the allowlist.
+  
+    Their parsers are exported: `parsePackTenantId`, `parsePackRouting`, `parsePackEndpointHosts` and `packEndpointHostAllowed` (it takes a URL's `hostname`, not its `host`).
+  - **`@kindgi/specs`:** the pack protocol schema gains the header, the 421, the optional process setting, and `info.indexHash`.
+- Updated dependencies [ebf405d]
+- Updated dependencies [8bde3fc]
+- Updated dependencies [d92706f]
+- Updated dependencies [cfe5422]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [f05d320]
+  - @kindgi/env-schema@0.1.8
+  - @kindgi/log@0.1.8
+  - @kindgi/schema@0.1.8
+  - @kindgi/types@0.1.8
+  - @kindgi/flow@0.1.8
+  - @kindgi/sandbox@0.1.8
+
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- ebf405d: **A pack service can be pinned to one tenant, and the server's settings for routing each call to its own deployment's pack service are declared** (pack protocol 2.7.0).
+  - **`@kindgi/handler-runtime`:**
+    - **`KINDGI_PACK_TENANT_ID`:** the tenant's id, a UUID, checked at startup: anything else, or the id no tenant has (`00000000-0000-4000-8000-000000000000`), stops the service from starting instead of refusing every call. It needs a runtime that sends the header (0.1.8 or later). With it set, the pack service refuses, with **421** and `{"code":"pack-tenant-mismatch"}`, a call to `/v1/invoke` or `/v1/info` whose `kindgi-tenant-id` header is missing or names another tenant, and a tool call whose context names another. It refuses before any pack code runs, and the answer names neither tenant. The health probes stay open. Unset (the default), nothing changes.
+    - **Tenant ids compare without regard to case** (they're UUIDs).
+    - **It's a backstop for a misrouted call to an honest pack.** The boundary is the server's routing.
+    - **`PACK_HEADERS.tenantId`** (`kindgi-tenant-id`): the server sets it on every call to `/v1/invoke` and `/v1/info`, from the deployment it routed the call to.
+    - **`GET /v1/info`** reports `indexHash`: `sha256:` and the hex SHA-256 of the service's index file, byte for byte, which is the hash a deployment signs.
+  - **`@kindgi/env-schema`** (the routing settings are used from runtime 0.1.8; earlier runtimes ignore them):
+    - **`KINDGI_PACK_TENANT_ID`** (the pack service);
+    - **`KINDGI_PACK_ROUTING`:** `single` by default, or `per-deployment`, which needs `KINDGI_TENANCY=multi` (the server refuses it with one tenant). Under `per-deployment`, each endpoint carries its own token and auth, so `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused;
+    - **`KINDGI_PACK_ENDPOINT_HOSTS`:** host names; `*.` and a domain, which matches one more label; or `*-`, a tail and a domain, which matches one more label ending with `-` and the tail. On Cloud Run, the tail form, `*-<project number>.<region>.run.app`, is the one that admits only one project's services. `*.`, or a `*-` tail that isn't a project number, with `run.app` or a domain under it (`*.us-central1.run.app`, `*.a.run.app`, `*-uc.a.run.app`) is refused at startup: Cloud Run's shared domain would admit anyone's service. An endpoint's host must also begin with its deployment's own service name, whatever the allowlist.
+  
+    Their parsers are exported: `parsePackTenantId`, `parsePackRouting`, `parsePackEndpointHosts` and `packEndpointHostAllowed` (it takes a URL's `hostname`, not its `host`).
+  - **`@kindgi/specs`:** the pack protocol schema gains the header, the 421, the optional process setting, and `info.indexHash`.
+- Updated dependencies [ebf405d]
+- Updated dependencies [8bde3fc]
+- Updated dependencies [d92706f]
+- Updated dependencies [cfe5422]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [f05d320]
+  - @kindgi/env-schema@0.1.8-rc.0
+  - @kindgi/log@0.1.8-rc.0
+  - @kindgi/schema@0.1.8-rc.0
+  - @kindgi/types@0.1.8-rc.0
+  - @kindgi/flow@0.1.8-rc.0
+  - @kindgi/sandbox@0.1.8-rc.0
+
+## 0.1.7
+
+### Patch Changes
+
+- bd61d80: **Two presets: `azure-openai` and `bedrock`.** They need a runtime with the Azure OpenAI and Bedrock adapters.
+  - **`azure-openai`:** GPT-6.1 Sol and GPT-6 Luna on your Azure OpenAI deployments, with the key `AZURE_OPENAI_API_KEY`: `kindgi providers register --preset=azure-openai --resource-name=<resource> --deployments=gpt-6.1-sol=<deployment>,…`. To sign in as the runtime's Entra identity instead, register with a spec.
+  - **`bedrock`:** Nova Pro (the default), Claude Sonnet 5.5, Claude Haiku 4.5, GPT-6.1 Sol and GPT-6 Luna on Amazon Bedrock, through their US cross-region inference profiles, as the runtime's AWS identity: `kindgi providers register --preset=bedrock --region=<a US region>`. Claude and GPT need the AWS account's access to their vendor's models on Bedrock (`--models=` picks them).
+  - **Their prices** are the vendors' list prices, checked 2026-10-09 (Claude Haiku 4.5's on 2026-10-10): Azure's Global Standard, and Bedrock's on-demand US profiles.
+  - **Claude Haiku 4.5 asks for up to 16,000 output tokens by default** in the `anthropic` and `bedrock` presets (it was 8,192 in `anthropic`), like their Claude 5.5 models. A model's `maxOutputTokens` is the default cap a call gets when its agent sets none, not the model's own limit; an agent's own `maxOutputTokens` replaces it.
+  
+  **A preset's settings are one table.** The `providers register` flags (`--project`, `--resource-name`, `--deployments`, `--region`), a pack's `providers` declarations (`project`, `resourceName`, `deployments`, `region`), `kindgi providers presets` and doctor's hints all read it. A preset that names a setting the table doesn't have fails to load. Doctor's register hint names a keyed preset's settings (`azure-openai (with --resource-name=<resourceName> --deployments=<deployments>)`).
+  
+  **A preset declaration is typed by its preset.** `KindgiPresetDeclaration` (in `KindgiProviderDeclaration`) is a union on `preset`, built from `PRESET_DECLARATION_SETTINGS` (`@kindgi/handler-runtime`, new):
+  - a preset's own settings are required: `{ preset: 'bedrock', region: 'us-east-2' }`, `{ preset: 'gemini', project: 'acme-gcp' }`;
+  - another preset's are refused, by the type and by `kindgi dev`, which names whose setting it is;
+  - `deployments` is a map, model to deployment: `{ preset: 'azure-openai', resourceName: 'acme-openai', deployments: { 'gpt-6.1-sol': 'gpt-6-1-sol' } }`, a table in `pyproject.toml`. The `--deployments` flag keeps `model=deployment,…`, which is also what the runtime receives. An empty map is refused, and so is a name holding `,` or `=`.
+  - `deployments` names exactly the models the entry registers (the preset's, or its `models`): a typo'd model, or one without a deployment, is refused by the config's key.
+  Also new: `KindgiPresetName`, `KindgiPresetChoices` and `KindgiPresetSettingValues`. **`preset` is now one of the preset names** (`KindgiPresetName`), not any string: a name computed at run time needs `as KindgiPresetName`. A preset whose region comes from `--region` (`bedrock`) carries none of its own.
+- Updated dependencies [b90e2c6]
+- Updated dependencies [b90e2c6]
+  - @kindgi/env-schema@0.1.7
+  - @kindgi/types@0.1.7
+  - @kindgi/flow@0.1.7
+  - @kindgi/schema@0.1.7
+  - @kindgi/sandbox@0.1.7
+  - @kindgi/log@0.1.7
+
+## 0.1.7-rc.0
+
+### Patch Changes
+
+- bd61d80: **Two presets: `azure-openai` and `bedrock`.** They need a runtime with the Azure OpenAI and Bedrock adapters.
+  - **`azure-openai`:** GPT-6.1 Sol and GPT-6 Luna on your Azure OpenAI deployments, with the key `AZURE_OPENAI_API_KEY`: `kindgi providers register --preset=azure-openai --resource-name=<resource> --deployments=gpt-6.1-sol=<deployment>,…`. To sign in as the runtime's Entra identity instead, register with a spec.
+  - **`bedrock`:** Nova Pro (the default), Claude Sonnet 5.5, Claude Haiku 4.5, GPT-6.1 Sol and GPT-6 Luna on Amazon Bedrock, through their US cross-region inference profiles, as the runtime's AWS identity: `kindgi providers register --preset=bedrock --region=<a US region>`. Claude and GPT need the AWS account's access to their vendor's models on Bedrock (`--models=` picks them).
+  - **Their prices** are the vendors' list prices, checked 2026-10-09 (Claude Haiku 4.5's on 2026-10-10): Azure's Global Standard, and Bedrock's on-demand US profiles.
+  - **Claude Haiku 4.5 asks for up to 16,000 output tokens by default** in the `anthropic` and `bedrock` presets (it was 8,192 in `anthropic`), like their Claude 5.5 models. A model's `maxOutputTokens` is the default cap a call gets when its agent sets none, not the model's own limit; an agent's own `maxOutputTokens` replaces it.
+  
+  **A preset's settings are one table.** The `providers register` flags (`--project`, `--resource-name`, `--deployments`, `--region`), a pack's `providers` declarations (`project`, `resourceName`, `deployments`, `region`), `kindgi providers presets` and doctor's hints all read it. A preset that names a setting the table doesn't have fails to load. Doctor's register hint names a keyed preset's settings (`azure-openai (with --resource-name=<resourceName> --deployments=<deployments>)`).
+  
+  **A preset declaration is typed by its preset.** `KindgiPresetDeclaration` (in `KindgiProviderDeclaration`) is a union on `preset`, built from `PRESET_DECLARATION_SETTINGS` (`@kindgi/handler-runtime`, new):
+  - a preset's own settings are required: `{ preset: 'bedrock', region: 'us-east-2' }`, `{ preset: 'gemini', project: 'acme-gcp' }`;
+  - another preset's are refused, by the type and by `kindgi dev`, which names whose setting it is;
+  - `deployments` is a map, model to deployment: `{ preset: 'azure-openai', resourceName: 'acme-openai', deployments: { 'gpt-6.1-sol': 'gpt-6-1-sol' } }`, a table in `pyproject.toml`. The `--deployments` flag keeps `model=deployment,…`, which is also what the runtime receives. An empty map is refused, and so is a name holding `,` or `=`.
+  - `deployments` names exactly the models the entry registers (the preset's, or its `models`): a typo'd model, or one without a deployment, is refused by the config's key.
+  Also new: `KindgiPresetName`, `KindgiPresetChoices` and `KindgiPresetSettingValues`. **`preset` is now one of the preset names** (`KindgiPresetName`), not any string: a name computed at run time needs `as KindgiPresetName`. A preset whose region comes from `--region` (`bedrock`) carries none of its own.
+- Updated dependencies [b90e2c6]
+- Updated dependencies [b90e2c6]
+  - @kindgi/env-schema@0.1.7-rc.0
+  - @kindgi/types@0.1.7-rc.0
+  - @kindgi/flow@0.1.7-rc.0
+  - @kindgi/schema@0.1.7-rc.0
+  - @kindgi/sandbox@0.1.7-rc.0
+  - @kindgi/log@0.1.7-rc.0
+
 ## 0.1.6
 
 ### Patch Changes

@@ -61,6 +61,9 @@ describe('previewExpiryWarning', () => {
 });
 
 test("a status it can't read says nothing, and never stops kindgi dev", async () => {
+  const notUsed = async (): Promise<never> => {
+    throw new Error('not used: only the status is read');
+  };
   expect(await readLicenseStatus({} as never)).toBeUndefined();
   expect(
     await readLicenseStatus({
@@ -68,11 +71,14 @@ test("a status it can't read says nothing, and never stops kindgi dev", async ()
         get: async () => {
           throw new Error('route-not-found');
         },
+        usage: notUsed,
       },
     }),
   ).toBeUndefined();
   const status = preview(20, 'expiring');
-  expect(await readLicenseStatus({ license: { get: async () => status } })).toBe(status);
+  expect(await readLicenseStatus({ license: { get: async () => status, usage: notUsed } })).toBe(
+    status,
+  );
 });
 
 describe('a runtime that refused to start because its preview build is past its end', () => {

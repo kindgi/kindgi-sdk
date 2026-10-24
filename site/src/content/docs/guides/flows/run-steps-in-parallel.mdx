@@ -16,12 +16,15 @@ their outputs into one.
 ## Before you start
 
 - **A pack with the tools** from [Write a flow](../write-a-flow/), such as
-  `acme.get-order`, on a runtime such as `kindgi dev`, with Kindgi 0.1's CLI.
+  `acme.get-order`, on a runtime such as `kindgi dev`, with Kindgi 0.2's CLI.
 
 ## Fan out to several tools
 
-`acme.assess-order` scores an order's risk and quotes its shipping at the same
-time, with two new read-only tools. Write the tools and the flow:
+Ask your coding agent: "I want a flow that scores an order's risk and quotes
+its shipping at the same time." Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+tools and the flow look like this. This guide calls the flow
+`acme.assess-order`, and it uses two new read-only tools:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -432,7 +435,9 @@ doesn't name, so each branch's input says
 </Tabs>
 
 - Each **branch** has a `branchId`, the tool it runs (`handler`), and the
-  `outputSchema` its output must match.
+  `outputSchema` its output must match. A branch's `outputSchema` that
+  doesn't compile is refused when the flow is loaded or deployed
+  (`/nodes/<i>/branches/<k>/outputSchema`), not at each run.
 - Every branch gets the fanout step's input: the output of the step before it,
   here the whole order. Each tool takes the fields its input declares, such
   as `total` and `items`, and drops the rest.
@@ -441,9 +446,36 @@ doesn't name, so each branch's input says
 
 Run it:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.assess-order --input='{"orderId":"A-200"}'
+pnpm exec kindgi runs start --flow=acme.assess-order --input='{"orderId":"A-200"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.assess-order --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.assess-order --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.assess-order --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--flow` is the flow, and `--input` its input. It prints the run, with both
 tools' results:

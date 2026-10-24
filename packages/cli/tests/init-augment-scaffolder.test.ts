@@ -176,6 +176,13 @@ describe('runInitAugment — end-to-end', () => {
     expect(
       await fileContents(join(root, '.claude', 'skills', 'kindgi-authoring-tools', 'SKILL.md')),
     ).toBe('# tools skill\n');
+    // The same copies for the agents that read `.agents/skills/`.
+    expect(
+      await fileContents(join(root, '.agents', 'skills', 'kindgi-authoring-tools', 'SKILL.md')),
+    ).toBe('# tools skill\n');
+    expect(
+      await exists(join(root, '.agents', 'skills', 'kindgi-getting-started', 'SKILL.md')),
+    ).toBe(true);
 
     // No env file: kindgi dev reads the project's own .env / .env.local.
     expect(await exists(join(root, '.env.local'))).toBe(false);

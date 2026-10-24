@@ -23,7 +23,8 @@ npx --yes @kindgi/cli init my-agents
 ```
 
 It makes the project in a new folder, `my-agents`, and gives your coding
-agent Kindgi's skills, in `my-agents/.claude/skills/`:
+agent Kindgi's skills, in `my-agents/.claude/skills/` and
+`my-agents/.agents/skills/`:
 
 ```text
 …

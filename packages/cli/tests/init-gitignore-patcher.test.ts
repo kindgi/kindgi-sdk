@@ -99,8 +99,13 @@ describe('patchPrettierignore', () => {
     const path = join(dir, '.prettierignore');
     await writeFile(path, 'dist/\n', 'utf8');
     const result = await patchPrettierignore(path);
-    expect(result).toEqual({ kind: 'patched', appended: ['.claude/skills/kindgi-*/'] });
-    expect(await readFile(path, 'utf8')).toBe('dist/\n\n# Kindgi\n.claude/skills/kindgi-*/\n');
+    expect(result).toEqual({
+      kind: 'patched',
+      appended: ['.claude/skills/kindgi-*/', '.agents/skills/kindgi-*/'],
+    });
+    expect(await readFile(path, 'utf8')).toBe(
+      'dist/\n\n# Kindgi\n.claude/skills/kindgi-*/\n.agents/skills/kindgi-*/\n',
+    );
   });
 
   test('never creates a .prettierignore the app did not have', async () => {

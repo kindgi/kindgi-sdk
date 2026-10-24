@@ -14,7 +14,7 @@ it, or let it finish and record the failure.
 
 - **The answer-length guardrail** from
   [Write a guardrail](../write-a-guardrail/), in the pack `my-pack`, with
-  `kindgi dev` running and Kindgi 0.1's CLI.
+  `kindgi dev` running and Kindgi 0.2's CLI.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set in your shell, to count a
   guardrail's outcomes: your runtime's URL and its API token.
 
@@ -26,6 +26,11 @@ A guardrail's action decides what a failed check does to the turn:
   has no answer.
 - **`log-only`** lets it finish. The answer goes out, and the failure is
   recorded on the turn as a violation.
+
+Ask your coding agent, for example: "When my answer length guardrail fails,
+don't stop the turn. Just record it." Kindgi's skills in your pack tell it
+how ([How it knows Kindgi](../../../start/coding-agents/)). For reference, it
+sets the action like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -50,15 +55,58 @@ action: { 'on-violation': 'log-only' },
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/mypack/guardrails/AnswerLength.java
+      .onViolation("log-only")
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/mypack/guardrails/AnswerLength.scala
+    .onViolation("log-only")
+```
+
+</TabItem>
 </Tabs>
 
 ## A halted turn
 
 With `halt`, starting a run fails with the check's reason:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+pnpm exec kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--agent` is the agent the guardrail is on, and `--input` its input.
 
@@ -69,9 +117,36 @@ Error [guardrail-violation]: Turn blocked by guardrail 'my-pack.answer-length': 
 The run is `failed`, and its `failureMessage` carries the violation. Get
 the run:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs get <run-id>
+pnpm exec kindgi runs get <run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs get <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs get <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs get <run-id>
+```
+
+</TabItem>
+</Tabs>
 
 `<run-id>` is the failed run's id. `kindgi runs list` shows it first.
 
@@ -142,6 +217,8 @@ can't run when:
 - no check by that name is registered;
 - its configuration is invalid;
 - an `llm-judge` guardrail's judge can't be routed to a model;
+- with a pack service for each deployment, the check's pack isn't deployed
+  into the run's project;
 - the check throws, because pack code crashed or a pack service couldn't be
   reached.
 
@@ -156,6 +233,14 @@ What happens next depends on the action:
   ```
 - With any other action, the turn completes.
 
+Where each deployment has its own pack service, as on Kindgi Cloud
+([A pack service for each deployment](../../../deploy/self-hosted/serve-many-tenants/#a-pack-service-for-each-deployment)),
+a guardrail's pack check runs from a pack deployed into the run's project,
+which is the guardrail's own, never from one in another project. So a
+guardrail that names a check deployed into another project can't run it,
+and the message ends:
+`A guardrail's pack check runs from a pack deployed into the run's project.`
+
 Either way, the error is recorded in two places. The run's provenance has
 the guardrail's node, with `evaluated: false`. The run journal's
 `evaluate-guardrails` step has it under `errors`.
@@ -169,7 +254,8 @@ can be `critical`.
 ## Which agents it covers
 
 A guardrail checks the turns of every agent that lists it. `scope` narrows
-that:
+that. Ask your coding agent, for example: "Check answer length only on my
+echo agent." For reference, it sets the scope like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -188,12 +274,38 @@ scope={"when": "always", "agents": ["my-pack.echo-agent"]},
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/mypack/guardrails/AnswerLength.java
+      .set("scope", Map.of("when", "always", "agents", List.of("my-pack.echo-agent")))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/mypack/guardrails/AnswerLength.scala
+    .set("scope", Map("when" -> "always", "agents" -> Seq("my-pack.echo-agent")))
+```
+
+</TabItem>
 </Tabs>
 
 - `agents` lists the agents the guardrail applies to. An agent that lists
   the guardrail but isn't in its scope isn't checked.
+- `flows` lists flows, by id. The guardrail then checks only the turns a
+  step of one of those flows starts, and replays of those turns: an agent's
+  turn in another flow's step, or outside any flow, isn't checked. With
+  `agents` as well, a turn must match both. To find a turn's flow, the
+  runtime reads the turn's runs, and only for a turn with a guardrail that
+  lists `flows`. If it can't read them, or the run a replay replays is
+  gone, the turn fails with `persistence-error` rather than go unchecked.
 - `when` is `always`, `runtime-only` or `ci-only`. A `ci-only` guardrail
   doesn't run in an agent's turn.
+
+A turn the scope leaves out isn't counted in the guardrail's
+[outcomes](#how-a-guardrail-is-doing) either.
 
 ## How a guardrail is doing
 
@@ -208,7 +320,7 @@ Here `acme.no-secret` halts on `SECRET`, on an agent at versions 2.0.0 and
 once. Count its outcomes:
 
 ```sh
-curl -s -H "authorization: Bearer $KINDGI_API_TOKEN" \
+curl -s -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
   "$KINDGI_API_URL/v1/guardrails/acme.no-secret/outcomes?projectId=a1e2b238-ae0b-4f03-b012-07875b9e5ee0&from=2026-10-11T06:02:19Z&to=2026-10-11T06:05:22Z"
 ```
 

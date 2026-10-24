@@ -2,8 +2,10 @@
 // agent's approval policy marks it `always_ask`: every call waits for a
 // person to approve it, and the refund happens only after they do, once:
 // the step resumed after the approval, or run again after a crash, finds the
-// refund it made (`createRefund` in `lib/woo.ts`). See
-// `{{PACK_ID}}.woo.refund` for why the store has two refund tools.
+// refund it made (`createRefund` in `lib/woo.ts`). The tool also declares
+// it waits in a run no person started, so even an agent whose policy says
+// `never_ask` can't run it there unasked. See `{{PACK_ID}}.woo.refund` for
+// why the store has two refund tools.
 import { defineTool } from '@kindgi/sdk/define';
 import type { ToolId } from '@kindgi/sdk/types';
 import { z } from 'zod';
@@ -33,6 +35,10 @@ const defined = defineTool({
     { kind: 'external-side-effect', notes: 'Refunds money to the customer.' },
   ],
   mutating: true,
+  // In a run no person started (a webhook, a schedule or a service account's
+  // key started it), every call waits for a person's yes, whatever the
+  // agent's approval policy says.
+  needsApprovalWhenUnattended: true,
   needsSpec: REFUND_NEEDS,
   handler: async (input, ctx) => createRefund(ctx, input),
 });

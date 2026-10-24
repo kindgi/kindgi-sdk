@@ -310,7 +310,7 @@ describe('adapter_config extraBody.* keys', () => {
 });
 
 describe('what the endpoint says about the call', () => {
-  test("served model, request id, cached and reasoning tokens, raw usage, and the attempts its SDK's retries took", async () => {
+  test('served model, request id, cached and reasoning tokens, raw usage, and the attempts a retried 429 took', async () => {
     let requests = 0;
     const flaky = (async () => {
       requests += 1;
@@ -388,10 +388,11 @@ describe('what the endpoint says about the call', () => {
     expect(unreported.usage).toEqual({ promptTokens: 30, completionTokens: 20 });
   });
 
-  test('a body that stalls past the timeout is retried by the SDK, and both attempts are counted', async () => {
-    // The real SDK over real HTTP: the first answer sends its headers and
-    // part of its body, then stalls; the SDK times the body out and
-    // retries from inside its lazy promise.
+  test('a body that stalls past the timeout is retried, and both attempts are counted', async () => {
+    // The real SDK over real HTTP: the first answer sends its headers and part
+    // of its body, then stalls; the SDK times the body out, and the adapter
+    // retries (the SDK's own retries are off). The caller's maxRetries becomes
+    // the adapter's attempt budget, so the second attempt succeeds.
     let requests = 0;
     const server: Server = createServer((_req, res) => {
       requests += 1;

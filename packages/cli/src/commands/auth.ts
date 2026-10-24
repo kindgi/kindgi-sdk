@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { saveHomeConfig } from '../config.js';
+import { sameAddress } from '../api-address.js';
+import { type ResolvedConfig, saveHomeConfig } from '../config.js';
 import type { CommandContext } from '../context.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
 import {
@@ -19,6 +20,7 @@ import {
   dockerLogin,
   registryLoginCommand,
 } from '../dev/runtime-registry.js';
+import { KINDGI_ACCESS_ORIGIN } from '../license/protocol.js';
 import { renderJson } from '../output.js';
 import {
   PromptCancelled,
@@ -52,6 +54,14 @@ const login: LeafCommand = {
         exitCode: 2,
       };
     }
+    const elsewhere = storedKeyElsewhere(ctx.config, url);
+    if (elsewhere !== undefined) {
+      return {
+        kind: 'error',
+        stderr: `kindgi auth login would save ${elsewhere} as ${url}'s key. A stored key goes only to its own address: give ${url}'s key with --token or KINDGI_API_TOKEN.\n`,
+        exitCode: 2,
+      };
+    }
     const path = await saveHomeConfig({ apiUrl: url, token }, ctx.home);
     return {
       kind: 'ok',
@@ -59,6 +69,23 @@ const login: LeafCommand = {
     };
   },
 };
+
+/**
+ * A key login wasn't given (`--token`, KINDGI_API_TOKEN) is a stored one,
+ * and login saves it only for its own address: `--url B` alone would make
+ * the key for A B's, and send it there from then on. Which key, when it
+ * isn't for `url`; `undefined` when login may save it.
+ */
+function storedKeyElsewhere(config: ResolvedConfig, url: string): string | undefined {
+  if (config.source.token !== 'file') return undefined;
+  const keyAddress = config.keyAddress;
+  if (keyAddress !== undefined && sameAddress(keyAddress, url)) return undefined;
+  const file = config.files?.token;
+  const stored = file === undefined ? 'the API key stored' : `the API key stored in ${file.path}`;
+  return keyAddress === undefined
+    ? `${stored}, which has no address stored with it,`
+    : `${stored}, which is for ${keyAddress},`;
+}
 
 const whoami: LeafCommand = {
   kind: 'leaf',
@@ -145,7 +172,7 @@ const registry: LeafCommand = {
   optionSpec: {
     username: {
       type: 'string',
-      description: 'The robot name you were given with your pull token. Needed to log in.',
+      description: `Your pull credential's robot name, shown at ${KINDGI_ACCESS_ORIGIN} once you sign in with GitHub. Needed to log in.`,
     },
     'password-stdin': {
       type: 'boolean',
@@ -188,7 +215,7 @@ function registryArgs(ctx: CommandContext): RegistryArgs | (CommandResult & { ki
   }
   if (!check && (typeof username !== 'string' || username === '')) {
     return usageError(
-      'Missing --username=<name>: the robot name you were given with your pull token (request access at contact@kindgi.com).\nTo check access without logging in: kindgi auth registry --check.',
+      `Missing --username=<name>: your pull credential's robot name. Sign in with GitHub at ${KINDGI_ACCESS_ORIGIN}: the page shows this command with your robot name, and the token to paste.\nTo check access without logging in: kindgi auth registry --check.`,
     );
   }
   return {
@@ -208,7 +235,7 @@ async function runRegistry(ctx: CommandContext): Promise<CommandResult> {
   const pinned = imageOnRegistry(DEFAULT_RUNTIME_IMAGE, args.host);
   const image = seam.image ?? pinned;
 
-  const ready = await checkDocker(run);
+  const ready = await checkDocker(run, 'kindgi auth registry');
   if (ready.kind === 'error') return { kind: 'error', stderr: `${ready.message}\n`, exitCode: 1 };
 
   const lines: string[] = [];
@@ -279,8 +306,8 @@ function accessFailure(
     return [
       `  ✗ No access to ${image}: ${access.detail}`,
       args.username === undefined
-        ? `    The runtime image is in private preview: request access at contact@kindgi.com, then log in with the pull credentials you receive: ${registryLoginCommand(image)}.`
-        : `    ${args.username} is logged in to ${args.host} but can't pull it: request access at contact@kindgi.com.`,
+        ? `    The runtime image needs a pull credential: sign in with GitHub at ${KINDGI_ACCESS_ORIGIN} for one, then log in: ${registryLoginCommand(image)}.`
+        : `    ${args.username} is logged in to ${args.host} but can't pull it: sign in at ${KINDGI_ACCESS_ORIGIN} for your current pull credential (questions: contact@kindgi.com).`,
     ];
   }
   if (access.kind === 'credential-helper') {

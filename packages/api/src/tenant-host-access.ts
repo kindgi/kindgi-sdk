@@ -35,9 +35,12 @@ export type HostReach =
   /** Run a command: a `stdio` MCP endpoint. */
   | 'exec'
   /**
-   * Connect to a link-local address (169.254.0.0/16, fe80::/10,
-   * fd00:ec2::254), where the cloud metadata endpoints hand out the
-   * server's own credentials.
+   * Connect to a cloud metadata endpoint, which hands out the server's own
+   * credentials or its host's configuration: link-local (169.254.0.0/16,
+   * fe80::/10) and those that clouds serve outside it (168.63.129.16,
+   * 100.100.100.200, fd00:ec2::254, fd00:ec2::23, fd20:ce::254,
+   * fd00:a9fe:a9fe::1, fd00:42::42), or to an address no tenant has a
+   * reason to reach: multicast, reserved, documentation and the like.
    */
   | 'metadata-network'
   /** Connect to the server's own host: 127.0.0.0/8, ::1, 0.0.0.0/8, `::`. */

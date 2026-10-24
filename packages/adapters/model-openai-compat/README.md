@@ -31,6 +31,12 @@ Translate between the framework's `ModelCallInput` / `ModelCallResult` and one n
 - **Reasoning between tool calls:** a reasoning model's reasoning items (encrypted by OpenAI), with the item ids and `phase` that tie them to the message and calls after them, are carried in the first tool call's `ModelToolCall.signature` (opaque, versioned `oair1.`). When the conversation continues with the same model, they go back in their original order; for any other model, or a signature that isn't this adapter's, the turn goes back without them. A final answer's `phase` isn't carried (`ModelMessage` has no signature).
 - **Usage:** `input_tokens` / `output_tokens`, with the cached, cache-write and reasoning parts reported apart when given.
 
+## Retries and errors
+
+The adapter owns the retry policy, built on [`@kindgi/adapter-model-shared`](../model-shared/), like the other adapters: the `openai` SDK client's own retries are off, and a dropped connection, a `408`/`409`/`429`/`5xx`, or a vendor's `x-should-retry: true` is tried again — up to the caller's `clientOptions.maxRetries` plus one attempts (the SDK default is 2, so 3 attempts) — honouring the vendor's `retry-after(-ms)`, and a vendor asking to wait more than a minute ends the call at once. A connection the runtime refuses the same way every time (an egress or body-size guard, or a redirect the request won't follow) is tried once, its own words on top rather than the SDK's generic "Connection error."
+
+A failed call throws `ModelProviderError` (`kind`, `status`), with the OpenAI SDK's error as its `cause`, as the other adapters' do; a call stopped by the turn's abort signal ends at once with the turn's reason. (Before this, a failed OpenAI-compatible call rejected with the `openai` SDK's own `APIError`, and an abort with `APIUserAbortError`; code that caught `OpenAI.APIError` on this path should catch `ModelProviderError`.)
+
 ## Exports
 
 - **`createOpenAICompatModelProvider(options)`** — returns a `ModelProvider` whose `metadata` is `options.metadata` unchanged. The SDK client is created on the first `invoke()` and reused while the key stays the same. `invoke()` throws when `input.model` is not one of `metadata.models[].name`, and passes the turn's `abortSignal` to the request, so a cancelled turn cancels the call.

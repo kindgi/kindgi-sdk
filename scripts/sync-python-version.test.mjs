@@ -4,7 +4,8 @@
 /**
  * Tests for `scripts/sync-python-version.mjs`: the PEP 440 spelling, the
  * readers, the fixed-group check, and the command itself in a scratch
- * workspace (`--check`; writing, with uv). Run: `pnpm run test:scripts`.
+ * workspace (`--check`; writing and stamping the changelog, with uv). Run:
+ * `pnpm run test:scripts`.
  */
 
 import assert from 'node:assert/strict';
@@ -16,6 +17,7 @@ import { after, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
+  NO_CHANGES,
   SyncError,
   fixedGroupVersion,
   lockedVersion,
@@ -230,10 +232,21 @@ version = "1.2.0"
 source = { editable = "." }
 `;
 
+const CHANGELOG = `# Acme Python
+
+## Unreleased
+
+- a change
+
+## 1.2.0
+
+- the first release
+`;
+
 let fixtures = 0;
 
-/** A workspace with two fixed-group packages and the Python projects `sdks/python` and `sdks/python-cli`. */
-function workspace({ sdk, cli = sdk, python = '1.2.0' }) {
+/** A workspace with two fixed-group packages, the Python projects `sdks/python` and `sdks/python-cli`, and their changelog (none when `null`). */
+function workspace({ sdk, cli = sdk, python = '1.2.0', changelog = CHANGELOG }) {
   const root = join(scratch, `ws-${++fixtures}`);
   const write = (file, text) => {
     mkdirSync(dirname(join(root, file)), { recursive: true });
@@ -256,6 +269,7 @@ function workspace({ sdk, cli = sdk, python = '1.2.0' }) {
     'sdks/python-cli/uv.lock',
     LOCK.replace('"acme-x"', '"acme-x-cli"').replace('"1.2.0"', `"${cliPython}"`),
   );
+  if (changelog !== null) write('sdks/python/CHANGELOG.md', changelog);
   execFileSync('git', ['-c', 'init.defaultBranch=main', 'init', '-q'], { cwd: root });
   return root;
 }
@@ -298,8 +312,22 @@ describe('sync-python-version --check', () => {
     assert.match(result.stderr, /@kindgi\/cli is 1\.2\.1/);
   });
 
-  test('refuses an unknown argument', () => {
-    const result = run(workspace({ sdk: '1.2.0' }), ['--chek']);
+  test("fails on a changelog that can't be stamped, or none", () => {
+    const result = run(workspace({ sdk: '1.2.0', changelog: '# Acme\n\n## 1.2.0\n' }), ['--check']);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /CHANGELOG\.md needs one "## Unreleased" heading; it has 0/);
+    const none = run(workspace({ sdk: '1.2.0', changelog: null }), ['--check']);
+    assert.equal(none.status, 1);
+    assert.match(none.stderr, /sdks\/python\/CHANGELOG\.md is missing/);
+  });
+
+  test('refuses --check with --release, and an unknown argument', () => {
+    const root = workspace({ sdk: '1.2.0' });
+    assert.match(
+      run(root, ['--check', '--release']).stderr,
+      /--check only reads; --release writes/,
+    );
+    const result = run(root, ['--chek']);
     assert.equal(result.status, 1);
     assert.match(result.stderr, /unknown argument --chek; usage:/);
   });
@@ -332,10 +360,56 @@ describe('sync-python-version (writing)', () => {
         '1.3.0b2',
       );
       assert.equal(run(root, ['--check']).status, 0);
+      assert.equal(read(root, 'sdks/python/CHANGELOG.md'), CHANGELOG);
 
       const again = run(root, []);
       assert.equal(again.status, 0, again.stderr);
       assert.match(again.stdout, /is already 1\.3\.0b2/);
+    },
+  );
+
+  test(
+    '--release stamps the changelog too, as PyPI spells the version, and a second run changes nothing',
+    { skip: HAS_UV ? false : 'uv is not installed' },
+    () => {
+      const root = workspace({ sdk: '1.3.0-rc.0' });
+      const first = run(root, ['--release']);
+      assert.equal(first.status, 0, first.stderr);
+      assert.match(first.stdout, /CHANGELOG\.md: "## Unreleased" → "## 1\.3\.0rc0"/);
+      const stamped = CHANGELOG.replace('## Unreleased\n', '## Unreleased\n\n## 1.3.0rc0\n');
+      assert.equal(read(root, 'sdks/python/CHANGELOG.md'), stamped);
+      const second = run(root, ['--release']);
+      assert.equal(second.status, 0, second.stderr);
+      assert.doesNotMatch(second.stdout, /CHANGELOG/);
+      assert.equal(read(root, 'sdks/python/CHANGELOG.md'), stamped);
+    },
+  );
+
+  test(
+    '--release with no new entries stamps a section that says so',
+    { skip: HAS_UV ? false : 'uv is not installed' },
+    () => {
+      const empty = '# Acme Python\n\n## Unreleased\n\n## 1.2.0\n\n- the first release\n';
+      const root = workspace({ sdk: '1.2.1', changelog: empty });
+      assert.equal(run(root, ['--release']).status, 0);
+      assert.equal(
+        read(root, 'sdks/python/CHANGELOG.md'),
+        `# Acme Python\n\n## Unreleased\n\n## 1.2.1\n\n${NO_CHANGES}\n\n## 1.2.0\n\n- the first release\n`,
+      );
+    },
+  );
+
+  test(
+    "--release with a changelog that can't be stamped writes nothing",
+    { skip: HAS_UV ? false : 'uv is not installed' },
+    () => {
+      const root = workspace({ sdk: '1.3.0', changelog: '# Acme\n' });
+      const result = run(root, ['--release']);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /needs one "## Unreleased" heading/);
+      assert.equal(read(root, 'sdks/python/pyproject.toml'), PYPROJECT);
+      assert.equal(read(root, 'sdks/python/uv.lock'), LOCK);
+      assert.equal(read(root, 'sdks/python/CHANGELOG.md'), '# Acme\n');
     },
   );
 });

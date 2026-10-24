@@ -13,6 +13,7 @@ import {
   postgresSpecFromCompose,
   startPostgresContainer,
 } from '../src/dev/postgres-container.js';
+import type { DockerOutcome } from '../src/dev/runtime-container.js';
 
 const COMPOSE_YAML = readFileSync(
   new URL('../src/dev/docker-compose.dev.yml', import.meta.url),
@@ -162,8 +163,12 @@ interface FakeContainer {
 interface FakeDockerState {
   /** `docker` isn't installed: every command fails to spawn. */
   readonly cli?: boolean;
-  /** The engine answers. */
-  readonly engine?: boolean;
+  /**
+   * The engine answers (the default); `false`, it doesn't; `'denied'`, its
+   * socket refuses; `'own-error'`, `docker version` fails for a reason of
+   * Docker's own while everything else works.
+   */
+  readonly engine?: boolean | 'denied' | 'own-error';
   /** The compose plugin is installed. */
   readonly compose?: boolean;
   readonly containers?: Record<string, FakeContainer>;
@@ -171,6 +176,42 @@ interface FakeDockerState {
   readonly volumes?: readonly string[];
   /** `docker run` fails: another kindgi dev made the container meanwhile. */
   readonly runConflict?: boolean;
+}
+
+/** What a command that needs the engine gets when it's out of reach. */
+function engineDown(engine: FakeDockerState['engine']): string | undefined {
+  if (engine === false) {
+    return 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?';
+  }
+  if (engine === 'denied') {
+    return 'permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock: Get "http://%2Fvar%2Frun%2Fdocker.sock/v1.47/version": dial unix /var/run/docker.sock: connect: permission denied';
+  }
+  return undefined;
+}
+
+const answered = (stdout = ''): DockerOutcome => ({ code: 0, stdout, stderr: '' });
+const failed = (stderr: string): DockerOutcome => ({ code: 1, stdout: '', stderr });
+
+/**
+ * What the engine-wide commands answer, before any container's: `compose`
+ * (its `version` answers without the engine, as the real one does; the
+ * rest need it) and `version`. `undefined` for the rest.
+ */
+function engineAnswer(state: FakeDockerState, args: readonly string[]): DockerOutcome | undefined {
+  const [cmd, sub] = args;
+  if (cmd === 'compose' && state.compose !== true) {
+    return failed("docker: 'compose' is not a docker command.");
+  }
+  if (cmd === 'compose' && sub === 'version') return answered('Docker Compose version v5.1.1\n');
+  const down = engineDown(state.engine);
+  if (down !== undefined) return failed(down);
+  if (cmd === 'compose') return answered(args.includes('port') ? '127.0.0.1:51741\n' : '');
+  if (cmd !== 'version') return undefined;
+  return state.engine === 'own-error'
+    ? failed(
+        'Error response from daemon: client version 1.52 is too new. Maximum supported API version is 1.47',
+      )
+    : answered('29.4.0\n');
 }
 
 /** A Docker engine in memory: what `docker` answers, and every command run. */
@@ -184,20 +225,10 @@ function fakeDocker(state: FakeDockerState = {}) {
   const run: DockerRunner = async (args) => {
     calls.push([...args]);
     if (state.cli === false) return { code: null, stdout: '', stderr: 'spawn docker ENOENT' };
+    const engine = engineAnswer(state, args);
+    if (engine !== undefined) return engine;
     const [cmd, sub] = args;
     const last = args.at(-1) ?? '';
-    if (cmd === 'compose') {
-      if (state.compose !== true) return fail("docker: 'compose' is not a docker command.");
-      if (sub === 'version') return ok('Docker Compose version v5.1.1\n');
-      if (args.includes('port')) return ok('127.0.0.1:51741\n');
-      return ok();
-    }
-    if (state.engine === false) {
-      return fail(
-        'Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?',
-      );
-    }
-    if (cmd === 'version') return ok('29.4.0\n');
     if (cmd === 'container' && sub === 'inspect') {
       const c = containers.get(last);
       if (c === undefined) return fail(`Error response from daemon: No such container: ${last}`);
@@ -261,16 +292,47 @@ describe('startServicesReal: docker compose, else plain docker', () => {
       },
     });
     expect(d.calls.map((c) => c.filter((a) => !a.endsWith('docker-compose.dev.yml')))).toEqual([
+      // The engine first: compose's own version answers without it.
+      ['version', '--format', '{{.Server.Version}}'],
       ['compose', 'version'],
       ['compose', '-f', '-p', 'kindgi-dev', 'up', '-d', '--wait', '--no-recreate', 'postgres'],
       ['compose', '-f', '-p', 'kindgi-dev', 'port', 'postgres', '5432'],
     ]);
     // The bundled compose file, wherever the CLI is installed.
-    expect(d.calls[1]?.[2]).toMatch(/docker-compose\.dev\.yml$/);
+    expect(d.calls[2]?.[2]).toMatch(/docker-compose\.dev\.yml$/);
 
     const recreate = fakeDocker({ compose: true });
     await startServicesReal({ recreate: true }, recreate.run);
-    expect(recreate.calls[1]).not.toContain('--no-recreate');
+    expect(recreate.calls[2]).not.toContain('--no-recreate');
+  });
+
+  test('compose present, the engine out of reach: unavailable with why, before any compose command', async () => {
+    const down = fakeDocker({ compose: true, engine: false });
+    expect(await startServicesReal({ recreate: false }, down.run)).toMatchObject({
+      kind: 'unavailable',
+      reach: 'not-running',
+    });
+    const denied = fakeDocker({ compose: true, engine: 'denied' });
+    expect(await startServicesReal({ recreate: false }, denied.run)).toMatchObject({
+      kind: 'unavailable',
+      reason: expect.stringMatching(/^Docker's socket refused `kindgi dev`: permission denied/),
+      reach: 'socket-denied',
+    });
+    for (const d of [down, denied]) {
+      expect(d.calls).toEqual([['version', '--format', '{{.Server.Version}}']]);
+    }
+  });
+
+  test("a failure of Docker's own at `docker version`: compose still tries, as before", async () => {
+    const d = fakeDocker({ compose: true, engine: 'own-error' });
+    expect(await startServicesReal({ recreate: false }, d.run)).toMatchObject({
+      kind: 'ok',
+      handle: { startedWith: 'docker compose' },
+    });
+    // Without compose, plain docker needs `docker version`: unavailable, as before.
+    expect(
+      await startServicesReal({ recreate: false }, fakeDocker({ engine: 'own-error' }).run),
+    ).toMatchObject({ kind: 'unavailable', reach: 'failed' });
   });
 
   test('compose missing: plain docker makes the same container, volume and network', async () => {
@@ -356,12 +418,15 @@ describe('startServicesReal: docker compose, else plain docker', () => {
     expect(await startServicesReal({ recreate: false }, fakeDocker({ cli: false }).run)).toEqual({
       kind: 'unavailable',
       reason: "Docker isn't available: spawn docker ENOENT",
+      reach: 'not-installed',
     });
+    // An engine that doesn't answer: its own fix, a coding agent's sandbox among the causes.
     expect(await startServicesReal({ recreate: false }, fakeDocker({ engine: false }).run)).toEqual(
       {
         kind: 'unavailable',
         reason:
-          "Docker isn't available: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?",
+          "Docker isn't running, or `kindgi dev` can't reach it: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?\n  Start Docker Desktop (or the Docker engine), then run this again. If it's running, a coding agent's sandbox may be what keeps it out of reach: run `kindgi dev` in your own terminal instead.",
+        reach: 'not-running',
       },
     );
   });

@@ -15,13 +15,19 @@ on an agent, and tests its check.
 - **A pack with an agent,** on a runtime such as `kindgi dev`, with Kindgi
   0.1's CLI. This guide uses the quickstart's pack, `my-pack`, and its
   `my-pack.echo-agent`, from the
-  [TypeScript](../../../start/quickstart-typescript/) or
-  [Python](../../../start/quickstart-python/) quickstart.
+  [TypeScript](../../../start/quickstart-typescript/),
+  [Python](../../../start/quickstart-python/),
+  [Java](../../../start/quickstart-java/) or
+  [Scala](../../../start/quickstart-scala/) quickstart.
 
 ## The guardrail
 
 The guardrail fails a turn whose answer is longer than a limit. It's one
-file in the pack's `guardrails` folder:
+file in the pack's `guardrails` folder. Ask your coding agent: "I want a
+guardrail that keeps my agent's answers short." Kindgi's skills in your pack
+tell it how ([How it knows Kindgi](../../../start/coding-agents/)). For
+reference, the guardrail looks like this. This guide calls it
+`my-pack.answer-length`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -106,6 +112,84 @@ def answer_length(config: Config, trace: RunTrace) -> CheckResult:
 The first parameter's type is the config's schema.
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/mypack/guardrails/AnswerLength.java
+package mypack.guardrails;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.kindgi.pack.CheckResult;
+import com.kindgi.pack.Guardrail;
+import jakarta.validation.constraints.Positive;
+import java.util.Map;
+
+public final class AnswerLength {
+  public record Config(@JsonProperty(defaultValue = "500") @Positive int maxChars) {}
+
+  public static final Guardrail<Config> GUARDRAIL = Guardrail.define("my-pack.answer-length")
+      .name("Answer is short")
+      .checkId("my-pack.checks.answer-length")
+      .onViolation("halt")
+      .severity("error")
+      .config(Config.class)
+      .set("config", Map.of("maxChars", 60))
+      .check((config, trace) -> {
+        int length = trace.output() == null ? 0 : trace.output().length();
+        if (length > config.maxChars()) {
+          return CheckResult.fail(
+              "The answer is " + length + " characters; the limit is " + config.maxChars() + ".");
+        }
+        return CheckResult.pass();
+      });
+
+  private AnswerLength() {}
+}
+```
+
+The class has both parts:
+
+- **The check** is the lambda in `check(...)`. It gets the guardrail's
+  config, as a `Config`, and the turn's trace, and returns
+  `CheckResult.pass()` or `CheckResult.fail(reason)`.
+- **The declaration** is the builder: the guardrail's id, its check's id
+  (`checkId`), the config's type (`config(Config.class)`), the config's
+  values (`set("config", …)`, keyed as on the wire) and the action on a
+  failure.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/mypack/guardrails/AnswerLength.scala
+package mypack.guardrails
+
+import com.kindgi.pack.scaladsl._
+import jakarta.validation.constraints.Positive
+
+object AnswerLength {
+  final case class Config(@Positive maxChars: Int = 500)
+
+  val guardrail: Guardrail[Config] = Guardrail[Config]("my-pack.answer-length")
+    .name("Answer is short")
+    .checkId("my-pack.checks.answer-length")
+    .onViolation("halt")
+    .severity("error")
+    .set("config", Map("maxChars" -> 60))
+    .check { (config, trace) =>
+      val length = Option(trace.output).map(_.length).getOrElse(0)
+      if (length > config.maxChars)
+        CheckResult.fail(s"The answer is $length characters; the limit is ${config.maxChars}.")
+      else CheckResult.pass
+    }
+}
+```
+
+`Guardrail[Config]` declares both parts: the function in `check` is the
+check, `(config, trace)`, and the builder is the declaration. `Config`, a
+case class, is the config's schema, and `set("config", …)` gives its values.
+
+</TabItem>
 </Tabs>
 
 - **The id** is `<pack-id>.<name>`. Name the rule as what should hold:
@@ -131,8 +215,9 @@ The first parameter's type is the config's schema.
 
 ## Put it on an agent
 
-A guardrail checks only the agents that list it. Add it to the agent's
-guardrails:
+A guardrail checks only the agents that list it. Ask your coding agent: "Put
+the answer length guardrail on my agent." For reference, it adds it to the
+agent's guardrails:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -157,11 +242,35 @@ from ..guardrails.response_not_empty import response_not_empty
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/mypack/agents/EchoAgent.java
+import mypack.guardrails.AnswerLength;
+
+// …
+      .guardrail(ResponseNotEmpty.GUARDRAIL)
+      .guardrail(AnswerLength.GUARDRAIL)
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/mypack/agents/EchoAgent.scala
+import mypack.guardrails.{AnswerLength, ResponseNotEmpty}
+
+// …
+    .guardrail(ResponseNotEmpty.guardrail)
+    .guardrail(AnswerLength.guardrail)
+```
+
+</TabItem>
 </Tabs>
 
-Save. `kindgi dev` registers the guardrail with the rest of the pack. An
-agent that names a guardrail that isn't registered doesn't run. Its turn
-fails with:
+Once it's saved, `kindgi dev` registers the guardrail with the rest of the
+pack. An agent that names a guardrail that isn't registered doesn't run. Its
+turn fails with:
 
 ```text
 Error [unresolved-guardrail]: Agent "my-pack.gated" references guardrails not in the registry: my-pack.no-such-guardrail
@@ -196,6 +305,28 @@ Error [guardrail-violation]: Turn blocked by guardrail 'my-pack.answer-length': 
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+```text
+Error [guardrail-violation]: Turn blocked by guardrail 'my-pack.answer-length': The answer is 246 characters; the limit is 60.
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+```text
+Error [guardrail-violation]: Turn blocked by guardrail 'my-pack.answer-length': The answer is 246 characters; the limit is 60.
+```
+
+</TabItem>
 </Tabs>
 
 The command exits with status 1. The run's status is `failed`, and it has
@@ -211,7 +342,9 @@ itself can't run.
 ## Test the check
 
 The check is a function of the config and the trace, so a unit test calls it
-directly, without a run. Write the test, then run the pack's tests:
+directly, without a run. Ask your coding agent: "Write tests for my answer
+length guardrail." For reference, the tests look like this, with the command
+that runs the pack's tests:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -282,6 +415,92 @@ uv run pytest
 ```text
 ........                                                                 [100%]
 8 passed in 0.19s
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/test/java/mypack/guardrails/AnswerLengthTest.java
+package mypack.guardrails;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.kindgi.pack.CheckResult;
+import com.kindgi.pack.RunTrace;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+
+class AnswerLengthTest {
+  private static RunTrace trace(String output) {
+    return new RunTrace(Map.of("runId", "run-1", "tenantId", "test-tenant", "output", output));
+  }
+
+  @Test
+  void passesAShortAnswer() throws Exception {
+    assertTrue(AnswerLength.GUARDRAIL.evaluate(new AnswerLength.Config(60), trace("Shipped.")).passed());
+  }
+
+  @Test
+  void failsALongAnswerWithAReason() throws Exception {
+    CheckResult result = AnswerLength.GUARDRAIL.evaluate(new AnswerLength.Config(5), trace("Shipped yesterday."));
+    assertFalse(result.passed());
+    assertEquals("The answer is 18 characters; the limit is 5.", result.reason());
+  }
+}
+```
+
+```sh
+./mvnw test
+```
+
+```text
+[INFO] Running mypack.guardrails.AnswerLengthTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.444 s -- in mypack.guardrails.AnswerLengthTest
+…
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0
+[INFO]
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/test/scala/mypack/guardrails/AnswerLengthSuite.scala
+package mypack.guardrails
+
+import com.kindgi.pack.RunTrace
+import scala.jdk.CollectionConverters._
+
+class AnswerLengthSuite extends munit.FunSuite {
+  private def trace(output: String) =
+    new RunTrace(Map[String, AnyRef]("runId" -> "run-1", "tenantId" -> "test-tenant", "output" -> output).asJava)
+
+  test("passes a short answer") {
+    assert(AnswerLength.guardrail.evaluate(AnswerLength.Config(60), trace("Shipped.")).passed)
+  }
+
+  test("fails a long answer, with a reason") {
+    val result = AnswerLength.guardrail.evaluate(AnswerLength.Config(5), trace("Shipped yesterday."))
+    assert(!result.passed)
+    assertEquals(result.reason, "The answer is 18 characters; the limit is 5.")
+  }
+}
+```
+
+```sh
+sbt test
+```
+
+```text
+…
+Test run mypack.guardrails.AnswerLengthSuite finished: 0 failed, 0 ignored, 2 total 0.525s
+…
+[info] Passed: Total 5, Failed 0, Errors 0, Passed 5
 ```
 
 </TabItem>

@@ -111,6 +111,7 @@ function makeInMemoryBinding(
         if (filter.providerId !== undefined && r.providerId !== filter.providerId) return false;
         if (filter.model !== undefined && r.model !== filter.model) return false;
         if (filter.rootRunId !== undefined && r.rootRunId !== filter.rootRunId) return false;
+        if (filter.flowId !== undefined && r.flowId !== filter.flowId) return false;
         if (filter.from !== undefined && new Date(r.occurredAt).getTime() < filter.from.getTime()) {
           return false;
         }
@@ -155,6 +156,7 @@ function makeInMemoryBinding(
           if (filter.conversationId !== undefined && r.conversationId !== filter.conversationId) {
             return false;
           }
+          if (filter.flowId !== undefined && r.flowId !== filter.flowId) return false;
         }
         return true;
       });
@@ -904,6 +906,35 @@ describe("API — a model call's cost record (T135)", () => {
     expect(
       (await app.request(`/v1/cost/records?runId=${runId}&includeDescendants=yes`, auth)).status,
     ).toBe(400);
+  });
+
+  test("filters to one flow's records, and the aggregate to its spend", async () => {
+    const seen: CostListRecordsInput[] = [];
+    const { app } = makeApp(
+      [
+        call({ flowId: 'acme.triage' }),
+        call({ flowId: 'acme.triage' }),
+        call({ flowId: 'acme.refunds' }),
+        call(),
+      ],
+      seen,
+    );
+    const records = await app.request('/v1/cost/records?flowId=acme.triage', auth);
+    expect(records.status).toBe(200);
+    const body = (await records.json()) as { data: Array<{ flowId?: string }> };
+    expect(body.data.map((r) => r.flowId)).toEqual(['acme.triage', 'acme.triage']);
+    expect(seen.at(-1)?.filter).toEqual({ flowId: 'acme.triage' });
+    // An empty value is no filter, as for the others.
+    await app.request('/v1/cost/records?flowId=', auth);
+    expect(seen.at(-1)?.filter).toEqual({});
+    const aggregate = await app.request(
+      '/v1/cost/aggregate?groupBy=day&flowId=acme.triage&from=2026-09-01T00:00:00.000Z&to=2026-09-30T00:00:00.000Z',
+      auth,
+    );
+    expect(aggregate.status).toBe(200);
+    const totals = (await aggregate.json()) as { totalRecords: number; totalUsd: number };
+    expect(totals.totalRecords).toBe(2);
+    expect(totals.totalUsd).toBeCloseTo(0.004);
   });
 
   test('aggregate groups by the model actually called, with token sums per group and in total', async () => {

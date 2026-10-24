@@ -24,7 +24,9 @@ how it knows to.
 ### Skills, loaded for the task
 
 `kindgi init` copies Kindgi's **skills** into the project, under
-`.claude/skills/`, for a TypeScript, Python, Java or Scala project. A skill
+`.claude/skills/` and `.agents/skills/` (the same copy in each), for a
+TypeScript, Python, Java or Scala project. Each coding agent looks in one of
+the two ([Other coding agents](#other-coding-agents)). A skill
 is a page of instructions written for an agent:
 the steps, the commands to run, what to check, and the mistakes to avoid.
 
@@ -43,7 +45,7 @@ agent that uses it, a flow around both) loads each one in turn.
 | `kindgi-authoring-guardrails`, `kindgi-python-authoring-guardrails`, `kindgi-java-authoring-guardrails`, `kindgi-scala-authoring-guardrails` | Writing a guardrail check |
 | `kindgi-authoring-providers` | Connecting a model: Anthropic, Gemini, OpenAI-compatible endpoints |
 | `kindgi-authoring-mcp-servers` | Giving the coding agent an MCP server |
-| `kindgi-framework-feedback` | Reporting a problem in Kindgi itself |
+| `kindgi-framework-feedback` | Reporting a problem in Kindgi itself, and sending it to us once you've said yes |
 | `kindgi-using` | Guiding you in using what was built: the CLI's answer and the console page beside it |
 
 Your coding agent also guides you in using what it built. Ask it to show
@@ -99,6 +101,8 @@ works the way you would: write, run, look, fix.
 | `kindgi mcp add` | Gives itself access to a database or another service |
 | `kindgi skills sync` | Refreshes its skills after an upgrade |
 | `kindgi feedback write` | Records a bug it found in Kindgi itself |
+| `kindgi feedback submit` | Shows you that record as it would be sent, and sends it only after you say yes |
+| `kindgi feedback status` | Tells you what became of what you sent: known, fixed, or won't be fixed |
 | `kindgi build` | Builds the pack's image for deployment |
 
 It runs the CLI the project pins: `pnpm exec kindgi` in a TypeScript
@@ -129,6 +133,8 @@ Logging in to the runtime image's registry is yours too:
 ([Install](../install/)).
 
 ## Keep it out of your keys
+
+### Claude Code
 
 `kindgi init` adds deny rules to your project's `.claude/settings.json`, so
 Claude Code's file tools never read the files that hold keys and tokens:
@@ -225,6 +231,86 @@ Tested with Claude Code 2.1.288:
   `kindgi doctor` works, and says which checks it skipped because it couldn't
   read a file.
 
+### Codex
+
+Codex has no ignore file, and nothing `kindgi init` writes binds it. Its
+sandbox can refuse to read a path, with a permission profile in the
+project's `.codex/config.toml`
+([configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)).
+With it, neither Codex's shell commands nor a program they run (`node -e …`,
+a copy, a link) can read the files the profile names. Tested with Codex
+0.162.1:
+
+```toml
+default_permissions = "kindgi"
+
+[permissions.kindgi]
+extends = ":workspace"
+
+[permissions.kindgi.filesystem.":workspace_roots"]
+".git" = "read"
+".codex" = "read"
+".agents" = "read"
+".aws" = "read"
+"**/.env*" = "deny"
+".kindgi/secrets.env" = "deny"
+".kindgi/dev/runtime.env" = "deny"
+"kindgi.env" = "deny"
+"pack.env" = "deny"
+```
+
+The four `"read"` lines keep read-only the folders that Codex's default
+sandbox protects. Without them, Codex could edit `.codex/config.toml` and
+drop these rules for its next session, or add a Git hook, which runs outside
+its sandbox.
+
+Codex loads the profile only once you trust the project, in your own Codex
+config (`~/.codex/config.toml`):
+
+```toml
+[projects."/path/to/your/project"]
+trust_level = "trusted"
+```
+
+A `-c` trust override on the command line doesn't count. `codex exec`
+doesn't ask: in a project you haven't trusted, it runs without the profile,
+and can read the files. In CI, give it the profile on the command line
+instead, which holds whether the project is trusted or not:
+
+```sh
+codex exec \
+  -c 'default_permissions="kindgi"' \
+  -c 'permissions.kindgi={extends=":workspace",filesystem={":workspace_roots"={".git"="read",".codex"="read",".agents"="read",".aws"="read","**/.env*"="deny",".kindgi/secrets.env"="deny",".kindgi/dev/runtime.env"="deny","kindgi.env"="deny","pack.env"="deny"}}}' \
+  "<your prompt>"
+```
+
+The reference says not to combine `default_permissions` with
+`sandbox_mode`, so for this project the profile takes the place of the
+sandbox mode you'd otherwise set. Like Codex's default sandbox, the profile
+turns the network off.
+
+### Gemini CLI
+
+Gemini CLI's file search skips what `.gitignore` lists
+(`context.fileFiltering.respectGitIgnore`, on by default), and `kindgi init`
+adds `.kindgi/` and `.env.local` there. For the other files, add a
+`.geminiignore` at the project's root (gitignore syntax); `kindgi init` adds
+them to one the project already has:
+
+```text
+.env*
+.kindgi/secrets.env
+.kindgi/dev/runtime.env
+kindgi.env
+pack.env
+```
+
+Its docs name the tools that respect `.geminiignore` only by example (`@`
+file sharing), so don't count on it for a command its shell runs
+([.geminiignore](https://geminicli.com/docs/cli/gemini-ignore/)).
+
+### What these settings don't cover
+
 These settings keep the agent's own tools and commands out of your keys. The
 code it writes still runs in your app and in `kindgi dev`, with your access.
 Under `kindgi dev`, your pack's tools never get a secret stored with
@@ -233,37 +319,101 @@ app's routes do see what its own env files hold. Read what the agent writes.
 
 ## Other coding agents
 
-Claude Code loads the skills by itself. They're plain Markdown, so any
-coding agent can follow them once it knows where they are:
+The skills are plain Markdown, in the two folders coding agents look in.
+Where each agent looks, from its own documentation:
+
+| Agent | Finds Kindgi's skills in | Its docs |
+|---|---|---|
+| Claude Code | `.claude/skills/` | [Skills](https://code.claude.com/docs/en/skills) |
+| Codex | `.agents/skills/`, in the folder it starts in and each one above it up to the repository's root | [Skills](https://learn.chatgpt.com/docs/build-skills) |
+| Gemini CLI | `.agents/skills/`, ahead of its own `.gemini/skills/` | [Agent Skills](https://geminicli.com/docs/cli/skills/) |
+| Cursor | `.agents/skills/`, and `.claude/skills/` for compatibility | [Skills](https://cursor.com/docs/skills) |
+| VS Code (GitHub Copilot) | `.agents/skills/` and `.claude/skills/` | [Agent skills](https://code.visualstudio.com/docs/agent-customization/agent-skills) |
+
+VS Code's Skills page lists a skill once for each folder it's in, so you'll
+see each Kindgi skill twice there; the two copies are the same.
 
 - A new pack has an `AGENTS.md` that points to them, for agents that read
-  `AGENTS.md`.
+  `AGENTS.md`. Gemini CLI reads `GEMINI.md` instead, unless its
+  `context.fileName` setting names `AGENTS.md`
+  ([its settings](https://geminicli.com/docs/reference/configuration/)),
+  in `.gemini/settings.json`:
+
+  ```json
+  { "context": { "fileName": ["AGENTS.md", "GEMINI.md"] } }
+  ```
+
+  The getting-started skill holds the same instructions, and Gemini CLI
+  finds it in `.agents/skills/` either way.
 - In an existing app, `kindgi init` leaves your `AGENTS.md` (or rules file)
   alone. Add a line to it, for example: "Kindgi's instructions are in
-  `.claude/skills/`. Before writing Kindgi code, read the skill for the
-  task."
+  `.agents/skills/` (the same as `.claude/skills/`). Before writing Kindgi
+  code, read the skill for the task."
+
+### When its sandbox blocks a command
+
+Two commands are always yours to run, in your own terminal, since they ask
+for a secret: `kindgi secrets set` and `kindgi auth registry`. A coding agent
+in a sandbox may be blocked from others: starting `kindgi dev`
+(`spawn EPERM`), reaching Docker's socket, or connecting to `localhost`. Codex's
+default sandbox, for one, turns the network off and keeps `.agents/`
+read-only ([its docs](https://learn.chatgpt.com/docs/agent-approvals-security)),
+so `kindgi skills sync` is yours to run there. The
+[profile above](#codex) keeps `.agents/` read-only too.
+
+The skills and a new pack's `AGENTS.md` tell the agent not to work around a
+block: no turning its sandbox off, no starting the command in the
+background. It gives you the exact command, the folder to run it in and what
+you'll see, and waits until you say it's running. Once your `kindgi dev`
+runs, the agent's `kindgi dev` exits with code 3 and says where yours is, and
+the agent uses yours.
 
 ## Keeping them current
 
-The skills are copies, made when you ran `kindgi init`. After upgrading
-Kindgi, refresh them:
+The skills are copies, made when you ran `kindgi init`: one in
+`.claude/skills/`, one in `.agents/skills/`. After upgrading Kindgi, refresh
+both:
 
 ```sh
-kindgi skills sync
+pnpm exec kindgi skills sync
 ```
 
-It keeps skills you edited. `--force` replaces those too. In a Python
-project, run it as `uv run kindgi skills sync`.
+It keeps skills you edited, in either folder. `--force` replaces those too.
+A skill you deleted comes back. In a Python project, run it as
+`uv run kindgi skills sync`. If the project has a `.prettierignore`, it adds
+Kindgi's skills in both folders to it, so your formatter leaves the copies
+alone.
 
-It prints each skill's outcome, as JSON:
+Which release each copy came from, in both folders, is recorded in
+`.claude/skills/.kindgi-manifest.json`. Keep it, even if you don't use
+Claude Code: without it, `kindgi skills sync` can't tell a copy that's
+behind from one you edited, so it keeps every copy that's behind (`--force`
+replaces them).
+
+It says what it did in each folder, then prints the same as JSON (with
+`--json`, the JSON alone):
 
 ```text
+Synced ./.claude/skills/ and ./.agents/skills/
+
+.claude/skills/
+  = kindgi-authoring-agents @0.4.6
+…
+  0 added, 0 updated, 9 unchanged, 0 skipped-modified, 0 local-only
+
+.agents/skills/
+  = kindgi-authoring-agents @0.4.6
+…
+  0 added, 0 updated, 9 unchanged, 0 skipped-modified, 0 local-only
+
+SDK release: …
 {
   "targetDir": ".",
   "packLanguage": "node",
   "outcomes": [
     {
       "name": "kindgi-authoring-agents",
+      "folder": ".claude/skills",
       "status": "unchanged",
 …
   "dryRun": false,
@@ -271,8 +421,9 @@ It prints each skill's outcome, as JSON:
 }
 ```
 
-`kindgi dev` tells you when the installed skills are behind the CLI's.
-`.claude/skills/.kindgi-manifest.json` records what was installed.
+`kindgi dev` tells you when the installed skills are behind the CLI's, in
+either folder. `.claude/skills/.kindgi-manifest.json` records what was
+installed in both.
 
 ## MCP servers for your coding agent
 
@@ -280,9 +431,9 @@ Give the coding agent access to a database or another service through an
 MCP server, without writing its secret into the project:
 
 ```sh
-kindgi mcp presets
-kindgi secrets set MY_DB_URL --env=local --scope=tenant
-kindgi mcp add postgres --secret=MY_DB_URL
+pnpm exec kindgi mcp presets
+pnpm exec kindgi secrets set MY_DB_URL --env=local --scope=tenant
+pnpm exec kindgi mcp add postgres --secret=MY_DB_URL
 ```
 
 - `mcp presets` lists the servers Kindgi has a preset for.
@@ -317,7 +468,12 @@ for Kindgi's runtime.
 
 If your agent diagnoses a bug in Kindgi rather than in your code, the
 `kindgi-framework-feedback` skill has it write a structured note to
-`FEEDBACK.md` with `kindgi feedback write`, ready to send to us.
+`FEEDBACK.md` with `kindgi feedback write`. When you want it sent to us,
+it previews the report with `kindgi feedback submit --preview` and shows it
+to you: exactly what's sent, after keys, env values and paths are redacted.
+It sends the report only after you say yes. Later, it tells you what became
+of it. [Send us feedback](../send-feedback/) says what's sent, what we keep
+and for how long, and how to take a report back.
 
 ## Next
 

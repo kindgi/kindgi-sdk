@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/adapter-model-bedrock",
-  "version": "0.1.6",
+  "version": "0.1.10",
   "description": "Amazon Bedrock ModelProvider for @kindgi/capabilities: Claude, Nova, Llama, Mistral and OpenAI's models on Bedrock's Converse API, by the runtime's AWS identity or a Bedrock API key.",
   "license": "Apache-2.0",
   "repository": {

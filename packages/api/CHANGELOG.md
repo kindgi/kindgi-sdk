@@ -1,5 +1,2011 @@
 # @kindgi/api
 
+## 0.1.10
+
+### Patch Changes
+
+- 2d2ee60: Agent answers carry the agent's `output` and `toolErrors`. The `Agent` schema lists both, and a published agent's typed result and its tool-error retries were applied, but `GET /v1/agents`, `/v1/agents/{id}`, `/versions` and `/versions/{version}`, and the answer to `POST /v1/agents/{id}/versions`, left them out. Each is now in the answer when the agent sets it, as published, and absent when it doesn't. The schema and the clients' types don't change.
+- 997470e: **Fixed: the published artifact answer lists the S3 address it already carried.** `GET /v1/artifacts` and `POST /v1/artifacts` answer a blob's `bucket` and `key` when the server's storage gives it an S3-compatible address (`/s3/{bucket}/{key}`). The `BlobMeta` schema didn't list them, and it allows no other properties, so a client checking an answer against the spec would refuse it. The schema now lists both, optional: present when the storage gives the blob an address, absent otherwise. The answers don't change. The TypeScript and Python clients' `BlobMeta` have `bucket` and `key`.
+- b9a68d5: An agent's `conversationPolicy.autoCloseAfterInactiveSeconds` is refused. It was accepted and never acted on: a conversation never closes by itself, only when someone closes it. `defineAgent` (and an agent registered through `POST /v1/agents`, which answers `400 validation-failed`) now refuses any value at `/conversationPolicy/autoCloseAfterInactiveSeconds`, saying so: `autoCloseAfterInactiveSeconds isn't supported: a conversation never closes by itself. It closes when someone closes it: Close in the console, kindgi conversations close, or POST /v1/conversations/{id}/close. Leave it out.` The field leaves the `ConversationPolicy` type, `agent.schema.json` and the API's `ConversationPolicy` schema. `pack-index.schema.json` refuses it on an agent, so a Java, Scala or Python pack that sets it fails to build. An agent stored before it was refused keeps working: a pack already built still deploys, nothing reads the setting, and agent answers (`GET /v1/agents`, `/v1/agents/{id}`, `/versions`, `/versions/{version}`) leave it out of `conversationPolicy`.
+- 6c5006c: **A retry with the same `Idempotency-Key` now gets its `204` again.** On a route that answers `204`, a retry with the key and body of a request that succeeded was answered `500`, though the change had been made once and wasn't made again. Now it's answered `204` with no body and `X-Idempotent-Replay: true`, as other replays are.
+  - **The routes:** changing or deleting an org, a project or a team (`PATCH` and `DELETE` on `/v1/orgs/{id}`, `/v1/projects/{id}` and `/v1/teams/{id}`), changing or removing a project's or a team's member (`/v1/projects/{id}/memberships/{userId}`, `/v1/teams/{id}/memberships/{userId}`), and changing or removing a team's grant on a project (`/v1/projects/{id}/team-grants/{teamId}`).
+  - **A stored `205` or `304`** is replayed with no body the same way.
+  - **Answers stored before this change** replay correctly too: what the store holds doesn't change.
+- 43eafb2: A deployment without a secrets store (`KINDGI_SECRETS_BACKEND=none`) can say it takes no identity provider of a tenant's own: a provider's client secret and keys are references into a store. The binding's `register` and `update` may answer `{ kind: 'needs-secrets-store' }`, and `POST /v1/auth/providers` and `PATCH /v1/auth/providers/{providerId}` then answer `409 identity-providers-need-secrets-store`: "This deployment has no secrets store (KINDGI_SECRETS_BACKEND), and an identity provider's client secret and keys are references into one: identity providers can't be added or changed here until it has one." Removing a provider still works. The clients read the new code as a conflict, by its status. `KINDGI_SECRETS_BACKEND`'s description in the environment schema says so.
+- 019a6fd: **`POST /v1/deployments` answers a deploy refused by the tenant's hour of image reads as the rate limit it is: `429 rate-limit-exceeded` with `Retry-After` and `details.limit: "tenant-unpack-hour"`,** where it answered `400 image-unverifiable` with the wait only in its message. The hour passes, so it's waited out as the server's other limits are: `kindgi deploy` waits and sends the same request again (up to 10 minutes in all), and the clients map it to their `rate-limited` error with the wait.
+  - `ImageRegistryError`'s `image-limit-exceeded` has an optional `retryAfterMs`: for `tenant-unpack-hour`, how long until the tenant's hour has room again. The route sends it as `Retry-After`; a binding that gives none gets the whole hour.
+  - The image's own bounds (`manifest`, `file`, `layer`, `read` and `unpack`) stay `400 image-unverifiable`: the same image is refused again.
+  - `kindgi deploy`'s hint for the tenant's hour now follows the `429`, shown when the wait is longer than the command waits.
+- d6f844d: **A runtime serving one tenant mints a system key for the license renewal, so the renewal can send the deployment's use.**
+  - `/v1/system/keys` (mint, list, revoke) answers the deployment's own token on a runtime serving one tenant too. There it mints keys holding `system:license` alone: a mint asking for any other scope, or for `kindgi:system`, gets `400 bad-input`. With a `systemAccessAudit`, each mint, list and revoke is on the system access record, as the deployment's own token (`boot`).
+  - Such a key reads `GET /v1/license` and `GET /v1/license/usage`, and nothing else. A tenant's route refuses it (`403 system-key-on-tenant-route`), and so does every `/v1/system/*` route (`403 system-scope-missing`).
+  - A system key holding anything but `system:license` (one minted while the runtime served many tenants, say) is refused on every route with a new code, `403 system-key-scope-not-served`. Its `details` name the key's `scopes` and the ones `served`.
+  - `TokenResolution` takes `systemKeysOperator`, a `SystemPrincipal`. A runtime serving one tenant sets it on its own token, which is then that system principal, with the full system capability, on `/v1/system/keys` alone. Everywhere else the token is the tenant's, as before.
+  - `systemPrincipalFence` applies these rules unless its `tenancy` is `multi`. Among them: the deployment's own token (`boot`) as a system principal is refused outside `/v1/system/keys` (`403 system-principal-required`), whatever the bearer makes of it.
+  - `@kindgi/client`: `SystemKeysClient`'s docs cover a runtime serving one tenant.
+  - `@kindgi/cli`: `kindgi license renew --runtime-token` names a system key holding `system:license` as what it can read, beside the runtime's own token.
+- 8111046: **`POST /v1/runs` refuses a run naming a closed conversation (`input.conversationId`, for an agent or a flow) before a run is made.** It answers `409 conversation-closed`, `Conversation "<id>" is closed`, with `details.conversationId`. With `options.wait: false` too: that used to answer `202`, and its run then failed at turn setup. Waiting, the answer was already that `409`, but a failed run was made for it, with `details.runId`. Now no run is made. Who may add the turn is checked first, as before: a caller who can't read the conversation still gets `404 conversation-not-found`, a viewer the `403`, and for a conversation with a participant, the participant rule's `403`.
+- 01964ed: **A tenant admin lets one of a site's people removed in Kindgi back in, through their site.** `POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore` is for someone removed with `POST /v1/identity/users/{userId}/unregister` while the site still knows them. They're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. It answers `200 { user }`.
+  - It's refused, with nothing changed, as `409 site-person-restore-refused` with `details.reason`:
+    - `not-removed`: they're in the tenant and their site still knows them;
+    - `left`: their site said they left it. A site forgets a person who leaves, so if they come back, it signs them in as a new person;
+    - `linked-elsewhere`: they also sign in another way (through another site, or the tenant's own sign-in), and letting them back in would open that too. Add them again instead, as a new person.
+  - A site with no link to that person is `404 site-person-not-found`.
+  - `SiteBinding` gains an optional `restorePerson` (`SitePersonRestoreInput`, `SitePersonRestoreOutcome`, `SitePersonRestoreRefusal`). The route is mounted only when a deployment's binding has it.
+  - The TypeScript client gains `projects.sites.restorePerson(projectId, siteId, userId)`, and the Python client `projects.sites.restore_person`.
+  - The CLI gains `kindgi sites restore-person <site-id> <user-id> [--project=<project-id>]`.
+- 05b762e: **New system route `POST /v1/system/tenants/{tenantId}/purge`:** purges a closed tenant for good, once its 30-day export window has passed, as `kindgi-runtime tenants purge` does: every row of it, its artifacts' bytes and its authorization store, then its purge record, then the mark. `confirm` is the tenant's slug. It takes `system:tenants:purge`, which no other scope includes, or `kindgi:system`. Until now that scope could be put on a key and reached nothing.
+  
+  - **It answers when done:** `complete`, what it deleted per table (`deleted`, `objectsDeleted`, `authzStoreDeleted`), and what's left (`left`, `objectsLeft`, `leftBecause`). With `complete: false`, or a call that ended before its answer, run it again. On a tenant already purged it deletes what was written after its mark (`alreadyPurged: true`). Every call is on the operator's access record.
+  - **Refused, with nothing changed:** `400 tenant-slug-mismatch`; `409 tenant-not-closing`, `tenant-export-window-open`, `purge-record-unset` and `purge-setting-missing`. A runtime that doesn't purge answers `501 tenant-purge-unsupported`.
+  - **A failed delete of its OpenFGA store** is `502 authz-store-delete-failed`, and its message says what that left. Run it again.
+  - **`SystemTenantsBinding.purge`** is optional. `withSystemTenantContext` takes `admitPurged`, so the purge's route reaches a tenant already purged; every other system route still answers `404 tenant-not-found` for one.
+  - **New runtime setting `KINDGI_TENANT_PURGE_RECORD`** (`local:<absolute dir>` or `gcs:<bucket>[/<prefix>]`): where the server writes purge records. The route refuses every purge while it's unset.
+  - **Clients:** `client.systemTenants.purge(tenantId, confirm, { idempotencyKey, timeoutMs })` in TypeScript (`TenantPurge`), and `client.system_tenants.purge(tenant_id, confirm=…, idempotency_key=…, timeout=…)` in Python.
+- 25a7309: **A tenant can be renamed: its name, its slug, or both.** Its id stays, so whatever names it by its id keeps working.
+  - **`PATCH /v1/tenant`** renames your own tenant. It's for tenant admins. **`PATCH /v1/system/tenants/{tenantId}`** renames any tenant, for an operator's key with `system:tenants`, whose scope now reads "Create, list, read, rename and close tenants." Both take a `TenantPatch` body (`name`, `slug`, each optional; a field left out stays as it is) and an optional `Idempotency-Key`, and answer `204` with no body. The same values again also answer `204` and change nothing.
+  - **A slug follows the rule creating a tenant has:** lowercase letters, digits and single hyphens, at most 63 characters, unique across tenants. A name is non-empty, at most 100 characters.
+  - **Refusals:** `409 tenant-slug-taken` (another tenant has the slug; a purged tenant keeps its own), `409 tenant-closing`, and two new codes. `409 tenant-slug-in-config`: the server's `KINDGI_AUTH_VERIFIED_DOMAINS` names this tenant by its slug, or names the slug asked for. The server's operator names the tenant there by its id and restarts; then rename it. `409 tenant-setup-pending`: the tenant's creation hasn't finished; sending the request that created it again finishes it.
+  - **The clients:** `tenant.update(input)` and `systemTenants.update(tenantId, input)` in TypeScript, both `Promise<void>` (`RenameTenantInput` is the body); `tenant.update` and `system_tenants.update` in Python, sync and async, returning `None`. Read the tenant back with `get()`.
+  - **For a runtime:** `TenantHierarchyBinding.renameTenant` is optional, and the two routes mount only when it's there. A runtime without it answers `404` on both, as before.
+- c90dd53: Tool and MCP endpoint answers carry `secretScopes`, where each secret the item names is read. The `Tool`, `ToolVersionRow` and `MCPEndpoint` schemas list it, and the server recorded it when the item was registered, but `GET /v1/tools`, `/v1/tools/{toolId}`, `/versions` and `/versions/{version}`, and `GET /v1/mcp/endpoints` and `/v1/mcp/endpoints/{endpointId}`, left it out. It's now in the answer as recorded, a `null` kept, and absent on an item that records none. A register body still never carries it: one that does is refused (`400`). Until now an active tool's or an endpoint's read carried no field a register body refuses; one that records secret scopes now does, so a caller that registers from a read drops `secretScopes` first. The schema and the clients' types don't change.
+- 9b6da8a: **Usage reads: a tenant reads its own usage, aggregated, and the operator reads usage across tenants.**
+  
+  - **What's counted:** usage records (`USAGE_KINDS`): runs started and ended, each with its class; approvals requested and decided; model calls, inference and embedding; and a project put in production or taken out. A read answers groups: each group's count, the sum of its quantities (milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count) and its first and last times. It never answers a record's content. Model-call cost stays on `/v1/cost`.
+  - **The query,** the same on both routes:
+    - `from` and `to`: times with a zone, `to` not included, at most 92 days apart. A longer span is read in parts;
+    - `groupBy`, comma-separated;
+    - the filters `kind`, `class` and `state`, each comma-separated. A list naming an unknown value, or one value twice, is `400 bad-input`;
+    - `limit`: groups a page, from 1 to 10000 (default 1000);
+    - `cursor`: the last page's `nextCursor`. A cursor the route didn't give is `400 bad-input`.
+  - **The answer** is `{ data, watermark, nextCursor? }`. Every record at or before `watermark` is in it, so a reader re-reads a window until its watermark is past the window's end. Every page of one read carries the same watermark. A group's `kind`, `class` and `state` are plain strings: a runtime may count more later, and a reader shows a value it doesn't know as it is.
+  - **`GET /v1/usage`:** the caller's tenant's usage. `groupBy` takes `project`, `agent`, `kind`, `class`, `state` and `day` (the UTC date); the default is `project,kind`. `projectId` reads one project.
+    - **Which projects:** a tenant admin, or a deployment without authorization, reads every project and the tenant's records with no project. Anyone else, an admin's API key limited to a project included, reads only the projects they may `read`, and no record without a project.
+    - **A project the caller can't read** is absent from the answer, never an error, so the answer doesn't say it exists.
+    - **When the projects a caller may read can't be listed,** one asked for with `projectId` is still read. A read across projects is refused (`403`), never over-counted.
+  - **`GET /v1/system/usage`** takes the new system capability `system:usage:read` (`kindgi:system` includes it). `groupBy` also takes `tenant`; the default is `tenant,kind`. `tenantId` reads one tenant.
+    - A test tenant's usage, and that of a tenant whose setup is pending, is never in the answer, even when `tenantId` names one.
+    - The access record marks a read across every tenant, or names the one read.
+  - **Mounting:** `createApp` takes `usage`, a `UsageBinding` (`acrossTenants`, `ofTenant`). Without it, neither route is mounted (`404`). `@kindgi/api` exports the binding's types and the lists the query takes (`USAGE_STATES`, `USAGE_GROUP_KEYS`, `TENANT_USAGE_GROUP_KEYS`, `USAGE_WINDOW_MAX_DAYS`).
+  - **The TypeScript client** adds `client.usage.read` (`TenantUsageClient`) and `client.systemUsage.read` (`SystemUsageClient`); lists are sent comma-separated. `@kindgi/sdk` exports `TenantUsageClient`, `UsageQuery`, `UsagePage`, `UsageGroup` and `UsageGroupKey`. `UsageClient` is still `client.cost.usage`'s.
+  - **The Python client** adds `client.usage.read` and `client.system_usage.read`.
+  - **The CLI adds `kindgi usage`:**
+    - **The window:** a calendar month in UTC (`--month=YYYY-MM`, the current one by default), or `--from` and `--to` together;
+    - **The query:** `--project`, `--group-by`, `--kind`, `--class` and `--state` (comma-separated), `--limit` and `--cursor`;
+    - **The output:** the page as JSON. `--table` prints a row per group, with `(none)` for no project or agent, and on stderr the watermark and the next page's `--cursor`.
+- Updated dependencies [b9a68d5]
+- Updated dependencies [2e60ae2]
+- Updated dependencies [72b63e8]
+- Updated dependencies [25a7309]
+  - @kindgi/agents@0.1.10
+  - @kindgi/handler-runtime@0.1.10
+  - @kindgi/platform@0.1.10
+  - @kindgi/capabilities@0.1.10
+  - @kindgi/compliance@0.1.10
+  - @kindgi/flow@0.1.10
+  - @kindgi/guardrails@0.1.10
+  - @kindgi/provenance@0.1.10
+  - @kindgi/schema@0.1.10
+  - @kindgi/tools@0.1.10
+  - @kindgi/blob-binding@0.1.10
+  - @kindgi/audit-events@0.1.10
+  - @kindgi/authz@0.1.10
+  - @kindgi/bounds@0.1.10
+  - @kindgi/crypto@0.1.10
+  - @kindgi/log@0.1.10
+  - @kindgi/memory@0.1.10
+  - @kindgi/policy-contract@0.1.10
+  - @kindgi/runtime@0.1.10
+  - @kindgi/types@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/agents@0.1.10-rc.1
+  - @kindgi/audit-events@0.1.10-rc.1
+  - @kindgi/authz@0.1.10-rc.1
+  - @kindgi/blob-binding@0.1.10-rc.1
+  - @kindgi/bounds@0.1.10-rc.1
+  - @kindgi/capabilities@0.1.10-rc.1
+  - @kindgi/compliance@0.1.10-rc.1
+  - @kindgi/crypto@0.1.10-rc.1
+  - @kindgi/flow@0.1.10-rc.1
+  - @kindgi/guardrails@0.1.10-rc.1
+  - @kindgi/handler-runtime@0.1.10-rc.1
+  - @kindgi/log@0.1.10-rc.1
+  - @kindgi/memory@0.1.10-rc.1
+  - @kindgi/platform@0.1.10-rc.1
+  - @kindgi/policy-contract@0.1.10-rc.1
+  - @kindgi/provenance@0.1.10-rc.1
+  - @kindgi/runtime@0.1.10-rc.1
+  - @kindgi/schema@0.1.10-rc.1
+  - @kindgi/tools@0.1.10-rc.1
+  - @kindgi/types@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- 2d2ee60: Agent answers carry the agent's `output` and `toolErrors`. The `Agent` schema lists both, and a published agent's typed result and its tool-error retries were applied, but `GET /v1/agents`, `/v1/agents/{id}`, `/versions` and `/versions/{version}`, and the answer to `POST /v1/agents/{id}/versions`, left them out. Each is now in the answer when the agent sets it, as published, and absent when it doesn't. The schema and the clients' types don't change.
+- 997470e: **Fixed: the published artifact answer lists the S3 address it already carried.** `GET /v1/artifacts` and `POST /v1/artifacts` answer a blob's `bucket` and `key` when the server's storage gives it an S3-compatible address (`/s3/{bucket}/{key}`). The `BlobMeta` schema didn't list them, and it allows no other properties, so a client checking an answer against the spec would refuse it. The schema now lists both, optional: present when the storage gives the blob an address, absent otherwise. The answers don't change. The TypeScript and Python clients' `BlobMeta` have `bucket` and `key`.
+- b9a68d5: An agent's `conversationPolicy.autoCloseAfterInactiveSeconds` is refused. It was accepted and never acted on: a conversation never closes by itself, only when someone closes it. `defineAgent` (and an agent registered through `POST /v1/agents`, which answers `400 validation-failed`) now refuses any value at `/conversationPolicy/autoCloseAfterInactiveSeconds`, saying so: `autoCloseAfterInactiveSeconds isn't supported: a conversation never closes by itself. It closes when someone closes it: Close in the console, kindgi conversations close, or POST /v1/conversations/{id}/close. Leave it out.` The field leaves the `ConversationPolicy` type, `agent.schema.json` and the API's `ConversationPolicy` schema. `pack-index.schema.json` refuses it on an agent, so a Java, Scala or Python pack that sets it fails to build. An agent stored before it was refused keeps working: a pack already built still deploys, nothing reads the setting, and agent answers (`GET /v1/agents`, `/v1/agents/{id}`, `/versions`, `/versions/{version}`) leave it out of `conversationPolicy`.
+- 6c5006c: **A retry with the same `Idempotency-Key` now gets its `204` again.** On a route that answers `204`, a retry with the key and body of a request that succeeded was answered `500`, though the change had been made once and wasn't made again. Now it's answered `204` with no body and `X-Idempotent-Replay: true`, as other replays are.
+  - **The routes:** changing or deleting an org, a project or a team (`PATCH` and `DELETE` on `/v1/orgs/{id}`, `/v1/projects/{id}` and `/v1/teams/{id}`), changing or removing a project's or a team's member (`/v1/projects/{id}/memberships/{userId}`, `/v1/teams/{id}/memberships/{userId}`), and changing or removing a team's grant on a project (`/v1/projects/{id}/team-grants/{teamId}`).
+  - **A stored `205` or `304`** is replayed with no body the same way.
+  - **Answers stored before this change** replay correctly too: what the store holds doesn't change.
+- 43eafb2: A deployment without a secrets store (`KINDGI_SECRETS_BACKEND=none`) can say it takes no identity provider of a tenant's own: a provider's client secret and keys are references into a store. The binding's `register` and `update` may answer `{ kind: 'needs-secrets-store' }`, and `POST /v1/auth/providers` and `PATCH /v1/auth/providers/{providerId}` then answer `409 identity-providers-need-secrets-store`: "This deployment has no secrets store (KINDGI_SECRETS_BACKEND), and an identity provider's client secret and keys are references into one: identity providers can't be added or changed here until it has one." Removing a provider still works. The clients read the new code as a conflict, by its status. `KINDGI_SECRETS_BACKEND`'s description in the environment schema says so.
+- 019a6fd: **`POST /v1/deployments` answers a deploy refused by the tenant's hour of image reads as the rate limit it is: `429 rate-limit-exceeded` with `Retry-After` and `details.limit: "tenant-unpack-hour"`,** where it answered `400 image-unverifiable` with the wait only in its message. The hour passes, so it's waited out as the server's other limits are: `kindgi deploy` waits and sends the same request again (up to 10 minutes in all), and the clients map it to their `rate-limited` error with the wait.
+  - `ImageRegistryError`'s `image-limit-exceeded` has an optional `retryAfterMs`: for `tenant-unpack-hour`, how long until the tenant's hour has room again. The route sends it as `Retry-After`; a binding that gives none gets the whole hour.
+  - The image's own bounds (`manifest`, `file`, `layer`, `read` and `unpack`) stay `400 image-unverifiable`: the same image is refused again.
+  - `kindgi deploy`'s hint for the tenant's hour now follows the `429`, shown when the wait is longer than the command waits.
+- d6f844d: **A runtime serving one tenant mints a system key for the license renewal, so the renewal can send the deployment's use.**
+  - `/v1/system/keys` (mint, list, revoke) answers the deployment's own token on a runtime serving one tenant too. There it mints keys holding `system:license` alone: a mint asking for any other scope, or for `kindgi:system`, gets `400 bad-input`. With a `systemAccessAudit`, each mint, list and revoke is on the system access record, as the deployment's own token (`boot`).
+  - Such a key reads `GET /v1/license` and `GET /v1/license/usage`, and nothing else. A tenant's route refuses it (`403 system-key-on-tenant-route`), and so does every `/v1/system/*` route (`403 system-scope-missing`).
+  - A system key holding anything but `system:license` (one minted while the runtime served many tenants, say) is refused on every route with a new code, `403 system-key-scope-not-served`. Its `details` name the key's `scopes` and the ones `served`.
+  - `TokenResolution` takes `systemKeysOperator`, a `SystemPrincipal`. A runtime serving one tenant sets it on its own token, which is then that system principal, with the full system capability, on `/v1/system/keys` alone. Everywhere else the token is the tenant's, as before.
+  - `systemPrincipalFence` applies these rules unless its `tenancy` is `multi`. Among them: the deployment's own token (`boot`) as a system principal is refused outside `/v1/system/keys` (`403 system-principal-required`), whatever the bearer makes of it.
+  - `@kindgi/client`: `SystemKeysClient`'s docs cover a runtime serving one tenant.
+  - `@kindgi/cli`: `kindgi license renew --runtime-token` names a system key holding `system:license` as what it can read, beside the runtime's own token.
+- 8111046: **`POST /v1/runs` refuses a run naming a closed conversation (`input.conversationId`, for an agent or a flow) before a run is made.** It answers `409 conversation-closed`, `Conversation "<id>" is closed`, with `details.conversationId`. With `options.wait: false` too: that used to answer `202`, and its run then failed at turn setup. Waiting, the answer was already that `409`, but a failed run was made for it, with `details.runId`. Now no run is made. Who may add the turn is checked first, as before: a caller who can't read the conversation still gets `404 conversation-not-found`, a viewer the `403`, and for a conversation with a participant, the participant rule's `403`.
+- 01964ed: **A tenant admin lets one of a site's people removed in Kindgi back in, through their site.** `POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore` is for someone removed with `POST /v1/identity/users/{userId}/unregister` while the site still knows them. They're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. It answers `200 { user }`.
+  - It's refused, with nothing changed, as `409 site-person-restore-refused` with `details.reason`:
+    - `not-removed`: they're in the tenant and their site still knows them;
+    - `left`: their site said they left it. A site forgets a person who leaves, so if they come back, it signs them in as a new person;
+    - `linked-elsewhere`: they also sign in another way (through another site, or the tenant's own sign-in), and letting them back in would open that too. Add them again instead, as a new person.
+  - A site with no link to that person is `404 site-person-not-found`.
+  - `SiteBinding` gains an optional `restorePerson` (`SitePersonRestoreInput`, `SitePersonRestoreOutcome`, `SitePersonRestoreRefusal`). The route is mounted only when a deployment's binding has it.
+  - The TypeScript client gains `projects.sites.restorePerson(projectId, siteId, userId)`, and the Python client `projects.sites.restore_person`.
+  - The CLI gains `kindgi sites restore-person <site-id> <user-id> [--project=<project-id>]`.
+- 05b762e: **New system route `POST /v1/system/tenants/{tenantId}/purge`:** purges a closed tenant for good, once its 30-day export window has passed, as `kindgi-runtime tenants purge` does: every row of it, its artifacts' bytes and its authorization store, then its purge record, then the mark. `confirm` is the tenant's slug. It takes `system:tenants:purge`, which no other scope includes, or `kindgi:system`. Until now that scope could be put on a key and reached nothing.
+  
+  - **It answers when done:** `complete`, what it deleted per table (`deleted`, `objectsDeleted`, `authzStoreDeleted`), and what's left (`left`, `objectsLeft`, `leftBecause`). With `complete: false`, or a call that ended before its answer, run it again. On a tenant already purged it deletes what was written after its mark (`alreadyPurged: true`). Every call is on the operator's access record.
+  - **Refused, with nothing changed:** `400 tenant-slug-mismatch`; `409 tenant-not-closing`, `tenant-export-window-open`, `purge-record-unset` and `purge-setting-missing`. A runtime that doesn't purge answers `501 tenant-purge-unsupported`.
+  - **A failed delete of its OpenFGA store** is `502 authz-store-delete-failed`, and its message says what that left. Run it again.
+  - **`SystemTenantsBinding.purge`** is optional. `withSystemTenantContext` takes `admitPurged`, so the purge's route reaches a tenant already purged; every other system route still answers `404 tenant-not-found` for one.
+  - **New runtime setting `KINDGI_TENANT_PURGE_RECORD`** (`local:<absolute dir>` or `gcs:<bucket>[/<prefix>]`): where the server writes purge records. The route refuses every purge while it's unset.
+  - **Clients:** `client.systemTenants.purge(tenantId, confirm, { idempotencyKey, timeoutMs })` in TypeScript (`TenantPurge`), and `client.system_tenants.purge(tenant_id, confirm=…, idempotency_key=…, timeout=…)` in Python.
+- 25a7309: **A tenant can be renamed: its name, its slug, or both.** Its id stays, so whatever names it by its id keeps working.
+  - **`PATCH /v1/tenant`** renames your own tenant. It's for tenant admins. **`PATCH /v1/system/tenants/{tenantId}`** renames any tenant, for an operator's key with `system:tenants`, whose scope now reads "Create, list, read, rename and close tenants." Both take a `TenantPatch` body (`name`, `slug`, each optional; a field left out stays as it is) and an optional `Idempotency-Key`, and answer `204` with no body. The same values again also answer `204` and change nothing.
+  - **A slug follows the rule creating a tenant has:** lowercase letters, digits and single hyphens, at most 63 characters, unique across tenants. A name is non-empty, at most 100 characters.
+  - **Refusals:** `409 tenant-slug-taken` (another tenant has the slug; a purged tenant keeps its own), `409 tenant-closing`, and two new codes. `409 tenant-slug-in-config`: the server's `KINDGI_AUTH_VERIFIED_DOMAINS` names this tenant by its slug, or names the slug asked for. The server's operator names the tenant there by its id and restarts; then rename it. `409 tenant-setup-pending`: the tenant's creation hasn't finished; sending the request that created it again finishes it.
+  - **The clients:** `tenant.update(input)` and `systemTenants.update(tenantId, input)` in TypeScript, both `Promise<void>` (`RenameTenantInput` is the body); `tenant.update` and `system_tenants.update` in Python, sync and async, returning `None`. Read the tenant back with `get()`.
+  - **For a runtime:** `TenantHierarchyBinding.renameTenant` is optional, and the two routes mount only when it's there. A runtime without it answers `404` on both, as before.
+- c90dd53: Tool and MCP endpoint answers carry `secretScopes`, where each secret the item names is read. The `Tool`, `ToolVersionRow` and `MCPEndpoint` schemas list it, and the server recorded it when the item was registered, but `GET /v1/tools`, `/v1/tools/{toolId}`, `/versions` and `/versions/{version}`, and `GET /v1/mcp/endpoints` and `/v1/mcp/endpoints/{endpointId}`, left it out. It's now in the answer as recorded, a `null` kept, and absent on an item that records none. A register body still never carries it: one that does is refused (`400`). Until now an active tool's or an endpoint's read carried no field a register body refuses; one that records secret scopes now does, so a caller that registers from a read drops `secretScopes` first. The schema and the clients' types don't change.
+- 9b6da8a: **Usage reads: a tenant reads its own usage, aggregated, and the operator reads usage across tenants.**
+  
+  - **What's counted:** usage records (`USAGE_KINDS`): runs started and ended, each with its class; approvals requested and decided; model calls, inference and embedding; and a project put in production or taken out. A read answers groups: each group's count, the sum of its quantities (milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count) and its first and last times. It never answers a record's content. Model-call cost stays on `/v1/cost`.
+  - **The query,** the same on both routes:
+    - `from` and `to`: times with a zone, `to` not included, at most 92 days apart. A longer span is read in parts;
+    - `groupBy`, comma-separated;
+    - the filters `kind`, `class` and `state`, each comma-separated. A list naming an unknown value, or one value twice, is `400 bad-input`;
+    - `limit`: groups a page, from 1 to 10000 (default 1000);
+    - `cursor`: the last page's `nextCursor`. A cursor the route didn't give is `400 bad-input`.
+  - **The answer** is `{ data, watermark, nextCursor? }`. Every record at or before `watermark` is in it, so a reader re-reads a window until its watermark is past the window's end. Every page of one read carries the same watermark. A group's `kind`, `class` and `state` are plain strings: a runtime may count more later, and a reader shows a value it doesn't know as it is.
+  - **`GET /v1/usage`:** the caller's tenant's usage. `groupBy` takes `project`, `agent`, `kind`, `class`, `state` and `day` (the UTC date); the default is `project,kind`. `projectId` reads one project.
+    - **Which projects:** a tenant admin, or a deployment without authorization, reads every project and the tenant's records with no project. Anyone else, an admin's API key limited to a project included, reads only the projects they may `read`, and no record without a project.
+    - **A project the caller can't read** is absent from the answer, never an error, so the answer doesn't say it exists.
+    - **When the projects a caller may read can't be listed,** one asked for with `projectId` is still read. A read across projects is refused (`403`), never over-counted.
+  - **`GET /v1/system/usage`** takes the new system capability `system:usage:read` (`kindgi:system` includes it). `groupBy` also takes `tenant`; the default is `tenant,kind`. `tenantId` reads one tenant.
+    - A test tenant's usage, and that of a tenant whose setup is pending, is never in the answer, even when `tenantId` names one.
+    - The access record marks a read across every tenant, or names the one read.
+  - **Mounting:** `createApp` takes `usage`, a `UsageBinding` (`acrossTenants`, `ofTenant`). Without it, neither route is mounted (`404`). `@kindgi/api` exports the binding's types and the lists the query takes (`USAGE_STATES`, `USAGE_GROUP_KEYS`, `TENANT_USAGE_GROUP_KEYS`, `USAGE_WINDOW_MAX_DAYS`).
+  - **The TypeScript client** adds `client.usage.read` (`TenantUsageClient`) and `client.systemUsage.read` (`SystemUsageClient`); lists are sent comma-separated. `@kindgi/sdk` exports `TenantUsageClient`, `UsageQuery`, `UsagePage`, `UsageGroup` and `UsageGroupKey`. `UsageClient` is still `client.cost.usage`'s.
+  - **The Python client** adds `client.usage.read` and `client.system_usage.read`.
+  - **The CLI adds `kindgi usage`:**
+    - **The window:** a calendar month in UTC (`--month=YYYY-MM`, the current one by default), or `--from` and `--to` together;
+    - **The query:** `--project`, `--group-by`, `--kind`, `--class` and `--state` (comma-separated), `--limit` and `--cursor`;
+    - **The output:** the page as JSON. `--table` prints a row per group, with `(none)` for no project or agent, and on stderr the watermark and the next page's `--cursor`.
+- Updated dependencies [b9a68d5]
+- Updated dependencies [2e60ae2]
+- Updated dependencies [72b63e8]
+- Updated dependencies [25a7309]
+  - @kindgi/agents@0.1.10-rc.0
+  - @kindgi/handler-runtime@0.1.10-rc.0
+  - @kindgi/platform@0.1.10-rc.0
+  - @kindgi/capabilities@0.1.10-rc.0
+  - @kindgi/compliance@0.1.10-rc.0
+  - @kindgi/flow@0.1.10-rc.0
+  - @kindgi/guardrails@0.1.10-rc.0
+  - @kindgi/provenance@0.1.10-rc.0
+  - @kindgi/schema@0.1.10-rc.0
+  - @kindgi/tools@0.1.10-rc.0
+  - @kindgi/blob-binding@0.1.10-rc.0
+  - @kindgi/audit-events@0.1.10-rc.0
+  - @kindgi/authz@0.1.10-rc.0
+  - @kindgi/bounds@0.1.10-rc.0
+  - @kindgi/crypto@0.1.10-rc.0
+  - @kindgi/log@0.1.10-rc.0
+  - @kindgi/memory@0.1.10-rc.0
+  - @kindgi/policy-contract@0.1.10-rc.0
+  - @kindgi/runtime@0.1.10-rc.0
+  - @kindgi/types@0.1.10-rc.0
+
+## 0.1.9
+
+### Patch Changes
+
+- 83ad88a: **A 500's body no longer repeats the thrown error's own message.** An unhandled exception now answers with a fixed message — `A database query failed.` for a failed query, `Unhandled server error` otherwise — and the request id. A thrown error's message often carries internal detail (an upstream's `connect ECONNREFUSED <address>`, a database driver's string, an audience value), which reached the tenant whose request failed — on a shared deployment, detail of the platform every tenant shares; it now stays in the `unhandled error` log line under the same request id, so an operator can still correlate and read the whole error. Errors that mean to speak to the client are unchanged (`getResponse`, `TenantBudgetError` → `429` with its budget, wire errors).
+- 6ed7bc6: **A person who is the tenant's admin reads approvals at every tier.** With authorization on, `GET /v1/approvals` and `GET /v1/approvals/{approvalId}` let a person who is the tenant's admin read approvals in the projects they may read. With no roster entry, they read as an `admin` reviewer. With a lower role on the roster, they read their own tier, and any tier they ask for (`requiredRole`, or one approval).
+  - **No one new gets this:** a tenant admin could already register themselves as an `admin` reviewer.
+  - **Deciding and signing an audit bundle stay the roster's.** An API key reads as its user does, within its own limits: a key with no user, a `member` key and a key limited to a project read nothing new.
+  - **Anyone else is answered as before:** a tier above their own is still `403`, and one approval above it is still `404`.
+  - **The roster doesn't show such a reader.** The access audit records the tenant-admin check (`authz-decision`), made only where it changes what the roster gives: a reviewer reading their own tier makes none.
+- 5d68d0d: **An audit record that can't be written, and a check the authorization model can't answer, are logged through your logger instead of the console.**
+  - `emitResolveEvent` and `emitLifecycleEvent` (`@kindgi/compliance`) take an optional `log`, a `@kindgi/log` `Logger`. An append that fails or throws still never fails the caller's operation. It's logged there at `warn`, with the record's `tenantId` and `kind`, and the error's `code` or the error it threw. Without a `log` it isn't logged anywhere; before, it went to `console.warn`.
+  - `createApp` passes the request's logger, under the subsystem `audit`, for a secret or env write's record and for a secret read refused for its scope. `resolveAtScope` takes that `log` as an optional fourth argument. An app without a `logger` won't see that a record was dropped, and the `logger` option's docs say so.
+  - A check the authorization model has no relation for, which is a bug in a route, is logged at `error` through the request's logger, under the subsystem `authz`, with its `action` and `resource`. Before, it went to `console.error`.
+  - `createInMemoryEnvBinding` takes an optional `log` and passes it on with every audit record it writes.
+- d563887: **A conversation belongs to one project, and adding a turn to it takes being its opener (its participant, when it has one) or `write` on its project.** A turn reads the conversation's history and appends to it.
+  - **`POST /v1/runs`** naming a `projectId` other than its `input.conversationId`'s answers `409 conversation-project-mismatch`, with `details.conversationId`, `details.projectId` (the one named) and `details.conversationProjectId`. Name the conversation's project, or omit `projectId`. A conversation from before projects isn't compared.
+  - A turn into a conversation with no participant takes having opened it (the caller `?openedBy=me` names), or `write` on its project (on its agent, for a conversation from before projects). Read isn't enough. Anyone else gets `403 permission-denied`, with `details.resource` the conversation. With a participant, the participant rule decides, as before.
+  - A turn into a conversation that doesn't exist answers `404 conversation-not-found` before any turn starts, with `options.wait: false` too. It used to answer `202`, and its run failed. A caller who can't read the conversation gets the same `404`, byte for byte, in place of the `409`, or of the `403` for a conversation with no participant. With a participant, the participant rule's `403` stays as it was.
+  - **`POST /v1/conversations`** naming a `projectId` takes `write` on that project as well as `execute` on the agent, as a run naming one does. Omitted, it opens where it did before (a project-scoped key's project when that serves the agent, else the agent's own), with `execute` on the agent. For an agent more than one project serves, opened in one of its projects (the one named, or where an unnamed one opens), `call` there is the whole check instead.
+  - **Those checks now come before the named project is looked up.** A caller without them gets `403` whether or not the project exists, where a `projectId` that names no project answered `400` first.
+- 499082a: **Cost filters to one flow.** `GET /v1/cost/records` and `GET /v1/cost/aggregate` take `flowId`: every record of the run trees whose root is a run of that flow, whatever its version. A flow's page can now show the flow's own spend (`groupBy=day&flowId=…`), where the aggregate could only group by flow before. In the TypeScript client, `cost.usage.query` and `cost.usage.summary` take `flowId`; in the Python client, `flow_id`.
+- 17bc390: **A `GET` or `HEAD` the database was too busy to answer in time answers `503 database-busy` with `Retry-After`, where it answered `500 internal-server-error`.** The API answers it for a thrown error that carries `code: 'database-busy'`, on itself or on its `cause` chain, as the runtime's storage marks a lock or statement timeout, or a wait for a pooled connection past its limit. A request with any other method keeps the 500: a write may have saved part of its work before the timeout, and clients retry a 503 as an answer that nothing ran.
+  - The TS client's server error now carries `retryAfterSeconds` from a 503's `Retry-After` (whole seconds or an HTTP date). The client still doesn't retry on its own.
+- 66e5ec7: **A read whose binding returns the database's busy failure, instead of throwing it, now answers `503 database-busy` too.** A `GET` or `HEAD` the database was too busy for answered `503 database-busy` with `Retry-After` only when its binding threw the storage failure. A binding can instead return the failure as a Result error under its own code (`persistence-error`, `journal-error`, `blob-storage-error`), keeping it as the error's `cause`. The route then answered that code's `500`. These reads now check for the busy mark first and answer the same 503:
+  - `GET /v1/approvals` and `/v1/approvals/{approvalId}`;
+  - `/v1/conversations`, `/v1/conversations/{conversationId}` and `/v1/conversations/{conversationId}/messages`;
+  - `/v1/runs/{runId}/journal`;
+  - `/v1/audit/authz` and `/v1/audit/sign-ins`;
+  - `/v1/observations`;
+  - `/v1/provenance` and `/v1/provenance/{runId}`;
+  - `/v1/artifacts`.
+  
+  A request with any other method answers as before. A thrown error that carries its own response (`getResponse`), with the busy mark down its `cause`, now answers a `GET` or `HEAD` with the 503 as well. `SupervisorQueryObservationsOutcome`'s `runtime-error` takes an optional `cause`, which never reaches the response.
+- 22b619b: **A deployment whose agent or flow carries a schema that doesn't compile is refused, naming where it sits.** `POST /v1/deployments` used to check an index's agents and flows for shape only. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile deployed, and then every turn or run refused it. It's now `400 deployment-validation-failed`, as `defineAgent` and the flow loader refuse it: one issue per schema, at its path (`/output/schema`, `/nodes/<i>/branches/<k>/outputSchema`, …). An agent's `output` that isn't an object is refused at `/output`. Each compile counts against the tenant's compile budget, as the deployment's other compiles do.
+  - `flowSchemaProblems(flow)` (`@kindgi/flow`) lists every inline schema of a flow that doesn't compile, where a run compiles it, with its path: for a flow that never went through `loadFlow`.
+  - `defineAgent` refuses an `output` that isn't an object at `/output`, as the deployment does, instead of throwing a `TypeError` on `null`: `POST /v1/agents` answers `400 validation-failed` for it.
+- 4101430: **A deploy refused for a guardrail it can't keep now answers with `details.primitive` and `details.id`.** `POST /v1/deployments` answers `409 guardrail-project-mismatch` or `409 guardrail-already-registered` when the deploy decides the refusal itself: a live guardrail in another project, or one in its own project with a different definition. From the built package, those answers came without the two fields. The deploy's other refusals had them, and are unchanged.
+- d0ee5c5: **A deploy into a project now reads its tools' secrets where its secrets sync writes them.** When a secret a tool names is set nowhere yet, `POST /v1/deployments` with a `projectId` now records that project as where the secret is read, not the broadest scope the deployer administers. So a first `kindgi deploy --project <projectId> --sync-secrets` by a tenant's admin or an org's admin, or on a runtime with authorization off, now reads the values it just synced. Before, the tool's secret was recorded at the tenant (or the org), the sync wrote it to the project, and a call couldn't read it.
+  - **What changes for you:** if you deploy into a project and then set the secret tenant-wide (`kindgi secrets set <name> --env=<env> --scope=tenant`), a tool version deployed that way no longer reads it. Set it at the project instead: `kindgi secrets set <name> --env=<env> --scope=project:<projectId>`.
+  - **A secret already set is still read where it's found first,** among the scopes the deployer administers: the project, then its org, then the tenant. A secret set later somewhere else still changes nothing for a version already deployed.
+  - **A promotion** records where the promoted deployment's secrets sync writes, for a secret set nowhere: the project it promotes into, or the tenant for the Default project, when the promoter administers the tenant (else, as before, the broadest scope they administer).
+  - **Unchanged:** a deploy with no `projectId` (it needs admin on the tenant; its secrets sync writes to the tenant, and the tenant is recorded), a project admin's deploy, and what `POST /v1/tools`, MCP endpoints and webhook triggers record.
+  - **A tool version deployed before this change keeps what it recorded; nothing is rewritten.** If its secret was recorded at the tenant and synced into the project, set the secret at the tenant too, or deploy a new version of the tool: the new version records the project.
+- d563887: **A deployment's digest identity now includes its project, and a deployment records the one it was promoted from.** `DeploymentGetByImageDigestInput` takes an optional `projectId`: a digest is looked up within that project, or — absent — among the tenant-wide deployments (the tenant's Default project). A deployment that names no project and one that names the tenant's Default by its id are the same project for this lookup and for `register`'s idempotency check, so the same signed image is registered once per project however the Default is named. The same signed image can still be registered in more than one project, so a later environment can take it by promotion rather than a fresh build. `Deployment` gains an optional `promotedFromDeploymentId`: when a deployment was created by promoting another, the source deployment's id; absent for one registered directly.
+- d563887: **Promoting a build from one environment to the next.**
+  - `kindgi promote --from=<env> --to=<env>` moves a build to the next environment of its environment order: the same signed image, with the edits made since to its agents and flows. It finds the pack's one deployment serving in `--from` (or takes `--deployment`). It prints what moves, with the carried edits marked and the edits that stay behind, and then each value the build needs in `--to` that isn't set, with the command that sets it. It promotes only when every value is set, and exits 1 while one isn't. `--check` stops before moving anything. `--json` gives the deployment, the check and the promotion as one object.
+  - `POST /v1/deployments/{deploymentId}/promotions` promotes a deployment to the next environment of its order, `{ toProjectId, reason? }`. The target gets a deployment of its own, with the source's signed fields, contents and pack, and `promotedFromDeploymentId`. The edits of its agents and flows move with it, and each tool's secrets are read where the target reads them. Nothing is built, and no registry is written. It answers `201` with `{ deployment, created, moved, leftBehind? }`. A target that has the build already answers `200` with its deployment (`created: false`), and records the carried edits it lacked. The promoter needs read on the deployment's project and admin on the target. The deployment must still serve and its signer still be trusted, with the signature checked again. Every value the build needs in the target must be ready. The audit trail records `deployment-promoted`, with the reason.
+  - `POST /v1/deployments/{deploymentId}/promotions/check` answers what would move, the values not ready in the target, and the next environment. It writes nothing, and it refuses as the promotion would.
+  - New error codes: `409 promotion-not-next-environment` (the project named isn't the next environment of the order), `409 promotion-values-not-ready` (`details.values`), `409 deployment-superseded` (`details.environment`, `details.newerDeploymentId`) and `501 promotions-unsupported`. A promotion from or into a suspended project or pack answers `project-suspended` or `pack-suspended`, with `details.environment`.
+  - `GET /v1/deployments` takes `projectId` (one environment's deployments; the Default project also finds those that name no project) and `packId`. Each page names the filters it applied, so a client can tell a runtime that ignored them.
+  - A deployment record carries `promotedFromDeploymentId` and `packId` when they're set.
+  - `@kindgi/api`: `DeploymentRegistryBinding.promote` (optional) writes a promotion in one transaction. Without it, a promotion answers `501 promotions-unsupported`, and the check still answers. `createApp`'s `deploymentValues` supplies where a provider's model key is and the pack's own env, for the values check.
+  - `@kindgi/client`: `deployments.promote`, `deployments.promoteCheck`, and `projectId` and `packId` on `deployments.list`.
+  - `@kindgi/compliance`, `@kindgi/specs`: the audit event kind `deployment-promoted`.
+  - `kindgi deploy` refused with `409 environment-takes-promotions` names where the build enters its environment order and prints each `kindgi promote` to run from there, one environment at a time, naming each environment from the pack config. When the refusal leaves out the first environment, because the caller can't read it, the hint says the rule and points at `kindgi environments list`.
+  - `kindgi deploy` refused with `deployment-validation-failed` prints each issue again. They're in the refusal's `details.issues`, and the CLI looked for them elsewhere.
+  - `@kindgi/api`: `DeploymentValue` describes one value a deployment needs where it's promoted to: a tool's secret or env, an agent's model key, or the pack's env. It says where the value is set and why it isn't ready, never the value itself. `ModelKeyLookup` says where a run finds a provider's model key.
+  - `@kindgi/api`: `deploymentValues` lists every value a deployment needs in the project it's promoted to, each read where a run there reads it: each tool version's secrets at the scope a promotion records for them, its env values with no default, a model key for each agent version (its registered preferred provider's, else any registered provider's), and the pack's own env. `carriedVersions` gives the edits that move with a deployment to the next environment (an edit of a version it ships, reached where it serves) and the ones left behind. `findNamedSecretScope` gives the scope a secret is recorded at and the secret found there.
+  - `@kindgi/tools`: `toolRequiredEnvNames` gives the env values a tool declares with no default.
+  - `kindgi promote` outside a pack takes a project id or slug for `--from` and `--to` (a slug two projects share is refused), and lists every deployment serving in `--from`, with each one's pack when several serve. In a pack or outside one, the command it prints for a value sets it at the target project's scope (`--scope=project:<id>`), under the env the runtime serves. In a pack, it talks to the runtime `kindgi deploy` would use for `--from`, and refuses two environments whose `endpoint` or `tenantId` differ, naming both: an environment order lives in one tenant on one runtime.
+  - The promotion check answers `envName`, the env the runtime serves, which a run in the target reads its values under. It's absent when the runtime names none.
+  - A key or session limited to a project is refused promotions and their checks, `403 key-project-mismatch`, whether or not the runtime has an authorizer: a promotion reads one project and writes another.
+  - A tool secret whose schema names null and validates it is optional, as at run time: unset in the target, it isn't listed and doesn't hold a promotion back. Set or revoked, it's checked like any other. `@kindgi/tools`: `toolOptionalSecretNames` gives a tool's optional secrets.
+  - With no model provider registered in the tenant, each agent version that runs on any provider is listed as `any provider`, with the problem `no-provider`: a run there would have none to call. `kindgi promote` says to register one.
+- d563887: **`GET /v1/deployments/{deploymentId}/values` lists what a deployment needs set in a project, names only.** Each entry is a `DeploymentValue`:
+  - **What it lists:** each tool's secrets and env values with no default, a model key for each agent version the deployment ships or carries, and the pack service's own env.
+  - **How each is read:** where a run in that project reads it, under the env the runtime serves. `foundAt` says where it's set, the project, its org or the tenant, and `problem` says why it isn't ready. It never returns a value.
+  - **`?projectId=`:** names the project. Without it, it's the deployment's own project, or the tenant's Default project for a tenant-wide deployment.
+  - **Its own project:** a value counts wherever it's set.
+  - **Another project, the one a promotion would take it to:** a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it. So the list says what that promotion's check would.
+  - **Access:** it needs `admin` on the project, as listing secrets there does, and `read` on the tenant, as every deployments route does.
+  - **Errors:**
+    - `404 deployment-not-found` for an unknown deployment;
+    - `404 project-not-found` for a `projectId` that names no project of this tenant;
+    - `400 bad-input` for a `projectId` that isn't a project id.
+  - `@kindgi/cli`: `kindgi exports create` leaves the route out, as it's computed from records an export already holds.
+  - `@kindgi/client`: `deployments.values.list(deploymentId, { projectId })`. Without `projectId`, the deployment's own project.
+- e5b38a8: **`GET /v1/deployments` answers `503` when the database is busy, and more `500`s stop repeating an error's own message.** The deployments list built its own `500` in a `catch`, so a busy-database error became a `500` instead of the `503` + `Retry-After` the central handler gives a read; it now lets the error through. The deployments write paths and the signed-export failures that put a thrown error's, an outcome's or a signing error's message into a `500` body route through the handler too: the body carries a fixed message and the cause goes to the log. The public wire codes are unchanged (`export-key-error`, `compliance-export-failed` and `persistence-error` on the signing `500`s; `signing-key-not-found` stays a `4xx`), and the fixed-string wiring errors are left as deliberate client messages. One deployment-record `500` passed a `cause: outcome.code` field into its body; `toWireError` already dropped it before the wire (the `error` object is `additionalProperties: false`), so no response shape changes.
+- c56f757: **A deployment is read in the project it serves.** With authorization on, a deployments route asks `read` on the deployment's own project as well as on the tenant. A deployment that names no project is the Default project's.
+  - **`GET /v1/deployments`** lists only the deployments in projects the caller reads, so a page can hold fewer than `limit` with `hasMore` true: page by `nextCursor`, not by count. `?projectId=` needs `read` on that project, else `403`. One that isn't there is `403` too, the tenant admin's included (before, `200` with no rows), so the list tells no one which projects exist.
+  - **`GET /v1/deployments/{deploymentId}`, `/pack-env`, `/values` and `POST …/secrets`** answer a deployment in a project the caller doesn't read as one that isn't there: `404 deployment-not-found`, with nothing read or written.
+  - **A deployment's secrets sync asks `admin` where it writes,** as `/v1/secrets` does: on the deployment's project, else the tenant. Before, it asked for the tenant's admin. So a project admin's `kindgi deploy --project <id> --sync-secrets` now completes: before, the deploy registered and then the sync was refused `403`.
+  - **A tenant admin reads every deployment, as before,** and a member reads those in the projects they read: a role there, directly or through a team, or as an admin of its org.
+- 1ac8e67: **A deployment can publish the IP addresses its calls to other sites come from, and `kindgi egress` prints them,** for a site that admits only known addresses. Publishing them changes nothing about where calls go or come from.
+  - **Settings:** `KINDGI_EGRESS_SERVER_ADDRESSES` (the server's own calls, such as to MCP servers and model providers, and its webhook deliveries) and `KINDGI_EGRESS_DEPLOYMENT_ADDRESSES` (calls made by deployed code), each a comma-separated list of IPv4 or IPv6 addresses. Unset: nothing is published.
+  - **`GET /v1/tenant`** gains an optional `egress: { server, deployments }`, the same for every tenant on the deployment, which any key of the tenant reads. It's absent when the deployment publishes none, and from a runtime before it. For runtimes: `createApp`'s optional `egress` (`EgressAddresses`), whose entries must be IP addresses.
+  - **`kindgi egress`** prints a CALLS / ADDRESS table, and says every tenant on the deployment shares the addresses, so a site keeps its own credentials too. `--json` prints both lists. With none published it says so, and exits 0.
+  - The TypeScript and Python clients' `Tenant` gains the optional `egress`.
+- 404c4c9: **A cleared deployment says whether its pack service comes back, and why it isn't back yet.** Restoring a tenant, project or pack lists its `cleared` deployments that aren't superseded as needing a pack service again (`GET /v1/system/deployments?endpoint=missing`). Such a deployment's status stays `cleared` while it waits. Before, a client couldn't tell it from one that's gone for good, and nothing said why it was still waiting.
+  - **`waiting` or `retired` on every `cleared` endpoint** (`DeploymentEndpoint`, wherever a deployment's endpoint is returned: `GET /v1/deployments`, `GET /v1/deployments/{id}`, `POST /v1/deployments`, and the system routes). `waiting: true` means a pack service is wanted for it again, and it lists as needing one (`?endpoint=missing`). `retired` says why none is wanted now, as the orchestrator is told to retire one:
+    - `superseded` is for good: newer deployments ship every tool version and check it does, so no new call reaches it; a tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`);
+    - `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored.
+  
+    A `cleared` endpoint carries one of the two, and no other endpoint carries either. Both are optional: an older server sends neither. `retired` is a string, so a later reason doesn't break a client. `SYSTEM_DEPLOYMENT_RETIRE_REASONS` and `SystemDeploymentRetireReason` now come from `@kindgi/api`'s deployment types, with the same names.
+  - **A problem while it waits:** `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem` records why a `waiting` deployment has no pack service yet, as for a `pending` one, and a refused `PUT …/endpoint` records its reason the same way. A `cleared` deployment that isn't waiting is still refused, `409 endpoint-not-pending`, with a message that says it isn't waiting for a pack service. `problem` shows while a deployment waits (`pending`, or `cleared` and `waiting`): never on a `ready` one, nor on a `retired` one.
+  - **`kindgi deploy --hosted` waits for a `waiting` one** as it waits for a pending one: `… cleared, waiting for its pack service again`, with the problem's line when there is one. On a `retired` one it stops at once and says why, e.g. on a repeat deploy of a superseded image: `The deployment's pack service was taken down (cleared, superseded): a later deploy ships every tool version and check this one does, so no call reaches it again.` From a server that sends neither, it stops as before, now saying only that the pack service was taken down (cleared), no longer "before it was ready".
+  
+  The descriptions of `DeploymentEndpoint`, its `problem`, `DeploymentEndpointProblem` and the problem route say so, in `@kindgi/api` and both clients.
+- d563887: **Environment orders — the order a tenant runs a project through on its way to live.** One ordered list of projects per parent: the tenant, or one of its orgs.
+  - **`GET /v1/environment-orders`** lists the orders the caller can read a project in; **`GET /v1/environment-orders/tenant`** and **`/orgs/{orgId}`** read one (empty when it was never set or was cleared). A project the caller can't read is named by its position alone, without its id — the same project-read check `GET /v1/projects` filters its list with.
+  - **`PUT /v1/environment-orders/tenant`** and **`/orgs/{orgId}`** replace an order with the projects given, in order; send `[]` to clear it. For a tenant admin; an org admin or a project admin is refused, even on an org's own order. An order needs two or more projects, no project named twice, and each project live in the tenant under that parent and in no other order (`409 project-in-another-order`). A write that changes nothing is a no-op.
+  - A new optional `environmentOrders` binding (`EnvironmentOrderBinding`) backs the routes; a runtime that doesn't wire it doesn't mount them. The host application supplies it — `@kindgi/api` never constructs one.
+  - The TypeScript and Python clients reach them through `client.environmentOrders`.
+  - **`kindgi environments`** lists an order (`list`), sets it (`set`, naming environments from the pack config's new optional `environments.<name>.project`, or `--projects` ids/slugs), and clears it (`clear`). `kindgi env` is reworded to name a value set, to tell the two apart.
+  - A signed, exportable `environment-order-set` audit event records each set, with the order before and after — never anything a project holds.
+- d563887: **A later environment of an environment order takes builds only by promotion.** Builds and new versions enter an order at its first environment; nothing reaches a later one except by promotion from the one before it. All of this applies only when the runtime wires `environmentOrders`. A project that's first in its order, or in no order, works as before.
+  - **`POST /v1/deployments`** into a later environment (position 1 or more) is refused with **`409 environment-takes-promotions`** before anything is written: deploy into the order's first environment and promote the build from there. With no project named, the tenant's default project is the one checked. `details.position` is always present; `details.firstProjectId` appears only when the caller can read that project.
+  - Publishing an agent, a flow, a tool, a guardrail or a data block through the API into a later environment is refused the same way. Such a version stays in the environment it was published in, because only builds move between environments. Eval suites aren't refused: they're test data, published in any environment and reached there and in the later ones.
+  - A derived agent version (**`POST /v1/agents/{agentId}/versions`**) that names a later environment is refused. Otherwise it's made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted. The agent's project doesn't change. An improvement proposal's derived version and its edited data blocks are made in that first environment too, and the proposal's candidate is evaluated in the project it was made in.
+  - A deploy keeps a guardrail registered in another project of the target's order instead of refusing it with `guardrail-project-mismatch`.
+  - `AgentVersionRecord`, `FlowVersionRecord` and `EvalSuiteRecord` gain an optional `madeInProjectId`: the project a version was made in, when the store records it. It isn't on the wire.
+  - `ItemReference` gains an optional `version`: a reference to one version of an agent, flow or eval suite. `referencesOutOfScope` asks about each version once.
+- 53b09f7: **`GET /v1/environments` lists the tenant's env names,** for a tenant admin: each name that holds an env value or a secret, at any scope, once, in byte order, paged by `cursor` and `limit`.
+  - An env store and a secrets store each say their own names through a new optional `listEnvNames({ tenantId, limit, after })` (`EnvBinding`, `SecretBinding`). A runtime whose store doesn't answers `501 environments-unsupported`, which names the store, rather than a list missing its names.
+  - The in-memory env store gives the names its tenant's values are under. The dotenv secrets store gives `local` and each `.env.<name>` file that holds a name.
+  - The TypeScript and Python clients list them with `client.environments.list()`.
+- d563887: **Starting an eval run checks the version it names.** `POST /v1/eval-suites/{suiteId}/runs` with an `agentRef` or `flowRef` that names a `version` now asks the runtime whether `projectId`'s project runs that version, not only whether it reaches the agent or flow. If it doesn't, for example a version made in an earlier environment of an environment order and not yet promoted to this one, the start is refused with **`400 reference-out-of-scope`** and nothing runs. Before, the start answered `201` and every case's replay was then refused.
+  - The refusal's message, and the message of its issue at `/agentRef/agentId` or `/flowRef/flowId`, name the version and say it's the version the project doesn't run: `agent "acme.desk" 1.1.0 isn't a version this project runs (not registered in this project, its org or the tenant, nor deployed to it)`.
+  - A start that names no version is checked as before, by the agent's or flow's id.
+  - A flow candidate's `versions` are checked the same way, each at its own path: an agent at the version named, at `/versions/agents/<id>`, and a tool by its id, at `/versions/tools/<id>`.
+  - `referencesOutOfScope` names the version of a reference that has one, in each issue's message and in the refusal's, and says it's a version the project doesn't run. A reference without a version is refused with the same words as before.
+- 8f52412: **An eval run or an improvement pass stops when its project or tenant does.** The eval subject's new optional `halt` outcome says a case couldn't start because its project is suspended, or its tenant is suspended or closing. The eval run stops at that case, counting it nowhere, and ends `cancelled`, with the reason in its new optional `cancelReason` (`project-suspended`, `tenant-suspended`, `tenant-closing`) and the cases before it in `result`. An improvement pass whose comparison ends that way ends `cancelled` with the same `cancelReason` and goes no further, as when a person cancels it: it drafts no proposal, and one already drafted for its winner (stopped at the proof on the hold-out part) stays drafted. A runtime that doesn't set `halt` behaves as before: such a case is its own error. Where the runtime suspends projects, starting an eval run in a suspended one, or a pass for one of its agents, is refused `409 project-suspended`. An improvement pass's webhook event (`improvement-pass.finished`) carries `cancelReason` too (`parseEvent`). `kindgi proposals passes list` shows a cancelled pass's `cancelReason` in its outcome column.
+- f56c6ae: **The event streams for runs, eval runs and secret rotations stop their work as soon as the reader goes away (it cancels the stream, or the request is aborted), and a `HEAD` on one starts none of it.**
+  
+  Each of these server-sent-events routes starts its work when it opens the stream. Before this change, nothing stopped that work when the reader went away. That covers a client that disconnected mid-stream, and one that left while the route was still reading: the server cancels only a body it is writing, so that client never cancelled anything. Hono answers a `HEAD` with the `GET` route and drops the body without cancelling it, so every `HEAD` started the same work. The work then ran to its own end:
+  - `GET /v1/runs/{runId}/stream` and `/progress/stream`: a journal read every 200 ms, or an event-bus subscription, until the run's terminal event or five minutes.
+  - `GET /v1/eval-runs/{runId}/events`: a read of the eval run every 100 ms, until it ends or five minutes.
+  - `GET /v1/secrets/{name}/rotations/{rotationId}/events`: a subscription to the rotation's status and a heartbeat every 15 s, for as long as the rotation stays `pending`, with no time limit.
+  
+  Each stream now stops when its reader cancels it or its request is aborted:
+  - the poll and its wait end at once, and so does the five-minute wait;
+  - the subscription ends, and the heartbeat stops;
+  - a reader that cancels while the run's journal is still being read back doesn't subscribe at all.
+  
+  A `HEAD` answers with the stream's status and headers (`200`, or the `GET`'s `404`) and doesn't start the stream. So does a request that was aborted while the route was reading. A reader that stays connected receives the same events as before.
+- c46503d: **A closing or suspended workspace's refused write says what still changes in it.** The `409 tenant-closing` and `409 tenant-suspended` messages, and S3's `403 AllAccessDisabled`, said nothing in it changes, though its deletes, revocations and erasures still go through. They now name those.
+- 7be0273: **A guardrail's `action` is described as what it does in 0.1: only `halt` acts.** The OpenAPI `GuardrailAction` description, the guardrail YAML schema (`guardrail.schema.json`, both its `on-violation` text and its top-level description), the `Guardrail.action` and `OnViolation` docs and the package description of `@kindgi/guardrails`, the TS client's `GuardrailAction`, the Python client's model and the Python SDK README now say the same as the guardrail skills: a failed `halt` check fails the turn with `guardrail-violation`, and any other value, `retry`, `escalate`, `compensate` and custom names included, is recorded as a violation and the turn completes. They no longer say that `retry` runs the step again, that `escalate` routes to review, that `compensate` calls a tool, that a custom name needs an action handler registered (the runtime registers none), or that a `retry` action needs `maxAttempts` (only a `retry` object, when given, needs it). `retry`, `escalateTo` and `compensateWith` gain descriptions saying nothing acts on them in 0.1. No behaviour changes, and no shape changes.
+- e35d94f: **A `HEAD` on an artifact or an S3 object reads its metadata only, and no longer leaves the object open.**
+  
+  Hono answers a `HEAD` with the `GET` route at its path and drops the body. So `HEAD /v1/artifacts/{blobId}` and S3 `HeadObject` (`HEAD /s3/{bucket}/{key}`) ran the download: each opened the blob through the storage binding (`get`, `getByKey`), and nothing read or closed it. On a filesystem store each such `HEAD` left a file handle open for the life of the process; an object store's binding can hold its connection the same way. The routes' own `HEAD` handlers never ran.
+  
+  Now each `GET` route answers a `HEAD` itself, from the binding's metadata-only read (`head`, `headByKey`), and never opens the blob. A `HEAD` answers the same status and headers as before, which are the `GET`'s, except where the binding can't open what its metadata read describes: a `HEAD` answers from the metadata read (`200` for a record it finds, `404` when there's none), where the `GET` answers the open's error. The status and headers are:
+  - an artifact: `200` with `Content-Type`, `Content-Length`, `X-Kindgi-Blob-Hash` and `X-Kindgi-Blob-Name`, or the `GET`'s `404 blob-not-found`;
+  - an S3 object: `200` with `Content-Type`, `Content-Length`, `ETag`, `Last-Modified`, `Accept-Ranges` and the `x-amz-meta-*` headers; with a `Range`, the `206` headers or `416 InvalidRange`; or `404 NoSuchKey`.
+  
+  A `GET` of an S3 object with a malformed `Range` now cancels the object it opened before it answers `416 InvalidRange`, where it left it open too.
+- 010fd72: **`POST /v1/deployments` says why a registry read failed: `image-unverifiable` carries the registry binding's code in `details.cause`,** and, for an image past one of the server's bounds on reading an image, the bound in `details.limit`. Both are new, optional fields; a check that fails after a read that succeeded carries neither.
+  - `ImageRegistryError` has two more codes. `image-limit-exceeded` is an image past a bound the binding reads within, with `limit` (`ImageReadLimit`): `manifest`, `file`, `layer`, `read` or `unpack`, the image's own, so the same image is refused again, or `tenant-unpack-hour`, the tenant's reads in the last hour, which passes. `image-unreadable` is a layer that isn't an archive the binding can read: not a tar, or compressed twice. A binding that reported these as `image-registry-unreachable` can now tell them apart from a registry it couldn't reach.
+  - Before, the route's `cause` never reached the wire: `toWireError` keeps a domain error's `cause` off it. It still does; the route now builds these two refusals itself.
+  - `kindgi deploy` shows the cause, and its hint follows it: a registry it couldn't reach, credentials the registry refused, an unreadable layer, an image past a bound, a pack index past the size the server reads (`limit` `file`), or the tenant's hour of image reads.
+  - `kindgi deploy` now lists a refused deployment's `details.issues`. It read them from `error.issues`, where the server doesn't send them, so the list its hint promised never showed.
+- 7be42d0: **New runtime setting `KINDGI_AUTH_INVITE_EMAIL_DAILY_CAP`:** the deployment's backstop on invitation emails, at most this many in 24 hours from all its tenants together. Default 500, a whole number from 1 to 100000. Each tenant's own limit stays: 100 in 24 hours, or 10 while `KINDGI_PRODUCTION_GATE` is `on` and the tenant isn't allowed production. At a limit the person is still added, without the email (`inviteEmail.reason` is `capped`), and sending it again answers `429 invite-capped`. It needs the emailed sign-in link's sender: set without `KINDGI_AUTH_EMAIL_SMTP_URL` (or `…_PATH`), the runtime refuses to start. `AUTH_INVITE_EMAIL_DAILY_CAP_VAR` names it.
+  
+  The API's texts for an invitation not emailed (`capped`) and for `429 invite-capped` name the deployment's backstop beside the tenant's limit (`openapi.json` descriptions only).
+- f605c7e: **`POST /v1/mcp/endpoints` refuses an `endpointId` with a `.`: `400 invalid-mcp-endpoint`, reason `dot-in-endpoint-id`, naming the id.** An MCP tool's id is `<endpointId>.<tool name>`, and a tool name may contain `.`. So endpoint `a` with tool `b.c` and endpoint `a.b` with tool `c` both made the tool `a.b.c`, and each sync took it from the other. With no `.` in an endpoint id, a tool id splits at its first `.`.
+  - A request that registered before is refused now when its id has a `.`: use `-` or `_` instead.
+  - An endpoint registered before with a `.` keeps its id: it still reads and unregisters as before. Nothing is renamed.
+  - The OpenAPI register body's `endpointId` has the pattern `^[^.]+$`, and the Python client's register body checks it before sending. The endpoint the API answers with has no pattern, so an id registered before still reads.
+- d563887: **Opening a conversation, and registering or changing a schedule or a webhook trigger, checks the version it names.** Each now asks whether the project runs that version, not only whether it reaches the agent or flow. If it doesn't, for example a version made in an earlier environment of an environment order and not yet promoted to this one, it's refused with **`400 reference-out-of-scope`**, the message and the issue naming the version, and nothing is opened, registered or changed. Before, it answered `201` or `200`, and every turn or fire was then refused.
+  - `POST /v1/conversations`: the agent at `agentVersion`, at `/agentId`.
+  - `POST /v1/schedules`, and `PATCH /v1/schedules/{triggerId}` with a new target: a flow at `flowVersion`, or an agent at `agentVersion` when one is named, at `/target`. An agent target that names no version, and an improve target, are checked by the agent's id, as before.
+  - `POST /v1/webhooks`: the flow at `flowVersion`, at `/flowId`.
+  - `PATCH /v1/webhooks/{triggerId}` with a new `flowVersion`: the trigger's flow at that version, at `/flowVersion`. Before, a new version was checked only for `execute` on the flow.
+- f82bb04: **Who opened a conversation, the approvals you decided, and the session a decision was made in.**
+  
+  - **`openedBy` on a conversation:** the caller who opened it (`user:<id>` or `service_account:<id>`), set by the server and never from the body.
+    - `GET /v1/conversations?openedBy=me` lists only the caller's own (`conversations.list({ openedBy: 'me' })`, `kindgi conversations list --opened-by=me`).
+    - The conversations table gains a nullable `opened_by` column and an index (migration `0006`). Nothing is backfilled, so earlier conversations record no opener and aren't listed by it.
+    - A binding that ignores `ListConversationsPageInput.openedBy` lists more, and the route keeps only the caller's.
+  - **`?decidedBy=me` on approvals:** only the approvals the caller's own reviewer row decided (`approvals.list({ decidedBy: 'me' })`, `kindgi approvals list --decided-by=me`). `ListApprovalsBindingInput` gains `decidedBy`; a binding that ignores it lists more, and the route keeps only those.
+  - **Every page of a filtered list says so,** an empty one too: `openedBy: "me"` and `decidedBy: "me"` (`ConversationPage.openedBy` and `ApprovalPage.decidedBy` in the TypeScript client, `opened_by` and `decided_by` on the Python pages). A runtime from before these filters ignores them and lists them all, with neither on its pages, so `kindgi conversations list --opened-by=me` and `kindgi approvals list --decided-by=me` stop there, naming the release the runtime needs.
+  - **A decision's session:**
+    - **`sessionProvider`:** an approval's `decision` gains it. It's the provider of the session the reviewer decided with: `site:<id>` for a site's sign-in, or an identity provider's id. An API key has none. `SubmitReviewBindingInput` gains it, and the complete route passes it.
+    - **`deciderName`:** the decision also gains the reviewer's name when they decided.
+    - Both are optional: a decision an older runtime recorded has neither.
+- d563887: **Rights on an item an environment order carries come from the projects that serve it.** Once an order carries an agent, a flow, a tool, a guardrail, a data block or an eval suite from one environment to the next, each project that serves the item governs what happens to it there. All of this applies only when the runtime wires `itemProjects` (`ItemProjectsBinding`, new on `CreateAppInput`). An item that one project serves is checked as before, check for check.
+  - **Reading.** A caller reads the item through any project that serves it, and sees each version that can run in a project it reads. A version it can't see answers as one that doesn't exist, with the same 404. `GET /v1/agents/{agentId}`, `/v1/flows/{flowId}`, `/v1/tools/{toolId}`, `/v1/eval-suites/{suiteId}` and `/v1/blocks/{blockId}`, and each list row, answer the newest active version the caller can see. A grant on the item itself reads as its first project's readers do. An agent's live versions and promotions list only versions the caller can see.
+  - **`?projectId=`** on those five reads answers the newest version that can run in that project, which the caller must read. Otherwise it's a 404, the same whether or not the item runs there. A value that isn't a project id (a UUID) is a 400. On an item one project serves, only its own project answers; on one that names no project (under `kindgi dev`, a pack's agents, flows and tools), any project does. With authorization off, the caller reads every project, so each one answers the version it runs. An older runtime ignores the parameter and answers the latest version.
+  - **Changing.** A change in one project needs the right on that project, and not the item's own as well. A promotion, a rollback or an unpin of a project's or a segment's live version is `admin` there. A tenant's or an org's live version needs `admin` on every project that serves the item. Unregistering or reinstating a version needs `admin` on every project that version can run in (`write`, for a data block). A derived agent version, an improvement proposal and an improvement pass are `write` in the order's first environment, where the item's new versions are made. Requesting or rolling back a proposal is `admin` where its scope is. Building a test set from judgments under such a suite is `admin` in the project whose judged runs it takes, where the new version is made; a body naming a project the suite isn't in needs `admin` on every project of the suite.
+  - **Running.** A run of an agent in one of its projects needs `call` on that project, which its callers and editors have. A run of a flow or an eval suite needs `execute` there, which its executors and editors have. Neither the item's own `execute` nor `write` on the named project is asked. An unnamed run is checked where the runtime puts it: the conversation's project; else a project-scoped key's own project, when that project serves the item, and the run is filed there; else the item's first project. Opening and closing a conversation, scheduling an agent or a flow, and wiring a webhook trigger are checked the same way, in the conversation's or the trigger's project. A schedule that improves an agent is `write` in the order's first environment. An eval run still needs `write` on its project.
+  - **What runs leave.** An eval run of such a suite is read on its own project, and cancelled or rescored with `execute` there. An event trigger's runs land in the flow's first project, so registering one is `write` on the flow and `execute` there, and reading one is `read` there. Reading observations of such an agent needs `read` on every project that serves it.
+  - A project-scoped key reaches only what its project serves.
+  - `@kindgi/authz`: `Action` gains `call`. `CHECK_ONLY_ACTIONS` lists what the model defines but a role's capabilities never report: a project's `call` and `execute`. `GET /v1/identity/me/permissions` doesn't change.
+  - `@kindgi/client`: `get` on agents, flows, tools, eval suites and blocks takes `{ projectId }` (`GetLatestOptions`). In the Python client, `project_id`.
+- 6d3ccdd: **A pack service run per deployment can be given the env its pack declares, from the env store.** On a server that runs a pack service per deployment (it wires `systemDeployments`), the names the pack declares in its index (`env`) are looked up in the env store, at the deployment's project, then the project's org, then the tenant (most specific wins), at the env the server serves. A tenant-wide deployment is read at the tenant's Default project.
+  - **Plain values only.** A name set only as a secret can't be given into the pack service's environment yet (`pack-env-secret-not-yet`): a tool reads it per call (`ctx.secrets`). A name set both as a secret and as a plain value is `pack-env-ambiguous`, naming both scopes. A required name set nowhere is `pack-env-missing`. While any of these stands, no value is given, and a running service keeps the values it has.
+  - **`GET /v1/deployments/{deploymentId}/pack-env`** shows a tenant where each declared name is set (`project`, `org` or `tenant`) and why it can't be given, if it can't. Never a value. A server whose pack services take their env from how they're run answers `501 pack-env-not-served`. The TypeScript client has `deployments.packEnv`; the Python client, `deployments.pack_env`.
+  - **For whatever runs the pack services, on a system key of its own (`system:pack-env`):**
+    - `GET /v1/system/pack-env` lists the deployments whose service runs on values that changed;
+    - `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env` gives the values and a `revision`, with each value given out on the audit record (`env-resolved`);
+    - `PUT …/pack-env` records the revision the service runs, or that it was held back and why (compare-and-set: `409 pack-env-conflict`). `pack-env-update-failed` holds a revision whose values were given and didn't start: it's listed again for an hour after it was first held, so it's tried again;
+    - `PUT …/endpoint` takes `packEnvRevision`, the one a new service was made with.
+  
+    `system:deployments` reads no value. The TypeScript client has `systemDeployments.listPackEnvChanged`, `getPackEnv` and `recordPackEnv`.
+  - **A deployment records its pack's declaration** (`packEnv`, optional), and a deploy whose image index carries a malformed `env` is refused (`image-unverifiable`). A ready endpoint can carry `packEnvProblem` (`{ code, since }`) while its service runs on the values it was last given: one of the three codes above, or `pack-env-update-failed` when the newest values didn't start. `@kindgi/api` exports `packEnvCheck`, `PACK_ENV_PROBLEM_CODES`, `PACK_ENV_HELD_CODES` and `PACK_ENV_RETRY_MS`; `@kindgi/handler-runtime` exports its env declaration check at `@kindgi/handler-runtime/pack-env`.
+  - **An env or secret record can carry `recordId`,** the store's own id for its row, never on the wire. The revision carries it, so a removed value set again is a new revision even when its row starts again at 1 in the same millisecond. `@kindgi/env-inmemory` sets it; a store without one has only the update time.
+- 3c8afcf: **A pack service run per deployment can be given the secrets its pack declares, when the orchestrator asks for them.**
+  - **`GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env?secrets=values`** gives each declared name that's set only as a secret in `secrets`, as `{ value, revision }`, beside the plain values in `env`.
+    - Each is read at the version its revision names. A secret that changes while it's read is read again once, and then the answer is `503 pack-env-unavailable`.
+    - The `revision` (`ps1-…`) is made from the name's part of the deployment's revision, never from the value, so it changes whenever what's given for the name does.
+    - Every secret given is audited before the answer: one `secret-resolved` row each (caller `pack-env`, with the deployment id, the revision, the request's id as its correlation id, and the system key's id), all written in one append. Each row is in the project the deployment's names were read for: the one it names, else the tenant's Default. When they can't be written, none is given (`503 pack-env-unavailable`). A server with no audit store gives none (`501 pack-env-secrets-unaudited`).
+    - It's given only to a key holding `system:pack-env` itself. Any other key asking for it, `kindgi:system` included, is refused (`403 system-scope-missing`), with nothing read.
+    - A secret that can't be read for a reason the platform fixes, not the owner, is `pack-env-secret-unreadable`, and no value is given. The store's message is never passed on.
+    - Without `secrets=values`, the answer is as before: such a name is `pack-env-secret-not-yet`.
+  - **`GET /v1/system/pack-env`** lists a pack service held as `pack-env-secret-unreadable` or `pack-env-secrets-unaudited` at its current revision every time, with its `held` code: the revision doesn't move when the platform fixes it. `PACK_ENV_PLATFORM_HOLDS` names them.
+  - **New codes:** `pack-env-secret-unreadable` (a problem), and the orchestrator's own `pack-env-secrets-unaudited`, `pack-env-secret-too-large`, `pack-env-secret-capacity` (an endpoint's problem) and `pack-env-secret-redeploy` (a ready service's hold).
+  - **The owner's check** (`GET /v1/deployments/{deploymentId}/pack-env`) lists a name set only as a secret as `kind: 'secret'` with no problem, read without its value. `kindgi deploy --hosted` says why for each new code, and says the platform's team is told for the ones it fixes.
+  - **`kindgi deploy --hosted` refusing `environments.<env>.env` in kindgi.config** names the command that sets a secret too, at the same scope: `kindgi secrets set NAME --scope=… --env=…`.
+  - **`@kindgi/compliance`:** `resolveEvent` builds a resolve event for a caller that appends its own rows. The `pack-env` caller is new, and a resolve event can carry the revision, the deployment id, the request's id (`correlationId`) and the system key's id (`systemKeyId`).
+- c8d3c1e: **Breaking:** `users.create` in the TypeScript client answers with the person it added, not their id. Before: `const id = await client.users.create(spec)`. After: `const { userId } = await client.users.create(spec)`. In the Python client it answers `UserCreated`, which isn't a `UserRecord`: a type annotation or `isinstance` check on its answer changes.
+  
+  **People added with an email are invited, on a runtime that invites them.** The invitation is open until their first sign-in; past its expiry, every way in refuses them until a tenant admin sends it again.
+  
+  - **The API.**
+    - `POST /v1/identity/users` takes `sendInvite` (default `true`; `false` still invites them, unemailed), and its `201` adds `inviteEmail`: `{ sent, reason? }`, where `reason` is `no-email`, `not-requested`, `not-configured`, `send-failed` or `capped`.
+    - A person's record adds `invite` (`{ state: 'pending' | 'expired', expiresAt, sentAt? }`, while it's open) and `firstSignedInAt`.
+    - `GET /v1/identity/users?pending=true` lists only the people with an open invitation.
+    - `POST /v1/identity/users/{userId}/invite` (tenant admins) sends it again with a new expiry: `200 { user, inviteEmail }`; `409 identity-user-not-invited` for someone who has joined or was never invited; `429 invite-capped`, with `Retry-After`, over the server's limits.
+    - Every new response field is optional: a runtime that doesn't invite leaves them out.
+  - **`IdentityDirectoryBinding`.** `createUser` takes `sendInvite` and may answer `inviteEmail`; an optional `resendInvite` mounts the new route; `listUsers` takes `pending`; `UserRecord` adds `invite` and `firstSignedInAt`. The types are exported (`InviteEmail`, `InviteEmailUnsent`, `UserInvite`, `IdentityResendInviteInput`, `IdentityResendInviteResult`).
+  - **The TypeScript client.** `users.create` answers `UserCreated` (the `User`, with an optional `inviteEmail`); `UserSpec.sendInvite`; `users.resendInvite(id)` answers `InviteRenewed`; `users.list({ pending: true })`; `User.invite` and `User.firstSignedInAt`. `identity-user-not-invited` is a `conflict`, and `invite-capped` is `rate-limited`, with `retryAfterSeconds`.
+  - **The Python client** has the same: `users.create` takes `send_invite` and answers `UserCreated` (a `UserRecord`'s fields, and `invite_email`) where it answered `UserRecord`; `users.resend_invite(user_id)`; `users.list(pending=True)`.
+  - **The CLI.** `kindgi people add` says whether the invitation was emailed, and why not, and takes `--no-invite`; `kindgi people invite <user-id>` sends it again; `kindgi people list --pending` lists the invited, and the table has a STATE column.
+- 66bb5eb: `GET /v1/policies/{policyId}/versions/{version}` answers for a retired (unregistered) version too, with its `unregisteredAt`, as the agent, flow, block and gate-policy version routes already do. It used to answer `404 policy-not-found`, so a link to a retired version from the versions list led nowhere. `PolicyRegistryBinding.getVersion` now returns a `PolicyVersionRow`: the contract already said a tombstoned version is returned, and its `unregisteredAt` is now part of the type. An active version carries no `unregisteredAt`. A version the retention sweep has purged is still `404`. The TypeScript client's `policies.getVersion` (the client now exports `PolicyVersionRow`) and the Python client's `policies.versions.get` return a `PolicyVersionRow`.
+- d563887: **A project that's a member of an environment order can't be deleted or moved to another parent until it's cleared from the order.** This keeps an order's members from vanishing, or splitting across parents, under the admin who set it.
+  
+  - `ProjectBinding.delete` now resolves to a `ProjectDeleteOutcome` (`ok`, or `project-in-environment-order` naming the order) rather than `void`; deleting an id that names no project is still `ok` (idempotent). `ProjectUpdateOutcome` gains `project-in-environment-order`, returned only when a patch would change the project's `orgId` — its parent; a rename, slug or description change is never refused on that ground. A host that implements `ProjectBinding` returns the new outcomes; the in-memory reference adapter consults an injected `environmentOrderOf` hook (compose it to the environment-order binding wherever both share a store).
+  - `DELETE /v1/projects/{projectId}` and `PATCH /v1/projects/{projectId}` answer `409 project-in-environment-order` — with the order's id — in those cases. Every other response is unchanged.
+  - **An org that's the parent of an environment order can't be deleted until a tenant admin clears the order** — otherwise the order would be left pointing at an org that's gone. `OrgBinding.delete` now resolves to an `OrgDeleteOutcome` (`ok`, `org-has-environment-order` naming the order, or the existing `slug-conflict`) rather than `void`, and `DELETE /v1/orgs/{orgId}` answers `409 org-has-environment-order` with the order's id. The in-memory reference adapter consults an injected `environmentOrderOf` hook, as the project guard does.
+  
+  **Breaking for custom platform bindings.** Both `ProjectBinding.delete` and `OrgBinding.delete` now resolve to an explicit outcome — `ProjectDeleteOutcome` and `OrgDeleteOutcome` — and never `void`: a success is `{ kind: 'ok' }`. The former `OrgDeleteConflict` type is gone, folded into `OrgDeleteOutcome` (`ok` | `slug-conflict` | `org-has-environment-order`); `ProjectDeleteOutcome` is `ok` | `project-in-environment-order`. A host that implements either binding must return `{ kind: 'ok' }` where it used to return nothing — so a binding that never checks environment orders can no longer silently delete a project or org that an order names. The conformance suites (`runProjectBindingConformance`, `runOrgBindingConformance`) assert the `ok` outcome on a plain delete, and both reference adapters are updated.
+- c1a61c7: **Making a promotion's carried agents live in the target, and refusing a live change that would span an environment order.**
+  - `POST /v1/deployments/{deploymentId}/promotions` takes `makeLive?: boolean`. With `makeLive: true`, once the build has moved, every agent version the promotion carried is pinned live in the target project, each through its scope's gate — the same path a live route takes. The answer gains `live`: one `{ id, version, pinned, gate? }` per carried agent. `pinned: true` is live now; `pinned: false` carries `gate` (its `status`, `promotionId`, the `policy` that applied, an `approvalId`, and the `checks`) for one waiting on an approval or refused by a check. `live` is present only when `makeLive` was asked. Re-running is safe: the move is idempotent, and a pin already in place passes. Making the carried agents live needs admin on the target project; when the caller lacks it the promotion still answers (the move committed), and the make-live is the `403` — fix the grant and promote again. Everything that can be decided before a pin (the authorization, and a gate this deployment can't record) is decided for every carried agent first, so a refusal leaves nothing pinned; if a pin write fails after an earlier carried agent is already live, the error lists the pins already made in `error.details.live`, in `live`'s shape.
+  - `kindgi promote --make-live` asks for it, and prints each agent made live in `--to`, with any waiting on a gate. `--json` carries `live` on the promotion.
+  - New error code `409 live-scope-spans-environments`: for an agent with a project in an environment order, a change to what's live at a scope wider than one project — the tenant's, or an org's — would act in every environment of the order at once, and is refused, whether one project serves the agent or several. It is answered after the authorization check (so an unauthorized wide change is still the `403`), on `POST /v1/agents/{agentId}/promotions`, `POST /v1/agents/{agentId}/live/rollback`, and a proposal's `request` and `rollback`. Pin a project, or a segment of it, instead. An unpin at any scope, and every change for an agent no project of which is in an order, are unaffected. A deployment's make-live pins one project, so it never meets this refusal.
+  - `@kindgi/api`: `DeploymentsRouterBindings` gains optional `agentReleases`, `releaseGateDeps` and `itemRights`, which `createApp` now wires; a composition that mounts `deploymentsRouter` itself supplies them for `makeLive` (absent, `makeLive` answers `501`). `liveChangeRefusal` takes `setsLive` and folds in the width check; `widthRefusal` is exported for the routes that run it after their own authorization.
+  - `@kindgi/client`: `makeLive` on `deployments.promote`, and `live` on the promotion it answers.
+- d563887: **On a runtime that refuses other envs, a model provider's key can be written at a project or an org too.** A run reads a provider's key at its project, else the project's org, else the tenant, under the env the provider's `secret_ref` names. A secret at that env and name is now let through at a project or an org scope too, not only at the tenant's, so each project can hold a key of its own and rotate it. A webhook endpoint's secret is still let through at the tenant's scope only, and an MCP endpoint's at the scope recorded for it.
+- d563887: **A runtime that keeps its values under one env refuses a value it would never read.** A runtime that serves one env, `prod` say, reads every value under it, so a secret set under `production` was stored and never read. Such a runtime can now refuse those values: `createApp({ envName, refuseOtherEnvs: true })` (`KINDGI_REFUSE_OTHER_ENVS=true` on the server, with `KINDGI_ENV`). Off by default; a runtime that leaves it off takes any env, as before.
+  - **What it refuses, with `409 env-not-served`:**
+    - a secret set or rotated, or an env value put, under another env (`POST /v1/secrets`, `POST /v1/secrets/{name}/rotate`, `PUT /v1/env/{name}`), and a deployment's secret sync under another env (`POST /v1/deployments/{deploymentId}/secrets`), before anything is written;
+    - a model provider, MCP endpoint or webhook endpoint created or changed with its secret named under another env.
+  - **The error** names the env the runtime serves and what to do (`details: { envName, servedEnv }`).
+  - **What it still takes:**
+    - reads and deletes under any env, so a value stored before can be found and removed;
+    - a secret that a registration made before names under its own env, at the scope it's read at, so a value in use can still be rotated: a provider's or a webhook endpoint's at the tenant's scope, an MCP endpoint's at the scope recorded for it.
+  - **whoami says what's served:** `GET /v1/identity/whoami` answers `servedEnv: { envName, refusesOtherEnvs }` when the runtime serves an env. The field is optional, and absent on a runtime that serves none.
+  - **The CLI follows it.** On a runtime that refuses other envs:
+    - `--env` defaults to the served env for `kindgi secrets`, `kindgi env` with `--scope`, `kindgi env pull` and `kindgi providers register --preset`;
+    - `kindgi env set --scope`, `kindgi providers register --preset` and `kindgi deploy --sync-secrets` (before the build) are refused before anything is sent when they name another env;
+    - `kindgi secrets set|rotate` under another env is sent, since only the runtime knows whether a registration still reads the secret there, and its refusal is shown;
+    - elsewhere every default stays as it was.
+  - **The MCP servers skill** says where a `--env=local` secret goes when the CLI is signed in to a hosted runtime.
+- 5b5bd3b: **A server can limit how long a retention policy keeps a domain's records.**
+  - `createApp` takes `retentionLimits`: per domain, the most seconds a policy may keep its records (a whole number, 1 or more). A `*` key, an unknown domain, or a limit that isn't a whole number of seconds fails at `createApp`, naming it.
+  - `POST /v1/policies` refuses a `retention` policy for a limited domain whose `graceSeconds` is over the limit, or `-1`, with `400 retention-over-limit` and a message that names the limit: "`graceSeconds` 31536000 (365 days) is over the retention limit for `run` rows, 90 days." (`details`: `domain`, `graceSeconds`, `limitSeconds`). Reinstating a retired version over the limit is refused the same way, and the version stays retired. A `*` policy isn't refused, and a domain with no limit takes any grace, as before.
+  - `GET /v1/retention/scheduled`: an item the limit decides has `limitApplied: true`. When no policy covers its domain it has no `policyId` or `policyVersion`, so both are now optional on `RetentionScheduledItem`. `POST /v1/retention/sweep`'s per-domain result can say `limitApplied: true` too. A server with no limit sends what it sent before.
+  - The error reference has an entry for `retention-over-limit`, and the retention page says what a limit does.
+- c44d803: **A second factor at sign-in, and a workspace setting that requires one, on a runtime that keeps them.** An authenticator app's codes (TOTP), with 10 recovery codes for when the app is lost. Covers the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub); signing in through the workspace's own identity provider is exempt, since it owns the second factor there. API keys aren't covered.
+  
+  - **The API.** A `secondFactor` binding (`SecondFactorBinding`) mounts:
+    - `/v1/identity/me/second-factor`: `GET` yours (`setUp`, `since`, `recoveryCodesLeft`, `usable`, and whether the workspace `required` one); `POST` starts setting one up (the key and its `otpauth://` URI, shown once; replacing one takes a code from it), then `POST …/confirm {code}` sets it up and answers the 10 recovery codes, once; `POST …/recovery-codes` gives 10 new ones; `POST …/remove` takes it off, refused while the workspace requires one. From a session only (`400 auth-not-session-token` with an API key). A key or codes in an answer are never replayed for an `Idempotency-Key`.
+    - `GET /v1/identity/users/{userId}/second-factor` and `POST …/second-factor/remove` (tenant admins): a person's, and removing it for a lost phone. Their sessions stay. An admin's own isn't removed there (`403 permission-denied`): it's taken off at `/me`, with a code from it.
+    - `GET` / `PATCH /v1/auth/settings` `{ secondFactor: { required } }` (tenant admins), with how many people's keys are still on the previous sign-in secret (`onPreviousSecret`) or on neither (`unusable`). Once required, a session made without a second factor ends at its next request. Turning it on from a session made without one is `409 second-factor-enroll-first`.
+    - Token sign-in is refused in a workspace that requires one: `403 second-factor-required`.
+    - The sign-in history (`GET /v1/audit/sign-ins`) has three new kinds: `second-factor-set-up`, `second-factor-removed` (with `byUserId` when an admin removed it) and `recovery-codes-replaced`. It never has a key or a code.
+    - New error codes: `second-factor-required`, `second-factor-invalid` (403), `second-factor-locked` (429, with `Retry-After`), `second-factor-unusable` (403), `second-factor-enroll-first`, `second-factor-not-set-up`, `second-factor-not-started` (409).
+  - **A session says how its person gave a second factor.** `SessionCreateInput.secondFactor` and `Session.secondFactor` (optional): `{ method, at }`, where `method` is `totp`, `recovery-code`, `identity-provider`, or `site` (a site signed them in, and owns their second factor). A session store keeps it and returns it from `get` and `resolveToken`; `POST /v1/auth/refresh` gives the new session the same one.
+  - **The TypeScript client.** `identity.me.secondFactor` (`get`, `start`, `confirm`, `newRecoveryCodes`, `remove`), `users.secondFactor(id)` and `users.removeSecondFactor(id)`, and `auth.settings` (`get`, `update`). A wrong code is an `auth` error whose `serverCode` is `second-factor-invalid`; too many is `rate-limited` (`second-factor-locked`), with `retryAfterSeconds`.
+  - **The CLI.** `kindgi people second-factor <user-id>`, `kindgi people reset-second-factor <user-id>`, and `kindgi sign-in settings [--require-second-factor=on|off]`. `kindgi exports create` also writes `user-second-factors` (each person's status, never a key) and `sign-in-settings`.
+  - **Runtime settings** (`@kindgi/env-schema`): `KINDGI_AUTH_PREVIOUS_SECRET_PATH` / `KINDGI_AUTH_PREVIOUS_SECRET`, optional: while the sign-in secret rotates, the one before it, so second-factor keys sealed under it still open.
+- bd3bcd7: **A new secret's name is held to a shared grammar at the API border, before anything is stored.** A new name is 1 to 255 ASCII letters, digits, `.`, `-` and `_`; it starts with a letter, digit or `_`, and any `.` sits between two non-`.` characters. A name that breaks the rule is refused with `400 secret-name-invalid`, and the message says the rule. The same grammar is documented on `SecretSetRequest.name` in the OpenAPI spec.
+  
+  - It applies wherever a secret is **created**: `POST /v1/secrets`, a new sensitive key on `PATCH /v1/tenant/config`, a deploy's inline `{ name, value }` secrets, and a webhook trigger's `generateSecret` name (`POST /v1/webhooks`). It gates both `create-new` and an `add-version` that creates — a name not yet stored — so no write slips the rule. A name already stored is left as it is: it still reads, rotates and takes new versions. So the border doesn't stop secrets written before this release.
+  - It is the floor every secret store shares, whichever one a deployment runs. A store may refuse more names of its own (`SecretBinding.nameRefusal`), with its own message and the same `secret-name-invalid` code.
+  - `secretNameGrammarRefusal(name)`, `SECRET_NAME_ALLOWED` and `SECRET_NAME_MAX_LENGTH` are exported for a custom route or store to apply the same floor.
+- 3be3ba0: A session can carry an API key's limits. A session store's `create` takes, and its `get` and `resolveToken` return, an optional `projectId` and `role`, and the API reads them as it reads a key's:
+  - a request naming another project is refused (`403 key-project-mismatch`);
+  - a `member` session takes no admin action on the tenant.
+  
+  A session limited to a project is held tighter than a key above its project. It takes no action on the tenant, an org or a team, reading included, so it can't read the tenant's settings. A key limited to a project keeps its rule, since its holder is its principal.
+  
+  A session with either limit also:
+  - mints no keys (`403 limited-session-cannot-mint`);
+  - isn't refreshed (`400 limited-session-not-refreshable`), so no copy of it comes back without its limits.
+  
+  `whoami` reports its `projectId` and `role`, and refusals say "this session is limited to project …" instead of naming an API key. Sessions without limits are unchanged, and nothing creates a limited session yet.
+- ec3dbf9: **Sign-in options can link the deployment's terms and privacy policy.** `GET /v1/auth/sign-in-options` gains an optional `legal: { termsUrl?, privacyUrl? }` for a sign-in page to link. It has only the ones the operator set, each an absolute https URL with no username or password, as a browser reads it, and the answer has no `legal` at all when neither is set. Older servers leave it out too.
+  - `createApp`'s new `signInLegal` sets them. It throws on anything but an absolute https URL with no username or password.
+  - `@kindgi/env-schema` adds `KINDGI_AUTH_TERMS_URL` and `KINDGI_AUTH_PRIVACY_URL`, for a runtime to read them from.
+  - The TypeScript and Python clients' sign-in options gain `legal`.
+- 409b9bf: A person a site signs in holds only the grants their site's sign-in writes. A deployment's bindings refuse any other grant naming such a person with `site-person-grants-managed`, and the API answers it as `403` on these routes:
+  - adding a project or team member, or changing their role (`AddProjectMemberError`, `AddTeamMemberError` and `MembershipWriteError` gain the code);
+  - granting tenant admin (`PersonGrantErrorCode`);
+  - registering a reviewer (`ReviewerRegisterOutcome` gains a `refused` outcome);
+  - removing such a person's project or team membership, or unregistering them as a reviewer (`ReviewerUnregisterOutcome` gains an optional `refused`). Their site would give it back at their next sign-in, so the answer points at the real levers: remove the person, change their role on the site, or pause the site.
+  - minting an API key for such a person (`TokenMintRefusal` gains the code). Their access is only the sessions their site's sign-in gives, which end when the site is paused or unregistered; a key would outlive both.
+  
+  `@kindgi/env-schema` gains `KINDGI_SITE_SIGN_IN`: `true` lets sites sign their people in. The runtime needs authorization enforced and `KINDGI_PUBLIC_URL` for it; it's off by default.
+- 10ec595: Sites that sign their own people in to one project. A site, such as a store's WordPress admin, vouches for whoever is signed in there, so the store's staff ask the project's agents and decide its approvals as themselves, without a Kindgi account. A decision's record names the person.
+  
+  **What the API package adds** (mounted only when a deployment supplies the new `SiteBinding`):
+  - **`/v1/projects/{projectId}/sites`, for tenant admins:** register, list, read, change, pause, resume, unregister, issue a new enrollment code, and revoke a key.
+    - Settings are checked before the binding sees them: an https origin (http only for localhost, 127.0.0.1 or [::1]), an approvals URL on that origin (compared as origins, not as a prefix), a role map that only names allowed roles (without one, the map keeps only the entries of the allowed roles: the default map's for a new site, the site's own for a change; an allowed role with no entry signs in to read the project only), no reviewer role above the site's ceiling and never `admin`, and a display name without control or bidirectional characters.
+  - **`POST /v1/auth/sites/enroll`, public:** a site posts its Ed25519 public key with its one-time code.
+  - **`POST /v1/auth/site-sign-in`, public:** a site exchanges one of its people's statements (a compact JWS) for a session limited to the site's project.
+  - **Both public routes** cap the body at 4096 bytes, pass the client's address to the binding (by default the nearest `X-Forwarded-For` hop), and leave every other check to it.
+    - Enrollment takes only an Ed25519 public key, and refuses a JWK with a private part, before it looks the code up.
+    - Refusals are `401 site-enrollment-refused` and `401 site-sign-in-refused`. Before a statement's signature holds, the only reason given is `not-verified`; after it, `details.reason` says why.
+    - Limits are `429 rate-limit-exceeded`.
+  - **A change to a site** is checked as the whole site it makes.
+  - **`createApp` refuses `sites`** without authorization (`authz`) or without a session store with `revokeByProvider`.
+  
+  **The clients:** the TypeScript client gains `client.projects.sites`, `client.auth.enrollSite` and `client.auth.siteSignIn`; the Python and JVM clients gain the same operations.
+  
+  **The CLI:** `kindgi exports create` writes each project's sites to `sites.jsonl`, unregistered ones included. It skips them when the server doesn't serve sites.
+- 16bbb17: **A system-deployment entry's `projectId` is described as the deployment's own project.** In `GET /v1/system/deployments`, the OpenAPI description of `SystemDeploymentEntry.projectId`, the `SystemDeploymentEntry.projectId` doc and the Python client's model now say that it's the project the deployment named, else the tenant's Default, and that it's absent only when the tenant has no Default project. They no longer say it's absent for a tenant-wide deploy. No shape changes.
+- d563887: **The tenant config's values are read and written under the env the runtime serves.** `GET` and `PATCH /v1/tenant/config` now keep `env` and `secret` entries (and any sent with `sensitive: true`) under the env the runtime serves (`createApp`'s `envName`, which whoami names as `servedEnv`), where its tools read them. Before, they were under `default`, so on a runtime serving `prod` a pack tool never read a value set there.
+  - **`config` entries stay under `default`,** whatever the runtime serves: they're the tenant's own settings, not an environment's, so one set before (`console.readOnlyNotice`, say) still applies and is still listed. `GET` lists them as `kind: 'config'` when they live apart from the values.
+  - **A runtime that serves no env** keeps every entry under `default`, as before.
+  - **`env` and `secret` entries set before under `default`** stay there. Pack tools and webhook triggers didn't read them; a model provider, tool or endpoint that names one under `default` still does. An `env` entry set before now lists as a `config` entry (the store doesn't keep which kind it was set as); a secret set before isn't listed. Set them again, and find or remove the old ones under `default` with `/v1/env` and `/v1/secrets`.
+- 2a05fac: **A tool id is either an MCP endpoint's tool or a tool published here, never both: a version of the other kind is refused with `409 tool-kind-mismatch`.** The runtime registers each tool an MCP endpoint lists as `<endpoint id>.<tool name>`. A tool published under the same id, by `POST /v1/tools` or a deploy, used to land beside the endpoint's versions. The id was then served as neither kind, so the endpoint's tool stopped working for every project. A registry can now refuse such a version, and nothing is written:
+  - **`ToolPublishOutcome` and `ToolReinstateVersionOutcome`** gain `kind-mismatch` (`ToolKindMismatch`: `toolId`, `version`, and `endpointId` when the id is an MCP endpoint's tool). A registry that doesn't hold MCP endpoints' tools never answers it. Only active versions count: once the other kind's versions are unregistered, the id takes either. A registry checks this before `already-registered`, so a version number the other kind already used is refused too.
+  - **`POST /v1/tools`** and **`POST /v1/tools/{toolId}/versions/{version}/reinstate`** answer `409 tool-kind-mismatch` with `details.toolId`, `details.version` and, for an endpoint's tool, `details.endpointId`. The message says what to do: publish under another id, or unregister the endpoint (or the other kind's versions) first. A refused reinstate leaves the version unregistered.
+  - **`POST /v1/deployments`** answers `409 tool-kind-mismatch` for an image whose tool has an endpoint's tool's id (`details.primitive`, `details.id`, `details.endpointId`). What it had published is rolled back, and nothing is deployed.
+- cf339d3: **A tool can ask for a person's yes on every call no person is there to see: `needsApprovalWhenUnattended`.** A tool manifest's new optional `needsApprovalWhenUnattended: true` declares it. In a run no person started:
+  - **An agent's call of the tool waits for a reviewer,** as `always_ask` does. Neither the agent's `conversationPolicy.hitl` nor the tenant's approval rules can lift it.
+  - **A flow's tool step that calls it fails,** with `needs-a-person: …` naming the tool, since a tool step can't wait. Call such a tool from an agent step.
+  - In a run a person started, the agent's own gates decide, as for any tool. A tool that doesn't declare it is unchanged.
+  
+  **A run says how it started: `startedBy`** on `GET /v1/runs` and `GET /v1/runs/{runId}`, and on `KernelRunRecord`. It's `person` (signed in, or with their own API key), `key` (a service account's key), or `schedule`, `webhook` or `event` (a trigger). Only `person` counts as attended (`runIsAttended`, `@kindgi/runtime`). It's set from the caller, never from the request body, and never changes: an approval doesn't make a run its approver's. A run that a run starts started the way its run did. A run from before a runtime recorded it has none, and counts as unattended.
+  - **A key acts as its person.** For automation, use a service account's key: its runs count as unattended. A request with a service account's key is `key` whoever else it names. A tenant's first admin key, the one `POST /v1/system/tenants` answers with when it names no `firstAdmin`, is a service account's too: for the work you start, add yourself as a person and use a key of your own.
+  - **The wire `Tool`** carries `needsApprovalWhenUnattended`, so `kindgi tools get` and the console show it. The pack indexer carries it into the pack's index.
+  - **The `woocommerce` template declares it** on `woo.refund`, `woo.refund-large`, `woo.set-price` and `woo.publish-product`. A staff member's refund in the store chat runs as the store agent says; one an order webhook's run asks for waits for a person.
+  - **The authoring skills** (`kindgi-authoring-tools` and the Java, Python and Scala ones) say when to declare it.
+- 3502389: A webhook or schedule trigger can run as a **service account**. A trigger's runs act as its owner; now the owner can be an account rather than whoever registered it. Pass `runAsServiceAccountId` when registering (`webhooks.register`, `schedules.register`) or when taking over a trigger whose owner left (`webhooks.takeOwnership`, `schedules.takeOwnership`), or `--run-as <service-account-id>` on `kindgi webhooks register`, `kindgi schedules create` and the `take-ownership` commands. Naming an account needs `act_as` on it. Only a caller who may read service accounts learns whether a named one is missing, unregistered or not `act_as`-able; everyone else gets a uniform permission error.
+- dd34dcf: **A thrown error's log line no longer carries a failed database query's SQL, its parameters, or a value the server quotes as rejected.**
+  
+  A 500's body already said only `A database query failed.`. But its `unhandled error` log line wrote the thrown error's message and stack, and its causes'. Two of those messages carry a request's values:
+  - Drizzle's wrapper around a failed query has the message `Failed query: <sql> params: <values>`, a person's email or address among them.
+  - A Postgres data exception (SQLSTATE class 22) quotes the value it rejected: `invalid input syntax for type uuid: "…"`, `invalid input value for enum …: "…"`.
+  
+  A read's `database busy` warn line wrote them the same way. Both lines now write:
+  - **such a wrapper** as `A database query failed.`. That entry keeps the wrapper's name, code and stack frames (where the query ran), and its cause, the database driver's error.
+  - **a data exception** as what it means plus its SQLSTATE, for example `invalid input for its type (22P02)`, with its name, code and stack frames.
+  
+  This holds for the thrown error itself and for each cause the line writes, three deep. Every other error keeps its name, message, code and stack, including the driver's error when it isn't a data exception. An error with neither among those causes is logged exactly as before, and the thrown errors themselves aren't changed.
+- Updated dependencies [cf339d3]
+- Updated dependencies [5d68d0d]
+- Updated dependencies [d563887]
+- Updated dependencies [22b619b]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [7be0273]
+- Updated dependencies [8bcfa4b]
+- Updated dependencies [3b90568]
+- Updated dependencies [f82bb04]
+- Updated dependencies [d563887]
+- Updated dependencies [6d3ccdd]
+- Updated dependencies [3c8afcf]
+- Updated dependencies [66bb5eb]
+- Updated dependencies [d563887]
+- Updated dependencies [ffeecb2]
+- Updated dependencies [409b9bf]
+- Updated dependencies [016d40d]
+- Updated dependencies [cf339d3]
+- Updated dependencies [3502389]
+- Updated dependencies [cb778f6]
+- Updated dependencies [a05ee69]
+  - @kindgi/agents@0.1.9
+  - @kindgi/compliance@0.1.9
+  - @kindgi/capabilities@0.1.9
+  - @kindgi/flow@0.1.9
+  - @kindgi/tools@0.1.9
+  - @kindgi/guardrails@0.1.9
+  - @kindgi/log@0.1.9
+  - @kindgi/authz@0.1.9
+  - @kindgi/handler-runtime@0.1.9
+  - @kindgi/policy-contract@0.1.9
+  - @kindgi/platform@0.1.9
+  - @kindgi/bounds@0.1.9
+  - @kindgi/runtime@0.1.9
+  - @kindgi/provenance@0.1.9
+  - @kindgi/schema@0.1.9
+  - @kindgi/blob-binding@0.1.9
+  - @kindgi/audit-events@0.1.9
+  - @kindgi/crypto@0.1.9
+  - @kindgi/memory@0.1.9
+  - @kindgi/types@0.1.9
+
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/agents@0.1.9-rc.1
+  - @kindgi/audit-events@0.1.9-rc.1
+  - @kindgi/authz@0.1.9-rc.1
+  - @kindgi/blob-binding@0.1.9-rc.1
+  - @kindgi/bounds@0.1.9-rc.1
+  - @kindgi/capabilities@0.1.9-rc.1
+  - @kindgi/compliance@0.1.9-rc.1
+  - @kindgi/crypto@0.1.9-rc.1
+  - @kindgi/flow@0.1.9-rc.1
+  - @kindgi/guardrails@0.1.9-rc.1
+  - @kindgi/handler-runtime@0.1.9-rc.1
+  - @kindgi/log@0.1.9-rc.1
+  - @kindgi/memory@0.1.9-rc.1
+  - @kindgi/platform@0.1.9-rc.1
+  - @kindgi/policy-contract@0.1.9-rc.1
+  - @kindgi/provenance@0.1.9-rc.1
+  - @kindgi/runtime@0.1.9-rc.1
+  - @kindgi/schema@0.1.9-rc.1
+  - @kindgi/tools@0.1.9-rc.1
+  - @kindgi/types@0.1.9-rc.1
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- 83ad88a: **A 500's body no longer repeats the thrown error's own message.** An unhandled exception now answers with a fixed message — `A database query failed.` for a failed query, `Unhandled server error` otherwise — and the request id. A thrown error's message often carries internal detail (an upstream's `connect ECONNREFUSED <address>`, a database driver's string, an audience value), which reached the tenant whose request failed — on a shared deployment, detail of the platform every tenant shares; it now stays in the `unhandled error` log line under the same request id, so an operator can still correlate and read the whole error. Errors that mean to speak to the client are unchanged (`getResponse`, `TenantBudgetError` → `429` with its budget, wire errors).
+- 6ed7bc6: **A person who is the tenant's admin reads approvals at every tier.** With authorization on, `GET /v1/approvals` and `GET /v1/approvals/{approvalId}` let a person who is the tenant's admin read approvals in the projects they may read. With no roster entry, they read as an `admin` reviewer. With a lower role on the roster, they read their own tier, and any tier they ask for (`requiredRole`, or one approval).
+  - **No one new gets this:** a tenant admin could already register themselves as an `admin` reviewer.
+  - **Deciding and signing an audit bundle stay the roster's.** An API key reads as its user does, within its own limits: a key with no user, a `member` key and a key limited to a project read nothing new.
+  - **Anyone else is answered as before:** a tier above their own is still `403`, and one approval above it is still `404`.
+  - **The roster doesn't show such a reader.** The access audit records the tenant-admin check (`authz-decision`), made only where it changes what the roster gives: a reviewer reading their own tier makes none.
+- 5d68d0d: **An audit record that can't be written, and a check the authorization model can't answer, are logged through your logger instead of the console.**
+  - `emitResolveEvent` and `emitLifecycleEvent` (`@kindgi/compliance`) take an optional `log`, a `@kindgi/log` `Logger`. An append that fails or throws still never fails the caller's operation. It's logged there at `warn`, with the record's `tenantId` and `kind`, and the error's `code` or the error it threw. Without a `log` it isn't logged anywhere; before, it went to `console.warn`.
+  - `createApp` passes the request's logger, under the subsystem `audit`, for a secret or env write's record and for a secret read refused for its scope. `resolveAtScope` takes that `log` as an optional fourth argument. An app without a `logger` won't see that a record was dropped, and the `logger` option's docs say so.
+  - A check the authorization model has no relation for, which is a bug in a route, is logged at `error` through the request's logger, under the subsystem `authz`, with its `action` and `resource`. Before, it went to `console.error`.
+  - `createInMemoryEnvBinding` takes an optional `log` and passes it on with every audit record it writes.
+- d563887: **A conversation belongs to one project, and adding a turn to it takes being its opener (its participant, when it has one) or `write` on its project.** A turn reads the conversation's history and appends to it.
+  - **`POST /v1/runs`** naming a `projectId` other than its `input.conversationId`'s answers `409 conversation-project-mismatch`, with `details.conversationId`, `details.projectId` (the one named) and `details.conversationProjectId`. Name the conversation's project, or omit `projectId`. A conversation from before projects isn't compared.
+  - A turn into a conversation with no participant takes having opened it (the caller `?openedBy=me` names), or `write` on its project (on its agent, for a conversation from before projects). Read isn't enough. Anyone else gets `403 permission-denied`, with `details.resource` the conversation. With a participant, the participant rule decides, as before.
+  - A turn into a conversation that doesn't exist answers `404 conversation-not-found` before any turn starts, with `options.wait: false` too. It used to answer `202`, and its run failed. A caller who can't read the conversation gets the same `404`, byte for byte, in place of the `409`, or of the `403` for a conversation with no participant. With a participant, the participant rule's `403` stays as it was.
+  - **`POST /v1/conversations`** naming a `projectId` takes `write` on that project as well as `execute` on the agent, as a run naming one does. Omitted, it opens where it did before (a project-scoped key's project when that serves the agent, else the agent's own), with `execute` on the agent. For an agent more than one project serves, opened in one of its projects (the one named, or where an unnamed one opens), `call` there is the whole check instead.
+  - **Those checks now come before the named project is looked up.** A caller without them gets `403` whether or not the project exists, where a `projectId` that names no project answered `400` first.
+- 499082a: **Cost filters to one flow.** `GET /v1/cost/records` and `GET /v1/cost/aggregate` take `flowId`: every record of the run trees whose root is a run of that flow, whatever its version. A flow's page can now show the flow's own spend (`groupBy=day&flowId=…`), where the aggregate could only group by flow before. In the TypeScript client, `cost.usage.query` and `cost.usage.summary` take `flowId`; in the Python client, `flow_id`.
+- 17bc390: **A `GET` or `HEAD` the database was too busy to answer in time answers `503 database-busy` with `Retry-After`, where it answered `500 internal-server-error`.** The API answers it for a thrown error that carries `code: 'database-busy'`, on itself or on its `cause` chain, as the runtime's storage marks a lock or statement timeout, or a wait for a pooled connection past its limit. A request with any other method keeps the 500: a write may have saved part of its work before the timeout, and clients retry a 503 as an answer that nothing ran.
+  - The TS client's server error now carries `retryAfterSeconds` from a 503's `Retry-After` (whole seconds or an HTTP date). The client still doesn't retry on its own.
+- 66e5ec7: **A read whose binding returns the database's busy failure, instead of throwing it, now answers `503 database-busy` too.** A `GET` or `HEAD` the database was too busy for answered `503 database-busy` with `Retry-After` only when its binding threw the storage failure. A binding can instead return the failure as a Result error under its own code (`persistence-error`, `journal-error`, `blob-storage-error`), keeping it as the error's `cause`. The route then answered that code's `500`. These reads now check for the busy mark first and answer the same 503:
+  - `GET /v1/approvals` and `/v1/approvals/{approvalId}`;
+  - `/v1/conversations`, `/v1/conversations/{conversationId}` and `/v1/conversations/{conversationId}/messages`;
+  - `/v1/runs/{runId}/journal`;
+  - `/v1/audit/authz` and `/v1/audit/sign-ins`;
+  - `/v1/observations`;
+  - `/v1/provenance` and `/v1/provenance/{runId}`;
+  - `/v1/artifacts`.
+  
+  A request with any other method answers as before. A thrown error that carries its own response (`getResponse`), with the busy mark down its `cause`, now answers a `GET` or `HEAD` with the 503 as well. `SupervisorQueryObservationsOutcome`'s `runtime-error` takes an optional `cause`, which never reaches the response.
+- 22b619b: **A deployment whose agent or flow carries a schema that doesn't compile is refused, naming where it sits.** `POST /v1/deployments` used to check an index's agents and flows for shape only. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile deployed, and then every turn or run refused it. It's now `400 deployment-validation-failed`, as `defineAgent` and the flow loader refuse it: one issue per schema, at its path (`/output/schema`, `/nodes/<i>/branches/<k>/outputSchema`, …). An agent's `output` that isn't an object is refused at `/output`. Each compile counts against the tenant's compile budget, as the deployment's other compiles do.
+  - `flowSchemaProblems(flow)` (`@kindgi/flow`) lists every inline schema of a flow that doesn't compile, where a run compiles it, with its path: for a flow that never went through `loadFlow`.
+  - `defineAgent` refuses an `output` that isn't an object at `/output`, as the deployment does, instead of throwing a `TypeError` on `null`: `POST /v1/agents` answers `400 validation-failed` for it.
+- 4101430: **A deploy refused for a guardrail it can't keep now answers with `details.primitive` and `details.id`.** `POST /v1/deployments` answers `409 guardrail-project-mismatch` or `409 guardrail-already-registered` when the deploy decides the refusal itself: a live guardrail in another project, or one in its own project with a different definition. From the built package, those answers came without the two fields. The deploy's other refusals had them, and are unchanged.
+- d0ee5c5: **A deploy into a project now reads its tools' secrets where its secrets sync writes them.** When a secret a tool names is set nowhere yet, `POST /v1/deployments` with a `projectId` now records that project as where the secret is read, not the broadest scope the deployer administers. So a first `kindgi deploy --project <projectId> --sync-secrets` by a tenant's admin or an org's admin, or on a runtime with authorization off, now reads the values it just synced. Before, the tool's secret was recorded at the tenant (or the org), the sync wrote it to the project, and a call couldn't read it.
+  - **What changes for you:** if you deploy into a project and then set the secret tenant-wide (`kindgi secrets set <name> --env=<env> --scope=tenant`), a tool version deployed that way no longer reads it. Set it at the project instead: `kindgi secrets set <name> --env=<env> --scope=project:<projectId>`.
+  - **A secret already set is still read where it's found first,** among the scopes the deployer administers: the project, then its org, then the tenant. A secret set later somewhere else still changes nothing for a version already deployed.
+  - **A promotion** records where the promoted deployment's secrets sync writes, for a secret set nowhere: the project it promotes into, or the tenant for the Default project, when the promoter administers the tenant (else, as before, the broadest scope they administer).
+  - **Unchanged:** a deploy with no `projectId` (it needs admin on the tenant; its secrets sync writes to the tenant, and the tenant is recorded), a project admin's deploy, and what `POST /v1/tools`, MCP endpoints and webhook triggers record.
+  - **A tool version deployed before this change keeps what it recorded; nothing is rewritten.** If its secret was recorded at the tenant and synced into the project, set the secret at the tenant too, or deploy a new version of the tool: the new version records the project.
+- d563887: **A deployment's digest identity now includes its project, and a deployment records the one it was promoted from.** `DeploymentGetByImageDigestInput` takes an optional `projectId`: a digest is looked up within that project, or — absent — among the tenant-wide deployments (the tenant's Default project). A deployment that names no project and one that names the tenant's Default by its id are the same project for this lookup and for `register`'s idempotency check, so the same signed image is registered once per project however the Default is named. The same signed image can still be registered in more than one project, so a later environment can take it by promotion rather than a fresh build. `Deployment` gains an optional `promotedFromDeploymentId`: when a deployment was created by promoting another, the source deployment's id; absent for one registered directly.
+- d563887: **Promoting a build from one environment to the next.**
+  - `kindgi promote --from=<env> --to=<env>` moves a build to the next environment of its environment order: the same signed image, with the edits made since to its agents and flows. It finds the pack's one deployment serving in `--from` (or takes `--deployment`). It prints what moves, with the carried edits marked and the edits that stay behind, and then each value the build needs in `--to` that isn't set, with the command that sets it. It promotes only when every value is set, and exits 1 while one isn't. `--check` stops before moving anything. `--json` gives the deployment, the check and the promotion as one object.
+  - `POST /v1/deployments/{deploymentId}/promotions` promotes a deployment to the next environment of its order, `{ toProjectId, reason? }`. The target gets a deployment of its own, with the source's signed fields, contents and pack, and `promotedFromDeploymentId`. The edits of its agents and flows move with it, and each tool's secrets are read where the target reads them. Nothing is built, and no registry is written. It answers `201` with `{ deployment, created, moved, leftBehind? }`. A target that has the build already answers `200` with its deployment (`created: false`), and records the carried edits it lacked. The promoter needs read on the deployment's project and admin on the target. The deployment must still serve and its signer still be trusted, with the signature checked again. Every value the build needs in the target must be ready. The audit trail records `deployment-promoted`, with the reason.
+  - `POST /v1/deployments/{deploymentId}/promotions/check` answers what would move, the values not ready in the target, and the next environment. It writes nothing, and it refuses as the promotion would.
+  - New error codes: `409 promotion-not-next-environment` (the project named isn't the next environment of the order), `409 promotion-values-not-ready` (`details.values`), `409 deployment-superseded` (`details.environment`, `details.newerDeploymentId`) and `501 promotions-unsupported`. A promotion from or into a suspended project or pack answers `project-suspended` or `pack-suspended`, with `details.environment`.
+  - `GET /v1/deployments` takes `projectId` (one environment's deployments; the Default project also finds those that name no project) and `packId`. Each page names the filters it applied, so a client can tell a runtime that ignored them.
+  - A deployment record carries `promotedFromDeploymentId` and `packId` when they're set.
+  - `@kindgi/api`: `DeploymentRegistryBinding.promote` (optional) writes a promotion in one transaction. Without it, a promotion answers `501 promotions-unsupported`, and the check still answers. `createApp`'s `deploymentValues` supplies where a provider's model key is and the pack's own env, for the values check.
+  - `@kindgi/client`: `deployments.promote`, `deployments.promoteCheck`, and `projectId` and `packId` on `deployments.list`.
+  - `@kindgi/compliance`, `@kindgi/specs`: the audit event kind `deployment-promoted`.
+  - `kindgi deploy` refused with `409 environment-takes-promotions` names where the build enters its environment order and prints each `kindgi promote` to run from there, one environment at a time, naming each environment from the pack config. When the refusal leaves out the first environment, because the caller can't read it, the hint says the rule and points at `kindgi environments list`.
+  - `kindgi deploy` refused with `deployment-validation-failed` prints each issue again. They're in the refusal's `details.issues`, and the CLI looked for them elsewhere.
+  - `@kindgi/api`: `DeploymentValue` describes one value a deployment needs where it's promoted to: a tool's secret or env, an agent's model key, or the pack's env. It says where the value is set and why it isn't ready, never the value itself. `ModelKeyLookup` says where a run finds a provider's model key.
+  - `@kindgi/api`: `deploymentValues` lists every value a deployment needs in the project it's promoted to, each read where a run there reads it: each tool version's secrets at the scope a promotion records for them, its env values with no default, a model key for each agent version (its registered preferred provider's, else any registered provider's), and the pack's own env. `carriedVersions` gives the edits that move with a deployment to the next environment (an edit of a version it ships, reached where it serves) and the ones left behind. `findNamedSecretScope` gives the scope a secret is recorded at and the secret found there.
+  - `@kindgi/tools`: `toolRequiredEnvNames` gives the env values a tool declares with no default.
+  - `kindgi promote` outside a pack takes a project id or slug for `--from` and `--to` (a slug two projects share is refused), and lists every deployment serving in `--from`, with each one's pack when several serve. In a pack or outside one, the command it prints for a value sets it at the target project's scope (`--scope=project:<id>`), under the env the runtime serves. In a pack, it talks to the runtime `kindgi deploy` would use for `--from`, and refuses two environments whose `endpoint` or `tenantId` differ, naming both: an environment order lives in one tenant on one runtime.
+  - The promotion check answers `envName`, the env the runtime serves, which a run in the target reads its values under. It's absent when the runtime names none.
+  - A key or session limited to a project is refused promotions and their checks, `403 key-project-mismatch`, whether or not the runtime has an authorizer: a promotion reads one project and writes another.
+  - A tool secret whose schema names null and validates it is optional, as at run time: unset in the target, it isn't listed and doesn't hold a promotion back. Set or revoked, it's checked like any other. `@kindgi/tools`: `toolOptionalSecretNames` gives a tool's optional secrets.
+  - With no model provider registered in the tenant, each agent version that runs on any provider is listed as `any provider`, with the problem `no-provider`: a run there would have none to call. `kindgi promote` says to register one.
+- d563887: **`GET /v1/deployments/{deploymentId}/values` lists what a deployment needs set in a project, names only.** Each entry is a `DeploymentValue`:
+  - **What it lists:** each tool's secrets and env values with no default, a model key for each agent version the deployment ships or carries, and the pack service's own env.
+  - **How each is read:** where a run in that project reads it, under the env the runtime serves. `foundAt` says where it's set, the project, its org or the tenant, and `problem` says why it isn't ready. It never returns a value.
+  - **`?projectId=`:** names the project. Without it, it's the deployment's own project, or the tenant's Default project for a tenant-wide deployment.
+  - **Its own project:** a value counts wherever it's set.
+  - **Another project, the one a promotion would take it to:** a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it. So the list says what that promotion's check would.
+  - **Access:** it needs `admin` on the project, as listing secrets there does, and `read` on the tenant, as every deployments route does.
+  - **Errors:**
+    - `404 deployment-not-found` for an unknown deployment;
+    - `404 project-not-found` for a `projectId` that names no project of this tenant;
+    - `400 bad-input` for a `projectId` that isn't a project id.
+  - `@kindgi/cli`: `kindgi exports create` leaves the route out, as it's computed from records an export already holds.
+  - `@kindgi/client`: `deployments.values.list(deploymentId, { projectId })`. Without `projectId`, the deployment's own project.
+- e5b38a8: **`GET /v1/deployments` answers `503` when the database is busy, and more `500`s stop repeating an error's own message.** The deployments list built its own `500` in a `catch`, so a busy-database error became a `500` instead of the `503` + `Retry-After` the central handler gives a read; it now lets the error through. The deployments write paths and the signed-export failures that put a thrown error's, an outcome's or a signing error's message into a `500` body route through the handler too: the body carries a fixed message and the cause goes to the log. The public wire codes are unchanged (`export-key-error`, `compliance-export-failed` and `persistence-error` on the signing `500`s; `signing-key-not-found` stays a `4xx`), and the fixed-string wiring errors are left as deliberate client messages. One deployment-record `500` passed a `cause: outcome.code` field into its body; `toWireError` already dropped it before the wire (the `error` object is `additionalProperties: false`), so no response shape changes.
+- c56f757: **A deployment is read in the project it serves.** With authorization on, a deployments route asks `read` on the deployment's own project as well as on the tenant. A deployment that names no project is the Default project's.
+  - **`GET /v1/deployments`** lists only the deployments in projects the caller reads, so a page can hold fewer than `limit` with `hasMore` true: page by `nextCursor`, not by count. `?projectId=` needs `read` on that project, else `403`. One that isn't there is `403` too, the tenant admin's included (before, `200` with no rows), so the list tells no one which projects exist.
+  - **`GET /v1/deployments/{deploymentId}`, `/pack-env`, `/values` and `POST …/secrets`** answer a deployment in a project the caller doesn't read as one that isn't there: `404 deployment-not-found`, with nothing read or written.
+  - **A deployment's secrets sync asks `admin` where it writes,** as `/v1/secrets` does: on the deployment's project, else the tenant. Before, it asked for the tenant's admin. So a project admin's `kindgi deploy --project <id> --sync-secrets` now completes: before, the deploy registered and then the sync was refused `403`.
+  - **A tenant admin reads every deployment, as before,** and a member reads those in the projects they read: a role there, directly or through a team, or as an admin of its org.
+- 1ac8e67: **A deployment can publish the IP addresses its calls to other sites come from, and `kindgi egress` prints them,** for a site that admits only known addresses. Publishing them changes nothing about where calls go or come from.
+  - **Settings:** `KINDGI_EGRESS_SERVER_ADDRESSES` (the server's own calls, such as to MCP servers and model providers, and its webhook deliveries) and `KINDGI_EGRESS_DEPLOYMENT_ADDRESSES` (calls made by deployed code), each a comma-separated list of IPv4 or IPv6 addresses. Unset: nothing is published.
+  - **`GET /v1/tenant`** gains an optional `egress: { server, deployments }`, the same for every tenant on the deployment, which any key of the tenant reads. It's absent when the deployment publishes none, and from a runtime before it. For runtimes: `createApp`'s optional `egress` (`EgressAddresses`), whose entries must be IP addresses.
+  - **`kindgi egress`** prints a CALLS / ADDRESS table, and says every tenant on the deployment shares the addresses, so a site keeps its own credentials too. `--json` prints both lists. With none published it says so, and exits 0.
+  - The TypeScript and Python clients' `Tenant` gains the optional `egress`.
+- 404c4c9: **A cleared deployment says whether its pack service comes back, and why it isn't back yet.** Restoring a tenant, project or pack lists its `cleared` deployments that aren't superseded as needing a pack service again (`GET /v1/system/deployments?endpoint=missing`). Such a deployment's status stays `cleared` while it waits. Before, a client couldn't tell it from one that's gone for good, and nothing said why it was still waiting.
+  - **`waiting` or `retired` on every `cleared` endpoint** (`DeploymentEndpoint`, wherever a deployment's endpoint is returned: `GET /v1/deployments`, `GET /v1/deployments/{id}`, `POST /v1/deployments`, and the system routes). `waiting: true` means a pack service is wanted for it again, and it lists as needing one (`?endpoint=missing`). `retired` says why none is wanted now, as the orchestrator is told to retire one:
+    - `superseded` is for good: newer deployments ship every tool version and check it does, so no new call reaches it; a tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`);
+    - `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored.
+  
+    A `cleared` endpoint carries one of the two, and no other endpoint carries either. Both are optional: an older server sends neither. `retired` is a string, so a later reason doesn't break a client. `SYSTEM_DEPLOYMENT_RETIRE_REASONS` and `SystemDeploymentRetireReason` now come from `@kindgi/api`'s deployment types, with the same names.
+  - **A problem while it waits:** `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem` records why a `waiting` deployment has no pack service yet, as for a `pending` one, and a refused `PUT …/endpoint` records its reason the same way. A `cleared` deployment that isn't waiting is still refused, `409 endpoint-not-pending`, with a message that says it isn't waiting for a pack service. `problem` shows while a deployment waits (`pending`, or `cleared` and `waiting`): never on a `ready` one, nor on a `retired` one.
+  - **`kindgi deploy --hosted` waits for a `waiting` one** as it waits for a pending one: `… cleared, waiting for its pack service again`, with the problem's line when there is one. On a `retired` one it stops at once and says why, e.g. on a repeat deploy of a superseded image: `The deployment's pack service was taken down (cleared, superseded): a later deploy ships every tool version and check this one does, so no call reaches it again.` From a server that sends neither, it stops as before, now saying only that the pack service was taken down (cleared), no longer "before it was ready".
+  
+  The descriptions of `DeploymentEndpoint`, its `problem`, `DeploymentEndpointProblem` and the problem route say so, in `@kindgi/api` and both clients.
+- d563887: **Environment orders — the order a tenant runs a project through on its way to live.** One ordered list of projects per parent: the tenant, or one of its orgs.
+  - **`GET /v1/environment-orders`** lists the orders the caller can read a project in; **`GET /v1/environment-orders/tenant`** and **`/orgs/{orgId}`** read one (empty when it was never set or was cleared). A project the caller can't read is named by its position alone, without its id — the same project-read check `GET /v1/projects` filters its list with.
+  - **`PUT /v1/environment-orders/tenant`** and **`/orgs/{orgId}`** replace an order with the projects given, in order; send `[]` to clear it. For a tenant admin; an org admin or a project admin is refused, even on an org's own order. An order needs two or more projects, no project named twice, and each project live in the tenant under that parent and in no other order (`409 project-in-another-order`). A write that changes nothing is a no-op.
+  - A new optional `environmentOrders` binding (`EnvironmentOrderBinding`) backs the routes; a runtime that doesn't wire it doesn't mount them. The host application supplies it — `@kindgi/api` never constructs one.
+  - The TypeScript and Python clients reach them through `client.environmentOrders`.
+  - **`kindgi environments`** lists an order (`list`), sets it (`set`, naming environments from the pack config's new optional `environments.<name>.project`, or `--projects` ids/slugs), and clears it (`clear`). `kindgi env` is reworded to name a value set, to tell the two apart.
+  - A signed, exportable `environment-order-set` audit event records each set, with the order before and after — never anything a project holds.
+- d563887: **A later environment of an environment order takes builds only by promotion.** Builds and new versions enter an order at its first environment; nothing reaches a later one except by promotion from the one before it. All of this applies only when the runtime wires `environmentOrders`. A project that's first in its order, or in no order, works as before.
+  - **`POST /v1/deployments`** into a later environment (position 1 or more) is refused with **`409 environment-takes-promotions`** before anything is written: deploy into the order's first environment and promote the build from there. With no project named, the tenant's default project is the one checked. `details.position` is always present; `details.firstProjectId` appears only when the caller can read that project.
+  - Publishing an agent, a flow, a tool, a guardrail or a data block through the API into a later environment is refused the same way. Such a version stays in the environment it was published in, because only builds move between environments. Eval suites aren't refused: they're test data, published in any environment and reached there and in the later ones.
+  - A derived agent version (**`POST /v1/agents/{agentId}/versions`**) that names a later environment is refused. Otherwise it's made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted. The agent's project doesn't change. An improvement proposal's derived version and its edited data blocks are made in that first environment too, and the proposal's candidate is evaluated in the project it was made in.
+  - A deploy keeps a guardrail registered in another project of the target's order instead of refusing it with `guardrail-project-mismatch`.
+  - `AgentVersionRecord`, `FlowVersionRecord` and `EvalSuiteRecord` gain an optional `madeInProjectId`: the project a version was made in, when the store records it. It isn't on the wire.
+  - `ItemReference` gains an optional `version`: a reference to one version of an agent, flow or eval suite. `referencesOutOfScope` asks about each version once.
+- 53b09f7: **`GET /v1/environments` lists the tenant's env names,** for a tenant admin: each name that holds an env value or a secret, at any scope, once, in byte order, paged by `cursor` and `limit`.
+  - An env store and a secrets store each say their own names through a new optional `listEnvNames({ tenantId, limit, after })` (`EnvBinding`, `SecretBinding`). A runtime whose store doesn't answers `501 environments-unsupported`, which names the store, rather than a list missing its names.
+  - The in-memory env store gives the names its tenant's values are under. The dotenv secrets store gives `local` and each `.env.<name>` file that holds a name.
+  - The TypeScript and Python clients list them with `client.environments.list()`.
+- d563887: **Starting an eval run checks the version it names.** `POST /v1/eval-suites/{suiteId}/runs` with an `agentRef` or `flowRef` that names a `version` now asks the runtime whether `projectId`'s project runs that version, not only whether it reaches the agent or flow. If it doesn't, for example a version made in an earlier environment of an environment order and not yet promoted to this one, the start is refused with **`400 reference-out-of-scope`** and nothing runs. Before, the start answered `201` and every case's replay was then refused.
+  - The refusal's message, and the message of its issue at `/agentRef/agentId` or `/flowRef/flowId`, name the version and say it's the version the project doesn't run: `agent "acme.desk" 1.1.0 isn't a version this project runs (not registered in this project, its org or the tenant, nor deployed to it)`.
+  - A start that names no version is checked as before, by the agent's or flow's id.
+  - A flow candidate's `versions` are checked the same way, each at its own path: an agent at the version named, at `/versions/agents/<id>`, and a tool by its id, at `/versions/tools/<id>`.
+  - `referencesOutOfScope` names the version of a reference that has one, in each issue's message and in the refusal's, and says it's a version the project doesn't run. A reference without a version is refused with the same words as before.
+- 8f52412: **An eval run or an improvement pass stops when its project or tenant does.** The eval subject's new optional `halt` outcome says a case couldn't start because its project is suspended, or its tenant is suspended or closing. The eval run stops at that case, counting it nowhere, and ends `cancelled`, with the reason in its new optional `cancelReason` (`project-suspended`, `tenant-suspended`, `tenant-closing`) and the cases before it in `result`. An improvement pass whose comparison ends that way ends `cancelled` with the same `cancelReason` and goes no further, as when a person cancels it: it drafts no proposal, and one already drafted for its winner (stopped at the proof on the hold-out part) stays drafted. A runtime that doesn't set `halt` behaves as before: such a case is its own error. Where the runtime suspends projects, starting an eval run in a suspended one, or a pass for one of its agents, is refused `409 project-suspended`. An improvement pass's webhook event (`improvement-pass.finished`) carries `cancelReason` too (`parseEvent`). `kindgi proposals passes list` shows a cancelled pass's `cancelReason` in its outcome column.
+- f56c6ae: **The event streams for runs, eval runs and secret rotations stop their work as soon as the reader goes away (it cancels the stream, or the request is aborted), and a `HEAD` on one starts none of it.**
+  
+  Each of these server-sent-events routes starts its work when it opens the stream. Before this change, nothing stopped that work when the reader went away. That covers a client that disconnected mid-stream, and one that left while the route was still reading: the server cancels only a body it is writing, so that client never cancelled anything. Hono answers a `HEAD` with the `GET` route and drops the body without cancelling it, so every `HEAD` started the same work. The work then ran to its own end:
+  - `GET /v1/runs/{runId}/stream` and `/progress/stream`: a journal read every 200 ms, or an event-bus subscription, until the run's terminal event or five minutes.
+  - `GET /v1/eval-runs/{runId}/events`: a read of the eval run every 100 ms, until it ends or five minutes.
+  - `GET /v1/secrets/{name}/rotations/{rotationId}/events`: a subscription to the rotation's status and a heartbeat every 15 s, for as long as the rotation stays `pending`, with no time limit.
+  
+  Each stream now stops when its reader cancels it or its request is aborted:
+  - the poll and its wait end at once, and so does the five-minute wait;
+  - the subscription ends, and the heartbeat stops;
+  - a reader that cancels while the run's journal is still being read back doesn't subscribe at all.
+  
+  A `HEAD` answers with the stream's status and headers (`200`, or the `GET`'s `404`) and doesn't start the stream. So does a request that was aborted while the route was reading. A reader that stays connected receives the same events as before.
+- c46503d: **A closing or suspended workspace's refused write says what still changes in it.** The `409 tenant-closing` and `409 tenant-suspended` messages, and S3's `403 AllAccessDisabled`, said nothing in it changes, though its deletes, revocations and erasures still go through. They now name those.
+- 7be0273: **A guardrail's `action` is described as what it does in 0.1: only `halt` acts.** The OpenAPI `GuardrailAction` description, the guardrail YAML schema (`guardrail.schema.json`, both its `on-violation` text and its top-level description), the `Guardrail.action` and `OnViolation` docs and the package description of `@kindgi/guardrails`, the TS client's `GuardrailAction`, the Python client's model and the Python SDK README now say the same as the guardrail skills: a failed `halt` check fails the turn with `guardrail-violation`, and any other value, `retry`, `escalate`, `compensate` and custom names included, is recorded as a violation and the turn completes. They no longer say that `retry` runs the step again, that `escalate` routes to review, that `compensate` calls a tool, that a custom name needs an action handler registered (the runtime registers none), or that a `retry` action needs `maxAttempts` (only a `retry` object, when given, needs it). `retry`, `escalateTo` and `compensateWith` gain descriptions saying nothing acts on them in 0.1. No behaviour changes, and no shape changes.
+- e35d94f: **A `HEAD` on an artifact or an S3 object reads its metadata only, and no longer leaves the object open.**
+  
+  Hono answers a `HEAD` with the `GET` route at its path and drops the body. So `HEAD /v1/artifacts/{blobId}` and S3 `HeadObject` (`HEAD /s3/{bucket}/{key}`) ran the download: each opened the blob through the storage binding (`get`, `getByKey`), and nothing read or closed it. On a filesystem store each such `HEAD` left a file handle open for the life of the process; an object store's binding can hold its connection the same way. The routes' own `HEAD` handlers never ran.
+  
+  Now each `GET` route answers a `HEAD` itself, from the binding's metadata-only read (`head`, `headByKey`), and never opens the blob. A `HEAD` answers the same status and headers as before, which are the `GET`'s, except where the binding can't open what its metadata read describes: a `HEAD` answers from the metadata read (`200` for a record it finds, `404` when there's none), where the `GET` answers the open's error. The status and headers are:
+  - an artifact: `200` with `Content-Type`, `Content-Length`, `X-Kindgi-Blob-Hash` and `X-Kindgi-Blob-Name`, or the `GET`'s `404 blob-not-found`;
+  - an S3 object: `200` with `Content-Type`, `Content-Length`, `ETag`, `Last-Modified`, `Accept-Ranges` and the `x-amz-meta-*` headers; with a `Range`, the `206` headers or `416 InvalidRange`; or `404 NoSuchKey`.
+  
+  A `GET` of an S3 object with a malformed `Range` now cancels the object it opened before it answers `416 InvalidRange`, where it left it open too.
+- 010fd72: **`POST /v1/deployments` says why a registry read failed: `image-unverifiable` carries the registry binding's code in `details.cause`,** and, for an image past one of the server's bounds on reading an image, the bound in `details.limit`. Both are new, optional fields; a check that fails after a read that succeeded carries neither.
+  - `ImageRegistryError` has two more codes. `image-limit-exceeded` is an image past a bound the binding reads within, with `limit` (`ImageReadLimit`): `manifest`, `file`, `layer`, `read` or `unpack`, the image's own, so the same image is refused again, or `tenant-unpack-hour`, the tenant's reads in the last hour, which passes. `image-unreadable` is a layer that isn't an archive the binding can read: not a tar, or compressed twice. A binding that reported these as `image-registry-unreachable` can now tell them apart from a registry it couldn't reach.
+  - Before, the route's `cause` never reached the wire: `toWireError` keeps a domain error's `cause` off it. It still does; the route now builds these two refusals itself.
+  - `kindgi deploy` shows the cause, and its hint follows it: a registry it couldn't reach, credentials the registry refused, an unreadable layer, an image past a bound, a pack index past the size the server reads (`limit` `file`), or the tenant's hour of image reads.
+  - `kindgi deploy` now lists a refused deployment's `details.issues`. It read them from `error.issues`, where the server doesn't send them, so the list its hint promised never showed.
+- 7be42d0: **New runtime setting `KINDGI_AUTH_INVITE_EMAIL_DAILY_CAP`:** the deployment's backstop on invitation emails, at most this many in 24 hours from all its tenants together. Default 500, a whole number from 1 to 100000. Each tenant's own limit stays: 100 in 24 hours, or 10 while `KINDGI_PRODUCTION_GATE` is `on` and the tenant isn't allowed production. At a limit the person is still added, without the email (`inviteEmail.reason` is `capped`), and sending it again answers `429 invite-capped`. It needs the emailed sign-in link's sender: set without `KINDGI_AUTH_EMAIL_SMTP_URL` (or `…_PATH`), the runtime refuses to start. `AUTH_INVITE_EMAIL_DAILY_CAP_VAR` names it.
+  
+  The API's texts for an invitation not emailed (`capped`) and for `429 invite-capped` name the deployment's backstop beside the tenant's limit (`openapi.json` descriptions only).
+- f605c7e: **`POST /v1/mcp/endpoints` refuses an `endpointId` with a `.`: `400 invalid-mcp-endpoint`, reason `dot-in-endpoint-id`, naming the id.** An MCP tool's id is `<endpointId>.<tool name>`, and a tool name may contain `.`. So endpoint `a` with tool `b.c` and endpoint `a.b` with tool `c` both made the tool `a.b.c`, and each sync took it from the other. With no `.` in an endpoint id, a tool id splits at its first `.`.
+  - A request that registered before is refused now when its id has a `.`: use `-` or `_` instead.
+  - An endpoint registered before with a `.` keeps its id: it still reads and unregisters as before. Nothing is renamed.
+  - The OpenAPI register body's `endpointId` has the pattern `^[^.]+$`, and the Python client's register body checks it before sending. The endpoint the API answers with has no pattern, so an id registered before still reads.
+- d563887: **Opening a conversation, and registering or changing a schedule or a webhook trigger, checks the version it names.** Each now asks whether the project runs that version, not only whether it reaches the agent or flow. If it doesn't, for example a version made in an earlier environment of an environment order and not yet promoted to this one, it's refused with **`400 reference-out-of-scope`**, the message and the issue naming the version, and nothing is opened, registered or changed. Before, it answered `201` or `200`, and every turn or fire was then refused.
+  - `POST /v1/conversations`: the agent at `agentVersion`, at `/agentId`.
+  - `POST /v1/schedules`, and `PATCH /v1/schedules/{triggerId}` with a new target: a flow at `flowVersion`, or an agent at `agentVersion` when one is named, at `/target`. An agent target that names no version, and an improve target, are checked by the agent's id, as before.
+  - `POST /v1/webhooks`: the flow at `flowVersion`, at `/flowId`.
+  - `PATCH /v1/webhooks/{triggerId}` with a new `flowVersion`: the trigger's flow at that version, at `/flowVersion`. Before, a new version was checked only for `execute` on the flow.
+- f82bb04: **Who opened a conversation, the approvals you decided, and the session a decision was made in.**
+  
+  - **`openedBy` on a conversation:** the caller who opened it (`user:<id>` or `service_account:<id>`), set by the server and never from the body.
+    - `GET /v1/conversations?openedBy=me` lists only the caller's own (`conversations.list({ openedBy: 'me' })`, `kindgi conversations list --opened-by=me`).
+    - The conversations table gains a nullable `opened_by` column and an index (migration `0006`). Nothing is backfilled, so earlier conversations record no opener and aren't listed by it.
+    - A binding that ignores `ListConversationsPageInput.openedBy` lists more, and the route keeps only the caller's.
+  - **`?decidedBy=me` on approvals:** only the approvals the caller's own reviewer row decided (`approvals.list({ decidedBy: 'me' })`, `kindgi approvals list --decided-by=me`). `ListApprovalsBindingInput` gains `decidedBy`; a binding that ignores it lists more, and the route keeps only those.
+  - **Every page of a filtered list says so,** an empty one too: `openedBy: "me"` and `decidedBy: "me"` (`ConversationPage.openedBy` and `ApprovalPage.decidedBy` in the TypeScript client, `opened_by` and `decided_by` on the Python pages). A runtime from before these filters ignores them and lists them all, with neither on its pages, so `kindgi conversations list --opened-by=me` and `kindgi approvals list --decided-by=me` stop there, naming the release the runtime needs.
+  - **A decision's session:**
+    - **`sessionProvider`:** an approval's `decision` gains it. It's the provider of the session the reviewer decided with: `site:<id>` for a site's sign-in, or an identity provider's id. An API key has none. `SubmitReviewBindingInput` gains it, and the complete route passes it.
+    - **`deciderName`:** the decision also gains the reviewer's name when they decided.
+    - Both are optional: a decision an older runtime recorded has neither.
+- d563887: **Rights on an item an environment order carries come from the projects that serve it.** Once an order carries an agent, a flow, a tool, a guardrail, a data block or an eval suite from one environment to the next, each project that serves the item governs what happens to it there. All of this applies only when the runtime wires `itemProjects` (`ItemProjectsBinding`, new on `CreateAppInput`). An item that one project serves is checked as before, check for check.
+  - **Reading.** A caller reads the item through any project that serves it, and sees each version that can run in a project it reads. A version it can't see answers as one that doesn't exist, with the same 404. `GET /v1/agents/{agentId}`, `/v1/flows/{flowId}`, `/v1/tools/{toolId}`, `/v1/eval-suites/{suiteId}` and `/v1/blocks/{blockId}`, and each list row, answer the newest active version the caller can see. A grant on the item itself reads as its first project's readers do. An agent's live versions and promotions list only versions the caller can see.
+  - **`?projectId=`** on those five reads answers the newest version that can run in that project, which the caller must read. Otherwise it's a 404, the same whether or not the item runs there. A value that isn't a project id (a UUID) is a 400. On an item one project serves, only its own project answers; on one that names no project (under `kindgi dev`, a pack's agents, flows and tools), any project does. With authorization off, the caller reads every project, so each one answers the version it runs. An older runtime ignores the parameter and answers the latest version.
+  - **Changing.** A change in one project needs the right on that project, and not the item's own as well. A promotion, a rollback or an unpin of a project's or a segment's live version is `admin` there. A tenant's or an org's live version needs `admin` on every project that serves the item. Unregistering or reinstating a version needs `admin` on every project that version can run in (`write`, for a data block). A derived agent version, an improvement proposal and an improvement pass are `write` in the order's first environment, where the item's new versions are made. Requesting or rolling back a proposal is `admin` where its scope is. Building a test set from judgments under such a suite is `admin` in the project whose judged runs it takes, where the new version is made; a body naming a project the suite isn't in needs `admin` on every project of the suite.
+  - **Running.** A run of an agent in one of its projects needs `call` on that project, which its callers and editors have. A run of a flow or an eval suite needs `execute` there, which its executors and editors have. Neither the item's own `execute` nor `write` on the named project is asked. An unnamed run is checked where the runtime puts it: the conversation's project; else a project-scoped key's own project, when that project serves the item, and the run is filed there; else the item's first project. Opening and closing a conversation, scheduling an agent or a flow, and wiring a webhook trigger are checked the same way, in the conversation's or the trigger's project. A schedule that improves an agent is `write` in the order's first environment. An eval run still needs `write` on its project.
+  - **What runs leave.** An eval run of such a suite is read on its own project, and cancelled or rescored with `execute` there. An event trigger's runs land in the flow's first project, so registering one is `write` on the flow and `execute` there, and reading one is `read` there. Reading observations of such an agent needs `read` on every project that serves it.
+  - A project-scoped key reaches only what its project serves.
+  - `@kindgi/authz`: `Action` gains `call`. `CHECK_ONLY_ACTIONS` lists what the model defines but a role's capabilities never report: a project's `call` and `execute`. `GET /v1/identity/me/permissions` doesn't change.
+  - `@kindgi/client`: `get` on agents, flows, tools, eval suites and blocks takes `{ projectId }` (`GetLatestOptions`). In the Python client, `project_id`.
+- 6d3ccdd: **A pack service run per deployment can be given the env its pack declares, from the env store.** On a server that runs a pack service per deployment (it wires `systemDeployments`), the names the pack declares in its index (`env`) are looked up in the env store, at the deployment's project, then the project's org, then the tenant (most specific wins), at the env the server serves. A tenant-wide deployment is read at the tenant's Default project.
+  - **Plain values only.** A name set only as a secret can't be given into the pack service's environment yet (`pack-env-secret-not-yet`): a tool reads it per call (`ctx.secrets`). A name set both as a secret and as a plain value is `pack-env-ambiguous`, naming both scopes. A required name set nowhere is `pack-env-missing`. While any of these stands, no value is given, and a running service keeps the values it has.
+  - **`GET /v1/deployments/{deploymentId}/pack-env`** shows a tenant where each declared name is set (`project`, `org` or `tenant`) and why it can't be given, if it can't. Never a value. A server whose pack services take their env from how they're run answers `501 pack-env-not-served`. The TypeScript client has `deployments.packEnv`; the Python client, `deployments.pack_env`.
+  - **For whatever runs the pack services, on a system key of its own (`system:pack-env`):**
+    - `GET /v1/system/pack-env` lists the deployments whose service runs on values that changed;
+    - `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env` gives the values and a `revision`, with each value given out on the audit record (`env-resolved`);
+    - `PUT …/pack-env` records the revision the service runs, or that it was held back and why (compare-and-set: `409 pack-env-conflict`). `pack-env-update-failed` holds a revision whose values were given and didn't start: it's listed again for an hour after it was first held, so it's tried again;
+    - `PUT …/endpoint` takes `packEnvRevision`, the one a new service was made with.
+  
+    `system:deployments` reads no value. The TypeScript client has `systemDeployments.listPackEnvChanged`, `getPackEnv` and `recordPackEnv`.
+  - **A deployment records its pack's declaration** (`packEnv`, optional), and a deploy whose image index carries a malformed `env` is refused (`image-unverifiable`). A ready endpoint can carry `packEnvProblem` (`{ code, since }`) while its service runs on the values it was last given: one of the three codes above, or `pack-env-update-failed` when the newest values didn't start. `@kindgi/api` exports `packEnvCheck`, `PACK_ENV_PROBLEM_CODES`, `PACK_ENV_HELD_CODES` and `PACK_ENV_RETRY_MS`; `@kindgi/handler-runtime` exports its env declaration check at `@kindgi/handler-runtime/pack-env`.
+  - **An env or secret record can carry `recordId`,** the store's own id for its row, never on the wire. The revision carries it, so a removed value set again is a new revision even when its row starts again at 1 in the same millisecond. `@kindgi/env-inmemory` sets it; a store without one has only the update time.
+- 3c8afcf: **A pack service run per deployment can be given the secrets its pack declares, when the orchestrator asks for them.**
+  - **`GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env?secrets=values`** gives each declared name that's set only as a secret in `secrets`, as `{ value, revision }`, beside the plain values in `env`.
+    - Each is read at the version its revision names. A secret that changes while it's read is read again once, and then the answer is `503 pack-env-unavailable`.
+    - The `revision` (`ps1-…`) is made from the name's part of the deployment's revision, never from the value, so it changes whenever what's given for the name does.
+    - Every secret given is audited before the answer: one `secret-resolved` row each (caller `pack-env`, with the deployment id, the revision, the request's id as its correlation id, and the system key's id), all written in one append. Each row is in the project the deployment's names were read for: the one it names, else the tenant's Default. When they can't be written, none is given (`503 pack-env-unavailable`). A server with no audit store gives none (`501 pack-env-secrets-unaudited`).
+    - It's given only to a key holding `system:pack-env` itself. Any other key asking for it, `kindgi:system` included, is refused (`403 system-scope-missing`), with nothing read.
+    - A secret that can't be read for a reason the platform fixes, not the owner, is `pack-env-secret-unreadable`, and no value is given. The store's message is never passed on.
+    - Without `secrets=values`, the answer is as before: such a name is `pack-env-secret-not-yet`.
+  - **`GET /v1/system/pack-env`** lists a pack service held as `pack-env-secret-unreadable` or `pack-env-secrets-unaudited` at its current revision every time, with its `held` code: the revision doesn't move when the platform fixes it. `PACK_ENV_PLATFORM_HOLDS` names them.
+  - **New codes:** `pack-env-secret-unreadable` (a problem), and the orchestrator's own `pack-env-secrets-unaudited`, `pack-env-secret-too-large`, `pack-env-secret-capacity` (an endpoint's problem) and `pack-env-secret-redeploy` (a ready service's hold).
+  - **The owner's check** (`GET /v1/deployments/{deploymentId}/pack-env`) lists a name set only as a secret as `kind: 'secret'` with no problem, read without its value. `kindgi deploy --hosted` says why for each new code, and says the platform's team is told for the ones it fixes.
+  - **`kindgi deploy --hosted` refusing `environments.<env>.env` in kindgi.config** names the command that sets a secret too, at the same scope: `kindgi secrets set NAME --scope=… --env=…`.
+  - **`@kindgi/compliance`:** `resolveEvent` builds a resolve event for a caller that appends its own rows. The `pack-env` caller is new, and a resolve event can carry the revision, the deployment id, the request's id (`correlationId`) and the system key's id (`systemKeyId`).
+- c8d3c1e: **Breaking:** `users.create` in the TypeScript client answers with the person it added, not their id. Before: `const id = await client.users.create(spec)`. After: `const { userId } = await client.users.create(spec)`. In the Python client it answers `UserCreated`, which isn't a `UserRecord`: a type annotation or `isinstance` check on its answer changes.
+  
+  **People added with an email are invited, on a runtime that invites them.** The invitation is open until their first sign-in; past its expiry, every way in refuses them until a tenant admin sends it again.
+  
+  - **The API.**
+    - `POST /v1/identity/users` takes `sendInvite` (default `true`; `false` still invites them, unemailed), and its `201` adds `inviteEmail`: `{ sent, reason? }`, where `reason` is `no-email`, `not-requested`, `not-configured`, `send-failed` or `capped`.
+    - A person's record adds `invite` (`{ state: 'pending' | 'expired', expiresAt, sentAt? }`, while it's open) and `firstSignedInAt`.
+    - `GET /v1/identity/users?pending=true` lists only the people with an open invitation.
+    - `POST /v1/identity/users/{userId}/invite` (tenant admins) sends it again with a new expiry: `200 { user, inviteEmail }`; `409 identity-user-not-invited` for someone who has joined or was never invited; `429 invite-capped`, with `Retry-After`, over the server's limits.
+    - Every new response field is optional: a runtime that doesn't invite leaves them out.
+  - **`IdentityDirectoryBinding`.** `createUser` takes `sendInvite` and may answer `inviteEmail`; an optional `resendInvite` mounts the new route; `listUsers` takes `pending`; `UserRecord` adds `invite` and `firstSignedInAt`. The types are exported (`InviteEmail`, `InviteEmailUnsent`, `UserInvite`, `IdentityResendInviteInput`, `IdentityResendInviteResult`).
+  - **The TypeScript client.** `users.create` answers `UserCreated` (the `User`, with an optional `inviteEmail`); `UserSpec.sendInvite`; `users.resendInvite(id)` answers `InviteRenewed`; `users.list({ pending: true })`; `User.invite` and `User.firstSignedInAt`. `identity-user-not-invited` is a `conflict`, and `invite-capped` is `rate-limited`, with `retryAfterSeconds`.
+  - **The Python client** has the same: `users.create` takes `send_invite` and answers `UserCreated` (a `UserRecord`'s fields, and `invite_email`) where it answered `UserRecord`; `users.resend_invite(user_id)`; `users.list(pending=True)`.
+  - **The CLI.** `kindgi people add` says whether the invitation was emailed, and why not, and takes `--no-invite`; `kindgi people invite <user-id>` sends it again; `kindgi people list --pending` lists the invited, and the table has a STATE column.
+- 66bb5eb: `GET /v1/policies/{policyId}/versions/{version}` answers for a retired (unregistered) version too, with its `unregisteredAt`, as the agent, flow, block and gate-policy version routes already do. It used to answer `404 policy-not-found`, so a link to a retired version from the versions list led nowhere. `PolicyRegistryBinding.getVersion` now returns a `PolicyVersionRow`: the contract already said a tombstoned version is returned, and its `unregisteredAt` is now part of the type. An active version carries no `unregisteredAt`. A version the retention sweep has purged is still `404`. The TypeScript client's `policies.getVersion` (the client now exports `PolicyVersionRow`) and the Python client's `policies.versions.get` return a `PolicyVersionRow`.
+- d563887: **A project that's a member of an environment order can't be deleted or moved to another parent until it's cleared from the order.** This keeps an order's members from vanishing, or splitting across parents, under the admin who set it.
+  
+  - `ProjectBinding.delete` now resolves to a `ProjectDeleteOutcome` (`ok`, or `project-in-environment-order` naming the order) rather than `void`; deleting an id that names no project is still `ok` (idempotent). `ProjectUpdateOutcome` gains `project-in-environment-order`, returned only when a patch would change the project's `orgId` — its parent; a rename, slug or description change is never refused on that ground. A host that implements `ProjectBinding` returns the new outcomes; the in-memory reference adapter consults an injected `environmentOrderOf` hook (compose it to the environment-order binding wherever both share a store).
+  - `DELETE /v1/projects/{projectId}` and `PATCH /v1/projects/{projectId}` answer `409 project-in-environment-order` — with the order's id — in those cases. Every other response is unchanged.
+  - **An org that's the parent of an environment order can't be deleted until a tenant admin clears the order** — otherwise the order would be left pointing at an org that's gone. `OrgBinding.delete` now resolves to an `OrgDeleteOutcome` (`ok`, `org-has-environment-order` naming the order, or the existing `slug-conflict`) rather than `void`, and `DELETE /v1/orgs/{orgId}` answers `409 org-has-environment-order` with the order's id. The in-memory reference adapter consults an injected `environmentOrderOf` hook, as the project guard does.
+  
+  **Breaking for custom platform bindings.** Both `ProjectBinding.delete` and `OrgBinding.delete` now resolve to an explicit outcome — `ProjectDeleteOutcome` and `OrgDeleteOutcome` — and never `void`: a success is `{ kind: 'ok' }`. The former `OrgDeleteConflict` type is gone, folded into `OrgDeleteOutcome` (`ok` | `slug-conflict` | `org-has-environment-order`); `ProjectDeleteOutcome` is `ok` | `project-in-environment-order`. A host that implements either binding must return `{ kind: 'ok' }` where it used to return nothing — so a binding that never checks environment orders can no longer silently delete a project or org that an order names. The conformance suites (`runProjectBindingConformance`, `runOrgBindingConformance`) assert the `ok` outcome on a plain delete, and both reference adapters are updated.
+- c1a61c7: **Making a promotion's carried agents live in the target, and refusing a live change that would span an environment order.**
+  - `POST /v1/deployments/{deploymentId}/promotions` takes `makeLive?: boolean`. With `makeLive: true`, once the build has moved, every agent version the promotion carried is pinned live in the target project, each through its scope's gate — the same path a live route takes. The answer gains `live`: one `{ id, version, pinned, gate? }` per carried agent. `pinned: true` is live now; `pinned: false` carries `gate` (its `status`, `promotionId`, the `policy` that applied, an `approvalId`, and the `checks`) for one waiting on an approval or refused by a check. `live` is present only when `makeLive` was asked. Re-running is safe: the move is idempotent, and a pin already in place passes. Making the carried agents live needs admin on the target project; when the caller lacks it the promotion still answers (the move committed), and the make-live is the `403` — fix the grant and promote again. Everything that can be decided before a pin (the authorization, and a gate this deployment can't record) is decided for every carried agent first, so a refusal leaves nothing pinned; if a pin write fails after an earlier carried agent is already live, the error lists the pins already made in `error.details.live`, in `live`'s shape.
+  - `kindgi promote --make-live` asks for it, and prints each agent made live in `--to`, with any waiting on a gate. `--json` carries `live` on the promotion.
+  - New error code `409 live-scope-spans-environments`: for an agent with a project in an environment order, a change to what's live at a scope wider than one project — the tenant's, or an org's — would act in every environment of the order at once, and is refused, whether one project serves the agent or several. It is answered after the authorization check (so an unauthorized wide change is still the `403`), on `POST /v1/agents/{agentId}/promotions`, `POST /v1/agents/{agentId}/live/rollback`, and a proposal's `request` and `rollback`. Pin a project, or a segment of it, instead. An unpin at any scope, and every change for an agent no project of which is in an order, are unaffected. A deployment's make-live pins one project, so it never meets this refusal.
+  - `@kindgi/api`: `DeploymentsRouterBindings` gains optional `agentReleases`, `releaseGateDeps` and `itemRights`, which `createApp` now wires; a composition that mounts `deploymentsRouter` itself supplies them for `makeLive` (absent, `makeLive` answers `501`). `liveChangeRefusal` takes `setsLive` and folds in the width check; `widthRefusal` is exported for the routes that run it after their own authorization.
+  - `@kindgi/client`: `makeLive` on `deployments.promote`, and `live` on the promotion it answers.
+- d563887: **On a runtime that refuses other envs, a model provider's key can be written at a project or an org too.** A run reads a provider's key at its project, else the project's org, else the tenant, under the env the provider's `secret_ref` names. A secret at that env and name is now let through at a project or an org scope too, not only at the tenant's, so each project can hold a key of its own and rotate it. A webhook endpoint's secret is still let through at the tenant's scope only, and an MCP endpoint's at the scope recorded for it.
+- d563887: **A runtime that keeps its values under one env refuses a value it would never read.** A runtime that serves one env, `prod` say, reads every value under it, so a secret set under `production` was stored and never read. Such a runtime can now refuse those values: `createApp({ envName, refuseOtherEnvs: true })` (`KINDGI_REFUSE_OTHER_ENVS=true` on the server, with `KINDGI_ENV`). Off by default; a runtime that leaves it off takes any env, as before.
+  - **What it refuses, with `409 env-not-served`:**
+    - a secret set or rotated, or an env value put, under another env (`POST /v1/secrets`, `POST /v1/secrets/{name}/rotate`, `PUT /v1/env/{name}`), and a deployment's secret sync under another env (`POST /v1/deployments/{deploymentId}/secrets`), before anything is written;
+    - a model provider, MCP endpoint or webhook endpoint created or changed with its secret named under another env.
+  - **The error** names the env the runtime serves and what to do (`details: { envName, servedEnv }`).
+  - **What it still takes:**
+    - reads and deletes under any env, so a value stored before can be found and removed;
+    - a secret that a registration made before names under its own env, at the scope it's read at, so a value in use can still be rotated: a provider's or a webhook endpoint's at the tenant's scope, an MCP endpoint's at the scope recorded for it.
+  - **whoami says what's served:** `GET /v1/identity/whoami` answers `servedEnv: { envName, refusesOtherEnvs }` when the runtime serves an env. The field is optional, and absent on a runtime that serves none.
+  - **The CLI follows it.** On a runtime that refuses other envs:
+    - `--env` defaults to the served env for `kindgi secrets`, `kindgi env` with `--scope`, `kindgi env pull` and `kindgi providers register --preset`;
+    - `kindgi env set --scope`, `kindgi providers register --preset` and `kindgi deploy --sync-secrets` (before the build) are refused before anything is sent when they name another env;
+    - `kindgi secrets set|rotate` under another env is sent, since only the runtime knows whether a registration still reads the secret there, and its refusal is shown;
+    - elsewhere every default stays as it was.
+  - **The MCP servers skill** says where a `--env=local` secret goes when the CLI is signed in to a hosted runtime.
+- 5b5bd3b: **A server can limit how long a retention policy keeps a domain's records.**
+  - `createApp` takes `retentionLimits`: per domain, the most seconds a policy may keep its records (a whole number, 1 or more). A `*` key, an unknown domain, or a limit that isn't a whole number of seconds fails at `createApp`, naming it.
+  - `POST /v1/policies` refuses a `retention` policy for a limited domain whose `graceSeconds` is over the limit, or `-1`, with `400 retention-over-limit` and a message that names the limit: "`graceSeconds` 31536000 (365 days) is over the retention limit for `run` rows, 90 days." (`details`: `domain`, `graceSeconds`, `limitSeconds`). Reinstating a retired version over the limit is refused the same way, and the version stays retired. A `*` policy isn't refused, and a domain with no limit takes any grace, as before.
+  - `GET /v1/retention/scheduled`: an item the limit decides has `limitApplied: true`. When no policy covers its domain it has no `policyId` or `policyVersion`, so both are now optional on `RetentionScheduledItem`. `POST /v1/retention/sweep`'s per-domain result can say `limitApplied: true` too. A server with no limit sends what it sent before.
+  - The error reference has an entry for `retention-over-limit`, and the retention page says what a limit does.
+- c44d803: **A second factor at sign-in, and a workspace setting that requires one, on a runtime that keeps them.** An authenticator app's codes (TOTP), with 10 recovery codes for when the app is lost. Covers the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub); signing in through the workspace's own identity provider is exempt, since it owns the second factor there. API keys aren't covered.
+  
+  - **The API.** A `secondFactor` binding (`SecondFactorBinding`) mounts:
+    - `/v1/identity/me/second-factor`: `GET` yours (`setUp`, `since`, `recoveryCodesLeft`, `usable`, and whether the workspace `required` one); `POST` starts setting one up (the key and its `otpauth://` URI, shown once; replacing one takes a code from it), then `POST …/confirm {code}` sets it up and answers the 10 recovery codes, once; `POST …/recovery-codes` gives 10 new ones; `POST …/remove` takes it off, refused while the workspace requires one. From a session only (`400 auth-not-session-token` with an API key). A key or codes in an answer are never replayed for an `Idempotency-Key`.
+    - `GET /v1/identity/users/{userId}/second-factor` and `POST …/second-factor/remove` (tenant admins): a person's, and removing it for a lost phone. Their sessions stay. An admin's own isn't removed there (`403 permission-denied`): it's taken off at `/me`, with a code from it.
+    - `GET` / `PATCH /v1/auth/settings` `{ secondFactor: { required } }` (tenant admins), with how many people's keys are still on the previous sign-in secret (`onPreviousSecret`) or on neither (`unusable`). Once required, a session made without a second factor ends at its next request. Turning it on from a session made without one is `409 second-factor-enroll-first`.
+    - Token sign-in is refused in a workspace that requires one: `403 second-factor-required`.
+    - The sign-in history (`GET /v1/audit/sign-ins`) has three new kinds: `second-factor-set-up`, `second-factor-removed` (with `byUserId` when an admin removed it) and `recovery-codes-replaced`. It never has a key or a code.
+    - New error codes: `second-factor-required`, `second-factor-invalid` (403), `second-factor-locked` (429, with `Retry-After`), `second-factor-unusable` (403), `second-factor-enroll-first`, `second-factor-not-set-up`, `second-factor-not-started` (409).
+  - **A session says how its person gave a second factor.** `SessionCreateInput.secondFactor` and `Session.secondFactor` (optional): `{ method, at }`, where `method` is `totp`, `recovery-code`, `identity-provider`, or `site` (a site signed them in, and owns their second factor). A session store keeps it and returns it from `get` and `resolveToken`; `POST /v1/auth/refresh` gives the new session the same one.
+  - **The TypeScript client.** `identity.me.secondFactor` (`get`, `start`, `confirm`, `newRecoveryCodes`, `remove`), `users.secondFactor(id)` and `users.removeSecondFactor(id)`, and `auth.settings` (`get`, `update`). A wrong code is an `auth` error whose `serverCode` is `second-factor-invalid`; too many is `rate-limited` (`second-factor-locked`), with `retryAfterSeconds`.
+  - **The CLI.** `kindgi people second-factor <user-id>`, `kindgi people reset-second-factor <user-id>`, and `kindgi sign-in settings [--require-second-factor=on|off]`. `kindgi exports create` also writes `user-second-factors` (each person's status, never a key) and `sign-in-settings`.
+  - **Runtime settings** (`@kindgi/env-schema`): `KINDGI_AUTH_PREVIOUS_SECRET_PATH` / `KINDGI_AUTH_PREVIOUS_SECRET`, optional: while the sign-in secret rotates, the one before it, so second-factor keys sealed under it still open.
+- bd3bcd7: **A new secret's name is held to a shared grammar at the API border, before anything is stored.** A new name is 1 to 255 ASCII letters, digits, `.`, `-` and `_`; it starts with a letter, digit or `_`, and any `.` sits between two non-`.` characters. A name that breaks the rule is refused with `400 secret-name-invalid`, and the message says the rule. The same grammar is documented on `SecretSetRequest.name` in the OpenAPI spec.
+  
+  - It applies wherever a secret is **created**: `POST /v1/secrets`, a new sensitive key on `PATCH /v1/tenant/config`, a deploy's inline `{ name, value }` secrets, and a webhook trigger's `generateSecret` name (`POST /v1/webhooks`). It gates both `create-new` and an `add-version` that creates — a name not yet stored — so no write slips the rule. A name already stored is left as it is: it still reads, rotates and takes new versions. So the border doesn't stop secrets written before this release.
+  - It is the floor every secret store shares, whichever one a deployment runs. A store may refuse more names of its own (`SecretBinding.nameRefusal`), with its own message and the same `secret-name-invalid` code.
+  - `secretNameGrammarRefusal(name)`, `SECRET_NAME_ALLOWED` and `SECRET_NAME_MAX_LENGTH` are exported for a custom route or store to apply the same floor.
+- 3be3ba0: A session can carry an API key's limits. A session store's `create` takes, and its `get` and `resolveToken` return, an optional `projectId` and `role`, and the API reads them as it reads a key's:
+  - a request naming another project is refused (`403 key-project-mismatch`);
+  - a `member` session takes no admin action on the tenant.
+  
+  A session limited to a project is held tighter than a key above its project. It takes no action on the tenant, an org or a team, reading included, so it can't read the tenant's settings. A key limited to a project keeps its rule, since its holder is its principal.
+  
+  A session with either limit also:
+  - mints no keys (`403 limited-session-cannot-mint`);
+  - isn't refreshed (`400 limited-session-not-refreshable`), so no copy of it comes back without its limits.
+  
+  `whoami` reports its `projectId` and `role`, and refusals say "this session is limited to project …" instead of naming an API key. Sessions without limits are unchanged, and nothing creates a limited session yet.
+- ec3dbf9: **Sign-in options can link the deployment's terms and privacy policy.** `GET /v1/auth/sign-in-options` gains an optional `legal: { termsUrl?, privacyUrl? }` for a sign-in page to link. It has only the ones the operator set, each an absolute https URL with no username or password, as a browser reads it, and the answer has no `legal` at all when neither is set. Older servers leave it out too.
+  - `createApp`'s new `signInLegal` sets them. It throws on anything but an absolute https URL with no username or password.
+  - `@kindgi/env-schema` adds `KINDGI_AUTH_TERMS_URL` and `KINDGI_AUTH_PRIVACY_URL`, for a runtime to read them from.
+  - The TypeScript and Python clients' sign-in options gain `legal`.
+- 409b9bf: A person a site signs in holds only the grants their site's sign-in writes. A deployment's bindings refuse any other grant naming such a person with `site-person-grants-managed`, and the API answers it as `403` on these routes:
+  - adding a project or team member, or changing their role (`AddProjectMemberError`, `AddTeamMemberError` and `MembershipWriteError` gain the code);
+  - granting tenant admin (`PersonGrantErrorCode`);
+  - registering a reviewer (`ReviewerRegisterOutcome` gains a `refused` outcome);
+  - removing such a person's project or team membership, or unregistering them as a reviewer (`ReviewerUnregisterOutcome` gains an optional `refused`). Their site would give it back at their next sign-in, so the answer points at the real levers: remove the person, change their role on the site, or pause the site.
+  - minting an API key for such a person (`TokenMintRefusal` gains the code). Their access is only the sessions their site's sign-in gives, which end when the site is paused or unregistered; a key would outlive both.
+  
+  `@kindgi/env-schema` gains `KINDGI_SITE_SIGN_IN`: `true` lets sites sign their people in. The runtime needs authorization enforced and `KINDGI_PUBLIC_URL` for it; it's off by default.
+- 10ec595: Sites that sign their own people in to one project. A site, such as a store's WordPress admin, vouches for whoever is signed in there, so the store's staff ask the project's agents and decide its approvals as themselves, without a Kindgi account. A decision's record names the person.
+  
+  **What the API package adds** (mounted only when a deployment supplies the new `SiteBinding`):
+  - **`/v1/projects/{projectId}/sites`, for tenant admins:** register, list, read, change, pause, resume, unregister, issue a new enrollment code, and revoke a key.
+    - Settings are checked before the binding sees them: an https origin (http only for localhost, 127.0.0.1 or [::1]), an approvals URL on that origin (compared as origins, not as a prefix), a role map that only names allowed roles (without one, the map keeps only the entries of the allowed roles: the default map's for a new site, the site's own for a change; an allowed role with no entry signs in to read the project only), no reviewer role above the site's ceiling and never `admin`, and a display name without control or bidirectional characters.
+  - **`POST /v1/auth/sites/enroll`, public:** a site posts its Ed25519 public key with its one-time code.
+  - **`POST /v1/auth/site-sign-in`, public:** a site exchanges one of its people's statements (a compact JWS) for a session limited to the site's project.
+  - **Both public routes** cap the body at 4096 bytes, pass the client's address to the binding (by default the nearest `X-Forwarded-For` hop), and leave every other check to it.
+    - Enrollment takes only an Ed25519 public key, and refuses a JWK with a private part, before it looks the code up.
+    - Refusals are `401 site-enrollment-refused` and `401 site-sign-in-refused`. Before a statement's signature holds, the only reason given is `not-verified`; after it, `details.reason` says why.
+    - Limits are `429 rate-limit-exceeded`.
+  - **A change to a site** is checked as the whole site it makes.
+  - **`createApp` refuses `sites`** without authorization (`authz`) or without a session store with `revokeByProvider`.
+  
+  **The clients:** the TypeScript client gains `client.projects.sites`, `client.auth.enrollSite` and `client.auth.siteSignIn`; the Python and JVM clients gain the same operations.
+  
+  **The CLI:** `kindgi exports create` writes each project's sites to `sites.jsonl`, unregistered ones included. It skips them when the server doesn't serve sites.
+- 16bbb17: **A system-deployment entry's `projectId` is described as the deployment's own project.** In `GET /v1/system/deployments`, the OpenAPI description of `SystemDeploymentEntry.projectId`, the `SystemDeploymentEntry.projectId` doc and the Python client's model now say that it's the project the deployment named, else the tenant's Default, and that it's absent only when the tenant has no Default project. They no longer say it's absent for a tenant-wide deploy. No shape changes.
+- d563887: **The tenant config's values are read and written under the env the runtime serves.** `GET` and `PATCH /v1/tenant/config` now keep `env` and `secret` entries (and any sent with `sensitive: true`) under the env the runtime serves (`createApp`'s `envName`, which whoami names as `servedEnv`), where its tools read them. Before, they were under `default`, so on a runtime serving `prod` a pack tool never read a value set there.
+  - **`config` entries stay under `default`,** whatever the runtime serves: they're the tenant's own settings, not an environment's, so one set before (`console.readOnlyNotice`, say) still applies and is still listed. `GET` lists them as `kind: 'config'` when they live apart from the values.
+  - **A runtime that serves no env** keeps every entry under `default`, as before.
+  - **`env` and `secret` entries set before under `default`** stay there. Pack tools and webhook triggers didn't read them; a model provider, tool or endpoint that names one under `default` still does. An `env` entry set before now lists as a `config` entry (the store doesn't keep which kind it was set as); a secret set before isn't listed. Set them again, and find or remove the old ones under `default` with `/v1/env` and `/v1/secrets`.
+- 2a05fac: **A tool id is either an MCP endpoint's tool or a tool published here, never both: a version of the other kind is refused with `409 tool-kind-mismatch`.** The runtime registers each tool an MCP endpoint lists as `<endpoint id>.<tool name>`. A tool published under the same id, by `POST /v1/tools` or a deploy, used to land beside the endpoint's versions. The id was then served as neither kind, so the endpoint's tool stopped working for every project. A registry can now refuse such a version, and nothing is written:
+  - **`ToolPublishOutcome` and `ToolReinstateVersionOutcome`** gain `kind-mismatch` (`ToolKindMismatch`: `toolId`, `version`, and `endpointId` when the id is an MCP endpoint's tool). A registry that doesn't hold MCP endpoints' tools never answers it. Only active versions count: once the other kind's versions are unregistered, the id takes either. A registry checks this before `already-registered`, so a version number the other kind already used is refused too.
+  - **`POST /v1/tools`** and **`POST /v1/tools/{toolId}/versions/{version}/reinstate`** answer `409 tool-kind-mismatch` with `details.toolId`, `details.version` and, for an endpoint's tool, `details.endpointId`. The message says what to do: publish under another id, or unregister the endpoint (or the other kind's versions) first. A refused reinstate leaves the version unregistered.
+  - **`POST /v1/deployments`** answers `409 tool-kind-mismatch` for an image whose tool has an endpoint's tool's id (`details.primitive`, `details.id`, `details.endpointId`). What it had published is rolled back, and nothing is deployed.
+- cf339d3: **A tool can ask for a person's yes on every call no person is there to see: `needsApprovalWhenUnattended`.** A tool manifest's new optional `needsApprovalWhenUnattended: true` declares it. In a run no person started:
+  - **An agent's call of the tool waits for a reviewer,** as `always_ask` does. Neither the agent's `conversationPolicy.hitl` nor the tenant's approval rules can lift it.
+  - **A flow's tool step that calls it fails,** with `needs-a-person: …` naming the tool, since a tool step can't wait. Call such a tool from an agent step.
+  - In a run a person started, the agent's own gates decide, as for any tool. A tool that doesn't declare it is unchanged.
+  
+  **A run says how it started: `startedBy`** on `GET /v1/runs` and `GET /v1/runs/{runId}`, and on `KernelRunRecord`. It's `person` (signed in, or with their own API key), `key` (a service account's key), or `schedule`, `webhook` or `event` (a trigger). Only `person` counts as attended (`runIsAttended`, `@kindgi/runtime`). It's set from the caller, never from the request body, and never changes: an approval doesn't make a run its approver's. A run that a run starts started the way its run did. A run from before a runtime recorded it has none, and counts as unattended.
+  - **A key acts as its person.** For automation, use a service account's key: its runs count as unattended. A request with a service account's key is `key` whoever else it names. A tenant's first admin key, the one `POST /v1/system/tenants` answers with when it names no `firstAdmin`, is a service account's too: for the work you start, add yourself as a person and use a key of your own.
+  - **The wire `Tool`** carries `needsApprovalWhenUnattended`, so `kindgi tools get` and the console show it. The pack indexer carries it into the pack's index.
+  - **The `woocommerce` template declares it** on `woo.refund`, `woo.refund-large`, `woo.set-price` and `woo.publish-product`. A staff member's refund in the store chat runs as the store agent says; one an order webhook's run asks for waits for a person.
+  - **The authoring skills** (`kindgi-authoring-tools` and the Java, Python and Scala ones) say when to declare it.
+- 3502389: A webhook or schedule trigger can run as a **service account**. A trigger's runs act as its owner; now the owner can be an account rather than whoever registered it. Pass `runAsServiceAccountId` when registering (`webhooks.register`, `schedules.register`) or when taking over a trigger whose owner left (`webhooks.takeOwnership`, `schedules.takeOwnership`), or `--run-as <service-account-id>` on `kindgi webhooks register`, `kindgi schedules create` and the `take-ownership` commands. Naming an account needs `act_as` on it. Only a caller who may read service accounts learns whether a named one is missing, unregistered or not `act_as`-able; everyone else gets a uniform permission error.
+- dd34dcf: **A thrown error's log line no longer carries a failed database query's SQL, its parameters, or a value the server quotes as rejected.**
+  
+  A 500's body already said only `A database query failed.`. But its `unhandled error` log line wrote the thrown error's message and stack, and its causes'. Two of those messages carry a request's values:
+  - Drizzle's wrapper around a failed query has the message `Failed query: <sql> params: <values>`, a person's email or address among them.
+  - A Postgres data exception (SQLSTATE class 22) quotes the value it rejected: `invalid input syntax for type uuid: "…"`, `invalid input value for enum …: "…"`.
+  
+  A read's `database busy` warn line wrote them the same way. Both lines now write:
+  - **such a wrapper** as `A database query failed.`. That entry keeps the wrapper's name, code and stack frames (where the query ran), and its cause, the database driver's error.
+  - **a data exception** as what it means plus its SQLSTATE, for example `invalid input for its type (22P02)`, with its name, code and stack frames.
+  
+  This holds for the thrown error itself and for each cause the line writes, three deep. Every other error keeps its name, message, code and stack, including the driver's error when it isn't a data exception. An error with neither among those causes is logged exactly as before, and the thrown errors themselves aren't changed.
+- Updated dependencies [cf339d3]
+- Updated dependencies [5d68d0d]
+- Updated dependencies [d563887]
+- Updated dependencies [22b619b]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [7be0273]
+- Updated dependencies [8bcfa4b]
+- Updated dependencies [3b90568]
+- Updated dependencies [f82bb04]
+- Updated dependencies [d563887]
+- Updated dependencies [6d3ccdd]
+- Updated dependencies [3c8afcf]
+- Updated dependencies [66bb5eb]
+- Updated dependencies [d563887]
+- Updated dependencies [ffeecb2]
+- Updated dependencies [409b9bf]
+- Updated dependencies [016d40d]
+- Updated dependencies [cf339d3]
+- Updated dependencies [3502389]
+- Updated dependencies [cb778f6]
+- Updated dependencies [a05ee69]
+  - @kindgi/agents@0.1.9-rc.0
+  - @kindgi/compliance@0.1.9-rc.0
+  - @kindgi/capabilities@0.1.9-rc.0
+  - @kindgi/flow@0.1.9-rc.0
+  - @kindgi/tools@0.1.9-rc.0
+  - @kindgi/guardrails@0.1.9-rc.0
+  - @kindgi/log@0.1.9-rc.0
+  - @kindgi/authz@0.1.9-rc.0
+  - @kindgi/handler-runtime@0.1.9-rc.0
+  - @kindgi/policy-contract@0.1.9-rc.0
+  - @kindgi/platform@0.1.9-rc.0
+  - @kindgi/bounds@0.1.9-rc.0
+  - @kindgi/runtime@0.1.9-rc.0
+  - @kindgi/provenance@0.1.9-rc.0
+  - @kindgi/schema@0.1.9-rc.0
+  - @kindgi/blob-binding@0.1.9-rc.0
+  - @kindgi/audit-events@0.1.9-rc.0
+  - @kindgi/crypto@0.1.9-rc.0
+  - @kindgi/memory@0.1.9-rc.0
+  - @kindgi/types@0.1.9-rc.0
+
+## 0.1.8
+
+### Patch Changes
+
+- ebf405d: **A request that publishes schemas compiles them all before it writes anything,** and on the hosted bounds each compile counts against its tenant's compile budget.
+  - Every authenticated `/v1` request runs as its tenant's work (`runAsTenant`): a schema it compiles again, after the cache dropped it, counts against the tenant's budget.
+  - `POST` of flows, blocks, agents (and `/v1/agents/{agentId}/versions`), tools, guardrails, MCP endpoints and deployments, and `POST /v1/proposals/{proposalId}/evaluate`, run as their tenant's work with every compile counted (`runAsTenant`, `{ compiles: 'all' }`). A deployment's compiles past its first write, a registry's own compiles of schemas checked before it, don't count, so the budget can't refuse a deployment half-written.
+  - `POST /v1/deployments` pins its agents' data blocks before it registers any tool, so a model-settings check can no longer fail after a write.
+  - Evaluating a proposal checks a model-settings block's new values before it publishes the block version; values that aren't model settings are refused with `400 validation-failed`, and nothing is stored.
+  - `modelSettingsIssues(values)` (`@kindgi/agents`) checks model settings against `MODEL_SETTINGS_SCHEMA`, compiled once in a process, outside any tenant's scope: it never counts against a tenant's budget.
+- ebf405d: **A gate past the tenant's limit on approvals waiting fails its step, naming the limit.**
+  - **The contract:** a HITL binding's `enqueue` refuses an approval past the tenant's limit by throwing an error with `code: 'approvals-pending-limit'` (and `approvalsPending`, the limit).
+  - **In a turn:** the tool gate and the session gate then fail the turn with `ApprovalsPendingLimitError`, never waiting for an approval nobody can see. Any other `enqueue` failure stays soft, as before.
+  - **Over the API:**
+    - `approvals-pending-limit` answers `429` when the call waits for its run; with `options.wait: false` the call answers `202`, and the run then fails with that code;
+    - a promotion whose gate wants an approval past the limit is refused with it (`PromotionErrorCode`);
+    - `POST /v1/runs` documents its `429`s: that one, and `rate-limit-exceeded` with `details.limit: 'runs-pending'` past the tenant's limit on runs waiting to start.
+- fddc8f7: The default artifact upload cap reads 100 MiB, what it has always been (`100 * 1024 * 1024` bytes), instead of 100 MB: in `POST /v1/artifacts`'s description, `kindgi artifacts upload --help`, `@kindgi/api`'s README and TSDoc, and `@kindgi/client`'s `artifacts.upload` TSDoc.
+- 3a3f233: - Fixed: an artifact upload with an API key limited to a project works, and the artifact stays in the key's project. An upload naming no project lands there, and one naming another project, or an owner run in one, is refused with `403 key-project-mismatch`.
+  - An artifact upload is read once, under its size limit, so the server holds it in memory fewer times while it's stored.
+- ebf405d: **A deploy can go into a named project, one per client.**
+  - **`POST /v1/deployments` takes an optional `projectId`.** The deployment's agents, flows, tools and guardrails are registered in that project, and the deployment records it (`projectId`), so its secret sync writes there too.
+    - It needs admin on that project. An API key limited to another project is `403 key-project-mismatch`.
+    - An id that isn't a project id is `400`; one of no project of the tenant is `404 project-not-found`.
+    - Without it, a deploy is tenant-wide, into the Default project, as before.
+    - Nothing deploys into a suspended project (the named one, or the Default): `409 project-suspended`, before anything is written, where the app is given `projectSuspended`.
+    - `Deployment.projectId` and `DeploymentRegisterInput.projectId` carry it to a binding.
+  - **A deploy whose ids already live in another project** is `409` (`tool-project-mismatch` and the like) as before. The message now names the fix: one pack per client, a copy made with `kindgi init`, whose ids carry its own pack id.
+  - **Where pack check calls are routed by id** (a runtime that wires `systemDeployments`), a deploy refuses a pack check whose id doesn't start with its pack's id (`<packId>.`), as `400 deployment-validation-failed`, naming the fix. Elsewhere the build's warning stays the only word.
+  - **`kindgi deploy --project <id or slug>`.** A slug is looked up among the tenant's projects; one that names none, or several (two orgs may share a slug), is refused before anything is sent, naming the ids. The `Idempotency-Key` follows the project.
+  - **The WooCommerce template's README** says one project and one pack per client.
+- ebf405d: **A deployment can carry its pack service's status, and the name each deployment's pack service takes is shared.**
+  - **`endpoint` on a deployment** (`GET /v1/deployments` and `GET /v1/deployments/{id}`), optional: `{ status, since }`, with `status` one of:
+    - **`pending`:** no pack service yet; calls to its tools fail (`pack-endpoint-pending`), and never go to another deployment;
+    - **`ready`:** calls go to its own pack service;
+    - **`cleared`:** its pack service was taken down, and calls fail (`pack-endpoint-cleared`).
+  
+    It's present only when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`, from runtime 0.1.8), and absent otherwise. It never carries a URL or a token. The TypeScript and Python clients gain the optional field, and `@kindgi/api` exports `DeploymentEndpoint` and `DeploymentEndpointStatus`.
+  - **Why a deployment is still `pending`:** an optional `problem: { code, since }` on a pending endpoint, so a deploy that waits for `ready` can say why at once instead of timing out. The code is from a fixed list, never free text:
+    - the server refused the endpoint it was given: `endpoint-url-invalid`, `endpoint-host-not-allowed`, `endpoint-name-mismatch`, `endpoint-unreachable`, `endpoint-info-mismatch`, `image-not-allowed`;
+    - the pack service couldn't be created: `tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`.
+  
+    A later runtime may add codes, so a client treats an unknown one as a reason not yet named. `@kindgi/api` exports the list as `DEPLOYMENT_ENDPOINT_PROBLEM_CODES`, with the `DeploymentEndpointProblem` and `DeploymentEndpointProblemCode` types.
+  - **`packServiceName(tenantId, deploymentId)`** (`@kindgi/api`): `kp-` and 20 lowercase base32 characters of `sha256("<tenantId>:<deploymentId>")`, a valid Cloud Run service name. Whatever runs a pack service per deployment names each one this way.
+  - **`hostNamesPackService(host, name)`:** true when the host begins with the name and then `-` or `.`, so a longer name never passes. The server uses it to check that an endpoint can't point one tenant's deployment at another's service. It checks the first label only: the domain is the hosts allowlist's to check, so a caller runs both.
+- ba8d9a1: **A secret name the store can't write is the caller's `400`, saying the store's rule, never a `500`.**
+  - **Under `kindgi dev`,** a secret is a key in your env files, so a name Kindgi writes is capital letters, digits and underscores, not starting with a digit.
+    - Any other name (`acme-woo-orders`) is refused with `400 secret-name-invalid`, and when one can be made from it, the message offers a name that works (`ACME_WOO_ORDERS`). So is a `KINDGI_*` name.
+    - A `kindgi.` name is refused with `400 reserved-name-prefix`.
+    - These used to answer `500 secret-store-error`.
+    - This applies to `POST /v1/secrets`, `PATCH /v1/tenant/config` and `POST /v1/webhooks` with `generateSecret`.
+  - **`POST /v1/webhooks` with `generateSecret` refuses such a name before anything is stored.** No trigger is registered and then taken back.
+  - **A name typed into `.env` by hand still resolves,** even one Kindgi wouldn't write (`acme-woo-orders=…`). A webhook trigger may still name it, and `PATCH /v1/webhooks/{triggerId}` may switch to it.
+  - **`PATCH /v1/tenant/config` answers a refused secret write at its code's status,** as `POST /v1/secrets` does. That's a `400` for a secret the store refuses for its name or its size, or a `429`, `502` or `503` when the store's external provider limits the runtime's requests, refuses its credentials or can't be reached. It answered `500` for every code.
+  - **The API reference lists those `429`, `502` and `503` answers** for both operations.
+  - **`SecretBinding.nameRefusal(name)` is a new optional method.** It's how a store says which names it can't write, and `set` refuses those names with the same code. `observeSecretWrites` and `guardProviderKeys` pass it through.
+  - **`kindgi webhooks register --secret` now says the rule that applies under `kindgi dev`.**
+- ebf405d: **A schedule's or webhook trigger's fire says whether it counted toward the trigger's auto-pause.** `TriggerFire.countsTowardPause`, and `countsTowardPause` on `GET /v1/schedules/{scheduleId}/fires` and `GET /v1/webhooks/{triggerId}/fires`, optional:
+  - **`false`** for a refusal for a limit, such as the tenant's runs pending (its `detail` starts `rate-limited:`): the limit passes, and the trigger isn't at fault.
+  - **Absent** from a runtime that doesn't say: `refused` and `failed` fires counted, and the others didn't, as before.
+- 059c2c2: **A fire's `skipped` outcome covers a tenant suspended or closing as its run starts.** A schedule's or webhook trigger's fire whose run starts as its tenant is suspended or starts closing is recorded `skipped`, with `tenant-suspended` or `tenant-closing` in its `detail`. Like a skip for a project's suspension, it doesn't count toward a schedule's auto-pause and doesn't reset its count of fires in a row that were refused or failed. The descriptions of a schedule's and a webhook trigger's fires, and of `TriggerFire.outcome`, now say so.
+- 3a3f233: Idempotency fingerprints a request by its body's bytes as they came, the same way for every caller.
+  
+  - Fixed: a request from an API key limited to a project, sent again with the same `Idempotency-Key` and a different body, is refused with `409 idempotency-key-body-mismatch`, as it is for any other caller. Before, it got the first answer back.
+  - Fixed: a binary upload sent with an `Idempotency-Key` is stored as sent.
+  - Two bodies that differ only in bytes their text would lose (a byte-order mark, invalid UTF-8) are different bodies.
+- ebf405d: `parseImageRef`, `parseImagePrefix` and `imageRefWithin`: parse a digest-pinned image reference into its registry host, repository path and digest, and check that it sits at or under a repository prefix on a path boundary (`…/s-1` admits `…/s-1/agent`, never `…/s-10`). Tags, user info, `..` segments and references without a registry host are refused.
+- ebf405d: **A preview build's own expiry on `GET /v1/license`.** From the 0.1.8 runtime until Kindgi 1.0, a runtime release stops starting 90 days after it was released, in every mode, unless a production key exempts it. Earlier releases don't expire.
+  - **`LicenseStatus.preview`** (optional, schema `LicensePreview`) carries `version`, `releasedAt`, `expiresAt`, `daysLeft` and `standing` (`valid`, `expiring` from 30 days before, `expired`). It's absent when nothing expires: a 1.0 or later release, a build from source, or a production key.
+  - **Both views include it,** the deployment's own token and a sole tenant's admins: it's the build's, not the key's. A runtime that doesn't report it answers as before.
+  - **`kindgi dev` warns** from 30 days before, with the way to a newer runtime: update the CLI (for the runtime it pins), or run a newer image or release (`--runtime-image`, `--runtime-url`).
+  - The Python client gains `LicensePreview`.
+- b22e616: **A non-production key's renewal can carry the deployment's use.**
+  - **`GET /v1/license/usage?since=<time>`** (`@kindgi/api`, additive) answers how much the deployment was used since a time:
+    - the runs started (not dry runs, replays, evals or child runs);
+    - the distinct people who started runs or decided approvals, counted in each tenant and summed;
+    - the projects in production, from a runtime that can put projects in production;
+    - the runtime's version.
+  
+    Counts only: no content, names or ids. Only the deployment's own token, or a system key holding `system:license` (as for `GET /v1/license`, whose refusal now names that key too), reads it; anyone else gets `403 license-operator-only`, recorded, before `since` is read. A `since` up to five minutes ahead of the runtime's clock is taken as now; one that's missing, not a time with a zone, or further ahead is `400 bad-input`. A runtime whose license binding has no `usage` doesn't serve it (404).
+  - **`LicenseStatusBinding.usage?({ since, until })`** is the binding a runtime gives it, and `LicenseUsage` is its answer. `client.license.usage({ since })` (`@kindgi/client`) and `client.license.usage(since=…)` (Python) read it.
+  - **`kindgi license renew --runtime <url> --runtime-token <ref>`** reads the deployment's use since its current key was issued and sends it with the renewal, signed with the rest of the request. It prints `counts: sent (…)`, or `counts: not sent (<why>); this renewal goes without them.` when there are none to send (a production key's renewal, a token that can't be read or sent, or a runtime that couldn't say), and the key still renews then. Only counts, two times and a version, as access.kindgi.com reads them, are sent; any other answer means no counts, and it's never printed. A production key's renewal carries none, and the runtime isn't asked. The runtime's token is checked before it's sent, and a flag that isn't a reference is refused without repeating it. Without the two flags, a renewal carries no counts, as before.
+  - **`kindgi license renew` prints access.kindgi.com's `held-for-review` refusal** like any other: this renewal's counts are above what a non-production key covers, so it got no new key. Kindgi can release the deployment after a review.
+  - **The hints about signing in now say what a sign-in does.** A sign-in leaves a key that a deployment is renewing to that deployment, so:
+    - `renew`'s ⚠ line says to stop this deployment's renewer first;
+    - `kindgi doctor`'s fix says a sign-in shows the key's latest version, and renews it unless a deployment renewed it this week and it hasn't expired, as the runtime's banner does.
+- ebf405d: **An MCP endpoint's credential header goes by reference, never in plaintext `config.headers`.**
+  - **New `auth` scheme, `header`:** headers of the server's own, each with a secret, sent as `<name>: <prefix><secret>`. For example, an API key in `X-Api-Key`, a key and a secret in two headers, or `Authorization: Token …`:
+    ```json
+    "auth": { "scheme": "header", "headers": [{ "name": "X-Api-Key", "secretRef": { "envName": "production", "name": "INVENTORY_KEY" } }] }
+    ```
+    It takes 1 to 4 headers, each name once (case-insensitive), and `prefix` is optional. A header the MCP transport or HTTP sets itself (`Host`, `Content-Type`, `Accept`, `Mcp-Session-Id`, `traceparent`, …) is refused (`invalid-auth`). A name `config.headers` sets too is refused as well (`auth-header-in-config`). Each secret counts for the provider-key guard and for `usersOfSecret`.
+  - **A credential in `config.headers` is refused at registration** (`invalid-mcp-endpoint`, reason `credential-in-headers`). The message names the header, never its value, and shows the `auth` that replaces it.
+    - **Which names count:** `Authorization`, `Proxy-Authorization`, `Cookie`, and any name with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key`. A lone `key` doesn't count: `X-Idempotency-Key` and `X-Cache-Key` stay plain.
+    - **Exported:** the rule is `isCredentialHeaderName()`.
+  - **Endpoints registered before keep working.** `GET /v1/mcp/endpoints[/:id]` answers such a header's value as `"[redacted]"`, its name kept.
+  - **`kindgi doctor` names them:** a new check, MCP endpoint headers, lists each endpoint on the runtime the CLI points at that keeps one, with the fix. It's a warning: the endpoint still works.
+  - **New exports:**
+    - `@kindgi/api`: `MCPHeaderAuth`, `MCPAuthHeader`, `MCP_AUTH_HEADERS_MAX`, `mcpAuthSecretRefs()`, `isCredentialHeaderName()` and `REDACTED_HEADER_VALUE`;
+    - `@kindgi/client`: `McpHeaderAuth` and `McpAuthHeader`. The Python client carries the new models.
+- cfe5422: **More cloud metadata endpoints are refused.** Besides 169.254.0.0/16, fe80::/10 and AWS's fd00:ec2::254, from runtime 0.1.8 the cloud metadata endpoints a runtime refuses also include Azure's 168.63.129.16, Alibaba Cloud's 100.100.100.200, EKS Pod Identity's fd00:ec2::23, Compute Engine's fd20:ce::254 (IPv6-only VMs), Akamai's fd00:a9fe:a9fe::1 and Scaleway's fd00:42::42.
+  - `KINDGI_TENANT_HOST_ACCESS`'s description names them as the cloud metadata endpoints, not link-local addresses alone.
+  - `KINDGI_WEBHOOK_PRIVATE_NETWORKS`'s description says they stay refused even with `allow`, though some sit inside CGNAT or IPv6 unique-local space. Its `allow` list also names IPv6 site-local, which runtime 0.1.8 counts as private.
+  - `HostReach`'s `'metadata-network'` lists them, and says it also covers addresses no tenant has a reason to reach (multicast, reserved, documentation).
+- 70b85f8: **Restoring a pack says what it does.** `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended`: a restored pack serves again from the endpoint recorded for it, and it lists as needing a pack service only when that endpoint is pending or was cleared meanwhile. It used to say a restored pack lists as needing a pack service again.
+- ebf405d: **A turn runs as a participant only for someone who may read their memory.** A turn runs with its participant's memory: their `same-user` facts and earlier conversations are read into it and returned in its result, and what it remembers is kept as theirs. So running as a participant now takes what reading their memory takes through the memory API:
+  - **Either:** the participant is the caller (a person, by their user id; never a service account's key);
+  - **or:** the caller holds `write` on the turn's project, acting for all its end users (an app's service account, an editor).
+  
+  **Where it's checked:** every way a turn gets a participant.
+  - **Posting into a conversation:** its stored participant wins, whatever the body names.
+  - **`input.participantId`** on `POST /v1/runs`.
+  - **Opening a conversation for someone:** `participantId` on `POST /v1/conversations`.
+  
+  Anything else is refused with 403 `participant-not-allowed`, and recorded as other refusals are.
+  - **Posting into a conversation:** the refusal names only that conversation, never its participant or project.
+  - **The turn's project isn't known:** only the participant themselves may.
+  - **The conversation can't be read** (a failed query): the API answers 500 and starts no turn.
+  
+  **Who it affects:** before, anyone who could run an agent could run it as any participant. Today, every role that can run an agent also holds `write`, so nothing changes for them. The check is for callers that may run an agent without `write` on its project.
+- ebf405d: **A project can be put in production, and the runtime can gate it.** A run in a project in production is a production run; a run anywhere else is staging.
+  - **`PUT /v1/projects/{projectId}/production`**, body `{ "production": true | false }`, for tenant admins, both ways. It answers `{ projectId, productionSince }`, where `productionSince` is `null` once the project is out of production. Setting what's already set changes nothing and keeps the first `productionSince`. The TypeScript client has `projects.setProduction(projectId, production)`, and the Python client `projects.production.set(project_id, production=…)`.
+  - **The production gate:** with `KINDGI_PRODUCTION_GATE=on`, putting a project in production is refused with `403 production-not-allowed` while the tenant isn't allowed it. The error's `details` carry the `projectId` and, from `KINDGI_PRODUCTION_NEXT_URL`, a `next` URL saying where to go. A project already in production stays so. Off by default, so nothing changes for a self-hosted runtime.
+  - **Reads:** a project read shows `productionSince` while the project is in production. `GET /v1/tenant` gains optional `productionAllowed`, `productionNext` (only while it's `false`) and `limits`, when the runtime knows them.
+  - **For runtimes:** `Project.productionSince?`, an optional `ProjectBinding.setProduction?` (without it, the route answers `501 production-unsupported`), and `TenantSummary`'s optional `productionAllowed` and `limits` (`TenantLimits`). `createApp` takes `production: { gate?, next? }`.
+  - **The usage vocabulary:** `USAGE_CLASSES` (`production`, `staging`, `dry-run`, `replay`, `eval`, `child`) and `USAGE_KINDS`, for a runtime that counts usage (`KINDGI_USAGE_METERING`).
+  - **New settings, documented:** `KINDGI_PRODUCTION_GATE`, `KINDGI_PRODUCTION_NEXT_URL` and `KINDGI_USAGE_METERING`.
+- ebf405d: **A tenant can have a limit on its projects in production.** The new limit `projectsInProduction` sits in `TenantLimits`, beside the others, and is set through `PUT /v1/system/tenants/{tenantId}/limits`. It works like them: unset, it isn't enforced, and a self-hosted runtime sets none unless its operator does.
+  - **The refusal:** with the limit set, `PUT /v1/projects/{projectId}/production` refuses another project with `403 production-limit-reached` while the tenant has that many in production, or more. `details` carries `limit: 'projects-in-production'`, the limit (`projectsInProduction`), the count (`inProduction`), the `projectId`, and `next` when the runtime names where to go (`KINDGI_PRODUCTION_NEXT_URL`).
+  - **What's never counted or refused:** a project already in production answers its repeat 200, uncounted. Taking a project out is never refused.
+  - **Lowering the limit** takes no project out of production. The next one waits until the count is under the limit.
+  - **Order:** with the production gate on, a tenant that isn't allowed is refused `production-not-allowed` first.
+  - **The binding:** `ProjectBinding.setProduction` reads the tenant's limit itself, where the runtime keeps it, and answers `limit-reached` (with the limit and the count) without a change. It reads the limit, counts the tenant's projects in production and changes the project in one step, so two projects put in production at once can't both take the last place, and a limit changed meanwhile is the one counted against. The in-memory binding takes its reader at construction (`productionLimit`). The conformance suite's `productionLimit` option checks a binding against it, setting the limit through the `setProductionLimit` its `makeBinding` returns.
+  - **The count, read:** `GET /v1/system/tenants/{tenantId}/limits` answers an optional `inUse: { projectsInProduction }` from a runtime whose `SystemTenantSettingsBinding` has the new optional `inUse(tenantId)`. The count can be over a limit that was lowered below it.
+  - **`KINDGI_PRODUCTION_NEXT_URL`** is the `details.next` of both refusals, `production-not-allowed` and `production-limit-reached`, and its description says so. `KINDGI_PRODUCTION_GATE`'s no longer assumes a payment card.
+- ebf405d: **A deployment can keep what a project's flows, agents, triggers and runs name within that project's reach.**
+  - **`CreateAppInput.referenceScope?`** (a `ReferenceScopeBinding`, `reachable(tenantId, fromProjectId, ref)`) is asked before each write that makes a reference live:
+    - publishing a flow (its tool, agent and subflow steps) or an agent (its tools, guardrails and data blocks), and reinstating a retired version of either;
+    - registering a deployment (what its agents and flows name, besides what it brings itself);
+    - registering a guardrail with a pack check;
+    - registering a schedule or a webhook trigger, and changing a schedule's target;
+    - starting an eval run (its suite, and its agent or flow), and starting a run filed under a named `projectId`;
+    - opening a conversation (its agent);
+    - promoting an agent into a project or a segment, directly or through an improvement proposal;
+    - drafting an improvement proposal (its scope and block), evaluating one, and starting an improvement pass (its suite and scope).
+  - **The refusal:** an item the project doesn't reach is refused with `reference-out-of-scope` (400), naming each one at its path. An item that doesn't exist gets the same answer. Without the binding, nothing changes.
+  - **A conversation opened without `projectId` is filed under its agent's own project,** as a run is. Before, it went to the tenant's Default project; an agent filed under no project still goes there.
+  - **Tool metadata:** `POST /v1/tools` and deployments refuse a tool `metadata` key under `kindgi.`, which is the runtime's own.
+  - **`ToolRegistry.forProject?`** (`@kindgi/tools`): the tools a run in a project may reach. An agent's turn resolves its tools on it when it's there.
+  - **`BlockReader`'s reads take the turn's `projectId`** (`@kindgi/agents`).
+  - **`InvokeAgentBindings.authorizeToolCall?`** (`@kindgi/agents`) is asked before each of a turn's tool calls, before any approval.
+    - A denied call runs nothing. Its result tells the model (`{ status: 'denied', reason }`), and the turn goes on.
+    - A call approved by a reviewer is asked again right before it runs. Denied then, it runs nothing.
+    - Each decision is recorded with the call, so a resumed turn keeps it. An authorizer that throws fails the step.
+    - A built-in tool is asked only when what it touches reaches beyond the turn's project: `kindgi_remember` for a tenant-wide fact.
+  - **The docs of `NodeContext`'s `authorize`, `can` and `check`, `RunFlowInput.principal` and `authz`, and `InvokeAgentInput.principal` and `authz`** (with the agents and handler READMEs) describe runtime 0.1.8: these checks are decided for every run and turn a person or a key starts.
+- 3a3f233: Request bodies have a size limit and a depth limit, from the tenant input bounds.
+  
+  - A request body over `requestMaxBytes` (2 MiB on hosted, 10 MiB on a self-hosted server) is refused with `413 request-too-large`, with `details.maxBytes`, before more of it is read. Every operation with a body declares that answer, except the two routes that keep a limit of their own: an artifact upload (`413 artifact-too-large`, checked once the caller is known) and the webhook receiver (`413 webhook-body-too-large`).
+  - A JSON body nested more than `requestJsonMaxDepth` levels (128) is refused with `400 bad-input`, with `details.maxDepth`.
+  - A webhook delivery whose JSON nests deeper than that is refused the same way and starts no run. The trigger's fires record it as `body-too-deep`.
+  - `HOSTED_BOUNDS.requestJsonMaxDepth` is 128 (it was 64), the same as self-hosted, so a schema as deep as `schemaMaxDepth` fits inside the body that carries it.
+  - `kindgi deploy` says what to make smaller when a deployment is over the server's limit.
+- 1c8b391: **A `501` is logged at `info`, not `error`.** A `501` answers a request this runtime doesn't support, such as `GET /v1/identity/me/permissions` on a runtime without an access store (`kindgi dev`'s), and nothing failed. So the console's routine read no longer prints an `ERROR` line. Its access line is now at `info`, like a `4xx`. Every other `5xx` stays at `error`.
+- 08bf3e5: **`GET /v1/runs/:runId/journal` pages when asked: `limit` and `cursor` now work.**
+  - With `limit` (1 to 100), the answer holds at most that many entries after `cursor` (and `since`), with `hasMore` and a `nextCursor` while more remain. Without `limit`, the whole journal comes in one answer, as before, so a caller that doesn't page sees no change.
+  - A malformed `cursor`, or a `limit` that isn't a whole number of 1 or more, is `400 bad-input`.
+  - `nextCursor` is a new optional field of the page. The Python client's `runs.journal` gains `limit` and `cursor`. The TypeScript client's `runs.journal(runId, { limit, cursor })` and `kindgi runs journal --limit --cursor` already took them, and the server now reads them.
+  - The TypeScript client's `since` doc now says what the server does: only entries with a sequence greater than it.
+- 6329f93: A request to the S3-compatible routes (`/s3/*`) carries at most `artifactMaxBytes` (default 100 MiB), the limit an artifact upload has; more is S3's `400 EntityTooLarge`. A larger object goes up as a multipart upload, each part under the limit. A header-signed body is checked against its declared `x-amz-content-sha256` when it's empty too. `@kindgi/api` needs `hono` 4.13.8 or later.
+- ebf405d: **A publish refused by its tenant's compile budget answers `429 rate-limit-exceeded`,** with `details: { limit: 'schema-compile-time', budgetMs }` and `Retry-After`, and stores nothing. The OpenAPI document lists it on the routes that publish schemas.
+  - The TS client's rate-limited error now takes `retryAfterSeconds` from the `Retry-After` header when the body gives none (whole seconds or an HTTP date), and carries `limit`, the limit the server named. The client still doesn't retry on its own.
+- 9ba9e5f: **A second suspend keeps the first one's time and reason.** Suspending a tenant or a project that's already suspended keeps when it was suspended and why, so a later suspend never replaces the reason given first. Restoring clears both. The descriptions of `PUT /v1/system/tenants/{tenantId}/suspended` and `PUT /v1/system/tenants/{tenantId}/projects/{projectId}/suspended` now say so, as do `SystemTenantsBinding.setSuspended` and `setProjectSuspended`.
+- ebf405d: **Where a secret an item names is read is decided when the item is registered, and recorded on it.**
+  - **Which items:** an MCP endpoint (`secretRef`, `auth.secretRef`), a tool (a spec tool's `secretRef`, the secrets a pack tool declares; through `POST /v1/tools` or a deployment), and a webhook trigger's signing secret.
+  - **How it's decided:** the secret is looked for at the item's own scope, then its project's org, then the tenant, at the scopes the person registering it administers. The first that has it is recorded. If none has it yet, the broadest scope they administer is: the tenant for a tenant admin, the project for a project admin. Nothing is refused for it.
+  - **What's recorded:** `secretScopes` (by name) on an MCP endpoint and a tool version, `hmacSecretScope` on a webhook trigger. They're the server's, never a caller's. The runtime reads the secret there only. A secret removed from that scope is missing, never read from a broader one, and one set later at another scope changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+  - **Webhook triggers:** the receiver reads the signing secret at `hmacSecretScope`; a trigger registered before it was recorded reads the tenant's, as before.
+  - **`generateSecret`:** `POST /v1/webhooks` can make the signing secret itself, in the trigger's project, needing only `write` there; the answer carries it once (`signingSecret`). A name the project already has is refused (`409 secret-write-conflict`). `kindgi webhooks register --generate-secret` now uses it, in one call, and no longer takes `--env`.
+  - **Read there only:** `SecretResolveInput.exact` reads at the given scope with no walk to a broader one, and every secrets store must honour it. `SecretResolveOutcome.scope` says where a value was read. `resolveAtScope` reads an item's secret at its recorded scope with `exact`. A value a store reads at another scope anyway, or without saying which, is refused as not set, and the refusal is audited (`secret-resolved`, failed, `secret-scope-mismatch`) without the value. A custom store must honour `exact` and report the scope it read. The dotenv store keeps one set of values for every scope, so it reports the scope it was asked at.
+  - **`emitResolveEvent`** (`@kindgi/compliance`): `projectId` is optional, for a read at the tenant or an org.
+  - **`CreateAppInput.envName`:** the env this deployment serves, where the secrets a tool's code declares are looked for.
+  - **`RecordedSecretScope`** (`@kindgi/types`): the recorded scope's shape.
+- 14d02c5: **A secret value the store can't hold is the caller's `400`, saying why, never a `500`.**
+  - **Under `kindgi dev`,** a secret is a key in your env files. No env-file quoting holds a value that has a double quote, or a backslash followed by `n` or `r`, together with a carriage return or with both a single quote and a backtick.
+    - Such a value is refused with `400 secret-value-invalid`, the new code, before any file is read. It used to answer `500 secret-store-error`.
+    - The message says why and never repeats the value.
+    - This applies to `POST /v1/secrets`, `PATCH /v1/tenant/config` and `POST /v1/deployments/{deploymentId}/secrets`.
+  - **`SecretError` gains the codes a store's `set` refuses with:** `reserved-name-prefix`, `secret-name-invalid`, `secret-value-too-large` and `secret-value-invalid`. A store that rotates by setting a new version can answer a rotation's new value as it answers the write, and `POST /v1/secrets/{name}/rotate` answers any of them it gets at `400`.
+  - **The API reference:**
+    - lists `secret-value-invalid` beside the other refusals for those three operations;
+    - gives `POST /v1/secrets/{name}/rotate` its `400` (`secret-value-too-large`, `reserved-name-prefix`);
+    - lists the `429`, `502` and `503` an external provider answers for the rotation and the deployment sync, as it already did for the other two.
+- d985473: **`GET /v1/secrets` reads `includeRevoked`, and the `kindgi dev` secrets store pages.**
+  - `?includeRevoked=true` lists revoked secrets too, with `revokedAt` and `revokeReason`. It's metadata only, never a value. The route used to drop it, so `kindgi secrets list --include-revoked` and the TypeScript client's `secrets.list({ includeRevoked })` did nothing; now they reach the store. The operation documents the parameter, and the Python client's `secrets.list` gains `include_revoked`.
+  - `SecretBinding.list`'s contract says what a store returns: name order, at most `limit` records, and a `nextCursor` while more remain. `listVersions`' says the same, oldest first.
+  - `GET /v1/secrets` and `GET /v1/secrets/{name}/versions` answer `400 bad-input` to a `cursor` the store didn't issue, as the agents, flows, policies and eval-suites version lists do, so a client paging until done is never sent back to the first page. A store says which cursors it issued with `SecretBinding.issuedCursor` (optional: a store without it gets any cursor, as before); `@kindgi/secrets-dotenv` has it.
+  - `@kindgi/secrets-dotenv` pages by name: a `nextCursor` while more remain, and the next page starts after the page's last name, so a name added between pages neither repeats nor skips another. Before, it stopped at `limit`, and a 26th secret was out of reach.
+- 718e635: **A sign-in session can carry the capabilities its person holds.**
+  - **The new binding:** `personCapabilities` (`PersonCapabilitiesBinding`, optional). Its `held({ tenantId, userId })` returns what a person holds, such as `env:write`, `secrets:write` or `signing-keys:write`.
+  - **What a session carries:** a sign-in session carries its person's capabilities.
+    - They're read on every request, once the session is found valid, so one taken away stops at the next request.
+    - A system capability (`kindgi:system`, `system:*`) is never a person's: one the binding returns is dropped.
+    - Without the binding, a session carries none, as before.
+  - **Keys:** an API key carries only the capabilities it was minted with, never its person's.
+  - **What follows from it:**
+    - The writes that need a capability (secrets, env, signing keys) accept such a session.
+    - `POST /v1/tokens` lets the person put what they hold on the keys they mint, and nothing more.
+    - `GET /v1/identity/me/permissions` lists them in `tokenCapabilities`.
+- 036605f: **A fire's `skipped` outcome names a suspension too.** The descriptions of a schedule's and a webhook trigger's fires, and of `TriggerFire.outcome`, now say every reason a fire is `skipped`:
+  - The target's project is suspended (`project-suspended` in `detail`): no run or pass starts. A schedule's fires are recorded `skipped`, don't count toward its auto-pause and don't reset its count of fires in a row that were refused or failed, so the schedule stays on and fires again once the project is restored.
+  - Its run or pass hadn't started when its tenant was suspended (`tenant-suspended`): the restore concludes it `skipped`, and its event is dropped.
+  - A tenant's suspension isn't caught up, whatever a schedule's `catchUp`: once the tenant is restored, a schedule that's on fires next at its first occurrence after the restore.
+  
+  The suspend routes for a tenant and for a project say the same, and a webhook trigger's `detail` names `project-suspended` or `tenant-suspended` for a skip for a suspension.
+- fddc8f7: `GET /v1/system/deployments` describes "routed" by the rule the runtime applies. With `endpoint=missing`, a deployment is routed while it's the newest with routes for some tool version or pack check. With `endpoint=retire`, it's `superseded` once newer deployments ship every tool version and check it does. The description used to say a live or promoted version resolves to it, a wider rule than the runtime's.
+- ebf405d: **Per-deployment routing's system routes, on a runtime serving many tenants.** Whatever runs each deployment's own pack service (an orchestrator, holding a `system:deployments` key) learns which deployments need one or should lose theirs, and records where each runs. No tenant input ever names a pack's URL.
+  - **`GET /v1/system/deployments?endpoint=missing|retire`:** across tenants, oldest first, ids and the image only: the tenant, the deployment, its pack (`packId`) and, when the deploy was scoped to one, its project. Each `retire` entry says why: `superseded`, `tenant-closing`, `tenant-suspended`, `project-suspended` or `pack-suspended`.
+  - **Registration hands a binding what routing needs:** `DeploymentRegisterInput` gains the optional `packId` (the image index's) and `packChecks` (the check ids its pack service runs, not built-ins a guardrail merely names).
+  - **`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`** `{ url, auth, token }`, which checks:
+    - the URL is `https://<host>` (`endpoint-url-invalid`);
+    - its host is on the operator's allowlist (`endpoint-host-not-allowed`);
+    - its host names the deployment's own service, `packServiceName(tenantId, deploymentId)` then `-` or `.` (`endpoint-name-mismatch`);
+    - the image is in the tenant's repository (`image-not-allowed`);
+    - the pack service answers as this deployment (`endpoint-unreachable`, `endpoint-info-mismatch`).
+  
+    Each refusal is also recorded as the endpoint's `problem`, which the tenant sees as a code. It's refused for a closing or suspended tenant, project or pack. No answer or access record carries the URL or the token.
+  - **`DELETE …/endpoint`:** clears it, for a closing tenant too, so calls fail closed.
+  - **`PUT …/endpoint/problem`** `{ code }`: why a pending deployment has no pack service yet, one of `DEPLOYMENT_ENDPOINT_PROBLEM_CODES`.
+  - **`PUT …/deployments/{deploymentId}/suspended`** `{ suspended, reason? }`: suspends or restores a pack. It takes `system:suspend`, which the orchestrator's key doesn't hold.
+  
+  Every route checks its scope before reading a body. `createApp` takes them as `systemDeployments` (with `systemTenantDirectory`), and `@kindgi/api` exports the binding's types. The TypeScript client gains `client.systemDeployments`, and the Python client the same operations.
+- ebf405d: **System keys, for a runtime serving many tenants.** A system key (`kgi_sy_…`) is the operator's, for a service that acts for it, with the least system scope that service needs (`system:tenants`, `system:deployments`, `system:license` and others). It acts in no tenant.
+  - **Where it reaches:** `/v1/system/*` and the deployment's license. Every other route refuses it (`403 system-key-on-tenant-route`), and system routes refuse a tenant's key or session whatever it holds (`403 system-principal-required`).
+  - **The record:** every request a system key makes is recorded through `systemAccessAudit`.
+  - **Managing them:** `POST /v1/system/keys`, `GET /v1/system/keys` and `POST /v1/system/keys/{keyId}/revoke`, for the full system capability (`kindgi:system`) only. A key can't outlive the key minting it.
+  - **New `createApp` inputs:** `tenancy`, `systemKeys` and `systemAccessAudit`.
+  - **For routes:** `requireSystemScope`, `requireFullSystem`, `withSystemTenantContext` and `systemReadAcrossTenants`.
+  - **Tenant keys:** a tenant's key is never minted holding a `system:*` scope, and on a runtime serving many tenants not `kindgi:system` either (`403 capability-not-mintable`).
+  - **The license:** `GET /v1/license` also answers a system key holding `system:license` as it answers the deployment's own token.
+  
+  Nothing changes for a runtime serving one tenant: it has no system principal.
+  
+  The TypeScript client gains `systemKeys` (`mint`, `list`, `revoke`), and the Python client the matching calls.
+- 9f4340c: **Two system-route descriptions say what the server does.**
+  - **`PUT /v1/system/tenants/{tenantId}/production-allowed`:** a tenant made by `POST /v1/system/tenants` starts with production off, unless the create says `productionAllowed: true`. The tenant a server makes for itself, and one from before the switch, start with it on. It used to say every tenant is allowed until it's switched off.
+  - **A system deployment's `packId`, and the `superseded` reason to retire one:** no new call reaches a superseded deployment, so a rollback needs none of them. A tool call a step made on one still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. The advice to keep the newest few per pack is gone.
+- ebf405d: **The control plane's system routes for a tenant's production switch and its limits.** Each takes its own system scope, and a tenant's key gets `403 system-principal-required`.
+  - **`PUT /v1/system/tenants/{tenantId}/production-allowed`** `{ allowed }` (`system:tenants:production`): the switch the production gate reads. It answers `{ tenantId, productionAllowed }`.
+  - **`PUT /v1/system/tenants/{tenantId}/limits`** (`system:tenants:limits`): replaces the tenant's limits with exactly those given (`apiRequestsPerMinute`, `webhookReceivesPerMinute`, `runsAtOnce`, `runsPending`, `toolCallsInFlight`, `approvalsPending`, each 1 to 1000000). One left out isn't set. It answers `{ tenantId, limits }`.
+  - Both refuse an unknown or purged tenant (`404 tenant-not-found`) and a closing one (`409 tenant-closing`).
+  - **For runtimes:** `createApp` takes `systemTenantDirectory` and `systemTenantSettings` (`SystemTenantSettingsBinding`).
+  - **Clients:** the TypeScript client's `systemTenants.setProductionAllowed` and `systemTenants.setLimits`. The Python client is regenerated.
+- ebf405d: **Tenants, for the operator of a runtime serving many tenants:** `/v1/system/tenants`, each route under its own system scope.
+  - **`POST /v1/system/tenants`** (`system:tenants`) creates a tenant with its setup.
+    - With `firstAdmin`, that person becomes its admin by email, and no key comes back. Without it, its first admin key comes back once, and that takes the full system capability, as does a `test` tenant.
+    - It takes `productionAllowed` and `imagePrefix` (`<host>/<path>`) at creation.
+    - A taken slug is `409 tenant-slug-taken`.
+    - It's safe to retry with the same slug: if the tenant's setup didn't finish, the tenant waits, frozen, and the same request (the same name, slug, settings and first admin, under any Idempotency-Key) finishes it and answers as the first would have. Another request naming that slug is `409 tenant-slug-taken`.
+    - A repeat of a create that finished is `409 tenant-slug-taken` too, unless it carries the first request's Idempotency-Key. Then it gets the first answer again, or `409 idempotency-key-replay-withheld` when that answer held the admin key, which is never sent twice.
+  - **`GET /v1/system/tenants`** and **`GET /v1/system/tenants/{tenantId}`** (`system:tenants`) list and read tenants: never their content.
+  - **`POST …/close`** (`system:tenants`) makes the tenant `closing`: readable and exportable with its own keys for its window, nothing runs. It's one-way.
+  - **`PUT …/suspended`** (`system:suspend`, which no other scope includes) suspends or restores it, reversibly.
+  - **`PUT …/image-prefix`** (`system:tenants`) sets the repository its deployments' images must sit in.
+  - **`GET …/admins`** (`system:tenants:contacts`) returns its admins' contact addresses, for service notices only.
+  - **`GET /v1/system/whoami`** answers any system key with its own id, scopes and expiry.
+  
+  The TypeScript client's `systemTenants` and `systemKeys.whoami`, and the Python client, gain the matching calls.
+  
+  **Also, from the reviews:**
+  - **Least privilege at create:**
+    - sign-up's key can hold `system:tenants:create` only;
+    - a tenant created here starts with production **blocked**;
+    - `productionAllowed: true` takes `system:tenants:production`;
+    - `imagePrefix` takes the new `system:tenants:image-prefix`, as does `PUT …/image-prefix`;
+    - asking for more than the key's scopes is refused naming the scope.
+  - **The image prefix:**
+    - changing one already set takes the full system capability;
+    - no two tenants' prefixes overlap (`409 image-prefix-taken`; `imagePrefixesOverlap`).
+  - **`PUT …/projects/{projectId}/suspended`** (`system:suspend`) suspends or restores one project.
+  - **A closing or suspended tenant is frozen**, however it signs in: a key, a session or SigV4 (`createApp({ tenantStates })`, required with `tenancy: 'multi'`).
+    - **What still works:** reading, its signed exports, signing in and out, deleting, erasure in every state before purge (`POST /v1/memory/erasures`, `…/replay`, `…/{erasureId}/resume`, and the retention sweeps), unregistering, and revoking keys and sessions.
+    - **Anything else** is `409 tenant-closing` or `409 tenant-suspended`, registering or changing a sign-in provider included.
+    - **If the state can't be read,** a write gets `503 tenant-state-unavailable`, failing closed.
+    - **On `/s3`,** both answers are S3 error documents, which S3 clients parse: `403 AllAccessDisabled`, and `503 ServiceUnavailable` with `Retry-After`.
+    - `GET /v1/tenant` carries `state`.
+  - **On a runtime serving many tenants only, `POST /v1/deployments`** refuses an image outside the tenant's repository (`409 image-not-allowed`), before any registry read, and refuses a tenant without one (`409 image-prefix-unset`). A runtime serving one tenant never checks.
+  - **The tenants list** carries `hasMore`.
+  - **`KINDGI_TENANCY`** (`single`, the default, or `multi`) in `@kindgi/env-schema`: how many tenants the runtime serves.
+- a2ee44b: Templates pass one check wherever they come in, and render with one Liquid engine under the tenant input bounds.
+  
+  - New in `@kindgi/agents`: `templateProblem(template)`, the check. The renderer and the check share one Liquid engine.
+  - An agent's instructions are now checked when the agent is defined (`defineAgent`, `POST /v1/agents`) and deployed (`POST /v1/deployments`), as a prompt block's template already was when published. A deployment with one such agent is refused whole. The check refuses a template:
+    - longer than `liquid.parseLimit`;
+    - that uses `{% include %}`, `{% render %}` or `{% layout %}`, with "templates can't use include, render or layout";
+    - that is Liquid the renderer won't parse, an unknown filter included.
+  
+    Before, such instructions were accepted and then failed at every render. A template already stored with one still fails when it's rendered, and nothing stored is changed. To write `{{` or `{%` as text, put it in `{% raw %}…{% endraw %}`.
+  - A prompt block whose template uses an unknown filter is refused when it's published. The renderer always refused it.
+  - Rendering runs under the bounds' `liquid` limits: `parseLimit`, `renderLimitMs` and `memoryLimit`. On a self-hosted server only `memoryLimit` applies, at 16,777,216; `parseLimit` and `renderLimitMs` don't. `memoryLimit` counts what a render's filters and ranges make and what it writes, its captures included, as each is made. An array counts its items, each at least 1, nested arrays included; each distinct array is walked once, and counted every time it's held. A render past a limit fails, saying which.
+  - A drafted template longer than it may be is refused on its length alone, before it's parsed.
+- ebf405d: **`KINDGI_TENANT_HOST_ACCESS=isolated`, for a server whose tenants don't trust one another.** It refuses all that `deployed` does, plus private networks wherever tenant configuration names a host, and any sign-in as the server.
+  - **`@kindgi/api`:**
+    - `TENANT_HOST_ACCESS_LEVELS` gains `isolated`, so the `TenantHostAccess` union widens. A caller's exhaustive `switch` over it needs the new case.
+    - `HostReach` gains `'private-network'` (RFC 1918, CGNAT 100.64.0.0/10, IPv6 unique-local and site-local) and `'server-credentials'` (signing in as the server: with credentials its environment holds, or as its own cloud identities). Only `isolated` denies them.
+    - **`stdioRefusal(endpointId, level)`** now takes the level, and names it: "KINDGI_TENANT_HOST_ACCESS=isolated refuses that". Under `isolated`, registering a `stdio` MCP endpoint answers `403 host-access-denied`, as it does under `deployed`.
+  - **`@kindgi/capabilities`:**
+    - `AdapterFactoryInput.serverCredentials?` and `AdapterConfigCheckInput.serverCredentials?` (optional) say whether a registration may sign in as the server. Absent means allowed, as before.
+    - `createAdapterFactoryRegistry(seed, { serverCredentials: false })` tells every factory and every `checkConfig`, and withholds the runtime's `identities` from them, so each check learns there are none. An input can't turn either back on.
+  - **The adapters, with `serverCredentials: false`:** each refuses the registration in its check and its factory, with the same message, naming the alternative:
+    - `@kindgi/adapter-model-gemini`: Vertex AI without `secret_ref`, which would sign in with Application Default Credentials;
+    - `@kindgi/adapter-model-bedrock`: `auth: aws-identity`, the default (use `api-key`);
+    - `@kindgi/adapter-model-azure-openai`: `auth: entra` (use the resource's API key).
+  
+    A registration with its own key is unchanged.
+  - **`@kindgi/env-schema`:** `KINDGI_TENANT_HOST_ACCESS` takes `isolated`, and its description says what the level refuses. The server won't start with `isolated` together with `KINDGI_DEV`, `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow` or `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`; those descriptions, and `KINDGI_AWS_IDENTITY`'s, say so.
+  - **`@kindgi/sdk`:** the providers skill says that a runtime with `isolated` needs a Gemini service-account key in `secret_ref`.
+- ebf405d: **A runtime can enforce each tenant's own limits on API requests and webhook deliveries.** With `createApp`'s `tenantLimits`, the limits a tenant has (`TenantSummary.limits`, set through `PUT /v1/system/tenants/{tenantId}/limits`) apply:
+  - **`apiRequestsPerMinute`** on every authenticated request a tenant's key or session makes, `/v1` and the S3-compatible `/s3` counted together;
+  - **`webhookReceivesPerMinute`** on deliveries across the tenant's triggers, after each trigger's own `rateLimitPerMinute`.
+  
+  Past either, the answer is `429 rate-limit-exceeded` with `Retry-After`, and `details.limit` names which (`api-requests` or `webhook-receives`). On `/s3` it's S3's own `503 SlowDown` with `Retry-After`, which S3 clients back off from and retry. A tenant without a limit isn't limited, and a system key acts in no tenant and isn't counted.
+  - **Reads:** a tenant's limits are read through the tenant binding and kept for `cacheMs` (60 s by default).
+  - **The store:** counts live in the `RateLimitStore` passed (a deployment with several instances passes a shared one). A failing store counts nothing and refuses no one.
+  - **Default:** without `tenantLimits`, nothing changes.
+  - **Reading them:** `GET /v1/system/tenants/{tenantId}/limits` (`system:tenants:limits`) answers the tenant's limits in the shape `PUT` takes, so the control plane raises one by reading them, changing it and putting them back. A closing tenant's can be read. `SystemTenantSettingsBinding` gains `limits(tenantId)`, and the TypeScript client `systemTenants.limits(tenantId)`.
+- ebf405d: **An agent turn whose work its tenant's budget refuses fails with `rate-limit-exceeded`, not `model-invocation-failed`,** on a server with budgets kept per tenant (Kindgi Cloud). The error names the budget in `details.limit` (`template-render-time` or `schema-compile-time`), with `details.budgetMs`, and says when the tenant is under it again. `POST /v1/runs` answers it as `429`, with `Retry-After` and `details.runId`, and the run reads as failed with that code. The OpenAPI document lists the 429 on `POST /v1/runs`.
+  - New: the tenant input bounds' `templateRenderBudgetMs`, the time a tenant's instructions templates may spend rendering in any 60 seconds. Once a tenant has spent it, its next render is refused before it starts. A self-hosted server has none.
+  - `TenantBudgetError` (`@kindgi/bounds`) is what each budget's refusal is: `SchemaCompileBudgetError` and the new `TemplateRenderBudgetError` (`@kindgi/agents`) extend it, with `limit`, `budgetMs` and `retryAfterMs`. The API answers any of them thrown from a route as `429 rate-limit-exceeded`.
+  - A guardrail check, or a tenant's approval policy, whose schema compile the budget refuses no longer fails as `check-failed` or `tenant-policy-unavailable`: the turn fails as above.
+  - A failed run's `failure` has `details` for a code that has them. For `rate-limit-exceeded` that's `limit` and `budgetMs`, never the wait, which is stale once read back. The `run.finished` webhook's run can carry `failure` beside `failureMessage`. It's absent from a runtime that doesn't send it yet. `parseEvent` (`@kindgi/sdk/webhooks`) reads it, and reads a failure's `cause` as any JSON value.
+- f05d320: **An agent turn's memory, charged by size, for a runtime that limits it.**
+  - **`InvokeAgentBindings.turnMemory`,** optional: `charge(bytes, { runId })` (the turn's own run) answers `{ ok: true }`, or `{ ok: false, limit: 'tenant' | 'server', heldBytes, limitBytes }`. A runtime binds one per turn (one `invokeAgent` call), so two turns of one run are charged apart, and releases the turn's charge when it settles. Without it, nothing is charged.
+  - **The charge** is taken before each model call: (4 + the iterations done) × the conversation as sent, in UTF-8 bytes, replacing the turn's last charge. The first is taken once the first messages are built. Each later one comes after the last tool results have joined the conversation and been journaled. A dry run is never charged.
+  - **Refused,** the turn fails with `turn-memory-limit-reached` before the model is called, naming the limit, what it holds and its size. Every tool call the turn finished is already in the conversation, so a new turn there doesn't call it again.
+  - **The API's error map** gains `429 turn-memory-limit-reached`, with no `Retry-After`. The clients read it as rate-limited, with the code in `serverCode`.
+  - **Two runtime settings,** off unless set: `KINDGI_TURN_MEMORY_MIB` (every tenant's turns together) and `KINDGI_TURN_MEMORY_PER_TENANT_MIB` (one tenant's). Used from runtime 0.1.8.
+- 1bd39aa: **A closing tenant takes no webhook delivery, and a suspended tenant's or project's deliveries are skipped.** For a delivery that proves its sender, `POST /v1/hooks/{tenantId}/{webhookId}` answers:
+  - A closing tenant: `409 tenant-closing` (`details.state`), as its own writes are answered. Nothing is recorded.
+  - A suspended tenant or project: `202` with `skipped: tenant-suspended` or `skipped: project-suspended`, as a paused trigger's delivery is answered, so a sender such as WooCommerce doesn't count it as a failure and switch its webhook off. Nothing is recorded, started or deduped, and nothing counts toward the trigger's rate or toward pausing it.
+  - The event isn't kept. A sender that can redeliver by hand (GitHub) can resend it once the tenant or project is restored, and the resend runs. The tenant's state is kept a few seconds between reads, so a restore is seen within them.
+  - If the tenant's state can't be read, the delivery is refused with `503 tenant-state-unavailable` and `Retry-After`, and nothing is recorded.
+  - A delivery that doesn't prove its sender still gets the same `401 webhook-refused`, whatever the tenant's state.
+  - `WebhookReceipt.skipped` takes `tenant-suspended` and `project-suspended` besides `paused`.
+  
+  `createApp` checks the receiver's deliveries with the `tenantStates` and `projectSuspended` it's given, the same ones its writes and deploys are checked with. `tenantStateGate` and the receiver read a tenant's state and refuse a closing one from one place, so the codes and messages are the same.
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [cd84814]
+- Updated dependencies [ebf405d]
+- Updated dependencies [059c2c2]
+- Updated dependencies [82eebb6]
+- Updated dependencies [cd84814]
+- Updated dependencies [57a7b2e]
+- Updated dependencies [2969337]
+- Updated dependencies [d92706f]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [3a3f233]
+- Updated dependencies [76532eb]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [3a3f233]
+- Updated dependencies [036605f]
+- Updated dependencies [f526987]
+- Updated dependencies [a2ee44b]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [f05d320]
+  - @kindgi/agents@0.1.8
+  - @kindgi/bounds@0.1.8
+  - @kindgi/runtime@0.1.8
+  - @kindgi/guardrails@0.1.8
+  - @kindgi/tools@0.1.8
+  - @kindgi/log@0.1.8
+  - @kindgi/platform@0.1.8
+  - @kindgi/capabilities@0.1.8
+  - @kindgi/schema@0.1.8
+  - @kindgi/types@0.1.8
+  - @kindgi/compliance@0.1.8
+  - @kindgi/flow@0.1.8
+  - @kindgi/provenance@0.1.8
+  - @kindgi/blob-binding@0.1.8
+  - @kindgi/audit-events@0.1.8
+  - @kindgi/authz@0.1.8
+  - @kindgi/crypto@0.1.8
+  - @kindgi/memory@0.1.8
+  - @kindgi/policy-contract@0.1.8
+
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- ebf405d: **A request that publishes schemas compiles them all before it writes anything,** and on the hosted bounds each compile counts against its tenant's compile budget.
+  - Every authenticated `/v1` request runs as its tenant's work (`runAsTenant`): a schema it compiles again, after the cache dropped it, counts against the tenant's budget.
+  - `POST` of flows, blocks, agents (and `/v1/agents/{agentId}/versions`), tools, guardrails, MCP endpoints and deployments, and `POST /v1/proposals/{proposalId}/evaluate`, run as their tenant's work with every compile counted (`runAsTenant`, `{ compiles: 'all' }`). A deployment's compiles past its first write, a registry's own compiles of schemas checked before it, don't count, so the budget can't refuse a deployment half-written.
+  - `POST /v1/deployments` pins its agents' data blocks before it registers any tool, so a model-settings check can no longer fail after a write.
+  - Evaluating a proposal checks a model-settings block's new values before it publishes the block version; values that aren't model settings are refused with `400 validation-failed`, and nothing is stored.
+  - `modelSettingsIssues(values)` (`@kindgi/agents`) checks model settings against `MODEL_SETTINGS_SCHEMA`, compiled once in a process, outside any tenant's scope: it never counts against a tenant's budget.
+- ebf405d: **A gate past the tenant's limit on approvals waiting fails its step, naming the limit.**
+  - **The contract:** a HITL binding's `enqueue` refuses an approval past the tenant's limit by throwing an error with `code: 'approvals-pending-limit'` (and `approvalsPending`, the limit).
+  - **In a turn:** the tool gate and the session gate then fail the turn with `ApprovalsPendingLimitError`, never waiting for an approval nobody can see. Any other `enqueue` failure stays soft, as before.
+  - **Over the API:**
+    - `approvals-pending-limit` answers `429` when the call waits for its run; with `options.wait: false` the call answers `202`, and the run then fails with that code;
+    - a promotion whose gate wants an approval past the limit is refused with it (`PromotionErrorCode`);
+    - `POST /v1/runs` documents its `429`s: that one, and `rate-limit-exceeded` with `details.limit: 'runs-pending'` past the tenant's limit on runs waiting to start.
+- fddc8f7: The default artifact upload cap reads 100 MiB, what it has always been (`100 * 1024 * 1024` bytes), instead of 100 MB: in `POST /v1/artifacts`'s description, `kindgi artifacts upload --help`, `@kindgi/api`'s README and TSDoc, and `@kindgi/client`'s `artifacts.upload` TSDoc.
+- 3a3f233: - Fixed: an artifact upload with an API key limited to a project works, and the artifact stays in the key's project. An upload naming no project lands there, and one naming another project, or an owner run in one, is refused with `403 key-project-mismatch`.
+  - An artifact upload is read once, under its size limit, so the server holds it in memory fewer times while it's stored.
+- ebf405d: **A deploy can go into a named project, one per client.**
+  - **`POST /v1/deployments` takes an optional `projectId`.** The deployment's agents, flows, tools and guardrails are registered in that project, and the deployment records it (`projectId`), so its secret sync writes there too.
+    - It needs admin on that project. An API key limited to another project is `403 key-project-mismatch`.
+    - An id that isn't a project id is `400`; one of no project of the tenant is `404 project-not-found`.
+    - Without it, a deploy is tenant-wide, into the Default project, as before.
+    - Nothing deploys into a suspended project (the named one, or the Default): `409 project-suspended`, before anything is written, where the app is given `projectSuspended`.
+    - `Deployment.projectId` and `DeploymentRegisterInput.projectId` carry it to a binding.
+  - **A deploy whose ids already live in another project** is `409` (`tool-project-mismatch` and the like) as before. The message now names the fix: one pack per client, a copy made with `kindgi init`, whose ids carry its own pack id.
+  - **Where pack check calls are routed by id** (a runtime that wires `systemDeployments`), a deploy refuses a pack check whose id doesn't start with its pack's id (`<packId>.`), as `400 deployment-validation-failed`, naming the fix. Elsewhere the build's warning stays the only word.
+  - **`kindgi deploy --project <id or slug>`.** A slug is looked up among the tenant's projects; one that names none, or several (two orgs may share a slug), is refused before anything is sent, naming the ids. The `Idempotency-Key` follows the project.
+  - **The WooCommerce template's README** says one project and one pack per client.
+- ebf405d: **A deployment can carry its pack service's status, and the name each deployment's pack service takes is shared.**
+  - **`endpoint` on a deployment** (`GET /v1/deployments` and `GET /v1/deployments/{id}`), optional: `{ status, since }`, with `status` one of:
+    - **`pending`:** no pack service yet; calls to its tools fail (`pack-endpoint-pending`), and never go to another deployment;
+    - **`ready`:** calls go to its own pack service;
+    - **`cleared`:** its pack service was taken down, and calls fail (`pack-endpoint-cleared`).
+  
+    It's present only when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`, from runtime 0.1.8), and absent otherwise. It never carries a URL or a token. The TypeScript and Python clients gain the optional field, and `@kindgi/api` exports `DeploymentEndpoint` and `DeploymentEndpointStatus`.
+  - **Why a deployment is still `pending`:** an optional `problem: { code, since }` on a pending endpoint, so a deploy that waits for `ready` can say why at once instead of timing out. The code is from a fixed list, never free text:
+    - the server refused the endpoint it was given: `endpoint-url-invalid`, `endpoint-host-not-allowed`, `endpoint-name-mismatch`, `endpoint-unreachable`, `endpoint-info-mismatch`, `image-not-allowed`;
+    - the pack service couldn't be created: `tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`.
+  
+    A later runtime may add codes, so a client treats an unknown one as a reason not yet named. `@kindgi/api` exports the list as `DEPLOYMENT_ENDPOINT_PROBLEM_CODES`, with the `DeploymentEndpointProblem` and `DeploymentEndpointProblemCode` types.
+  - **`packServiceName(tenantId, deploymentId)`** (`@kindgi/api`): `kp-` and 20 lowercase base32 characters of `sha256("<tenantId>:<deploymentId>")`, a valid Cloud Run service name. Whatever runs a pack service per deployment names each one this way.
+  - **`hostNamesPackService(host, name)`:** true when the host begins with the name and then `-` or `.`, so a longer name never passes. The server uses it to check that an endpoint can't point one tenant's deployment at another's service. It checks the first label only: the domain is the hosts allowlist's to check, so a caller runs both.
+- ba8d9a1: **A secret name the store can't write is the caller's `400`, saying the store's rule, never a `500`.**
+  - **Under `kindgi dev`,** a secret is a key in your env files, so a name Kindgi writes is capital letters, digits and underscores, not starting with a digit.
+    - Any other name (`acme-woo-orders`) is refused with `400 secret-name-invalid`, and when one can be made from it, the message offers a name that works (`ACME_WOO_ORDERS`). So is a `KINDGI_*` name.
+    - A `kindgi.` name is refused with `400 reserved-name-prefix`.
+    - These used to answer `500 secret-store-error`.
+    - This applies to `POST /v1/secrets`, `PATCH /v1/tenant/config` and `POST /v1/webhooks` with `generateSecret`.
+  - **`POST /v1/webhooks` with `generateSecret` refuses such a name before anything is stored.** No trigger is registered and then taken back.
+  - **A name typed into `.env` by hand still resolves,** even one Kindgi wouldn't write (`acme-woo-orders=…`). A webhook trigger may still name it, and `PATCH /v1/webhooks/{triggerId}` may switch to it.
+  - **`PATCH /v1/tenant/config` answers a refused secret write at its code's status,** as `POST /v1/secrets` does. That's a `400` for a secret the store refuses for its name or its size, or a `429`, `502` or `503` when the store's external provider limits the runtime's requests, refuses its credentials or can't be reached. It answered `500` for every code.
+  - **The API reference lists those `429`, `502` and `503` answers** for both operations.
+  - **`SecretBinding.nameRefusal(name)` is a new optional method.** It's how a store says which names it can't write, and `set` refuses those names with the same code. `observeSecretWrites` and `guardProviderKeys` pass it through.
+  - **`kindgi webhooks register --secret` now says the rule that applies under `kindgi dev`.**
+- ebf405d: **A schedule's or webhook trigger's fire says whether it counted toward the trigger's auto-pause.** `TriggerFire.countsTowardPause`, and `countsTowardPause` on `GET /v1/schedules/{scheduleId}/fires` and `GET /v1/webhooks/{triggerId}/fires`, optional:
+  - **`false`** for a refusal for a limit, such as the tenant's runs pending (its `detail` starts `rate-limited:`): the limit passes, and the trigger isn't at fault.
+  - **Absent** from a runtime that doesn't say: `refused` and `failed` fires counted, and the others didn't, as before.
+- 059c2c2: **A fire's `skipped` outcome covers a tenant suspended or closing as its run starts.** A schedule's or webhook trigger's fire whose run starts as its tenant is suspended or starts closing is recorded `skipped`, with `tenant-suspended` or `tenant-closing` in its `detail`. Like a skip for a project's suspension, it doesn't count toward a schedule's auto-pause and doesn't reset its count of fires in a row that were refused or failed. The descriptions of a schedule's and a webhook trigger's fires, and of `TriggerFire.outcome`, now say so.
+- 3a3f233: Idempotency fingerprints a request by its body's bytes as they came, the same way for every caller.
+  
+  - Fixed: a request from an API key limited to a project, sent again with the same `Idempotency-Key` and a different body, is refused with `409 idempotency-key-body-mismatch`, as it is for any other caller. Before, it got the first answer back.
+  - Fixed: a binary upload sent with an `Idempotency-Key` is stored as sent.
+  - Two bodies that differ only in bytes their text would lose (a byte-order mark, invalid UTF-8) are different bodies.
+- ebf405d: `parseImageRef`, `parseImagePrefix` and `imageRefWithin`: parse a digest-pinned image reference into its registry host, repository path and digest, and check that it sits at or under a repository prefix on a path boundary (`…/s-1` admits `…/s-1/agent`, never `…/s-10`). Tags, user info, `..` segments and references without a registry host are refused.
+- ebf405d: **A preview build's own expiry on `GET /v1/license`.** From the 0.1.8 runtime until Kindgi 1.0, a runtime release stops starting 90 days after it was released, in every mode, unless a production key exempts it. Earlier releases don't expire.
+  - **`LicenseStatus.preview`** (optional, schema `LicensePreview`) carries `version`, `releasedAt`, `expiresAt`, `daysLeft` and `standing` (`valid`, `expiring` from 30 days before, `expired`). It's absent when nothing expires: a 1.0 or later release, a build from source, or a production key.
+  - **Both views include it,** the deployment's own token and a sole tenant's admins: it's the build's, not the key's. A runtime that doesn't report it answers as before.
+  - **`kindgi dev` warns** from 30 days before, with the way to a newer runtime: update the CLI (for the runtime it pins), or run a newer image or release (`--runtime-image`, `--runtime-url`).
+  - The Python client gains `LicensePreview`.
+- b22e616: **A non-production key's renewal can carry the deployment's use.**
+  - **`GET /v1/license/usage?since=<time>`** (`@kindgi/api`, additive) answers how much the deployment was used since a time:
+    - the runs started (not dry runs, replays, evals or child runs);
+    - the distinct people who started runs or decided approvals, counted in each tenant and summed;
+    - the projects in production, from a runtime that can put projects in production;
+    - the runtime's version.
+  
+    Counts only: no content, names or ids. Only the deployment's own token, or a system key holding `system:license` (as for `GET /v1/license`, whose refusal now names that key too), reads it; anyone else gets `403 license-operator-only`, recorded, before `since` is read. A `since` up to five minutes ahead of the runtime's clock is taken as now; one that's missing, not a time with a zone, or further ahead is `400 bad-input`. A runtime whose license binding has no `usage` doesn't serve it (404).
+  - **`LicenseStatusBinding.usage?({ since, until })`** is the binding a runtime gives it, and `LicenseUsage` is its answer. `client.license.usage({ since })` (`@kindgi/client`) and `client.license.usage(since=…)` (Python) read it.
+  - **`kindgi license renew --runtime <url> --runtime-token <ref>`** reads the deployment's use since its current key was issued and sends it with the renewal, signed with the rest of the request. It prints `counts: sent (…)`, or `counts: not sent (<why>); this renewal goes without them.` when there are none to send (a production key's renewal, a token that can't be read or sent, or a runtime that couldn't say), and the key still renews then. Only counts, two times and a version, as access.kindgi.com reads them, are sent; any other answer means no counts, and it's never printed. A production key's renewal carries none, and the runtime isn't asked. The runtime's token is checked before it's sent, and a flag that isn't a reference is refused without repeating it. Without the two flags, a renewal carries no counts, as before.
+  - **`kindgi license renew` prints access.kindgi.com's `held-for-review` refusal** like any other: this renewal's counts are above what a non-production key covers, so it got no new key. Kindgi can release the deployment after a review.
+  - **The hints about signing in now say what a sign-in does.** A sign-in leaves a key that a deployment is renewing to that deployment, so:
+    - `renew`'s ⚠ line says to stop this deployment's renewer first;
+    - `kindgi doctor`'s fix says a sign-in shows the key's latest version, and renews it unless a deployment renewed it this week and it hasn't expired, as the runtime's banner does.
+- ebf405d: **An MCP endpoint's credential header goes by reference, never in plaintext `config.headers`.**
+  - **New `auth` scheme, `header`:** headers of the server's own, each with a secret, sent as `<name>: <prefix><secret>`. For example, an API key in `X-Api-Key`, a key and a secret in two headers, or `Authorization: Token …`:
+    ```json
+    "auth": { "scheme": "header", "headers": [{ "name": "X-Api-Key", "secretRef": { "envName": "production", "name": "INVENTORY_KEY" } }] }
+    ```
+    It takes 1 to 4 headers, each name once (case-insensitive), and `prefix` is optional. A header the MCP transport or HTTP sets itself (`Host`, `Content-Type`, `Accept`, `Mcp-Session-Id`, `traceparent`, …) is refused (`invalid-auth`). A name `config.headers` sets too is refused as well (`auth-header-in-config`). Each secret counts for the provider-key guard and for `usersOfSecret`.
+  - **A credential in `config.headers` is refused at registration** (`invalid-mcp-endpoint`, reason `credential-in-headers`). The message names the header, never its value, and shows the `auth` that replaces it.
+    - **Which names count:** `Authorization`, `Proxy-Authorization`, `Cookie`, and any name with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key`. A lone `key` doesn't count: `X-Idempotency-Key` and `X-Cache-Key` stay plain.
+    - **Exported:** the rule is `isCredentialHeaderName()`.
+  - **Endpoints registered before keep working.** `GET /v1/mcp/endpoints[/:id]` answers such a header's value as `"[redacted]"`, its name kept.
+  - **`kindgi doctor` names them:** a new check, MCP endpoint headers, lists each endpoint on the runtime the CLI points at that keeps one, with the fix. It's a warning: the endpoint still works.
+  - **New exports:**
+    - `@kindgi/api`: `MCPHeaderAuth`, `MCPAuthHeader`, `MCP_AUTH_HEADERS_MAX`, `mcpAuthSecretRefs()`, `isCredentialHeaderName()` and `REDACTED_HEADER_VALUE`;
+    - `@kindgi/client`: `McpHeaderAuth` and `McpAuthHeader`. The Python client carries the new models.
+- cfe5422: **More cloud metadata endpoints are refused.** Besides 169.254.0.0/16, fe80::/10 and AWS's fd00:ec2::254, from runtime 0.1.8 the cloud metadata endpoints a runtime refuses also include Azure's 168.63.129.16, Alibaba Cloud's 100.100.100.200, EKS Pod Identity's fd00:ec2::23, Compute Engine's fd20:ce::254 (IPv6-only VMs), Akamai's fd00:a9fe:a9fe::1 and Scaleway's fd00:42::42.
+  - `KINDGI_TENANT_HOST_ACCESS`'s description names them as the cloud metadata endpoints, not link-local addresses alone.
+  - `KINDGI_WEBHOOK_PRIVATE_NETWORKS`'s description says they stay refused even with `allow`, though some sit inside CGNAT or IPv6 unique-local space. Its `allow` list also names IPv6 site-local, which runtime 0.1.8 counts as private.
+  - `HostReach`'s `'metadata-network'` lists them, and says it also covers addresses no tenant has a reason to reach (multicast, reserved, documentation).
+- 70b85f8: **Restoring a pack says what it does.** `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended`: a restored pack serves again from the endpoint recorded for it, and it lists as needing a pack service only when that endpoint is pending or was cleared meanwhile. It used to say a restored pack lists as needing a pack service again.
+- ebf405d: **A turn runs as a participant only for someone who may read their memory.** A turn runs with its participant's memory: their `same-user` facts and earlier conversations are read into it and returned in its result, and what it remembers is kept as theirs. So running as a participant now takes what reading their memory takes through the memory API:
+  - **Either:** the participant is the caller (a person, by their user id; never a service account's key);
+  - **or:** the caller holds `write` on the turn's project, acting for all its end users (an app's service account, an editor).
+  
+  **Where it's checked:** every way a turn gets a participant.
+  - **Posting into a conversation:** its stored participant wins, whatever the body names.
+  - **`input.participantId`** on `POST /v1/runs`.
+  - **Opening a conversation for someone:** `participantId` on `POST /v1/conversations`.
+  
+  Anything else is refused with 403 `participant-not-allowed`, and recorded as other refusals are.
+  - **Posting into a conversation:** the refusal names only that conversation, never its participant or project.
+  - **The turn's project isn't known:** only the participant themselves may.
+  - **The conversation can't be read** (a failed query): the API answers 500 and starts no turn.
+  
+  **Who it affects:** before, anyone who could run an agent could run it as any participant. Today, every role that can run an agent also holds `write`, so nothing changes for them. The check is for callers that may run an agent without `write` on its project.
+- ebf405d: **A project can be put in production, and the runtime can gate it.** A run in a project in production is a production run; a run anywhere else is staging.
+  - **`PUT /v1/projects/{projectId}/production`**, body `{ "production": true | false }`, for tenant admins, both ways. It answers `{ projectId, productionSince }`, where `productionSince` is `null` once the project is out of production. Setting what's already set changes nothing and keeps the first `productionSince`. The TypeScript client has `projects.setProduction(projectId, production)`, and the Python client `projects.production.set(project_id, production=…)`.
+  - **The production gate:** with `KINDGI_PRODUCTION_GATE=on`, putting a project in production is refused with `403 production-not-allowed` while the tenant isn't allowed it. The error's `details` carry the `projectId` and, from `KINDGI_PRODUCTION_NEXT_URL`, a `next` URL saying where to go. A project already in production stays so. Off by default, so nothing changes for a self-hosted runtime.
+  - **Reads:** a project read shows `productionSince` while the project is in production. `GET /v1/tenant` gains optional `productionAllowed`, `productionNext` (only while it's `false`) and `limits`, when the runtime knows them.
+  - **For runtimes:** `Project.productionSince?`, an optional `ProjectBinding.setProduction?` (without it, the route answers `501 production-unsupported`), and `TenantSummary`'s optional `productionAllowed` and `limits` (`TenantLimits`). `createApp` takes `production: { gate?, next? }`.
+  - **The usage vocabulary:** `USAGE_CLASSES` (`production`, `staging`, `dry-run`, `replay`, `eval`, `child`) and `USAGE_KINDS`, for a runtime that counts usage (`KINDGI_USAGE_METERING`).
+  - **New settings, documented:** `KINDGI_PRODUCTION_GATE`, `KINDGI_PRODUCTION_NEXT_URL` and `KINDGI_USAGE_METERING`.
+- ebf405d: **A tenant can have a limit on its projects in production.** The new limit `projectsInProduction` sits in `TenantLimits`, beside the others, and is set through `PUT /v1/system/tenants/{tenantId}/limits`. It works like them: unset, it isn't enforced, and a self-hosted runtime sets none unless its operator does.
+  - **The refusal:** with the limit set, `PUT /v1/projects/{projectId}/production` refuses another project with `403 production-limit-reached` while the tenant has that many in production, or more. `details` carries `limit: 'projects-in-production'`, the limit (`projectsInProduction`), the count (`inProduction`), the `projectId`, and `next` when the runtime names where to go (`KINDGI_PRODUCTION_NEXT_URL`).
+  - **What's never counted or refused:** a project already in production answers its repeat 200, uncounted. Taking a project out is never refused.
+  - **Lowering the limit** takes no project out of production. The next one waits until the count is under the limit.
+  - **Order:** with the production gate on, a tenant that isn't allowed is refused `production-not-allowed` first.
+  - **The binding:** `ProjectBinding.setProduction` reads the tenant's limit itself, where the runtime keeps it, and answers `limit-reached` (with the limit and the count) without a change. It reads the limit, counts the tenant's projects in production and changes the project in one step, so two projects put in production at once can't both take the last place, and a limit changed meanwhile is the one counted against. The in-memory binding takes its reader at construction (`productionLimit`). The conformance suite's `productionLimit` option checks a binding against it, setting the limit through the `setProductionLimit` its `makeBinding` returns.
+  - **The count, read:** `GET /v1/system/tenants/{tenantId}/limits` answers an optional `inUse: { projectsInProduction }` from a runtime whose `SystemTenantSettingsBinding` has the new optional `inUse(tenantId)`. The count can be over a limit that was lowered below it.
+  - **`KINDGI_PRODUCTION_NEXT_URL`** is the `details.next` of both refusals, `production-not-allowed` and `production-limit-reached`, and its description says so. `KINDGI_PRODUCTION_GATE`'s no longer assumes a payment card.
+- ebf405d: **A deployment can keep what a project's flows, agents, triggers and runs name within that project's reach.**
+  - **`CreateAppInput.referenceScope?`** (a `ReferenceScopeBinding`, `reachable(tenantId, fromProjectId, ref)`) is asked before each write that makes a reference live:
+    - publishing a flow (its tool, agent and subflow steps) or an agent (its tools, guardrails and data blocks), and reinstating a retired version of either;
+    - registering a deployment (what its agents and flows name, besides what it brings itself);
+    - registering a guardrail with a pack check;
+    - registering a schedule or a webhook trigger, and changing a schedule's target;
+    - starting an eval run (its suite, and its agent or flow), and starting a run filed under a named `projectId`;
+    - opening a conversation (its agent);
+    - promoting an agent into a project or a segment, directly or through an improvement proposal;
+    - drafting an improvement proposal (its scope and block), evaluating one, and starting an improvement pass (its suite and scope).
+  - **The refusal:** an item the project doesn't reach is refused with `reference-out-of-scope` (400), naming each one at its path. An item that doesn't exist gets the same answer. Without the binding, nothing changes.
+  - **A conversation opened without `projectId` is filed under its agent's own project,** as a run is. Before, it went to the tenant's Default project; an agent filed under no project still goes there.
+  - **Tool metadata:** `POST /v1/tools` and deployments refuse a tool `metadata` key under `kindgi.`, which is the runtime's own.
+  - **`ToolRegistry.forProject?`** (`@kindgi/tools`): the tools a run in a project may reach. An agent's turn resolves its tools on it when it's there.
+  - **`BlockReader`'s reads take the turn's `projectId`** (`@kindgi/agents`).
+  - **`InvokeAgentBindings.authorizeToolCall?`** (`@kindgi/agents`) is asked before each of a turn's tool calls, before any approval.
+    - A denied call runs nothing. Its result tells the model (`{ status: 'denied', reason }`), and the turn goes on.
+    - A call approved by a reviewer is asked again right before it runs. Denied then, it runs nothing.
+    - Each decision is recorded with the call, so a resumed turn keeps it. An authorizer that throws fails the step.
+    - A built-in tool is asked only when what it touches reaches beyond the turn's project: `kindgi_remember` for a tenant-wide fact.
+  - **The docs of `NodeContext`'s `authorize`, `can` and `check`, `RunFlowInput.principal` and `authz`, and `InvokeAgentInput.principal` and `authz`** (with the agents and handler READMEs) describe runtime 0.1.8: these checks are decided for every run and turn a person or a key starts.
+- 3a3f233: Request bodies have a size limit and a depth limit, from the tenant input bounds.
+  
+  - A request body over `requestMaxBytes` (2 MiB on hosted, 10 MiB on a self-hosted server) is refused with `413 request-too-large`, with `details.maxBytes`, before more of it is read. Every operation with a body declares that answer, except the two routes that keep a limit of their own: an artifact upload (`413 artifact-too-large`, checked once the caller is known) and the webhook receiver (`413 webhook-body-too-large`).
+  - A JSON body nested more than `requestJsonMaxDepth` levels (128) is refused with `400 bad-input`, with `details.maxDepth`.
+  - A webhook delivery whose JSON nests deeper than that is refused the same way and starts no run. The trigger's fires record it as `body-too-deep`.
+  - `HOSTED_BOUNDS.requestJsonMaxDepth` is 128 (it was 64), the same as self-hosted, so a schema as deep as `schemaMaxDepth` fits inside the body that carries it.
+  - `kindgi deploy` says what to make smaller when a deployment is over the server's limit.
+- 1c8b391: **A `501` is logged at `info`, not `error`.** A `501` answers a request this runtime doesn't support, such as `GET /v1/identity/me/permissions` on a runtime without an access store (`kindgi dev`'s), and nothing failed. So the console's routine read no longer prints an `ERROR` line. Its access line is now at `info`, like a `4xx`. Every other `5xx` stays at `error`.
+- 08bf3e5: **`GET /v1/runs/:runId/journal` pages when asked: `limit` and `cursor` now work.**
+  - With `limit` (1 to 100), the answer holds at most that many entries after `cursor` (and `since`), with `hasMore` and a `nextCursor` while more remain. Without `limit`, the whole journal comes in one answer, as before, so a caller that doesn't page sees no change.
+  - A malformed `cursor`, or a `limit` that isn't a whole number of 1 or more, is `400 bad-input`.
+  - `nextCursor` is a new optional field of the page. The Python client's `runs.journal` gains `limit` and `cursor`. The TypeScript client's `runs.journal(runId, { limit, cursor })` and `kindgi runs journal --limit --cursor` already took them, and the server now reads them.
+  - The TypeScript client's `since` doc now says what the server does: only entries with a sequence greater than it.
+- 6329f93: A request to the S3-compatible routes (`/s3/*`) carries at most `artifactMaxBytes` (default 100 MiB), the limit an artifact upload has; more is S3's `400 EntityTooLarge`. A larger object goes up as a multipart upload, each part under the limit. A header-signed body is checked against its declared `x-amz-content-sha256` when it's empty too. `@kindgi/api` needs `hono` 4.13.8 or later.
+- ebf405d: **A publish refused by its tenant's compile budget answers `429 rate-limit-exceeded`,** with `details: { limit: 'schema-compile-time', budgetMs }` and `Retry-After`, and stores nothing. The OpenAPI document lists it on the routes that publish schemas.
+  - The TS client's rate-limited error now takes `retryAfterSeconds` from the `Retry-After` header when the body gives none (whole seconds or an HTTP date), and carries `limit`, the limit the server named. The client still doesn't retry on its own.
+- 9ba9e5f: **A second suspend keeps the first one's time and reason.** Suspending a tenant or a project that's already suspended keeps when it was suspended and why, so a later suspend never replaces the reason given first. Restoring clears both. The descriptions of `PUT /v1/system/tenants/{tenantId}/suspended` and `PUT /v1/system/tenants/{tenantId}/projects/{projectId}/suspended` now say so, as do `SystemTenantsBinding.setSuspended` and `setProjectSuspended`.
+- ebf405d: **Where a secret an item names is read is decided when the item is registered, and recorded on it.**
+  - **Which items:** an MCP endpoint (`secretRef`, `auth.secretRef`), a tool (a spec tool's `secretRef`, the secrets a pack tool declares; through `POST /v1/tools` or a deployment), and a webhook trigger's signing secret.
+  - **How it's decided:** the secret is looked for at the item's own scope, then its project's org, then the tenant, at the scopes the person registering it administers. The first that has it is recorded. If none has it yet, the broadest scope they administer is: the tenant for a tenant admin, the project for a project admin. Nothing is refused for it.
+  - **What's recorded:** `secretScopes` (by name) on an MCP endpoint and a tool version, `hmacSecretScope` on a webhook trigger. They're the server's, never a caller's. The runtime reads the secret there only. A secret removed from that scope is missing, never read from a broader one, and one set later at another scope changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+  - **Webhook triggers:** the receiver reads the signing secret at `hmacSecretScope`; a trigger registered before it was recorded reads the tenant's, as before.
+  - **`generateSecret`:** `POST /v1/webhooks` can make the signing secret itself, in the trigger's project, needing only `write` there; the answer carries it once (`signingSecret`). A name the project already has is refused (`409 secret-write-conflict`). `kindgi webhooks register --generate-secret` now uses it, in one call, and no longer takes `--env`.
+  - **Read there only:** `SecretResolveInput.exact` reads at the given scope with no walk to a broader one, and every secrets store must honour it. `SecretResolveOutcome.scope` says where a value was read. `resolveAtScope` reads an item's secret at its recorded scope with `exact`. A value a store reads at another scope anyway, or without saying which, is refused as not set, and the refusal is audited (`secret-resolved`, failed, `secret-scope-mismatch`) without the value. A custom store must honour `exact` and report the scope it read. The dotenv store keeps one set of values for every scope, so it reports the scope it was asked at.
+  - **`emitResolveEvent`** (`@kindgi/compliance`): `projectId` is optional, for a read at the tenant or an org.
+  - **`CreateAppInput.envName`:** the env this deployment serves, where the secrets a tool's code declares are looked for.
+  - **`RecordedSecretScope`** (`@kindgi/types`): the recorded scope's shape.
+- 14d02c5: **A secret value the store can't hold is the caller's `400`, saying why, never a `500`.**
+  - **Under `kindgi dev`,** a secret is a key in your env files. No env-file quoting holds a value that has a double quote, or a backslash followed by `n` or `r`, together with a carriage return or with both a single quote and a backtick.
+    - Such a value is refused with `400 secret-value-invalid`, the new code, before any file is read. It used to answer `500 secret-store-error`.
+    - The message says why and never repeats the value.
+    - This applies to `POST /v1/secrets`, `PATCH /v1/tenant/config` and `POST /v1/deployments/{deploymentId}/secrets`.
+  - **`SecretError` gains the codes a store's `set` refuses with:** `reserved-name-prefix`, `secret-name-invalid`, `secret-value-too-large` and `secret-value-invalid`. A store that rotates by setting a new version can answer a rotation's new value as it answers the write, and `POST /v1/secrets/{name}/rotate` answers any of them it gets at `400`.
+  - **The API reference:**
+    - lists `secret-value-invalid` beside the other refusals for those three operations;
+    - gives `POST /v1/secrets/{name}/rotate` its `400` (`secret-value-too-large`, `reserved-name-prefix`);
+    - lists the `429`, `502` and `503` an external provider answers for the rotation and the deployment sync, as it already did for the other two.
+- d985473: **`GET /v1/secrets` reads `includeRevoked`, and the `kindgi dev` secrets store pages.**
+  - `?includeRevoked=true` lists revoked secrets too, with `revokedAt` and `revokeReason`. It's metadata only, never a value. The route used to drop it, so `kindgi secrets list --include-revoked` and the TypeScript client's `secrets.list({ includeRevoked })` did nothing; now they reach the store. The operation documents the parameter, and the Python client's `secrets.list` gains `include_revoked`.
+  - `SecretBinding.list`'s contract says what a store returns: name order, at most `limit` records, and a `nextCursor` while more remain. `listVersions`' says the same, oldest first.
+  - `GET /v1/secrets` and `GET /v1/secrets/{name}/versions` answer `400 bad-input` to a `cursor` the store didn't issue, as the agents, flows, policies and eval-suites version lists do, so a client paging until done is never sent back to the first page. A store says which cursors it issued with `SecretBinding.issuedCursor` (optional: a store without it gets any cursor, as before); `@kindgi/secrets-dotenv` has it.
+  - `@kindgi/secrets-dotenv` pages by name: a `nextCursor` while more remain, and the next page starts after the page's last name, so a name added between pages neither repeats nor skips another. Before, it stopped at `limit`, and a 26th secret was out of reach.
+- 718e635: **A sign-in session can carry the capabilities its person holds.**
+  - **The new binding:** `personCapabilities` (`PersonCapabilitiesBinding`, optional). Its `held({ tenantId, userId })` returns what a person holds, such as `env:write`, `secrets:write` or `signing-keys:write`.
+  - **What a session carries:** a sign-in session carries its person's capabilities.
+    - They're read on every request, once the session is found valid, so one taken away stops at the next request.
+    - A system capability (`kindgi:system`, `system:*`) is never a person's: one the binding returns is dropped.
+    - Without the binding, a session carries none, as before.
+  - **Keys:** an API key carries only the capabilities it was minted with, never its person's.
+  - **What follows from it:**
+    - The writes that need a capability (secrets, env, signing keys) accept such a session.
+    - `POST /v1/tokens` lets the person put what they hold on the keys they mint, and nothing more.
+    - `GET /v1/identity/me/permissions` lists them in `tokenCapabilities`.
+- 036605f: **A fire's `skipped` outcome names a suspension too.** The descriptions of a schedule's and a webhook trigger's fires, and of `TriggerFire.outcome`, now say every reason a fire is `skipped`:
+  - The target's project is suspended (`project-suspended` in `detail`): no run or pass starts. A schedule's fires are recorded `skipped`, don't count toward its auto-pause and don't reset its count of fires in a row that were refused or failed, so the schedule stays on and fires again once the project is restored.
+  - Its run or pass hadn't started when its tenant was suspended (`tenant-suspended`): the restore concludes it `skipped`, and its event is dropped.
+  - A tenant's suspension isn't caught up, whatever a schedule's `catchUp`: once the tenant is restored, a schedule that's on fires next at its first occurrence after the restore.
+  
+  The suspend routes for a tenant and for a project say the same, and a webhook trigger's `detail` names `project-suspended` or `tenant-suspended` for a skip for a suspension.
+- fddc8f7: `GET /v1/system/deployments` describes "routed" by the rule the runtime applies. With `endpoint=missing`, a deployment is routed while it's the newest with routes for some tool version or pack check. With `endpoint=retire`, it's `superseded` once newer deployments ship every tool version and check it does. The description used to say a live or promoted version resolves to it, a wider rule than the runtime's.
+- ebf405d: **Per-deployment routing's system routes, on a runtime serving many tenants.** Whatever runs each deployment's own pack service (an orchestrator, holding a `system:deployments` key) learns which deployments need one or should lose theirs, and records where each runs. No tenant input ever names a pack's URL.
+  - **`GET /v1/system/deployments?endpoint=missing|retire`:** across tenants, oldest first, ids and the image only: the tenant, the deployment, its pack (`packId`) and, when the deploy was scoped to one, its project. Each `retire` entry says why: `superseded`, `tenant-closing`, `tenant-suspended`, `project-suspended` or `pack-suspended`.
+  - **Registration hands a binding what routing needs:** `DeploymentRegisterInput` gains the optional `packId` (the image index's) and `packChecks` (the check ids its pack service runs, not built-ins a guardrail merely names).
+  - **`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`** `{ url, auth, token }`, which checks:
+    - the URL is `https://<host>` (`endpoint-url-invalid`);
+    - its host is on the operator's allowlist (`endpoint-host-not-allowed`);
+    - its host names the deployment's own service, `packServiceName(tenantId, deploymentId)` then `-` or `.` (`endpoint-name-mismatch`);
+    - the image is in the tenant's repository (`image-not-allowed`);
+    - the pack service answers as this deployment (`endpoint-unreachable`, `endpoint-info-mismatch`).
+  
+    Each refusal is also recorded as the endpoint's `problem`, which the tenant sees as a code. It's refused for a closing or suspended tenant, project or pack. No answer or access record carries the URL or the token.
+  - **`DELETE …/endpoint`:** clears it, for a closing tenant too, so calls fail closed.
+  - **`PUT …/endpoint/problem`** `{ code }`: why a pending deployment has no pack service yet, one of `DEPLOYMENT_ENDPOINT_PROBLEM_CODES`.
+  - **`PUT …/deployments/{deploymentId}/suspended`** `{ suspended, reason? }`: suspends or restores a pack. It takes `system:suspend`, which the orchestrator's key doesn't hold.
+  
+  Every route checks its scope before reading a body. `createApp` takes them as `systemDeployments` (with `systemTenantDirectory`), and `@kindgi/api` exports the binding's types. The TypeScript client gains `client.systemDeployments`, and the Python client the same operations.
+- ebf405d: **System keys, for a runtime serving many tenants.** A system key (`kgi_sy_…`) is the operator's, for a service that acts for it, with the least system scope that service needs (`system:tenants`, `system:deployments`, `system:license` and others). It acts in no tenant.
+  - **Where it reaches:** `/v1/system/*` and the deployment's license. Every other route refuses it (`403 system-key-on-tenant-route`), and system routes refuse a tenant's key or session whatever it holds (`403 system-principal-required`).
+  - **The record:** every request a system key makes is recorded through `systemAccessAudit`.
+  - **Managing them:** `POST /v1/system/keys`, `GET /v1/system/keys` and `POST /v1/system/keys/{keyId}/revoke`, for the full system capability (`kindgi:system`) only. A key can't outlive the key minting it.
+  - **New `createApp` inputs:** `tenancy`, `systemKeys` and `systemAccessAudit`.
+  - **For routes:** `requireSystemScope`, `requireFullSystem`, `withSystemTenantContext` and `systemReadAcrossTenants`.
+  - **Tenant keys:** a tenant's key is never minted holding a `system:*` scope, and on a runtime serving many tenants not `kindgi:system` either (`403 capability-not-mintable`).
+  - **The license:** `GET /v1/license` also answers a system key holding `system:license` as it answers the deployment's own token.
+  
+  Nothing changes for a runtime serving one tenant: it has no system principal.
+  
+  The TypeScript client gains `systemKeys` (`mint`, `list`, `revoke`), and the Python client the matching calls.
+- 9f4340c: **Two system-route descriptions say what the server does.**
+  - **`PUT /v1/system/tenants/{tenantId}/production-allowed`:** a tenant made by `POST /v1/system/tenants` starts with production off, unless the create says `productionAllowed: true`. The tenant a server makes for itself, and one from before the switch, start with it on. It used to say every tenant is allowed until it's switched off.
+  - **A system deployment's `packId`, and the `superseded` reason to retire one:** no new call reaches a superseded deployment, so a rollback needs none of them. A tool call a step made on one still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. The advice to keep the newest few per pack is gone.
+- ebf405d: **The control plane's system routes for a tenant's production switch and its limits.** Each takes its own system scope, and a tenant's key gets `403 system-principal-required`.
+  - **`PUT /v1/system/tenants/{tenantId}/production-allowed`** `{ allowed }` (`system:tenants:production`): the switch the production gate reads. It answers `{ tenantId, productionAllowed }`.
+  - **`PUT /v1/system/tenants/{tenantId}/limits`** (`system:tenants:limits`): replaces the tenant's limits with exactly those given (`apiRequestsPerMinute`, `webhookReceivesPerMinute`, `runsAtOnce`, `runsPending`, `toolCallsInFlight`, `approvalsPending`, each 1 to 1000000). One left out isn't set. It answers `{ tenantId, limits }`.
+  - Both refuse an unknown or purged tenant (`404 tenant-not-found`) and a closing one (`409 tenant-closing`).
+  - **For runtimes:** `createApp` takes `systemTenantDirectory` and `systemTenantSettings` (`SystemTenantSettingsBinding`).
+  - **Clients:** the TypeScript client's `systemTenants.setProductionAllowed` and `systemTenants.setLimits`. The Python client is regenerated.
+- ebf405d: **Tenants, for the operator of a runtime serving many tenants:** `/v1/system/tenants`, each route under its own system scope.
+  - **`POST /v1/system/tenants`** (`system:tenants`) creates a tenant with its setup.
+    - With `firstAdmin`, that person becomes its admin by email, and no key comes back. Without it, its first admin key comes back once, and that takes the full system capability, as does a `test` tenant.
+    - It takes `productionAllowed` and `imagePrefix` (`<host>/<path>`) at creation.
+    - A taken slug is `409 tenant-slug-taken`.
+    - It's safe to retry with the same slug: if the tenant's setup didn't finish, the tenant waits, frozen, and the same request (the same name, slug, settings and first admin, under any Idempotency-Key) finishes it and answers as the first would have. Another request naming that slug is `409 tenant-slug-taken`.
+    - A repeat of a create that finished is `409 tenant-slug-taken` too, unless it carries the first request's Idempotency-Key. Then it gets the first answer again, or `409 idempotency-key-replay-withheld` when that answer held the admin key, which is never sent twice.
+  - **`GET /v1/system/tenants`** and **`GET /v1/system/tenants/{tenantId}`** (`system:tenants`) list and read tenants: never their content.
+  - **`POST …/close`** (`system:tenants`) makes the tenant `closing`: readable and exportable with its own keys for its window, nothing runs. It's one-way.
+  - **`PUT …/suspended`** (`system:suspend`, which no other scope includes) suspends or restores it, reversibly.
+  - **`PUT …/image-prefix`** (`system:tenants`) sets the repository its deployments' images must sit in.
+  - **`GET …/admins`** (`system:tenants:contacts`) returns its admins' contact addresses, for service notices only.
+  - **`GET /v1/system/whoami`** answers any system key with its own id, scopes and expiry.
+  
+  The TypeScript client's `systemTenants` and `systemKeys.whoami`, and the Python client, gain the matching calls.
+  
+  **Also, from the reviews:**
+  - **Least privilege at create:**
+    - sign-up's key can hold `system:tenants:create` only;
+    - a tenant created here starts with production **blocked**;
+    - `productionAllowed: true` takes `system:tenants:production`;
+    - `imagePrefix` takes the new `system:tenants:image-prefix`, as does `PUT …/image-prefix`;
+    - asking for more than the key's scopes is refused naming the scope.
+  - **The image prefix:**
+    - changing one already set takes the full system capability;
+    - no two tenants' prefixes overlap (`409 image-prefix-taken`; `imagePrefixesOverlap`).
+  - **`PUT …/projects/{projectId}/suspended`** (`system:suspend`) suspends or restores one project.
+  - **A closing or suspended tenant is frozen**, however it signs in: a key, a session or SigV4 (`createApp({ tenantStates })`, required with `tenancy: 'multi'`).
+    - **What still works:** reading, its signed exports, signing in and out, deleting, erasure in every state before purge (`POST /v1/memory/erasures`, `…/replay`, `…/{erasureId}/resume`, and the retention sweeps), unregistering, and revoking keys and sessions.
+    - **Anything else** is `409 tenant-closing` or `409 tenant-suspended`, registering or changing a sign-in provider included.
+    - **If the state can't be read,** a write gets `503 tenant-state-unavailable`, failing closed.
+    - **On `/s3`,** both answers are S3 error documents, which S3 clients parse: `403 AllAccessDisabled`, and `503 ServiceUnavailable` with `Retry-After`.
+    - `GET /v1/tenant` carries `state`.
+  - **On a runtime serving many tenants only, `POST /v1/deployments`** refuses an image outside the tenant's repository (`409 image-not-allowed`), before any registry read, and refuses a tenant without one (`409 image-prefix-unset`). A runtime serving one tenant never checks.
+  - **The tenants list** carries `hasMore`.
+  - **`KINDGI_TENANCY`** (`single`, the default, or `multi`) in `@kindgi/env-schema`: how many tenants the runtime serves.
+- a2ee44b: Templates pass one check wherever they come in, and render with one Liquid engine under the tenant input bounds.
+  
+  - New in `@kindgi/agents`: `templateProblem(template)`, the check. The renderer and the check share one Liquid engine.
+  - An agent's instructions are now checked when the agent is defined (`defineAgent`, `POST /v1/agents`) and deployed (`POST /v1/deployments`), as a prompt block's template already was when published. A deployment with one such agent is refused whole. The check refuses a template:
+    - longer than `liquid.parseLimit`;
+    - that uses `{% include %}`, `{% render %}` or `{% layout %}`, with "templates can't use include, render or layout";
+    - that is Liquid the renderer won't parse, an unknown filter included.
+  
+    Before, such instructions were accepted and then failed at every render. A template already stored with one still fails when it's rendered, and nothing stored is changed. To write `{{` or `{%` as text, put it in `{% raw %}…{% endraw %}`.
+  - A prompt block whose template uses an unknown filter is refused when it's published. The renderer always refused it.
+  - Rendering runs under the bounds' `liquid` limits: `parseLimit`, `renderLimitMs` and `memoryLimit`. On a self-hosted server only `memoryLimit` applies, at 16,777,216; `parseLimit` and `renderLimitMs` don't. `memoryLimit` counts what a render's filters and ranges make and what it writes, its captures included, as each is made. An array counts its items, each at least 1, nested arrays included; each distinct array is walked once, and counted every time it's held. A render past a limit fails, saying which.
+  - A drafted template longer than it may be is refused on its length alone, before it's parsed.
+- ebf405d: **`KINDGI_TENANT_HOST_ACCESS=isolated`, for a server whose tenants don't trust one another.** It refuses all that `deployed` does, plus private networks wherever tenant configuration names a host, and any sign-in as the server.
+  - **`@kindgi/api`:**
+    - `TENANT_HOST_ACCESS_LEVELS` gains `isolated`, so the `TenantHostAccess` union widens. A caller's exhaustive `switch` over it needs the new case.
+    - `HostReach` gains `'private-network'` (RFC 1918, CGNAT 100.64.0.0/10, IPv6 unique-local and site-local) and `'server-credentials'` (signing in as the server: with credentials its environment holds, or as its own cloud identities). Only `isolated` denies them.
+    - **`stdioRefusal(endpointId, level)`** now takes the level, and names it: "KINDGI_TENANT_HOST_ACCESS=isolated refuses that". Under `isolated`, registering a `stdio` MCP endpoint answers `403 host-access-denied`, as it does under `deployed`.
+  - **`@kindgi/capabilities`:**
+    - `AdapterFactoryInput.serverCredentials?` and `AdapterConfigCheckInput.serverCredentials?` (optional) say whether a registration may sign in as the server. Absent means allowed, as before.
+    - `createAdapterFactoryRegistry(seed, { serverCredentials: false })` tells every factory and every `checkConfig`, and withholds the runtime's `identities` from them, so each check learns there are none. An input can't turn either back on.
+  - **The adapters, with `serverCredentials: false`:** each refuses the registration in its check and its factory, with the same message, naming the alternative:
+    - `@kindgi/adapter-model-gemini`: Vertex AI without `secret_ref`, which would sign in with Application Default Credentials;
+    - `@kindgi/adapter-model-bedrock`: `auth: aws-identity`, the default (use `api-key`);
+    - `@kindgi/adapter-model-azure-openai`: `auth: entra` (use the resource's API key).
+  
+    A registration with its own key is unchanged.
+  - **`@kindgi/env-schema`:** `KINDGI_TENANT_HOST_ACCESS` takes `isolated`, and its description says what the level refuses. The server won't start with `isolated` together with `KINDGI_DEV`, `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow` or `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`; those descriptions, and `KINDGI_AWS_IDENTITY`'s, say so.
+  - **`@kindgi/sdk`:** the providers skill says that a runtime with `isolated` needs a Gemini service-account key in `secret_ref`.
+- ebf405d: **A runtime can enforce each tenant's own limits on API requests and webhook deliveries.** With `createApp`'s `tenantLimits`, the limits a tenant has (`TenantSummary.limits`, set through `PUT /v1/system/tenants/{tenantId}/limits`) apply:
+  - **`apiRequestsPerMinute`** on every authenticated request a tenant's key or session makes, `/v1` and the S3-compatible `/s3` counted together;
+  - **`webhookReceivesPerMinute`** on deliveries across the tenant's triggers, after each trigger's own `rateLimitPerMinute`.
+  
+  Past either, the answer is `429 rate-limit-exceeded` with `Retry-After`, and `details.limit` names which (`api-requests` or `webhook-receives`). On `/s3` it's S3's own `503 SlowDown` with `Retry-After`, which S3 clients back off from and retry. A tenant without a limit isn't limited, and a system key acts in no tenant and isn't counted.
+  - **Reads:** a tenant's limits are read through the tenant binding and kept for `cacheMs` (60 s by default).
+  - **The store:** counts live in the `RateLimitStore` passed (a deployment with several instances passes a shared one). A failing store counts nothing and refuses no one.
+  - **Default:** without `tenantLimits`, nothing changes.
+  - **Reading them:** `GET /v1/system/tenants/{tenantId}/limits` (`system:tenants:limits`) answers the tenant's limits in the shape `PUT` takes, so the control plane raises one by reading them, changing it and putting them back. A closing tenant's can be read. `SystemTenantSettingsBinding` gains `limits(tenantId)`, and the TypeScript client `systemTenants.limits(tenantId)`.
+- ebf405d: **An agent turn whose work its tenant's budget refuses fails with `rate-limit-exceeded`, not `model-invocation-failed`,** on a server with budgets kept per tenant (Kindgi Cloud). The error names the budget in `details.limit` (`template-render-time` or `schema-compile-time`), with `details.budgetMs`, and says when the tenant is under it again. `POST /v1/runs` answers it as `429`, with `Retry-After` and `details.runId`, and the run reads as failed with that code. The OpenAPI document lists the 429 on `POST /v1/runs`.
+  - New: the tenant input bounds' `templateRenderBudgetMs`, the time a tenant's instructions templates may spend rendering in any 60 seconds. Once a tenant has spent it, its next render is refused before it starts. A self-hosted server has none.
+  - `TenantBudgetError` (`@kindgi/bounds`) is what each budget's refusal is: `SchemaCompileBudgetError` and the new `TemplateRenderBudgetError` (`@kindgi/agents`) extend it, with `limit`, `budgetMs` and `retryAfterMs`. The API answers any of them thrown from a route as `429 rate-limit-exceeded`.
+  - A guardrail check, or a tenant's approval policy, whose schema compile the budget refuses no longer fails as `check-failed` or `tenant-policy-unavailable`: the turn fails as above.
+  - A failed run's `failure` has `details` for a code that has them. For `rate-limit-exceeded` that's `limit` and `budgetMs`, never the wait, which is stale once read back. The `run.finished` webhook's run can carry `failure` beside `failureMessage`. It's absent from a runtime that doesn't send it yet. `parseEvent` (`@kindgi/sdk/webhooks`) reads it, and reads a failure's `cause` as any JSON value.
+- f05d320: **An agent turn's memory, charged by size, for a runtime that limits it.**
+  - **`InvokeAgentBindings.turnMemory`,** optional: `charge(bytes, { runId })` (the turn's own run) answers `{ ok: true }`, or `{ ok: false, limit: 'tenant' | 'server', heldBytes, limitBytes }`. A runtime binds one per turn (one `invokeAgent` call), so two turns of one run are charged apart, and releases the turn's charge when it settles. Without it, nothing is charged.
+  - **The charge** is taken before each model call: (4 + the iterations done) × the conversation as sent, in UTF-8 bytes, replacing the turn's last charge. The first is taken once the first messages are built. Each later one comes after the last tool results have joined the conversation and been journaled. A dry run is never charged.
+  - **Refused,** the turn fails with `turn-memory-limit-reached` before the model is called, naming the limit, what it holds and its size. Every tool call the turn finished is already in the conversation, so a new turn there doesn't call it again.
+  - **The API's error map** gains `429 turn-memory-limit-reached`, with no `Retry-After`. The clients read it as rate-limited, with the code in `serverCode`.
+  - **Two runtime settings,** off unless set: `KINDGI_TURN_MEMORY_MIB` (every tenant's turns together) and `KINDGI_TURN_MEMORY_PER_TENANT_MIB` (one tenant's). Used from runtime 0.1.8.
+- 1bd39aa: **A closing tenant takes no webhook delivery, and a suspended tenant's or project's deliveries are skipped.** For a delivery that proves its sender, `POST /v1/hooks/{tenantId}/{webhookId}` answers:
+  - A closing tenant: `409 tenant-closing` (`details.state`), as its own writes are answered. Nothing is recorded.
+  - A suspended tenant or project: `202` with `skipped: tenant-suspended` or `skipped: project-suspended`, as a paused trigger's delivery is answered, so a sender such as WooCommerce doesn't count it as a failure and switch its webhook off. Nothing is recorded, started or deduped, and nothing counts toward the trigger's rate or toward pausing it.
+  - The event isn't kept. A sender that can redeliver by hand (GitHub) can resend it once the tenant or project is restored, and the resend runs. The tenant's state is kept a few seconds between reads, so a restore is seen within them.
+  - If the tenant's state can't be read, the delivery is refused with `503 tenant-state-unavailable` and `Retry-After`, and nothing is recorded.
+  - A delivery that doesn't prove its sender still gets the same `401 webhook-refused`, whatever the tenant's state.
+  - `WebhookReceipt.skipped` takes `tenant-suspended` and `project-suspended` besides `paused`.
+  
+  `createApp` checks the receiver's deliveries with the `tenantStates` and `projectSuspended` it's given, the same ones its writes and deploys are checked with. `tenantStateGate` and the receiver read a tenant's state and refuse a closing one from one place, so the codes and messages are the same.
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [cd84814]
+- Updated dependencies [ebf405d]
+- Updated dependencies [059c2c2]
+- Updated dependencies [82eebb6]
+- Updated dependencies [cd84814]
+- Updated dependencies [57a7b2e]
+- Updated dependencies [2969337]
+- Updated dependencies [d92706f]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [3a3f233]
+- Updated dependencies [76532eb]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [3a3f233]
+- Updated dependencies [036605f]
+- Updated dependencies [f526987]
+- Updated dependencies [a2ee44b]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [f05d320]
+  - @kindgi/agents@0.1.8-rc.0
+  - @kindgi/bounds@0.1.8-rc.0
+  - @kindgi/runtime@0.1.8-rc.0
+  - @kindgi/guardrails@0.1.8-rc.0
+  - @kindgi/tools@0.1.8-rc.0
+  - @kindgi/log@0.1.8-rc.0
+  - @kindgi/platform@0.1.8-rc.0
+  - @kindgi/capabilities@0.1.8-rc.0
+  - @kindgi/schema@0.1.8-rc.0
+  - @kindgi/types@0.1.8-rc.0
+  - @kindgi/compliance@0.1.8-rc.0
+  - @kindgi/flow@0.1.8-rc.0
+  - @kindgi/provenance@0.1.8-rc.0
+  - @kindgi/blob-binding@0.1.8-rc.0
+  - @kindgi/audit-events@0.1.8-rc.0
+  - @kindgi/authz@0.1.8-rc.0
+  - @kindgi/crypto@0.1.8-rc.0
+  - @kindgi/memory@0.1.8-rc.0
+  - @kindgi/policy-contract@0.1.8-rc.0
+
+## 0.1.7
+
+### Patch Changes
+
+- b90e2c6: A person's sign-in history includes the events about them. From this release, when an admin ends someone's sessions, it shows on that person's history, saying who did it, and no longer on the admin's. Events recorded before keep their place (nothing is rewritten).
+  - **Audit events gain an optional `subject`:** the principal an event is about, when that isn't its actor (the person whose sessions an admin ended, or the person an anonymous request named). `AuditEventFilter.subject` matches events about a principal: `subject` where an event has one, else `actor`.
+  - **Bindings say whether they filter by it:** `AuditEventBinding.filtersBySubject`. The in-memory binding does. `GET /v1/audit/sign-ins?userId=` filters by `subject` with such a binding, and by `actor`, as before, with one that doesn't say so.
+  - **The sign-in event on the wire:** `userId` is the person the event is about, and the new `byUserId` is who acted, when that isn't them (the admin who ended their sessions).
+- a134048: A cookie-signed request refused for its origin (`403 csrf-origin-mismatch`) now names the address to use: "A request signed in by the session cookie can't come from http://localhost:4000; open the console at http://127.0.0.1:4000". The address is the first allowed origin. A server that checks same-origin only, with no list, keeps the old message.
+- b90e2c6: **Webhook triggers start runs: a signed request from WooCommerce, Drupal's Webhooks module, GitHub, Shopify or any Standard Webhooks sender starts a run of a flow.**
+  
+  - **The receiver, `POST /v1/hooks/{tenantId}/{webhookId}`,** sits outside the bearer chain. The request's signature, made with the trigger's secret over the raw body, is what lets it start the trigger's flow as the trigger's owner; a bearer token, if sent, is never read.
+    - **One answer for any request that doesn't prove its sender:** an unknown tenant or id, a missing, wrong or stale signature, or a secret that can't be read is `401 webhook-refused`. The reason goes only to the trigger's deliveries and, for the sender's own failures, the access audit (actor `webhook-sender`, the address in `evidence.clientAddress`); a secret that can't be read is the deployment's to fix, so it's on the deliveries only.
+    - **Gone and paused:** an unregistered trigger is `410 webhook-gone`, but only to a sender that proved itself. A paused trigger takes the delivery (`202`, a `skipped` fire) and starts nothing: the event is dropped.
+    - **Repeats:** a delivery whose dedupe key an earlier fire holds starts nothing (`200`, `duplicate: true`). The key is the trigger's delivery-id header and the body, because WooCommerce's delivery id is per second, not per event.
+    - **WooCommerce's ping:** its unsigned save-time ping (`webhook_id=<n>`) is answered `200` before any lookup.
+    - **Limits:**
+      - a body past 1 MiB, or past the trigger's `bodyLimitBytes` (default 256 KiB), is `413 webhook-body-too-large`;
+      - deliveries past the trigger's `rateLimitPerMinute` (default 600) are `429`;
+      - past 60 refusals a minute from one address (`webhookReceiver.clientAddress`), that address's further refusals are `429` and not recorded. The limit is checked only after verification: a validly signed delivery is never refused because of anyone's refusals, its own address's included. An unreadable secret never counts against a sender;
+      - a trigger records 20 refusals and skipped deliveries a minute, then only counts them (`suppressedRefusals`).
+    - **The signing key:** the receiver keeps a trigger's key for up to 10 seconds (`WEBHOOK_SIGNING_KEY_TTL_MS`), as a `KeyObject`, never a string, so a flood of bad signatures costs one secret read a trigger. A write through `createApp`'s secrets routes drops it at once; another instance's write is seen within those 10 seconds.
+    - **The event:** the flow's event is the body, parsed as JSON for a JSON content type (else `400 webhook-body-not-json`), or its text otherwise.
+    - **Mounting:** the receiver mounts with `createApp`'s new `webhookReceiver` (`envName`, `clientAddress`, `rateLimitStore`) when the trigger registry implements `findWebhook`, `fireWebhook` and `recordWebhookRefusal`, which replace `fetchActiveByWebhookId` (as `SchedulerBinding.fireByWebhookId` goes).
+  - **Webhook triggers are served again** (`/v1/webhooks` was hidden while no runtime served it), on the schedules model:
+    - **Project and owner:** a trigger has a project (`projectId`; the Default project if none is named) and an owner (the registrant, rechecked at every delivery).
+    - **Access:** it follows the project: `read`, `write`, `admin` to take ownership, plus `execute` on the flow to register, change the version or take ownership.
+    - **The signing scheme:** register and update take `signature` (`hmac-sha256` with a `hex` or `base64` header and an optional prefix, or `standard-webhooks`), `deliveryIdHeader`, `bodyLimitBytes` and `rateLimitPerMinute`. An update also takes `hmacSecretName`; `null` clears the last three.
+    - **Provider keys:** a model provider's key is refused as a trigger's secret (`400 provider-key-refused`); the receiver reads its secret through a guarded binding (`SecretUser` `'a webhook trigger'`), and `provider-key-in-use` names webhook triggers too.
+    - **New routes:** `GET /v1/webhooks?projectId=`, `GET /v1/webhooks/{id}/fires` (the deliveries; a fire keeps the event only until its run starts) and `POST /v1/webhooks/{id}/owner`.
+    - **The receive URL:** records carry `receiveUrl`, made from `createApp`'s new `publicUrl`, never from a request's `Host`. They also carry `owner`, `signature`, `bodyLimitBytes`, `rateLimitPerMinute` and `statusReason`.
+  - **`@kindgi/crypto`'s `verifyInboundSignature`** checks a request in a trigger's scheme, with Standard Webhooks through `verifyWebhook`; it takes the secret, or the `KeyObject` that `inboundSigningKey(scheme, secret)` derives from it (which `JSON.stringify` shows as `{}`). `@kindgi/types` has `WebhookSignatureScheme`.
+  - **The OpenAPI marks the receiver `x-kindgi-sender-only`:** the client generators skip it, because the receive URL is the sender's path, not a client's.
+  - **The TypeScript client** has `webhooks` again (`register`, `list`, `get`, `update`, `pause`, `resume`, `unregister`, `fires`, `takeOwnership`), and `@kindgi/sdk` exports `WebhooksClient`. The Python client has `client.webhooks`.
+  - **The CLI adds `kindgi webhooks`:** `register`, `list`, `get`, `update`, `pause`, `resume`, `fires`, `take-ownership` and `unregister`.
+    - **`register --preset=woocommerce|drupal-webhooks|github|shopify|standard-webhooks`** sets a sender's scheme and delivery-id header.
+    - **`--generate-secret --env=<env>`** makes a new secret (letters and digits; `whsec_…` for Standard Webhooks), stores it once the trigger is registered (a refused register leaves none behind), and shows it once.
+    - **The receive URL:** register and get print it, or why there's none (no `KINDGI_PUBLIC_URL`).
+    - **`pause`** says that a paused trigger drops events.
+- b90e2c6: A page cursor a list didn't issue answers `400 bad-input` on the agents, flows, policies and eval-suites `/versions` lists and on an agent's promotions, instead of the first page again.
+  - **The bindings say so:** the agent, flow, policy and eval-suite registries gain an optional `issuedCursor(list: 'versions', cursor)`, and the promotions binding an optional `issuedCursor(list: 'promotions', cursor)`. The route asks before it reads the list, and answers `400 bad-input` ("`cursor` is malformed") when the binding says no. A binding without the method gets any cursor, as before.
+  - **Why:** a binding that reads a cursor it didn't issue as no cursor hands back the first page, so a client paging until done would start over. The cursor stays opaque to the API: only the binding that issued it knows its shape.
+  - **The OpenAPI document** now lists the `400` on these operations, and on the blocks and tools `/versions` lists, which already answered it.
+- b90e2c6: `GET /v1/license`: where the deployment's license key stands. The response has `mode` (`licensed`, or `development` under `KINDGI_DEV`), `name`, `use`, `expiresAt`, `startsUntil` (until when the runtime still starts with the key), `daysLeft`, `standing` (`valid`; `expiring` with 30 days or fewer left; `grace` once expired, while the runtime still starts with it; `expired` after that) and `renewBy` (`command`, a key the deployment renews with `kindgi license renew`; `contact`, a key Kindgi issued). From 30 days before the key expires there's also `renew`: how to get the next key, as the startup banner says it, with where the deployment keeps its key and renewer. The key itself is never included.
+  
+  The license is the deployment's, not a tenant's. The deployment's own token reads all of it. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`), never whose key it is or where it's kept. Anyone else gets `403 license-operator-only`, recorded as an access decision. `createApp({ license })` takes a `LicenseStatusBinding`: `status()` is read on each request, and `soleTenant()` names the one tenant the deployment serves, or `null`. Without `soleTenant`, only the deployment's own token reads the license. Without a binding, the route isn't mounted (404). The TypeScript client has `client.license.get()`, and the Python client gets the same method.
+- b90e2c6: **An MCP endpoint can sign in with a user name and password, or with OAuth client credentials.** A new optional `auth` on the endpoint, beside `secretRef` (which stays the plain bearer form):
+  - **`basic`:** a `username` and a password secret (`secretRef`), sent as `Authorization: Basic`. For a WordPress site's MCP Adapter with an Application Password, for one.
+  - **`oauth2-client-credentials`:** a `tokenUrl`, a `clientId`, the client secret (`secretRef`), and optionally `scope`, `audience` and `clientAuth` (`client_secret_basic`, the default, or `client_secret_post`). The runtime fetches the access token and refreshes it before it expires. For a Drupal site's MCP Server with Simple OAuth, for one.
+  - **Secrets stay by reference:** registration stores and answers the reference only.
+  - **Refused at registration (`invalid-mcp-endpoint`):**
+    - `auth` with `secretRef` (`auth-with-secret-ref`);
+    - `auth` on a `stdio` endpoint (`auth-on-stdio`);
+    - `auth` beside an `Authorization` header in `config.headers` (`auth-with-authorization-header`);
+    - a token URL that isn't https, or http to a loopback host (`invalid-token-url`).
+  - **Model provider keys:** a key the tenant's providers use is refused as an `auth` secret too, and registering a provider whose key an endpoint's `auth` names answers `409 provider-key-in-use`.
+  - **New exports:** `MCPEndpointAuth` and its two scheme types, and `mcpEndpointSecretNames()`, which lists the secrets an endpoint names.
+  - **Clients:** the TypeScript and Python clients carry the new types.
+- ae6d594: **Security: a key can no longer mint a key that outlives it.** Before, `POST /v1/tokens` took the new key's `expiresAt` as given. A short-lived key, even one limited to a project, could therefore mint a key that never expires, and that key kept working after the short-lived one expired or was revoked.
+  - **A key that expires** mints only keys that expire no later than it does. A later `expiresAt`, or none at all, is refused with 403 `token-expiry-exceeds-minter`; the error's `details.latestExpiresAt` is the latest allowed time.
+  - **A console session opened by token sign-in** mints as the key it was opened with: the same limit and the same refusal. Once that key is revoked, the session's mint is refused with 401 `auth-revoked`.
+  - **Unchanged:**
+    - the deployment's own token and keys without an expiry, which may still mint keys that never expire;
+    - sessions from any other sign-in (an identity provider, a social sign-in, the emailed link).
+- b90e2c6: A judging rule's results count the runs their judgments come from: `runsWithJudgments` on each group (`GET /v1/projects/{projectId}/judging-rules/{ruleId}/results`). It counts the queued runs with at least one live judgment, whether the run's item is closed as `judged` yet or still `open`. Several people judging one run make several `judgments` but one run here, so a yes share's sample can be sized by runs, not only by judgments. It's optional: a runtime that doesn't count them leaves it out. The TypeScript client's types and the Python client (`runs_with_judgments`) carry it.
+- b90e2c6: Adding a team member names a person of the tenant, as adding a project member does.
+  - **`POST /v1/teams/{teamId}/memberships`:** someone who isn't a person of this tenant, was removed from it, or is named by an id that isn't one, is refused with 404 `identity-user-not-found`, and nothing is added. Before, a well-formed id the tenant doesn't have was added as a member, and a malformed one could fail with a 500 on a runtime's database.
+  - **`teamsRouter`** takes the identity directory (`createApp` passes `identityDirectory`, as it does to `projectsRouter`). Without a directory, an id is taken as given.
+  - **`TeamProjectGrant.grantedAt`** says it's also absent for a grant from before 0.1.6.
+- Updated dependencies [7bd61d6]
+- Updated dependencies [597173e]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [72f3582]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [fdb644c]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [dab4296]
+- Updated dependencies [049966d]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [f080a20]
+  - @kindgi/capabilities@0.1.7
+  - @kindgi/agents@0.1.7
+  - @kindgi/audit-events@0.1.7
+  - @kindgi/tools@0.1.7
+  - @kindgi/runtime@0.1.7
+  - @kindgi/crypto@0.1.7
+  - @kindgi/types@0.1.7
+  - @kindgi/compliance@0.1.7
+  - @kindgi/policy-contract@0.1.7
+  - @kindgi/platform@0.1.7
+  - @kindgi/guardrails@0.1.7
+  - @kindgi/flow@0.1.7
+  - @kindgi/provenance@0.1.7
+  - @kindgi/schema@0.1.7
+  - @kindgi/authz@0.1.7
+  - @kindgi/blob-binding@0.1.7
+  - @kindgi/memory@0.1.7
+  - @kindgi/log@0.1.7
+
+## 0.1.7-rc.0
+
+### Patch Changes
+
+- b90e2c6: A person's sign-in history includes the events about them. From this release, when an admin ends someone's sessions, it shows on that person's history, saying who did it, and no longer on the admin's. Events recorded before keep their place (nothing is rewritten).
+  - **Audit events gain an optional `subject`:** the principal an event is about, when that isn't its actor (the person whose sessions an admin ended, or the person an anonymous request named). `AuditEventFilter.subject` matches events about a principal: `subject` where an event has one, else `actor`.
+  - **Bindings say whether they filter by it:** `AuditEventBinding.filtersBySubject`. The in-memory binding does. `GET /v1/audit/sign-ins?userId=` filters by `subject` with such a binding, and by `actor`, as before, with one that doesn't say so.
+  - **The sign-in event on the wire:** `userId` is the person the event is about, and the new `byUserId` is who acted, when that isn't them (the admin who ended their sessions).
+- a134048: A cookie-signed request refused for its origin (`403 csrf-origin-mismatch`) now names the address to use: "A request signed in by the session cookie can't come from http://localhost:4000; open the console at http://127.0.0.1:4000". The address is the first allowed origin. A server that checks same-origin only, with no list, keeps the old message.
+- b90e2c6: **Webhook triggers start runs: a signed request from WooCommerce, Drupal's Webhooks module, GitHub, Shopify or any Standard Webhooks sender starts a run of a flow.**
+  
+  - **The receiver, `POST /v1/hooks/{tenantId}/{webhookId}`,** sits outside the bearer chain. The request's signature, made with the trigger's secret over the raw body, is what lets it start the trigger's flow as the trigger's owner; a bearer token, if sent, is never read.
+    - **One answer for any request that doesn't prove its sender:** an unknown tenant or id, a missing, wrong or stale signature, or a secret that can't be read is `401 webhook-refused`. The reason goes only to the trigger's deliveries and, for the sender's own failures, the access audit (actor `webhook-sender`, the address in `evidence.clientAddress`); a secret that can't be read is the deployment's to fix, so it's on the deliveries only.
+    - **Gone and paused:** an unregistered trigger is `410 webhook-gone`, but only to a sender that proved itself. A paused trigger takes the delivery (`202`, a `skipped` fire) and starts nothing: the event is dropped.
+    - **Repeats:** a delivery whose dedupe key an earlier fire holds starts nothing (`200`, `duplicate: true`). The key is the trigger's delivery-id header and the body, because WooCommerce's delivery id is per second, not per event.
+    - **WooCommerce's ping:** its unsigned save-time ping (`webhook_id=<n>`) is answered `200` before any lookup.
+    - **Limits:**
+      - a body past 1 MiB, or past the trigger's `bodyLimitBytes` (default 256 KiB), is `413 webhook-body-too-large`;
+      - deliveries past the trigger's `rateLimitPerMinute` (default 600) are `429`;
+      - past 60 refusals a minute from one address (`webhookReceiver.clientAddress`), that address's further refusals are `429` and not recorded. The limit is checked only after verification: a validly signed delivery is never refused because of anyone's refusals, its own address's included. An unreadable secret never counts against a sender;
+      - a trigger records 20 refusals and skipped deliveries a minute, then only counts them (`suppressedRefusals`).
+    - **The signing key:** the receiver keeps a trigger's key for up to 10 seconds (`WEBHOOK_SIGNING_KEY_TTL_MS`), as a `KeyObject`, never a string, so a flood of bad signatures costs one secret read a trigger. A write through `createApp`'s secrets routes drops it at once; another instance's write is seen within those 10 seconds.
+    - **The event:** the flow's event is the body, parsed as JSON for a JSON content type (else `400 webhook-body-not-json`), or its text otherwise.
+    - **Mounting:** the receiver mounts with `createApp`'s new `webhookReceiver` (`envName`, `clientAddress`, `rateLimitStore`) when the trigger registry implements `findWebhook`, `fireWebhook` and `recordWebhookRefusal`, which replace `fetchActiveByWebhookId` (as `SchedulerBinding.fireByWebhookId` goes).
+  - **Webhook triggers are served again** (`/v1/webhooks` was hidden while no runtime served it), on the schedules model:
+    - **Project and owner:** a trigger has a project (`projectId`; the Default project if none is named) and an owner (the registrant, rechecked at every delivery).
+    - **Access:** it follows the project: `read`, `write`, `admin` to take ownership, plus `execute` on the flow to register, change the version or take ownership.
+    - **The signing scheme:** register and update take `signature` (`hmac-sha256` with a `hex` or `base64` header and an optional prefix, or `standard-webhooks`), `deliveryIdHeader`, `bodyLimitBytes` and `rateLimitPerMinute`. An update also takes `hmacSecretName`; `null` clears the last three.
+    - **Provider keys:** a model provider's key is refused as a trigger's secret (`400 provider-key-refused`); the receiver reads its secret through a guarded binding (`SecretUser` `'a webhook trigger'`), and `provider-key-in-use` names webhook triggers too.
+    - **New routes:** `GET /v1/webhooks?projectId=`, `GET /v1/webhooks/{id}/fires` (the deliveries; a fire keeps the event only until its run starts) and `POST /v1/webhooks/{id}/owner`.
+    - **The receive URL:** records carry `receiveUrl`, made from `createApp`'s new `publicUrl`, never from a request's `Host`. They also carry `owner`, `signature`, `bodyLimitBytes`, `rateLimitPerMinute` and `statusReason`.
+  - **`@kindgi/crypto`'s `verifyInboundSignature`** checks a request in a trigger's scheme, with Standard Webhooks through `verifyWebhook`; it takes the secret, or the `KeyObject` that `inboundSigningKey(scheme, secret)` derives from it (which `JSON.stringify` shows as `{}`). `@kindgi/types` has `WebhookSignatureScheme`.
+  - **The OpenAPI marks the receiver `x-kindgi-sender-only`:** the client generators skip it, because the receive URL is the sender's path, not a client's.
+  - **The TypeScript client** has `webhooks` again (`register`, `list`, `get`, `update`, `pause`, `resume`, `unregister`, `fires`, `takeOwnership`), and `@kindgi/sdk` exports `WebhooksClient`. The Python client has `client.webhooks`.
+  - **The CLI adds `kindgi webhooks`:** `register`, `list`, `get`, `update`, `pause`, `resume`, `fires`, `take-ownership` and `unregister`.
+    - **`register --preset=woocommerce|drupal-webhooks|github|shopify|standard-webhooks`** sets a sender's scheme and delivery-id header.
+    - **`--generate-secret --env=<env>`** makes a new secret (letters and digits; `whsec_…` for Standard Webhooks), stores it once the trigger is registered (a refused register leaves none behind), and shows it once.
+    - **The receive URL:** register and get print it, or why there's none (no `KINDGI_PUBLIC_URL`).
+    - **`pause`** says that a paused trigger drops events.
+- b90e2c6: A page cursor a list didn't issue answers `400 bad-input` on the agents, flows, policies and eval-suites `/versions` lists and on an agent's promotions, instead of the first page again.
+  - **The bindings say so:** the agent, flow, policy and eval-suite registries gain an optional `issuedCursor(list: 'versions', cursor)`, and the promotions binding an optional `issuedCursor(list: 'promotions', cursor)`. The route asks before it reads the list, and answers `400 bad-input` ("`cursor` is malformed") when the binding says no. A binding without the method gets any cursor, as before.
+  - **Why:** a binding that reads a cursor it didn't issue as no cursor hands back the first page, so a client paging until done would start over. The cursor stays opaque to the API: only the binding that issued it knows its shape.
+  - **The OpenAPI document** now lists the `400` on these operations, and on the blocks and tools `/versions` lists, which already answered it.
+- b90e2c6: `GET /v1/license`: where the deployment's license key stands. The response has `mode` (`licensed`, or `development` under `KINDGI_DEV`), `name`, `use`, `expiresAt`, `startsUntil` (until when the runtime still starts with the key), `daysLeft`, `standing` (`valid`; `expiring` with 30 days or fewer left; `grace` once expired, while the runtime still starts with it; `expired` after that) and `renewBy` (`command`, a key the deployment renews with `kindgi license renew`; `contact`, a key Kindgi issued). From 30 days before the key expires there's also `renew`: how to get the next key, as the startup banner says it, with where the deployment keeps its key and renewer. The key itself is never included.
+  
+  The license is the deployment's, not a tenant's. The deployment's own token reads all of it. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`), never whose key it is or where it's kept. Anyone else gets `403 license-operator-only`, recorded as an access decision. `createApp({ license })` takes a `LicenseStatusBinding`: `status()` is read on each request, and `soleTenant()` names the one tenant the deployment serves, or `null`. Without `soleTenant`, only the deployment's own token reads the license. Without a binding, the route isn't mounted (404). The TypeScript client has `client.license.get()`, and the Python client gets the same method.
+- b90e2c6: **An MCP endpoint can sign in with a user name and password, or with OAuth client credentials.** A new optional `auth` on the endpoint, beside `secretRef` (which stays the plain bearer form):
+  - **`basic`:** a `username` and a password secret (`secretRef`), sent as `Authorization: Basic`. For a WordPress site's MCP Adapter with an Application Password, for one.
+  - **`oauth2-client-credentials`:** a `tokenUrl`, a `clientId`, the client secret (`secretRef`), and optionally `scope`, `audience` and `clientAuth` (`client_secret_basic`, the default, or `client_secret_post`). The runtime fetches the access token and refreshes it before it expires. For a Drupal site's MCP Server with Simple OAuth, for one.
+  - **Secrets stay by reference:** registration stores and answers the reference only.
+  - **Refused at registration (`invalid-mcp-endpoint`):**
+    - `auth` with `secretRef` (`auth-with-secret-ref`);
+    - `auth` on a `stdio` endpoint (`auth-on-stdio`);
+    - `auth` beside an `Authorization` header in `config.headers` (`auth-with-authorization-header`);
+    - a token URL that isn't https, or http to a loopback host (`invalid-token-url`).
+  - **Model provider keys:** a key the tenant's providers use is refused as an `auth` secret too, and registering a provider whose key an endpoint's `auth` names answers `409 provider-key-in-use`.
+  - **New exports:** `MCPEndpointAuth` and its two scheme types, and `mcpEndpointSecretNames()`, which lists the secrets an endpoint names.
+  - **Clients:** the TypeScript and Python clients carry the new types.
+- ae6d594: **Security: a key can no longer mint a key that outlives it.** Before, `POST /v1/tokens` took the new key's `expiresAt` as given. A short-lived key, even one limited to a project, could therefore mint a key that never expires, and that key kept working after the short-lived one expired or was revoked.
+  - **A key that expires** mints only keys that expire no later than it does. A later `expiresAt`, or none at all, is refused with 403 `token-expiry-exceeds-minter`; the error's `details.latestExpiresAt` is the latest allowed time.
+  - **A console session opened by token sign-in** mints as the key it was opened with: the same limit and the same refusal. Once that key is revoked, the session's mint is refused with 401 `auth-revoked`.
+  - **Unchanged:**
+    - the deployment's own token and keys without an expiry, which may still mint keys that never expire;
+    - sessions from any other sign-in (an identity provider, a social sign-in, the emailed link).
+- b90e2c6: A judging rule's results count the runs their judgments come from: `runsWithJudgments` on each group (`GET /v1/projects/{projectId}/judging-rules/{ruleId}/results`). It counts the queued runs with at least one live judgment, whether the run's item is closed as `judged` yet or still `open`. Several people judging one run make several `judgments` but one run here, so a yes share's sample can be sized by runs, not only by judgments. It's optional: a runtime that doesn't count them leaves it out. The TypeScript client's types and the Python client (`runs_with_judgments`) carry it.
+- b90e2c6: Adding a team member names a person of the tenant, as adding a project member does.
+  - **`POST /v1/teams/{teamId}/memberships`:** someone who isn't a person of this tenant, was removed from it, or is named by an id that isn't one, is refused with 404 `identity-user-not-found`, and nothing is added. Before, a well-formed id the tenant doesn't have was added as a member, and a malformed one could fail with a 500 on a runtime's database.
+  - **`teamsRouter`** takes the identity directory (`createApp` passes `identityDirectory`, as it does to `projectsRouter`). Without a directory, an id is taken as given.
+  - **`TeamProjectGrant.grantedAt`** says it's also absent for a grant from before 0.1.6.
+- Updated dependencies [7bd61d6]
+- Updated dependencies [597173e]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [72f3582]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [fdb644c]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [dab4296]
+- Updated dependencies [049966d]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [f080a20]
+  - @kindgi/capabilities@0.1.7-rc.0
+  - @kindgi/agents@0.1.7-rc.0
+  - @kindgi/audit-events@0.1.7-rc.0
+  - @kindgi/tools@0.1.7-rc.0
+  - @kindgi/runtime@0.1.7-rc.0
+  - @kindgi/crypto@0.1.7-rc.0
+  - @kindgi/types@0.1.7-rc.0
+  - @kindgi/compliance@0.1.7-rc.0
+  - @kindgi/policy-contract@0.1.7-rc.0
+  - @kindgi/platform@0.1.7-rc.0
+  - @kindgi/guardrails@0.1.7-rc.0
+  - @kindgi/flow@0.1.7-rc.0
+  - @kindgi/provenance@0.1.7-rc.0
+  - @kindgi/schema@0.1.7-rc.0
+  - @kindgi/authz@0.1.7-rc.0
+  - @kindgi/blob-binding@0.1.7-rc.0
+  - @kindgi/memory@0.1.7-rc.0
+  - @kindgi/log@0.1.7-rc.0
+
 ## 0.1.6
 
 ### Patch Changes

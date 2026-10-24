@@ -163,6 +163,12 @@ export interface ImprovementPass {
   readonly costUsd: string;
   /** Set once it ends. */
   readonly outcome?: ImprovementPassOutcome;
+  /**
+   * Why a `cancelled` pass stopped when nobody cancelled it: a comparison's
+   * eval run was cancelled for it (its `cancelReason`, e.g.
+   * `project-suspended`). Absent when it was cancelled.
+   */
+  readonly cancelReason?: string;
   /** Its comparisons so far, each an eval run to open. */
   readonly comparisons?: readonly ImprovementPassComparison[];
   /** The `improve` schedule and fire that started it; absent for a pass a person started. */

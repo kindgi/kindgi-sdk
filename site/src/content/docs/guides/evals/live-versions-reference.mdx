@@ -99,7 +99,7 @@ Every promotion, rollback and unpin is kept, with who asked and why, newest
 first:
 
 ```sh
-kindgi agents promotions list acme.order-desk --table
+pnpm exec kindgi agents promotions list acme.order-desk --table
 ```
 
 `--table` prints a table. `STATUS` says how each ended, `done` for a
@@ -132,7 +132,7 @@ A gate policy's parts, and what each asks of a promotion:
 | `comparison.maxAgeHours` | a comparison of the version, finished at most this many hours ago |
 | `evidence.minCases` | each figure resting on at least this many judged cases, for the version and for the live one |
 | `metrics` | each named figure at least `minCandidate`, and lower than the live version's by at most `maxDrop`. The figures are `weightedYesShare`, `judgedCoverage`, or `weightedPrecisionAtK` with its `k` |
-| `replay` | at most this many diverged cases, errors, refused writes and stopped cases: `maxDiverged`, `maxErrors`, `maxRefusedWrites`, `maxStopped`. Those left out are 0. A version with other settings runs read-only tools live, which [counts as diverged](../compare-an-agent-version/#what-a-replay-does), so `maxDiverged: 0` refuses it |
+| `replay` | at most this many diverged cases, errors, refused calls and stopped cases: `maxDiverged`, `maxErrors`, `maxRefusedWrites`, `maxStopped`. `maxRefusedWrites` counts every call the replay refuses, a read that reaches outside included. Those left out are 0. A version with other settings runs read-only tools live, which [counts as diverged](../compare-an-agent-version/#what-a-replay-does), so `maxDiverged: 0` refuses it |
 | `approvals` | then a reviewer with this role approves it, `senior` if left out. It's someone other than whoever asked, unless `separateApprover: false` lets the one who asked approve it |
 | `onlyRestrictedClasses: true` | a comparison that [counted only restricted judges](../compare-an-agent-version/#count-only-restricted-judges) |
 
@@ -176,7 +176,7 @@ for its runs, so it needs no comparison and no approval, even when a gate
 already applies:
 
 ```sh
-kindgi agents promote acme.order-desk 1.0.0 --project=<project-id> --segment=company:globex --reason="Pin globex before its gate"
+pnpm exec kindgi agents promote acme.order-desk 1.0.0 --project=<project-id> --segment=company:globex --reason="Pin globex before its gate"
 ```
 
 - `<project-id>` is the segment's project.

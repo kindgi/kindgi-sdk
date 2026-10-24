@@ -221,7 +221,7 @@ async function writePackFiles(
   return { kind: 'ok', created, skipped, access };
 }
 
-/** The skills written for Scala packs, into `.claude/skills/`, as `kindgi skills sync` writes them. */
+/** The skills written for Scala packs, into `.claude/skills/` and `.agents/skills/`, as `kindgi skills sync` writes them. */
 async function writeSkills(
   inputs: RunInitScalaAugmentInputs,
   created: string[],
@@ -236,7 +236,7 @@ async function writeSkills(
     dryRun: false,
   });
   for (const o of report.outcomes) {
-    const target = join(inputs.targetDir, '.claude', 'skills', o.name, 'SKILL.md');
+    const target = join(inputs.targetDir, o.folder, o.name, 'SKILL.md');
     if (o.status === 'added' || o.status === 'updated') created.push(target);
     else if (o.status !== 'local-only') skipped.push(target);
   }

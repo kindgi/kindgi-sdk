@@ -113,6 +113,16 @@ describe('kindgi sso providers start', () => {
     expect(out.stdout).toContain(`Step by step: ${GUIDES}/saml/`);
   });
 
+  test('a registered provider needs no --kind: none is sent, and its own kind answers', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(['sso', 'providers', 'start', 'acme-saml'], {
+      auth: { providers: { signIn: rec('signIn', { ...SAML_URLS, registered: true }) } },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['signIn', 'acme-saml', undefined]]);
+    expect(out.stdout).toContain(`ACS URL (single sign-on URL):  ${SAML_URLS.signIn.acsUrl}`);
+  });
+
   test('--json prints the URLs as they came; a bad --idp or --kind is refused', async () => {
     const { rec } = recorder();
     const client = { auth: { providers: { signIn: rec('signIn', OIDC_URLS) } } };

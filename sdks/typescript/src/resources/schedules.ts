@@ -29,6 +29,7 @@ import type {
   ScheduleFire as ScheduleFireWire,
   ScheduleRecord,
   ScheduleUnregisterResult,
+  TakeTriggerOwnerBody,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 
@@ -40,6 +41,7 @@ export type UpdateScheduleInput = PatchScheduleBody;
 export type UnregisterScheduleResult = ScheduleUnregisterResult;
 export type ScheduleFire = ScheduleFireWire;
 export type ScheduleFirePage = ScheduleFirePageWire;
+export type TakeTriggerOwnerInput = TakeTriggerOwnerBody;
 
 export interface ListScheduleFiresFilter {
   readonly limit?: number;
@@ -136,11 +138,17 @@ export interface SchedulesClient {
 
   /**
    * Become the schedule's owner, so its runs act as you from the next fire
-   * (for a schedule whose owner left). Needs `admin` on its project.
+   * (for a schedule whose owner left). Needs `admin` on its project. Pass
+   * `{ runAsServiceAccountId }` to make a service account the owner instead
+   * (needs `act_as` on the account).
    *
    * @wire POST /v1/schedules/:triggerId/owner
    */
-  takeOwnership(triggerId: string, options?: MutationOptions): Promise<Schedule>;
+  takeOwnership(
+    triggerId: string,
+    input?: TakeTriggerOwnerInput,
+    options?: MutationOptions,
+  ): Promise<Schedule>;
 }
 
 interface MutationOptions {
@@ -222,10 +230,11 @@ export function makeSchedulesClient(transport: Transport): SchedulesClient {
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },
-    async takeOwnership(triggerId, options) {
+    async takeOwnership(triggerId, input, options) {
       return transport.request<Schedule>({
         method: 'POST',
         path: `/v1/schedules/${encodeURIComponent(triggerId)}/owner`,
+        ...(input !== undefined && { body: input }),
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },

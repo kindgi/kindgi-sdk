@@ -89,11 +89,15 @@ A check on the pull request asks for any of them that's missing.
 ## Releases
 
 All `@kindgi/*` packages share one version (Changesets fixed group), and
-the Python SDK (`kindgi` on PyPI, `sdks/python`) ships with that same
-version. Nobody sets the Python version by hand:
-`pnpm run version-packages` runs `scripts/sync-python-version.mjs` after
-`changeset version`, which writes the new version to `pyproject.toml` and
-re-locks `uv.lock` (it needs uv). CI fails when they differ
+the Python packages (`kindgi` on PyPI, `sdks/python`, and `kindgi-cli`,
+`sdks/python-cli`) ship with that same version. Nobody sets the Python
+version by hand: `pnpm run version-packages` runs
+`scripts/sync-python-version.mjs --release` after `changeset version`,
+which writes the new version to each `pyproject.toml`, re-locks each
+`uv.lock` (it needs uv), and turns `sdks/python/CHANGELOG.md`'s
+**Unreleased** heading into the version, as PyPI spells it. A branch
+whose Python projects lag main runs the script without `--release`: that
+moves the versions and stamps nothing. CI fails when they differ
 (`pnpm run check:python-version`), and so do both publish jobs. A
 prerelease is `-alpha.N`, `-beta.N` or `-rc.N` (`aN`, `bN`, `rcN` on
 PyPI); the script refuses any other.
@@ -116,9 +120,11 @@ moves the versions and stamps nothing. CI fails when they differ
    in its body: `Release-decision: <the version, who decided, and
    when>`, naming a role (the maintainers), never a person, since the
    body becomes the changelog entry (`pnpm run check:changeset-bumps`,
-   in CI). Changesets don't reach the JVM SDKs (`sdks/java`): a
-   user-visible change there adds its line under **Unreleased** in
-   `sdks/java/CHANGELOG.md`, in the same pull request.
+   in CI). Changesets don't reach the Python packages or the JVM SDKs:
+   a user-visible change in `sdks/python` or `sdks/python-cli` adds its
+   line under **Unreleased** in `sdks/python/CHANGELOG.md`, and one in
+   `sdks/java` or `sdks/scala` in `sdks/java/CHANGELOG.md`, in the same
+   pull request.
 2. Merging to `main` updates the "Version Packages" pull request
    (opened by the org's release GitHub App, so CI runs on it like any
    other pull request).
@@ -242,8 +248,9 @@ The steps:
      version, since the fixed group has one version
      (`pnpm run check:jvm-version` and `check:python-version` fail
      otherwise);
-   - in `sdks/java/CHANGELOG.md`, `main`'s **Unreleased** entries stay
-     under **Unreleased**, above the release's sections.
+   - in `sdks/python/CHANGELOG.md` and `sdks/java/CHANGELOG.md`,
+     `main`'s **Unreleased** entries stay under **Unreleased**, above the
+     release's sections.
 7. **Docs after the release:** a fix to the release's pages goes into
    its `release-docs/X.Y.Z` branch, cut at the release's tag
    (`site/README.md`), and onto `main` too. A candidate's `/next/` pages

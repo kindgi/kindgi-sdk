@@ -15,6 +15,7 @@ export {
   TenantBudgetError,
   type TenantBudgetLimit,
   TenantTimeBudget,
+  type TenantWork,
 } from './budget.js';
 export {
   type CompiledTenantPattern,

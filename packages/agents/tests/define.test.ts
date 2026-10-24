@@ -259,3 +259,91 @@ describe('defineAgent — hitl.onTimeout', () => {
     }
   });
 });
+
+describe('defineAgent — autoCloseAfterInactiveSeconds', () => {
+  const REFUSED = {
+    path: '/conversationPolicy/autoCloseAfterInactiveSeconds',
+    message:
+      "autoCloseAfterInactiveSeconds isn't supported: a conversation never closes by itself. It closes when someone closes it: Close in the console, kindgi conversations close, or POST /v1/conversations/{id}/close. Leave it out.",
+  };
+  const withPolicy = (conversationPolicy: unknown) =>
+    defineAgent({
+      ...baseSpec,
+      conversationPolicy,
+    } as unknown as Parameters<typeof defineAgent>[0]);
+
+  test('a policy without it is accepted as it was', () => {
+    const r = withPolicy({ historyLimit: 5, hitlAfterTurns: 3 });
+    expect(r.kind).toBe('ok');
+    if (r.kind === 'ok') {
+      expect(r.value.conversationPolicy).toEqual({ historyLimit: 5, hitlAfterTurns: 3 });
+    }
+  });
+
+  test.each([600, 1, 0, -5, 1.5, '600', null])(
+    'any value (%j) is refused, saying how a conversation closes',
+    (value) => {
+      const r = withPolicy({ historyLimit: 5, autoCloseAfterInactiveSeconds: value });
+      expect(r.kind).toBe('err');
+      if (r.kind === 'err') expect(r.error.issues).toEqual([REFUSED]);
+    },
+  );
+});
+
+describe('defineAgent — hitl.separateApprover', () => {
+  const withFourEyes = (separateApprover: unknown) =>
+    defineAgent({
+      ...baseSpec,
+      conversationPolicy: { hitl: { separateApprover } },
+    } as unknown as Parameters<typeof defineAgent>[0]);
+
+  test.each([
+    ['true', true],
+    ['false', false],
+    ['per tool', { overrides: { 'citations.verify': true } }],
+    ['a default and overrides', { default: true, overrides: { 'citations.verify': false } }],
+  ])('%s is accepted', (_what, value) => {
+    expect(withFourEyes(value).kind).toBe('ok');
+  });
+
+  test("an override for a tool the agent doesn't have is refused: the real one would have no four eyes", () => {
+    const r = withFourEyes({ overrides: { citations_verify: true } });
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') {
+      expect(r.error.issues).toContainEqual({
+        path: '/conversationPolicy/hitl/separateApprover/overrides/citations_verify',
+        message:
+          "hitl.separateApprover names citations_verify, which isn't one of this agent's tools",
+      });
+    }
+  });
+
+  test.each([
+    ['a string', 'yes', '/conversationPolicy/hitl/separateApprover'],
+    ['a list', ['acme.pay'], '/conversationPolicy/hitl/separateApprover'],
+    [
+      'a default that is not a boolean',
+      { default: 'on' },
+      '/conversationPolicy/hitl/separateApprover/default',
+    ],
+    [
+      'overrides that are not a map',
+      { overrides: ['acme.pay'] },
+      '/conversationPolicy/hitl/separateApprover/overrides',
+    ],
+    [
+      'an override that is not a boolean',
+      { overrides: { 'acme.pay': 'always' } },
+      '/conversationPolicy/hitl/separateApprover/overrides/acme.pay',
+    ],
+    [
+      'an unknown key',
+      { tools: { 'acme.pay': true } },
+      '/conversationPolicy/hitl/separateApprover/tools',
+    ],
+  ])('%s is refused, at its path', (_what, value, path) => {
+    const r = withFourEyes(value);
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') expect(r.error.issues.map((i) => i.path)).toContain(path);
+  });
+});

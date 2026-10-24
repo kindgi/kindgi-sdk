@@ -18,6 +18,7 @@ import type { TenantId, UserId } from '@kindgi/types';
 import {
   type LicenseStatus,
   type LicenseStatusBinding,
+  type LicenseUsage,
   type TokenResolver,
   createApp,
 } from '../src/index.js';
@@ -108,9 +109,9 @@ function makeApp(
       authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding },
     }),
   });
-  const get = async (token?: string) => {
+  const get = async (token?: string, path = '/v1/license') => {
     const res = await app.request(
-      '/v1/license',
+      path,
       token === undefined ? {} : { headers: { authorization: `Bearer ${token}` } },
     );
     const text = await res.text();
@@ -331,4 +332,119 @@ describe('GET /v1/license: everyone else is refused, and the refusal recorded', 
 test('signed in only; not mounted without a binding', async () => {
   expect((await makeApp({ status: () => ({ mode: 'development' }) }).get()).status).toBe(401);
   expect((await makeApp(undefined).get(SYSTEM)).status).toBe(404);
+});
+
+describe("GET /v1/license/usage: the deployment's use, for its key's renewal", () => {
+  const USAGE: LicenseUsage = {
+    since: '2026-10-05T12:00:00.000Z',
+    until: '2026-10-25T12:00:00.000Z',
+    runtimeVersion: '0.1.8',
+    runs: 1200,
+    people: 4,
+  };
+  /** A binding that counts, recording the periods it was asked for. */
+  const counting = (usage: Partial<LicenseUsage> & Record<string, unknown> = {}) => {
+    const periods: { since: Date; until: Date }[] = [];
+    const binding: LicenseStatusBinding = {
+      status: () => expiring(31),
+      usage: async (period) => {
+        periods.push(period);
+        return { ...USAGE, ...usage } as LicenseUsage;
+      },
+    };
+    return { binding, periods };
+  };
+  const SINCE = '/v1/license/usage?since=2026-10-05T12:00:00Z';
+
+  test("the deployment's own token reads the counts for the period it asks, until now", async () => {
+    const { binding, periods } = counting({ projectsInProduction: 1 });
+    const before = Date.now();
+    const answer = await makeApp(binding).get(SYSTEM, SINCE);
+    expect(answer.status).toBe(200);
+    expect(answer.body).toEqual({ ...USAGE, projectsInProduction: 1 });
+    expect(periods).toHaveLength(1);
+    expect(periods[0]?.since.toISOString()).toBe('2026-10-05T12:00:00.000Z');
+    expect(periods[0]?.until.getTime()).toBeGreaterThanOrEqual(before);
+  });
+
+  test('nothing outside the schema: a field the binding adds stays out', async () => {
+    const { binding } = counting({ tenants: ['acme'], projectIds: ['p-1'] });
+    const answer = await makeApp(binding).get(SYSTEM, SINCE);
+    expect(answer.body).toEqual(USAGE);
+    expect(answer.text).not.toContain('acme');
+  });
+
+  test('a time with an offset: the same instant', async () => {
+    const { binding, periods } = counting();
+    const answer = await makeApp(binding).get(
+      SYSTEM,
+      `/v1/license/usage?since=${encodeURIComponent('2026-10-05T14:00:00+02:00')}`,
+    );
+    expect(answer.status).toBe(200);
+    expect(periods[0]?.since.toISOString()).toBe('2026-10-05T12:00:00.000Z');
+  });
+
+  test("up to five minutes ahead of the runtime's clock: taken as now, an empty period", async () => {
+    const { binding, periods } = counting();
+    const ahead = new Date(Date.now() + 2 * 60_000).toISOString();
+    const answer = await makeApp(binding).get(SYSTEM, `/v1/license/usage?since=${ahead}`);
+    expect(answer.status).toBe(200);
+    expect(periods).toHaveLength(1);
+    expect(periods[0]?.since.getTime()).toBe(periods[0]?.until.getTime());
+  });
+
+  test('a period that is missing, not a time with a zone, or more than five minutes ahead: 400, nothing counted', async () => {
+    const { binding, periods } = counting();
+    const app = makeApp(binding);
+    for (const query of [
+      '',
+      '?since=',
+      '?since=yesterday',
+      '?since=2026-10-05',
+      '?since=2026-10-05T12:00:00',
+      `?since=${new Date(Date.now() + 6 * 60_000).toISOString()}`,
+      `?since=${new Date(Date.now() + 86_400_000).toISOString()}`,
+    ]) {
+      const answer = await app.get(SYSTEM, `/v1/license/usage${query}`);
+      expect(answer.status, query).toBe(400);
+      expect((answer.body.error as { code?: string } | undefined)?.code ?? answer.body.code).toBe(
+        'bad-input',
+      );
+    }
+    expect(periods).toHaveLength(0);
+  });
+
+  test("anyone but the deployment's own token is refused, the refusal recorded, even the one tenant's admin", async () => {
+    const { binding, periods } = counting();
+    const soleTenant: LicenseStatusBinding = { ...binding, soleTenant: () => TENANT };
+    const app = makeApp(soleTenant, { authz: true });
+    for (const token of [ADMIN, MEMBER, OTHER_ADMIN]) {
+      const answer = await app.get(token, SINCE);
+      expect(answer.status, token).toBe(403);
+      expect(answer.body.error, token).toMatchObject({
+        code: 'license-operator-only',
+        message:
+          "The deployment's use counts every tenant's: only the deployment's own token (KINDGI_API_TOKEN), or a system key holding system:license, reads it.",
+      });
+    }
+    // Each refusal recorded once, against the caller's own tenant.
+    const refusedRead = (tenant: string) => ({
+      action: 'read',
+      resource: `tenant:${tenant}`,
+      decision: expect.objectContaining({ allowed: false, failing: 'scope' }),
+    });
+    expect(app.recorded).toEqual([refusedRead('t-1'), refusedRead('t-1'), refusedRead('t-2')]);
+    expect(periods).toHaveLength(0);
+  });
+
+  test('signed in only', async () => {
+    const { binding, periods } = counting();
+    expect((await makeApp(binding).get(undefined, SINCE)).status).toBe(401);
+    expect(periods).toHaveLength(0);
+  });
+
+  test("a deployment that doesn't count: 404, as with no license binding", async () => {
+    expect((await makeApp({ status: () => expiring(31) }).get(SYSTEM, SINCE)).status).toBe(404);
+    expect((await makeApp(undefined).get(SYSTEM, SINCE)).status).toBe(404);
+  });
 });
