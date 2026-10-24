@@ -9,7 +9,8 @@
 The Python counterpart of `kindgi-index`: reads `[tool.kindgi]`, discovers
 the files under `tools/`, `guardrails/`, `agents/`, `flows/` (or the
 configured globs), imports each one, collects the primitives it defines,
-and writes the index (`@kindgi/specs/pack-index.schema.json`) atomically.
+reads the pack's data blocks (`blocks/**/*.json`, `blocks.py`), and writes
+the index (`@kindgi/specs/pack-index.schema.json`) atomically.
 Byte-deterministic: same source and pinned `--artifact-version` /
 `--published-at`, same bytes.
 
@@ -32,6 +33,7 @@ from typing import Any, cast
 
 from .._json import stable_dumps
 from .._schema import SchemaValidator, wire_schema
+from .blocks import read_pack_blocks
 from .config import ConfigError, PackConfig, PrimitiveKind, code_units, load_config
 from .define import Agent, Flow, Guardrail, Primitive, Tool
 from .discovery import discover
@@ -81,7 +83,8 @@ def run_indexer(
         )
 
     discovered = _discover(pack_dir, config)
-    if not discovered:
+    pack_blocks = read_pack_blocks(pack_dir, config.discovery["blocks"])
+    if not discovered and not pack_blocks.files and not pack_blocks.errors:
         return _err(
             "discovery-empty",
             f"Indexer discovered zero files under {pack_dir}. "
@@ -97,7 +100,10 @@ def run_indexer(
     }
     # Per (kind, id), the versions defined so far and their files.
     owners: dict[tuple[PrimitiveKind, str], dict[str | None, str]] = {}
-    file_errors: list[dict[str, Any]] = []
+    file_errors: list[dict[str, Any]] = [
+        _file_error("manifest-validation-failed", e["message"], e["filePath"])
+        for e in pack_blocks.errors
+    ]
     warnings: list[dict[str, Any]] = []
     flow_spec = _spec("flow")
 
@@ -186,6 +192,8 @@ def run_indexer(
         "agents": _sorted(entries["agent"]),
         "flows": _sorted(entries["flow"]),
     }
+    if pack_blocks.blocks:
+        index["blocks"] = pack_blocks.blocks
     if config.env is not None:
         index["env"] = {
             "optional": list(config.env.optional),
@@ -212,7 +220,10 @@ def run_indexer(
             "packVersion": config.version,
             "artifactVersion": version,
             "publishedAt": when,
-            "counts": {kind_plural: len(entries[kind]) for kind_plural, kind in _FOLDERS.items()},
+            "counts": {
+                **{kind_plural: len(entries[kind]) for kind_plural, kind in _FOLDERS.items()},
+                "blocks": len(pack_blocks.blocks),
+            },
             "outputPath": str(output),
             "fileErrors": file_errors,
             "warnings": warnings,

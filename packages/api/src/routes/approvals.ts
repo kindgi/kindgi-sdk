@@ -25,6 +25,7 @@ import type {
   UserId,
 } from '@kindgi/types';
 
+import { approvalResourceRef } from '../approval-resource.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { RunHandlerBinding, RunTrace } from '../handler-binding.js';
 import type {
@@ -154,16 +155,15 @@ export function approvalsRouter(
   const runHandler = options.runHandler;
 
   /** What an approval is checked on: its project, else its run's, else the tenant. */
-  const approvalRef = async (tenantId: TenantId, approval: Approval): Promise<ResourceRef> => {
-    if (approval.projectId !== undefined) {
-      return ref('project', approval.projectId as unknown as string);
-    }
-    const runId = approval.provenanceRef?.runId;
-    const run = runId === undefined ? null : await runBinding.getRun(tenantId, runId as never);
-    return run === null
-      ? ref('tenant', tenantId as unknown as string)
-      : ref('project', run.projectId as unknown as string);
-  };
+  const approvalRef = (tenantId: TenantId, approval: Approval): Promise<ResourceRef> =>
+    approvalResourceRef(
+      tenantId,
+      {
+        projectId: approval.projectId,
+        runId: approval.provenanceRef?.runId as RunId | undefined,
+      },
+      (t, runId) => runBinding.getRun(t, runId as never),
+    );
   /** Whether the caller may read the approval's project (always, without an authorizer). */
   const mayRead = async (c: Context<AppEnv>, approval: Approval): Promise<boolean> =>
     authorizer === undefined ||

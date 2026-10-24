@@ -213,6 +213,7 @@ describe('runIndexer — happy path', () => {
       guardrails: 1,
       agents: 1,
       flows: 1,
+      blocks: 0,
     });
 
     const parsed = await readValidIndex(outcome.value.outputPath);

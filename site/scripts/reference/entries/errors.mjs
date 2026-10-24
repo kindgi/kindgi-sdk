@@ -1007,6 +1007,25 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['guides/agents/agent-and-tool-versions'],
   },
+  'block-unresolvable': {
+    description:
+      "A data block the agent uses (its prompt, settings or model settings) can't be loaded: no published version matches its version range, the pinned version is gone, it's the other kind of block, or the runtime serves no blocks. Under `kindgi dev`, blocks come only from the pack's files: add the block under the pack's blocks folder, at a version the range takes.",
+    details: [
+      {
+        key: 'blockId',
+        meaning: 'the block',
+      },
+      {
+        key: 'requestedRange',
+        meaning: 'the version range or pin the agent asked for',
+      },
+      {
+        key: 'runId',
+        meaning: 'the run that failed',
+      },
+    ],
+    seeAlso: ['guides/evals/change-a-prompt-or-setting'],
+  },
   'tool-invocation-failed': {
     description:
       "A tool the agent called failed, and the agent's tool-error policy didn't let the model recover. The message carries the tool's own error.",
@@ -1665,25 +1684,41 @@ export const ERROR_ENTRIES = {
   },
   'block-already-registered': {
     description:
-      'That block version is already published; versions never change, so publish a new version.',
+      "That block version is already published; versions never change, so publish a new version. On a deployment, the runtime holds a version of the pack's block with other content, or unregistered: give the block a new version in the pack, or reinstate the unregistered one (`kindgi blocks reinstate`). The message names each one.",
     details: [
       {
         key: 'blockId',
-        meaning: 'the block id',
+        meaning: 'the block id (single publish)',
       },
       {
         key: 'version',
-        meaning: 'the version that exists',
+        meaning: 'the version that exists (single publish)',
+      },
+      {
+        key: 'primitive',
+        meaning: 'on a deployment: the kind of item refused (`block`)',
+      },
+      {
+        key: 'id',
+        meaning: 'on a deployment: the refused block, as `id@version`',
       },
     ],
   },
   'block-project-mismatch': {
     description:
-      'The block belongs to another project. Publish its versions in the project that owns it.',
+      'The block belongs to another project. Publish its versions, or deploy the pack that brings it, in the project that owns it.',
     details: [
       {
         key: 'blockId',
-        meaning: 'the block id',
+        meaning: 'the block id (single publish)',
+      },
+      {
+        key: 'primitive',
+        meaning: 'on a deployment: the kind of item refused (`block`)',
+      },
+      {
+        key: 'id',
+        meaning: 'on a deployment: the refused block, as `id@version`',
       },
     ],
   },

@@ -71,6 +71,7 @@ import {
   RETENTION_DOMAINS,
   TOOL_ERROR_KINDS,
 } from '@kindgi/policy-contract';
+import { CORRECTION_ITEM } from '@kindgi/types';
 
 import {
   DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
@@ -4642,7 +4643,11 @@ export const JudgedItemSchema: JsonSchema = {
   required: ['key'],
   description: "The judged item of a run's output.",
   properties: {
-    key: { type: 'string', minLength: 1, description: "The caller's stable id for the item." },
+    key: {
+      type: 'string',
+      minLength: 1,
+      description: `The caller's stable id for the item. \`${CORRECTION_ITEM.key}\` is reserved: a judgment on it is accepted only when it carries a correction at pointer \`""\`.`,
+    },
     pointer: {
       type: 'string',
       description:
@@ -4670,6 +4675,121 @@ export const JudgmentAssertedBySchema: JsonSchema = {
   },
 };
 
+/** One call an expert says the agent should have made: the tool, and the argument fields to compare. */
+export const ExpectedCallSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tool', 'args'],
+  properties: {
+    tool: { type: 'string', minLength: 1, maxLength: 200 },
+    args: {
+      type: 'object',
+      maxProperties: 100,
+      description:
+        'The partial set of top-level argument fields to compare, by value. Fields left out are not compared; an empty object asks only that the tool was called. At most 4000 characters in canonical JSON.',
+    },
+  },
+};
+
+const correctionCallsProperty = {
+  type: 'array',
+  maxItems: 50,
+  description: 'The calls the agent should have made.',
+  items: { $ref: '#/components/schemas/ExpectedCall' },
+} as const;
+
+const correctionNotCalledProperty = {
+  type: 'array',
+  maxItems: 50,
+  description: 'Tools that should not have been called at all.',
+  items: { type: 'string', minLength: 1, maxLength: 200 },
+} as const;
+
+/** A correction an expert records on a judgment. */
+export const CorrectionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['calls', 'notCalled'],
+  description:
+    "An expert's correction of a run's decisions: the tool calls the agent should have made, and the tools it should not have called at all. Graded deterministically on a replay. A tool can't be in both `calls` and `notCalled`, and one of them must be non-empty (both empty is a 400).",
+  properties: {
+    calls: correctionCallsProperty,
+    notCalled: correctionNotCalledProperty,
+  },
+};
+
+/** One way a candidate's calls differed from a correction; it can quote argument values. */
+const correctionDifference = {
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tool', 'kind', 'expected', 'actual'],
+      properties: {
+        tool: { type: 'string' },
+        kind: { type: 'string', enum: ['count'] },
+        expected: { type: 'integer', minimum: 0 },
+        actual: { type: 'integer', minimum: 0 },
+        refused: {
+          type: 'integer',
+          minimum: 1,
+          description:
+            'How many of the actual calls were refused on the replay. Absent when none were.',
+        },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tool', 'kind', 'actual'],
+      properties: {
+        tool: { type: 'string' },
+        kind: { type: 'string', enum: ['must-not-call'] },
+        actual: { type: 'integer', minimum: 1 },
+        refused: {
+          type: 'integer',
+          minimum: 1,
+          description:
+            'How many of the forbidden calls were refused on the replay. Absent when none were.',
+        },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tool', 'kind', 'field', 'expected'],
+      properties: {
+        tool: { type: 'string' },
+        kind: { type: 'string', enum: ['missing-field'] },
+        field: { type: 'string' },
+        expected: {},
+        refused: {
+          type: 'boolean',
+          description:
+            'Present and true when the call blamed for the miss was refused on the replay.',
+        },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tool', 'kind', 'field', 'expected', 'actual'],
+      properties: {
+        tool: { type: 'string' },
+        kind: { type: 'string', enum: ['field-value'] },
+        field: { type: 'string' },
+        expected: {},
+        actual: {},
+        refused: {
+          type: 'boolean',
+          description:
+            'Present and true when the call blamed for the miss was refused on the replay.',
+        },
+      },
+    },
+  ],
+} as const;
+
 export const JudgmentSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -4693,6 +4813,10 @@ export const JudgmentSchema: JsonSchema = {
     item: { $ref: '#/components/schemas/JudgedItem' },
     verdict: { type: 'string', enum: ['yes', 'no'] },
     reason: { type: 'string' },
+    correction: {
+      $ref: '#/components/schemas/Correction',
+      description: "The expert's correction of the run's decisions, when they gave one.",
+    },
     judgeClassId: {
       type: 'string',
       description:
@@ -4889,6 +5013,10 @@ export const CreateJudgmentBodySchema: JsonSchema = {
       minLength: 1,
       description: "An app's opaque id for its end user, when judging on their behalf.",
     },
+    correction: {
+      $ref: '#/components/schemas/Correction',
+      description: `Optional. The tool calls the agent should have made, graded on a replay. A correction judges the run's whole output, so it is recorded under one reserved item (\`item.key\` \`"${CORRECTION_ITEM.key}"\`, \`item.pointer\` \`""\`): a correction on any other item is a 400, and a second correction of the run by the same expert replaces the first, so it counts once.`,
+    },
   },
 };
 
@@ -4924,7 +5052,22 @@ export const JudgedItemSummarySchema: JsonSchema = {
       required: ['yesWeight', 'totalWeight'],
       description:
         'The same weights, counting only judgments recorded while their class was restricted (`Judgment.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.',
-      properties: { yesWeight: { type: 'number' }, totalWeight: { type: 'number' } },
+      properties: {
+        yesWeight: { type: 'number' },
+        totalWeight: { type: 'number' },
+        judgmentIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'The judgments behind these two. Absent from a test set built before judgment ids.',
+        },
+      },
+    },
+    judgmentIds: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'The judgments summed into the item, by id: what a comparison on this case counts. Absent from a test set built before judgment ids.',
     },
     reasons: {
       type: 'array',
@@ -4962,11 +5105,36 @@ export const JudgedEvalCaseSchema: JsonSchema = {
     context: { $ref: '#/components/schemas/JudgedRunContext' },
     output: {},
     items: { type: 'array', items: { $ref: '#/components/schemas/JudgedItemSummary' } },
+    corrections: {
+      type: 'array',
+      description:
+        "Experts' corrections carried onto this case from its judgments, each graded on the replay. Empty or absent when none. `restricted-only` keeps only the entries whose judgment was restricted.",
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['judgmentId', 'calls', 'notCalled'],
+        properties: {
+          judgmentId: {
+            type: 'string',
+            description: 'The judgment the correction was recorded on.',
+          },
+          judgeClassId: { type: 'string', description: "The judgment's class, when it had one." },
+          restricted: {
+            type: 'boolean',
+            enum: [true],
+            description:
+              'Set when the judgment was recorded while its class was restricted (`Judgment.restricted`).',
+          },
+          calls: correctionCallsProperty,
+          notCalled: correctionNotCalledProperty,
+        },
+      },
+    },
     erased: {
       type: 'boolean',
       const: true,
       description:
-        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, and eval runs leave it out (counted as `erased`).",
+        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and eval runs leave it out (counted as `erased`).",
     },
   },
 };
@@ -5734,7 +5902,7 @@ export const FixProposalStatusSchema: JsonSchema = {
     'withdrawn',
   ],
   description:
-    "Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.",
+    "Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.",
 };
 
 export const ProposalChangeSchema: JsonSchema = {
@@ -5780,6 +5948,26 @@ export const ProposalDrafterSchema: JsonSchema = {
       type: 'string',
       description:
         'For a drafter: the improvement pass that drafted it (`GET /v1/improvement-passes/{passId}`).',
+    },
+  },
+};
+
+export const ProposalEvidenceSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'What a proposal rests on.',
+  properties: {
+    judgmentIds: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        "The judgments that motivated it. An improvement pass's proposal names the judgments it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items judged wrong, then the rest.",
+    },
+    judgmentCount: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'How many judgments it rests on, when `judgmentIds` names only the first of them. Absent when `judgmentIds` names them all.',
     },
   },
 };
@@ -5832,6 +6020,52 @@ export const ProposalEvaluationSchema: JsonSchema = {
     },
     cases: { type: 'integer' },
     better: { type: 'boolean', description: 'Set once the comparison finished.' },
+    rule: {
+      type: 'string',
+      enum: ['better', 'cheaper'],
+      description:
+        "How the candidate is kept. `better`: it beats the recorded outputs by more than the noise. `cheaper`: it's no worse than the current version replayed on the same cases (beyond that run's spread) and costs less (beyond the cost's own spread), with no errored case; `better` may then be false while the status is `evaluated`. Absent: `better`.",
+    },
+    costUsd: { $ref: '#/components/schemas/ProposalCost' },
+    decisions: { $ref: '#/components/schemas/ProposalDecisions' },
+  },
+};
+
+export const ProposalCostSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['current', 'candidate'],
+  description:
+    "What the replays cost in model calls on the same cases, in US dollars, averaged over the repetitions: the current version's and the candidate's. Set for a change held to the current version once both comparisons finished, when both reported a cost.",
+  properties: {
+    current: { type: 'number', minimum: 0 },
+    candidate: { type: 'number', minimum: 0 },
+  },
+};
+
+export const ProposalDecisionsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['checked', 'held', 'broken', 'stillWrong'],
+  description:
+    "The corrections the current version was checked on, replayed on the same cases, against the candidate's. A model-settings change is kept only with at least one checked and none broken. Set once both comparisons finished.",
+  properties: {
+    checked: { type: 'integer', minimum: 0 },
+    held: {
+      type: 'integer',
+      minimum: 0,
+      description: 'The current version passed them, and so did the candidate.',
+    },
+    broken: {
+      type: 'integer',
+      minimum: 0,
+      description: "The current version passed them; the candidate didn't.",
+    },
+    stillWrong: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Neither passed them. The rest of `checked` the candidate fixed.',
+    },
   },
 };
 
@@ -5880,11 +6114,7 @@ export const FixProposalSchema: JsonSchema = {
     tier: { $ref: '#/components/schemas/ProposalTier' },
     change: { $ref: '#/components/schemas/ProposalChange' },
     hypothesis: { type: 'string', description: 'What the change should improve, and why.' },
-    evidence: {
-      type: 'object',
-      additionalProperties: false,
-      properties: { judgmentIds: { type: 'array', items: { type: 'string' } } },
-    },
+    evidence: { $ref: '#/components/schemas/ProposalEvidence' },
     drafter: { $ref: '#/components/schemas/ProposalDrafter' },
     status: { $ref: '#/components/schemas/FixProposalStatus' },
     candidate: { $ref: '#/components/schemas/ProposalCandidate' },
@@ -6034,7 +6264,7 @@ export const ImprovementPassSchema: JsonSchema = {
     comparisons: {
       type: 'array',
       description:
-        'Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.',
+        'Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.',
       items: {
         type: 'object',
         additionalProperties: false,
@@ -6133,9 +6363,8 @@ export const ImproveBodySchema: JsonSchema = {
     classWeights: {
       type: 'string',
       enum: ['as-recorded', 'restricted-only'],
-      default: 'restricted-only',
       description:
-        'Which judgments the pass learns from: by default only those recorded under a restricted (trusted) judge class.',
+        "Which judgments the pass learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the pass reads its judgments from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has a restricted judge class, then only judgments recorded under one (`restricted-only`).",
     },
     objective: {
       type: 'string',
@@ -6149,6 +6378,43 @@ export const ImproveBodySchema: JsonSchema = {
       properties: {
         maxCostUsd: { type: 'number', exclusiveMinimum: 0, maximum: 100 },
         maxCandidates: { type: 'integer', minimum: 1, maximum: 200 },
+      },
+    },
+  },
+};
+
+export const ImprovementPassEstimateSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "What a pass this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.",
+  required: ['maxCostUsd', 'basis'],
+  properties: {
+    estimatedCostUsd: {
+      type: 'string',
+      description:
+        "The estimate (US dollars): `basis.replays` times `basis.meanRunCostUsd`, or `maxCostUsd` when that's smaller. Absent when the version has no cost history.",
+    },
+    maxCostUsd: {
+      type: 'string',
+      description: 'The budget cap the estimate is clamped to (`budget.maxCostUsd`, US dollars).',
+    },
+    basis: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['replays'],
+      description: 'What the estimate is built from.',
+      properties: {
+        replays: {
+          type: 'integer',
+          minimum: 0,
+          description: "How many replay runs the pass's comparisons would make.",
+        },
+        meanRunCostUsd: {
+          type: 'string',
+          description:
+            "The version's mean cost over its recent completed runs (US dollars). Absent with no cost history.",
+        },
       },
     },
   },
@@ -8373,7 +8639,7 @@ export const EvalSampleSchema: JsonSchema = {
   additionalProperties: false,
   required: ['part', 'seed', 'holdOutShare'],
   description:
-    'Only part of the test set\'s cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified by judgment (the cases with a "no" and the others are split on their own, a stratum of two or more giving each part at least one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).',
+    'Only part of the test set\'s cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a "no" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).',
   properties: {
     part: { type: 'string', enum: ['search', 'hold-out'] },
     seed: { type: 'string', minLength: 1, maxLength: 200 },
@@ -8660,6 +8926,62 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
         weightedPrecisionAtK: { $ref: '#/components/schemas/ComparisonMetric' },
       },
     },
+    corrections: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['checked', 'passed'],
+      description:
+        'Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.',
+      properties: {
+        checked: { type: 'integer', minimum: 0, description: 'How many corrections were graded.' },
+        passed: {
+          type: 'integer',
+          minimum: 0,
+          description: 'How many passed (every repetition passed).',
+        },
+        judgments: {
+          type: 'array',
+          description:
+            'Each correction graded, by its judgment: whether it passed (every repetition did). What an improvement pass compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['judgmentId', 'pass'],
+            properties: {
+              judgmentId: { type: 'string' },
+              pass: { type: 'boolean' },
+            },
+          },
+        },
+      },
+    },
+    costUsd: { $ref: '#/components/schemas/JudgedComparisonCost' },
+  },
+};
+
+export const JudgedComparisonCostSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['candidate', 'cases'],
+  description:
+    "What the candidate's replays cost in model calls, as the runtime reported it. Absent from a summary when no case's replays reported a cost.",
+  properties: {
+    candidate: {
+      type: 'number',
+      minimum: 0,
+      description:
+        "Each repetition's total over `cases`, averaged over the repetitions, in US dollars.",
+    },
+    spread: {
+      type: 'number',
+      minimum: 0,
+      description: "With more than one repetition: the totals' max − min.",
+    },
+    cases: {
+      type: 'integer',
+      minimum: 1,
+      description: 'The cases whose every repetition reported a cost: the ones totalled.',
+    },
   },
 };
 
@@ -8792,6 +9114,47 @@ export const ComparisonCaseResultSchema: JsonSchema = {
           reason: { type: 'string' },
         },
       },
+    },
+    corrections: {
+      type: 'array',
+      description:
+        'Each correction graded on this case: its verdict and how many repetitions passed. Shown, not enforced. Survives an erasure — the differences, which quote values, are in `correctionDifferences`.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['judgmentId', 'pass', 'repetitionsPassed', 'repetitions'],
+        properties: {
+          judgmentId: { type: 'string' },
+          pass: { type: 'boolean', description: 'Passed only when every repetition passed.' },
+          repetitionsPassed: { type: 'integer', minimum: 0, description: 'The `k` of "k of n".' },
+          repetitions: { type: 'integer', minimum: 1, description: 'The `n` of "k of n".' },
+        },
+      },
+    },
+    correctionDifferences: {
+      type: 'array',
+      description:
+        "The ways each correction's calls differed, by judgment: the differences from the first repetition that failed it, and that repetition's number. Quotes argument values, so an erasure clears it (the verdicts and counts stay in `corrections`).",
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['judgmentId', 'repetition', 'differences'],
+        properties: {
+          judgmentId: { type: 'string' },
+          repetition: {
+            type: 'integer',
+            minimum: 1,
+            description: 'Which repetition (1-based) these differences are from.',
+          },
+          differences: { type: 'array', items: correctionDifference },
+        },
+      },
+    },
+    costUsd: {
+      type: 'array',
+      description:
+        "What each repetition's replay cost in model calls, as the runtime reported it, in US dollars: one per repetition. Absent when a repetition reported none.",
+      items: { type: 'number', minimum: 0 },
     },
     diverged: { type: 'boolean' },
     refusedWrites: { type: 'integer', minimum: 0 },
@@ -10367,6 +10730,52 @@ export const JudgingRulePreviewSchema: JsonSchema = {
   },
 };
 
+export const JudgingQueueRecentInputSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  minProperties: 1,
+  description: 'Which recent runs to catch the rule up on. Give `last`, `since`, or both.',
+  properties: {
+    last: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 1000,
+      description: "This many of the project's most recent top-level runs (newest first).",
+    },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description: 'Runs completed at or after this time.',
+    },
+  },
+};
+
+export const JudgingRecentQueuedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['queued', 'alreadyQueued', 'alreadyReviewed'],
+  properties: {
+    queued: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Matching recent runs this call newly queued for the rule: a new queue item, or the rule added to one already waiting for another rule.',
+    },
+    alreadyQueued: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Matching recent runs this rule had already queued and that are still open (deduped per `(rule, run)`).',
+    },
+    alreadyReviewed: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Matching recent runs whose run was already judged or dismissed: left as they are, not re-queued. An already-erased run is no longer a match and is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed` together are the matches.',
+    },
+  },
+};
+
 export const PersonProjectRoleSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -11048,7 +11457,7 @@ export const DeploymentValidationDetailsSchema: JsonSchema = {
   additionalProperties: false,
   required: ['primitive', 'index', 'path', 'message'],
   properties: {
-    primitive: { type: 'string', enum: ['tool', 'guardrail', 'agent', 'flow'] },
+    primitive: { type: 'string', enum: ['tool', 'guardrail', 'agent', 'flow', 'block'] },
     index: { type: 'integer', minimum: 0 },
     id: { type: 'string' },
     path: { type: 'string' },
@@ -14097,6 +14506,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UnregisterJudgeClassResult', UnregisterJudgeClassResultSchema],
   ['JudgedSubject', JudgedSubjectSchema],
   ['JudgedItem', JudgedItemSchema],
+  ['ExpectedCall', ExpectedCallSchema],
+  ['Correction', CorrectionSchema],
   ['JudgmentAssertedBy', JudgmentAssertedBySchema],
   ['Judgment', JudgmentSchema],
   ['JudgedRunContext', JudgedRunContextSchema],
@@ -14217,8 +14628,11 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['FixProposalStatus', FixProposalStatusSchema],
   ['ProposalChange', ProposalChangeSchema],
   ['ProposalDrafter', ProposalDrafterSchema],
+  ['ProposalEvidence', ProposalEvidenceSchema],
   ['ProposalCandidate', ProposalCandidateSchema],
   ['ProposalEvaluation', ProposalEvaluationSchema],
+  ['ProposalCost', ProposalCostSchema],
+  ['ProposalDecisions', ProposalDecisionsSchema],
   ['ProposalPromotion', ProposalPromotionSchema],
   ['FixProposal', FixProposalSchema],
   ['FixProposalCollectionPage', FixProposalCollectionPageSchema],
@@ -14227,6 +14641,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ImprovementPass', ImprovementPassSchema],
   ['ImprovementPassCollectionPage', ImprovementPassCollectionPageSchema],
   ['ImproveBody', ImproveBodySchema],
+  ['ImprovementPassEstimate', ImprovementPassEstimateSchema],
   ['CreateProposalBody', CreateProposalBodySchema],
   ['EvaluateProposalBody', EvaluateProposalBodySchema],
   ['ProposalReasonBody', ProposalReasonBodySchema],
@@ -14339,6 +14754,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ComparisonMetric', ComparisonMetricSchema],
   ['ComparisonCandidate', ComparisonCandidateSchema],
   ['JudgedComparisonSummary', JudgedComparisonSummarySchema],
+  ['JudgedComparisonCost', JudgedComparisonCostSchema],
   ['ComparisonCaseResult', ComparisonCaseResultSchema],
   ['JudgedComparisonResult', JudgedComparisonResultSchema],
   ['EvalRun', EvalRunSchema],
@@ -14407,6 +14823,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['JudgingResultGroup', JudgingResultGroupSchema],
   ['JudgingRuleResults', JudgingRuleResultsSchema],
   ['JudgingRulePreview', JudgingRulePreviewSchema],
+  ['JudgingQueueRecentInput', JudgingQueueRecentInputSchema],
+  ['JudgingRecentQueued', JudgingRecentQueuedSchema],
   ['AccessRole', AccessRoleSchema],
   ['AccessPathDirect', AccessPathDirectSchema],
   ['AccessPathTeam', AccessPathTeamSchema],

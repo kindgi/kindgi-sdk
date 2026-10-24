@@ -1813,6 +1813,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       releases: input.agentReleases,
       ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
       ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
+      ...(input.judgmentRegistry !== undefined && { judgeClasses: input.judgmentRegistry }),
+      ...(input.evalSuiteRegistry !== undefined && { suites: input.evalSuiteRegistry }),
     };
     v1.route(
       '/proposals',
@@ -1826,6 +1828,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
           ...(input.environmentOrders !== undefined && { orders: input.environmentOrders }),
+          // A drafter's promotion needs a separate approver when the tenant has
+          // a second person who could approve it — one who can read the
+          // approval's resource, so the count matches who the decide route lets in.
+          ...(input.reviewerRegistry !== undefined && { reviewers: input.reviewerRegistry }),
+          ...(input.authz !== undefined && { authz: input.authz.authzCheckBinding }),
         },
         authorizer,
         (r) => mountImproveRoute(r, improveDeps, authorizer, itemRights),
@@ -2131,6 +2138,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.conversationBinding,
         input.flowRegistry,
         input.reviewerBinding,
+        input.agentRegistry,
       ),
     );
     v1.route('/judge-classes', judgeClassesRouter(input.judgmentRegistry, authorizer));
