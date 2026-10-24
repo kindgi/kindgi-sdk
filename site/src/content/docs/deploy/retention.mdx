@@ -514,7 +514,7 @@ then every hour, in the tenants it serves:
 | Audit events | Kept for |
 | --- | --- |
 | Access decisions (`authz-decision`) | 90 days; denied ones 365 days |
-| Run outcomes (`run-outcome`), guardrail violations (`guardrail-violation`), changes to [env values](../../guides/tools/give-a-tool-env-values/) (`env-set`, `env-deleted`) | 730 days |
+| Run outcomes (`run-outcome`), guardrail violations (`guardrail-violation`), answers to a paused tool call (`wait-token-completed`, `wait-token-discarded`), changes to [env values](../../guides/tools/give-a-tool-env-values/) (`env-set`, `env-deleted`) | 730 days |
 | Approval decisions (`hitl-decision`), and changes to secrets, API keys, service accounts and people's access ([On legal hold](#on-legal-hold)) | For good: they're on legal hold |
 | Any other kind | For good |
 
@@ -530,6 +530,18 @@ later):
   guardrail that blocked a step's answer, or let it through with a
   violation, for each run and step. It holds the check's ids and what it
   came to, never the check's reason or a judge's answer.
+
+Answers to a paused tool call are recorded (runtime 0.2.0 or later), as
+[Wait for another system's answer](../../guides/tools/wait-for-another-system/)
+describes:
+
+- **An answer taken** (`wait-token-completed`): one record for each answer
+  the runtime takes, through the link or `POST /v1/runs/{runId}/resume`. It
+  names the tool and the wait, says which way the answer came, and whether
+  the run took it at once or held it for later. It holds the answer's size
+  and SHA-256, never the answer or the link.
+- **A held answer dropped** (`wait-token-discarded`): one record for each
+  answer held for a wait the run never reached, with the answer's SHA-256.
 
 ### On legal hold
 

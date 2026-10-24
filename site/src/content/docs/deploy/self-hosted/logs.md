@@ -97,7 +97,12 @@ values and the passwords in URLs are redacted.
 ## Requests
 
 Every API request gets one line under `http`: its method, its route (with its
-ids as `:runId`, not their values), its status and how long it took.
+ids as `:runId`, not their values), its status and how long it took. A
+paused tool call's link carries its token in its path, and the line writes
+it as `/v1/wait-tokens/:token`. A proxy or a load balancer in front of the
+runtime writes the whole path, so keep its access log out of shared logs,
+or redact the token there
+([Wait for another system's answer](../../../guides/tools/wait-for-another-system/#on-a-server-you-run)).
 
 | The request | Level |
 | --- | --- |

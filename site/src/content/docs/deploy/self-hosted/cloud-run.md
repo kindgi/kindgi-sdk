@@ -701,7 +701,8 @@ then reaches the runtime only when you change `version`.
   the emailed link comes with a second apply, or your own domain in front.
   Console sessions are then accepted from that address only. The plan
   refuses `KINDGI_AUTH_SECRET` without it, because the runtime wouldn't
-  start.
+  start. A tool that pauses hands other systems a link made from it too
+  ([On a server you run](../../../guides/tools/wait-for-another-system/#on-a-server-you-run)).
 
 **With Continue with Google,** you need the sign-in secret and `public_url`,
 as for the emailed link, and an OAuth client of type **Web application** in
