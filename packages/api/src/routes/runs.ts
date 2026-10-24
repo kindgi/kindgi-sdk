@@ -1265,6 +1265,7 @@ function serializeRun(
       },
     }),
     ...(row.startedBy !== undefined && { startedBy: row.startedBy }),
+    ...(row.actsFor !== undefined && { actsFor: row.actsFor }),
     ...(row.toolsAllowedUnattended !== undefined &&
       row.toolsAllowedUnattended.length > 0 && {
         toolsAllowedUnattended: [...row.toolsAllowedUnattended],
