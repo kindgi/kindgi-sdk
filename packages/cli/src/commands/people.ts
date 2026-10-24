@@ -80,7 +80,7 @@ const add: LeafCommand = {
   kind: 'leaf',
   name: 'add',
   description:
-    "Add a person to the tenant; prints their id. They can read the tenant's settings at once; give them a project role to work on its agents and runs, and their first key (`kindgi tokens create --for=user:<id>`). Where the runtime invites people, one added with an email is invited, and the invitation emailed unless `--no-invite`; it says whether it was. Tenant admins only.",
+    "Add a person to the tenant; prints their id. They can read the tenant's settings at once. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then give them their first key (`kindgi tokens create --for=user:<id>`). Where the runtime invites people, one added with an email is invited, and the invitation emailed unless `--no-invite`; it says whether it was. Tenant admins only.",
   usage: 'kindgi people add --name=<display-name> [--email=<email>] [--no-invite]',
   optionSpec: {
     name: { type: 'string', description: 'Their name, as people see it.' },
@@ -112,7 +112,7 @@ const add: LeafCommand = {
         stderr:
           ctx.globals.format === 'quiet'
             ? ''
-            : `Added to the tenant: they can read its settings. Give them a project role to work on its agents and runs, then their first key: kindgi tokens create --for=user:${String(created.userId)}\n${inviteLine(created, created.inviteEmail)}`,
+            : `Added to the tenant: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:${String(created.userId)}\n${inviteLine(created, created.inviteEmail)}`,
       };
     }),
 };
@@ -130,6 +130,40 @@ const invite: LeafCommand = {
       return {
         stdout: renderJson(renewed, ctx.globals.format).stdout,
         stderr: ctx.globals.format === 'quiet' ? '' : inviteLine(renewed.user, renewed.inviteEmail),
+      };
+    }),
+};
+
+const secondFactor: LeafCommand = {
+  kind: 'leaf',
+  name: 'second-factor',
+  description:
+    'Whether a person has a second factor set up (an authenticator app), since when, how many recovery codes they have left, and whether the workspace requires one. Tenant admins only.',
+  usage: 'kindgi people second-factor <user-id>',
+  run: (ctx) =>
+    runSdk(ctx, 'people second-factor', async () =>
+      ctx.client().users.secondFactor(requiredPositional(ctx, 0, 'user-id') as never),
+    ),
+};
+
+const resetSecondFactor: LeafCommand = {
+  kind: 'leaf',
+  name: 'reset-second-factor',
+  description:
+    "Remove a person's second factor, for a lost phone or lost recovery codes: they're told by email where the deployment sends it, and it's audited. Their sessions stay. Where the workspace requires one, they set one up again at their next sign-in. Tenant admins only, for anyone but themselves: your own you take off on My access, with a code from it.",
+  usage: 'kindgi people reset-second-factor <user-id>',
+  run: (ctx) =>
+    runSdkRendered(ctx, 'people reset-second-factor', async () => {
+      const id = requiredPositional(ctx, 0, 'user-id');
+      const reset = await ctx.client().users.removeSecondFactor(id as never);
+      return {
+        stdout: renderJson(reset, ctx.globals.format).stdout,
+        stderr:
+          ctx.globals.format === 'quiet'
+            ? ''
+            : reset.removed
+              ? `Removed ${id}'s second factor: they set one up again at their next sign-in where the workspace requires one.\n`
+              : `${id} had no second factor set up: nothing changed.\n`,
       };
     }),
 };
@@ -278,6 +312,17 @@ export const peopleCommand: Command = {
   kind: 'group',
   name: 'people',
   description:
-    "The tenant's people: add one, send their invitation again, list, get, their grants, tenant admin given or taken (grant / ungrant), and remove one.",
-  subcommands: [add, invite, list, get, grants, grant, ungrant, remove],
+    "The tenant's people: add one, send their invitation again, list, get, their grants, tenant admin given or taken (grant / ungrant), their second factor (read, or reset for a lost phone), and remove one.",
+  subcommands: [
+    add,
+    invite,
+    list,
+    get,
+    grants,
+    grant,
+    ungrant,
+    secondFactor,
+    resetSecondFactor,
+    remove,
+  ],
 };

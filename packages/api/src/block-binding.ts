@@ -5,6 +5,8 @@ import type { BlockDefinition, BlockKind } from '@kindgi/agents';
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
+import type { RegistryReadOnly } from './registry-read-only.js';
+
 /**
  * Caller-plugged surface for the data-block registry: prompts and
  * settings, versioned like tools (a head plus immutable versions, with
@@ -19,6 +21,13 @@ import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
  * Every method is tenant-scoped.
  */
 export interface BlockRegistryBinding {
+  /**
+   * Set when this registry takes no writes (under `kindgi dev`, the
+   * pack's files are the source of its blocks): every write is refused
+   * with `409 registry-read-only` and this reason, before the binding is
+   * called. See `RegistryReadOnly`.
+   */
+  readonly readOnly?: RegistryReadOnly;
   /** Each block's latest active version, by id, cursor-paginated. */
   list(input: BlockListInput): Promise<BlockPage>;
   /** A block's latest active version, or `null` (never published, or every version unregistered). */
@@ -46,8 +55,18 @@ export interface BlockRegistryBinding {
 
 /** A block version as the registry holds it. */
 export type BlockRecord = BlockDefinition & {
-  /** The project the block belongs to: its authorization comes from there. */
+  /**
+   * The project the block belongs to: its authorization comes from there.
+   * In a tenant with environment orders, a version may be made in another
+   * project of that project's order (`madeInProjectId`).
+   */
   readonly projectId: ProjectId;
+  /**
+   * The project this version was published in, when the store records it.
+   * The same as `projectId`, except in a tenant with environment orders,
+   * where a block's versions are made in the order's first environment.
+   */
+  readonly madeInProjectId?: ProjectId;
   /** ISO-8601. */
   readonly publishedAt: string;
   /** ISO-8601; present only on an unregistered version. */

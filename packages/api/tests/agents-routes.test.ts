@@ -341,6 +341,34 @@ describe('API — agents publish', () => {
     },
   );
 
+  test('autoCloseAfterInactiveSeconds → 400 at its path, saying how a conversation closes, and nothing stored', async () => {
+    const { app } = makeApp();
+    const res = await app.request('/v1/agents', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ...agentSpec(),
+        conversationPolicy: { historyLimit: 5, autoCloseAfterInactiveSeconds: 600 },
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; details?: { issues?: unknown[] } };
+    };
+    expect(body.error.code).toBe('validation-failed');
+    expect(body.error.details?.issues).toEqual([
+      {
+        path: '/conversationPolicy/autoCloseAfterInactiveSeconds',
+        message:
+          "autoCloseAfterInactiveSeconds isn't supported: a conversation never closes by itself. It closes when someone closes it: Close in the console, kindgi conversations close, or POST /v1/conversations/{id}/close. Leave it out.",
+      },
+    ]);
+    const stored = await app.request('/v1/agents/acme.drafting', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(stored.status).toBe(404);
+  });
+
   test('non-JSON body → 400 bad-input', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/agents', {
@@ -517,6 +545,94 @@ describe('API — agents versions', () => {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe('API — an agent stored with autoCloseAfterInactiveSeconds, from before it was taken out', () => {
+  test('every answer leaves it out and keeps the rest of the policy; the stored agent keeps it', async () => {
+    const { app, registry } = makeApp();
+    const d = defineAgent({
+      ...agentSpec(),
+      conversationPolicy: { historyLimit: 5, hitlAfterTurns: 3 },
+    });
+    if (d.kind === 'err') throw new Error(d.error.message);
+    const policy = { historyLimit: 5, hitlAfterTurns: 3, autoCloseAfterInactiveSeconds: 600 };
+    registry.register({ ...d.value, conversationPolicy: policy });
+    const read = async (path: string) => {
+      const res = await app.request(path, { headers: { authorization: `Bearer ${TOKEN}` } });
+      expect(res.status).toBe(200);
+      return (await res.json()) as {
+        conversationPolicy?: unknown;
+        data?: { conversationPolicy?: unknown }[];
+      };
+    };
+    const answered = { historyLimit: 5, hitlAfterTurns: 3 };
+    expect((await read('/v1/agents/acme.drafting')).conversationPolicy).toEqual(answered);
+    expect((await read('/v1/agents/acme.drafting/versions/1.0.0')).conversationPolicy).toEqual(
+      answered,
+    );
+    expect(
+      (await read('/v1/agents/acme.drafting/versions')).data?.map((a) => a.conversationPolicy),
+    ).toEqual([answered]);
+    expect((await read('/v1/agents')).data?.map((a) => a.conversationPolicy)).toEqual([answered]);
+    const kept = registry.get(d.value.id, '1.0.0');
+    expect(kept.kind === 'ok' ? kept.value.conversationPolicy : undefined).toEqual(policy);
+  });
+});
+
+describe("API — an agent's output and toolErrors in every answer", () => {
+  /**
+   * Publishes acme.drafting with `field` set to `value` and acme.plain
+   * without it, then reads each through the four answers that carry an
+   * agent: the field as published on the one, absent on the other.
+   */
+  async function answered(field: 'output' | 'toolErrors', value: unknown) {
+    const { app } = makeApp();
+    const publish = async (body: Record<string, unknown>) => {
+      const res = await app.request('/v1/agents', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(201);
+    };
+    await publish({ ...agentSpec(), [field]: value });
+    await publish(agentSpec({ id: 'acme.plain' }));
+    const read = async (path: string) => {
+      const res = await app.request(path, { headers: { authorization: `Bearer ${TOKEN}` } });
+      expect(res.status).toBe(200);
+      return (await res.json()) as Record<string, unknown> & {
+        data?: Record<string, unknown>[];
+      };
+    };
+    for (const [id, has] of [
+      ['acme.drafting', true],
+      ['acme.plain', false],
+    ] as const) {
+      const answers = [
+        await read(`/v1/agents/${id}`),
+        await read(`/v1/agents/${id}/versions/1.0.0`),
+        ...((await read(`/v1/agents/${id}/versions`)).data ?? []),
+        ...((await read('/v1/agents')).data ?? []).filter((a) => a.id === id),
+      ];
+      expect(answers).toHaveLength(4);
+      for (const a of answers) {
+        if (has) expect(a[field]).toEqual(value);
+        else expect(a).not.toHaveProperty(field);
+      }
+    }
+  }
+
+  test('output: as published when it is set, absent when it is not', async () => {
+    await answered('output', {
+      schema: { type: 'object', properties: { draft: { type: 'string' } }, required: ['draft'] },
+      name: 'draft',
+      maxRepairs: 2,
+    });
+  });
+
+  test('toolErrors: as published when it is set, absent when it is not', async () => {
+    await answered('toolErrors', { maxRetries: 3, retryOn: ['invalid-arguments', 'tool-error'] });
   });
 });
 

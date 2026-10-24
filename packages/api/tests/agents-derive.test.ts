@@ -30,6 +30,7 @@ import type {
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
+import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -44,12 +45,18 @@ const resolveToken: TokenResolver = async (token) => {
 };
 
 /**
- * The agent registry, storing what the route hands it. It records each
- * version's project unless `recordsProject` is false, and reads it back
- * on every record as a store does; it answers one version a page, so a
- * derive reads every page.
+ * The agent registry, storing what the route hands it. It records the
+ * project each version was published to unless `recordsProject` is false,
+ * and reads it back on every record as a store does: the agent's project
+ * is its first version's, and each version's `madeInProjectId` is where
+ * it was published. A version may be published to another project of the
+ * agent's project's order (`orders`), as a store allows. It answers one
+ * version a page, so a derive reads every page.
  */
-function agentBinding(recordsProject = true): AgentRegistryBinding & {
+function agentBinding(
+  recordsProject = true,
+  orders: readonly (readonly ProjectId[])[] = [],
+): AgentRegistryBinding & {
   markUnregistered: (version: string) => void;
   /** The entries each version's publish wrote. */
   written: TupleIntent[];
@@ -60,7 +67,10 @@ function agentBinding(recordsProject = true): AgentRegistryBinding & {
   const written: TupleIntent[] = [];
   const withProject = (agent: AgentVersionRecord): AgentVersionRecord => {
     const project = projects.get(agent.version as unknown as string);
-    return recordsProject && project !== undefined ? { ...agent, projectId: project } : agent;
+    const owner = projects.values().next().value;
+    return recordsProject && project !== undefined
+      ? { ...agent, projectId: owner ?? project, madeInProjectId: project }
+      : agent;
   };
   const active = (agentId: string) =>
     registry
@@ -98,9 +108,13 @@ function agentBinding(recordsProject = true): AgentRegistryBinding & {
       return at + 1 < all.length ? { data, nextCursor: String(at + 1) as never } : { data };
     },
     async publish({ agent, projectId: project, enqueueTuples }) {
-      // The agent stays in its first version's project, as a store keeps it.
+      // The agent stays in its first version's project, as a store keeps it;
+      // a version may be made in another project of that project's order.
       const owner = projects.values().next().value;
-      if (owner !== undefined && owner !== project) {
+      const sameOrder = orders.some(
+        (o) => owner !== undefined && o.includes(owner) && o.includes(project),
+      );
+      if (owner !== undefined && owner !== project && !sameOrder) {
         return {
           kind: 'project-mismatch',
           agentId: agent.id,
@@ -140,9 +154,14 @@ function decision(grants: readonly string[], action: Action, resource: ResourceR
 }
 
 async function harness(
-  opts: { recordsProject?: boolean; grants?: readonly string[]; token?: string } = {},
+  opts: {
+    recordsProject?: boolean;
+    grants?: readonly string[];
+    orders?: readonly (readonly ProjectId[])[];
+    token?: string;
+  } = {},
 ) {
-  const agents = agentBinding(opts.recordsProject);
+  const agents = agentBinding(opts.recordsProject, opts.orders);
   const blocks = inMemoryBlocks([projectId]);
   const put = (block: Parameters<BlockRegistryBinding['publish']>[0]['block']) =>
     blocks.publish({ tenantId, projectId, block });
@@ -162,6 +181,7 @@ async function harness(
     runHandler: {} as RunHandlerBinding,
     agentRegistry: agents,
     blockRegistry: blocks,
+    ...(opts.orders !== undefined && { environmentOrders: environmentOrders(opts.orders) }),
     ...(grants !== undefined && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -185,7 +205,11 @@ async function harness(
     return { status: res.status, body: (await res.json()) as Record<string, any> };
   };
   /** Publish a version of the agent straight to the store, pinned to the first block versions. */
-  const publishAgent = async (version: string, pinned = true) => {
+  const publishAgent = async (
+    version: string,
+    pinned = true,
+    extra: Record<string, unknown> = {},
+  ) => {
     const pins = {
       tools: {},
       prompts: { 'acme.intake-prompt': '1.0.0' },
@@ -203,6 +227,7 @@ async function harness(
       retrieval: [],
       guardrails: [],
       ...(pinned && { pins, pinsDigest: pinsDigest(pins) }),
+      ...extra,
     } as unknown as Agent;
     await agents.publish({ tenantId, projectId, agent, enqueueTuples: () => [] });
   };
@@ -403,6 +428,28 @@ describe('POST /v1/agents/:agentId/versions refuses', () => {
     ]);
   });
 
+  test('model settings that name the model the agent names too are refused, naming both', async () => {
+    const { call, settings, publishAgent } = await harness();
+    await publishAgent('1.0.0', true, { preferredModel: 'claude-sonnet-5-5' });
+    await settings('acme.model', '1.1.0', { model: 'claude-haiku-4-5' });
+    await settings('acme.model', '1.2.0', { temperature: 0.7 });
+    const res = await call(
+      ...derive({ from: '1.0.0', pins: { settings: { 'acme.model': '1.1.0' } } }),
+    );
+    expect(res.status).toBe(400);
+    expect(res.body.error.details.issues).toEqual([
+      {
+        path: '/pins/settings/acme.model',
+        message:
+          'block "acme.model" version 1.1.0: it sets model, and the agent version sets preferredModel: name the model in one place, the block or the agent version',
+      },
+    ]);
+    const temperature = await call(
+      ...derive({ from: '1.0.0', pins: { settings: { 'acme.model': '1.2.0' } } }),
+    );
+    expect(temperature.status).toBe(201);
+  });
+
   test('an unregistered block version, no swaps, or swaps that change nothing', async () => {
     const { call, prompt, publishAgent } = await harness();
     await publishAgent('1.0.0');
@@ -481,5 +528,102 @@ describe("POST /v1/agents/:agentId/versions: who is made the derived version's o
     const { body, owners } = await derivePrompt(ACCOUNT_TOKEN);
     expect(owners).toEqual([]);
     expect(body.derivedFrom).not.toHaveProperty('by');
+  });
+});
+
+describe('POST /v1/agents/:agentId/versions in a tenant with environment orders', () => {
+  // The agent lives in prod (`projectId`), last of the order; its new
+  // versions are made in the order's first environment.
+  const STAGING_1 = randomUUID() as ProjectId;
+  const STAGING_2 = randomUUID() as ProjectId;
+  const ORDER = [[STAGING_1, STAGING_2, projectId]] as const;
+  const swap = { from: '1.0.0', pins: { settings: { 'acme.weights': '1.1.0' } } };
+
+  test('naming a later environment is refused (409 environment-takes-promotions) and nothing is made', async () => {
+    const { call, agents, settings, publishAgent } = await harness({ orders: ORDER });
+    await publishAgent('1.0.0');
+    await settings('acme.weights', '1.1.0', { recency: 0.5 });
+    const res = await call(...derive({ ...swap, projectId: STAGING_2 }));
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('environment-takes-promotions');
+    expect(res.body.error.message).toBe(
+      "This project is a later environment of its environment order (position 1), and a later environment takes builds only by promotion from the one before it. A new version of an agent is made in the order's first environment, and reaches the later ones when a build of the agent is promoted. Nothing was made.",
+    );
+    expect(res.body.error.details).toEqual({ firstProjectId: STAGING_1, position: 1 });
+    expect(
+      await agents.getVersion({
+        tenantId,
+        agentId: 'acme.intake' as never,
+        version: '1.0.1' as never,
+      }),
+    ).toBeNull();
+  });
+
+  test("from a version in prod, it's made in the first environment and stays the agent's", async () => {
+    const { call, agents, settings, publishAgent } = await harness({ orders: ORDER });
+    await publishAgent('1.0.0');
+    await settings('acme.weights', '1.1.0', { recency: 0.5 });
+    const res = await call(...derive(swap));
+    expect(res.status).toBe(201);
+    expect(res.body.version).toBe('1.0.1');
+    expect(res.body.projectId).toBe(projectId);
+    expect(res.body).not.toHaveProperty('madeInProjectId');
+    const stored = await agents.getVersion({
+      tenantId,
+      agentId: 'acme.intake' as never,
+      version: '1.0.1' as never,
+    });
+    expect(stored?.projectId).toBe(projectId);
+    expect(stored?.madeInProjectId).toBe(STAGING_1);
+  });
+
+  test('naming the first environment makes it there', async () => {
+    const { call, agents, settings, publishAgent } = await harness({ orders: ORDER });
+    await publishAgent('1.0.0');
+    await settings('acme.weights', '1.1.0', { recency: 0.5 });
+    const res = await call(...derive({ ...swap, projectId: STAGING_1 }));
+    expect(res.status).toBe(201);
+    const stored = await agents.getVersion({
+      tenantId,
+      agentId: 'acme.intake' as never,
+      version: '1.0.1' as never,
+    });
+    expect(stored?.madeInProjectId).toBe(STAGING_1);
+  });
+
+  test('the same swap again returns the version made in the first environment (200)', async () => {
+    const { call, settings, publishAgent } = await harness({ orders: ORDER });
+    await publishAgent('1.0.0');
+    await settings('acme.weights', '1.1.0', { recency: 0.5 });
+    expect((await call(...derive(swap))).status).toBe(201);
+    const again = await call(...derive(swap));
+    expect([again.status, again.body.version]).toEqual([200, '1.0.1']);
+  });
+
+  test('an agent in no order is derived in its own project, as before', async () => {
+    const { call, agents, settings, publishAgent } = await harness({
+      orders: [[STAGING_1, STAGING_2]],
+    });
+    await publishAgent('1.0.0');
+    await settings('acme.weights', '1.1.0', { recency: 0.5 });
+    expect((await call(...derive(swap))).status).toBe(201);
+    const stored = await agents.getVersion({
+      tenantId,
+      agentId: 'acme.intake' as never,
+      version: '1.0.1' as never,
+    });
+    expect(stored?.madeInProjectId).toBe(projectId);
+  });
+
+  test('without read on the first environment, the refusal leaves it out', async () => {
+    const { call, publishAgent, settings } = await harness({
+      orders: ORDER,
+      grants: ['publish agent:acme.intake'],
+    });
+    await publishAgent('1.0.0');
+    await settings('acme.weights', '1.1.0', { recency: 0.5 });
+    const res = await call(...derive({ ...swap, projectId: STAGING_2 }));
+    expect(res.status).toBe(409);
+    expect(res.body.error.details).toEqual({ position: 1 });
   });
 });

@@ -9,20 +9,32 @@ When you finish this page, your runtime checks every request against who
 may read, write or administer each project, with OpenFGA running next to
 it.
 
-A self-hosted runtime checks one thing on each request by default: the API
-token. Whoever holds it can do anything in its tenant. **Authorization** adds a
-second check, per resource, kept in [OpenFGA](https://openfga.dev): who may
-read, write or administer each project and what's in it.
+By default, a self-hosted runtime lets in whoever holds a key or a sign-in,
+and each may work in every project. Tenant settings are the tenant admin's
+([Without authorization](../people-and-keys/#without-authorization)).
+**Authorization** adds a check per resource, kept in
+[OpenFGA](https://openfga.dev): who may read, write or administer each
+project and what's in it.
+
+:::note[On Kindgi Cloud]
+Authorization is always on, and Kindgi runs OpenFGA. Skip
+[Before you start](#before-you-start) and
+[Run OpenFGA next to the runtime](#run-openfga-next-to-the-runtime), and the
+runtime's `KINDGI_*` settings: they're Kindgi's.
+:::
 
 ## What it gives, and what it doesn't
 
-Authorization is for several people and teams sharing one deployment:
+Authorization is for people and teams who share one deployment but need
+different access:
 
-- **People and service accounts, each with their own keys.** A tenant admin
-  adds people, who [sign in to the console](../sign-in/) and make their own
-  API keys, and service accounts for pipelines and apps
-  ([People, API keys and service accounts](../people-and-keys/)). The
-  runtime's seed user (`KINDGI_SEED_USER_ID`) is the first tenant admin.
+- **Roles for people and service accounts.** People
+  [sign in to the console](../self-hosted/sign-in/) and make their own API
+  keys either way, and service accounts act for pipelines and apps
+  ([People, API keys and service accounts](../people-and-keys/)). With
+  authorization, a tenant admin gives each a role, and can make others
+  tenant admins. The runtime's seed user (`KINDGI_SEED_USER_ID`) is the
+  first.
 - **Every request is checked** against what its caller may do: tenant admin,
   tenant member, a role on a project, or a reviewer role. Lists hold only
   what the caller may read.
@@ -35,13 +47,15 @@ Authorization is for several people and teams sharing one deployment:
 - **A team can have a role on a project** through the API
   ([Team grants](#team-grants)). The console doesn't offer it.
 
-**Turn it on** when more than one person or system uses a deployment.
-**Leave it off** if one operator is all you need: you'd run OpenFGA for
-little else. `kindgi dev` runs without it.
+**Turn it on** when people need different access, such as a viewer or a
+project of their own, or when more than one person needs to be a tenant
+admin. A runtime serving many tenants needs it. **Leave it off** when
+everyone who signs in may work in every project, such as one operator or a
+small team that trusts each other. `kindgi dev` runs without it.
 
 ## Before you start
 
-- **A runtime set up as in [Self-host Kindgi](../self-host/),** with its
+- **A runtime set up as in [Self-host Kindgi](../self-hosted/self-host/),** with its
   `kindgi` Docker network and its `kindgi-db` Postgres container.
   `DB_PASSWORD` is that Postgres's password.
 - **Runtime 0.1.4.1 or later.** On a managed Postgres whose database user
@@ -56,7 +70,7 @@ OpenFGA security advisories affect that version
 ([OpenFGA: security advisories](https://github.com/openfga/openfga/security/advisories)).
 OpenFGA keeps its data in Postgres:
 give it its own database on the runtime's server. These commands continue
-[Self-host Kindgi](../self-host/) (the `kindgi` network and the `kindgi-db`
+[Self-host Kindgi](../self-hosted/self-host/) (the `kindgi` network and the `kindgi-db`
 container):
 
 ```sh
@@ -86,12 +100,18 @@ migration done
   runs it in the background, and `--restart unless-stopped` has Docker
   start it again after a restart.
 
+These commands reach Postgres over the `kindgi` network, which doesn't
+leave the machine, so the URI turns TLS off (`sslmode=disable`). When
+OpenFGA reaches its database over another network, have it check the
+server's certificate
+([OpenFGA's connection to the database](../self-hosted/database-tls/#openfgas-connection-to-the-database)).
+
 Keep OpenFGA on the private network, with no published port: the runtime
 calls it without credentials unless OpenFGA requires a key
 ([Require a key for OpenFGA](#require-a-key-for-openfga), which needs runtime
 0.1.8 or later).
 The playground is off: it's for trying OpenFGA on your own machine. Back up its `openfga` database with the
-runtime's ([Back up Postgres](../back-up-and-restore/#back-up-postgres)).
+runtime's ([Back up Postgres](../self-hosted/back-up-and-restore/#back-up-postgres)).
 
 ### An OpenFGA you already run
 
@@ -119,7 +139,7 @@ connections are set with `OPENFGA_DATASTORE_MIN_IDLE_CONNS` instead
 ### Point the runtime at it
 
 Set OpenFGA's address in `kindgi.env`, and
-[restart](../restart-and-check-health/#restart-the-runtime) the runtime:
+[restart](../self-hosted/restart-and-check-health/#restart-the-runtime) the runtime:
 
 ```sh
 KINDGI_OPENFGA_API_URL=http://kindgi-openfga:8080
@@ -134,7 +154,7 @@ log says so:
 ```
 
 After an upgrade, a start that brings the store up to the new version's model
-logs one line for it ([Operate](../operate/#from-013-to-014) has the line).
+logs one line for it ([Operate](../self-hosted/operate/#from-013-to-014) has the line).
 
 :::caution[Keep the seed user]
 With authorization on, keep the seed user the same. Set `KINDGI_SEED_USER_ID`,
@@ -148,16 +168,16 @@ the keys minted for them. A runtime started with a new token and no
 
 **When OpenFGA is unreachable,** requests that need a check answer `500
 internal-server-error` with `Unhandled server error` and the request id
-(runtime 0.1.8.1 or later; earlier ones answer with the cause itself). The
+(runtime 0.1.9 or later; earlier ones answer with the cause itself). The
 runtime's `unhandled error` log line for that request id has the cause,
-`FGA Error: connect ECONNREFUSED …` ([Logs](../logs/)). They work again
+`FGA Error: connect ECONNREFUSED …` ([Logs](../self-hosted/logs/)). They work again
 once it's back.
 
 **When the database fails one tenant's permission changes:** the runtime
 sends permission changes to OpenFGA from a queue in Postgres, about twice a
 second: a grant, a revoke, a new project or a new agent. When it can't read
 or update one tenant's part of that queue, it logs an error
-([Logs](../logs/)). Here, with the database out of reach:
+([Logs](../self-hosted/logs/)). Here, with the database out of reach:
 
 ```json
 {"time":"2026-10-12T06:21:01.457Z","level":"error","severity":"ERROR","subsystem":"authz.outbox","message":"drain: a tenant failed","tenantId":"0b6a3f2e-6c1d-4a8e-9f4b-2d7c5e1a9b30","error":"Tenant-scoped query failed: connection refused (connect ECONNREFUSED …)"}
@@ -206,7 +226,7 @@ KINDGI_OPENFGA_PRESHARED_KEY=<the same key>
 
 The key is printable ASCII, without spaces or commas: it travels in a header,
 and OpenFGA's list of keys is comma-separated. After a
-[restart](../restart-and-check-health/#restart-the-runtime), the startup lines say what the
+[restart](../self-hosted/restart-and-check-health/#restart-the-runtime), the startup lines say what the
 runtime's calls carry, never the key:
 
 ```text
@@ -229,7 +249,7 @@ restart each in turn:
 3. Drop the old key from OpenFGA's list. Restart OpenFGA.
 
 On Cloud Run, OpenFGA's IAM adds a second check:
-[OpenFGA behind Cloud Run IAM](../cloud-run/#openfga-behind-cloud-run-iam).
+[OpenFGA behind Cloud Run IAM](../self-hosted/cloud-run/#openfga-behind-cloud-run-iam).
 
 ## A denied request
 
@@ -293,7 +313,7 @@ Adding, changing or removing a membership changes OpenFGA too:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/memberships" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{"userId":"<user-id>","role":"editor"}'
 ```
 
@@ -368,7 +388,7 @@ team never owns a project: `owner` is a person's role.
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/team-grants" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{"teamId":"<team-id>","role":"editor"}'
 ```
 
@@ -541,8 +561,10 @@ refused:
 - the operator's identity-provider lock (`identity-providers-operator-managed`);
 - reading the deployment's license (`GET /v1/license`) or its use
   (`GET /v1/license/usage`) without its own token or a system key holding
-  `system:license`, unless you're an admin of the one tenant it serves
-  reading the license (`license-operator-only`);
+  `system:license`, unless you're an admin of its one tenant reading the
+  license, where it's set up to serve one tenant (without
+  `KINDGI_TENANCY=multi`) and its database holds only that one
+  (`license-operator-only`);
 - console token sign-in's refusals (`token-sign-in-not-allowed`,
   `token-sign-in-off`);
 - a stdio MCP endpoint where the deployment runs no commands
@@ -570,6 +592,6 @@ and the check it asked OpenFGA, which is the evidence.
 
 - [People, API keys and service accounts](../people-and-keys/): add the
   people and accounts that authorization checks.
-- [Turn on sign-in](../sign-in/): how people sign in to the console.
-- [Back up and restore the runtime's database](../back-up-and-restore/):
+- [Turn on sign-in](../self-hosted/sign-in/): how people sign in to the console.
+- [Back up and restore the runtime's database](../self-hosted/back-up-and-restore/):
   back up OpenFGA's database with the runtime's.

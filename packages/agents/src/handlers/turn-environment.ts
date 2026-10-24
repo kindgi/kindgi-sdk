@@ -146,12 +146,7 @@ export async function resolveTurnEnvironment(
     providers: ctx.bindings.providerRegistry.list(ctx.input.tenantId),
     ...setupFailuresOf(ctx.bindings.providerRegistry, ctx.input.tenantId),
     ...(routingPolicy !== undefined && { tenantPolicy: routingPolicy }),
-    ...(ctx.input.agent.preferredProvider !== undefined && {
-      preferredProvider: ctx.input.agent.preferredProvider,
-    }),
-    ...(ctx.input.agent.preferredModel !== undefined && {
-      preferredModel: ctx.input.agent.preferredModel,
-    }),
+    ...modelPreferenceOf(ctx),
   });
   if (routed.kind === 'err') {
     throwAgentTurnFailure({
@@ -173,6 +168,26 @@ export async function resolveTurnEnvironment(
       [...ctx.tools.byName].map(([id, binding]) => [id, binding.resolvedVersion]),
     ),
     ...(blocks !== undefined && { blockVersions: blocks.versions }),
+  };
+}
+
+/**
+ * The model the turn prefers, for `route`: its model-settings block's
+ * (`providerId`, `model`) when the block names one, else the agent
+ * version's (`preferredProvider`, `preferredModel`). Publishing refuses
+ * a version that names it in both (`modelNamedTwice`).
+ */
+function modelPreferenceOf(
+  ctx: TurnContext,
+): Pick<RouteInput, 'preferredProvider' | 'preferredModel'> {
+  const settings = ctx.blocks?.modelSettings;
+  const named =
+    settings?.providerId !== undefined || settings?.model !== undefined
+      ? { provider: settings.providerId, model: settings.model }
+      : { provider: ctx.input.agent.preferredProvider, model: ctx.input.agent.preferredModel };
+  return {
+    ...(named.provider !== undefined && { preferredProvider: named.provider }),
+    ...(named.model !== undefined && { preferredModel: named.model }),
   };
 }
 

@@ -30,7 +30,8 @@ That includes internal systems your own employees use.
 
 `kindgi dev` runs the runtime in development mode, with `KINDGI_DEV=true`.
 Development mode needs no license key, so everything you build and test on
-your machine is free.
+your machine is free. Preview releases still stop starting after 90 days,
+in development mode too ([below](#preview-releases-stop-starting-after-90-days)).
 
 :::note[Access to the runtime image]
 Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
@@ -81,8 +82,9 @@ way, with its own message.
 ## When a key expires
 
 - **From 30 days before** the expiry date, the banner warns that the key
-  expires soon, and says how to renew it. A tenant admin also sees a line on
-  every console page.
+  expires soon, and says how to renew it. Where the deployment is set up to
+  serve one tenant (without `KINDGI_TENANCY=multi`) and its database holds
+  only that one, that tenant's admins also see a line on every console page.
 - **After it expires,** the runtime still starts for 14 days, with a warning
   that says until when.
 - **After those 14 days,** it refuses to start, naming the date the key
@@ -100,33 +102,32 @@ To renew a production key, which goes with your contract, write to
 contact@kindgi.com. A non-production key from access.kindgi.com renews when
 you sign in there again. When access.kindgi.com has it turned on, a
 deployment can also renew its key itself, by hand or on a schedule. See
-[Renew the license key](../../deploy/renew-the-license-key/).
+[Renew the license key](../../deploy/self-hosted/renew-the-license-key/).
 
 ## Preview releases stop starting after 90 days
 
-Until Kindgi 1.0, each runtime release stops starting 90 days after it was
-released. That holds in every mode, development mode included. A setup that
-upgrades with each release never meets it.
+Each runtime release is a preview release: it stops starting 90 days after
+it was released. That holds in every mode, development mode included. A
+setup that upgrades with each release never meets it.
 
-- **From 30 days before,** the startup banner warns, and so do the console
-  (for a tenant admin) and `kindgi dev`.
+- **From 30 days before,** the startup banner warns, and so does
+  `kindgi dev`. So does the console, for the same tenant admins as a key's
+  expiry ([above](#when-a-key-expires)).
 - **From that day on,** the runtime refuses to start, with exit code 2. In
   development mode it says:
 
   ```text
-  This preview build of the Kindgi runtime (0.1.0-preview.3, released 2026-07-01) expired on 2026-09-29: until Kindgi 1.0, a release stops starting 90 days after it was released. Run a newer release. With `kindgi dev`, update the Kindgi CLI (`@kindgi/cli`, or `kindgi-cli` from PyPI): it runs the runtime release the CLI pins.
+  This preview build of the Kindgi runtime (0.1.0-preview.3, released 2026-07-01) expired on 2026-09-29: a preview release stops starting 90 days after it was released. Run a newer release. With `kindgi dev`, update the Kindgi CLI (`@kindgi/cli`, or `kindgi-cli` from PyPI): it runs the runtime release the CLI pins.
   ```
 
   Outside development mode it ends "Run a newer release, or start this one
   with a production license key: contact@kindgi.com."
 - **A running server never stops,** as with a key. But a platform that
   restarts instances on its own (Cloud Run, Container Apps) doesn't bring
-  one back after that day. **Upgrade at least every 90 days** while Kindgi is
-  in preview.
+  one back after that day. **Upgrade at least every 90 days.**
 - **A production key exempts** the build.
 - **`GET /v1/license` reports it** as `preview`: the version, when it was
   released, the day it stops starting, and the days left.
 - **For a log alert:** in the JSON log format, the warning is also a record
   with `"event": "kindgi.preview_expiry"`. It's logged at startup and once a
   day while the server runs, and once more when the runtime refuses to start.
-- **From 1.0 on,** releases don't expire.

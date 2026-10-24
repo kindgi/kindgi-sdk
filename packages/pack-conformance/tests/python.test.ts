@@ -34,8 +34,6 @@ if (python === undefined) {
     name: 'python',
     packDir,
     command: [python, '-m', 'kindgi.pack', 'serve'],
-    // The declared process env lands in the Python pack service separately.
-    unsupported: ['pack-env'],
     async buildIndex(outputPath, pins) {
       const { stdout } = await run(python, [
         '-m',

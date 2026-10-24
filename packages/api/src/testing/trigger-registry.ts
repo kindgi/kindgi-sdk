@@ -112,6 +112,7 @@ export function createInMemoryTriggerRegistry(
             startingDeadlineSeconds:
               input.startingDeadlineSeconds ?? SCHEDULE_DEFAULTS.startingDeadlineSeconds,
             nextFireAt: null,
+            ...toolsAllowed(input.toolsAllowedUnattended),
           }),
         };
       }
@@ -136,6 +137,7 @@ export function createInMemoryTriggerRegistry(
         ...(input.deliveryIdHeader !== undefined && { deliveryIdHeader: input.deliveryIdHeader }),
         bodyLimitBytes: input.bodyLimitBytes ?? WEBHOOK_BODY_LIMITS.defaultBytes,
         rateLimitPerMinute: input.rateLimitPerMinute ?? WEBHOOK_RATE_LIMITS.defaultPerMinute,
+        ...toolsAllowed(input.toolsAllowedUnattended),
       };
       return { kind: 'ok', value: save(webhook) };
     },
@@ -151,7 +153,7 @@ export function createInMemoryTriggerRegistry(
         return {
           kind: 'ok',
           value: save({
-            ...row,
+            ...withToolsAllowed(row, input.toolsAllowedUnattended),
             ...common,
             config: { ...row.config, ...input.config },
             ...(input.target !== undefined && { target: input.target }),
@@ -164,9 +166,10 @@ export function createInMemoryTriggerRegistry(
         };
       }
       if (row.kind === 'webhook' && input.kind === 'webhook') {
-        const { deliveryIdHeader: _, ...kept } = row;
+        const listed = withToolsAllowed(row, input.toolsAllowedUnattended);
+        const { deliveryIdHeader: _, ...kept } = listed;
         const next: WebhookTriggerRecord = {
-          ...(input.deliveryIdHeader === null ? kept : row),
+          ...(input.deliveryIdHeader === null ? kept : listed),
           ...common,
           config: { ...row.config, ...input.config },
           ...(input.flowVersion !== undefined && { flowVersion: input.flowVersion }),
@@ -368,4 +371,21 @@ export function createInMemoryTriggerRegistry(
   }
 
   return registry;
+}
+
+/** A record's `toolsAllowedUnattended`: only when it lists any (absent is none). */
+function toolsAllowed(tools: readonly string[] | undefined): {
+  toolsAllowedUnattended?: readonly string[];
+} {
+  return tools !== undefined && tools.length > 0 ? { toolsAllowedUnattended: [...tools] } : {};
+}
+
+/** `row` with its list replaced by `tools` (`[]` clears it), or as it is when `tools` is absent. */
+function withToolsAllowed<T extends { readonly toolsAllowedUnattended?: readonly string[] }>(
+  row: T,
+  tools: readonly string[] | undefined,
+): T {
+  if (tools === undefined) return row;
+  const { toolsAllowedUnattended: _, ...rest } = row;
+  return { ...rest, ...toolsAllowed(tools) } as T;
 }

@@ -17,7 +17,10 @@ them. To set an endpoint up, follow
 | `approval.requested` | an approval starts waiting for a reviewer | `data.approval` |
 
 An endpoint gets the events its `events` list names. `parseEvent` in
-TypeScript and `parse_event` in Python read each of them.
+TypeScript and Java, and `parse_event` in Python, read each of them. An event
+type the client doesn't know yet — a newer runtime's — is rejected in
+TypeScript and Python, and reads as a `WebhookEvent.Unrecognized` in Java;
+either way, answer 2xx and move on.
 
 ## `run.finished`
 
@@ -162,8 +165,8 @@ To email the reviewers themselves instead, see
 ## Delivery
 
 - **A delivery succeeds on a 2xx answer.** Any other answer, or none, is
-  retried with backoff: a minute later, then five minutes later, then
-  longer.
+  retried with backoff: about a minute later, then about five minutes
+  later, then longer.
 - **A delivery is at least once.** The same event can arrive twice, so
   deduplicate on `webhook-id`.
 - **Outside development, every attempt checks the receiver's address
