@@ -1047,6 +1047,34 @@ describe('kindgi deploy — dry-run + safety gates', () => {
     expect(fixtures.state.postCalls).toBe(0);
   });
 
+  test('unsigned envelope + --dry-run: its warning shows under --quiet too', async () => {
+    const unsigned = makeEnvelope();
+    (unsigned as Record<string, unknown>).signature = undefined;
+    (unsigned as Record<string, unknown>).signerKeyId = undefined;
+    (unsigned as Record<string, unknown>).signerPublicKey = undefined;
+    await writeAutoEnvelope();
+    const dir = join(packDir, '.kindgi', 'build');
+    await writeFile(join(dir, 'deploy-envelope.json'), JSON.stringify(unsigned, null, 2), 'utf8');
+    for (const quiet of [false, true]) {
+      const fixtures = makeFixtures({ envelope: unsigned });
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        argv: [
+          'deploy',
+          '--env=staging',
+          '--dry-run',
+          `--path=${packDir}`,
+          ...(quiet ? ['--quiet'] : []),
+        ],
+      });
+      expect(fixtures.state.postCalls).toBe(0);
+      expect(out.stderr).toContain(
+        '  ⚠ Envelope is unsigned — --dry-run is proceeding for inspection only.\n',
+      );
+      expect(out.stderr.includes('Environment:')).toBe(!quiet);
+    }
+  });
+
   test('--tenant mismatch with envelope → refuses to POST', async () => {
     await writeAutoEnvelope();
     const fixtures = makeFixtures();
@@ -1089,7 +1117,8 @@ describe('kindgi deploy — its lines, as they come', () => {
     expect(JSON.parse(out.stdout)).toEqual(JSON.parse(kept.stdout));
   });
 
-  test.each([
+  /** A deploy that fails: refused by the server, or before it is sent. */
+  const failures = [
     {
       failure: 'the server refuses the deployment',
       envelope: makeEnvelope(),
@@ -1102,6 +1131,7 @@ describe('kindgi deploy — its lines, as they come', () => {
         },
       } as const,
       error: 'The request body is over the limit of 2097152 bytes',
+      starts: '  Registering deployment\n    ✗ POST /v1/deployments  →  HTTP 413\n',
     },
     {
       failure: 'the envelope is unsigned',
@@ -1112,22 +1142,64 @@ describe('kindgi deploy — its lines, as they come', () => {
       }),
       postResult: undefined,
       error: 'deploy-envelope.json is unsigned. The server will refuse the deployment.\n',
+      starts: 'deploy-envelope.json is unsigned.',
     },
-  ])('when $failure, the error comes after the lines before it, streamed or kept', async (c) => {
+  ];
+
+  test.each(failures)(
+    'when $failure, the error comes after the lines before it, streamed or kept',
+    async (c) => {
+      await writeAutoEnvelope();
+      const { kept, streamed, out } = await keptAndStreamed(
+        () =>
+          makeFixtures({
+            envelope: c.envelope,
+            ...(c.postResult !== undefined && { postResult: c.postResult }),
+          }),
+        ['deploy', '--env=staging', `--path=${packDir}`],
+      );
+      expect(kept.exitCode).toBe(1);
+      expect(out.exitCode).toBe(1);
+      expect(kept.stderr.startsWith('\n  Environment: staging\n')).toBe(true);
+      expect(kept.stderr.indexOf(c.error)).toBeGreaterThan(kept.stderr.indexOf('  Idempotency:'));
+      expect(`${streamed}${out.stderr}`).toBe(kept.stderr);
+    },
+  );
+
+  test('--quiet: nothing, streamed or kept, and it still deploys', async () => {
     await writeAutoEnvelope();
-    const { kept, streamed, out } = await keptAndStreamed(
+    const made: Fixtures[] = [];
+    const { kept, writes, out } = await keptAndStreamed(() => {
+      const fixtures = makeFixtures();
+      made.push(fixtures);
+      return fixtures;
+    }, ['deploy', '--env=staging', `--path=${packDir}`, '--quiet']);
+    for (const run of [kept, out]) {
+      expect(run.exitCode, run.stderr).toBe(0);
+      expect(run.stdout).toBe('');
+      expect(run.stderr).toBe('');
+    }
+    expect(writes).toEqual([]);
+    expect(made.map((f) => f.state.postCalls)).toEqual([1, 1]);
+  });
+
+  test.each(failures)('--quiet: when $failure, its error alone, streamed or kept', async (c) => {
+    await writeAutoEnvelope();
+    const { kept, writes, out } = await keptAndStreamed(
       () =>
         makeFixtures({
           envelope: c.envelope,
           ...(c.postResult !== undefined && { postResult: c.postResult }),
         }),
-      ['deploy', '--env=staging', `--path=${packDir}`],
+      ['deploy', '--env=staging', `--path=${packDir}`, '--quiet'],
     );
+    expect(writes).toEqual([]);
     expect(kept.exitCode).toBe(1);
     expect(out.exitCode).toBe(1);
-    expect(kept.stderr.startsWith('\n  Environment: staging\n')).toBe(true);
-    expect(kept.stderr.indexOf(c.error)).toBeGreaterThan(kept.stderr.indexOf('  Idempotency:'));
-    expect(`${streamed}${out.stderr}`).toBe(kept.stderr);
+    expect(out.stderr).toBe(kept.stderr);
+    expect(kept.stderr.startsWith(c.starts)).toBe(true);
+    expect(kept.stderr).toContain(c.error);
+    expect(kept.stderr).not.toContain('Environment:');
   });
 });
 
@@ -1231,6 +1303,23 @@ describe('kindgi deploy — secrets sync', () => {
     expect(fixtures.state.capturedSync?.body.secrets).toHaveLength(3);
   });
 
+  test('--quiet: secret-shaped keys are warned about all the same', async () => {
+    await writeAutoEnvelope();
+    await writeFile(join(packDir, '.env.staging'), 'STRIPE_KEY=pk_live_x\nHARMLESS=ok\n', 'utf8');
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', '--sync-secrets', `--path=${packDir}`, '--quiet'],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.syncCalls).toBe(1);
+    expect(out.stderr).toBe(
+      '  ! secret-shaped keys detected in .env.staging: STRIPE_KEY\n' +
+        '    Keep secrets out of .env files: store them with `kindgi secrets`.\n' +
+        '    Consider: kindgi secrets set --env=staging <name> <value>\n\n',
+    );
+  });
+
   test('--sync-secrets reads values the way the app does (quotes, comments) and never sends KINDGI_*', async () => {
     await writeAutoEnvelope();
     await writeFile(
@@ -1292,6 +1381,47 @@ describe('kindgi deploy — secrets sync', () => {
     expect(out.stderr).toContain('403 permission-denied');
     expect(out.stderr).toContain('The deployment landed OK');
   });
+
+  test.each([
+    {
+      failure: 'the server refuses it',
+      syncResult: {
+        kind: 'wire-error',
+        status: 403,
+        error: { code: 'permission-denied', message: 'missing secrets:write' },
+      } as const,
+      said: '    ✗ 403 permission-denied: missing secrets:write\n',
+    },
+    {
+      failure: 'it never reaches the server',
+      syncResult: { kind: 'transport-error', message: 'connect ECONNREFUSED' } as const,
+      said: '    ✗ transport error: connect ECONNREFUSED\n',
+    },
+  ])(
+    'a sync that fails ($failure) is an error: said under --quiet too, and the exit code stays 0',
+    async (c) => {
+      const failed = `${c.said}      The deployment landed OK; only the secret sync failed. Retry with\n      \`kindgi deploy --sync-secrets\` (idempotent).\n\n`;
+      for (const quiet of [false, true]) {
+        await writeAutoEnvelope();
+        await writeFile(join(packDir, '.env.staging'), 'FOO=bar\n', 'utf8');
+        const fixtures = makeFixtures({ syncResult: c.syncResult });
+        const out = await runCli({
+          ...baseInputs(fixtures),
+          argv: [
+            'deploy',
+            '--env=staging',
+            '--sync-secrets',
+            `--path=${packDir}`,
+            ...(quiet ? ['--quiet'] : []),
+          ],
+        });
+        expect(out.exitCode, out.stderr).toBe(0);
+        expect(fixtures.state.syncCalls).toBe(1);
+        expect(out.stdout === '').toBe(quiet);
+        expect(quiet ? out.stderr : out.stderr.slice(out.stderr.indexOf('    ✗'))).toBe(failed);
+      }
+    },
+  );
 });
 
 describe('kindgi deploy — envelope validation', () => {
@@ -1399,6 +1529,63 @@ describe("kindgi deploy — the pack service's env (preflight)", () => {
     });
     expect(out.exitCode).toBe(0);
     expect(out.stderr).not.toContain("The pack service's env");
+  });
+
+  test.each([
+    {
+      refusal: 'a required name without a value',
+      stagingEnv: { LOG_LEVEL: 'info' },
+      flags: [],
+      error:
+        'kindgi deploy: DATABASE_URL is required by the pack and has no value in environments.staging.env',
+    },
+    {
+      refusal: 'a secret in the clear',
+      stagingEnv: { DATABASE_URL: 'postgres://app:s3cret@db/app' },
+      flags: ['--allow-missing-env'],
+      error:
+        "kindgi deploy: the pack service's env for staging gives a secret in the clear or is malformed (above).",
+    },
+  ])('--quiet: $refusal says the plan, then the error, and nothing else', async (c) => {
+    await writeAutoEnvelope();
+    const fixtures = created();
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, withEnv(c.stagingEnv)),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, ...c.flags, '--quiet'],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(fixtures.state.postCalls).toBe(0);
+    expect(out.stderr.startsWith("  The pack service's env in staging:\n")).toBe(true);
+    expect(out.stderr).toContain(`\n\n${c.error}`);
+    expect(out.stderr).not.toContain('Environment:');
+    expect(out.stderr).not.toContain('s3cret');
+  });
+
+  test('--quiet: a plan that deploys says its warnings alone, --allow-missing-env among them', async () => {
+    const warnings =
+      "  ⚠ environments.staging.env.EXTRA isn't declared in env.required or env.optional, so it isn't injected\n\n" +
+      '  ⚠ --allow-missing-env: deploying without DATABASE_URL\n\n';
+    for (const quiet of [false, true]) {
+      await writeAutoEnvelope();
+      const fixtures = created();
+      const out = await runCli({
+        ...baseInputs(fixtures, {}, withEnv({ EXTRA: 'x' })),
+        argv: [
+          'deploy',
+          '--env=staging',
+          '--allow-missing-env',
+          `--path=${packDir}`,
+          ...(quiet ? ['--quiet'] : []),
+        ],
+      });
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(fixtures.state.postCalls).toBe(1);
+      if (quiet) expect(out.stderr).toBe(warnings);
+      else {
+        expect(out.stderr).toContain("  The pack service's env in staging:\n");
+        expect(out.stderr).toContain(warnings);
+      }
+    }
   });
 });
 
@@ -1717,6 +1904,25 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain(
       "The deployment's pack service was taken down (cleared). deploymentId dep-01H8XM.",
+    );
+  });
+
+  test('--quiet: a wait that ends ready says nothing; one that fails says its error alone', async () => {
+    await writeAutoEnvelope();
+    const waits = hostedFixtures(pending(), [pending('capacity-unavailable'), ready]);
+    const fine = await deploy(waits.fixtures, '--hosted', '--quiet');
+    expect(fine.exitCode, fine.stderr).toBe(0);
+    expect(waits.readIds).toHaveLength(2);
+    expect(fine.stdout).toBe('');
+    expect(fine.stderr).toBe('');
+    const failed = await deploy(
+      hostedFixtures(pending(), [cleared]).fixtures,
+      '--hosted',
+      '--quiet',
+    );
+    expect(failed.exitCode).toBe(1);
+    expect(failed.stderr).toBe(
+      "The deployment's pack service was taken down (cleared). deploymentId dep-01H8XM.\n",
     );
   });
 

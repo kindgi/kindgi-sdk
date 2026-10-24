@@ -739,8 +739,9 @@ deployment. The envelope is `--from-envelope`, else
   a hosted pack service included. The inline `kindgi build`'s lines go out
   between deploy's, as `kindgi build` prints them. A deploy that fails
   keeps those lines, with the error after them. The summary goes to stdout
-  at the end. `--quiet` leaves out the inline build's lines only: deploy's
-  own still show, since a refused deployment's error is among them.
+  at the end. `--quiet` keeps errors only, as for `kindgi dev`: a refused
+  deployment's, and a secret sync that failed (the exit code stays 0: the
+  deployment is in place).
 
 ## `kindgi env`
 
@@ -1013,7 +1014,7 @@ to a mirror instead and checks for the same image there.
 | `--json` | Pretty JSON on stdout (the default), for `jq`. |
 | `--raw` | One-line JSON. |
 | `--table` | A table for list responses (`runs list`, `tools list`, `providers list`; JSON where a list has no columns). |
-| `--quiet` | Nothing on stdout; the exit code only. |
+| `--quiet` | Nothing on stdout, and errors only on stderr: the exit code reports the result. |
 | `--url=<url>`, `--token=<token>` | The API and its token (see above). |
 | `--hosted` | Go to the CLI's own address, never a `kindgi dev` runtime's `.kindgirc.json` (see above). `kindgi build` and `kindgi deploy` then use the hosted build service. `kindgi dev` refuses it. |
 | `--verbose`, `-v` | Full errors: stack traces and the API's error bodies. |
