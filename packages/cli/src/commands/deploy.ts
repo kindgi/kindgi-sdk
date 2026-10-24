@@ -812,6 +812,8 @@ async function runInlineBuild(
   // A hosted build runs at the API this deploy goes to: the build resolves
   // the same address, with the same key, from the same config.
   const buildCtx: CommandContext = { ...ctx, options: buildOptions };
+  // Its lines come back with the result (runBuild's default), as before:
+  // they aren't streamed, even though `ctx.progress` is set.
   const result = await runBuild(buildCtx);
   if (result.kind === 'error') {
     return {

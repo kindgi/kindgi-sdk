@@ -35,6 +35,7 @@ import type { LicenseCommandDeps } from './license/renew.js';
 import type { OpenUrl } from './open-url.js';
 import { loadPackConfig } from './pack-config.js';
 import { type CommandParse, GLOBAL_OPTION_SPEC, parseCommand } from './parse.js';
+import { progressAfterHead } from './progress-head.js';
 import type { RateLimitWaitSeam } from './rate-limit-wait.js';
 import type { TestRunners } from './test/runners.js';
 import { CLI_VERSION } from './version-info.js';
@@ -63,6 +64,13 @@ export interface RunCliInputs {
    * `AbortController.signal`.
    */
   readonly stopSignal?: AbortSignal;
+  /**
+   * Where a command says how it's going while it runs (`kindgi build`'s
+   * lines, `CommandContext.progress`): the `cli.js` bin writes it to
+   * stderr as it comes. Without it (tests), those lines come in the
+   * outcome's stderr.
+   */
+  readonly progress?: (text: string) => void;
   /**
    * Injectable seams used exclusively by `kindgi build` — the local
    * indexer, esbuild bundler, Containerfile writer, tar producer, POST
@@ -280,6 +288,9 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
   const hint = devRuntimeHint(label, scope.config);
   let hinted = false;
   const lead = (): string => (hinted && hint !== undefined ? hint : '');
+  // A command's progress lines go out as they come, the first after what
+  // main says first: the dev runtime's line and the pin's.
+  const stream = progressAfterHead(inputs.progress, lead, () => before);
   const ctx = buildContext({
     globals: parsed.globals,
     positionals: parsed.positionals,
@@ -303,6 +314,7 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     ...(inputs.env !== undefined ? { env: inputs.env } : {}),
     ...(devRunners !== undefined ? { devRunners } : {}),
     ...(inputs.stopSignal !== undefined ? { stopSignal: inputs.stopSignal } : {}),
+    progress: stream.progress,
     ...(buildRunners !== undefined ? { buildRunners } : {}),
     ...(inputs.buildConfigLoader !== undefined
       ? { buildConfigLoader: inputs.buildConfigLoader }
@@ -335,14 +347,22 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     if (result.kind === 'ok') {
       return {
         stdout: result.rendered.stdout,
-        stderr: `${lead()}${before}${result.rendered.stderr}`,
+        stderr: `${stream.unsaid(before)}${result.rendered.stderr}`,
         exitCode: result.exitCode ?? 0,
       };
     }
-    return { stdout: '', stderr: `${lead()}${before}${result.stderr}`, exitCode: result.exitCode };
+    return {
+      stdout: '',
+      stderr: `${stream.unsaid(before)}${result.stderr}`,
+      exitCode: result.exitCode,
+    };
   } catch (err) {
     const formatted = formatThrown(err, { commandLabel: label, verbose: parsed.globals.verbose });
-    return { stdout: '', stderr: `${lead()}${formatted.stderr}`, exitCode: formatted.exitCode };
+    return {
+      stdout: '',
+      stderr: `${stream.unsaid('')}${formatted.stderr}`,
+      exitCode: formatted.exitCode,
+    };
   }
 }
 

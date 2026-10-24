@@ -102,6 +102,13 @@ export interface CommandContext {
    */
   readonly stopSignal: AbortSignal | undefined;
   /**
+   * Where a command says how it's going while it runs (`kindgi build`'s
+   * lines): the CLI's stderr, each line as it comes (`cli.ts`). Undefined
+   * when `runCli` is given none (tests): the command then returns those
+   * lines with its result.
+   */
+  readonly progress: ((text: string) => void) | undefined;
+  /**
    * Injectable build-pipeline seams used exclusively by `kindgi
    * build`. Absent for every other command. Tests hand
    * in fixture implementations so the pipeline exercises without
@@ -222,6 +229,7 @@ export interface BuildContextInputs {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly devRunners?: DevRunners;
   readonly stopSignal?: AbortSignal;
+  readonly progress?: ((text: string) => void) | undefined;
   readonly buildRunners?: BuildRunners;
   readonly buildConfigLoader?: (packDir: string) => Promise<{ readonly [k: string]: unknown }>;
   readonly deployRunners?: DeployRunners;
@@ -283,6 +291,7 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     env: inputs.env ?? {},
     devRunners: inputs.devRunners,
     stopSignal: inputs.stopSignal,
+    progress: inputs.progress,
     buildRunners: inputs.buildRunners,
     buildConfigLoader: inputs.buildConfigLoader,
     deployRunners: inputs.deployRunners,
