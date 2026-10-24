@@ -49,9 +49,10 @@ case "$*" in
   "artifacts docker images list"*) printf '%s\n' "${STUB_TAGS:-}"; exit 0 ;;
   "sql instances describe"*)
     name="$4"
-    jq -n --arg n "$name" --arg v "${STUB_DB_VERSION:-POSTGRES_16}" --argjson pub "${STUB_DB_PUBLIC:-true}" '{
+    jq -n --arg n "$name" --arg v "${STUB_DB_VERSION:-POSTGRES_16}" --argjson pub "${STUB_DB_PUBLIC:-true}" \
+      --arg sa "${STUB_SQL_SA-p-sql@demo-proj.iam.gserviceaccount.com}" '{
       name: $n, connectionName: ("demo-proj:northamerica-northeast2:" + $n),
-      serviceAccountEmailAddress: "p-sql@demo-proj.iam.gserviceaccount.com",
+      serviceAccountEmailAddress: (if $sa == "" then null else $sa end),
       databaseVersion: $v, settings: {ipConfiguration: {ipv4Enabled: $pub}}}'
     exit 0 ;;
   "run jobs create"*) printf '%s\n' "$*" >>"${STUB_JOBS_LOG:-/dev/null}"; exit "${STUB_JOB_CREATE_RC:-0}" ;;
@@ -139,7 +140,7 @@ fail() { FAIL=$((FAIL + 1)); printf '  FAIL: %s\n' "$*"; }
 # A fresh case directory, var-file and markers. $1 = a pack_image line to add.
 reset_env() {
   unset STUB_TAGS STUB_DB_VERSION STUB_DB_PUBLIC STUB_JOB_CREATE_RC STUB_CHECK_RC \
-        STUB_EXPORT_RC STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC STUB_INSPECT_ERR \
+        STUB_EXPORT_RC STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC STUB_INSPECT_ERR STUB_SQL_SA \
         V_NET V_HOST V_TENANCY V_PACK V_AAD V_PREFIX V_DBI
   CASE_DIR="$(mktemp -d "$TMP/case.XXXXXX")"
   OUT="$CASE_DIR/out.txt"
@@ -460,9 +461,9 @@ assert_absent "$STUB_MARKER_MIRROR" "mirror"
 
 # 27. A dry run: the reads and the read-only checks, every change a real run
 # would make with the names it would use, the steps to confirm by hand, and a
-# read-only plan for the new image. Nothing is mirrored, run, granted,
-# exported, built or applied; the var-file and docker's config are untouched;
-# no state lock is taken and no state is written.
+# read-only plan for the new image. Nothing is mirrored, granted, exported,
+# built or applied, and no job is run; the var-file and docker's config are
+# untouched; no state lock is taken and no state is written.
 case_start "dry run"
 reset_env "$OLD_PACK"; export STUB_TAGS="0.1.10"; V_PACK="$OLD_PACK"
 PACK_DIR="$CASE_DIR/pack"; mkdir -p "$PACK_DIR"
@@ -470,6 +471,7 @@ run "yes" --pack-dir "$PACK_DIR" --dry-run
 assert_rc 0 "a dry run exits 0"
 assert_out "DRY RUN. It reads only"
 assert_file_has "$STUB_CALLS_LOG" "docker buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.1.11 " "the release digest is read"
+assert_file_has "$OUT" "2. add gcloud as the credential helper for northamerica-northeast2-docker.pkg.dev in your docker config" "the docker config"
 assert_file_has "$OUT" "add the image tag $REPO/runtime:0.1.11 to Artifact Registry" "the mirror"
 assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-pk  (check provider-keys)" "the provider-keys job"
 assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-ss  (check secret-scopes)" "the secret-scopes job"
@@ -484,7 +486,7 @@ assert_file_has "$OUT" "wait for the new revision of kindgi-server" "the wait"
 assert_out "Nothing to do by hand"
 assert_out "dry run done. Nothing was changed"
 if grep -q "Apply this plan" "$OUT"; then fail "a dry run asked for yes"; else pass; fi
-assert_file_has "$STUB_PLAN_SAW" "plan got -var" "the plan is given the new image"
+assert_file_has "$STUB_CALLS_LOG" "terraform plan -var-file=$VAR_FILE -var server_image=$NEW_IMAGE -lock=false" "the plan is given the new image"
 assert_reads_only
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_absent "$STUB_JOBS_LOG" "a check job"
@@ -516,6 +518,28 @@ assert_out "4. nothing: no pack service"
 assert_out "upgrade (dry run): terraform plan failed"
 assert_reads_only
 assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_varfile_unchanged
+
+# 30. A dry run with a pack service and no --pack-dir: the pack stays as it is.
+case_start "dry run, a pack service without --pack-dir"
+reset_env "$OLD_PACK"; export STUB_TAGS="0.1.10"; V_PACK="$OLD_PACK"
+run "yes" --dry-run
+assert_rc 0 "a dry run exits 0"
+assert_out "4. nothing: without --pack-dir the pack image stays as it is"
+if grep -q "pack_image is unchanged in this plan" "$OUT"; then fail "a pack note without --pack-dir"; else pass; fi
+assert_reads_only
+assert_varfile_unchanged
+
+# 31. A dry run stops where a real run would stop at the backup: the SQL
+# instance has no service account to grant. It lists nothing.
+case_start "dry run, no SQL service account"
+reset_env; export STUB_TAGS="0.1.10" STUB_SQL_SA=""
+run "yes" --dry-run
+assert_rc 1 "no service account stops the dry run"
+assert_out "upgrade (dry run): couldn't read instance kindgi's service account"
+if grep -q "What a real run would change" "$OUT"; then fail "the changes were listed without a service account"; else pass; fi
+assert_absent "$STUB_PLAN_SAW" "a plan"
+assert_reads_only
 assert_varfile_unchanged
 
 # --- summary ----------------------------------------------------------------

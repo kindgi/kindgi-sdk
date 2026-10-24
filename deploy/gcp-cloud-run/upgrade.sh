@@ -298,7 +298,7 @@ trap cleanup EXIT
 # come from `terraform console`, which evaluates them without reading state.
 
 if [[ $DRY_RUN == true ]]; then
-  printf '%s\n' "upgrade: DRY RUN. It reads only: nothing is mirrored, run, granted, exported, built, written or applied."
+  printf '%s\n' "upgrade: DRY RUN. It reads only: nothing is mirrored, granted, exported, built, written or applied, and no job is run."
 fi
 
 step "Reading the deployment"
@@ -495,6 +495,7 @@ fi
 # 2d. Steps that need an operator's eye or the app's source, printed, not
 # run; then what doesn't apply here. A dry run prints them too.
 print_by_hand_steps() {
+  local r
   step "Steps to confirm by hand (per release crossed)"
   for r in "${CROSSED[@]}"; do
     case "$r" in
@@ -529,8 +530,8 @@ EOT
         cat <<'EOT'
   0.1.11:
    - Nothing to do by hand. The runtime image now comes from
-     registry.kindgi.com, with your license key as the password; this run
-     copied it from there.
+     registry.kindgi.com, with your license key as the password; this
+     script copies it from there.
 EOT
         ;;
     esac
@@ -552,6 +553,8 @@ if [[ $DRY_RUN == true ]]; then
   if [[ $REBUILD_PACK == true ]]; then require_cmd kindgi; fi
 
   step "What a real run would change, in order"
+  info "2. add gcloud as the credential helper for ${REGION}-docker.pkg.dev in your docker config"
+  info "   (gcloud auth configure-docker; no change if it's there already)"
   info "2. add the image tag ${IMAGE_REPOSITORY}/runtime:${TARGET} to Artifact Registry"
   info "   (a copy of ${RUNTIME_REPO}:${TARGET}@${RUNTIME_DIGEST}; it serves nothing until step 5)"
   info "2. create, run and then delete ${#CHECKS[@]} Cloud Run jobs with the new image, one per check:"
