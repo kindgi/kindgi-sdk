@@ -71,8 +71,9 @@ resource "google_sql_database_instance" "kindgi" {
 # for a rotation, one rotated out), read at each plan, so a CA added before
 # a rotation reaches the server at the next apply. Private-IP mode serves
 # from the module's own instance alone: database_instance and
-# database_host_instance are reached through /cloudsql (services.tf's
-# checks), so with either set there's no instance here to read.
+# database_host_instance are reached through /cloudsql, and services.tf
+# refuses either with private-IP mode. With database_host_instance set
+# there's no instance here to read.
 data "google_sql_ca_certs" "kindgi" {
   count    = local.database_private ? length(google_sql_database_instance.kindgi) : 0
   instance = google_sql_database_instance.kindgi[count.index].name
