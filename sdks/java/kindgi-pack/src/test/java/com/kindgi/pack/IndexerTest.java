@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.kindgi.pack.internal.CanonicalJson;
 import com.kindgi.pack.internal.Json;
+import com.kindgi.pack.internal.Specs;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -91,6 +92,34 @@ class IndexerTest {
     byte[] first = Files.readAllBytes(out.resolve("good.json"));
     value(index("good"));
     assertThat(Files.readAllBytes(out.resolve("good.json"))).isEqualTo(first);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void aDeclarativeHttpToolIndexesItsSpecIntoAValidIndex() throws Exception {
+    // A tool built with .http() has no handler of its own; the indexer reads it like any tool and
+    // carries its spec, and the index still satisfies the pack-index schema every SDK produces.
+    Map<String, Object> report = value(index("http"));
+    assertThat(report.get("fileErrors")).isEqualTo(List.of());
+    assertThat(report.get("counts")).isEqualTo(Map.of("tools", 1, "guardrails", 0, "agents", 0, "flows", 0));
+
+    String text = Files.readString(out.resolve("http.json"), StandardCharsets.UTF_8);
+    Map<String, Object> index = (Map<String, Object>) Json.parse(text.getBytes(StandardCharsets.UTF_8));
+    List<Map<String, Object>> tools = (List<Map<String, Object>>) index.get("tools");
+    assertThat(tools).singleElement().satisfies(t -> {
+      assertThat(t).containsEntry("id", "acme.lookup").containsEntry("mutating", false)
+          .containsEntry("modulePath", "src/main/java/com/kindgi/pack/testpacks/httptool/tools/Lookup.java");
+      assertThat((Map<String, Object>) t.get("spec"))
+          .containsEntry("kind", "http")
+          .containsEntry("method", "GET")
+          .containsEntry("urlTemplate", "https://cases.example.com/{court}/{docket}")
+          .containsEntry("authorization", Map.of("kind", "bearer",
+              "secretRef", Map.of("envName", "production", "name", "ACME_TOKEN")))
+          .containsEntry("successStatus", Map.of("min", 200, "max", 299));
+    });
+
+    List<Map<String, Object>> issues = Specs.validator("pack-index").issues(index);
+    assertThat(issues).as(String.valueOf(issues)).isEmpty();
   }
 
   @Test

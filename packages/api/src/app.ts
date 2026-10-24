@@ -2045,6 +2045,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // webhook receiver is outside the bearer chain (`/v1/hooks`, below).
   if (input.triggerRegistry !== undefined) {
     const kinds = new Set<TriggerKind>(input.triggerKinds ?? TRIGGER_KINDS);
+    // Where a trigger's `toolsAllowedUnattended` is checked against what
+    // its target calls (`routes/trigger-tools.ts`).
+    const targetTools = {
+      ...(input.agentRegistry !== undefined && { agents: input.agentRegistry }),
+      ...(input.flowRegistry !== undefined && { flows: input.flowRegistry }),
+    };
     if (kinds.has('cron')) {
       v1.route(
         '/schedules',
@@ -2061,6 +2067,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           input.referenceScope,
           input.auditEvents,
           itemRights,
+          targetTools,
         ),
       );
     }
@@ -2088,6 +2095,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           providerKeys,
           ...(itemRights !== undefined && { itemRights }),
           ...(receiveUrl !== undefined && { receiveUrl }),
+          targetTools,
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
         }),
       );

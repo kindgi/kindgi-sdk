@@ -165,7 +165,9 @@ type EmitAuditEventArgs = Parameters<typeof emitAuditEvent>[0];
  * Records a trigger's owner being set: a schedule or webhook created to run
  * as a service account, and every take-over. `from` is absent on a register
  * (no prior owner), present on a take-over (a plain caller one included).
- * The one place the `trigger-owner-set` evidence is shaped.
+ * A take-over keeps the trigger's `toolsAllowedUnattended`, so the entry
+ * names it when it lists any: what the new owner's runs may call without
+ * a person's yes. The one place the `trigger-owner-set` evidence is shaped.
  */
 export async function recordOwnerSet(args: {
   readonly auditEvents: EmitAuditEventArgs['auditEvents'];
@@ -178,6 +180,8 @@ export async function recordOwnerSet(args: {
   readonly by: string | undefined;
   readonly correlationId: string;
   readonly log: EmitAuditEventArgs['log'];
+  /** The trigger's `toolsAllowedUnattended`, kept through the change. */
+  readonly toolsAllowedUnattended?: readonly string[];
 }): Promise<void> {
   const {
     auditEvents,
@@ -190,6 +194,7 @@ export async function recordOwnerSet(args: {
     by,
     correlationId,
     log,
+    toolsAllowedUnattended,
   } = args;
   await emitAuditEvent({
     auditEvents,
@@ -204,6 +209,10 @@ export async function recordOwnerSet(args: {
       ...(from !== undefined && { from: ownerKey(from) }),
       to: ownerKey(to),
       ...(by !== undefined && { by }),
+      ...(toolsAllowedUnattended !== undefined &&
+        toolsAllowedUnattended.length > 0 && {
+          toolsAllowedUnattended: [...toolsAllowedUnattended],
+        }),
     },
     ...(log !== undefined && { log }),
   });

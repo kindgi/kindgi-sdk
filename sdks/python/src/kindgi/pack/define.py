@@ -117,7 +117,9 @@ class Tool(Generic[P, R]):
     needs_approval_when_unattended: bool | None = None
     """`True`: each call waits for a person's approval in a run no person started (a webhook, a
     schedule, an event, or a service account's key); a flow's tool step that calls it is refused.
-    A run a person starts is unaffected. `None` (the default) means `False`."""
+    A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project
+    admin's to set) lifts that, in its own runs only. A run a person starts is unaffected.
+    `None` (the default) means `False`."""
     needs: Sequence[Mapping[str, Any]] | None = None
     needs_spec: Mapping[str, Any] | None = None
     sandbox: str | None = None

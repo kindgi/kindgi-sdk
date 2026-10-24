@@ -224,6 +224,28 @@ export function listFlag(ctx: CommandContext, name: string): string[] {
   return values.filter((v): v is string => typeof v === 'string' && v !== '');
 }
 
+/**
+ * `--allow-unattended=<tool-id>` (repeatable) as a webhook's or a schedule's
+ * `toolsAllowedUnattended`: the tools whose calls in its runs needn't wait
+ * for a person's yes. On update, `none` clears the list; left out, the body
+ * doesn't name it, so the trigger keeps its list.
+ */
+export function allowUnattendedField(
+  ctx: CommandContext,
+  on: 'register' | 'update',
+): { toolsAllowedUnattended?: string[] } {
+  const ids = listFlag(ctx, 'allow-unattended');
+  if (ids.length === 0) return {};
+  if (!ids.includes('none')) return { toolsAllowedUnattended: ids };
+  if (on === 'register') {
+    throw new UsageError('--allow-unattended=none clears the list on update: leave it out here');
+  }
+  if (ids.length > 1) {
+    throw new UsageError('--allow-unattended=none clears the list: not with tool ids');
+  }
+  return { toolsAllowedUnattended: [] };
+}
+
 /** Extract an optional integer flag; throws on non-integer values. */
 export function integerFlag(ctx: CommandContext, name: string): number | undefined {
   const raw = ctx.options[name];
