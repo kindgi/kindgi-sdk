@@ -305,7 +305,12 @@ nothing. Access is decided after the provider signs them in:
    such as gmail.com, keep every way in.
 4. **That email belongs to someone already added to a workspace** this
    runtime serves, and not removed. In several workspaces, they choose one.
-   In none, they're refused with `not-invited`.
+   In none, they're refused with `not-invited`, or with `invite-expired`
+   where their [invitation](../../people-and-keys/#their-invitation) to one
+   expired before they first signed in. That refusal is audited, and stands
+   until an admin of that workspace sends the invitation again:
+
+   ![The console's sign-in page: Your invitation has expired. An invitation is open for 7 days. Ask an admin of the workspace to send it again, then sign in. Detail: invite-expired.](../../../../assets/sso/sign-in-invite-expired.png)
 5. **The first sign-in links the provider account to the person.** A
    different account with the same email is refused afterwards, with
    `account-mismatch`. So an address that later moves to someone else can't
@@ -367,7 +372,12 @@ If you didn't ask to sign in, ignore this email: nobody can sign in without the 
 ```
 
 The page always answers the same, for any email, so it can't be used to
-find out who has an account. The limits:
+find out who has an account. No link goes to someone whose
+[invitation](../../people-and-keys/#their-invitation) expired, and a link
+opened after it expired is refused as a stranger's is, with `not-invited`.
+The workspace's audit still records each as a sign-in refused for
+`invite-expired`.
+The limits:
 
 - An address gets at most one link a minute, and three per 15 minutes.
 - A backstop of 20 a day per address and client network
