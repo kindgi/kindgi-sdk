@@ -102,7 +102,7 @@ uvx --from "kindgi-cli>=0.2,<0.3" kindgi doctor
 ```
 
 - `uvx` runs a command from a PyPI package without installing it.
-- `--from` names the package that has the `kindgi` command, here any 0.1
+- `--from` names the package that has the `kindgi` command, here any 0.2
   release of `kindgi-cli`, the line these docs describe. The range is
   optional: `uvx --from kindgi-cli kindgi doctor` runs the newest release,
   which may be on a later line than these docs.
