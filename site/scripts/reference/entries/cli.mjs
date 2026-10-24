@@ -2172,6 +2172,10 @@ export const CLI_EXAMPLES = {
       purpose: "Register the company's GitHub App.",
       line: 'kindgi connection-apps add github --github-app-id=<n> --slug=<slug> --client-id=<client-id> --client-secret-ref=production/ACME_GITHUB_CLIENT_SECRET --private-key-ref=production/ACME_GITHUB_PRIVATE_KEY --webhook-secret-ref=production/ACME_GITHUB_WEBHOOK_SECRET',
     },
+    {
+      purpose: "Register the company's LinkedIn app.",
+      line: 'kindgi connection-apps add linkedin --client-id=<client-id> --client-secret-ref=production/ACME_LINKEDIN_CONNECT_SECRET',
+    },
   ],
   'connection-apps remove': [
     {

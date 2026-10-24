@@ -146,7 +146,7 @@ const list: LeafCommand = {
     },
     app: {
       type: 'string',
-      description: "Only this app's, by its entry id: `google`, `microsoft`, `github`.",
+      description: "Only this app's, by its entry id: `google`, `microsoft`, `github`, `linkedin`.",
     },
     mine: { type: 'boolean', description: 'Only your own, even as a tenant admin.' },
     'include-removed': {
