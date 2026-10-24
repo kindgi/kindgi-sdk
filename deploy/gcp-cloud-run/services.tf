@@ -97,6 +97,13 @@ resource "google_cloud_run_v2_service" "pack" {
           cpu    = "1"
           memory = "1Gi"
         }
+        # CPU only while a call runs: the service does no work between
+        # calls, so the instance pack_min_instances keeps up bills at the
+        # idle rate. Named because with limits set, Cloud Run otherwise
+        # keeps CPU allocated. The boost shortens the start, which imports
+        # every module before it listens.
+        cpu_idle          = true
+        startup_cpu_boost = true
       }
 
       env {

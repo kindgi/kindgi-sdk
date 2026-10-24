@@ -482,6 +482,23 @@ run "with_a_pack_image_the_server_calls_the_one_pack_service" {
   }
 }
 
+run "the_pack_service_has_cpu_only_during_calls" {
+  command = plan
+
+  assert {
+    condition     = google_cloud_run_v2_service.pack[0].template[0].containers[0].resources[0].cpu_idle == true
+    error_message = "The pack service gets CPU only while a call runs, so its idle instance bills at the idle rate."
+  }
+  assert {
+    condition     = google_cloud_run_v2_service.pack[0].template[0].containers[0].resources[0].startup_cpu_boost == true
+    error_message = "The pack service starts with boosted CPU."
+  }
+  assert {
+    condition     = google_cloud_run_v2_service.server.template[0].containers[0].resources[0].cpu_idle == false
+    error_message = "The server keeps its CPU between requests: a run started with wait:false keeps executing after its 202."
+  }
+}
+
 run "single_needs_the_seed_tenant" {
   command = plan
   variables {
