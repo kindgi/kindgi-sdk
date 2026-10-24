@@ -1,5 +1,41 @@
 # @kindgi/agents
 
+## 0.2.0
+
+### Patch Changes
+
+- bf30268: **A block registry can be read-only, as the agent, tool, flow and guardrail registries can.** `BlockRegistryBinding` gains an optional `readOnly` (`RegistryReadOnly`): while it's set, `POST /v1/blocks` and a version's `unregister` and `reinstate` are refused with `409 registry-read-only` and its reason, before the binding is called, and so is a deployment that brings blocks, before anything is written. Reads go on as before. Under `kindgi dev`, a runtime that serves the pack's blocks from its files sets it, so a publish there says to change the block's file instead.
+  
+  **A turn's block miss can say where blocks come from.** `BlockReader` gains an optional `missNote`, added to the `block-unresolvable` message when no version satisfies a range. Under `kindgi dev`, a runtime that reads blocks from the pack's files uses it to say to add the block under the pack's blocks folder.
+  
+  **A block a turn can't load answers 422, not 500.** `block-unresolvable` (no version of a data block in the agent's range, a pinned version that's gone, the wrong kind, or no blocks on the runtime) now answers `422`, as `tool-version-unresolvable` does; it answered `500`, as if the server had failed. The error reference lists it. The TypeScript and Python clients still raise it as a `ServerError` with its `code`, as for every `422`.
+- bf30268: **An improvement pass can try a cheaper model or another temperature, and keeps one only when the decisions stay right.** A model-settings block may now name the model the turn prefers, `model` and `providerId`, used instead of the agent's `preferredModel` and `preferredProvider`. An agent version that names its model in both is refused at publish and at deploy, and so is a version derived to pin such a block. A pass now tunes the model-settings block's keys marked `x-kindgi-tunable` like any settings block's, within the bounds model settings allow. It tries `model` and `providerId` only when the agent names no model itself. A change to that block is kept only when no correction the current version passes fails, with at least one checked. It's kept when it's better, or when it's no worse than the current version replayed on the same cases and costs less, beyond the spread. A proposal's `evaluation` gains `rule` (`better` or `cheaper`), `costUsd` and `decisions`. A proposal kept as `cheaper` reads `evaluated`, so `evaluated` doesn't always mean better. A judged comparison's summary gains `costUsd` and `corrections.judgments`, and each case result gains `costUsd`, one per repetition. A pass's reported cost now counts its hold-out runs: the comparison that proves its best change, and the current version's replays there. They run after the search, so they can take a pass past `--max-cost`, and a schedule's monthly cap can be reached sooner. This holds for every pass, not only one over the model settings. A test set's hold-out split now puts cases that carry a correction in both parts when there are two or more.
+- 119ac78: **A webhook trigger or a schedule can name tools its runs call without waiting for a person's yes (`toolsAllowedUnattended`).** A tool that declares `needsApprovalWhenUnattended` waits for a person's yes in a run no person started. A trigger's list lifts that wait for the tools it names, and only that: the tenant's approval rules, the agent's own, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+  - **Where:** `POST` and `PATCH` on `/v1/webhooks` and `/v1/schedules` take it, and their records show it (absent: none). `POST /v1/runs` never takes it. A take-over (`/owner`) keeps it and refuses a body that names it (`400 bad-input`).
+  - **Who:** naming it, `[]` included, takes `admin` on the trigger's project, at register too.
+  - **What:** each tool by its id: at most 100, no wildcard or pattern, each once. Each must be a tool the target calls, else `400 bad-input` naming it. For a flow, that's its tool steps, loop bodies, fan-out branches, its subflows' tools, and its agents' tools at the node's version, the flow's pin or the latest. An improvement schedule calls no tools, so its list can only be `[]`.
+  - **A new target:** a schedule `PATCH` to another flow or agent while its list isn't empty must name the list again, as it is or `[]`, else `400 bad-input` naming the kept ids. A new version alone keeps it. A webhook trigger's new `flowVersion` keeps it, and naming it checks it against that version.
+  - **Audit:** every change is recorded as `trigger-tools-allowed-unattended-set` (the trigger, its target, `from`, `to`, `by`), and `trigger-owner-set` names the list a take-over keeps.
+  - **Runs:** a run's `toolsAllowedUnattended` is its trigger's list as it was when the run started. A child run has its parent's, and a resumed agent turn keeps its run's, never the resumer's.
+  - **For runtimes:** `@kindgi/runtime` exports `needsPersonsYesUnattended(tool, startedBy, toolsAllowedUnattended)`, the one rule the agent's tool gate and a flow's tool steps share. The field is on `RunFlowInput`, `StartRunParams`, the run record, and the trigger registry's register and update inputs and its records. It's also on `InvokeAgentInput`, the run snapshot, and the API's `InvokeAgentBindingInput` and `InvokeFlowBindingInput`, which a webhook's or a schedule's fire sets from its trigger.
+- Updated dependencies [e019e64]
+- Updated dependencies [119ac78]
+  - @kindgi/compliance@0.2.0
+  - @kindgi/runtime@0.2.0
+  - @kindgi/capabilities@0.2.0
+  - @kindgi/flow@0.2.0
+  - @kindgi/guardrails@0.2.0
+  - @kindgi/provenance@0.2.0
+  - @kindgi/schema@0.2.0
+  - @kindgi/tools@0.2.0
+  - @kindgi/authz@0.2.0
+  - @kindgi/bounds@0.2.0
+  - @kindgi/embedding@0.2.0
+  - @kindgi/handler@0.2.0
+  - @kindgi/memory@0.2.0
+  - @kindgi/policy-contract@0.2.0
+  - @kindgi/types@0.2.0
+
 ## 0.1.10
 
 ### Patch Changes

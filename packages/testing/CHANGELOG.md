@@ -1,5 +1,26 @@
 # @kindgi/testing
 
+## 0.2.0
+
+### Patch Changes
+
+- Updated dependencies [bf30268]
+- Updated dependencies [19b0a86]
+- Updated dependencies [6fc48e9]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [98104be]
+- Updated dependencies [e019e64]
+- Updated dependencies [119ac78]
+  - @kindgi/api@0.2.0
+
 ## 0.1.10
 
 ### Patch Changes
