@@ -69,6 +69,7 @@ import {
 import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import type { OptionValue } from '../parse.js';
+import { progressLines } from '../progress-lines.js';
 import { PROJECT_ID_RE } from '../project-ref.js';
 import { type RateLimitRefusal, isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
 import { SLUG } from '../slug.js';
@@ -261,10 +262,22 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   if (parsed.kind === 'error') return parsed;
   const args = parsed.args;
 
-  const banner: string[] = [];
-  const line = (s: string): void => {
-    banner.push(s);
-  };
+  // Deploy's lines, its inline build's among them: each to stderr as it
+  // comes when the CLI streams them, else kept for the result. A failure's
+  // error comes after them either way. `--quiet` leaves out the build's
+  // lines only: a refused deployment's error is among deploy's own.
+  const out = progressLines(ctx.progress, false);
+  const result = await deployWith(ctx, runners, args, out.line);
+  if (result.kind === 'error') return { ...result, stderr: `${out.kept()}${result.stderr}` };
+  return { ...result, rendered: { ...result.rendered, stderr: out.kept() } };
+}
+
+async function deployWith(
+  ctx: CommandContext,
+  runners: DeployRunners,
+  args: ResolvedDeployArgs,
+  line: (s: string) => void,
+): Promise<CommandResult> {
   line('');
   line(`  Environment: ${args.envName}`);
   line(`  API:         ${args.endpoint}`);
@@ -459,7 +472,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
     const rendered = renderJson(summary, ctx.globals.format);
     return {
       kind: 'ok',
-      rendered: { stdout: rendered.stdout, stderr: `${banner.join('\n')}\n` },
+      rendered: { stdout: rendered.stdout, stderr: '' },
     };
   }
 
@@ -501,7 +514,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   if (rendered.exitCode !== 0) {
     return {
       kind: 'error',
-      stderr: `${banner.join('\n')}\n`,
+      stderr: '',
       exitCode: rendered.exitCode,
     };
   }
@@ -538,7 +551,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   if (args.hosted && deployedRecord !== null && deployedRecord.endpoint !== undefined) {
     const waited = await waitForPackService(ctx, args, runners, deployedRecord, line, project.id);
     if (waited.kind === 'error') {
-      return { kind: 'error', stderr: `${banner.join('\n')}\n${waited.message}`, exitCode: 1 };
+      return { kind: 'error', stderr: waited.message, exitCode: 1 };
     }
     packService = waited.endpoint;
   }
@@ -553,7 +566,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   );
   return {
     kind: 'ok',
-    rendered: { stdout: jsonOut.stdout, stderr: `${banner.join('\n')}\n` },
+    rendered: { stdout: jsonOut.stdout, stderr: '' },
   };
 }
 
@@ -748,8 +761,8 @@ async function ensureEnvelopeExists(
 
   // Auto-detect path is missing → run build inline.
   line(`  Envelope missing — running \`kindgi build --env=${args.envName}\` inline...`);
-  line('');
   if (runners.runBuild !== undefined) {
+    line('');
     const buildArgv = buildInlineArgv(ctx, args, projectId);
     const outcome: RunBuildResult = await runners.runBuild({
       buildArgv,
@@ -784,12 +797,8 @@ async function ensureEnvelopeExists(
   // No inline runner available — invoke the same-package `runBuild`
   // directly. This is the production path when
   // `deployRunners.runBuild` is omitted (see `deploy/defaults.ts`).
-  const built = await runInlineBuild(ctx, args, projectId);
+  const built = await runInlineBuild(ctx, args, projectId, line);
   if (built.kind === 'error') return built;
-  if (built.banner.length > 0) {
-    line(built.banner);
-    line('');
-  }
   return { kind: 'ok' };
 }
 
@@ -798,23 +807,31 @@ async function ensureEnvelopeExists(
  * `CommandContext` (buildRunners, buildConfigLoader, env, cwd, etc.)
  * but with an argument set derived from the deploy invocation. We
  * clone the context with `options` replaced so the build command sees
- * only build-relevant flags.
+ * only build-relevant flags. Its lines go out with deploy's (`line`), in
+ * order.
  */
 async function runInlineBuild(
   ctx: CommandContext,
   args: ResolvedDeployArgs,
   projectId: string | undefined,
+  line: (s: string) => void,
 ): Promise<
-  | { readonly kind: 'ok'; readonly banner: string }
+  | { readonly kind: 'ok' }
   | { readonly kind: 'error'; readonly stderr: string; readonly exitCode: number }
 > {
   const buildOptions = buildInlineOptions(ctx, args, projectId);
   // A hosted build runs at the API this deploy goes to: the build resolves
   // the same address, with the same key, from the same config.
   const buildCtx: CommandContext = { ...ctx, options: buildOptions };
-  // Its lines come back with the result (runBuild's default), as before:
-  // they aren't streamed, even though `ctx.progress` is set.
-  const result = await runBuild(buildCtx);
+  // `--quiet` leaves them out, as for `kindgi build`. None are kept here:
+  // deploy's own `line` streams or keeps them.
+  const quiet = ctx.globals.format === 'quiet';
+  const result = await runBuild(buildCtx, {
+    line: (s) => {
+      if (!quiet) line(s);
+    },
+    kept: () => '',
+  });
   if (result.kind === 'error') {
     return {
       kind: 'error',
@@ -831,10 +848,7 @@ async function runInlineBuild(
       exitCode: 1,
     };
   }
-  return {
-    kind: 'ok',
-    banner: result.rendered.stderr.trim(),
-  };
+  return { kind: 'ok' };
 }
 
 function buildInlineOptions(

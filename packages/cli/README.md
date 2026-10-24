@@ -735,6 +735,12 @@ deployment. The envelope is `--from-envelope`, else
 - **Errors** carry a hint for the common ones: `signature-invalid`,
   `signer-not-trusted`, `image-unverifiable`,
   `deployment-validation-failed`.
+- **What it prints:** each line goes to stderr as it happens, the wait for
+  a hosted pack service included. The inline `kindgi build`'s lines go out
+  between deploy's, as `kindgi build` prints them. A deploy that fails
+  keeps those lines, with the error after them. The summary goes to stdout
+  at the end. `--quiet` leaves out the inline build's lines only: deploy's
+  own still show, since a refused deployment's error is among them.
 
 ## `kindgi env`
 

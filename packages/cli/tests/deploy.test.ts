@@ -1060,6 +1060,77 @@ describe('kindgi deploy — dry-run + safety gates', () => {
   });
 });
 
+describe('kindgi deploy — its lines, as they come', () => {
+  /** The same deploy twice: its lines kept for the outcome, then streamed. */
+  async function keptAndStreamed(fixtures: () => Fixtures, argv: readonly string[]) {
+    const kept = await runCli({ ...baseInputs(fixtures()), argv: [...argv] });
+    const streamed: string[] = [];
+    const out = await runCli({
+      ...baseInputs(fixtures(), { progress: (text) => streamed.push(text) }),
+      argv: [...argv],
+    });
+    return { kept, streamed: streamed.join(''), writes: streamed, out };
+  }
+
+  test('streamed, the same text, one line per write, and the outcome leaves it out', async () => {
+    await writeAutoEnvelope();
+    const { kept, streamed, writes, out } = await keptAndStreamed(
+      () => makeFixtures(),
+      ['deploy', '--env=staging', `--path=${packDir}`],
+    );
+    expect(kept.exitCode, kept.stderr).toBe(0);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(writes.every((text) => text.endsWith('\n') && !text.slice(0, -1).includes('\n'))).toBe(
+      true,
+    );
+    expect(streamed).toBe(kept.stderr);
+    expect(streamed).toContain('201 Created');
+    expect(out.stderr).toBe('');
+    expect(JSON.parse(out.stdout)).toEqual(JSON.parse(kept.stdout));
+  });
+
+  test.each([
+    {
+      failure: 'the server refuses the deployment',
+      envelope: makeEnvelope(),
+      postResult: {
+        kind: 'wire-error',
+        status: 413,
+        error: {
+          code: 'request-too-large',
+          message: 'The request body is over the limit of 2097152 bytes',
+        },
+      } as const,
+      error: 'The request body is over the limit of 2097152 bytes',
+    },
+    {
+      failure: 'the envelope is unsigned',
+      envelope: makeEnvelope({
+        signature: undefined,
+        signerKeyId: undefined,
+        signerPublicKey: undefined,
+      }),
+      postResult: undefined,
+      error: 'deploy-envelope.json is unsigned. The server will refuse the deployment.\n',
+    },
+  ])('when $failure, the error comes after the lines before it, streamed or kept', async (c) => {
+    await writeAutoEnvelope();
+    const { kept, streamed, out } = await keptAndStreamed(
+      () =>
+        makeFixtures({
+          envelope: c.envelope,
+          ...(c.postResult !== undefined && { postResult: c.postResult }),
+        }),
+      ['deploy', '--env=staging', `--path=${packDir}`],
+    );
+    expect(kept.exitCode).toBe(1);
+    expect(out.exitCode).toBe(1);
+    expect(kept.stderr.startsWith('\n  Environment: staging\n')).toBe(true);
+    expect(kept.stderr.indexOf(c.error)).toBeGreaterThan(kept.stderr.indexOf('  Idempotency:'));
+    expect(`${streamed}${out.stderr}`).toBe(kept.stderr);
+  });
+});
+
 describe('kindgi deploy — secrets sync', () => {
   test('.env.<envName> present, --sync-secrets NOT passed → informational hint only, no sync fired', async () => {
     await writeAutoEnvelope();
@@ -1547,6 +1618,38 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
     const out = await deploy(run.fixtures, '--hosted', `--project=${PROJECT}`);
     expect(out.exitCode, out.stderr).toBe(0);
     expect(out.stderr).toContain(`    … pending (${problem}): ${why}`);
+  });
+
+  test('streamed, each state goes out when it is seen, not at the end', async () => {
+    await writeAutoEnvelope();
+    const run = hostedFixtures(pending(), [pending(), pending('capacity-unavailable'), ready]);
+    const streamed: string[] = [];
+    const atRead: string[] = [];
+    const { getDeployment } = run.fixtures.runners;
+    if (getDeployment === undefined) throw new Error('hostedFixtures reads the deployment');
+    const runners: DeployRunners = {
+      ...run.fixtures.runners,
+      getDeployment: async (o) => {
+        atRead.push(streamed.join(''));
+        return getDeployment(o);
+      },
+    };
+    const out = await runCli({
+      ...baseInputs(
+        { ...run.fixtures, runners },
+        { env: signedIn, progress: (text) => streamed.push(text) },
+        cloud(),
+      ),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, '--hosted', `--project=${PROJECT}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(atRead).toHaveLength(3);
+    expect(atRead[0]).toContain('201 Created');
+    expect(atRead[0]).toContain('Waiting for the pack service\n');
+    expect(atRead[2]).toContain('    … pending (capacity-unavailable)');
+    expect(atRead[2]).not.toContain('✓ ready');
+    expect(streamed.join('')).toContain('    ✓ ready\n');
+    expect(out.stderr).toBe('');
   });
 
   test("the env block's `build: 'hosted'` waits too; without either, nothing waits", async () => {
