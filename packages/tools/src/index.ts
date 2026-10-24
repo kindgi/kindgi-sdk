@@ -24,6 +24,7 @@ export type { ToolSpecSynthesizer, ToolSpecSynthesizerOptions } from './spec-reg
 export { invokeTool } from './invoke.js';
 export { invokeToolForTest, toolContextForTest } from './test-context.js';
 export { toolSecretNames } from './secret-names.js';
+export { toolOptionalSecretNames, toolRequiredEnvNames } from './env-names.js';
 export { ToolPreconditionError, isToolPreconditionError } from './precondition.js';
 export { TOOL_ENV_RECORD_KEY, toolCallRecordKey } from './record-keys.js';
 export { TOOL_IDEMPOTENCY_NAMESPACE, toolIdempotencyKey } from './idempotency-key.js';

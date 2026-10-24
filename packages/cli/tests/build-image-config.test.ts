@@ -17,11 +17,13 @@ describe('prisma()', () => {
       name: 'prisma',
       contextFiles: ['prisma/schema.prisma'],
       postInstall: [{ bin: 'prisma', args: ['generate', '--schema', 'prisma/schema.prisma'] }],
+      keep: ['.prisma/client'],
     });
     expect(prisma({ schema: 'prisma/schema.prisma', config: 'prisma.config.ts' })).toEqual({
       name: 'prisma',
       contextFiles: ['prisma/schema.prisma', 'prisma.config.ts'],
       postInstall: [{ bin: 'prisma', args: ['generate', '--config', 'prisma.config.ts'] }],
+      keep: ['.prisma/client'],
     });
   });
 });
@@ -30,7 +32,16 @@ describe('readImageConfig', () => {
   test('absent: nothing beyond the install', () => {
     expect(readImageConfig({})).toEqual({
       kind: 'ok',
-      image: { systemPackages: [], buildEnv: {}, contextFiles: [], steps: [], extensions: [] },
+      image: {
+        systemPackages: [],
+        buildEnv: {},
+        contextFiles: [],
+        steps: [],
+        extensions: [],
+        dependencies: 'all',
+        keep: [],
+        keepIfInstalled: [],
+      },
     });
   });
 
@@ -62,13 +73,53 @@ describe('readImageConfig', () => {
           },
         ],
         extensions: ['prisma', 'ocr'],
+        dependencies: 'all',
+        keep: [],
+        keepIfInstalled: ['.prisma/client'],
       },
+    });
+  });
+
+  test("dependencies and keep: 'loaded' with the config's keep; an extension's keep only if installed", () => {
+    const read = readImageConfig({
+      image: {
+        dependencies: 'loaded',
+        keep: ['pino-pretty', '@acme/plugin', 'pino-pretty'],
+        extensions: [prisma({ schema: 'prisma/schema.prisma' })],
+      },
+    });
+    expect(read.kind === 'ok' && read.image).toMatchObject({
+      dependencies: 'loaded',
+      keep: ['@acme/plugin', 'pino-pretty'],
+      keepIfInstalled: ['.prisma/client'],
+    });
+  });
+
+  test("a name in both is the config's: it fails the build when it isn't installed", () => {
+    const read = readImageConfig({
+      image: { keep: ['.prisma/client'], extensions: [prisma({ schema: 'prisma/schema.prisma' })] },
+    });
+    expect(read.kind === 'ok' && read.image).toMatchObject({
+      keep: ['.prisma/client'],
+      keepIfInstalled: [],
     });
   });
 
   test.each([
     [{ image: 'big' }, 'must be an object'],
-    [{ image: { node: '24' } }, '`node`: it takes systemPackages, extensions and buildEnv'],
+    [
+      { image: { node: '24' } },
+      '`node`: it takes systemPackages, extensions, buildEnv, dependencies and keep',
+    ],
+    [
+      { image: { dependencies: 'some' } },
+      "`image.dependencies` is 'loaded' (only what the pack's code loads) or 'all'",
+    ],
+    [{ image: { keep: 'pino-pretty' } }, '`image.keep` must be a list of package names'],
+    [{ image: { keep: ['../secret'] } }, '`image.keep`: "../secret" isn\'t a package name'],
+    [{ image: { keep: ['/abs/path'] } }, "isn't a package name"],
+    [{ image: { keep: ['two words'] } }, "isn't a package name"],
+    [{ image: { extensions: [{ name: 'x', keep: [7] }] } }, "(x) keep`: 7 isn't a package name"],
     [{ image: { systemPackages: ['Not A Package'] } }, 'not a Debian package name'],
     [{ image: { extensions: [{}] } }, 'image.extensions[0] has no `name`'],
     [

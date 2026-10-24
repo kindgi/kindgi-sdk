@@ -21,7 +21,10 @@ Kindgi](../coding-agents/).
 ## A TypeScript or Node app
 
 A Next.js, Node or other TypeScript app, with a `package.json`:
-[Add Kindgi to a TypeScript or Node app](../existing-app-typescript/).
+[Add Kindgi to a TypeScript or Node app](../existing-app-typescript/). In a
+Next.js app, a tool can't import a module that imports `server-only`: [move
+the code it needs](../existing-app-typescript/#code-that-imports-server-only)
+into a module without that line.
 
 ## A Python app
 

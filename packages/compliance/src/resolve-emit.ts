@@ -40,7 +40,13 @@ export interface ResolveContext {
   readonly runId?: string;
   readonly deploymentId?: string;
   readonly nodeId?: string;
-  readonly caller: 'dispatch' | 'deploy-sync' | 'admin-cli' | 'boot-bridge' | 'webhook-receiver';
+  readonly caller:
+    | 'dispatch'
+    | 'deploy-sync'
+    | 'admin-cli'
+    | 'boot-bridge'
+    | 'webhook-receiver'
+    | 'pack-env';
 }
 
 /** Input to `emitResolveEvent`. */
@@ -52,7 +58,13 @@ export interface EmitResolveEventInput {
   readonly outcome: 'succeeded' | 'failed';
   readonly resolveContext: ResolveContext;
   readonly version?: number;
+  /** The revision a value was given out under (a pack env secret's, `ps1-…`), never the value. */
+  readonly revision?: string;
   readonly errorCode?: string;
+  /** The request it came from (the API's `requestId`). */
+  readonly correlationId?: string;
+  /** The system key that was given the value, by its id (never its token): a pack env secret's. */
+  readonly systemKeyId?: string;
   readonly auditEvents: AuditEventBinding;
   readonly tenantId: TenantId;
   /** The project the event belongs to; absent for one that's the tenant's or an org's. */
@@ -60,6 +72,9 @@ export interface EmitResolveEventInput {
   /** Where an append that fails or throws is logged, at `warn`. Absent: it isn't logged. */
   readonly log?: Logger;
 }
+
+/** What `resolveEvent` builds an event from: `emitResolveEvent`'s input, without where it goes. */
+export type ResolveEventInput = Omit<EmitResolveEventInput, 'auditEvents' | 'log'>;
 
 /**
  * Emit an `env-resolved` or `secret-resolved` audit event.
@@ -73,19 +88,25 @@ export interface EmitResolveEventInput {
  * because the audit sink is unreachable.
  */
 export async function emitResolveEvent(input: EmitResolveEventInput): Promise<void> {
-  const kind = input.kind === 'env' ? 'env-resolved' : 'secret-resolved';
-  const payload = buildResolvePayload(input);
-  const actor = actorFromResolveContext(input.resolveContext);
-  const event = buildEvent({
+  await safeEmit(input.auditEvents, resolveEvent(input), input.log);
+}
+
+/**
+ * The `env-resolved` or `secret-resolved` event `emitResolveEvent` emits,
+ * for a caller that appends it itself: one whose read mustn't go on when
+ * its row can't be written. It never carries the value.
+ */
+export function resolveEvent(input: ResolveEventInput): AuditEvent {
+  return buildEvent({
     tenantId: input.tenantId,
     ...(input.projectId !== undefined && { projectId: input.projectId }),
-    kind,
+    kind: input.kind === 'env' ? 'env-resolved' : 'secret-resolved',
     outcome: input.outcome,
-    actor,
+    actor: actorFromResolveContext(input.resolveContext),
     runId: input.resolveContext.runId,
-    payload,
+    ...(input.correlationId !== undefined && { correlationId: input.correlationId }),
+    payload: buildResolvePayload(input),
   });
-  await safeEmit(input.auditEvents, event, input.log);
 }
 
 /**
@@ -121,6 +142,11 @@ export interface EmitLifecycleEventInput {
    * their retention ended here.
    */
   readonly revokedValuesPurged?: true;
+  /**
+   * A hard revoke left a copy the secret manager can still recover: when
+   * it purges that copy on its own (ISO 8601).
+   */
+  readonly recoverableUntil?: string;
   /**
    * Who did it, as the API names its caller (`user:<id>`,
    * `service_account:<id>`, `session:<id>`, `token:<hash>`). Absent: from
@@ -272,6 +298,7 @@ function actorFromResolveContext(ctx: ResolveContext): string | undefined {
     case 'dispatch':
       return ctx.runId !== undefined ? `agent:${ctx.runId}` : 'agent:unknown';
     case 'deploy-sync':
+    case 'pack-env':
       return ctx.deploymentId !== undefined ? `system:${ctx.deploymentId}` : 'system:deploy';
     case 'admin-cli':
       return 'user:admin';
@@ -305,7 +332,7 @@ function scopeToPayloadShape(scope: Scope): Readonly<Record<string, unknown>> {
  * key ever appears. Every field is either metadata (name,
  * version, scope) or attribution (caller, errorCode).
  */
-function buildResolvePayload(input: EmitResolveEventInput): Readonly<Record<string, unknown>> {
+function buildResolvePayload(input: ResolveEventInput): Readonly<Record<string, unknown>> {
   const payload: Record<string, unknown> = {
     scope: scopeToPayloadShape(input.scope),
     envName: input.envName as unknown as string,
@@ -313,7 +340,12 @@ function buildResolvePayload(input: EmitResolveEventInput): Readonly<Record<stri
     caller: input.resolveContext.caller,
   };
   if (input.version !== undefined) payload.recordVersion = input.version;
+  if (input.revision !== undefined) payload.revision = input.revision;
+  if (input.resolveContext.deploymentId !== undefined) {
+    payload.deploymentId = input.resolveContext.deploymentId;
+  }
   if (input.errorCode !== undefined) payload.errorCode = input.errorCode;
+  if (input.systemKeyId !== undefined) payload.systemKeyId = input.systemKeyId;
   if (input.resolveContext.nodeId !== undefined) payload.nodeId = input.resolveContext.nodeId;
   if (input.resolveContext.runId !== undefined) payload.runId = input.resolveContext.runId;
   return payload;
@@ -338,6 +370,7 @@ function buildLifecyclePayload(input: EmitLifecycleEventInput): Readonly<Record<
   if (input.writeMode !== undefined) payload.writeMode = input.writeMode;
   if (input.rotationId !== undefined) payload.rotationId = input.rotationId;
   if (input.revokedValuesPurged === true) payload.revokedValuesPurged = true;
+  if (input.recoverableUntil !== undefined) payload.recoverableUntil = input.recoverableUntil;
   if (input.resolveContext?.nodeId !== undefined) payload.nodeId = input.resolveContext.nodeId;
   if (input.resolveContext?.runId !== undefined) payload.runId = input.resolveContext.runId;
   return payload;

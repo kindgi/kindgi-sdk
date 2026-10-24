@@ -38,6 +38,7 @@ import {
 
 import { hostedApiAddress } from '../api-address.js';
 import { checkAptPackages } from '../build/apt.js';
+import type { ComputedImport } from '../build/computed-imports.js';
 import { PACK_SERVICE_COMMAND } from '../build/containerfile.js';
 import { collectIncludeFiles, readBundleConfig } from '../build/context-files.js';
 import { buildEnvelope, canonicaliseSignatureBody, sha256Hex } from '../build/envelope.js';
@@ -46,15 +47,15 @@ import {
   type SkippedScript,
   devOnlyImports,
   resolveHostInstall,
+  whyDevDependencies,
 } from '../build/host-install.js';
 import {
   BuildServiceRefusal,
-  HOSTED_BUILD,
   describeBuildRefusal,
   hostedBuildEndpoint,
   hostedUploadTooLarge,
 } from '../build/hosted.js';
-import { readImageConfig } from '../build/image-config.js';
+import { type ResolvedImage, readImageConfig } from '../build/image-config.js';
 import { checkIntegrity } from '../build/integrity.js';
 import {
   DEFAULT_JAVA_BUILD_IMAGE_REF,
@@ -105,12 +106,39 @@ export interface EnvironmentConfig {
   readonly signerKeyId?: string;
   readonly tenantId?: string;
   readonly buildTarget?: string;
+  /**
+   * The project this environment is, by id or slug — what `prod` means in
+   * `kindgi environments set prod …`, `kindgi promote`, and the deploy /
+   * secrets env resolution. Resolved to a project id the way
+   * `kindgi deploy --project` resolves one.
+   */
+  readonly project?: string;
 }
 
 export interface PackConfig {
   readonly pack?: { readonly id?: string; readonly version?: string };
   readonly environments?: Readonly<Record<string, EnvironmentConfig>>;
   readonly [k: string]: unknown;
+}
+
+/**
+ * The project (id or slug) a pack config names for an environment, or
+ * `undefined` when the environment — or its `project` — is unset. One place
+ * decides what "the prod project" is, so `kindgi environments set`,
+ * `kindgi promote` and the deploy / secrets env resolution agree. The caller
+ * resolves the returned id-or-slug to a project id the same way
+ * `kindgi deploy --project` does.
+ */
+export function projectOfEnv(
+  config: { readonly environments?: unknown } | undefined,
+  name: string,
+): string | undefined {
+  const environments = config?.environments;
+  if (environments === null || typeof environments !== 'object') return undefined;
+  const block = (environments as Record<string, unknown>)[name];
+  if (block === null || typeof block !== 'object') return undefined;
+  const project = (block as { readonly project?: unknown }).project;
+  return typeof project === 'string' && project !== '' ? project : undefined;
 }
 
 export const DEFAULT_OUT_DIR = '.kindgi/build';
@@ -121,7 +149,9 @@ export const buildCommand: LeafCommand = {
   description:
     'Bundle + build + sign a pack image. Emits deploy-envelope.json for `kindgi deploy`. ' +
     "`--local` builds the image with this machine's Docker instead: no build service, no signing; " +
-    'with `--push`, it pushes the image, signs it, and writes the envelope.',
+    'with `--push`, it pushes the image, signs it, and writes the envelope. ' +
+    "`--hosted` (or the env block's `build: 'hosted'`) builds on Kindgi hosted's build service, at the API's address under `/cloud`, with your API key; the image goes to your workspace's own repository.",
+  hostedRun: { defaultEnv: 'staging', buildServerOption: 'endpoint' },
   usage:
     'kindgi build [--local [--push [<repository>]] [--platform <os/arch>]] [--hosted [--project <id>]] [--target <t>] [--endpoint <url>] [--env <name>] [--out <dir>] ' +
     '[--artifact-version <v>] [--published-at <iso>] [--tenant <id>] [--signing-key <path>] ' +
@@ -142,11 +172,6 @@ export const buildCommand: LeafCommand = {
       type: 'string',
       description:
         "With `--local`: the image's platform. Default: `linux/amd64` when pushing, else this machine's.",
-    },
-    hosted: {
-      type: 'boolean',
-      description:
-        "Build on Kindgi hosted's build service, at the API's address under `/cloud`, with your API key; the image goes to your workspace's own repository. Same as the env block's `build: 'hosted'`.",
     },
     project: {
       type: 'string',
@@ -353,13 +378,13 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
   lines(`    ✓ POST /v1/build  →  buildJob: ${posted.buildJobId}`);
 
   let terminal: TerminalPayload;
+  const captured: string[] = [];
   if (posted.terminal !== undefined) {
     // Idempotent replay — server returned the terminal payload inline.
     terminal = posted.terminal;
     lines('    ✓ Existing build (idempotent replay)');
   } else {
     lines('    → Streaming build logs');
-    const captured: string[] = [];
     try {
       terminal = await runners.streamBuildLogs({
         endpoint: args.endpoint,
@@ -398,6 +423,7 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
     );
   }
   lines(`    ✓ Build complete (${terminal.imageRef})`);
+  for (const line of closureSummary(captured)) lines(line);
   lines('');
 
   // ---- 7. Local integrity gate ----------------------------------------
@@ -528,6 +554,7 @@ async function runLocalBuild(
   lines('');
 
   lines(`  Building ${tag}`);
+  const buildLog: string[] = [];
   const built = await runners.dockerBuild({
     contextDir: context.contextDir,
     tag,
@@ -535,10 +562,14 @@ async function runLocalBuild(
     ...(args.platform !== undefined && { platform: args.platform }),
     ...(pushTo !== undefined && { push: true }),
     secrets: context.secrets.map(({ id, src }) => ({ id, src })),
-    onLog: (line) => lines(`        ${line}`),
+    onLog: (line) => {
+      buildLog.push(line);
+      lines(`        ${line}`);
+    },
   });
   if (built.kind === 'err')
     return withBanner(failure(`Image build failed: ${built.message}\n`), banner);
+  for (const line of closureSummary(buildLog)) lines(line);
   if (pushTo !== undefined && built.digest === undefined) {
     return withBanner(failure(`The push of ${tag} reported no digest.\n`), banner);
   }
@@ -868,6 +899,7 @@ async function prepareNodeContext(
     discoveryPatterns: discoveryPatternsOf(args.config),
     configPath: configFile.path,
     nodeMajor: base.image.major,
+    dependencies: image.dependencies,
   });
   lines(
     `    ✓ ${Object.keys(bundle.bundleMap).length} pack modules, the config, and the framework entrypoints (kindgi-index + the pack service)`,
@@ -881,6 +913,23 @@ async function prepareNodeContext(
     return failure(
       `The pack imports ${devOnly.join(', ')}, which ${manifest} lists only in devDependencies. The image keeps production dependencies only, so ${one ? 'it' : 'they'} wouldn't load there: move ${one ? 'it' : 'them'} to dependencies.\n`,
     );
+  }
+  const dependencies = dependenciesStep(image, bundle.computedImports, args.packDir);
+  if (dependencies.kind === 'refuse') return failure(dependencies.message);
+  lines(dependencies.lines.join('\n'));
+  // Only what the pack loads: the install cut down to it, or the full one trimmed after, and why.
+  let imageInstall = install;
+  let trimmedBecause: string | undefined;
+  if (image.dependencies === 'loaded') {
+    const loaded = await runners.loadedInstall({
+      install,
+      packDir: args.packDir,
+      externals: bundle.externals,
+      image,
+    });
+    if (loaded.kind === 'err') return failure(`${loaded.message}\n`);
+    if (loaded.kind === 'fallback') trimmedBecause = loaded.reason;
+    else imageInstall = loaded.install;
   }
 
   // ---- 2. Local indexer over the bundles ----------------------------------
@@ -917,7 +966,7 @@ async function prepareNodeContext(
     publishedAt: args.publishedAt,
     baseImageRef: base.image.ref,
     buildTarget: args.buildTarget,
-    install,
+    install: imageInstall,
     image,
     hasIncludes: includeFiles.files.length > 0,
   });
@@ -925,20 +974,21 @@ async function prepareNodeContext(
   await runners.writeContext({
     contextDir,
     packDir: args.packDir,
-    install,
+    install: imageInstall,
     bundleDir,
     containerfilePath,
     includes: includeFiles.files,
     extensionFiles: image.contextFiles,
   });
   lines(
-    `    ✓ Context: ${install.files.length} install file(s), the bundles${includeFiles.files.length > 0 ? `, ${includeFiles.files.length} bundle.include file(s)` : ''}; no pack source`,
+    `    ✓ Context: ${imageInstall.files.length} install file(s), the bundles${includeFiles.files.length > 0 ? `, ${includeFiles.files.length} bundle.include file(s)` : ''}; no pack source`,
   );
   if (install.secrets.length > 0) {
     lines(
       `    ✓ ${install.secrets.map((s) => s.file).join(', ')}: read by the install as a build secret, never in the image`,
     );
   }
+  lines(installLine(imageInstall, image.steps, trimmedBecause));
   for (const line of skippedScriptLines(install.skippedScripts)) lines(line);
   const secrets = install.secrets.map((secret) => ({
     id: secret.id,
@@ -946,6 +996,33 @@ async function prepareNodeContext(
     file: secret.file,
   }));
   return { kind: 'ok', contextDir, counts: localIndex.counts, secrets };
+}
+
+/**
+ * The image's install: production dependencies only, or dev ones too, and
+ * why. With `image.dependencies: 'loaded'`: only what the pack loads, or the
+ * full install trimmed after, and why (`trimmedBecause`).
+ */
+export function installLine(
+  install: Pick<HostInstall, 'manager' | 'yarnBerry' | 'reduced'>,
+  steps: ResolvedImage['steps'],
+  trimmedBecause?: string,
+): string {
+  const why = whyDevDependencies(install, steps);
+  const what =
+    why === undefined
+      ? 'production dependencies only'
+      : `dev dependencies too, ${why}; pruned to production after`;
+  if (install.reduced !== undefined) {
+    const { kept, total, leftOut } = install.reduced;
+    const line = `    ✓ Install: only what the pack loads, ${kept} of the lockfile's ${total} packages; ${what}`;
+    return leftOut.length === 0
+      ? line
+      : `${line}\n      Left out ${leftOut.length} of the pack's own dependencies its tools don't import: ${leftOut.join(', ')}`;
+  }
+  return trimmedBecause === undefined
+    ? `    ✓ Install: ${what}`
+    : `    ✓ Install: ${what}, then trimmed to what the pack loads\n      It downloads the app's whole install first, since ${trimmedBecause}.`;
 }
 
 /**
@@ -1052,6 +1129,8 @@ async function preparePythonContext(
     '[tool.kindgi.image] system-packages',
   );
   if (system.kind === 'err') return failure(`kindgi build: ${system.message}\n`);
+  const trimming = pythonTrimmingRefusal(image);
+  if (trimming !== undefined) return failure(`kindgi build: ${trimming}\n`);
   const containerfilePath = join(args.outDir, 'Containerfile');
   await python.writeContainerfile({
     outputPath: containerfilePath,
@@ -1282,14 +1361,13 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       ? targetFlag
       : (envBlock?.buildTarget ?? envName);
 
-  // --hosted, or the env block's `build: 'hosted'`: the hosted build
-  // service at the API's address, which takes the API key.
+  // --hosted, or the env block's `build: 'hosted'` without --endpoint
+  // (main.ts, `hostedRun`): the hosted build service at the API's
+  // address, which takes the API key.
   const endpointFlag = ctx.options.endpoint;
   const explicitEndpoint =
     typeof endpointFlag === 'string' && endpointFlag !== '' ? endpointFlag : undefined;
-  const hosted =
-    ctx.options.hosted === true ||
-    (explicitEndpoint === undefined && envBlock?.build === HOSTED_BUILD);
+  const hosted = ctx.hosted;
   const projectFlag = ctx.options.project;
   const projectId = typeof projectFlag === 'string' && projectFlag !== '' ? projectFlag : undefined;
   const credsFlag = ctx.options['registry-push-creds'];
@@ -1679,4 +1757,88 @@ function printIndexWarnings(
   lines: (s: string) => void,
 ): void {
   for (const w of result.warnings ?? []) lines(`    ⚠ ${w.message}`);
+}
+
+/** The image's dependencies, as the build says them (`image.dependencies`). */
+function renderDependenciesMode(image: ResolvedImage): string {
+  if (image.dependencies === 'all') {
+    return "    ✓ Dependencies: all of the app's production dependencies (image.dependencies: 'loaded' keeps only what the pack loads)";
+  }
+  const kept = [...image.keep, ...image.keepIfInstalled];
+  return `    ✓ Dependencies: only what the pack loads (image.dependencies: 'loaded')${kept.length > 0 ? `, and ${kept.join(', ')}` : ''}`;
+}
+
+/** The image's dependencies, said, and with `'loaded'` the computed-import check. */
+function dependenciesStep(
+  image: ResolvedImage,
+  computed: readonly ComputedImport[] | undefined,
+  packDir: string,
+):
+  | { readonly kind: 'refuse'; readonly message: string }
+  | { readonly kind: 'ok'; readonly lines: readonly string[] } {
+  const mode = renderDependenciesMode(image);
+  if (image.dependencies === 'all') return { kind: 'ok', lines: [mode] };
+  const check = computedImportsCheck(computed ?? [], image.keep, packDir);
+  return check.kind === 'refuse' ? check : { kind: 'ok', lines: [mode, ...check.lines] };
+}
+
+/**
+ * With `'loaded'`: a computed `require(x)` / `import(x)` in the pack's
+ * own code loads a package the closure can't see. With no `image.keep`,
+ * the build refuses, naming each call; with one, it names them as a
+ * reminder that `keep` must cover what they load.
+ */
+export function computedImportsCheck(
+  computed: readonly ComputedImport[],
+  keep: readonly string[],
+  packDir: string,
+):
+  | { readonly kind: 'refuse'; readonly message: string }
+  | { readonly kind: 'ok'; readonly lines: readonly string[] } {
+  if (computed.length === 0) return { kind: 'ok', lines: [] };
+  const sites = computed.map((c) => `  ${relative(packDir, c.file)}:${c.line}  ${c.text}`);
+  if (keep.length === 0) {
+    return {
+      kind: 'refuse',
+      message: `The pack's code loads a module by a computed name, and the image keeps only the packages the pack imports by name (image.dependencies: 'loaded'):\n${sites.join('\n')}\nName the packages these load in image.keep, or set image.dependencies: 'all'.\n`,
+    };
+  }
+  return {
+    kind: 'ok',
+    lines: [
+      `    ⚠ Loaded by a computed name; image.keep (${keep.join(', ')}) must cover what these load:`,
+      ...sites.map((s) => `    ${s}`),
+    ],
+  };
+}
+
+/**
+ * A Python pack's `[tool.kindgi.image]` can't ask for an image that keeps
+ * only what the pack loads yet: refused, never silently ignored.
+ */
+export function pythonTrimmingRefusal(image: unknown): string | undefined {
+  if (image === null || typeof image !== 'object') return undefined;
+  const table = image as Record<string, unknown>;
+  const dependencies = table.dependencies;
+  if (dependencies !== undefined && dependencies !== 'all' && dependencies !== 'loaded') {
+    return `[tool.kindgi.image] dependencies is "loaded" or "all". Got ${JSON.stringify(dependencies)}.`;
+  }
+  if (dependencies === 'loaded' || table.keep !== undefined) {
+    return `[tool.kindgi.image] ${dependencies === 'loaded' ? 'dependencies = "loaded"' : 'keep'} isn't available for Python packs yet: a Python pack's image keeps every dependency in its lockfile. Remove it, or set dependencies = "all".`;
+  }
+  return undefined;
+}
+
+/**
+ * The closure's own lines in a build log (`kindgi-closure: …`), as the
+ * summary prints them: what it kept of what's installed, and which of
+ * the pack's own dependencies it dropped.
+ */
+export function closureSummary(logLines: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const line of logLines) {
+    const match = /kindgi-closure: ((?:kept|dropped) .*)$/.exec(line);
+    if (match?.[1] !== undefined) out.push(`    ✓ Dependencies: ${match[1]}`);
+  }
+  return out;
 }

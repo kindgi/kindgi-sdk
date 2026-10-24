@@ -21,7 +21,7 @@ Use the scoped name, `@kindgi/cli`: there is no unscoped `kindgi` package.
 **Requirements:** Node 22.12 or later, and Docker for `kindgi dev` (Docker
 Desktop, or a Docker engine on Linux). A Python pack needs Python and the
 [`kindgi` Python SDK](../../sdks/python), and gets this CLI from PyPI as
-`kindgi-cli`, with its own Node: `uv add --dev "kindgi-cli>=0.1,<0.2"`, then
+`kindgi-cli`, with its own Node: `uv add --dev "kindgi-cli>=0.2,<0.3"`, then
 `uv run kindgi <command>`.
 
 ## The pack lifecycle
@@ -38,7 +38,7 @@ Desktop, or a Docker engine on Linux). A Python pack needs Python and the
 | [`kindgi key`](#kindgi-key) | Ed25519 signing keys: local pairs under `~/.kindgi/keys/`, and the runtime's trust list. |
 | [`kindgi skills`](#kindgi-skills) | Refresh the Claude Code skills in `.claude/skills/`. |
 | [`kindgi mcp`](#kindgi-mcp) | MCP servers for your coding agent, in `.mcp.json`. |
-| [`kindgi feedback`](#kindgi-feedback) | Note framework friction in the pack's `FEEDBACK.md`. |
+| [`kindgi feedback`](#kindgi-feedback) | Note framework friction in the pack's `FEEDBACK.md`, and send it to Kindgi once the person says yes to the preview. |
 
 The rest of the commands talk to a running Kindgi API: see
 [API commands](#api-commands).
@@ -321,7 +321,8 @@ On each boot, `kindgi dev`:
   settings or its key's name, so a difference only there gets the plain line.
 
 It records which providers it registered in `.kindgi/dev/providers.json`, per
-database and tenant.
+database and tenant. That file is `kindgi dev`'s local record, under the
+gitignored `.kindgi/`; a provider is declared in the config, which you commit.
 
 **Any OpenAI-compatible endpoint** — an open-source model you serve yourself
 (vLLM, llama.cpp's `llama-server`, Ollama, LM Studio), OpenRouter, a LiteLLM
@@ -414,11 +415,11 @@ data. `kindgi dev` runs it the same way, with the pack's own interpreter:
 - **Watch:** any `.py` file under the pack root (shared modules included)
   and `pyproject.toml`.
 - **The CLI:** a Python pack runs `kindgi-cli` from PyPI, the same CLI with
-  its own Node, pinned in its dev group (`kindgi-cli>=0.1,<0.2`), so it needs
+  its own Node, pinned in its dev group (`kindgi-cli>=0.2,<0.3`), so it needs
   no Node install. Run as `uv run kindgi <command>` (Poetry: `poetry run kindgi
   <command>`), which is what the startup hints and the `.mcp.json` entries
   `kindgi mcp add` writes say. The npm CLI still runs a Python pack:
-  `npx --yes @kindgi/cli@0.1 <command>`.
+  `npx --yes @kindgi/cli@0.2 <command>`.
 
 ### Stopping
 
@@ -500,11 +501,17 @@ Builds a signed pack image with a Kindgi build server, and writes
   and the `packageManager` field. A pnpm app with no `packageManager` gets the
   host's pnpm version (`pnpm --version`), the one that wrote the lockfile,
   never the newest. Build scripts are off during the install;
-  then `rebuild` runs the ones the app allows, and the install is pruned to
-  production dependencies.
+  then `rebuild` runs the ones the app allows. Only production dependencies
+  are installed, unless `image` has build steps (`prisma()`'s `prisma
+  generate`), whose tools can be dev dependencies: then dev dependencies are
+  installed too, and pruned after the steps. Yarn 2 or later always installs
+  them and prunes after, as its production install resolves what
+  `yarn.lock` lacks instead of failing, even with `enableImmutableInstalls`
+  on. The build says which (`✓ Install: …`).
 - **A workspace:** with pnpm, only the pack's project and what it depends on
   are installed, not the rest of the workspace. npm and yarn install the
-  whole workspace.
+  whole workspace. With `image.dependencies: 'loaded'`, the install is one
+  project, cut down to what the pack loads (below).
 - **Layout:** the lockfile's folder is `/app`, and a pack inside a workspace
   member sits at its own path.
 - **Runs:** the pack service, under tini, as `node`, on `$PORT` (8080).
@@ -534,11 +541,98 @@ export default {
   `prisma generate` after the install, before the prune. The app's own
   `postinstall` doesn't run in the image, because the install runs with
   scripts off.
-- `buildEnv` holds non-secret placeholders for the build steps, and for the
-  indexer, which imports the pack's modules. It's never in the final image.
+- `buildEnv` holds non-secret placeholders for the install, the build steps,
+  and the indexer, which imports the pack's modules. It's never in the final
+  image. The indexer imports them with `NODE_ENV=production`, as the deployed
+  service does, unless `buildEnv` sets `NODE_ENV`. A `NODE_ENV` there doesn't
+  change which dependencies the install takes.
 - `defineBuildExtension()` makes an app's own extension from the same parts:
   `contextFiles`, `systemPackages`, `postInstall` steps (a package's bin, run
   through the app's package manager) and `buildEnv`.
+
+**Only what the pack loads (`image.dependencies: 'loaded'`).** By default
+(`'all'`) the image carries every production dependency of the app: a Next.js
+app's `next`, `react` and their tooling ride along, though the tools only
+import a few packages. With `'loaded'`, it carries the packages the pack's
+bundles import by name, with their own dependencies (declared, optional and
+peer, as installed), and what `image.keep` names:
+
+```ts
+image: {
+  dependencies: 'loaded',
+  keep: ['pino-pretty'], // loaded by a name in a config string, which no import shows
+},
+```
+
+- **What the image downloads:** only those. `kindgi build` finds each
+  package as Node finds it from the pack folder, and cuts the app's
+  `package.json` and lockfile down to them and what they depend on, by the
+  lockfile: dependencies, optional ones for every platform, and peers as
+  installed. Each lockfile entry is copied as the app has it (version,
+  resolution, integrity), and the result is checked against the app's
+  lockfile before the image installs it, frozen, with the usual command.
+  pnpm (lockfile `9.0`, with its env document, catalogs, overrides and
+  patches), npm (lockfile 2 and 3) and Yarn 1.
+- **How it's chosen in the image:** each package is resolved again as Node
+  resolves it at run time, from the bundles' folder and then from each kept
+  package's own folder, over the layout the package manager made (pnpm's
+  links, npm's and Yarn's hoisting). Packages are kept whole.
+- **Most misses fail the build, naming the package:**
+  - an import that isn't installed fails the image's closure step, by name;
+  - every package the bundles import, lazily loaded ones included, is loaded
+    on the trimmed install before indexing, which also runs there;
+  - a `require(x)` / `import(x)` with a computed name in the pack's own code
+    fails `kindgi build`, by file and line (esbuild reports each one), until
+    `image.keep` names what it loads (or `dependencies` is `'all'`).
+- **The build says what it installs,** and which of the pack's own
+  dependencies its tools don't import. A Next.js app whose tools import
+  `@kindgi/sdk` and `zod`:
+
+  ```text
+      ✓ Install: only what the pack loads, 39 of the lockfile's 96 packages; production dependencies only
+        Left out 3 of the pack's own dependencies its tools don't import: next, react, react-dom
+  ```
+- **A `node_modules` out of date with the lockfile fails the build:** the
+  bundles were built against a version the lockfile doesn't pin. The message
+  names the package, its folder and the command that brings it back in line
+  (`pnpm install`, `npm ci`, `yarn install`).
+- **Where the install isn't cut down:** the image downloads the app's whole
+  install and trims it after, and the build says why. That happens with:
+  - Yarn 2 or later (its lockfile can't be cut down by hand and still install
+    immutably);
+  - another lockfile version (pnpm's other than `9.0`, npm's other than 2
+    and 3);
+  - a local package (`link:`, `file:`, `workspace:`) among what the pack
+    loads;
+  - a package the pack loads that's installed outside the project, above the
+    lockfile's folder;
+  - a build step (`defineBuildExtension`) whose program no dependency of the
+    pack has;
+  - a lockfile entry it can't follow, such as one version installed twice
+    under different peers, where its folder doesn't say which.
+
+  An app whose tools import its own `@acme/ui` by `link:`:
+
+  ```text
+      ✓ Install: production dependencies only, then trimmed to what the pack loads
+        It downloads the app's whole install first, since @acme/ui is a local package (link:../../packages/ui).
+  ```
+
+  The image's closure step then says what it kept. The Next.js app above,
+  installed in full and trimmed:
+
+  ```text
+  … kindgi-closure: kept 36 of 59 packages (27.5 MB of 354 MB)
+  … kindgi-closure: dropped 3 of the pack's own dependencies its tools don't import: next, react, react-dom
+  ```
+- **What no check can see reaches a run:** a package loaded by a name in a
+  string (a plugin named in a config), through a `createRequire` alias or
+  `module.require`, or a dependency's own undeclared one. That call fails,
+  saying what to add to `image.keep`.
+- Extensions keep what they need: `prisma()` keeps Prisma 6's generated
+  `.prisma/client` when it's there.
+- Python packs keep every dependency for now: `dependencies = "loaded"` in
+  `[tool.kindgi.image]` is refused.
 
 **`--local`:** builds the image of a TypeScript or Python pack with this
 machine's Docker (`docker buildx build --load`) into its image store, as
@@ -764,6 +858,18 @@ pack's env files in its environment, so the secret is never written into
 friction to `FEEDBACK.md` at the pack root, where a coding agent can leave
 what it diagnosed for the maintainers.
 
+- `kindgi feedback submit --preview` prints exactly what would be sent to
+  Kindgi's intake (access.kindgi.com), after redaction, with its digest.
+  `--yes=<digest>` then sends exactly that; at a terminal it asks instead.
+  Home directories, paths outside the pack, the pack's env values, keys,
+  tokens, URL query values and email addresses are taken out first.
+  `KINDGI_FEEDBACK_SUBMIT=off` turns sending off.
+- `kindgi feedback status` says what became of the reports sent: received,
+  known, fixed (and in which version), won't fix, or withdrawn.
+- `kindgi feedback withdraw <id>` takes a report back: the intake clears its
+  text at once. The key it needs stays in `~/.kindgi/feedback/keys.json` on
+  the machine that sent it; `FEEDBACK.md` holds only the report id.
+
 ## API commands
 
 These call a running Kindgi API through [`@kindgi/client`](../../sdks/typescript).
@@ -826,6 +932,31 @@ The API URL and token come from, in order:
 pair once with `kindgi auth login --url=<url> --token=<token>`, and check it
 with `kindgi auth whoami`.
 
+**In a folder where `kindgi dev` ran, `--hosted` reaches the other API.**
+There, `.kindgirc.json` points every command at the dev runtime, ahead of
+your `kindgi auth login`. With `--hosted`, a command goes to the CLI's own
+address (`--url`, `KINDGI_API_URL` or the one `kindgi auth login` stored),
+with that address's key, and doesn't read the dev runtime's
+`.kindgirc.json`: `kindgi auth whoami --hosted` checks your sign-in. An env
+with `build: 'hosted'` in `kindgi.config.ts` does the same for a command
+that acts in it (`--env <name>`, or `staging` for `kindgi build` and
+`kindgi deploy`). With no address of its own, a hosted command is refused
+before it sends anything, and the refusal says the file isn't read.
+`kindgi dev --hosted` is refused (exit 2): a dev runtime is never hosted.
+
+A command that goes to the dev runtime while another address is in reach
+says so first, on stderr:
+
+```text
+kindgi auth whoami goes to the kindgi dev runtime at http://127.0.0.1:4000 (…/.kindgirc.json says so). For https://platform.kindgi.com, pass --hosted.
+```
+
+When the key was given with `--token` or `KINDGI_API_TOKEN` and nothing
+else is signed in, the line ends `To send it to the address your key is
+for, pass --url <that address> or export KINDGI_API_URL.` in place of the
+`--hosted` sentence. There's no line when `--url` or `KINDGI_API_URL` named
+the address, or when the dev runtime is the only one in reach.
+
 **A stored key goes only to the address stored with it.** A key in
 `.kindgirc.json` or `~/.kindgi/config.json` is for the `apiUrl` beside it.
 When the two files hold keys for different addresses, the key used is the
@@ -871,6 +1002,7 @@ to a mirror instead and checks for the same image there.
 | `--table` | A table for list responses (`runs list`, `tools list`, `providers list`; JSON where a list has no columns). |
 | `--quiet` | Nothing on stdout; the exit code only. |
 | `--url=<url>`, `--token=<token>` | The API and its token (see above). |
+| `--hosted` | Go to the CLI's own address, never a `kindgi dev` runtime's `.kindgirc.json` (see above). `kindgi build` and `kindgi deploy` then use the hosted build service. `kindgi dev` refuses it. |
 | `--verbose`, `-v` | Full errors: stack traces and the API's error bodies. |
 | `--version` | The CLI's version. |
 | `--help`, `-h` | Help for the CLI or a command. |

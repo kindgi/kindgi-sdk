@@ -28,12 +28,12 @@ There are two kinds:
 ## Before you start
 
 - **An agent to change,** in a pack on a runtime such as `kindgi dev`, with
-  Kindgi 0.1's CLI. This guide uses the reply drafter from
+  Kindgi 0.2's CLI. This guide uses the reply drafter from
   [Give an agent its input](../../agents/give-an-agent-input/).
 - **The project's id:** `kindgi projects get-default` prints the Default
   project, with its `id`.
 - **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
-  Java 17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  Java 17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
   `KINDGI_API_TOKEN` set.
 
 ## Publish the blocks
@@ -43,7 +43,14 @@ The examples on this page move the reply drafter's instructions from
 block, `acme.reply-prompt`, and add a settings block, `acme.reply-style`:
 how long a reply may be, and up to what amount a refund needs no approval.
 
-A prompt block with parameters is published from a JSON file,
+A prompt block with parameters is published from a JSON file. Ask your
+coding agent to write the prompt block:
+
+```text
+I want my agent's instructions in a prompt block, with the tone as a parameter.
+```
+
+For reference, the block it writes looks like this. This guide saves it as
 `reply-prompt.json`:
 
 ```json
@@ -64,10 +71,40 @@ A prompt block with parameters is published from a JSON file,
 
 Publish it, and the settings block:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi blocks publish --project=<project-id> @reply-prompt.json
-kindgi blocks publish acme.reply-style --block-version=1.0.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":50}' --schema=@reply-style.schema.json
+pnpm exec kindgi blocks publish --project=<project-id> @reply-prompt.json
+pnpm exec kindgi blocks publish acme.reply-style --block-version=1.0.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":50}' --schema=@reply-style.schema.json
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi blocks publish --project=<project-id> @reply-prompt.json
+uv run kindgi blocks publish acme.reply-style --block-version=1.0.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":50}' --schema=@reply-style.schema.json
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw blocks publish --project=<project-id> @reply-prompt.json
+./kindgiw blocks publish acme.reply-style --block-version=1.0.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":50}' --schema=@reply-style.schema.json
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw blocks publish --project=<project-id> @reply-prompt.json
+./kindgiw blocks publish acme.reply-style --block-version=1.0.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":50}' --schema=@reply-style.schema.json
+```
+
+</TabItem>
+</Tabs>
 
 - `--project=<project-id>` is the project the block lives in, where
   `<project-id>` is its id.
@@ -106,7 +143,8 @@ Each prints the block's id and version. The second prints:
 ## Use them in an agent
 
 The agent names its prompt block and its settings blocks by range, as it names
-its tools:
+its tools. Ask your coding agent: "Have my agent use its prompt block and
+settings block." For reference, the agent looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -205,7 +243,9 @@ object ReplyDrafter {
 
 The prompt block brings its parameters, so the agent declares none. A tool
 reads the settings blocks of the agent version that calls it, as
-`ctx.settings`:
+`ctx.settings`. Ask your coding agent: "I want a tool that says whether a
+refund needs a person's approval, with the limit from my settings block." For
+reference, the tool looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -335,9 +375,36 @@ id, to its values (a Java map).
 
 A run passes the prompt's parameters as it does an agent's own:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme-ops.reply-drafter --input='{"userMessage":"I was charged twice for my $80 order. Can I get my money back?","parameters":{"tone":"friendly"}}'
+pnpm exec kindgi runs start --agent=acme-ops.reply-drafter --input='{"userMessage":"I was charged twice for my $80 order. Can I get my money back?","parameters":{"tone":"friendly"}}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme-ops.reply-drafter --input='{"userMessage":"I was charged twice for my $80 order. Can I get my money back?","parameters":{"tone":"friendly"}}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme-ops.reply-drafter --input='{"userMessage":"I was charged twice for my $80 order. Can I get my money back?","parameters":{"tone":"friendly"}}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme-ops.reply-drafter --input='{"userMessage":"I was charged twice for my $80 order. Can I get my money back?","parameters":{"tone":"friendly"}}'
+```
+
+</TabItem>
+</Tabs>
 
 `--input`'s `parameters` are the prompt's parameters: here, `tone`. The run's
 `appended` messages show the tool reading the settings block's limit:
@@ -403,14 +470,43 @@ its other settings.
 A change is a new version of the block, so the people who know the work
 change the values, not the code. With the CLI:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi blocks publish acme.reply-style --block-version=1.1.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":100}'
+pnpm exec kindgi blocks publish acme.reply-style --block-version=1.1.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":100}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi blocks publish acme.reply-style --block-version=1.1.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":100}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw blocks publish acme.reply-style --block-version=1.1.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":100}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw blocks publish acme.reply-style --block-version=1.1.0 --project=<project-id> --settings='{"maxSentences":3,"refundLimit":100}'
+```
+
+</TabItem>
+</Tabs>
 
 `--block-version=1.1.0` is the new version, and `--settings` its values: a
 higher refund limit. It prints the block's id and version.
 
-From your code, such as an admin page of your own:
+From your code, such as an admin page of your own, ask your coding agent: "I
+want to publish a new version of my settings block from my app." For
+reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -552,9 +648,36 @@ running the versions it pins. To use the new one, **derive** an agent version:
 the same agent, with some of its block pins swapped. It needs no code change
 and no deploy.
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
+pnpm exec kindgi agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
+```
+
+</TabItem>
+</Tabs>
 
 - `--from=1.0.0` is the version to start from.
 - `--setting=acme.reply-style=1.1.0` swaps in that settings block version.
@@ -581,7 +704,8 @@ It prints the new agent version:
 }
 ```
 
-From your code:
+From your code, ask your coding agent: "I want a new version of my agent that
+uses the new refund limit." For reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

@@ -101,6 +101,12 @@ class Tool(Generic[P, R]):
     mutating: bool | None = None
     """`False`: read-only — it runs in a dry run, and approval gates don't ask before it by
     default. `None` (the default) means it may change something, as `True` does."""
+    needs_approval_when_unattended: bool | None = None
+    """`True`: each call waits for a person's approval in a run no person started (a webhook, a
+    schedule, an event, or a service account's key); a flow's tool step that calls it is refused.
+    A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project
+    admin's to set) lifts that, in its own runs only. A run a person starts is unaffected.
+    `None` (the default) means `False`."""
     needs: Sequence[Mapping[str, Any]] | None = None
     needs_spec: Mapping[str, Any] | None = None
     sandbox: str | None = None
@@ -138,6 +144,7 @@ def tool(
     output: Any = None,
     effects: Sequence[Mapping[str, Any]] = (),
     mutating: bool | None = None,
+    needs_approval_when_unattended: bool | None = None,
     needs: Sequence[Mapping[str, Any]] | None = None,
     needs_spec: Mapping[str, Any] | None = None,
     sandbox: str | None = None,
@@ -148,7 +155,9 @@ def tool(
 
     `version` defaults to the pack's version; `description` to the docstring.
     `mutating=False` declares it read-only: it runs in a dry run, and an agent's
-    approval gates don't ask before it by default.
+    approval gates don't ask before it by default. `needs_approval_when_unattended=True`
+    makes each call wait for a person's approval in a run no person started (a webhook, a
+    schedule, an event, or a service account's key).
     """
     annotation_scope = _caller_locals()
 
@@ -186,6 +195,7 @@ def tool(
             is_async=inspect.iscoroutinefunction(handler),
             effects=tuple(effects),
             mutating=mutating,
+            needs_approval_when_unattended=needs_approval_when_unattended,
             needs=needs,
             needs_spec=needs_spec,
             sandbox=sandbox,
@@ -219,6 +229,7 @@ def http_tool(
     version: str | None = None,
     effects: Sequence[Mapping[str, Any]] = (),
     mutating: bool | None = None,
+    needs_approval_when_unattended: bool | None = None,
 ) -> Tool[..., Any]:
     """Declare a tool that is one HTTP request — no handler: the Kindgi runtime makes the call.
 
@@ -292,6 +303,7 @@ def http_tool(
         is_async=False,
         effects=tuple(effects),
         mutating=mutating,
+        needs_approval_when_unattended=needs_approval_when_unattended,
         spec=spec,
         module=_defined_in(1),
         _input_adapter=_adapter(input),
@@ -397,6 +409,9 @@ def guardrail(
 
     `on_violation` is the action's name (`"halt"`, `"retry"`, `"escalate"`, …);
     pass `action=` for the full object (`{"on-violation": "retry", "retry": {"maxAttempts": 2}}`).
+    In 0.1 the runtime acts only on `"halt"`: the turn fails with `guardrail-violation`.
+    Any other action is recorded on the turn's violations and the turn completes;
+    nothing runs it again, escalates or calls a compensating tool.
     `config=` is what the check is configured with, keyed as on the wire (a
     model's aliases); it is checked against the config type here. Without it
     the check gets `{}` — its defaults. The config type comes from the check's

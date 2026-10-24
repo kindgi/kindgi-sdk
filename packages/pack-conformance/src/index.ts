@@ -82,6 +82,7 @@ export const FIXTURE_TOOL_IDS = [
   'conformance.defaults',
   'conformance.echo',
   'conformance.hold',
+  'conformance.http',
   'conformance.noisy',
   'conformance.process-env',
   'conformance.sleep',
@@ -534,6 +535,23 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         const config = spec.compile(minLength?.configSchema as object);
         expect(config({ minLength: 2 })).toBe(true);
         expect(config({ minLength: -1 })).toBe(false);
+      });
+
+      test('a declarative http tool indexes the same spec in every SDK', () => {
+        // pack-index types `spec` as an open object, so each SDK must emit the same bytes
+        // here for a declarative HTTP tool to mean the same thing across the four.
+        const http = index.tools.find((t) => t.id === 'conformance.http');
+        expect(http?.spec).toEqual({
+          kind: 'http',
+          method: 'GET',
+          urlTemplate: 'https://api.example.com/{path}',
+          headers: [{ name: 'Accept', value: 'application/json' }],
+          authorization: {
+            kind: 'bearer',
+            secretRef: { envName: 'local', name: 'API_TOKEN' },
+          },
+          successStatus: { min: 200, max: 299 },
+        });
       });
     });
 

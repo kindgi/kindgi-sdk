@@ -12,6 +12,7 @@ import type {
   RunBinding,
   RunIdempotencyKey,
   RunReplayRef,
+  RunStartedBy,
   RunTriggerRef,
 } from '@kindgi/runtime';
 import type { ToolRegistry, ToolSecretRef } from '@kindgi/tools';
@@ -93,6 +94,33 @@ export interface InvokeAgentInput {
   readonly idempotencyKey?: RunIdempotencyKey;
   /** Set when a trigger starts the turn; its run records it (`RunTriggerRef`). */
   readonly trigger?: RunTriggerRef;
+  /**
+   * How the turn's run started (`RunStartedBy`); its run records it. Only
+   * `person` counts as attended: in any other turn, or one without it, a
+   * tool that declares `needsApprovalWhenUnattended` waits for a person's
+   * yes whatever the agent's approval rules say, and a turn a webhook or
+   * an event started reads its message as data (`<event>`).
+   */
+  readonly startedBy?: RunStartedBy;
+  /**
+   * The tools, by id, whose `needsApprovalWhenUnattended` doesn't hold in
+   * this turn though no person started its run: the
+   * `toolsAllowedUnattended` of the webhook or schedule that started it,
+   * recorded with the run (`RunFlowInput.toolsAllowedUnattended`). Only
+   * that wait is lifted: the tenant's floor and the agent's own rules
+   * still apply. Set by the runtime from the run, never from a request.
+   */
+  readonly toolsAllowedUnattended?: readonly string[];
+  /**
+   * The turn's message is an event's, though no webhook or event starts
+   * this run: a replay of a run one started sets it (its turn, or a flow's
+   * agent step's), and records no start of its own. The turn reads its
+   * message as data (`<event>`), as `startedBy` `webhook` or `event` makes
+   * it, and keeps it marked (`ConversationMessage.fromEvent`). It changes
+   * nothing else: the run stays as unattended as `startedBy` says. Set by
+   * the runtime, never from a request.
+   */
+  readonly messageFromEvent?: true;
   readonly participantId?: string;
   readonly abortSignal?: AbortSignal;
   /**

@@ -3,7 +3,8 @@
 
 /**
  * A project's slug, as the CLI makes and sends one: `kindgi projects create`
- * and `rename`, and the way `kindgi deploy` says how to make one.
+ * and `rename`, and the way `kindgi deploy` says how to make one; and a
+ * workspace's, as `kindgi tenant rename` sends one.
  */
 
 /**
@@ -13,6 +14,13 @@
  * `kindgi deploy --project <id|slug>` take as they are.
  */
 export const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+/**
+ * A workspace's slug, as `kindgi tenant rename` sends one: the server's own
+ * rule for a tenant's slug. Lowercase letters, digits and single hyphens,
+ * starting and ending with a letter or digit, at most 63 characters.
+ */
+export const TENANT_SLUG = /^(?=.{1,63}$)[a-z0-9](?:-?[a-z0-9])*$/;
 
 /**
  * A name as a slug: lowercase letters and digits, each run of anything else

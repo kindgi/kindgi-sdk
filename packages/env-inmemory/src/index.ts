@@ -12,6 +12,8 @@
  * on `Scope` in `@kindgi/platform` is `project → org → tenant`.
  */
 
+import { randomUUID } from 'node:crypto';
+
 import type {
   EnvBinding,
   EnvDeleteInput,
@@ -253,6 +255,7 @@ export function createInMemoryEnvBinding(options: InMemoryEnvBindingOptions = {}
         createdAt,
         updatedAt,
         ...(input.tags !== undefined && { tags: input.tags }),
+        recordId: rowId(existing),
       };
       byName.set(input.name, record);
       if (canEmit) {
@@ -303,4 +306,9 @@ function matchesTagFilter(rec: EnvRecord, filter: Readonly<Record<string, string
     if (tags[k] !== v) return false;
   }
   return true;
+}
+
+/** A row's id: the one it has, or a new one for a new row, as a removed value set again is. */
+function rowId(existing: EnvRecord | undefined): string {
+  return existing?.recordId ?? randomUUID();
 }

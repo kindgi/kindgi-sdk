@@ -22,10 +22,10 @@ page.
 ## Before you start
 
 - **A finished run to judge,** and its id, on a runtime such as `kindgi dev`,
-  with Kindgi 0.1's CLI. [List runs](../../runs/list-runs/) finds one.
+  with Kindgi 0.2's CLI. [List runs](../../runs/list-runs/) finds one.
 - **Write access to the run's project,** when authorization is on.
 - **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
-  Java 17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  Java 17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
   `KINDGI_API_TOKEN` set.
 
 ## Judge an item
@@ -34,9 +34,36 @@ A judgment records whether one item of the run's output was right.
 
 From the CLI, judge the run's answer:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+pnpm exec kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+```
+
+</TabItem>
+</Tabs>
 
 - `--run=<run-id>` is the run's id.
 - `--item=answer` is your id for the item: `answer` for the whole answer.
@@ -62,8 +89,9 @@ It prints the judgment:
 }
 ```
 
-From your app, when your users judge in your own UI, pass the run's id as
-the script's argument:
+From your app, when your users judge in your own UI, ask your coding agent:
+"I want to record my user's yes or no on a run's answer." For reference, the
+script looks like this, with the run's id as its argument:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -189,11 +217,44 @@ It lists each judgment with who made it, its class and its reason.
 
 A run's judgments say how its output was judged, and by whom:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
-kindgi judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
-kindgi judgments remove <judgment-id>
+pnpm exec kindgi judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
+pnpm exec kindgi judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
+pnpm exec kindgi judgments remove <judgment-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
+uv run kindgi judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
+uv run kindgi judgments remove <judgment-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
+./kindgiw judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
+./kindgiw judgments remove <judgment-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
+./kindgiw judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
+./kindgiw judgments remove <judgment-id>
+```
+
+</TabItem>
+</Tabs>
 
 - `<run-id>` is the run's id, and `<judgment-id>` a judgment's `id`, from the
   list.
@@ -215,10 +276,40 @@ judges more, for the tenant, a project, or an agent in a project.
 
 Add a class, then judge as it:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi judge-classes add --name=expert --weight=3 --project=<project-id>
-kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+pnpm exec kindgi judge-classes add --name=expert --weight=3 --project=<project-id>
+pnpm exec kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi judge-classes add --name=expert --weight=3 --project=<project-id>
+uv run kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw judge-classes add --name=expert --weight=3 --project=<project-id>
+./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw judge-classes add --name=expert --weight=3 --project=<project-id>
+./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+```
+
+</TabItem>
+</Tabs>
 
 - `--name` names the class, and `--weight=3` counts its judgments three
   times.
@@ -237,9 +328,36 @@ can't move the figures that release a version.
 
 Add the class with a restriction, before your reviewers judge:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+pnpm exec kindgi judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+```
+
+</TabItem>
+</Tabs>
 
 - `--tenant` makes it the tenant's class.
 - `--min-reviewer-role=senior` lets only a
@@ -269,7 +387,8 @@ your experts don't pick runs one at a time. As a run of the project ends,
 each rule checks it. A run that any rule matches joins the project's
 **judging queue**, once.
 
-Make a rule:
+To make a rule, ask your coding agent: "Queue a sample of my agent's live runs
+for people to judge." For reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -413,8 +532,9 @@ has every field, and how to try a rule before you make it.
 
 ### Work through the queue
 
-The queue lists the runs waiting for a judgment, oldest first. List the ones
-you can close:
+The queue lists the runs waiting for a judgment, oldest first. To list the
+ones you can close, ask your coding agent: "Show me the runs waiting for my
+judgment." For reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

@@ -38,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          # The docs-ship check diffs the branch against origin/main.
+          # The docs-ship check reads the pull request's history back to its base.
           fetch-depth: 0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
@@ -58,6 +58,9 @@ jobs:
 
       - name: No package dependency cycles
         run: pnpm run check:cycles
+
+      - name: Constructors with parameter properties call super at their root (tsc's emit)
+        run: pnpm run check:constructor-super
 
       - name: README package table
         run: pnpm run check:readme
