@@ -845,9 +845,11 @@ Ed25519 signing keys for `kindgi build`, as files under `~/.kindgi/keys/`
 
 ## `kindgi skills`
 
-`kindgi skills sync [--force] [--dry-run]` refreshes `.claude/skills/` from the
-skills bundled with this CLI. Skills you edited are kept unless `--force`.
-`kindgi dev` mentions it when the installed skills are behind.
+`kindgi skills sync [--force] [--dry-run]` refreshes `.claude/skills/` and
+`.agents/skills/` from the skills bundled with this CLI. Skills you edited are
+kept unless `--force`; a skill you deleted comes back. After an upgrade,
+`kindgi dev` refreshes them as it starts, the same way without `--force`,
+except that a skill or a skills folder you deleted stays deleted.
 
 ## `kindgi mcp`
 

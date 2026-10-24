@@ -493,6 +493,12 @@ final class Indexer {
       throw new EntryException(kind + " '" + idOf(primitive) + "' is invalid at " + (at.isEmpty() ? "/" : at) + ": "
           + first.get("message") + (additional != null ? " ('" + additional + "')" : ""));
     }
+    if (primitive instanceof Tool) {
+      String needsProblem = Needs.check(((Tool<?, ?>) primitive).id(), plain.get("needsSpec"));
+      if (needsProblem != null) {
+        throw new EntryException(needsProblem);
+      }
+    }
     return plain;
   }
 

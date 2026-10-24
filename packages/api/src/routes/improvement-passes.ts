@@ -36,8 +36,10 @@ import { refusesCandidates, refusesScope } from '../registry-read-only.js';
 import type { ProposalObjective } from '../supervisor-binding.js';
 import type { AppEnv } from '../types.js';
 import { actorOf, coordinatesOf } from './agent-releases.js';
+import { deniedBy } from './denied.js';
 import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
+import { UUID_RE } from './uuid-param.js';
 
 type Ctx = Context<AppEnv>;
 
@@ -49,7 +51,7 @@ export interface ImproveDeps {
   readonly releases: AgentReleaseBindings;
   /** What the agent's project may reach (`reference-scope.ts`); absent → as named. */
   readonly referenceScope?: ReferenceScopeBinding;
-  /** Whether a project is suspended: no pass starts for an agent in one. Absent: no check. */
+  /** Whether a project is suspended: no pass starts in one. Absent: no check. */
   readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
   /**
    * The tenant's judge classes. The `classWeights` default counts everyone
@@ -169,6 +171,14 @@ const OBJECTIVES: readonly ProposalObjective[] = ['weightedYesShare', 'weightedP
  * for the whole tenant. Needs `publish` on the agent; for an agent more
  * than one project serves, `write` where its new versions are made
  * (`item-rights.ts`).
+ *
+ * The pass works in one project: its test set must be one that project
+ * reaches, and its eval runs run there. As an improve schedule's: the
+ * `projectId` named, else the scope's project, else the agent version's.
+ * A project or segment scope must be in it, the version must reach it,
+ * and a project other than the version's needs `write` there, as the
+ * pass's eval runs do. Its proposal's version is made where the agent's
+ * versions are, as any proposal's.
  */
 export function mountImproveRoute(
   r: Hono<AppEnv>,
@@ -196,18 +206,18 @@ export function mountImproveRoute(
     if (narrower !== undefined) {
       return fail(c, 'registry-read-only', { code: 'registry-read-only', message: narrower });
     }
-    const resolved = await resolveImproveTarget(c, deps, tenantId, parsed);
-    if (resolved instanceof Response) return resolved;
-    const from = resolved;
+    const target = await resolveImproveTarget(c, deps, authorizer, tenantId, parsed);
+    if (target instanceof Response) return target;
+    const { from, projectId } = target;
     if (
-      from.projectId !== undefined &&
+      projectId !== undefined &&
       deps.projectSuspended !== undefined &&
-      (await deps.projectSuspended(tenantId, from.projectId))
+      (await deps.projectSuspended(tenantId, projectId))
     ) {
       return fail(c, 'project-suspended', {
         code: 'project-suspended',
         message:
-          "The agent's project is suspended, so nothing new runs in it until it's restored; the pass wasn't started",
+          "The pass's project is suspended, so nothing new runs in it until it's restored; the pass wasn't started",
       });
     }
     const nothing = await nothingToTune(deps.blocks, tenantId, from, parsed.tiers[0]);
@@ -236,7 +246,7 @@ export function mountImproveRoute(
         : from.projectId;
     const pass = await deps.passes.start({
       tenantId,
-      ...(from.projectId !== undefined && { projectId: from.projectId }),
+      ...(projectId !== undefined && { projectId }),
       agentId: parsed.agentId,
       fromVersion: from.version as unknown as string,
       scope: parsed.scope,
@@ -272,12 +282,12 @@ export function mountImproveRoute(
     // Resolve and reach-check the same body `/improve` would, so a bad body
     // fails the same way here; the estimate is a read, so it stops there and
     // doesn't take `/improve`'s run-gating refusals.
-    const resolved = await resolveImproveTarget(c, deps, tenantId, parsed);
+    const resolved = await resolveImproveTarget(c, deps, authorizer, tenantId, parsed);
     if (resolved instanceof Response) return resolved;
     const basis = await passes.estimateBasis({
       tenantId,
       agentId: parsed.agentId,
-      fromVersion: resolved.version as string,
+      fromVersion: resolved.from.version as string,
       scope: parsed.scope,
       suiteId: parsed.suiteId,
       tiers: parsed.tiers,
@@ -410,16 +420,19 @@ export function improvementPassesRouter(
  * Resolve and reach-check an improve body the way `/improve` does before it
  * runs — so `/improve` and `/improve/estimate`, which take the same body,
  * fail it the same way. Resolves the from-version (given, or the one serving
- * the scope), 404s an unknown or inactive one, then checks the suite's and
- * the live scope's reach and 400s one out of scope. Returns the resolved
- * version, or the response to send.
+ * the scope), 404s an unknown or inactive one, then the pass's project
+ * (`passProject`). Returns the version and the project, or the response to
+ * send.
  */
 async function resolveImproveTarget(
   c: Ctx,
   deps: ImproveDeps,
+  authorizer: Authorizer | undefined,
   tenantId: TenantId,
   parsed: ImproveBody,
-): Promise<AgentVersionRecord | Response> {
+): Promise<
+  { readonly from: AgentVersionRecord; readonly projectId: ProjectId | undefined } | Response
+> {
   const fromVersion =
     parsed.fromVersion ?? (await servingVersion(deps, tenantId, parsed.agentId, parsed.scope));
   const from =
@@ -436,17 +449,67 @@ async function resolveImproveTarget(
       message: `${parsed.agentId} has no active version ${fromVersion ?? '(none is registered)'}`,
     });
   }
-  // The suite must be the agent's project's to reach, and the scope must
-  // reach the agent (`reference-scope.ts`).
+  const project = await passProject(c, deps, authorizer, tenantId, parsed, from);
+  if (project instanceof Response) return project;
+  return { from, projectId: project.projectId };
+}
+
+/**
+ * The project a pass works in, as an improve schedule's (`schedules.ts`):
+ * the one named, else the scope's, else the version's. A project or
+ * segment scope must be in it; a project other than the version's needs
+ * `write` there and must reach the version; it must reach the suite, and
+ * the scope the agent. The project, or the refusal. Whether it's suspended
+ * is `/improve`'s to ask, since the estimate starts nothing.
+ */
+async function passProject(
+  c: Ctx,
+  deps: ImproveDeps,
+  authorizer: Authorizer | undefined,
+  tenantId: TenantId,
+  parsed: ImproveBody,
+  from: AgentVersionRecord,
+): Promise<{ readonly projectId: ProjectId | undefined } | Response> {
+  const scopeProject = scopeProjectOf(parsed.scope);
+  const projectId = (parsed.projectId as ProjectId | undefined) ?? scopeProject ?? from.projectId;
+  if (scopeProject !== undefined && projectId !== scopeProject) {
+    return badInput(
+      c,
+      "An improve pass's scope must be in its project (`projectId`): it learns from that project's runs",
+    );
+  }
+  const elsewhere = projectId !== undefined && projectId !== from.projectId;
+  if (elsewhere) {
+    const refused = await deniedBy(authorizer, c, 'write', ref('project', projectId as string));
+    if (refused !== undefined) return refused;
+  }
+  // The scope must reach the agent; then the pass's project must reach
+  // the version (when it isn't the version's own) and the suite
+  // (`reference-scope.ts`).
   const outOfScope =
-    (from.projectId === undefined
+    (await liveScopeOutOfScope(deps.referenceScope, tenantId, parsed.agentId, parsed.scope)) ??
+    (projectId === undefined
       ? undefined
-      : await referencesOutOfScope(deps.referenceScope, tenantId, from.projectId, [
+      : await referencesOutOfScope(deps.referenceScope, tenantId, projectId, [
+          ...(elsewhere
+            ? [
+                {
+                  path: '/fromVersion',
+                  kind: 'agent' as const,
+                  id: parsed.agentId,
+                  version: from.version as unknown as string,
+                },
+              ]
+            : []),
           { path: '/suiteId', kind: 'suite', id: parsed.suiteId },
-        ])) ??
-    (await liveScopeOutOfScope(deps.referenceScope, tenantId, parsed.agentId, parsed.scope));
+        ]));
   if (outOfScope !== undefined) return outOfScopeResponse(c, c.get('requestId'), outOfScope);
-  return from;
+  return { projectId };
+}
+
+/** A project or segment scope's project; `undefined` for the tenant or an org. */
+function scopeProjectOf(scope: ImprovementPass['scope']): ProjectId | undefined {
+  return scope.kind === 'project' || scope.kind === 'segment' ? scope.projectId : undefined;
 }
 
 /** What serves the scope now: its live version, else the agent's latest. */
@@ -526,6 +589,7 @@ export function serializePass(p: ImprovementPass): Record<string, unknown> {
 interface ImproveBody {
   readonly agentId: string;
   readonly fromVersion?: string;
+  readonly projectId?: string;
   readonly scope: ImprovementPass['scope'];
   readonly suiteId: string;
   readonly tiers: readonly ImprovementTier[];
@@ -599,6 +663,7 @@ function parseImproveBody(b: Record<string, unknown>): ImproveBody | string {
   const known = [
     'agentId',
     'fromVersion',
+    'projectId',
     'scope',
     'suiteId',
     'tiers',
@@ -614,6 +679,12 @@ function parseImproveBody(b: Record<string, unknown>): ImproveBody | string {
   if (b.fromVersion !== undefined && !nonEmpty(b.fromVersion)) {
     return '`fromVersion` must be a version when given (default: the one serving the scope)';
   }
+  if (
+    b.projectId !== undefined &&
+    (typeof b.projectId !== 'string' || !UUID_RE.test(b.projectId))
+  ) {
+    return '`projectId` must be a project id (a UUID)';
+  }
   const scope = parseLiveScopeBody(b.scope);
   if (scope.kind === 'err') return scope.message;
   if (!nonEmpty(b.suiteId)) return '`suiteId` is required: the test set to search and prove on';
@@ -622,6 +693,7 @@ function parseImproveBody(b: Record<string, unknown>): ImproveBody | string {
   return {
     agentId: b.agentId,
     ...(typeof b.fromVersion === 'string' && { fromVersion: b.fromVersion }),
+    ...(typeof b.projectId === 'string' && { projectId: b.projectId }),
     scope: scope.scope,
     suiteId: b.suiteId,
     ...options,

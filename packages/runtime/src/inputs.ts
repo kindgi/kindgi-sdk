@@ -111,6 +111,16 @@ export function runIsAttended(startedBy: RunStartedBy | undefined): boolean {
 }
 
 /**
+ * Whom a run acts for, whose access it has: a person (`user:<id>`) or a
+ * service account (`service_account:<id>`), named as an approval's
+ * `requestedBy` and a conversation's `openedBy` name them. Recorded with
+ * the run and never changed: a run a schedule or a webhook fired acts for
+ * the trigger's owner, a child run for its parent's, an agent acting for
+ * someone for that someone. An id, never a name.
+ */
+export type RunActsFor = `user:${string}` | `service_account:${string}`;
+
+/**
  * Whether a call of `tool` waits for a person's yes because no person is
  * watching its run: the tool declares `needsApprovalWhenUnattended`, the
  * run isn't attended (`runIsAttended`), and it isn't a run a webhook or a

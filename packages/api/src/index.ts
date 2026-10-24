@@ -17,7 +17,11 @@ export {
   MULTI_TENANT_LOOKUP,
 } from './middleware/auth.js';
 export type { SessionCookieOptions, TokenResolution, TokenResolver } from './middleware/auth.js';
-export type { SignInLegalLinks, SignInOptionsRateLimit } from './routes/sign-in-options.js';
+export type {
+  ConsoleLink,
+  SignInLegalLinks,
+  SignInOptionsRateLimit,
+} from './routes/sign-in-options.js';
 export type {
   LicensePreview,
   LicenseStatus,
@@ -429,6 +433,15 @@ export type {
 } from './public-run-token.js';
 export { runFailure } from './run-failure.js';
 export type { RunFailure } from './run-failure.js';
+export { WAIT_TOKEN_STATES } from './wait-token-binding.js';
+export type {
+  CompleteWaitTokenInput,
+  WaitTokenAccepted,
+  WaitTokenBinding,
+  WaitTokenRefusal,
+  WaitTokenState,
+  WaitingToken,
+} from './wait-token-binding.js';
 export {
   WEBHOOK_DELIVERY_STATUSES,
   WEBHOOK_EVENT_TYPES,

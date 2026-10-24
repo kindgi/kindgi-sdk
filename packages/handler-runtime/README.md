@@ -15,6 +15,8 @@ Runs a Kindgi pack's own code: its tool handlers and guardrail checks.
 3. Calls `handler(input, ctx)`, awaiting a promise.
 4. Validates the return value against the tool's output JSON Schema.
 
+A tool that declares `pauses: true` gets the call's `ctx.waitToken` (`{ id, url }`) and `ctx.pause({ timeoutMs, name })`: its handler hands the `url` to the system that will answer and returns `ctx.pause()`, and the run waits for that answer (pack protocol 2.8.0). `runHandlerOrPause` returns the pause as a third outcome, `{ kind: 'pause', pause: { timeoutMs, name } }`, and the pack service answers it as a `pause` message. `runHandler`, whose caller can only take a result, reports a pause as `pause-not-available`. A tool that doesn't declare `pauses` gets neither, even when the call carries a token.
+
 `runCheck({ check, config, trace, abortSignal? })` runs one guardrail check: it imports the module, resolves its `evaluate` (`default`, `check`, or a bare export), and calls `evaluate(config, trace, bindings)`. `bindings` carries only `abortSignal`; a check here has no provider registry, so llm-judge checks run in the server.
 
 Neither throws. Each returns `{ kind: 'ok', value }` or `{ kind: 'err', error: HandlerError }`:
@@ -24,9 +26,10 @@ Neither throws. Each returns `{ kind: 'ok', value }` or `{ kind: 'err', error: H
 | `input-validation-failed` | The input failed its schema (`issues` lists why). The handler isn't called. |
 | `output-validation-failed` | The handler's return value failed the output schema. |
 | `handler-import-failed` | Importing the module threw (`cause`). |
-| `handler-shape-invalid` | The module exports no handler. |
+| `handler-shape-invalid` | The module exports no handler, or the handler paused for no time, for more than 24 days, or with a name that isn't 1 to 200 characters. |
 | `handler-throw` | The handler (or `evaluate`) threw (`cause`). |
 | `check-shape-invalid` | The check module exports no `evaluate`. |
+| `pause-not-available` | The tool tried to pause, but the call carries no wait token (its runtime is older than pack protocol 2.8.0), or the tool doesn't declare `pauses`. |
 
 ```ts
 import { runHandler } from '@kindgi/handler-runtime';

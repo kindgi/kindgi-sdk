@@ -288,6 +288,7 @@ def _tool_entry(tool: Tool[..., Any], rel_path: str, config: PackConfig) -> dict
             "limits": _dict(tool.limits),
             "network": _dict(tool.network),
             "spec": _dict(tool.spec),
+            "pauses": True if tool.pauses else None,
             "modulePath": rel_path,
         }
     )

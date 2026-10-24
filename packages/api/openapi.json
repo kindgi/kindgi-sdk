@@ -239,6 +239,7 @@
           "unresolved-guardrail": 400,
           "schema-validation-failed": 400,
           "scope-invalid": 400,
+          "wait-token-output-invalid": 400,
           "auth-missing": 401,
           "auth-expired": 401,
           "auth-revoked": 401,
@@ -255,12 +256,14 @@
           "guardrail-not-found": 404,
           "fact-not-found": 404,
           "flow-not-found": 404,
+          "wait-token-not-found": 404,
           "already-terminal": 409,
           "fact-changed": 409,
           "legal-hold": 409,
           "erasure-in-progress": 409,
           "run-already-terminal": 409,
           "run-lease-lost": 409,
+          "wait-token-closed": 409,
           "idempotency-key-body-mismatch": 409,
           "idempotency-key-in-flight": 409,
           "idempotency-key-replay-withheld": 409,
@@ -447,6 +450,7 @@
           "agent-version-live": 409,
           "artifact-too-large": 413,
           "request-too-large": 413,
+          "unsupported-media-type": 415,
           "run-not-finished": 409,
           "item-not-found": 400,
           "test-sets-not-supported": 501,
@@ -686,12 +690,19 @@
           "approvals",
           "other"
         ],
-        "description": "Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.",
+        "description": "Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `tokens`: its waits for another system's answer. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.",
         "properties": {
           "approvals": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/RunWaitingApproval"
+            }
+          },
+          "tokens": {
+            "type": "array",
+            "description": "Its waits for another system's answer (a pausing tool's calls). Absent on a runtime that pauses no run, or when they can't be read: those waits are then `unattributed`.",
+            "items": {
+              "$ref": "#/components/schemas/RunWaitingToken"
             }
           },
           "other": {
@@ -799,6 +810,62 @@
                 "description": "The model's id for the call."
               }
             }
+          }
+        }
+      },
+      "RunWaitingToken": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tokenId",
+          "tool",
+          "createdAt",
+          "timesOutAt"
+        ],
+        "description": "A wait for another system's answer: a pack tool that declares `pauses` handed its wait token's link on. Answer it through the link, or with `POST /v1/runs/{runId}/resume` and this `tokenId`. Never the link itself.",
+        "properties": {
+          "tokenId": {
+            "type": "string",
+            "description": "The waitpoint id (`pause:…`), for `POST /v1/runs/{runId}/resume`."
+          },
+          "name": {
+            "type": "string",
+            "description": "What the run waits for, as the tool named it."
+          },
+          "tool": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "version"
+            ],
+            "description": "The tool whose call waits.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "The tool id."
+              },
+              "version": {
+                "type": "string"
+              },
+              "callId": {
+                "type": "string",
+                "description": "The model's id for the call, for an agent's call."
+              }
+            }
+          },
+          "nodeId": {
+            "type": "string",
+            "description": "The flow step that waits, for a flow's tool step."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "timesOutAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the wait times out, and the call fails with `wait-token-timed-out`."
           }
         }
       },
@@ -1709,6 +1776,10 @@
             ],
             "description": "How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes."
           },
+          "actsFor": {
+            "type": "string",
+            "description": "Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule or a webhook fired (`startedBy` `schedule` or `webhook`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run."
+          },
           "toolsAllowedUnattended": {
             "type": "array",
             "items": {
@@ -2022,10 +2093,10 @@
           "waitpointId": {
             "type": "string",
             "minLength": 1,
-            "description": "Token id of the pending waitpoint to complete. Ids starting with `child:` are reserved for the runtime. Resuming without a waitpoint id returns `400 bad-input`."
+            "description": "Token id of the pending waitpoint to complete: a `pause:` id, from the run's `waitingFor.tokens`. Ids starting with `child:` and `pause:` are reserved for the runtime: a handler never waits on one of its own. Resuming without a waitpoint id returns `400 bad-input`."
           },
           "value": {
-            "description": "Resolved value passed back into the flow handler that suspended."
+            "description": "The answer: the paused tool's output, checked against its output schema. Absent: `{}`."
           }
         }
       },
@@ -2142,6 +2213,10 @@
                     "event"
                   ],
                   "description": "How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes."
+                },
+                "actsFor": {
+                  "type": "string",
+                  "description": "Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule or a webhook fired (`startedBy` `schedule` or `webhook`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run."
                 },
                 "toolsAllowedUnattended": {
                   "type": "array",
@@ -8065,6 +8140,10 @@
             "type": "boolean",
             "description": "`true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`."
           },
+          "pauses": {
+            "type": "boolean",
+            "description": "`true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
+          },
           "sandbox": {
             "$ref": "#/components/schemas/SandboxMode"
           },
@@ -8178,6 +8257,10 @@
           "needsApprovalWhenUnattended": {
             "type": "boolean",
             "description": "`true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`."
+          },
+          "pauses": {
+            "type": "boolean",
+            "description": "`true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
           },
           "sandbox": {
             "$ref": "#/components/schemas/SandboxMode"
@@ -8348,6 +8431,10 @@
           "needsApprovalWhenUnattended": {
             "type": "boolean",
             "description": "`true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`."
+          },
+          "pauses": {
+            "type": "boolean",
+            "description": "`true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
           },
           "sandbox": {
             "$ref": "#/components/schemas/SandboxMode"
@@ -10887,6 +10974,11 @@
           "fromVersion": {
             "type": "string",
             "description": "The version whose settings it tunes. Default: the one serving `scope`."
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The project the pass works in: `suiteId` must be a test set it reaches, the version must reach it, and the pass's eval runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there."
           },
           "scope": {
             "$ref": "#/components/schemas/LiveScope"
@@ -16344,6 +16436,28 @@
           }
         }
       },
+      "ConsoleLink": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "label",
+          "url"
+        ],
+        "description": "One of the deployment's own links, which the console shows on every page.",
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "description": "The text shown."
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "An absolute https URL with no username or password."
+          }
+        }
+      },
       "SignInOptions": {
         "type": "object",
         "additionalProperties": false,
@@ -16410,6 +16524,14 @@
                 "format": "uri",
                 "description": "Its privacy policy."
               }
+            }
+          },
+          "links": {
+            "type": "array",
+            "maxItems": 8,
+            "description": "The deployment's own links (its help desk, status page, data processing terms), which the console shows on every page, the sign-in page too, in its operator's order. Absent when there are none, and from older servers.",
+            "items": {
+              "$ref": "#/components/schemas/ConsoleLink"
             }
           }
         }
@@ -19664,6 +19786,8 @@
           "secret-revoked",
           "secret-hard-revoked",
           "hitl-decision",
+          "wait-token-completed",
+          "wait-token-discarded",
           "agent-promotion",
           "agent-promotion-refused",
           "agent-rollback",
@@ -19829,6 +19953,8 @@
               "secret-revoked",
               "secret-hard-revoked",
               "hitl-decision",
+              "wait-token-completed",
+              "wait-token-discarded",
               "agent-promotion",
               "agent-promotion-refused",
               "agent-rollback",
@@ -20017,6 +20143,8 @@
               "secret-revoked",
               "secret-hard-revoked",
               "hitl-decision",
+              "wait-token-completed",
+              "wait-token-discarded",
               "agent-promotion",
               "agent-promotion-refused",
               "agent-rollback",
@@ -20103,6 +20231,8 @@
                   "secret-revoked",
                   "secret-hard-revoked",
                   "hitl-decision",
+                  "wait-token-completed",
+                  "wait-token-discarded",
                   "agent-promotion",
                   "agent-promotion-refused",
                   "agent-rollback",
@@ -23232,6 +23362,22 @@
           }
         }
       },
+      "WaitTokenAccepted": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "description": "The runtime has the answer. It says nothing about the run: who holds a wait token's link isn't a run reader.",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "accepted"
+            ]
+          }
+        }
+      },
       "WebhookReceipt": {
         "type": "object",
         "additionalProperties": false,
@@ -25416,13 +25562,23 @@
     "/v1/runs/{runId}/resume": {
       "post": {
         "operationId": "runs.resume",
-        "summary": "Resume a suspended run at a waitpoint (not available in this release)",
+        "summary": "Answer a run's wait for another system",
         "tags": [
           "runs"
         ],
         "responses": {
+          "200": {
+            "description": "The run after the answer: running again, finished, or waiting at its next wait (`waitingFor`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
           "400": {
-            "description": "Malformed request body.",
+            "description": "`bad-input`: no `waitpointId`, or a field the body doesn't take. `wait-token-output-invalid` (`details.issues`): the value doesn't fit the tool's output schema, and the wait stays open.",
             "content": {
               "application/json": {
                 "schema": {
@@ -25441,8 +25597,18 @@
               }
             }
           },
+          "404": {
+            "description": "`run-not-found`: no run with that id under this tenant. `wait-token-not-found`: the run has no such wait.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "`wait-token-closed` (`details.state`): the wait is over (`completed`, `timed-out`, `cancelled`, `unused`), or holds a different answer the run hasn't taken yet (`answered`). `project-suspended`: nothing runs in the run's project, and the suspension cancels its runs, so the value wasn't taken. Or an `Idempotency-Key` reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -25462,7 +25628,7 @@
             }
           },
           "422": {
-            "description": "`run-resume-not-supported`: not available in this release.",
+            "description": "`run-resume-not-supported`: a waitpoint that isn't a pause, or a runtime that pauses no run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -25482,7 +25648,7 @@
             }
           }
         },
-        "description": "Not available in this release: always `422 run-resume-not-supported`, and no waitpoint is completed. Every waitpoint a run can wait at belongs to an approval or to the runtime itself. A run waiting for an approval continues when a reviewer decides it: `POST /v1/approvals/{approvalId}/complete`.",
+        "description": "Answers a run paused on a tool call until another system answers (a pack tool that declares `pauses`; its waitpoint id starts with `pause:`, as the run's `waitingFor.tokens` lists it), as that system would through the wait token's link, and resumes the run in the same request. `value` is the tool's output, checked against its output schema; absent, `{}`. Answering stands in for the other system, and the run acts on the answer, so it needs `write` on the run's project and `execute` on the agent or flow it runs, as starting it does. The same answer again is accepted again, even after the run has ended; a different one to a wait that's over is `409 wait-token-closed`. Every other waitpoint belongs to an approval or to the runtime itself, and is `422 run-resume-not-supported`: a run waiting for an approval continues when a reviewer decides it (`POST /v1/approvals/{approvalId}/complete`).",
         "parameters": [
           {
             "name": "runId",
@@ -25900,6 +26066,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a tenant admin, or the key doesn't carry the `signing-keys:write` capability (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "`keyId` is already trusted with a different public key (`signing-key-conflict`), or was revoked (`signing-key-revoked`: revocation is final).",
             "content": {
@@ -25979,6 +26155,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -26069,6 +26255,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No signing key with that id under this tenant.",
             "content": {
@@ -26129,6 +26325,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin, or the key doesn't carry the `signing-keys:write` capability (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -27359,7 +27565,7 @@
             }
           }
         },
-        "description": "Starts the end of its contract: the tenant becomes `closing`. Its own keys and sessions still read and export it for its window; nothing runs (its running runs are cancelled), and nothing is written but deletes. One-way: the purge follows the window. A second close keeps the first. Takes `system:tenants`.",
+        "description": "Starts the end of its contract: the tenant becomes `closing`. Its own keys and sessions still read and export it for its window; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. One-way: the purge follows the window. A second close keeps the first. Takes `system:tenants`.",
         "parameters": [
           {
             "name": "tenantId",
@@ -27488,7 +27694,7 @@
             }
           }
         },
-        "description": "Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).",
+        "description": "Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).",
         "parameters": [
           {
             "name": "tenantId",
@@ -27766,7 +27972,7 @@
             }
           }
         },
-        "description": "Reversible: nothing new runs or deploys in the project, its running runs are cancelled and its deployments retired; reads and the rest of the tenant are untouched. Its schedules' fires are recorded `skipped` (`project-suspended`) and don't count toward the auto-pause, so a schedule stays on and fires again once the project is restored. A delivery to one of its webhook triggers is answered `skipped: project-suspended`, and nothing is recorded. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).",
+        "description": "Reversible: nothing new runs or deploys in the project, its unfinished runs, waiting ones included, are cancelled, and its deployments retired; reads and the rest of the tenant are untouched. Its schedules' fires are recorded `skipped` (`project-suspended`) and don't count toward the auto-pause, so a schedule stays on and fires again once the project is restored. A delivery to one of its webhook triggers is answered `skipped: project-suspended`, and nothing is recorded. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).",
         "parameters": [
           {
             "name": "tenantId",
@@ -37913,7 +38119,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body, or `validation-failed`. Or `reference-out-of-scope`: the test set isn't registered in the agent's project, its org or the tenant, or a project or segment scope doesn't reach the agent (`details.issues`).",
+            "description": "Malformed request body, `validation-failed`, or a project or segment scope that isn't in `projectId`. Or `reference-out-of-scope`: a project or segment scope doesn't reach the agent, the version doesn't reach the pass's project (`/fromVersion`), or the test set isn't one that project reaches (`details.issues`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -37933,7 +38139,7 @@
             }
           },
           "404": {
-            "description": "`fromVersion` (or the version serving the scope) is not an active version.",
+            "description": "`fromVersion` (or the version serving the scope) is not an active version; or the body's `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -37943,7 +38149,7 @@
             }
           },
           "409": {
-            "description": "`registry-read-only` (under `kindgi dev`, also a scope narrower than the whole tenant), `proposal-needs-pin`, or `project-suspended`: the agent's project is suspended. Or Idempotency-Key was reused with a different body.",
+            "description": "`registry-read-only` (under `kindgi dev`, also a scope narrower than the whole tenant), `proposal-needs-pin`, or `project-suspended`: the pass's project is suspended. Or Idempotency-Key was reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -37983,7 +38189,7 @@
             }
           }
         },
-        "description": "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts for an agent whose project is suspended (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+        "description": "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -38032,7 +38238,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body (`bad-input`). Or `reference-out-of-scope`: the test set isn't registered in the agent's project, its org or the tenant, or a project or segment scope doesn't reach the agent (`details.issues`).",
+            "description": "Malformed request body (`bad-input`), or a project or segment scope that isn't in `projectId`. Or `reference-out-of-scope`: a project or segment scope doesn't reach the agent, the version doesn't reach the pass's project (`/fromVersion`), or the test set isn't one that project reaches (`details.issues`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -38052,7 +38258,7 @@
             }
           },
           "404": {
-            "description": "`fromVersion` (or the version serving the scope) is not an active version (`agent-version-not-found`).",
+            "description": "`fromVersion` (or the version serving the scope) is not an active version (`agent-version-not-found`); or the body's `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -38082,7 +38288,7 @@
             }
           }
         },
-        "description": "What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the agent's project doesn't reach answers `400 reference-out-of-scope`, exactly as `improve` would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count times the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt pass's one-off drafting of its templates — a pass can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the pass is expected to spend its whole budget; the pass checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+        "description": "What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the pass's project doesn't reach answers `400 reference-out-of-scope`, exactly as `improve` would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count times the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt pass's one-off drafting of its templates — a pass can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the pass is expected to spend its whole budget; the pass checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.",
         "requestBody": {
           "required": true,
           "content": {
@@ -40070,6 +40276,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
         "description": "Cursor-paginated. Read-only — capabilities are framework-declared + deployment-extended at boot time, not tenant-created via HTTP. Optional `?feature=` filters by prefix on `feature`.",
@@ -40140,6 +40356,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No capability with that id under this tenant.",
             "content": {
@@ -40199,6 +40425,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -40276,6 +40512,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -40383,6 +40629,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No provider with that id under this tenant.",
             "content": {
@@ -40441,6 +40697,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No provider with that id under this tenant.",
             "content": {
@@ -40491,6 +40757,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -40559,6 +40835,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42841,6 +43127,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
         "description": "Cursor-paginated. Optional `?kind=` / `?status=` filters narrow the result. Adapters are the concrete bridges the runtime uses to talk to outside systems (model providers, embedding providers, blob storage, sandbox providers, eval judges); the deployment aggregates the ones it wired at boot time.",
@@ -42920,6 +43216,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No adapter with that id under this tenant.",
             "content": {
@@ -42980,6 +43286,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43106,6 +43422,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No adapter registered with that id.",
             "content": {
@@ -43204,6 +43530,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
         "description": "Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id.",
@@ -43283,6 +43619,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43380,6 +43726,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No policy with that id under this tenant.",
             "content": {
@@ -43440,6 +43796,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43538,6 +43904,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No policy at that (id, version) under this tenant.",
             "content": {
@@ -43609,6 +43985,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43717,6 +44103,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46345,6 +46741,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
         "description": "Returns the tenant's identity providers (OIDC, SAML), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.",
@@ -46392,7 +46798,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either. Or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46511,7 +46917,7 @@
             }
           }
         },
-        "description": "Public: nobody is signed in yet. With `email`, the ways in for that email's domain: the identity providers of the one tenant the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, \"Continue with Google\"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).",
+        "description": "Public: nobody is signed in yet. With `email`, the ways in for that email's domain: the identity providers of the one tenant the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, \"Continue with Google\"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Lookups with an email are rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`); a read without one, the same for everyone, isn't counted.",
         "parameters": [
           {
             "name": "email",
@@ -46622,6 +47028,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No identity provider registered with that id under this tenant.",
             "content": {
@@ -46689,7 +47105,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either. Or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46825,6 +47241,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
         "description": "The redirect URI (OIDC) or the ACS URL, entity ID and metadata URL (SAML) a provider under this `providerId` gets: the same before it's registered, after, and after an unregister and a new registration. So an admin sets up the identity provider's side first, then registers with what it gives back. `kind` is required until the provider is registered. Not mounted when the deployment can't say.",
@@ -46894,7 +47320,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either. Or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50028,6 +50454,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
         "description": "Cursor-paginated. Filters: `?runId=` / `?agentId=` / `?flowId=` / `?kind=` / `?from=` / `?to=` (all AND-composed). Fixed sort: `timestamp asc, id asc` — deterministic even when two records share a timestamp. Only mounted when `CreateAppInput.auditEvents` + `CreateAppInput.complianceClassifier` are both wired.",
@@ -50145,6 +50581,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No evidence record with that id under this tenant.",
             "content": {
@@ -50206,6 +50652,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59178,6 +59634,121 @@
         "security": []
       }
     },
+    "/v1/wait-tokens/{token}/complete": {
+      "post": {
+        "operationId": "waitTokens.complete",
+        "summary": "Answer a paused run's wait token",
+        "tags": [
+          "runs"
+        ],
+        "responses": {
+          "200": {
+            "description": "The runtime has the answer, and the run resumes behind it. An answer that came before the run reached its wait is held for it, and dropped if the run never waits on this token (the tool answered at once, or its step was retried); the link then answers `409 wait-token-closed`, `unused`. Nothing about the run: who holds the link is not a run reader.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WaitTokenAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`wait-token-output-invalid` (`details.issues`): the answer doesn't fit the tool's output schema, and the wait stays open for a fixed one. `bad-input`: the body isn't JSON, or nests too deep.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`wait-token-not-found`: no wait token matches the link (an unknown token and a wrong secret alike), or this runtime pauses no run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`wait-token-closed` (`details.state`): the wait is over (`completed`, `timed-out`, `cancelled`, `unused`), or holds a different answer the run hasn't taken yet (`answered`). `tenant-closing`, `tenant-suspended` (`details.state`) or `project-suspended`: nothing runs where the run is, and closing or suspending cancels its runs, so the answer wasn't taken. Told only for a token that matches.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`request-too-large` (`details.maxBytes`): past 1 MiB.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported-media-type`: a body sent without a JSON content type (`application/json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was taken. `Retry-After` says when to send the answer again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`tenant-state-unavailable`: the run's tenant's state couldn't be read, so the answer wasn't taken. `Retry-After` says when to send it again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A wait token's link: a pack tool that declares `pauses` hands it to the system that will answer, and the run waits for that answer. No sign-in, and a bearer token, if sent, is never read: the token in the path is the credential, and it answers one wait of one run, nothing else. The body is the answer itself, the tool's output, as JSON; an empty body is `{}`. It's checked against the tool's output schema. The same answer again (by its canonical JSON) is accepted again, even after the run has ended, so a sender may retry. An answer that comes before the run reaches its wait is held for it, and dropped if the run never waits on this token (the tool answered at once, or its step was retried); the link then answers `409 wait-token-closed`, `unused`. The answer comes back at once, and the run resumes behind it. The link stops working when the wait ends: the run is cancelled, its time passes, or the tool answered without waiting. The answer is data from outside, never instructions.",
+        "x-kindgi-sender-only": true,
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "The wait token, from the link. It's a credential: hand the link only to the system that answers."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "description": "The answer: the tool's output, as JSON, at most 1 MiB. An empty body is `{}`.",
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        },
+        "security": []
+      }
+    },
     "/v1/webhook-endpoints": {
       "post": {
         "operationId": "webhookEndpoints.create",
@@ -59208,6 +59779,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59312,6 +59893,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -59372,6 +59963,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "A retry with the Idempotency-Key of a request that succeeded: the secret isn't kept (`idempotency-key-replay-withheld`).",
             "content": {
@@ -59411,6 +60012,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59476,6 +60087,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59602,6 +60223,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
             "content": {
@@ -59682,6 +60313,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59780,6 +60421,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59887,6 +60538,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
