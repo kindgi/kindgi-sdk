@@ -10,9 +10,12 @@ import {
   RESUME_EXIT_CODES,
   type RunWaitPort,
   type WaitingApproval,
+  type WaitingToken,
+  onlyTokenWait,
   runWaitAnswer,
   runWaitText,
 } from '../src/commands/run-waits.js';
+import { UsageError } from '../src/errors.js';
 
 const T0 = '2026-10-06T12:00:00.000Z';
 let seq = 0;
@@ -307,5 +310,120 @@ describe('a runtime that answers it with the run (`waitingFor`, 0.1.6 on): used 
     });
     expect(p.sinces).toEqual([]);
     expect(RESUME_EXIT_CODES[answer.kind]).toBe(4);
+  });
+});
+
+describe("a wait for another system's answer (`waitingFor.tokens`): exit 5", () => {
+  const T1 = '2026-10-07T12:00:00.000Z';
+  const signOff: WaitingToken = {
+    tokenId: 'pause:k1:1',
+    name: 'manager sign-off',
+    tool: { id: 'acme.review', version: '1.0.0' },
+    nodeId: 'review',
+    createdAt: T0,
+    timesOutAt: T1,
+  };
+  const shipping: WaitingToken = {
+    tokenId: 'pause:k2:1',
+    tool: { id: 'acme.ship', version: '2.0.0', callId: 'call_2' },
+    createdAt: T0,
+    timesOutAt: T1,
+  };
+  function withWaitingFor(
+    waitingFor: NonNullable<Awaited<ReturnType<RunWaitPort['getRun']>>['waitingFor']>,
+  ) {
+    const base = port({ runs: { r1: 'suspended' } });
+    return {
+      ...base,
+      getRun: async (id: string) => ({ id, status: 'suspended', waitingFor }),
+    } satisfies RunWaitPort;
+  }
+
+  test('one: what it waits for, the call and its step, how it is answered and when it times out; nothing else is read', async () => {
+    const p = withWaitingFor({ approvals: [], other: [], tokens: [signOff] });
+    const answer = await runWaitAnswer(p, 'r1');
+    expect(answer).toEqual({
+      kind: 'token',
+      runId: 'r1',
+      status: 'suspended',
+      tokens: [signOff],
+      alsoWaitsOn: [],
+    });
+    expect(p.sinces).toEqual([]);
+    expect(p.asked).toEqual([]);
+    expect(runWaitText(answer)).toBe(
+      'Run r1 waits for "manager sign-off" from another system, for its call to acme.review@1.0.0 in step review. It continues once that system answers through the link the tool handed on, or: kindgi runs resume r1 --output=<json>. It times out at 2026-10-07T12:00:00.000Z.\n',
+    );
+    expect(RESUME_EXIT_CODES[answer.kind]).toBe(5);
+  });
+
+  test('two, one unnamed, and a child run: each names its --waitpoint, and the child run follows', async () => {
+    const answer = await runWaitAnswer(
+      withWaitingFor({
+        approvals: [],
+        other: [{ what: 'child-run', childRunId: 'c2', childStatus: 'running' }],
+        tokens: [signOff, shipping],
+      }),
+      'r1',
+    );
+    expect(answer.kind).toBe('token');
+    expect(runWaitText(answer).split('\n')).toEqual([
+      'Run r1 waits for "manager sign-off" from another system, for its call to acme.review@1.0.0 in step review. It continues once that system answers through the link the tool handed on, or: kindgi runs resume r1 --output=<json> --waitpoint=pause:k1:1. It times out at 2026-10-07T12:00:00.000Z.',
+      'Run r1 waits for an answer from another system, for its call to acme.ship@2.0.0. It continues once that system answers through the link the tool handed on, or: kindgi runs resume r1 --output=<json> --waitpoint=pause:k2:1. It times out at 2026-10-07T12:00:00.000Z.',
+      'Run r1 waits for its child run c2 (running); it continues when that run finishes.',
+      '',
+    ]);
+  });
+
+  test('with an approval: exit 3, and the wait for an answer is listed after it', async () => {
+    const answer = await runWaitAnswer(
+      withWaitingFor({
+        approvals: [{ approvalId: 'ap-9', status: 'pending', requiredRole: 'senior' }],
+        other: [],
+        tokens: [signOff],
+      }),
+      'r1',
+    );
+    expect(answer).toMatchObject({ kind: 'approval', tokens: [signOff] });
+    expect(RESUME_EXIT_CODES[answer.kind]).toBe(3);
+    const [first, second] = runWaitText(answer).split('\n');
+    expect(first).toContain('waits for approval ap-9');
+    expect(second).toContain('waits for "manager sign-off" from another system');
+  });
+
+  test('an empty list is no wait: the runtime answer, and an approval answer lists none', async () => {
+    const runtime = await runWaitAnswer(
+      withWaitingFor({ approvals: [], other: [{ what: 'no-open-wait' }], tokens: [] }),
+      'r1',
+    );
+    expect(runtime.kind).toBe('runtime');
+    const approval = await runWaitAnswer(
+      withWaitingFor({
+        approvals: [{ approvalId: 'ap-9', status: 'pending', requiredRole: 'senior' }],
+        other: [],
+        tokens: [],
+      }),
+      'r1',
+    );
+    expect(approval).not.toHaveProperty('tokens');
+  });
+
+  test('--output with no --waitpoint answers the only wait; none, or several, sends nothing', () => {
+    const run = (tokens: readonly WaitingToken[]) => ({
+      id: 'r1',
+      status: 'suspended',
+      waitingFor: { approvals: [], other: [], tokens },
+    });
+    expect(onlyTokenWait(run([signOff]))).toBe('pause:k1:1');
+    expect(() => onlyTokenWait(run([]))).toThrow(
+      "Run r1 (suspended) doesn't wait for another system's answer, so nothing was sent. kindgi runs resume r1 says what it waits for.",
+    );
+    expect(() => onlyTokenWait({ id: 'r1', status: 'running' })).toThrow(
+      "Run r1 (running) doesn't wait for another system's answer",
+    );
+    expect(() => onlyTokenWait(run([signOff, shipping]))).toThrow(UsageError);
+    expect(() => onlyTokenWait(run([signOff, shipping]))).toThrow(
+      'Run r1 waits for 2 answers: name one with --waitpoint=<id> (pause:k1:1, "manager sign-off", pause:k2:1).',
+    );
   });
 });
