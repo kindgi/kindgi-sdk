@@ -25355,6 +25355,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a tenant admin, or the key doesn't carry the `signing-keys:write` capability (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "`keyId` is already trusted with a different public key (`signing-key-conflict`), or was revoked (`signing-key-revoked`: revocation is final).",
             "content": {
@@ -25434,6 +25444,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -25524,6 +25544,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No signing key with that id under this tenant.",
             "content": {
@@ -25584,6 +25614,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin, or the key doesn't carry the `signing-keys:write` capability (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -39438,6 +39478,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
         "description": "Cursor-paginated. Read-only — capabilities are framework-declared + deployment-extended at boot time, not tenant-created via HTTP. Optional `?feature=` filters by prefix on `feature`.",
@@ -39508,6 +39558,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No capability with that id under this tenant.",
             "content": {
@@ -39567,6 +39627,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -39644,6 +39714,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -39751,6 +39831,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No provider with that id under this tenant.",
             "content": {
@@ -39809,6 +39899,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No provider with that id under this tenant.",
             "content": {
@@ -39859,6 +39959,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -39927,6 +40037,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42209,6 +42329,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
         "description": "Cursor-paginated. Optional `?kind=` / `?status=` filters narrow the result. Adapters are the concrete bridges the runtime uses to talk to outside systems (model providers, embedding providers, blob storage, sandbox providers, eval judges); the deployment aggregates the ones it wired at boot time.",
@@ -42288,6 +42418,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No adapter with that id under this tenant.",
             "content": {
@@ -42348,6 +42488,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42474,6 +42624,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No adapter registered with that id.",
             "content": {
@@ -42572,6 +42732,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
         "description": "Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id.",
@@ -42651,6 +42821,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42748,6 +42928,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No policy with that id under this tenant.",
             "content": {
@@ -42808,6 +42998,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42906,6 +43106,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No policy at that (id, version) under this tenant.",
             "content": {
@@ -42977,6 +43187,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43085,6 +43305,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -45713,6 +45943,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
         "description": "Returns the tenant's identity providers (OIDC, SAML), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.",
@@ -45760,7 +46000,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either. Or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
             "content": {
               "application/json": {
                 "schema": {
@@ -45990,6 +46230,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No identity provider registered with that id under this tenant.",
             "content": {
@@ -46057,7 +46307,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either. Or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46193,6 +46443,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
         "description": "The redirect URI (OIDC) or the ACS URL, entity ID and metadata URL (SAML) a provider under this `providerId` gets: the same before it's registered, after, and after an unregister and a new registration. So an admin sets up the identity provider's side first, then registers with what it gives back. `kind` is required until the provider is registered. Not mounted when the deployment can't say.",
@@ -46262,7 +46522,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either. Or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49396,6 +49656,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
         "description": "Cursor-paginated. Filters: `?runId=` / `?agentId=` / `?flowId=` / `?kind=` / `?from=` / `?to=` (all AND-composed). Fixed sort: `timestamp asc, id asc` — deterministic even when two records share a timestamp. Only mounted when `CreateAppInput.auditEvents` + `CreateAppInput.complianceClassifier` are both wired.",
@@ -49513,6 +49783,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No evidence record with that id under this tenant.",
             "content": {
@@ -49574,6 +49854,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -58468,6 +58758,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "`filter.projectId` names no project (`project-not-found`).",
             "content": {
@@ -58564,6 +58864,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -58624,6 +58934,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "A retry with the Idempotency-Key of a request that succeeded: the secret isn't kept (`idempotency-key-replay-withheld`).",
             "content": {
@@ -58663,6 +58983,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -58728,6 +59058,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -58854,6 +59194,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
             "content": {
@@ -58934,6 +59284,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59032,6 +59392,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59139,6 +59509,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`). Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.",
             "content": {
               "application/json": {
                 "schema": {
