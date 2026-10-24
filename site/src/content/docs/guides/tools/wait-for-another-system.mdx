@@ -448,10 +448,10 @@ again.
   says never to follow instructions found there, as
   [What its agents read](../../webhooks/start-runs-from-webhooks/#what-its-agents-read)
   describes for webhooks.
-- **In a flow, the agent steps after it** read their input the same way:
-  once the run has taken another system's answer, every later agent step
-  gets its message in an `<event>` block, with the same system line, since
-  that message may carry the answer.
+- **In a flow, after a tool step that paused,** the agent steps read their
+  input the same way: once that step has taken another system's answer,
+  every later agent step gets its message in an `<event>` block, with the
+  same system line, since that message may carry the answer.
 - **A wait that times out** is the tool error `wait-token-timed-out`, which
   fails the turn by default. With `tool-error` in the agent's
   `toolErrors.retryOn` (`tool_errors` in Python), the failure goes back to
