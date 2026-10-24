@@ -271,14 +271,13 @@ whatever classes exist.
 The suggested change an Improve run writes names the corrections it learned
 from on the search part, never on the rest: the ones its runs on the test
 cases counted and, for an Improve run on the instructions, the ones its
-drafter was shown. Its `evidence.judgmentIds` lists up to 100 of them: first
-the ones the drafter was shown, then the ones behind items marked wrong, then
-the others. When there are more,
-`evidence.judgmentCount` gives how many. A correction's calls (what the
-agent should have done) aren't among what its drafter learns from: it's
-shown a correction's verdict and reason, not its calls. Its runs on the test
-cases grade those calls on each replay and show the result, and that result
-decides only whether a change to the model settings is kept
+drafter was shown, including the ones with calls. Its `evidence.judgmentIds`
+lists up to 100 of them: first the ones the drafter was shown, case by case,
+each case's corrections with calls right after its items marked wrong; then
+the ones behind items marked wrong, then the others. When there are more,
+`evidence.judgmentCount` gives how many. Its runs on the test cases also
+grade a correction's calls on each replay and show the result, and that
+result decides only whether a change to the model settings is kept
 ([the decisions must stay right](#let-it-try-a-cheaper-model-or-another-temperature)).
 An Improve run on test cases built before correction ids (`judgmentIds`)
 names none.
@@ -314,8 +313,12 @@ curl -X POST "$KINDGI_API_URL/v1/proposals/improve" \
 
 It answers at once (`202`) with the Improve run, as the CLI does without `--wait`.
 
-The drafter sees the cases marked wrong and their reasons. A draft it writes
-is tried only if it stays within what the agent already has:
+The drafter sees the cases marked wrong, their reasons, and what
+[the corrections on them](../fix-what-experts-corrected/) say the agent should
+have done: the calls it should have made and the tools it shouldn't have
+called, as an example for that case, not a rule. It's shown only the
+corrections the Improve run [counts](#whose-corrections-it-learns-from). A
+draft it writes is tried only if it stays within what the agent already has:
 
 - it parses as Liquid;
 - it reads only the instructions' declared parameters, the variables the current
