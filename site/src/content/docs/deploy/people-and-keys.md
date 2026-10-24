@@ -92,8 +92,8 @@ Added to the tenant: they can read its settings. With authorization on, give the
 An email another person already has is refused with
 `409 identity-user-email-taken`.
 
-With authorization on, give them a role on a project next. A tenant
-admin, or an admin of that project, adds them by email or by id:
+With authorization on, give them a role on a project next. A tenant admin,
+or an admin of that project, adds them by email or by id:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/memberships" \
