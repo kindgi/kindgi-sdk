@@ -263,6 +263,7 @@ describe('kindgi skills sync', () => {
     expect(await installed()).toEqual([
       'kindgi-authoring-mcp-servers',
       'kindgi-authoring-providers',
+      'kindgi-fix-corrections',
       'kindgi-framework-feedback',
       'kindgi-python-authoring-agents',
       'kindgi-python-authoring-flows',
@@ -289,6 +290,7 @@ describe('kindgi skills sync', () => {
     expect(await installed()).toEqual([
       'kindgi-authoring-mcp-servers',
       'kindgi-authoring-providers',
+      'kindgi-fix-corrections',
       'kindgi-framework-feedback',
       'kindgi-scala-authoring-agents',
       'kindgi-scala-authoring-flows',
@@ -315,6 +317,7 @@ describe('kindgi skills sync', () => {
     expect(await installed()).toEqual([
       'kindgi-authoring-mcp-servers',
       'kindgi-authoring-providers',
+      'kindgi-fix-corrections',
       'kindgi-framework-feedback',
       'kindgi-java-authoring-agents',
       'kindgi-java-authoring-flows',
@@ -338,12 +341,14 @@ describe('kindgi skills sync', () => {
     expect(asked.stderr).toBe('');
     const out = await sync();
     expect(out.exitCode).toBe(0);
-    expect(JSON.parse(out.stdout).outcomes).toHaveLength(18);
+    expect(JSON.parse(out.stdout).outcomes).toHaveLength(20);
     expect(out.stderr).toMatch(/^Synced \S*\/\.claude\/skills\/ and \S*\/\.agents\/skills\/$/m);
     expect(out.stderr).toMatch(/^\.claude\/skills\/\n {2}\+ kindgi-/m);
     expect(out.stderr).toMatch(/^\.agents\/skills\/\n {2}\+ kindgi-/m);
     expect(
-      out.stderr.match(/^ {2}9 added, 0 updated, 0 unchanged, 0 skipped-modified, 0 local-only$/gm),
+      out.stderr.match(
+        /^ {2}10 added, 0 updated, 0 unchanged, 0 skipped-modified, 0 local-only$/gm,
+      ),
     ).toHaveLength(2);
   });
 
@@ -395,7 +400,7 @@ describe('kindgi skills sync', () => {
       await mkdir(ignore());
       const out = await sync();
       expect(out.exitCode).toBe(0);
-      expect(await installed('.agents/skills')).toHaveLength(9);
+      expect(await installed('.agents/skills')).toHaveLength(10);
       expect(JSON.parse(out.stdout).prettierignore).toEqual({
         path: expect.stringMatching(/\.prettierignore$/),
         status: 'error',

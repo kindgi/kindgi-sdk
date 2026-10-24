@@ -230,6 +230,40 @@ describe('createPackRefresher', () => {
   });
 });
 
+describe("createPackRefresher — the pack's blocks", () => {
+  test("a block validateBlock refuses is a file error beside the indexer's; the rest loads", async () => {
+    const block = (id: string, template: string) => ({
+      id,
+      version: '1.0.0',
+      kind: 'prompt',
+      content: { template },
+      modulePath: `blocks/${id}.json`,
+    });
+    const h = harness({
+      index: () => ({
+        ...(indexed() as Extract<IndexResult, { kind: 'ok' }>),
+        counts: { tools: 1, guardrails: 0, agents: 0, flows: 0, blocks: 2 },
+        fileErrors: [
+          { code: 'manifest-validation-failed', message: 'tools/b.ts: no', filePath: 'tools/b.ts' },
+        ],
+        index: {
+          v: 1,
+          tools: [{ id: 'p.a', modulePath: 'tools/a.ts' }],
+          blocks: [block('p.good', 'Hi {{ name }}.'), block('p.bad', 'Hi {{ name ')],
+        },
+      }),
+    });
+    const r = await createPackRefresher({ ...h, packDir, env, code: NODE_PACK_CODE }).refresh();
+    if (r.kind !== 'ok') throw new Error(r.message);
+    expect(h.steps).toEqual(['build', 'index staged', 'start pack-index', 'publish']);
+    expect(r.fileErrors.map((e) => [e.code, e.filePath])).toEqual([
+      ['manifest-validation-failed', 'tools/b.ts'],
+      ['invalid-block', 'blocks/p.bad.json'],
+    ]);
+    expect(r.fileErrors[1]?.message).toMatch(/\(at \/content\/template\)$/);
+  });
+});
+
 describe('createPackRefresher — the last primitives deleted', () => {
   const empty = (): IndexResult => ({
     kind: 'err',
@@ -265,6 +299,23 @@ describe('createPackRefresher — the last primitives deleted', () => {
       agents: [],
       flows: [],
     });
+  });
+
+  test("a pack's last blocks deleted too: the published index keeps no `blocks`", async () => {
+    await publishedBefore({
+      v: 1,
+      packId: 'p',
+      tools: [],
+      guardrails: [],
+      agents: [],
+      flows: [],
+      blocks: [{ id: 'p.reply', version: '1.0.0', kind: 'prompt', content: { template: 'Hi.' } }],
+    });
+    const h = harness({ index: empty });
+    await createPackRefresher({ ...h, packDir, env, code: NODE_PACK_CODE }).refresh();
+    expect(h.steps).toEqual(['build', 'index staged', 'publish']);
+    expect(h.published[0]).toMatchObject({ v: 1, packId: 'p', tools: [], flows: [] });
+    expect(h.published[0]).not.toHaveProperty('blocks');
   });
 
   test('nothing to clear: no index published yet, or the published one already empty', async () => {

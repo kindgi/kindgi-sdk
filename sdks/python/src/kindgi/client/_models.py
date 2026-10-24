@@ -2206,7 +2206,7 @@ class JudgedItem(BaseModel):
     )
     key: Annotated[str, Field(min_length=1)]
     """
-    The caller's stable id for the item.
+    The caller's stable id for the item. `kindgi:correction` is reserved: a judgment on it is accepted only when it carries a correction at pointer `""`.
     """
     pointer: str | None = None
     """
@@ -2215,6 +2215,41 @@ class JudgedItem(BaseModel):
     rank: Annotated[int | None, Field(ge=0)] = None
     """
     The item's position in a ranked list (0 = first).
+    """
+
+
+class ExpectedCall(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: Annotated[str, Field(max_length=200, min_length=1)]
+    args: Annotated[dict[str, Any], Field(max_length=100)]
+    """
+    The partial set of top-level argument fields to compare, by value. Fields left out are not compared; an empty object asks only that the tool was called. At most 4000 characters in canonical JSON.
+    """
+
+
+class NotCalledItem(RootModel[str]):
+    root: Annotated[str, Field(max_length=200, min_length=1)]
+
+
+class Correction(BaseModel):
+    """
+    An expert's correction of a run's decisions: the tool calls the agent should have made, and the tools it should not have called at all. Graded deterministically on a replay. A tool can't be in both `calls` and `notCalled`, and one of them must be non-empty (both empty is a 400).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    calls: Annotated[list[ExpectedCall], Field(max_length=50)]
+    """
+    The calls the agent should have made.
+    """
+    not_called: Annotated[list[NotCalledItem], Field(alias="notCalled", max_length=50)]
+    """
+    Tools that should not have been called at all.
     """
 
 
@@ -2247,6 +2282,10 @@ class Judgment(BaseModel):
     item: JudgedItem
     verdict: Annotated[Literal["yes", "no"] | str, _open.OPEN]
     reason: str | None = None
+    correction: Correction | None = None
+    """
+    The expert's correction of the run's decisions, when they gave one.
+    """
     judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
     """
     The judge class the judgment is recorded under. Absent when unclassified (counts with weight 1).
@@ -2317,6 +2356,10 @@ class CreateJudgmentBody(BaseModel):
     """
     An app's opaque id for its end user, when judging on their behalf.
     """
+    correction: Correction | None = None
+    """
+    Optional. The tool calls the agent should have made, graded on a replay. A correction judges the run's whole output, so it is recorded under one reserved item (`item.key` `"kindgi:correction"`, `item.pointer` `""`): a correction on any other item is a 400, and a second correction of the run by the same expert replaces the first, so it counts once.
+    """
 
 
 class UnregisterJudgmentResult(BaseModel):
@@ -2339,6 +2382,10 @@ class Restricted(BaseModel):
     )
     yes_weight: Annotated[float, Field(alias="yesWeight")]
     total_weight: Annotated[float, Field(alias="totalWeight")]
+    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
+    """
+    The judgments behind these two. Absent from a test set built before judgment ids.
+    """
 
 
 class Reason(BaseModel):
@@ -2389,6 +2436,10 @@ class JudgedItemSummary(BaseModel):
     restricted: Restricted | None = None
     """
     The same weights, counting only judgments recorded while their class was restricted (`Judgment.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.
+    """
+    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
+    """
+    The judgments summed into the item, by id: what a comparison on this case counts. Absent from a test set built before judgment ids.
     """
     reasons: list[Reason]
     """
@@ -4336,6 +4387,25 @@ class ProposalDrafter(BaseModel):
     """
 
 
+class ProposalEvidence(BaseModel):
+    """
+    What a proposal rests on.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
+    """
+    The judgments that motivated it. An improvement pass's proposal names the judgments it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items judged wrong, then the rest.
+    """
+    judgment_count: Annotated[int | None, Field(alias="judgmentCount", ge=0)] = None
+    """
+    How many judgments it rests on, when `judgmentIds` names only the first of them. Absent when `judgmentIds` names them all.
+    """
+
+
 class ProposalCandidate(BaseModel):
     """
     The versions evaluating the proposal published. They serve no scope until a promotion makes the agent version live.
@@ -4356,49 +4426,40 @@ class ProposalCandidate(BaseModel):
     pins_digest: Annotated[str, Field(alias="pinsDigest")]
 
 
-class ProposalEvaluation(BaseModel):
+class ProposalCost(BaseModel):
     """
-    The comparison the proposal was evaluated with, and what it found on the objective metric (the full summary is the eval run's).
+    What the replays cost in model calls on the same cases, in US dollars, averaged over the repetitions: the current version's and the candidate's. Set for a change held to the current version once both comparisons finished, when both reported a cost.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    eval_run_id: Annotated[UUID, Field(alias="evalRunId")]
-    suite_id: Annotated[str, Field(alias="suiteId")]
+    current: Annotated[float, Field(ge=0.0)]
+    candidate: Annotated[float, Field(ge=0.0)]
+
+
+class ProposalDecisions(BaseModel):
     """
-    The test set (a judged eval suite).
+    The corrections the current version was checked on, replayed on the same cases, against the candidate's. A model-settings change is kept only with at least one checked and none broken. Set once both comparisons finished.
     """
-    objective: Annotated[Literal["weightedYesShare", "weightedPrecisionAtK"] | str, _open.OPEN]
-    started_at: Annotated[AwareDatetime, Field(alias="startedAt")]
-    run_status: Annotated[
-        Annotated[
-            Literal["pending", "running", "completed", "failed", "cancelled"] | str, _open.OPEN
-        ]
-        | None,
-        Field(alias="runStatus"),
-    ] = None
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    checked: Annotated[int, Field(ge=0)]
+    held: Annotated[int, Field(ge=0)]
     """
-    The eval run's status. Absent when the run can't be read.
+    The current version passed them, and so did the candidate.
     """
-    baseline: float | None = None
+    broken: Annotated[int, Field(ge=0)]
     """
-    The recorded outputs' score; `null` without judged evidence.
+    The current version passed them; the candidate didn't.
     """
-    candidate: float | None = None
+    still_wrong: Annotated[int, Field(alias="stillWrong", ge=0)]
     """
-    The candidate's score.
-    """
-    delta: float | None = None
-    spread: float | None = None
-    """
-    With more than one repetition: the candidate's max − min, the noise a delta must beat.
-    """
-    cases: int | None = None
-    better: bool | None = None
-    """
-    Set once the comparison finished.
+    Neither passed them. The rest of `checked` the candidate fixed.
     """
 
 
@@ -4425,14 +4486,6 @@ class ProposalPromotion(BaseModel):
     """
     For a promoted proposal: whether its version still serves the scope.
     """
-
-
-class Evidence1(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
 
 
 class RolledBack(BaseModel):
@@ -4584,6 +4637,48 @@ class Budget2(BaseModel):
     max_candidates: Annotated[int | None, Field(alias="maxCandidates", ge=1, le=200)] = None
 
 
+class Basis(BaseModel):
+    """
+    What the estimate is built from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    replays: Annotated[int, Field(ge=0)]
+    """
+    How many replay runs the pass's comparisons would make.
+    """
+    mean_run_cost_usd: Annotated[str | None, Field(alias="meanRunCostUsd")] = None
+    """
+    The version's mean cost over its recent completed runs (US dollars). Absent with no cost history.
+    """
+
+
+class ImprovementPassEstimate(BaseModel):
+    """
+    What a pass this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    estimated_cost_usd: Annotated[str | None, Field(alias="estimatedCostUsd")] = None
+    """
+    The estimate (US dollars): `basis.replays` times `basis.meanRunCostUsd`, or `maxCostUsd` when that's smaller. Absent when the version has no cost history.
+    """
+    max_cost_usd: Annotated[str, Field(alias="maxCostUsd")]
+    """
+    The budget cap the estimate is clamped to (`budget.maxCostUsd`, US dollars).
+    """
+    basis: Basis
+    """
+    What the estimate is built from.
+    """
+
+
 class Content1(BaseModel):
     """
     `{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.
@@ -4610,6 +4705,14 @@ class Change(BaseModel):
     """
     `{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.
     """
+
+
+class Evidence1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
 
 
 class ProposalReasonBody(BaseModel):
@@ -6645,7 +6748,7 @@ class EvalOverrides(BaseModel):
 
 class EvalSample(BaseModel):
     """
-    Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified by judgment (the cases with a "no" and the others are split on their own, a stratum of two or more giving each part at least one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).
+    Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a "no" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).
     """
 
     model_config = ConfigDict(
@@ -6803,6 +6906,29 @@ class Metrics(BaseModel):
     weighted_precision_at_k: Annotated[ComparisonMetric, Field(alias="weightedPrecisionAtK")]
 
 
+class JudgedComparisonCost(BaseModel):
+    """
+    What the candidate's replays cost in model calls, as the runtime reported it. Absent from a summary when no case's replays reported a cost.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    candidate: Annotated[float, Field(ge=0.0)]
+    """
+    Each repetition's total over `cases`, averaged over the repetitions, in US dollars.
+    """
+    spread: Annotated[float | None, Field(ge=0.0)] = None
+    """
+    With more than one repetition: the totals' max − min.
+    """
+    cases: Annotated[int, Field(ge=1)]
+    """
+    The cases whose every repetition reported a cost: the ones totalled.
+    """
+
+
 class TopK(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -6924,6 +7050,83 @@ class Changes(BaseModel):
     kept: list[KeptItem]
     dropped: list[DroppedItem]
     new: list[NewItem]
+
+
+class Differences(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["count"]
+    expected: Annotated[int, Field(ge=0)]
+    actual: Annotated[int, Field(ge=0)]
+    refused: Annotated[int | None, Field(ge=1)] = None
+    """
+    How many of the actual calls were refused on the replay. Absent when none were.
+    """
+
+
+class Differences1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["must-not-call"]
+    actual: Annotated[int, Field(ge=1)]
+    refused: Annotated[int | None, Field(ge=1)] = None
+    """
+    How many of the forbidden calls were refused on the replay. Absent when none were.
+    """
+
+
+class Differences2(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["missing-field"]
+    field: str
+    expected: Any
+    refused: bool | None = None
+    """
+    Present and true when the call blamed for the miss was refused on the replay.
+    """
+
+
+class Differences3(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["field-value"]
+    field: str
+    expected: Any
+    actual: Any
+    refused: bool | None = None
+    """
+    Present and true when the call blamed for the miss was refused on the replay.
+    """
+
+
+class CorrectionDifference(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    repetition: Annotated[int, Field(ge=1)]
+    """
+    Which repetition (1-based) these differences are from.
+    """
+    differences: list[Differences | Differences1 | Differences2 | Differences3]
+
+
+class CostUsdItem(RootModel[float]):
+    root: Annotated[float, Field(ge=0.0)]
 
 
 class Stopped(BaseModel):
@@ -8153,6 +8356,44 @@ class JudgingRulePreview(BaseModel):
     """
 
 
+class JudgingQueueRecentInput(BaseModel):
+    """
+    Which recent runs to catch the rule up on. Give `last`, `since`, or both.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    last: Annotated[int | None, Field(ge=1, le=1000)] = None
+    """
+    This many of the project's most recent top-level runs (newest first).
+    """
+    since: AwareDatetime | None = None
+    """
+    Runs completed at or after this time.
+    """
+
+
+class JudgingRecentQueued(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    queued: Annotated[int, Field(ge=0)]
+    """
+    Matching recent runs this call newly queued for the rule: a new queue item, or the rule added to one already waiting for another rule.
+    """
+    already_queued: Annotated[int, Field(alias="alreadyQueued", ge=0)]
+    """
+    Matching recent runs this rule had already queued and that are still open (deduped per `(rule, run)`).
+    """
+    already_reviewed: Annotated[int, Field(alias="alreadyReviewed", ge=0)]
+    """
+    Matching recent runs whose run was already judged or dismissed: left as they are, not re-queued. An already-erased run is no longer a match and is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed` together are the matches.
+    """
+
+
 class AccessPathDirect(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -8660,7 +8901,7 @@ class DeploymentValidationDetails(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    primitive: Literal["tool", "guardrail", "agent", "flow"]
+    primitive: Literal["tool", "guardrail", "agent", "flow", "block"]
     index: Annotated[int, Field(ge=0)]
     id: str | None = None
     path: str
@@ -9840,6 +10081,10 @@ class SecretRevokeOutcome(BaseModel):
     )
     revoked: bool
     hard: bool
+    recoverable_until: Annotated[AwareDatetime | None, Field(alias="recoverableUntil")] = None
+    """
+    A hard revoke left a copy your secret manager can still recover (for example Azure Key Vault's soft delete, when the vault doesn't allow a purge or the runtime isn't permitted to purge): when the secret manager purges it on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. Absent on a soft revoke, and when a hard revoke left nothing recoverable.
+    """
 
 
 class EnvDeleteResult(BaseModel):
@@ -9895,6 +10140,10 @@ class SecretRevokeResult(BaseModel):
     )
     revoked: bool
     hard: bool
+    recoverable_until: Annotated[AwareDatetime | None, Field(alias="recoverableUntil")] = None
+    """
+    A hard revoke left a copy your secret manager can still recover (for example Azure Key Vault's soft delete, when the vault doesn't allow a purge or the runtime isn't permitted to purge): when the secret manager purges it on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. Absent on a soft revoke, and when a hard revoke left nothing recoverable.
+    """
 
 
 class ToolsAllowedUnattendedItem(RootModel[str]):
@@ -11211,6 +11460,33 @@ class JudgedRunContextFlow(BaseModel):
     """
 
 
+class JudgedEvalCaseCorrection(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    """
+    The judgment the correction was recorded on.
+    """
+    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
+    """
+    The judgment's class, when it had one.
+    """
+    restricted: Literal[True] | None = None
+    """
+    Set when the judgment was recorded while its class was restricted (`Judgment.restricted`).
+    """
+    calls: Annotated[list[ExpectedCall], Field(max_length=50)]
+    """
+    The calls the agent should have made.
+    """
+    not_called: Annotated[list[NotCalledItem], Field(alias="notCalled", max_length=50)]
+    """
+    Tools that should not have been called at all.
+    """
+
+
 class JudgedComparisonSummaryScope(BaseModel):
     """
     Where the test set's judgments came from.
@@ -11221,6 +11497,15 @@ class JudgedComparisonSummaryScope(BaseModel):
         populate_by_name=True,
     )
     project_id: Annotated[str | None, Field(alias="projectId")] = None
+
+
+class JudgedComparisonSummaryCorrectionsJudgment(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    pass_: Annotated[bool, Field(alias="pass")]
 
 
 class ComparisonCaseResultTool(BaseModel):
@@ -11239,6 +11524,26 @@ class ComparisonCaseResultTool(BaseModel):
     With `source: 'live'`: the call ran again from the same arguments because the compared version pins other settings, and the tool reads from nowhere, so it didn't diverge. Absent from older servers, and otherwise.
     """
     reason: str | None = None
+
+
+class ComparisonCaseResultCorrection(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    pass_: Annotated[bool, Field(alias="pass")]
+    """
+    Passed only when every repetition passed.
+    """
+    repetitions_passed: Annotated[int, Field(alias="repetitionsPassed", ge=0)]
+    """
+    The `k` of "k of n".
+    """
+    repetitions: Annotated[int, Field(ge=1)]
+    """
+    The `n` of "k of n".
+    """
 
 
 class DeploymentContentsTool(BaseModel):
@@ -12696,9 +13001,13 @@ class JudgedEvalCase(BaseModel):
     context: JudgedRunContext | None = None
     output: Any
     items: list[JudgedItemSummary]
+    corrections: list[JudgedEvalCaseCorrection] | None = None
+    """
+    Experts' corrections carried onto this case from its judgments, each graded on the replay. Empty or absent when none. `restricted-only` keeps only the entries whose judgment was restricted.
+    """
     erased: Literal[True] | None = None
     """
-    An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, and eval runs leave it out (counted as `erased`).
+    An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and eval runs leave it out (counted as `erased`).
     """
 
 
@@ -12944,6 +13253,58 @@ class RegisterToolBody(BaseModel):
     spec: ToolSpec | None = None
 
 
+class ProposalEvaluation(BaseModel):
+    """
+    The comparison the proposal was evaluated with, and what it found on the objective metric (the full summary is the eval run's).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    eval_run_id: Annotated[UUID, Field(alias="evalRunId")]
+    suite_id: Annotated[str, Field(alias="suiteId")]
+    """
+    The test set (a judged eval suite).
+    """
+    objective: Annotated[Literal["weightedYesShare", "weightedPrecisionAtK"] | str, _open.OPEN]
+    started_at: Annotated[AwareDatetime, Field(alias="startedAt")]
+    run_status: Annotated[
+        Annotated[
+            Literal["pending", "running", "completed", "failed", "cancelled"] | str, _open.OPEN
+        ]
+        | None,
+        Field(alias="runStatus"),
+    ] = None
+    """
+    The eval run's status. Absent when the run can't be read.
+    """
+    baseline: float | None = None
+    """
+    The recorded outputs' score; `null` without judged evidence.
+    """
+    candidate: float | None = None
+    """
+    The candidate's score.
+    """
+    delta: float | None = None
+    spread: float | None = None
+    """
+    With more than one repetition: the candidate's max − min, the noise a delta must beat.
+    """
+    cases: int | None = None
+    better: bool | None = None
+    """
+    Set once the comparison finished.
+    """
+    rule: Annotated[Literal["better", "cheaper"] | str, _open.OPEN] | None = None
+    """
+    How the candidate is kept. `better`: it beats the recorded outputs by more than the noise. `cheaper`: it's no worse than the current version replayed on the same cases (beyond that run's spread) and costs less (beyond the cost's own spread), with no errored case; `better` may then be false while the status is `evaluated`. Absent: `better`.
+    """
+    cost_usd: Annotated[ProposalCost | None, Field(alias="costUsd")] = None
+    decisions: ProposalDecisions | None = None
+
+
 class FixProposal(BaseModel):
     """
     An improvement proposal: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.
@@ -12979,7 +13340,7 @@ class FixProposal(BaseModel):
     """
     What the change should improve, and why.
     """
-    evidence: Evidence1 | None = None
+    evidence: ProposalEvidence | None = None
     drafter: ProposalDrafter
     status: Annotated[
         Literal[
@@ -13001,7 +13362,7 @@ class FixProposal(BaseModel):
         _open.OPEN,
     ]
     """
-    Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.
+    Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.
     """
     candidate: ProposalCandidate | None = None
     evaluation: ProposalEvaluation | None = None
@@ -13084,7 +13445,7 @@ class ImprovementPass(BaseModel):
     """
     comparisons: list[Comparison1] | None = None
     """
-    Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.
+    Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.
     """
     trigger: Trigger | None = None
     """
@@ -13150,9 +13511,9 @@ class ImproveBody(BaseModel):
     """
     class_weights: Annotated[
         Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
-    ] = "restricted-only"
+    ] = None
     """
-    Which judgments the pass learns from: by default only those recorded under a restricted (trusted) judge class.
+    Which judgments the pass learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the pass reads its judgments from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has a restricted judge class, then only judgments recorded under one (`restricted-only`).
     """
     objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
     budget: Budget2 | None = None
@@ -13456,6 +13817,29 @@ class CostRecordCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class Corrections(BaseModel):
+    """
+    Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    checked: Annotated[int, Field(ge=0)]
+    """
+    How many corrections were graded.
+    """
+    passed: Annotated[int, Field(ge=0)]
+    """
+    How many passed (every repetition passed).
+    """
+    judgments: list[JudgedComparisonSummaryCorrectionsJudgment] | None = None
+    """
+    Each correction graded, by its judgment: whether it passed (every repetition did). What an improvement pass compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.
+    """
+
+
 class JudgedComparisonSummary(BaseModel):
     """
     What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a promotion gate reads.
@@ -13524,6 +13908,11 @@ class JudgedComparisonSummary(BaseModel):
     sampling: Sampling
     repetitions: Annotated[int, Field(ge=1)]
     metrics: Metrics
+    corrections: Corrections | None = None
+    """
+    Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.
+    """
+    cost_usd: Annotated[JudgedComparisonCost | None, Field(alias="costUsd")] = None
 
 
 class ComparisonCaseResult(BaseModel):
@@ -13555,6 +13944,20 @@ class ComparisonCaseResult(BaseModel):
     tools: list[ComparisonCaseResultTool] | None = None
     """
     The first repetition's tool calls, and what happened to each.
+    """
+    corrections: list[ComparisonCaseResultCorrection] | None = None
+    """
+    Each correction graded on this case: its verdict and how many repetitions passed. Shown, not enforced. Survives an erasure — the differences, which quote values, are in `correctionDifferences`.
+    """
+    correction_differences: Annotated[
+        list[CorrectionDifference] | None, Field(alias="correctionDifferences")
+    ] = None
+    """
+    The ways each correction's calls differed, by judgment: the differences from the first repetition that failed it, and that repetition's number. Quotes argument values, so an erasure clears it (the verdicts and counts stay in `corrections`).
+    """
+    cost_usd: Annotated[list[CostUsdItem] | None, Field(alias="costUsd")] = None
+    """
+    What each repetition's replay cost in model calls, as the runtime reported it, in US dollars: one per repetition. Absent when a repetition reported none.
     """
     diverged: bool
     refused_writes: Annotated[int, Field(alias="refusedWrites", ge=0)]

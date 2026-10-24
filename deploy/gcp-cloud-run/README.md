@@ -31,7 +31,7 @@ For a dev environment next to an app, with no project of its own: `network_mode 
 
 - **No VPC.** Both services reach the internet through Cloud Run's own egress; the pack service takes all ingress, closed by IAM to the server's account (`pack_ingress = "INGRESS_TRAFFIC_ALL"`). There is no static egress IP, and the pack's tools reach only public addresses and the instances in `pack_cloud_sql_instances` — not a private-IP database.
 - **A shared database instance.** With `database_host_instance` set, the module makes no instance of its own: it creates Kindgi's `database_name` database on the named instance, and the operator creates Kindgi's user on that instance (step 3, run against the host). The instance must have a public IP and run **Postgres 16 or later** — before 16 a `CREATEROLE` user, which Kindgi's needs, could take any other role, so the two databases wouldn't be walled off. Run **one Kindgi deployment per host instance** (Kindgi's role and `PUBLIC` connect are instance-wide). The server's account gets `roles/cloudsql.client` on the app's instance, scoped to it by an IAM condition. The app's instance admins can reset Kindgi's database password; only secrets you store through Kindgi's API stay sealed under its key. Backups, point-in-time recovery and deletion protection are the app instance's, not Kindgi's, and the module refuses its backup variables with a host; `database_deletion_protection` instead keeps Kindgi's database object from a Terraform-side drop (`ABANDON`). Choose a host or the module's own instance **at the first apply** — moving later is a dump and restore.
-- **The pack service at zero.** `pack_min_instances = 0` lets the pack service sleep when idle; the first tool call after idle waits for it to start, up to about two minutes (its startup probe). The server allows `pack_call_timeout_ms` for a single tool call (default 120 s, `KINDGI_PACK_CALL_TIMEOUT_MS`); raise it if cold starts run near that. The server, unlike the pack, keeps one instance on (`server_min_instances` stays at its default of 1): a run started without waiting, an Improve pass or an eval run keeps going after its response returns and needs an instance — and the CPU on it — to finish.
+- **The pack service at zero.** `pack_min_instances = 0` lets the pack service sleep when idle; the first tool call after idle waits for it to start, up to about two minutes (its startup probe). When response time matters, keep the default of 1: one instance stays running, around the clock ([Cloud Run pricing](https://cloud.google.com/run/pricing)). The server allows `pack_call_timeout_ms` for a single tool call (default 120 s, `KINDGI_PACK_CALL_TIMEOUT_MS`); raise it if cold starts run near that. The server, unlike the pack, keeps one instance on (`server_min_instances` stays at its default of 1): a run started without waiting, an Improve pass or an eval run keeps going after its response returns and needs an instance — and the CPU on it — to finish.
 
 ## Before you start
 
@@ -261,10 +261,35 @@ Pin each secret to a version, as above, rather than `latest`: a new version then
 - **`public_url`** (`KINDGI_PUBLIC_URL`) is the URL people open the console at. On a new deployment that's `terraform output -raw server_url` after the first apply, so the emailed link comes with a second apply. With your own domain in front, it's that domain.
   - Console sessions are then accepted from that origin only, so open the console there.
   - The plan refuses `KINDGI_AUTH_SECRET` without it, because the server wouldn't start.
-- **Continue with Google, Microsoft or GitHub, verified domains, and Turnstile** go the same way:
-  - in `server_env`: each provider's client id, `KINDGI_AUTH_VERIFIED_DOMAINS` (`acme.com:<tenant id>`) and the Turnstile site key;
-  - in `server_secret_env`: each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET`.
-  - The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
+
+**With Continue with Google.** It needs the sign-in secret and `public_url`, as for the emailed link, and an OAuth client of type **Web application** in the Google Cloud console. Its authorized redirect URI is `public_url` followed by `/auth/kindgi/social/callback/google`:
+
+```
+https://kindgi-dev-server-abc123-pd.a.run.app/auth/kindgi/social/callback/google
+```
+
+```sh
+# The Google client's secret: paste it; it never goes in a file.
+read -rs GOOGLE_SECRET && printf '%s' "$GOOGLE_SECRET" | gcloud secrets create $N-google-client-secret --data-file=- && unset GOOGLE_SECRET
+```
+
+```hcl
+public_url = "https://kindgi-dev-server-abc123-pd.a.run.app"
+server_env = {
+  KINDGI_AUTH_GOOGLE_CLIENT_ID = "<client id>" # ends in .apps.googleusercontent.com
+}
+server_secret_env = {
+  KINDGI_AUTH_SECRET               = { secret = "kindgi-dev-auth-secret", version = "1" }
+  KINDGI_AUTH_GOOGLE_CLIENT_SECRET = { secret = "kindgi-dev-google-client-secret", version = "1" }
+}
+```
+
+- **Microsoft and GitHub, verified domains, and Turnstile** go the same way:
+  - in `server_env`: `KINDGI_AUTH_MICROSOFT_CLIENT_ID` or `KINDGI_AUTH_GITHUB_CLIENT_ID`, `KINDGI_AUTH_VERIFIED_DOMAINS` (`acme.com:<tenant id>`) and the Turnstile site key;
+  - in `server_secret_env`: `KINDGI_AUTH_MICROSOFT_CLIENT_SECRET` or `KINDGI_AUTH_GITHUB_CLIENT_SECRET`, and `KINDGI_AUTH_TURNSTILE_SECRET`;
+  - each provider's redirect URI ends in its name: `…/auth/kindgi/social/callback/microsoft` or `…/github`.
+- Several ways in share the two maps: with the emailed link too, they hold both sets of settings.
+- The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
 
 ## Many tenants (`tenancy`)
 

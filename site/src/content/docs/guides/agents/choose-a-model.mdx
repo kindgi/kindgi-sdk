@@ -223,6 +223,14 @@ provider and model the turn would use:
 the provider isn't registered, or its models don't meet the needs, the turn
 takes the next model in line.
 
+The preference can live in the agent's model-settings block instead, as its
+`model` and `providerId`, with the same rules. Then an expert can change it
+without a code deploy, and an
+[improvement pass can try cheaper models](../../evals/improve-an-agent/#let-it-try-a-cheaper-model-or-another-temperature)
+from the list you give it. Name the model in one place: a version whose
+definition and model-settings block both name a model or a provider is
+refused when it's published.
+
 ## Require a model
 
 To make sure a turn runs on one model, ask your coding agent: "My agent must

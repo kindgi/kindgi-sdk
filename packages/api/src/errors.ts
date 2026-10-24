@@ -122,6 +122,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'capability-unsatisfiable': 422,
   /** A tool the agent names has no version satisfying its range (or the pinned one is gone). */
   'tool-version-unresolvable': 422,
+  /**
+   * A data block the agent names can't be loaded: no version in its range
+   * (or the pinned one is gone), the wrong kind, or no blocks on the runtime.
+   */
+  'block-unresolvable': 422,
   'tool-invocation-failed': 422,
   'capability-routing-failed': 422,
   'runtime-not-configured': 422,

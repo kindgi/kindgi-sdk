@@ -694,7 +694,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SESSION_TTL_MS',
     description:
-      "A browser session's absolute lifetime, in milliseconds: the person signs in again after it. Default 43200000 (12 hours); at least 60000.",
+      "A browser session's absolute lifetime, in milliseconds: the person signs in again after it. Default 43200000 (12 hours); at least 60000, or the server refuses to start. Below an hour, also set `KINDGI_SESSION_IDLE_TIMEOUT_MS` no longer than it (its default is an hour), or the server refuses to start. Only browser sessions use it. Where nobody can open one, setting it stops the server from starting: that's with no `KINDGI_AUTH_SECRET(_PATH)` (sign-in with identity providers off) and `KINDGI_CONSOLE_TOKEN_SIGN_IN` off (its default outside development).",
     example: '43200000',
     required: false,
     appliesTo: appliesToServer,
@@ -703,7 +703,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SESSION_IDLE_TIMEOUT_MS',
     description:
-      'How long a browser session may sit idle before it ends, in milliseconds. Default 3600000 (60 minutes); at least 60000, and no longer than `KINDGI_SESSION_TTL_MS`.',
+      "How long a browser session may sit idle before it ends, in milliseconds. Default 3600000 (60 minutes); at least 60000, and no longer than `KINDGI_SESSION_TTL_MS`, or the server refuses to start. Only browser sessions use it. Where nobody can open one, setting it stops the server from starting: that's with no `KINDGI_AUTH_SECRET(_PATH)` (sign-in with identity providers off) and `KINDGI_CONSOLE_TOKEN_SIGN_IN` off (its default outside development).",
     example: '3600000',
     required: false,
     appliesTo: appliesToServer,
@@ -875,7 +875,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ERASURE_SHARED_WAIT_MS',
     description:
-      "How long an erasure waits for a turn of the person's that sits in a flow serving other people (cancelling it now could end their work), in milliseconds. The erasure shows `waiting-on-run`, naming the run, until then; at the deadline it cancels the run and goes on, and a tenant admin can stop the wait sooner (`kindgi memory erasures resume <id> --force`). Default 604800000 (7 days).",
+      "How long an erasure waits for a turn of the person's that sits in a flow serving other people (cancelling it now could end their work), in milliseconds. The erasure shows `waiting-on-run`, naming the run, until then; at the deadline it cancels the run and goes on, and a tenant admin can stop the wait sooner (`kindgi memory erasures resume <id> --force`). Default 604800000 (7 days); at least 3600000 (an hour), or the server refuses to start.",
     example: '604800000',
     required: false,
     appliesTo: appliesToServer,
@@ -1384,7 +1384,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_PACK_SERVICE_TOKEN',
     description:
-      'Shared secret between the server and the pack service. The pack service refuses any call without it, and the server sends it with every call. Required by the pack service, and by the server when `KINDGI_PACK_SERVICE_URL` is set. Use a long random value (`openssl rand -base64 32`). Both sides drop surrounding whitespace (such as the trailing newline of a stored secret), and refuse whitespace or control characters inside: the token travels in an HTTP header. The pack service removes it from its environment before it loads the pack code.',
+      'Shared secret between the server and the pack service. The pack service refuses any call without it, and the server sends it with every call. Required by the pack service, and by the server when `KINDGI_PACK_SERVICE_URL` is set. Use a long random value (`openssl rand -hex 32`). Both sides drop surrounding whitespace (such as the trailing newline of a stored secret), and refuse whitespace or control characters inside: the token travels in an HTTP header. The pack service removes it from its environment before it loads the pack code.',
     example: '',
     required: true,
     appliesTo: (t) => appliesToPackService(t) || appliesToServerHttpPackTransport(t),
