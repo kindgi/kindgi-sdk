@@ -19,18 +19,22 @@ import {
   DEFAULT_RUNTIME_IMAGE,
   RUNTIME_IMAGE_REGISTRY,
   imageOnRegistry,
+  isKindgiRegistry,
   registryOf,
 } from '../src/dev/runtime-image.js';
 import {
   credentialHelperFailure,
   credentialHelperHint,
   digestOnly,
+  pullCredentialNeeded,
   registryLoginCommand,
 } from '../src/dev/runtime-registry.js';
 import { runCli } from '../src/main.js';
 import { PromptCancelled } from '../src/terminal-input.js';
 
 const TOKEN = 'robot-token-5f1c9e';
+/** What a person pastes on registry.kindgi.com: the license key, as the token. */
+const LICENSE_KEY = 'license-key-3b8e0d';
 
 interface DockerCall {
   readonly args: readonly string[];
@@ -253,15 +257,56 @@ describe('logging in', () => {
     expect(fake.calls.some((c) => c.args[0] === 'login')).toBe(false);
   });
 
-  test('a login needs --username', async () => {
+  test('a login needs --username: kindgi on registry.kindgi.com, with the license key as the token', async () => {
     const fake = fakeDocker();
     const out = await runRegistry(['--password-stdin'], { docker: fake.run });
     expect(out.exitCode).toBe(2);
-    expect(out.stderr).toContain('Missing --username');
+    expect(out.stderr).toContain(
+      "Missing --username=<name>: on registry.kindgi.com it's kindgi. Run kindgi auth registry --username kindgi, and paste your license key when it asks for the token. The key comes from signing in at https://access.kindgi.com.",
+    );
+    expect(out.stderr).not.toContain('robot');
+    expect(fake.calls).toEqual([]);
+  });
+
+  test("another registry's login needs its own --username", async () => {
+    const fake = fakeDocker();
+    const out = await runRegistry(['--password-stdin', '--registry', 'quay.io'], {
+      docker: fake.run,
+    });
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain(
       'Sign in with GitHub at https://access.kindgi.com: the page shows this command with your robot name',
     );
     expect(fake.calls).toEqual([]);
+  });
+
+  test('on registry.kindgi.com, --username kindgi logs in with the license key typed at the prompt', async () => {
+    const fake = fakeDocker();
+    const prompt = fakeTty(LICENSE_KEY);
+    const out = await runRegistry(['--username', 'kindgi'], {
+      docker: fake.run,
+      stdinIsTty: () => true,
+      tty: prompt.tty,
+      readStdin: async () => {
+        throw new Error('stdin is not read without --password-stdin');
+      },
+    });
+    expect(out.exitCode).toBe(0);
+    expect(prompt.state.prompts).toEqual(['Token for kindgi at registry.kindgi.com: ']);
+    const login = fake.calls.find((c) => c.args[0] === 'login');
+    expect(login?.args).toEqual([
+      'login',
+      'registry.kindgi.com',
+      '--username',
+      'kindgi',
+      '--password-stdin',
+    ]);
+    expect(login?.options).toEqual({ stdin: LICENSE_KEY });
+    expect(out.stderr).toContain('✓ Logged in to registry.kindgi.com as kindgi');
+    expect(out.stderr).toContain(
+      `✓ You can pull ${DEFAULT_RUNTIME_IMAGE}, the image this CLI runs.`,
+    );
+    expect(out.stdout + out.stderr).not.toContain(LICENSE_KEY);
   });
 
   test("a refused login shows docker's message, with the token blanked out", async () => {
@@ -281,7 +326,9 @@ describe('logging in', () => {
       'docker login registry.kindgi.com failed: Error response from daemon',
     );
     expect(out.stderr).toContain('unauthorized: bad credentials for ***');
-    expect(out.stderr).toContain('Signing in at https://access.kindgi.com shows both.');
+    expect(out.stderr).toContain(
+      "Check the license key: it's the password, with the username kindgi. Signing in at https://access.kindgi.com shows it.",
+    );
     expect(out.stderr).not.toContain(TOKEN);
     // No check after a failed login.
     expect(fake.calls.some((c) => c.args[0] === 'buildx')).toBe(false);
@@ -360,7 +407,7 @@ describe('--check', () => {
     expect(fake.calls).toEqual([]);
   });
 
-  test('a refusal is no access: pull credentials come from the access page', async () => {
+  test('a refusal is no access: the license key comes from the access page', async () => {
     const fake = fakeDocker({
       'buildx imagetools inspect': {
         code: 1,
@@ -375,9 +422,9 @@ describe('--check', () => {
       `✗ No access to ${DEFAULT_RUNTIME_IMAGE}: ERROR: unexpected status`,
     );
     expect(out.stderr).toContain(
-      'The runtime image needs a pull credential: sign in with GitHub at https://access.kindgi.com for one, then log in',
+      '    The runtime image needs your license key: sign in at https://access.kindgi.com for it, log in with it as the password (docker login registry.kindgi.com --username kindgi).',
     );
-    expect(out.stderr).toContain('kindgi auth registry --username <your robot name>.');
+    expect(out.stderr).not.toContain('robot');
     expect(out.stderr).not.toContain("Couldn't find");
   });
 
@@ -397,19 +444,19 @@ describe('--check', () => {
     }
   });
 
-  test('logged in but refused: the robot has no access to this image', async () => {
+  test('logged in but refused: the license key has no access to this image', async () => {
     const fake = fakeDocker({
       'buildx imagetools inspect': { code: 1, stdout: '', stderr: 'ERROR: 403 Forbidden\n' },
     });
-    const out = await runRegistry(['--username', 'robot', '--password-stdin'], {
+    const out = await runRegistry(['--username', 'kindgi', '--password-stdin'], {
       docker: fake.run,
-      readStdin: async () => TOKEN,
+      readStdin: async () => LICENSE_KEY,
     });
     expect(out.exitCode).toBe(1);
-    expect(out.stderr).toContain('✓ Logged in to registry.kindgi.com as robot');
-    expect(out.stderr).toContain("robot is logged in to registry.kindgi.com but can't pull it");
+    expect(out.stderr).toContain('✓ Logged in to registry.kindgi.com as kindgi');
+    expect(out.stderr).toContain("kindgi is logged in to registry.kindgi.com but can't pull it");
     expect(out.stderr).toContain(
-      'sign in at https://access.kindgi.com for your current pull credential (questions: contact@kindgi.com)',
+      'sign in at https://access.kindgi.com for your current license key (questions: contact@kindgi.com)',
     );
   });
 });
@@ -541,7 +588,7 @@ describe('without docker buildx', () => {
     expect(notFound.stderr).toContain(`✗ Couldn't find ${DEFAULT_RUNTIME_IMAGE}`);
     // Without credentials, docker manifest inspect says "no such manifest" too.
     expect(notFound.stderr).toContain(
-      "docker manifest inspect says this both when the image isn't on registry.kindgi.com and when Docker has no access to it",
+      "docker manifest inspect says this both when the image isn't on registry.kindgi.com and when Docker has no access to it: if you haven't logged in, docker login registry.kindgi.com --username kindgi, with your license key as the password.",
     );
   });
 
@@ -608,12 +655,24 @@ describe('without Docker', () => {
 });
 
 describe('the refused-pull hint of kindgi dev', () => {
-  test('points to kindgi auth registry, naming the registry only when it is another one', () => {
+  test("on Kindgi's registry: docker login, with the license key as the password", () => {
     expect(registryLoginCommand(DEFAULT_RUNTIME_IMAGE)).toBe(
-      'kindgi auth registry --username <your robot name>',
+      'docker login registry.kindgi.com --username kindgi',
     );
+    expect(pullCredentialNeeded(DEFAULT_RUNTIME_IMAGE)).toBe(
+      'The runtime image needs your license key: sign in at https://access.kindgi.com for it, log in with it as the password (docker login registry.kindgi.com --username kindgi)',
+    );
+    // A hostname is case-insensitive.
+    expect(isKindgiRegistry('Registry.Kindgi.com')).toBe(true);
+    expect(isKindgiRegistry('registry.kindgi.com.example')).toBe(false);
+  });
+
+  test('on another registry: kindgi auth registry, naming it', () => {
     expect(registryLoginCommand('registry.example.com/kindgi/runtime:dev')).toBe(
       'kindgi auth registry --username <your robot name> --registry registry.example.com',
+    );
+    expect(pullCredentialNeeded('registry.example.com/kindgi/runtime:dev')).toBe(
+      'The runtime image needs a pull credential: sign in with GitHub at https://access.kindgi.com for one, log in (kindgi auth registry --username <your robot name> --registry registry.example.com)',
     );
   });
 });

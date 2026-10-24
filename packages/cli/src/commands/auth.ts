@@ -7,8 +7,11 @@ import type { CommandContext } from '../context.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
 import {
   DEFAULT_RUNTIME_IMAGE,
+  KINDGI_REGISTRY,
+  KINDGI_REGISTRY_USERNAME,
   RUNTIME_IMAGE_REGISTRY,
   imageOnRegistry,
+  isKindgiRegistry,
   registryOf,
 } from '../dev/runtime-image.js';
 import {
@@ -18,6 +21,7 @@ import {
   checkImageAccess,
   credentialHelperHint,
   dockerLogin,
+  pullCredentialNeeded,
   registryLoginCommand,
 } from '../dev/runtime-registry.js';
 import { KINDGI_ACCESS_ORIGIN } from '../license/protocol.js';
@@ -172,7 +176,7 @@ const registry: LeafCommand = {
   optionSpec: {
     username: {
       type: 'string',
-      description: `Your pull credential's robot name, shown at ${KINDGI_ACCESS_ORIGIN} once you sign in with GitHub. Needed to log in.`,
+      description: `Your username on the registry: \`${KINDGI_REGISTRY_USERNAME}\` on ${KINDGI_REGISTRY}, where your license key from ${KINDGI_ACCESS_ORIGIN} is the token; on another registry, its own. Needed to log in.`,
     },
     'password-stdin': {
       type: 'boolean',
@@ -205,6 +209,7 @@ function registryArgs(ctx: CommandContext): RegistryArgs | (CommandResult & { ki
   const fromStdin = ctx.options['password-stdin'] === true;
   const username = ctx.options.username;
   const registryFlag = ctx.options.registry;
+  const host = typeof registryFlag === 'string' ? registryFlag : RUNTIME_IMAGE_REGISTRY;
   if (typeof registryFlag === 'string' && !REGISTRY_HOST.test(registryFlag)) {
     return usageError(
       `--registry takes a registry host, such as ${RUNTIME_IMAGE_REGISTRY} or 127.0.0.1:5000, not "${registryFlag}".`,
@@ -215,15 +220,24 @@ function registryArgs(ctx: CommandContext): RegistryArgs | (CommandResult & { ki
   }
   if (!check && (typeof username !== 'string' || username === '')) {
     return usageError(
-      `Missing --username=<name>: your pull credential's robot name. Sign in with GitHub at ${KINDGI_ACCESS_ORIGIN}: the page shows this command with your robot name, and the token to paste.\nTo check access without logging in: kindgi auth registry --check.`,
+      `${missingUsername(host)}\nTo check access without logging in: kindgi auth registry --check.`,
     );
   }
   return {
     check,
     fromStdin,
     username: typeof username === 'string' ? username : undefined,
-    host: typeof registryFlag === 'string' ? registryFlag : RUNTIME_IMAGE_REGISTRY,
+    host,
   };
+}
+
+/** What a login without `--username` is missing, for `host`. */
+function missingUsername(host: string): string {
+  if (isKindgiRegistry(host)) {
+    const other = isKindgiRegistry(RUNTIME_IMAGE_REGISTRY) ? '' : ` --registry ${KINDGI_REGISTRY}`;
+    return `Missing --username=<name>: on ${KINDGI_REGISTRY} it's ${KINDGI_REGISTRY_USERNAME}. Run kindgi auth registry --username ${KINDGI_REGISTRY_USERNAME}${other}, and paste your license key when it asks for the token. The key comes from signing in at ${KINDGI_ACCESS_ORIGIN}.`;
+  }
+  return `Missing --username=<name>: your pull credential's robot name. Sign in with GitHub at ${KINDGI_ACCESS_ORIGIN}: the page shows this command with your robot name, and the token to paste.`;
 }
 
 async function runRegistry(ctx: CommandContext): Promise<CommandResult> {
@@ -306,8 +320,8 @@ function accessFailure(
     return [
       `  ✗ No access to ${image}: ${access.detail}`,
       args.username === undefined
-        ? `    The runtime image needs a pull credential: sign in with GitHub at ${KINDGI_ACCESS_ORIGIN} for one, then log in: ${registryLoginCommand(image)}.`
-        : `    ${args.username} is logged in to ${args.host} but can't pull it: sign in at ${KINDGI_ACCESS_ORIGIN} for your current pull credential (questions: contact@kindgi.com).`,
+        ? `    ${pullCredentialNeeded(image)}.`
+        : `    ${args.username} is logged in to ${args.host} but can't pull it: sign in at ${KINDGI_ACCESS_ORIGIN} for your current ${isKindgiRegistry(args.host) ? 'license key' : 'pull credential'} (questions: contact@kindgi.com).`,
     ];
   }
   if (access.kind === 'credential-helper') {
@@ -321,7 +335,7 @@ function accessFailure(
     return [
       `  ✗ Couldn't find ${image}: ${access.detail}`,
       access.maybeNoAccess === true
-        ? `    docker manifest inspect says this both when the image isn't on ${from} and when Docker has no access to it: if you haven't logged in, ${registryLoginCommand(image)}. Otherwise check this machine can reach ${from}.`
+        ? `    docker manifest inspect says this both when the image isn't on ${from} and when Docker has no access to it: if you haven't logged in, ${registryLoginCommand(image)}${isKindgiRegistry(from) ? ', with your license key as the password' : ''}. Otherwise check this machine can reach ${from}.`
         : `    Either the image isn't on ${from}, or this machine can't reach ${from} (the network, a proxy or a firewall).`,
     ];
   }
