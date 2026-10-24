@@ -51,7 +51,9 @@
 #   --to               The target runtime version, 0.1.11 or later (default
 #                      0.1.11; an rc such as 0.1.11-rc.0 works too). Earlier
 #                      releases aren't on registry.kindgi.com: for those, use
-#                      this script as of the @kindgi/sdk@0.1.10 tag.
+#                      this script as of the @kindgi/sdk@0.1.10 tag. This
+#                      script knows the steps up to 0.1.11; for a later
+#                      release, use the upgrade.sh from that release.
 #   --from             Assert the current version when it can't be read from the
 #                      deployment (no version tag on the running image).
 #   --pack-dir         Rebuild and push the pack from here with `kindgi build`
@@ -222,6 +224,11 @@ done
 is_semver "$TARGET" || die "--to \"$TARGET\" isn't a version like 0.1.11."
 [[ "$(ver_num "${TARGET%%-*}")" -ge "$(ver_num "$TARGET_FLOOR")" ]] \
   || die "--to $TARGET: this script copies the runtime from registry.kindgi.com, which has $TARGET_FLOOR and later. For an earlier release, use this script as of the @kindgi/sdk@0.1.10 tag."
+# A later release may need steps this copy doesn't have, so it isn't run past
+# the newest release it knows (an rc counts as its final).
+NEWEST_KNOWN="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
+[[ "$(ver_num "${TARGET%%-*}")" -le "$(ver_num "$NEWEST_KNOWN")" ]] \
+  || die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. Use the upgrade.sh from the release you're upgrading to."
 if [[ -n $FROM_OVERRIDE ]]; then is_semver "$FROM_OVERRIDE" || die "--from \"$FROM_OVERRIDE\" isn't a version like 0.1.8."; fi
 if [[ -n $PACK_DIR ]]; then [[ -d $PACK_DIR ]] || die "--pack-dir \"$PACK_DIR\" isn't a directory."; fi
 
