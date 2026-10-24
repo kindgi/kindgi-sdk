@@ -10,4 +10,5 @@
   - `add` takes the app's client id and names its secrets by reference, `<env>/<name>` (or `<name>` under the env the runtime serves). Store the values first with `kindgi secrets set`. `add github` also takes the GitHub App's App ID (`--github-app-id`), its slug, private key and webhook secret. It prints the registration, with the redirect and notices addresses to give the app.
   - `remove` refuses a registration with live connections unless `--with-connections`, which disconnects them too.
 - `disconnect` and `remove` ask first at a terminal. Without one they need `--yes`.
+- A flag given empty (`--projects=$P` with `P` unset) is refused, never read as left out, where left out would mean more: every project or every app, the registration the server picks, or asking at the terminal.
 - `--json` prints the server's answer for `connect`, `disconnect` and `remove`, and `connect --json` doesn't wait.

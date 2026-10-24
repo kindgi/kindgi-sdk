@@ -303,6 +303,28 @@ describe('kindgi connection-apps add', () => {
     expect(out.stderr).toContain(said);
     expect(calls).toEqual([]);
   });
+
+  // `--projects=$P` with `P` unset would otherwise register the app for every project.
+  test.each([
+    ['--projects=', '--projects takes a value'],
+    ['--tenant=', '--tenant takes a value'],
+  ] as const)('%s, given empty, is refused, never read as left out', async (flag, said) => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      [
+        'connection-apps',
+        'add',
+        'microsoft',
+        '--client-id=0e6f3a2b-3333-4c4d-8e5f-000000000003',
+        '--client-secret-ref=prod/MS_CLIENT_SECRET',
+        flag,
+      ],
+      { connectionApps: { create: rec('create', GOOGLE) } },
+    );
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain(said);
+    expect(calls).toEqual([]);
+  });
 });
 
 describe('kindgi connection-apps list and get', () => {

@@ -10,6 +10,7 @@ import { servedEnvOf } from '../value-target.js';
 import { confirmRemoval } from './connections.js';
 import {
   type TableSpec,
+  givenFlag,
   integerFlag,
   requiredPositional,
   runSdk,
@@ -69,9 +70,13 @@ async function secretRef(
   return { envName, name };
 }
 
-/** `--projects=<id>,<id>`: the projects it's for; left out, every project. */
+/**
+ * `--projects=<id>,<id>`: the projects it's for; left out, every project.
+ * Given empty (`--projects=$P` with `P` unset) is refused, since read as
+ * left out it would serve every project.
+ */
 function projectsFlag(ctx: CommandContext): string[] | undefined {
-  const raw = stringFlag(ctx, 'projects');
+  const raw = givenFlag(ctx, 'projects');
   if (raw === undefined) return undefined;
   const ids = raw
     .split(',')
@@ -103,7 +108,7 @@ async function registrationFor(
     if (given.length > 0) {
       throw new UsageError(`${given.map((f) => `--${f}`).join(', ')}: only a GitHub App takes`);
     }
-    const tenant = stringFlag(ctx, 'tenant');
+    const tenant = givenFlag(ctx, 'tenant');
     return {
       ...common,
       oauth2: {
@@ -222,7 +227,7 @@ const add: LeafCommand = {
     tenant: {
       type: 'string',
       description:
-        "Microsoft: the directory people sign in at: your Microsoft tenant id or domain for a single-tenant app, or `organizations`, `common` or `consumers` for a multi-tenant one. Required where the app's entry names no default, as Microsoft's doesn't.",
+        "Microsoft: the directory people sign in at: your Directory (tenant) ID or domain for a single-tenant app, or `organizations`, `common` or `consumers` for a multi-tenant one. Required where the app's entry names no default, as Microsoft's doesn't.",
     },
     projects: {
       type: 'string',

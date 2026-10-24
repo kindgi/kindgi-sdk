@@ -10,6 +10,7 @@ import { UsageError } from '../errors.js';
 import { type Rendered, renderJson } from '../output.js';
 import {
   type TableSpec,
+  givenFlag,
   integerFlag,
   requiredPositional,
   runSdk,
@@ -158,8 +159,8 @@ const list: LeafCommand = {
       ctx,
       'connections list',
       async () => {
-        const projectId = stringFlag(ctx, 'project');
-        const app = stringFlag(ctx, 'app');
+        const projectId = givenFlag(ctx, 'project');
+        const app = givenFlag(ctx, 'app');
         const limit = integerFlag(ctx, 'limit');
         const cursor = stringFlag(ctx, 'cursor');
         return await ctx.client().connections.list({
@@ -208,10 +209,12 @@ async function entryFor(ctx: CommandContext, app: string): Promise<ConnectionEnt
  * terminal is asked about each permission the app's entry offers, none
  * picked for them, as the console's Connect does. Nothing is asked for by
  * default: a connect adds to what's granted, so a tool that needs more asks
- * again then. Undefined when the person picked none.
+ * again then. Undefined when the person picked none. Given empty, it's
+ * refused as `--permissions=,` is: a script run at a terminal shouldn't
+ * stop to ask.
  */
 async function permissionsFor(ctx: CommandContext, app: string): Promise<string[] | undefined> {
-  const given = stringFlag(ctx, 'permissions');
+  const given = givenFlag(ctx, 'permissions');
   if (given !== undefined) {
     const keys = given
       .split(',')
@@ -368,8 +371,8 @@ const connect: LeafCommand = {
   run: (ctx) =>
     runSdkRendered(ctx, 'connections connect', async () => {
       const app = requiredPositional(ctx, 0, 'app');
-      const appId = stringFlag(ctx, 'app-id');
-      const projectId = stringFlag(ctx, 'project');
+      const appId = givenFlag(ctx, 'app-id');
+      const projectId = givenFlag(ctx, 'project');
       const permissions = await permissionsFor(ctx, app);
       if (permissions === undefined) {
         return {
