@@ -343,10 +343,10 @@ function check() {
     }
   }
   if (stale) {
-    // The UCD's directories name a release in full: Unicode 16.0 is 16.0.0.
+    // The UCD's directories name a release in full: Unicode 17.0 is 17.0.0.
     const release = process.versions.unicode.split('.').concat('0', '0').slice(0, 3).join('.');
     console.error(
-      `regexp-tables: on Node ${process.version}, take PropertyAliases.txt and PropertyValueAliases.txt from https://www.unicode.org/Public/${release}/ucd/ and run node scripts/regexp-tables.mjs <their dir>`,
+      `regexp-tables: the tables follow the Node of the runtime's image, which .github/workflows/ci.yml checks them on. If that's this Node, take PropertyAliases.txt and PropertyValueAliases.txt from https://www.unicode.org/Public/${release}/ucd/ and run node scripts/regexp-tables.mjs <their dir>; if it isn't, check them on that Node`,
     );
     process.exit(1);
   }

@@ -491,7 +491,7 @@
     "u": "Invalid escape",
     "plain": null
   },
-  "escape: A": {
+  "escape: \\u0041": {
     "u": null,
     "plain": null
   },
@@ -792,6 +792,18 @@
     "plain": "Invalid capture group name"
   },
   "name: a combining mark after the first character": {
+    "u": null,
+    "plain": null
+  },
+  "name: a letter new in Unicode 17": {
+    "u": null,
+    "plain": null
+  },
+  "name: a letter new in Unicode 17 as \\u{…}": {
+    "u": null,
+    "plain": null
+  },
+  "name: a combining mark new in Unicode 17 after the first character": {
     "u": null,
     "plain": null
   },
@@ -1256,6 +1268,22 @@
     "plain": null
   },
   "property: Script=Kawi": {
+    "u": null,
+    "plain": null
+  },
+  "property: Script=Sidetic": {
+    "u": null,
+    "plain": null
+  },
+  "property: sc=Tayo": {
+    "u": null,
+    "plain": null
+  },
+  "property: scx=Tols": {
+    "u": null,
+    "plain": null
+  },
+  "property: Script_Extensions=Beria_Erfe": {
     "u": null,
     "plain": null
   },

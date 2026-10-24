@@ -11,7 +11,8 @@
 //   node scripts/regexp-syntax-oracle.mjs           # write the answers
 //   node scripts/regexp-syntax-oracle.mjs --check   # fail when they're stale
 //
-// Run it on the Node of .nvmrc: the reasons and the Unicode names are that V8's.
+// Run it on the Node of the runtime's image, which .github/workflows/ci.yml checks the answers
+// on: the reasons and the Unicode names are that V8's.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -57,7 +58,7 @@ if (process.argv.includes('--check')) {
   }
   if (current !== text) {
     console.error(
-      'regexp-syntax-oracle: answers.json is stale; run node scripts/regexp-syntax-oracle.mjs',
+      `regexp-syntax-oracle: answers.json is stale on this Node (${process.version}, Unicode ${process.versions.unicode}); run node scripts/regexp-syntax-oracle.mjs on the Node of the runtime's image, which .github/workflows/ci.yml checks the answers on`,
     );
     process.exit(1);
   }
