@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path';
 import { after, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { scratchRepoEnv } from './lib/git-env.mjs';
 import {
   NO_CHANGES,
   SyncError,
@@ -29,6 +30,8 @@ import {
 const SCRIPT = fileURLToPath(new URL('./sync-python-version.mjs', import.meta.url));
 const REPO = dirname(dirname(SCRIPT));
 const HAS_UV = spawnSync('uv', ['--version']).status === 0;
+/** git's repository variables dropped, so a shell pointing at another repository leaves it alone. */
+const scratchEnv = scratchRepoEnv();
 const scratch = mkdtempSync(join(tmpdir(), 'kindgi-sync-python-version-'));
 after(() => rmSync(scratch, { recursive: true, force: true }));
 
@@ -292,7 +295,10 @@ function workspace({ sdk, cli = sdk, python = '1.2.0', changelog = CHANGELOG }) 
     LOCK.replace('"acme-x"', '"acme-x-cli"').replace('"1.2.0"', `"${cliPython}"`),
   );
   if (changelog !== null) write('sdks/python/CHANGELOG.md', changelog);
-  execFileSync('git', ['-c', 'init.defaultBranch=main', 'init', '-q'], { cwd: root });
+  execFileSync('git', ['-c', 'init.defaultBranch=main', 'init', '-q'], {
+    cwd: root,
+    env: scratchEnv,
+  });
   return root;
 }
 
@@ -301,7 +307,7 @@ function run(root, args, env = {}) {
   return spawnSync(process.execPath, [SCRIPT, ...args], {
     cwd: root,
     encoding: 'utf8',
-    env: { ...process.env, UV_OFFLINE: '1', ...env },
+    env: { ...scratchEnv, UV_OFFLINE: '1', ...env },
   });
 }
 

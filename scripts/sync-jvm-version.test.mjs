@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path';
 import { after, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { scratchRepoEnv } from './lib/git-env.mjs';
 import {
   NO_CHANGES,
   SyncError,
@@ -26,6 +27,8 @@ import {
 } from './sync-jvm-version.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./sync-jvm-version.mjs', import.meta.url));
+/** git's repository variables dropped, so a shell pointing at another repository leaves it alone. */
+const scratchEnv = scratchRepoEnv();
 const scratch = mkdtempSync(join(tmpdir(), 'kindgi-sync-jvm-version-'));
 after(() => rmSync(scratch, { recursive: true, force: true }));
 
@@ -210,12 +213,15 @@ function workspace({ sdk, files = {} }) {
   })) {
     if (text !== undefined) write(file, text);
   }
-  execFileSync('git', ['-c', 'init.defaultBranch=main', 'init', '-q'], { cwd: root });
+  execFileSync('git', ['-c', 'init.defaultBranch=main', 'init', '-q'], {
+    cwd: root,
+    env: scratchEnv,
+  });
   return root;
 }
 
 const run = (root, args) =>
-  spawnSync(process.execPath, [SCRIPT, ...args], { cwd: root, encoding: 'utf8' });
+  spawnSync(process.execPath, [SCRIPT, ...args], { cwd: root, env: scratchEnv, encoding: 'utf8' });
 const read = (root, file) => readFileSync(join(root, file), 'utf8');
 
 /** `text` with the first `<version>1.2.0</version>` after `anchor` (not in it) moved to `version`. */
