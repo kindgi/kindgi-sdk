@@ -271,6 +271,36 @@ variable "database_private_network" {
   default     = ""
 }
 
+variable "database_backup_retention" {
+  description = "How many daily backups Cloud SQL keeps. Null (the default): Cloud SQL's own default, 7 on ENTERPRISE and 15 on ENTERPRISE_PLUS. A deployment others rely on keeps more (30, say). The module's own instance only: refused with database_host_instance (the host's backups are the app's), and not set on an instance database_instance names."
+  type        = number
+  default     = null
+  validation {
+    condition     = var.database_backup_retention == null ? true : (floor(var.database_backup_retention) == var.database_backup_retention && var.database_backup_retention >= 1 && var.database_backup_retention <= 365)
+    error_message = "database_backup_retention is a whole number of backups, from 1 to 365."
+  }
+}
+
+variable "database_backup_location" {
+  description = "Where Cloud SQL stores the backups: a multi-region (us, eu, asia) or a region (northamerica-northeast2, say). Null (the default): Cloud SQL's own choice, the multi-region nearest the instance, which can be outside the instance's region and country. Set it when you promise where backups are kept. Point-in-time recovery's transaction logs stay in the instance's own location whatever it says. Setting it on a running deployment changes the instance in place, and the backups taken before stay where they were. The module's own instance only: refused with database_host_instance (the host's backups are the app's), and not set on an instance database_instance names."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.database_backup_location == null ? true : can(regex("^(us|eu|asia|[a-z]+-[a-z]+[0-9]+)$", var.database_backup_location))
+    error_message = "database_backup_location is a region (northamerica-northeast2) or a multi-region (us, eu, asia), not a zone."
+  }
+}
+
+variable "database_point_in_time_days" {
+  description = "How many days of transaction logs point-in-time recovery keeps: any second within them can be restored. Null (the default): Cloud SQL's own default, 7 on ENTERPRISE and 14 on ENTERPRISE_PLUS. At most 7 on ENTERPRISE and 35 on ENTERPRISE_PLUS, and at most as many days as database_backup_retention keeps backups (Cloud SQL's rule), both checked at plan. The module's own instance only: refused with database_host_instance (the host's backups are the app's), and not set on an instance database_instance names."
+  type        = number
+  default     = null
+  validation {
+    condition     = var.database_point_in_time_days == null ? true : (floor(var.database_point_in_time_days) == var.database_point_in_time_days && var.database_point_in_time_days >= 1 && var.database_point_in_time_days <= 35)
+    error_message = "database_point_in_time_days is a whole number of days, from 1 to 35 (7 on ENTERPRISE)."
+  }
+}
+
 variable "database_deletion_protection" {
   description = "Keep Terraform from deleting Kindgi's database instance (Terraform's own deletion_protection). It doesn't stop a delete from the console, gcloud or the Cloud SQL API. With database_host_instance set there is no instance of our own, so this instead sets the deletion_policy of Kindgi's database object on the host instance: true keeps the data (ABANDON on a destroy or a database_name change), false deletes it (DELETE)."
   type        = bool

@@ -441,6 +441,187 @@ run "the_refused_names_cover_every_option_kms_signing" {
   }
 }
 
+run "backups_keep_cloud_sqls_defaults" {
+  command = plan
+
+  assert {
+    condition     = length(google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].backup_retention_settings) == 0
+    error_message = "Without database_backup_retention, the module sets no retention: Cloud SQL's default (7) stays."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].location == null
+    error_message = "Without database_backup_location, the module sets no location: Cloud SQL's choice stays."
+  }
+}
+
+run "backups_kept_where_and_as_long_as_asked" {
+  command = plan
+
+  variables {
+    database_backup_retention   = 30
+    database_backup_location    = "us"
+    database_point_in_time_days = 7
+  }
+
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].backup_retention_settings[0].retained_backups == 30
+    error_message = "database_backup_retention reaches the instance's retained backups."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].backup_retention_settings[0].retention_unit == "COUNT"
+    error_message = "Retention counts backups."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].location == "us"
+    error_message = "database_backup_location reaches the backups' location."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].transaction_log_retention_days == 7
+    error_message = "database_point_in_time_days reaches the transaction logs' retention."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].enabled && google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].point_in_time_recovery_enabled
+    error_message = "Backups and point-in-time recovery stay on."
+  }
+}
+
+run "backup_retention_refuses_none_or_a_fraction" {
+  command = plan
+
+  variables {
+    database_backup_retention = 0
+  }
+
+  expect_failures = [var.database_backup_retention]
+}
+
+run "backup_location_takes_a_region" {
+  command = plan
+
+  variables {
+    database_backup_location = "northamerica-northeast2"
+  }
+
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].location == "northamerica-northeast2"
+    error_message = "A region reaches the backups' location."
+  }
+}
+
+run "backup_location_refuses_a_zone" {
+  command = plan
+
+  variables {
+    database_backup_location = "us-central1-a"
+  }
+
+  expect_failures = [var.database_backup_location]
+}
+
+run "backup_location_refuses_another_multi_region_name" {
+  command = plan
+
+  variables {
+    database_backup_location = "europe"
+  }
+
+  expect_failures = [var.database_backup_location]
+}
+
+run "backup_location_refuses_a_bucket_like_name" {
+  command = plan
+
+  variables {
+    database_backup_location = "gs://acme-backups"
+  }
+
+  expect_failures = [var.database_backup_location]
+}
+
+run "point_in_time_days_refuses_more_than_35" {
+  command = plan
+
+  variables {
+    database_point_in_time_days = 36
+  }
+
+  expect_failures = [var.database_point_in_time_days]
+}
+
+run "point_in_time_days_over_7_need_enterprise_plus" {
+  command = plan
+
+  variables {
+    database_point_in_time_days = 14
+  }
+
+  expect_failures = [google_sql_database_instance.kindgi]
+}
+
+run "fewer_backups_than_the_default_log_days_are_refused" {
+  # ENTERPRISE keeps 7 days of logs unless told otherwise.
+  command = plan
+
+  variables {
+    database_backup_retention = 3
+  }
+
+  expect_failures = [google_sql_database_instance.kindgi]
+}
+
+run "more_log_days_than_backups_are_refused" {
+  command = plan
+
+  variables {
+    database_backup_retention   = 4
+    database_point_in_time_days = 5
+  }
+
+  expect_failures = [google_sql_database_instance.kindgi]
+}
+
+run "more_log_days_than_the_default_backups_are_refused" {
+  # ENTERPRISE_PLUS keeps 15 backups unless told otherwise.
+  command = plan
+
+  variables {
+    database_edition            = "ENTERPRISE_PLUS"
+    database_tier               = "db-perf-optimized-N-2"
+    database_point_in_time_days = 20
+  }
+
+  expect_failures = [google_sql_database_instance.kindgi]
+}
+
+run "as_many_log_days_as_backups_plan" {
+  command = plan
+
+  variables {
+    database_backup_retention   = 5
+    database_point_in_time_days = 5
+  }
+
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].transaction_log_retention_days == 5
+    error_message = "As many days of logs as backups kept is Cloud SQL's limit, and plans."
+  }
+}
+
+run "point_in_time_days_up_to_35_on_enterprise_plus" {
+  command = plan
+
+  variables {
+    database_edition            = "ENTERPRISE_PLUS"
+    database_tier               = "db-perf-optimized-N-2"
+    database_point_in_time_days = 14
+  }
+
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].transaction_log_retention_days == 14
+    error_message = "ENTERPRISE_PLUS keeps more than 7 days of transaction logs."
+  }
+}
+
 # ---- tenancy ------------------------------------------------------------------
 
 # "single", the default: the tenant, the seed user and the one pack service,
@@ -1187,6 +1368,33 @@ run "host_refuses_an_instance_without_a_public_ip" {
       database_version = "POSTGRES_16"
       settings         = [{ ip_configuration = [{ ipv4_enabled = false }] }]
     }
+  }
+  expect_failures = [data.google_sql_database_instance.host]
+}
+
+run "host_refuses_a_backup_location" {
+  command = plan
+  variables {
+    database_host_instance   = "acme-app-db"
+    database_backup_location = "us"
+  }
+  expect_failures = [data.google_sql_database_instance.host]
+}
+
+run "host_refuses_a_backup_retention" {
+  command = plan
+  variables {
+    database_host_instance    = "acme-app-db"
+    database_backup_retention = 30
+  }
+  expect_failures = [data.google_sql_database_instance.host]
+}
+
+run "host_refuses_point_in_time_days" {
+  command = plan
+  variables {
+    database_host_instance      = "acme-app-db"
+    database_point_in_time_days = 3
   }
   expect_failures = [data.google_sql_database_instance.host]
 }
