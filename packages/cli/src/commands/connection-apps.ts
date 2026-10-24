@@ -82,7 +82,7 @@ function projectsFlag(ctx: CommandContext): string[] | undefined {
 }
 
 /** A GitHub App's flags, which no other app takes. */
-const GITHUB_ONLY = ['app-id', 'slug', 'private-key-ref', 'webhook-secret-ref'] as const;
+const GITHUB_ONLY = ['github-app-id', 'slug', 'private-key-ref', 'webhook-secret-ref'] as const;
 
 /** The registration `add` makes, from its flags. */
 async function registrationFor(
@@ -108,11 +108,12 @@ async function registrationFor(
       oauth2: { clientId, clientSecret: await secretRef(ctx, 'client-secret-ref', served) },
     };
   }
-  const appNumber = integerFlag(ctx, 'app-id');
+  const appNumber = integerFlag(ctx, 'github-app-id');
   if (appNumber === undefined) {
-    throw new UsageError("Missing required flag: --app-id=<n>, the GitHub App's number");
+    throw new UsageError("Missing required flag: --github-app-id=<n>, the GitHub App's App ID");
   }
-  if (appNumber < 1) throw new UsageError("--app-id is the GitHub App's number, 1 or more");
+  if (appNumber < 1)
+    throw new UsageError("--github-app-id is the GitHub App's App ID, a number from 1");
   const slug = stringFlag(ctx, 'slug');
   if (slug === undefined) throw new UsageError('Missing required flag: --slug=<slug>');
   return {
@@ -200,7 +201,7 @@ const add: LeafCommand = {
   description:
     "Register the tenant's app at Google (`google`) or GitHub (`github`, with its four GitHub flags), by its client id and the secrets you stored with `kindgi secrets set`. Prints the registration, with the redirect and notices addresses to give the app.",
   usage:
-    'kindgi connection-apps add <app> --client-id=<id> --client-secret-ref=<env>/<name> [--projects=<id>,…] [--app-id=<n> --slug=<slug> --private-key-ref=<env>/<name> --webhook-secret-ref=<env>/<name>]',
+    'kindgi connection-apps add <app> --client-id=<id> --client-secret-ref=<env>/<name> [--projects=<id>,…] [--github-app-id=<n> --slug=<slug> --private-key-ref=<env>/<name> --webhook-secret-ref=<env>/<name>]',
   optionSpec: {
     'client-id': { type: 'string', description: "The app's OAuth client id." },
     'client-secret-ref': {
@@ -213,7 +214,11 @@ const add: LeafCommand = {
       description:
         'The projects whose connections may use it, comma-separated ids. Default: every project.',
     },
-    'app-id': { type: 'string', description: "GitHub: the GitHub App's number." },
+    'github-app-id': {
+      type: 'string',
+      description:
+        "GitHub: the GitHub App's App ID, a number. Not a registration's id, which `get` and `remove` take.",
+    },
     slug: { type: 'string', description: "GitHub: the GitHub App's slug." },
     'private-key-ref': {
       type: 'string',

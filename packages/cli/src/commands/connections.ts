@@ -201,7 +201,7 @@ async function entryFor(ctx: CommandContext, app: string): Promise<ConnectionEnt
 }
 
 /**
- * `--permissions=gmail.send,gmail.read`; left out, the person at the
+ * `--permissions=gmail.send,gmail.readonly`; left out, the person at the
  * terminal is asked about each permission the app's entry offers, none
  * picked for them, as the console's Connect does. Nothing is asked for by
  * default: a connect adds to what's granted, so a tool that needs more asks
@@ -355,7 +355,7 @@ const connect: LeafCommand = {
     permissions: {
       type: 'string',
       description:
-        "The entry's permission keys to ask for, comma-separated (`gmail.send,gmail.read`). Left out, it asks you at the terminal about each one the app's entry offers, none picked for you; without a terminal it's required.",
+        "The entry's permission keys to ask for, comma-separated (`gmail.send,gmail.readonly`). Left out, it asks you at the terminal about each one the app's entry offers, none picked for you; without a terminal it's required.",
     },
     'for-company': {
       type: 'boolean',

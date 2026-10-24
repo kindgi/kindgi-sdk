@@ -185,12 +185,12 @@ describe('kindgi connection-apps add', () => {
         '--client-id=cid',
         '--client-secret-ref=prod/S',
         '--slug=acme-kindgi',
-        '--app-id=12',
+        '--github-app-id=12',
       ],
       { connectionApps: { create: rec('create', GOOGLE) } },
     );
     expect(out.exitCode).toBe(2);
-    expect(out.stderr).toContain('--app-id, --slug: only a GitHub App takes');
+    expect(out.stderr).toContain('--github-app-id, --slug: only a GitHub App takes');
     expect(calls).toEqual([]);
   });
 
@@ -216,7 +216,7 @@ describe('kindgi connection-apps add', () => {
         'connection-apps',
         'add',
         'github',
-        '--app-id=123456',
+        '--github-app-id=123456',
         '--slug=acme-kindgi',
         '--client-id=Iv1.abc',
         '--client-secret-ref=prod/GH_CLIENT_SECRET',
@@ -245,9 +245,12 @@ describe('kindgi connection-apps add', () => {
   });
 
   test.each([
-    [['--slug=acme-kindgi'], "Missing required flag: --app-id=<n>, the GitHub App's number"],
-    [['--app-id=0', '--slug=acme-kindgi'], "--app-id is the GitHub App's number, 1 or more"],
-    [['--app-id=12'], 'Missing required flag: --slug=<slug>'],
+    [['--slug=acme-kindgi'], "Missing required flag: --github-app-id=<n>, the GitHub App's App ID"],
+    [
+      ['--github-app-id=0', '--slug=acme-kindgi'],
+      "--github-app-id is the GitHub App's App ID, a number from 1",
+    ],
+    [['--github-app-id=12'], 'Missing required flag: --slug=<slug>'],
   ] as const)('github with %j is refused', async (flags, said) => {
     const { calls, rec } = recorder();
     const out = await run(

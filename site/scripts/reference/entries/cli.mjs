@@ -918,9 +918,9 @@ export const CLI_DEFAULTS = {
     limit: '`25` (at most `100`)',
   },
   'connection-apps add': {
-    'app-id': 'required for `github`',
     'client-id': 'required',
     'client-secret-ref': 'required',
+    'github-app-id': 'required for `github`',
     'private-key-ref': 'required for `github`',
     projects: 'none: every project',
     slug: 'required for `github`',
@@ -1931,7 +1931,7 @@ export const CLI_EXAMPLES = {
       line: 'kindgi connections list --project=<project-id>',
     },
     {
-      purpose: 'List your connections, removed ones too, as a table.',
+      purpose: 'List connections, removed ones too, as a table.',
       line: 'kindgi connections list --include-removed --table',
     },
   ],
@@ -1977,11 +1977,11 @@ export const CLI_EXAMPLES = {
     {
       purpose:
         "Register the company's Google client, its secret stored first with `kindgi secrets set`.",
-      line: 'kindgi connection-apps add google --client-id=<client-id> --client-secret-ref=prod/GOOGLE_CLIENT_SECRET',
+      line: 'kindgi connection-apps add google --client-id=<client-id> --client-secret-ref=production/ACME_GOOGLE_CONNECT_SECRET',
     },
     {
       purpose: "Register the company's GitHub App.",
-      line: 'kindgi connection-apps add github --app-id=<n> --slug=<slug> --client-id=<client-id> --client-secret-ref=prod/GH_CLIENT_SECRET --private-key-ref=prod/GH_PRIVATE_KEY --webhook-secret-ref=prod/GH_WEBHOOK_SECRET',
+      line: 'kindgi connection-apps add github --github-app-id=<n> --slug=<slug> --client-id=<client-id> --client-secret-ref=production/ACME_GITHUB_CLIENT_SECRET --private-key-ref=production/ACME_GITHUB_PRIVATE_KEY --webhook-secret-ref=production/ACME_GITHUB_WEBHOOK_SECRET',
     },
   ],
   'connection-apps remove': [

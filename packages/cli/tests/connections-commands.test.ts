@@ -103,7 +103,7 @@ const ENTRIES = {
       signIn: { kind: 'oauth2' },
       permissions: {
         'gmail.send': { says: 'Send email as you', changes: true },
-        'gmail.read': { says: 'Read your email', changes: false },
+        'gmail.readonly': { says: 'Read your email', changes: false },
       },
       setupGuide: 'guides/connections/google',
     },
@@ -215,7 +215,7 @@ describe('kindgi connections connect', () => {
         'google',
         `--app-id=${APP_ID}`,
         `--project=${PROJECT}`,
-        '--permissions=gmail.send, gmail.read',
+        '--permissions=gmail.send, gmail.readonly',
         '--for-company',
       ],
       { connections: { connect: rec('connect', REQUEST) } },
@@ -226,7 +226,7 @@ describe('kindgi connections connect', () => {
         'connect',
         {
           app: 'google',
-          permissions: ['gmail.send', 'gmail.read'],
+          permissions: ['gmail.send', 'gmail.readonly'],
           appId: APP_ID,
           projectId: PROJECT,
           for: 'company',
@@ -246,7 +246,7 @@ describe('kindgi connections connect', () => {
     });
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain(
-      "Missing --permissions=<key>,…, which of Google's permissions to ask for (there's no terminal to ask on): gmail.send: Send email as you (changes things); gmail.read: Read your email",
+      "Missing --permissions=<key>,…, which of Google's permissions to ask for (there's no terminal to ask on): gmail.send: Send email as you (changes things); gmail.readonly: Read your email",
     );
     expect(calls).toEqual([['entries']]);
   });
@@ -263,18 +263,18 @@ describe('kindgi connections connect', () => {
       waitingSeam([], {
         confirm: async (question) => {
           asked.push(question);
-          return question.includes('gmail.read');
+          return question.includes('gmail.readonly');
         },
       }),
     );
     expect(out.exitCode).toBe(0);
     expect(asked).toEqual([
       'Ask Google for gmail.send: Send email as you (changes things)? [y/N] ',
-      'Ask Google for gmail.read: Read your email? [y/N] ',
+      'Ask Google for gmail.readonly: Read your email? [y/N] ',
     ]);
     expect(calls).toEqual([
       ['entries'],
-      ['connect', { app: 'google', permissions: ['gmail.read'] }],
+      ['connect', { app: 'google', permissions: ['gmail.readonly'] }],
     ]);
   });
 
@@ -383,13 +383,13 @@ describe('kindgi connections connect', () => {
     const { calls, rec } = recorder();
     const partial = {
       ...REQUEST,
-      permissions: ['gmail.send', 'gmail.read'],
+      permissions: ['gmail.send', 'gmail.readonly'],
       state: 'declined',
       connectionId: CONNECTION_ID,
-      missing: ['gmail.read'],
+      missing: ['gmail.readonly'],
     };
     const out = await run(
-      ['connections', 'connect', 'google', '--permissions=gmail.send,gmail.read'],
+      ['connections', 'connect', 'google', '--permissions=gmail.send,gmail.readonly'],
       {
         connections: {
           connect: rec('connect', REQUEST),
@@ -405,7 +405,7 @@ describe('kindgi connections connect', () => {
       `Connected ana@acme.example at google (connection ${CONNECTION_ID}), with less than asked.\n`,
     );
     expect(out.stderr).toBe(
-      'The app granted less than asked: not gmail.read. Tools that need those ask to connect again.\n',
+      'The app granted less than asked: not gmail.readonly. Tools that need those ask to connect again.\n',
     );
   });
 
@@ -417,8 +417,8 @@ describe('kindgi connections connect', () => {
     ],
     [
       'a reconnect allowed less than its connection has leaves it as it was',
-      { reconnects: CONNECTION_ID, missing: ['gmail.read'] },
-      `Declined at google (not gmail.read): connection ${CONNECTION_ID} stays as it was.`,
+      { reconnects: CONNECTION_ID, missing: ['gmail.readonly'] },
+      `Declined at google (not gmail.readonly): connection ${CONNECTION_ID} stays as it was.`,
     ],
   ] as const)('declined without a connection: %s', async (_title, extra, said) => {
     const { calls, rec } = recorder();
