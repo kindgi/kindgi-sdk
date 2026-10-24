@@ -99,6 +99,8 @@ if (!(await available('uv'))) {
     `kindgi @ git+https://github.com/kindgi/kindgi-sdk@${RELEASE_0_1_1}#subdirectory=sdks/python`,
   ]);
   const packDir = fixturePackDir('python-pack');
+  // Fixture files written with a newer SDK's features: 0.1.1 can't load them.
+  const newerThan011 = new Set(['tools/pause.py']);
   describeCallContextCompatibility({
     name: 'python 0.1.1',
     packDir,
@@ -122,9 +124,12 @@ if (!(await available('uv'))) {
       });
       const outcome = JSON.parse(stdout.trim().split('\n').pop() ?? '{}') as {
         kind: string;
-        value?: { fileErrors: { message: string }[] };
+        value?: { fileErrors: { message: string; filePath?: string }[] };
       };
-      if (outcome.kind !== 'ok' || (outcome.value?.fileErrors.length ?? 0) > 0) {
+      const fileErrors = (outcome.value?.fileErrors ?? []).filter(
+        (e) => e.filePath === undefined || !newerThan011.has(e.filePath),
+      );
+      if (outcome.kind !== 'ok' || fileErrors.length > 0) {
         throw new Error(`indexer: ${stdout}`);
       }
     },

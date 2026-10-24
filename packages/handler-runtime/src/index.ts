@@ -9,11 +9,15 @@ export type {
   HandlerErrorCode,
   HandlerFn,
   HandlerModule,
+  HandlerOutcome,
+  HandlerPause,
+  PauseAnswer,
+  PauseOptions,
   RunCheckOptions,
   RunHandlerOptions,
   ToolInvocationSpec,
 } from './handler-runner.js';
-export { runCheck, runHandler } from './handler-runner.js';
+export { runCheck, runHandler, runHandlerOrPause } from './handler-runner.js';
 
 export type {
   DiscoveryConfig,

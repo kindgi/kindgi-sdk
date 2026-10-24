@@ -42,6 +42,7 @@ PackErrorCode = Literal[
     "tool-version-mismatch",
     "deadline-exceeded",
     "cancelled",
+    "pause-not-available",
 ]
 
 
