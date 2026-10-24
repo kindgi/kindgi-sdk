@@ -66,7 +66,17 @@ export interface ConnectionAppRecord {
   /** The app's entry id: `'google'`. */
   readonly app: string;
   readonly label?: string;
-  readonly oauth2?: { readonly clientId: string; readonly clientSecret: SecretRefInput };
+  readonly oauth2?: {
+    readonly clientId: string;
+    readonly clientSecret: SecretRefInput;
+    /**
+     * The directory the app signs people in at, for an entry whose sign-in
+     * names one (`signIn.tenant`): Microsoft's tenant id or domain,
+     * `organizations`, `common` or `consumers`. Required when the entry has
+     * no default, refused for an entry without one (`connection-app-invalid`).
+     */
+    readonly tenant?: string;
+  };
   readonly githubApp?: {
     readonly appNumber: number;
     readonly slug: string;
@@ -326,10 +336,10 @@ export interface ConnectionBinding {
   createApp(input: ConnectionAppCreateInput): Promise<Result<ConnectionAppRecord, ConnectionError>>;
   /**
    * As `createApp` for `projects`. A change of the client its connections
-   * were granted to (`oauth2.clientId`, `githubApp.appNumber` or
-   * `githubApp.clientId`) while it has live connections is refused
-   * (`connection-app-invalid`, that field): disconnect them first, then
-   * change it and connect again.
+   * were granted to (`oauth2.clientId`, `oauth2.tenant` as the sign-in uses
+   * it, `githubApp.appNumber` or `githubApp.clientId`) while it has live
+   * connections is refused (`connection-app-invalid`, that field): disconnect
+   * them first, then change it and connect again.
    */
   updateApp(input: ConnectionAppUpdateInput): Promise<Result<ConnectionAppRecord, ConnectionError>>;
   /** With `withConnections: false`, a registration that still has live connections is refused (`connection-app-in-use`). */

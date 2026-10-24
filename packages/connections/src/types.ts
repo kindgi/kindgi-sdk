@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * An app a Kindgi server can connect accounts at: Google, GitHub. An entry
+ * An app a Kindgi server can connect accounts at: Google, GitHub, Microsoft. An entry
  * is data. The server reads it to send people to the app's consent page,
  * to say in plain words what each permission allows, to learn whose
  * account was connected, and to withdraw access on a disconnect. The code
@@ -41,6 +41,22 @@ export type ConnectionOwnerKind = 'member' | 'company';
  * - `oauth2`: the authorization code flow with PKCE (`S256`), with refresh
  *   and, when `revokeUrl` is given, revoke. Every URL is `https:`.
  *   `authorizeParams` are sent on the consent page's URL as given.
+ *   - `scopes` are asked for at every sign-in, besides the permissions'
+ *     and the account lookup's: Microsoft gives a refresh token only when
+ *     `'offline_access'` is asked for. Each is one, with no space or comma,
+ *     as a permission's `grants` is.
+ *   - `scopeResource`: the app may name a granted scope with this prefix,
+ *     which ends in `/`, or without it, in any case (Microsoft answers
+ *     `https://graph.microsoft.com/mail.read` for `Mail.Read`). The server
+ *     compares both sides lowercase with the prefix dropped: each
+ *     permission's `grants` and each scope the app answers. The app may
+ *     answer more than was asked (scopes consented to earlier).
+ *   - `tenant`: the sign-in happens in a directory of the app's own
+ *     (Microsoft's tenant, not a Kindgi tenant), named in the URLs:
+ *     `authorizeUrl` and `tokenUrl` each hold `{tenant}` once, and
+ *     `revokeUrl` may too. The registration's `tenant` fills it, else
+ *     `default`; with no `default`, each registration must give its own.
+ *     The server fills it in the text before reading it as a URL.
  *   `refreshToken` says whether a connect needs one:
  *   - `'required'` (the default): a grant without one, and none kept from
  *     before, is refused.
@@ -60,6 +76,9 @@ export type SignIn =
       readonly revokeUrl?: string;
       readonly pkce: 'S256';
       readonly authorizeParams?: Readonly<Record<string, string>>;
+      readonly scopes?: readonly string[];
+      readonly scopeResource?: string;
+      readonly tenant?: { readonly default?: string };
       readonly refreshToken?: 'required' | 'optional';
     }
   | { readonly kind: 'github-app' };
@@ -91,6 +110,15 @@ export interface AppPermission {
  *   permission's `grants` is.
  * - `github-installation`: the installation's account. Its id is the id
  *   and its login the label.
+ * - `profile`: a GET of `url` with the new access token, answered with a
+ *   JSON object. `id` names its field that holds the app's stable id for
+ *   the account; `label` names the fields for what people see, the first
+ *   that holds a non-empty string winning (Microsoft's `mail` is empty for
+ *   some accounts, so `userPrincipalName` follows it). A field that isn't
+ *   a non-empty string counts as not there: with no id, the connect fails.
+ *   `scopes` are asked for besides the permissions' own; each is one, with
+ *   no space or comma, as a permission's `grants` is. `url` can't hold
+ *   `{tenant}`.
  */
 export type AccountLookup =
   | {
@@ -98,7 +126,14 @@ export type AccountLookup =
       readonly issuers: readonly [string, ...string[]];
       readonly scopes: readonly string[];
     }
-  | { readonly kind: 'github-installation' };
+  | { readonly kind: 'github-installation' }
+  | {
+      readonly kind: 'profile';
+      readonly url: string;
+      readonly scopes: readonly string[];
+      readonly id: string;
+      readonly label: readonly [string, ...string[]];
+    };
 
 /** How access is withdrawn, and how the app tells the server it was. */
 export interface AppRemoval {
@@ -125,7 +160,8 @@ export interface AppRateLimit {
   readonly perSeconds: number;
   /**
    * Units a call costs, by the operation's own name (`gmail.send`), never
-   * the id a pack gives a tool that makes it. One not listed costs 1.
+   * the id a pack gives a tool that makes it. One not listed costs 1; one
+   * that costs 0 isn't counted in this limit (a limit on sends alone).
    */
   readonly costs?: Readonly<Record<string, number>>;
 }

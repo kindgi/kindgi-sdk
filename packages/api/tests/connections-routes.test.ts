@@ -11,8 +11,10 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import type { AppEntry, SignIn } from '@kindgi/connections';
 import { github } from '@kindgi/connections/github';
 import { google } from '@kindgi/connections/google';
+import { microsoft } from '@kindgi/connections/microsoft';
 import type { EnvName, TenantId, UserId } from '@kindgi/types';
 
 import type {
@@ -50,7 +52,7 @@ const SECRET = { envName: 'local', name: 'ACME_GOOGLE_CLIENT_SECRET' };
 const at = '2026-10-22T12:00:00.000Z';
 
 /** A binding that keeps everything in maps, and records what the routes pass it. */
-function memoryBinding() {
+function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
   const apps = new Map<string, ConnectionAppRecord>();
   const connections = new Map<string, ConnectionRecord>();
   const requests = new Map<string, ConnectRequestRecord>();
@@ -63,7 +65,7 @@ function memoryBinding() {
     error: { code, message, ...(field !== undefined && { field }) } as never,
   });
   const binding: ConnectionBinding = {
-    entries: () => [google, github],
+    entries: () => entries,
     async listApps(input) {
       seen('listApps', input);
       return {
@@ -80,7 +82,7 @@ function memoryBinding() {
     },
     async createApp(input) {
       seen('createApp', input);
-      if (input.app !== 'google' && input.app !== 'github') {
+      if (input.app !== 'google' && input.app !== 'github' && input.app !== 'microsoft') {
         return refuse('connection-app-unknown-entry', `No entry "${input.app}"`);
       }
       const appId = randomUUID();
@@ -274,9 +276,10 @@ function makeApp(
     reviewers?: ReviewerBinding;
     clientAddress?: (r: Request) => string | undefined;
     authzCheckBinding?: AuthzCheckBinding;
+    entries?: readonly AppEntry[];
   } = {},
 ) {
-  const memory = memoryBinding();
+  const memory = memoryBinding(options.entries);
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -336,6 +339,58 @@ describe('GET /v1/connection-entries', () => {
     });
     expect(JSON.stringify(res.json)).not.toContain('googleapis.com/auth');
   });
+
+  test("each app says whether a registration names a directory, and what a disconnect withdraws there: Microsoft's has no default and withdraws nothing, Google's revoke is grant-wide and it reports removals", async () => {
+    const oauth2 = microsoft.signIn as Extract<SignIn, { kind: 'oauth2' }>;
+    const withDefault: AppEntry = {
+      ...microsoft,
+      id: 'acme-directory',
+      signIn: { ...oauth2, tenant: { default: 'organizations' } },
+    };
+    const { app } = makeApp({ entries: [google, github, microsoft, withDefault] });
+    const res = await call(app, 'ana', 'GET', '/v1/connection-entries');
+    expect(res.status).toBe(200);
+    const byId = Object.fromEntries(
+      res.json.data.map((entry: Record<string, any>) => [entry.id, entry]),
+    );
+    expect(byId.microsoft.signIn).toEqual({ kind: 'oauth2', tenant: {} });
+    expect(byId.microsoft.removal).toEqual({});
+    expect(byId['acme-directory'].signIn).toEqual({
+      kind: 'oauth2',
+      tenant: { default: 'organizations' },
+    });
+    expect(byId.google.signIn).toEqual({ kind: 'oauth2' });
+    expect(byId.google.removal).toEqual({
+      revoke: 'oauth2-revoke',
+      revokeIsGrantWide: true,
+      notices: 'google-risc',
+    });
+    expect(byId.github.signIn).toEqual({ kind: 'github-app' });
+    expect(byId.github.removal).toEqual({
+      revoke: 'github-installation-token',
+      notices: 'github-webhooks',
+    });
+  });
+
+  test("a field an entry's tenant or removal carries that the schema doesn't list stays off the wire", async () => {
+    const oauth2 = microsoft.signIn as Extract<SignIn, { kind: 'oauth2' }>;
+    const ahead = {
+      ...microsoft,
+      id: 'acme-ahead',
+      signIn: { ...oauth2, tenant: { default: 'organizations', region: 'eu' } },
+      removal: { ...google.removal, reportsTo: 'acme-hook' },
+    } as AppEntry;
+    const { app } = makeApp({ entries: [ahead] });
+    const res = await call(app, 'ana', 'GET', '/v1/connection-entries');
+    expect(res.status).toBe(200);
+    const [entry] = res.json.data;
+    expect(entry.signIn).toEqual({ kind: 'oauth2', tenant: { default: 'organizations' } });
+    expect(entry.removal).toEqual({
+      revoke: 'oauth2-revoke',
+      revokeIsGrantWide: true,
+      notices: 'google-risc',
+    });
+  });
 });
 
 describe('/v1/connection-apps', () => {
@@ -358,6 +413,18 @@ describe('/v1/connection-apps', () => {
     expect(read.json.appId).toBe(res.json.appId);
     const listed = await call(app, 'admin', 'GET', '/v1/connection-apps');
     expect(listed.json).toMatchObject({ data: [{ appId: res.json.appId }], hasMore: false });
+  });
+
+  test("passes a registration's directory to the binding, and shows it", async () => {
+    const { app, calls } = makeApp();
+    const oauth2 = { clientId: 'c-1', clientSecret: SECRET, tenant: 'acme.onmicrosoft.com' };
+    const res = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'microsoft',
+      oauth2,
+    });
+    expect(res.status).toBe(201);
+    expect(res.json.oauth2).toEqual(oauth2);
+    expect(calls.createApp?.[0]).toMatchObject({ oauth2: { tenant: 'acme.onmicrosoft.com' } });
   });
 
   test("without an authorizer, a key's tenant-admin scope decides: a member key neither registers nor re-points an app", async () => {
@@ -400,6 +467,21 @@ describe('/v1/connection-apps', () => {
       'a client secret that is not a reference',
       { app: 'google', oauth2: { clientId: 'c', clientSecret: 'plain' } },
       'oauth2.clientSecret',
+    ],
+    [
+      'a field oauth2 does not know',
+      { app: 'google', oauth2: { clientId: 'c', clientSecret: SECRET, region: 'eu' } },
+      'oauth2.region',
+    ],
+    [
+      "a tenant that isn't a string",
+      { app: 'microsoft', oauth2: { clientId: 'c', clientSecret: SECRET, tenant: 7 } },
+      'oauth2.tenant',
+    ],
+    [
+      'an empty tenant',
+      { app: 'microsoft', oauth2: { clientId: 'c', clientSecret: SECRET, tenant: '' } },
+      'oauth2.tenant',
     ],
     ['a project twice', { app: 'google', projects: ['p-1', 'p-1'] }, 'projects'],
     ['every project spelled as null on a create', { app: 'google', projects: null }, 'projects'],
