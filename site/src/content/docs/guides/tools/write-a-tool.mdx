@@ -244,8 +244,8 @@ In every language:
     refused then too. A pydantic model's `Field(pattern=...)` is checked by
     pydantic, which reads `\p{L}`. One pydantic doesn't read, such as `a\Z`,
     fails when the model class is created.
-  - In Java and Scala, one Java doesn't read, such as `[^]`, is refused when
-    the pack is indexed.
+  - In Java and Scala, one JavaScript or Java doesn't read, such as `[^]`,
+    which Java doesn't, is refused when the pack is indexed.
 - What the handler prints shows in the `kindgi dev` terminal, prefixed `[pack]`.
 - Open files, databases and connections inside the handler, on first use,
   not at the module's top level (in a static field or an object's `val`, in
