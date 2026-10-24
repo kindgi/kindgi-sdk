@@ -17,6 +17,10 @@
  */
 
 import type {
+  AuthSettings,
+  AuthSettingsPatch,
+  EnrollSiteBody,
+  EnrollSiteResult,
   IdentityProviderCollectionPage,
   IdentityProviderConfig,
   IdentityProviderKind,
@@ -25,6 +29,7 @@ import type {
   RefreshResult,
   RegisterIdentityProviderResult,
   SignInOptions,
+  SiteSignInResult,
   TokenSignInResult,
   UnregisterIdentityProviderResult,
   UpdateIdentityProviderBody,
@@ -46,18 +51,38 @@ export type RefreshResultShape = RefreshResult;
 export type LogoutResultShape = LogoutResult;
 export type SignInOptionsResult = SignInOptions;
 export type TokenSignInResultShape = TokenSignInResult;
+export type { AuthSettings, AuthSettingsPatch };
 
 export interface AuthClient {
   readonly providers: AuthProvidersClient;
+  /** The workspace's sign-in settings: tenant admins. */
+  readonly settings: AuthSettingsClient;
   /**
    * How a person can sign in, before anyone is signed in (no credential
    * needed): the identity providers for the email's domain, each with a
    * `signInUrl` for the browser. Sign-in is email first: with no email,
    * the list is empty. `methods` says which ways in the deployment allows
-   * (both `false`: nobody can sign in to the console).
+   * (both `false`: nobody can sign in to the console). `legal`, when its
+   * operator set them, has its terms and privacy policy for a sign-in page
+   * to link; `links`, when set, the deployment's own links, in order, for
+   * the console to show on every page.
    * @wire GET /v1/auth/sign-in-options
    */
   signInOptions(input?: { readonly email?: string }): Promise<SignInOptionsResult>;
+  /**
+   * A site posts its Ed25519 public key with the one-time enrollment code a
+   * tenant admin gave it (no other credential), and learns its id and the
+   * audience its statements carry. The site keeps its private key.
+   * @wire POST /v1/auth/sites/enroll
+   */
+  enrollSite(body: EnrollSiteBody): Promise<EnrollSiteResult>;
+  /**
+   * A site exchanges one of its people's statements (a compact JWS it
+   * signed) for a session limited to the site's project. No other
+   * credential; refused with `401 site-sign-in-refused` and a `reason`.
+   * @wire POST /v1/auth/site-sign-in
+   */
+  siteSignIn(statement: string): Promise<SiteSignInResult>;
   /**
    * Refresh the current session token. Requires a session bearer.
    * @wire POST /v1/auth/refresh
@@ -77,6 +102,34 @@ export interface AuthClient {
    * @wire POST /v1/auth/logout
    */
   logout(options?: { readonly idempotencyKey?: string }): Promise<LogoutResultShape>;
+}
+
+/**
+ * Whether signing in takes a second factor. Mounted where the deployment
+ * keeps second factors. Covers the deployment's own ways in; signing in
+ * through the workspace's own identity provider is exempt, and API keys
+ * aren't covered.
+ */
+export interface AuthSettingsClient {
+  /**
+   * The settings, and how many people's keys are still on the
+   * deployment's previous sign-in secret, or on neither.
+   *
+   * @wire GET /v1/auth/settings
+   */
+  get(): Promise<AuthSettings>;
+  /**
+   * Require a second factor, or stop requiring it. Once required, a
+   * session made without one ends at its next request. From a session,
+   * turning it on takes one made with your own second factor
+   * (`second-factor-enroll-first`).
+   *
+   * @wire PATCH /v1/auth/settings
+   */
+  update(
+    patch: AuthSettingsPatch,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<AuthSettings>;
 }
 
 export interface AuthProvidersClient {
@@ -120,6 +173,19 @@ export interface AuthProvidersClient {
 export function makeAuthClient(transport: Transport): AuthClient {
   const seg = (s: string): string => encodeURIComponent(s);
   return {
+    settings: {
+      async get() {
+        return transport.request<AuthSettings>({ method: 'GET', path: '/v1/auth/settings' });
+      },
+      async update(patch, options) {
+        return transport.request<AuthSettings>({
+          method: 'PATCH',
+          path: '/v1/auth/settings',
+          body: patch,
+          ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+        });
+      },
+    },
     providers: {
       async list() {
         const page = await transport.request<IdentityProviderCollectionPage>({
@@ -170,6 +236,20 @@ export function makeAuthClient(transport: Transport): AuthClient {
         method: 'GET',
         path: '/v1/auth/sign-in-options',
         ...(input?.email !== undefined && { query: { email: input.email } }),
+      });
+    },
+    async enrollSite(body) {
+      return transport.request<EnrollSiteResult>({
+        method: 'POST',
+        path: '/v1/auth/sites/enroll',
+        body,
+      });
+    },
+    async siteSignIn(statement) {
+      return transport.request<SiteSignInResult>({
+        method: 'POST',
+        path: '/v1/auth/site-sign-in',
+        body: { statement },
       });
     },
     async refresh(options) {

@@ -45,7 +45,7 @@ agent that uses it, a flow around both) loads each one in turn.
 | `kindgi-authoring-guardrails`, `kindgi-python-authoring-guardrails`, `kindgi-java-authoring-guardrails`, `kindgi-scala-authoring-guardrails` | Writing a guardrail check |
 | `kindgi-authoring-providers` | Connecting a model: Anthropic, Gemini, OpenAI-compatible endpoints |
 | `kindgi-authoring-mcp-servers` | Giving the coding agent an MCP server |
-| `kindgi-framework-feedback` | Reporting a problem in Kindgi itself |
+| `kindgi-framework-feedback` | Reporting a problem in Kindgi itself, and sending it to us once you've said yes |
 | `kindgi-using` | Guiding you in using what was built: the CLI's answer and the console page beside it |
 
 Your coding agent also guides you in using what it built. Ask it to show
@@ -61,8 +61,8 @@ A pack gets the skills for its language, plus the shared ones.
 
 The skills ship with the CLI, so `kindgi init` copies the ones written for
 the Kindgi version it installs. The agent writes against the API you have,
-not one it half-remembers. After an upgrade, `kindgi dev` tells you the
-skills are behind, and `kindgi skills sync` refreshes them (see
+not one it half-remembers. After an upgrade, `kindgi dev` refreshes them as
+it starts, and `kindgi skills sync` refreshes them any time (see
 [Keeping them current](#keeping-them-current)).
 
 ### What else it reads
@@ -99,8 +99,10 @@ works the way you would: write, run, look, fix.
 | `kindgi runs get`, `runs journal` | Finds out what a run did, step by step, and why it failed |
 | `kindgi providers register` | Connects a model, once its key is in your env file |
 | `kindgi mcp add` | Gives itself access to a database or another service |
-| `kindgi skills sync` | Refreshes its skills after an upgrade |
+| `kindgi skills sync` | Refreshes its skills any time |
 | `kindgi feedback write` | Records a bug it found in Kindgi itself |
+| `kindgi feedback submit` | Shows you that record as it would be sent, and sends it only after you say yes |
+| `kindgi feedback status` | Tells you what became of what you sent: known, fixed, or won't be fixed |
 | `kindgi build` | Builds the pack's image for deployment |
 
 It runs the CLI the project pins: `pnpm exec kindgi` in a TypeScript
@@ -369,11 +371,23 @@ the agent uses yours.
 ## Keeping them current
 
 The skills are copies, made when you ran `kindgi init`: one in
-`.claude/skills/`, one in `.agents/skills/`. After upgrading Kindgi, refresh
-both:
+`.claude/skills/`, one in `.agents/skills/`. After you upgrade Kindgi, the
+next `kindgi dev` refreshes both as it starts, and says so:
+
+```text
+  ✓ Framework skills: 2 updated, 1 added.
+    · 1 you edited is kept: `pnpm exec kindgi skills sync --force` replaces it.
+```
+
+It keeps skills you edited, as `kindgi skills sync` does. A skill you
+deleted stays deleted, and so does a skills folder you deleted: it says
+which are behind, and the command that brings them back. Without the
+manifest (below), it changes nothing and only says the skills are behind.
+
+To refresh them yourself, at any time:
 
 ```sh
-kindgi skills sync
+pnpm exec kindgi skills sync
 ```
 
 It keeps skills you edited, in either folder. `--force` replaces those too.
@@ -386,7 +400,7 @@ Which release each copy came from, in both folders, is recorded in
 `.claude/skills/.kindgi-manifest.json`. Keep it, even if you don't use
 Claude Code: without it, `kindgi skills sync` can't tell a copy that's
 behind from one you edited, so it keeps every copy that's behind (`--force`
-replaces them).
+replaces them), and `kindgi dev` doesn't refresh them.
 
 It says what it did in each folder, then prints the same as JSON (with
 `--json`, the JSON alone):
@@ -419,9 +433,9 @@ SDK release: …
 }
 ```
 
-`kindgi dev` tells you when the installed skills are behind the CLI's, in
-either folder. `.claude/skills/.kindgi-manifest.json` records what was
-installed in both.
+`kindgi dev` refreshes the installed skills when they're behind the CLI's,
+in either folder, and says what it left behind. `.claude/skills/.kindgi-manifest.json`
+records what was installed in both.
 
 ## MCP servers for your coding agent
 
@@ -429,9 +443,9 @@ Give the coding agent access to a database or another service through an
 MCP server, without writing its secret into the project:
 
 ```sh
-kindgi mcp presets
-kindgi secrets set MY_DB_URL --env=local --scope=tenant
-kindgi mcp add postgres --secret=MY_DB_URL
+pnpm exec kindgi mcp presets
+pnpm exec kindgi secrets set MY_DB_URL --env=local --scope=tenant
+pnpm exec kindgi mcp add postgres --secret=MY_DB_URL
 ```
 
 - `mcp presets` lists the servers Kindgi has a preset for.
@@ -466,7 +480,12 @@ for Kindgi's runtime.
 
 If your agent diagnoses a bug in Kindgi rather than in your code, the
 `kindgi-framework-feedback` skill has it write a structured note to
-`FEEDBACK.md` with `kindgi feedback write`, ready to send to us.
+`FEEDBACK.md` with `kindgi feedback write`. When you want it sent to us,
+it previews the report with `kindgi feedback submit --preview` and shows it
+to you: exactly what's sent, after keys, env values and paths are redacted.
+It sends the report only after you say yes. Later, it tells you what became
+of it. [Send us feedback](../send-feedback/) says what's sent, what we keep
+and for how long, and how to take a report back.
 
 ## Next
 

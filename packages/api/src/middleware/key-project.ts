@@ -24,7 +24,8 @@ const WRITE_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH']);
  *   body (a route in `ownLimits`) isn't JSON, and isn't read here: the
  *   upload route checks the project its form names.
  *
- * Requests from any other caller pass untouched. What the key may do in
+ * A session limited to a project (`SessionCreateInput.projectId`) is held
+ * the same way. Requests from any other caller pass untouched. What the key may do in
  * its own project is the authorizer's to decide, under the principal's
  * grants. The refusal is recorded with `authorizer`, as every refusal the
  * API decides itself is.
@@ -45,7 +46,7 @@ export function refuseOtherProjectForKey(
         return refused(c, authorizer, {
           action: c.req.method === 'GET' || c.req.method === 'HEAD' ? 'read' : 'write',
           resource: ref('project', named),
-          message: `This API key is limited to project ${keyProject}; the request names project ${named}`,
+          message: `${limitedCaller(c)} is limited to project ${keyProject}; the request names project ${named}`,
           failing: 'scope',
           code: 'key-project-mismatch',
           details: { keyProjectId: keyProject, projectId: named },
@@ -54,6 +55,11 @@ export function refuseOtherProjectForKey(
     }
     return next();
   };
+}
+
+/** What a refusal names as limited: the caller's session, or its API key. */
+export function limitedCaller(c: { get(key: 'sessionId'): unknown }): string {
+  return c.get('sessionId') !== undefined ? 'This session' : 'This API key';
 }
 
 type RequestLike = {

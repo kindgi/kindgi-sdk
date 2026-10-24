@@ -42,10 +42,15 @@ import { createInterface } from 'node:readline';
 import {
   type DiscoveryConfig,
   type KindgiConfig,
+  type PackBlockWrite,
   type PackLanguage,
+  blocksFolder,
+  codePatterns,
+  createGlobMatcher,
   discoveryRoots,
   findKindgiConfig,
   packLanguage,
+  readPackBlocks,
   resolveDiscovery,
 } from '@kindgi/handler-runtime';
 import {
@@ -67,6 +72,7 @@ import {
   parseCorsOrigins,
 } from '@kindgi/env-schema';
 
+import { indexerPredatesBlocks, packIndexerName } from '../build/pack-blocks.js';
 import type { CommandContext } from '../context.js';
 import { ALREADY_RUNNING_EXIT_CODE, alreadyRunning } from '../dev/already-running.js';
 import {
@@ -107,7 +113,7 @@ import {
 } from '../dev/log-view.js';
 import { type PackCode, isJvmPackCode, resolvePackCode } from '../dev/pack-code.js';
 import { devPackEnv, devPackEnvFiles } from '../dev/pack-env.js';
-import { createPackRefresher, showPackEvent } from '../dev/pack-service.js';
+import { createPackRefresher, showBlockWritten, showPackEvent } from '../dev/pack-service.js';
 import { PORT_SEARCH_SPAN, firstFreePort } from '../dev/port.js';
 import {
   devRuntimeSource,
@@ -132,6 +138,8 @@ import { type RegistrationReport, registerFromIndex } from '../dev/register.js';
 import type {
   DevRunners,
   IndexResult,
+  IndexedCounts,
+  PackBlockWritten,
   PackBuild,
   PackBuilder,
   RunningApiServer,
@@ -158,7 +166,8 @@ import { loadProviderPresets } from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
 import { consoleUrlOf, couldNotOpen } from './console.js';
 import { defaultSdkSkillsRoot } from './init.js';
-import { describeSkillDrift, detectSkillDrift } from './skills.js';
+import { describeDevSkillsRefresh, refreshSkillsForDev } from './skills.js';
+import type { DevSkillsLine } from './skills.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 export const devCommand: LeafCommand = {
@@ -244,11 +253,11 @@ export const devCommand: LeafCommand = {
         'Let `docker compose` recreate the bundled Postgres if its definition changed (needs compose). By default an existing container is reused.',
     },
     // The runtime's and the pack service's records: what's shown, and how.
-    // `--quiet` (a global flag) keeps errors only.
+    // `--quiet` (a global flag) keeps errors and warnings only.
     'log-level': {
       type: 'string',
       description:
-        "The lowest level of the log records shown: error, warn, info, debug or trace. Default: `KINDGI_LOG_LEVEL` (the shell's, then the env files'), else info; with `--quiet`, error.",
+        "The lowest level of the log records shown: error, warn, info, debug or trace. Default: `KINDGI_LOG_LEVEL` (the shell's, then the env files'), else info; with `--quiet`, warn.",
     },
     log: {
       type: 'string',
@@ -290,10 +299,19 @@ function emitProgress(msg: string): void {
   emitProblem(msg);
 }
 
-/** A progress line that's an error: shown under `--quiet` too. */
+/** A progress line that's an error or a warning: shown under `--quiet` too. */
 function emitProblem(msg: string): void {
   process.stderr.write(`${stoppingLineOpen ? '\n' : ''}  ${msg}\n`);
   stoppingLineOpen = false;
+}
+
+/** The dev sandbox's lines, then its warnings: those are said under `--quiet` too. */
+function emitSandboxLines(outcome: {
+  readonly lines: readonly string[];
+  readonly warnings: readonly string[];
+}): void {
+  for (const line of outcome.lines) emitProgress(line);
+  for (const line of outcome.warnings) emitProblem(line);
 }
 
 /**
@@ -527,7 +545,7 @@ async function runDevForPack(
       `✓ Google credentials: ${google.credentials.path} (${google.credentials.who}), mounted read-only for Vertex AI`,
     );
   } else if (declaredVertex.length > 0) {
-    emitProgress(`⚠ ${vertexCredentialsHint(declaredVertex, ctx.env)}`);
+    emitProblem(`⚠ ${vertexCredentialsHint(declaredVertex, ctx.env)}`);
   }
 
   // The pack service runs sandboxed where this machine can: the code a
@@ -544,7 +562,7 @@ async function runDevForPack(
   if (devSandbox.kind === 'error') {
     return { kind: 'error', stderr: `kindgi dev: ${devSandbox.message}\n`, exitCode: 1 };
   }
-  for (const line of devSandbox.lines) emitProgress(line);
+  emitSandboxLines(devSandbox);
   const sandboxNotices = new Set<string>();
 
   // The runtime's port, before anything starts. Taken without `--port`
@@ -579,7 +597,7 @@ async function runDevForPack(
       };
     }
     if (args.recreateServices) {
-      emitProgress(
+      emitProblem(
         '⚠ --recreate-services: the shared Postgres may be recreated; every kindgi dev on this machine using it reconnects',
       );
     }
@@ -609,7 +627,7 @@ async function runDevForPack(
         ? "✓ Postgres: started with docker (docker compose isn't available)"
         : '✓ Postgres: started with docker compose',
     );
-    for (const note of outcome.handle.notes ?? []) emitProgress(`⚠ ${note}`);
+    for (const note of outcome.handle.notes ?? []) emitProblem(`⚠ ${note}`);
   }
 
   const kindgircPath = join(args.packDir, '.kindgirc.json');
@@ -751,12 +769,17 @@ async function runDevForPack(
     onNotice: (line: string) => {
       if (sandboxNotices.has(line)) return;
       sandboxNotices.add(line);
-      emitProgress(`⚠ ${line}`);
+      emitProblem(`⚠ ${line}`);
     },
     onLog: (line: string, stream: 'stdout' | 'stderr') =>
       emitOutput(showText('pack', line, logView, stream)),
     onEvent: (event: Parameters<typeof showPackEvent>[0]) => {
       for (const output of showPackEvent(event, logView)) emitOutput(output);
+    },
+    blocks: {
+      pattern: projectEnv.blocksPattern,
+      onWritten: (write: PackBlockWrite, written: PackBlockWritten) =>
+        emitProgress(`  ${showBlockWritten(write, written)}`),
     },
   };
   // The front listens for the whole session; children come and go behind
@@ -807,7 +830,9 @@ async function runDevForPack(
     ...(devOnly !== undefined && {
       onBuild: async (build) => {
         if (build.externals === undefined) return;
-        for (const line of await devOnly.check(build.externals)) emitProgress(`  ${line}`);
+        const checked = await devOnly.check(build.externals);
+        for (const line of checked.warnings) emitProblem(`  ${line}`);
+        for (const line of checked.lines) emitProgress(`  ${line}`);
       },
     }),
   });
@@ -902,6 +927,16 @@ async function runDevForPack(
         })
       : emptyReport();
   emitBootIndex(bootIndex, bootReport, discoveryRoots(projectEnv.discoveryPatterns));
+  if (bootIndex.kind === 'ok') {
+    const predates = await indexerPredatesBlocks({
+      packDir: args.packDir,
+      pattern: projectEnv.blocksPattern,
+      blocksCounted: bootIndex.counts.blocks !== undefined,
+      indexer: packIndexerName(code.value.language),
+      release: CLI_VERSION,
+    });
+    if (predates !== undefined) emitProblem(`  ⚠ ${predates}`);
+  }
 
   // Hints run the project's own kindgi through its package manager — or,
   // for a Python pack (no npm project), the kindgi on PATH.
@@ -921,7 +956,7 @@ async function runDevForPack(
       providersTarget.database,
       server.tenantId,
     ).catch((err: unknown) => {
-      emitProgress(
+      emitProblem(
         `  ⚠ could not update ${join('.kindgi', 'dev', 'providers.json')}: ${(err as Error).message}. Providers this pack registered before 0.1.4 may read as not its own.`,
       );
     });
@@ -954,15 +989,15 @@ async function runDevForPack(
     const byHand = (providers ?? [])
       .map((p) => p.id)
       .filter((id) => id === VERTEX_PROVIDER_ID && !declaredVertex.includes(id));
-    if (byHand.length > 0) emitProgress(`⚠ ${vertexCredentialsHint(byHand, ctx.env)}`);
+    if (byHand.length > 0) emitProblem(`⚠ ${vertexCredentialsHint(byHand, ctx.env)}`);
   }
   // A preview runtime near the end of its life (90 days after its
-  // release, until 1.0): from 30 days before, the way to a newer one.
+  // release): from 30 days before, the way to a newer one.
   const previewWarning = previewExpiryWarning(
     await readLicenseStatus(client),
     devRuntimeSource(args),
   );
-  if (previewWarning !== undefined) emitProgress(previewWarning);
+  if (previewWarning !== undefined) emitProblem(previewWarning);
 
   const bannerLines = renderDevBanner({
     baseUrl: server.baseUrl,
@@ -1079,7 +1114,10 @@ async function runDevForPack(
     `    echo "…" | ${kindgi('feedback', 'write', '--kind=bug', '--title="…"', '--body-stdin')}  (appends to FEEDBACK.md)`,
   );
   emitProgress('');
-  await emitSkillDriftHint(args.packDir, code.value.language, kindgi('skills', 'sync'));
+  await emitSkillsRefresh(args.packDir, code.value.language, {
+    sync: kindgi('skills', 'sync'),
+    force: kindgi('skills', 'sync', '--force'),
+  });
   if (args.watch) {
     emitProgress(`  Watching ${args.packDir}`);
     emitProgress('  Ctrl+C to stop.');
@@ -1175,6 +1213,18 @@ async function runDevForPack(
         },
       ),
     );
+    // The pack's blocks: their files and their templates, read into the index again.
+    watchHandles.push(
+      await dev.watchPack(
+        args.packDir,
+        untilStopped(ctx.stopSignal, () => onRefresh()),
+        {
+          debounceMs: DEFAULT_WATCH_DEBOUNCE_MS,
+          ...(await blocksWatch(args.packDir, projectEnv.blocksPattern)),
+          onWatchFailed,
+        },
+      ),
+    );
     // The env files: the same code, restarted with the new environment.
     watchHandles.push(
       await dev.watchPack(
@@ -1236,7 +1286,7 @@ async function runDevForPack(
   const stdout = ctx.globals.formatRequested ? renderJson(summary, ctx.globals.format).stdout : '';
   return {
     kind: 'ok',
-    // --quiet: errors only, so no summary.
+    // --quiet: errors and warnings only, so no summary.
     rendered: {
       stdout,
       stderr: args.watch || logView.quiet ? '' : `${bannerLines.join('\n')}\n`,
@@ -1298,8 +1348,13 @@ type ProjectEnvOutcome =
       readonly localEnvFiles: readonly string[] | undefined;
       /** `KINDGI_*` names from the env files. */
       readonly runtime: Readonly<Record<string, string>>;
-      /** The pack's discovery patterns (defaults filled in) — what the watcher follows. */
+      /**
+       * The pack's code discovery patterns (defaults filled in) — what the
+       * builder bundles and the entry watcher follows.
+       */
       readonly discoveryPatterns: readonly string[];
+      /** The blocks discovery pattern (defaults filled in): the blocks watcher's. */
+      readonly blocksPattern: string;
       /** The language of the pack's code. */
       readonly language: PackLanguage;
       /** The loaded config (`undefined` in tests that inject none). */
@@ -1349,22 +1404,22 @@ async function loadDevProjectEnv(ctx: CommandContext, packDir: string): Promise<
       ? `env files: none yet (reads ${label(env.files.read)})`
       : `✓ env files: ${label(env.present)} — ${Object.keys(packValues(env.values)).length} name(s) for the pack`,
   );
-  for (const line of describeEnvDiagnostics(packDir, env.diagnostics)) emitProgress(`  ! ${line}`);
+  for (const line of describeEnvDiagnostics(packDir, env.diagnostics)) emitProblem(`  ! ${line}`);
   const discovery = settings.config?.discovery;
   const language =
     settings.config !== undefined ? packLanguage(settings.config as KindgiConfig) : 'node';
+  const resolved = resolveDiscovery(
+    typeof discovery === 'object' && discovery !== null
+      ? (discovery as DiscoveryConfig)
+      : undefined,
+    language,
+  );
   return {
     kind: 'ok',
     localEnvFiles: settings.localEnvFiles,
     runtime: runtimeValues(env.values),
-    discoveryPatterns: Object.values(
-      resolveDiscovery(
-        typeof discovery === 'object' && discovery !== null
-          ? (discovery as DiscoveryConfig)
-          : undefined,
-        language,
-      ),
-    ),
+    discoveryPatterns: codePatterns(resolved),
+    blocksPattern: resolved.blocks,
     language,
     config: settings.config,
     secretNames: new Set(Object.keys(packValues(env.values))),
@@ -1429,7 +1484,7 @@ async function walkRuntimePorts(
       exitCode: 1,
     };
   }
-  emitProgress(`⚠ port ${args.port} is in use (another kindgi dev?): using ${free}`);
+  emitProblem(`⚠ port ${args.port} is in use (another kindgi dev?): using ${free}`);
   return { kind: 'ok', port: free };
 }
 
@@ -1701,7 +1756,7 @@ function emitBootIndex(
   }
   const c = bootIndex.counts;
   emitProgress(
-    `✓ loaded: ${c.tools} tools, ${c.guardrails} guardrails, ${c.agents} agents, ${c.flows} flows`,
+    `✓ loaded: ${c.tools} tools, ${c.guardrails} guardrails, ${c.agents} agents, ${c.flows} flows${blocksTotal(c)}`,
   );
   for (const e of bootIndex.fileErrors) {
     emitProblem(`  ⚠ indexer: ${e.filePath ?? '?'} [${e.code}] ${e.message}`);
@@ -1733,7 +1788,7 @@ function reportWatchFailureOnce(): (error: unknown) => void {
     if (said) return;
     said = true;
     const why = error instanceof Error ? error.message : String(error);
-    emitProgress(`  ⚠ file watch failed (${why}): changes are picked up by the once-a-second scan`);
+    emitProblem(`  ⚠ file watch failed (${why}): changes are picked up by the once-a-second scan`);
   };
 }
 
@@ -1824,12 +1879,7 @@ async function runEach(
  */
 function emitWatchTick(input: {
   readonly elapsedMs: number;
-  readonly counts: {
-    readonly tools: number;
-    readonly guardrails: number;
-    readonly agents: number;
-    readonly flows: number;
-  };
+  readonly counts: IndexedCounts;
   readonly fileErrors: readonly {
     readonly code: string;
     readonly message: string;
@@ -1845,7 +1895,7 @@ function emitWatchTick(input: {
   }[];
 }): void {
   const { counts, fileErrors, failed, elapsedMs, registered, warnings } = input;
-  const totals = `${counts.tools} tools, ${counts.guardrails} guardrails, ${counts.agents} agents, ${counts.flows} flows`;
+  const totals = `${counts.tools} tools, ${counts.guardrails} guardrails, ${counts.agents} agents, ${counts.flows} flows${blocksTotal(counts)}`;
   if (fileErrors.length === 0 && failed.length === 0) {
     emitProgress(`  ✓ loaded ${registered} primitives (${totals}) in ${elapsedMs}ms`);
     emitWarningsSince(warnings);
@@ -1861,6 +1911,28 @@ function emitWatchTick(input: {
     emitProblem(`    ✗ ${f.kind}: ${f.id} — ${f.message ?? 'unknown reason'}`);
   }
   emitWarningsSince(warnings);
+}
+
+/** `, 2 blocks` after the other counts, when the pack has any. */
+function blocksTotal(counts: IndexedCounts): string {
+  return counts.blocks !== undefined && counts.blocks > 0 ? `, ${counts.blocks} blocks` : '';
+}
+
+/**
+ * What the blocks watcher follows: the blocks folder, templates and all.
+ * A pattern at the pack root has no folder of its own, so it follows the
+ * block files and, by name, the templates they name now.
+ */
+async function blocksWatch(
+  packDir: string,
+  pattern: string,
+): Promise<{ readonly patterns: readonly string[]; readonly files?: readonly string[] }> {
+  const folder = blocksFolder(pattern);
+  if (folder !== '') return { patterns: [`${folder}/**`] };
+  const matches = createGlobMatcher([pattern]);
+  const read = await readPackBlocks(packDir, pattern);
+  const templates = read.files.filter((rel) => !matches(rel)).map((rel) => join(packDir, rel));
+  return { patterns: [pattern], ...(templates.length > 0 && { files: templates }) };
 }
 
 /** A load's warnings, by message (an indexer that reports none, or a failed load, has none). */
@@ -1887,30 +1959,33 @@ function emitWarningsSince({ fresh, standing }: WarningsSince): void {
 }
 
 /**
- * Compare the pack's installed framework skills against the bundled
- * SDK versions; print a one-liner if drift is detected. Silent when
- * everything is up to date. Never fails boot — a drift-check crash
- * (missing skills root, unreadable manifest) is swallowed because
- * the drift check is advisory, not load-bearing.
+ * Bring the pack's framework skills up to this CLI's (`refreshSkillsForDev`),
+ * and say what changed and what's still behind. Silent when nothing is. A
+ * refresh that fails is said, never fails boot: the skills help the coding
+ * agent, not the pack. What's behind, and a refresh that fails, are
+ * warnings: shown under `--quiet` too.
  */
-async function emitSkillDriftHint(
+async function emitSkillsRefresh(
   packDir: string,
   language: PackLanguage,
-  syncCommand: string,
+  commands: { readonly sync: string; readonly force: string },
 ): Promise<void> {
   const skillsRoot = defaultSdkSkillsRoot();
   if (skillsRoot === undefined) return;
+  let lines: readonly DevSkillsLine[];
   try {
-    const drift = describeSkillDrift(
-      await detectSkillDrift({ skillsRoot, targetDir: packDir, language }),
-    );
-    if (drift === undefined) return;
-    emitProgress(`  ⚠ Framework skills: ${drift}.`);
-    emitProgress(`    Run \`${syncCommand}\` to pull the latest.`);
-    emitProgress('');
-  } catch {
-    // Advisory; never block boot on a drift-check failure.
+    const refresh = await refreshSkillsForDev({ skillsRoot, targetDir: packDir, language });
+    lines = describeDevSkillsRefresh(refresh, commands);
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    lines = [
+      { text: `  ⚠ Framework skills: couldn't refresh them: ${why}`, problem: true },
+      { text: `    Run \`${commands.sync}\` to pull the latest.`, problem: true },
+    ];
   }
+  if (lines.length === 0) return;
+  for (const line of lines) (line.problem ? emitProblem : emitProgress)(line.text);
+  (lines.some((line) => line.problem) ? emitProblem : emitProgress)('');
 }
 
 /**
@@ -2010,7 +2085,7 @@ async function settleProviderKeys(inputs: {
   for (const h of held) {
     if (h.inKindgiFile) continue;
     const where = h.files.map((f) => displayEnvPath(inputs.packDir, f)).join(' and ');
-    emitProgress(
+    emitProblem(
       `  ⚠ ${h.name} is in ${where}, which your app loads too. To give Kindgi its own copy: ${inputs.kindgi('secrets', 'copy')} (it never edits your app's files).`,
     );
   }
@@ -2064,16 +2139,18 @@ async function applyDeclaredProviders(inputs: {
       hasSecret: (name) => inputs.secretNames.has(name),
     });
   } catch (err) {
-    emitProgress(
+    emitProblem(
       `⚠ Providers from ${inputs.file}: not applied; the runtime's providers could not be listed: ${(err as Error).message}`,
     );
     return;
   }
-  for (const line of describeReconcile(result.outcomes, inputs)) emitProgress(line);
+  for (const line of describeReconcile(result.outcomes, inputs)) {
+    (line.problem ? emitProblem : emitProgress)(line.text);
+  }
   try {
     await writeOwnedProviders(recordPath, inputs.key, result.owned);
   } catch (err) {
-    emitProgress(
+    emitProblem(
       `  ⚠ could not write ${join('.kindgi', 'dev', 'providers.json')}: ${(err as Error).message}. The next boot leaves the providers registered now as they are.`,
     );
   }
@@ -2182,7 +2259,7 @@ function renderIndexSection(
     const c = index.counts;
     const lines = [
       `  Discovering pack (${index.packId}@${index.packVersion})`,
-      `    ✓ ${c.tools} tools    ✓ ${c.guardrails} guardrails    ✓ ${c.agents} agents    ✓ ${c.flows} flows`,
+      `    ✓ ${c.tools} tools    ✓ ${c.guardrails} guardrails    ✓ ${c.agents} agents    ✓ ${c.flows} flows${c.blocks !== undefined && c.blocks > 0 ? `    ✓ ${c.blocks} blocks` : ''}`,
     ];
     if (inputs.bootReport.failed.length > 0) {
       lines.push('', '  Registration failures:');

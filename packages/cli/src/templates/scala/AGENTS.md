@@ -35,11 +35,14 @@ Scala packs: getting started, tools, guardrails, agents and flows in Scala
 guiding the person in using what you built (`kindgi-using`). Claude Code
 loads `.claude/skills/` on its own; Codex and Gemini CLI look in
 `.agents/skills/`; any other coding agent can read either.
-`./kindgiw skills sync` refreshes both.
+After an upgrade, `./kindgiw dev` refreshes both as it starts;
+`./kindgiw skills sync` refreshes them any time.
 
 When you diagnose a framework bug (something in Kindgi itself, not in this
 pack's code), append an entry to `FEEDBACK.md` at the pack root with
 `./kindgiw feedback write`.
+Send entries to Kindgi only after the person has seen the preview and said
+yes: `./kindgiw feedback submit --preview`, then `--yes=<its digest>`.
 
 When the person asks how to use what you built (where something is in
 Kindgi's console, what an agent did, what it cost, who has access), answer

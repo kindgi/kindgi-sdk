@@ -213,6 +213,7 @@ describe('runIndexer — happy path', () => {
       guardrails: 1,
       agents: 1,
       flows: 1,
+      blocks: 0,
     });
 
     const parsed = await readValidIndex(outcome.value.outputPath);
@@ -615,6 +616,77 @@ describe('runIndexer — Zod schemas', () => {
     expect(byId.get('acme.lookup')?.mutating).toBe(false);
     expect(byId.get('acme.save')?.mutating).toBe(true);
     expect(byId.get('acme.plain')).not.toHaveProperty('mutating');
+  });
+
+  test("a tool's `needsApprovalWhenUnattended` is carried into the index, true or false", async () => {
+    const fixture = await makeFixture({
+      files: {
+        'kindgi.config.mjs': config(),
+        'tools/refund.mjs': toolModule({ id: 'acme.refund', needsApprovalWhenUnattended: true }),
+        'tools/note.mjs': toolModule({ id: 'acme.note', needsApprovalWhenUnattended: false }),
+        'tools/plain.mjs': toolModule({ id: 'acme.plain' }),
+      },
+    });
+
+    const outcome = await runIndexer({
+      packDir: fixture.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      importModule: fixture.importModule,
+    });
+    expect(outcome.kind).toBe('ok');
+    if (outcome.kind !== 'ok') return;
+
+    // Lost here, a pack's tool would never wait for a person in a run no
+    // person started: nothing downstream would know it asks to.
+    const parsed = await readValidIndex(outcome.value.outputPath);
+    const byId = new Map(
+      (parsed.tools as { id: string; needsApprovalWhenUnattended?: boolean }[]).map((t) => [
+        t.id,
+        t,
+      ]),
+    );
+    expect(byId.get('acme.refund')?.needsApprovalWhenUnattended).toBe(true);
+    expect(byId.get('acme.note')?.needsApprovalWhenUnattended).toBe(false);
+    expect(byId.get('acme.plain')).not.toHaveProperty('needsApprovalWhenUnattended');
+  });
+
+  test("a tool's `pauses` is carried into the index; a tool the pack doesn't run can't pause", async () => {
+    const fixture = await makeFixture({
+      files: {
+        'kindgi.config.mjs': config(),
+        'tools/book.mjs': toolModule({ id: 'acme.book', pauses: true }),
+        'tools/plain.mjs': toolModule({ id: 'acme.plain', pauses: false }),
+      },
+    });
+    const outcome = await runIndexer({
+      packDir: fixture.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      importModule: fixture.importModule,
+    });
+    expect(outcome.kind).toBe('ok');
+    if (outcome.kind !== 'ok') return;
+    const parsed = await readValidIndex(outcome.value.outputPath);
+    const byId = new Map((parsed.tools as { id: string }[]).map((t) => [t.id, t]));
+    expect(byId.get('acme.book')).toMatchObject({ pauses: true });
+    expect(byId.get('acme.plain')).not.toHaveProperty('pauses');
+
+    const mcp = await makeFixture({
+      files: {
+        'kindgi.config.mjs': config(),
+        'tools/remote.mjs': toolModule({ id: 'acme.remote', pauses: true, transport: 'mcp' }),
+      },
+    });
+    const refused = await runIndexer({
+      packDir: mcp.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      importModule: mcp.importModule,
+    });
+    expect(refused.kind).toBe('ok');
+    if (refused.kind !== 'ok') return;
+    expect(refused.value.fileErrors[0]?.code).toBe('manifest-validation-failed');
+    expect(refused.value.fileErrors[0]?.message).toContain(
+      "'pauses: true' needs a handler the pack runs",
+    );
   });
 
   test("the pack's declared env is carried, sorted; a pack that declares none has no `env`", async () => {
@@ -1392,7 +1464,7 @@ describe('runIndexer — a build (bundleMap)', () => {
           content: "export default { pack: { id: 'acme.pack', version: '1.0.0' } };\n",
         },
         'tools/ok.mjs': { module: undefined, content: tool('acme.ok') },
-        // A package the image doesn't have (a devDependency its prune dropped).
+        // A package the image doesn't have (a devDependency: production ones only).
         'tools/broken.mjs': {
           module: undefined,
           content: tool('acme.broken', "import 'acme-package-not-installed';\n"),

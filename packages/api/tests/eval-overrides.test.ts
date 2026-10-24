@@ -100,6 +100,28 @@ describe('sampleCases', () => {
     expect(ids('hold-out', 'pass-2')).not.toEqual(ids('hold-out'));
   });
 
+  test('cases that carry a correction split on their own: two put one in each part, whatever the seed', () => {
+    const corrected = (caseId: string, no = false): JudgedEvalCase => ({
+      ...judgedCase(caseId, no),
+      corrections: [{ judgmentId: `j-${caseId}`, calls: [] } as never],
+    });
+    const withTwo = [corrected('fix-1'), corrected('fix-2', true), ...cases];
+    for (const seed of ['pass-1', 'pass-2', 'pass-3', 'pass-4', 'pass-5', 'pass-6']) {
+      const holdOut = sampleCases(withTwo, { ...sample, seed, part: 'hold-out' }).map(
+        (c) => c.caseId,
+      );
+      expect(
+        holdOut.filter((id) => id.startsWith('fix-')),
+        seed,
+      ).toHaveLength(1);
+      // The others still split by judgment, as without them.
+      expect(
+        holdOut.filter((id) => id.startsWith('no-')),
+        seed,
+      ).toHaveLength(3);
+    }
+  });
+
   test('a stratum of two puts one in each part; a stratum of one stays in the search part', () => {
     const two = [judgedCase('a', true), judgedCase('b', true), judgedCase('c')];
     const holdOut = sampleCases(two, { ...sample, part: 'hold-out' }).map((c) => c.caseId);
@@ -154,6 +176,16 @@ async function setup() {
     tenantId,
     projectId,
     block: {
+      id: 'acme.model',
+      version: '1.0.0',
+      kind: 'settings',
+      content: { values: { temperature: 0.2 } },
+    },
+  });
+  await blocks.publish({
+    tenantId,
+    projectId,
+    block: {
       id: 'acme.prompt',
       version: '1.0.0',
       kind: 'prompt',
@@ -163,16 +195,19 @@ async function setup() {
       },
     },
   });
+  // 3.0.0 names its model itself; 2.0.0 leaves it to its model settings.
   const agents = {
     getVersion: async ({ version }: { version: string }) =>
-      version === '2.0.0'
+      version === '2.0.0' || version === '3.0.0'
         ? ({
             id: 'acme.agent',
-            version: '2.0.0',
+            version,
+            modelSettings: { id: 'acme.model', version: '^1.0.0' },
+            ...(version === '3.0.0' && { preferredModel: 'claude-sonnet-5-5' }),
             pins: {
               tools: { 'acme.rank': '1.0.0' },
               prompts: { 'acme.prompt': '1.0.0' },
-              settings: { 'acme.weights': '1.0.0' },
+              settings: { 'acme.weights': '1.0.0', 'acme.model': '1.0.0' },
             },
             pinsDigest: 'sha-2',
           } as unknown as AgentVersionRecord)
@@ -256,6 +291,24 @@ describe('settings overrides', () => {
       expect(JSON.stringify(res.body.error.details)).toContain(words);
     },
   );
+
+  test('an override may name the model in the model settings, unless the agent names its own', async () => {
+    const { start } = await setup();
+    const settings = { 'acme.model': { model: 'claude-haiku-4-5', temperature: 0.2 } };
+    expect((await start({ overrides: { settings } })).status).toBe(201);
+    const res = await start({
+      agentRef: { agentId: 'acme.agent', version: '3.0.0' },
+      overrides: { settings },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.details.issues).toEqual([
+      {
+        path: '/overrides/settings/acme.model',
+        message:
+          'model-settings block "acme.model": it sets model, and the agent version sets preferredModel: name the model in one place, the block or the agent version',
+      },
+    ]);
+  });
 
   test('a prompt template for the pinned prompt block runs; one that names what the agent lacks is refused', async () => {
     const { binding, start } = await setup();

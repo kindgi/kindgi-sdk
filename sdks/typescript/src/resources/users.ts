@@ -4,15 +4,18 @@
 import type { Filter, SessionId, UserId } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import type { SecondFactorRemoved, SecondFactorStatus } from '../generated/api.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type {
+  InviteRenewed,
   PersonGrant,
   PersonGrants,
   RevokeSessionsResult,
   Session,
   UnregisterUserResult,
   User,
+  UserCreated,
   UserPatch,
   UserSpec,
   WhoamiResult,
@@ -39,6 +42,8 @@ import type {
  *     admin; tenant admins only)
  *   - `POST /v1/identity/users/{userId}/unregister` (remove a person:
  *     their keys, sessions and grants go at once; tenant admins only)
+ *   - `POST /v1/identity/users/{userId}/invite` (renew a person's
+ *     invitation and email it again; tenant admins only)
  *
  * User records live in the deployment's identity directory (LDAP,
  * SCIM or a bespoke store, plugged in through
@@ -57,11 +62,14 @@ export interface UsersClient {
    * mint their first key with `tokens.create({ for: { kind: 'user', id } })`.
    * Tenant admins only; mounted where the identity directory can add
    * people. Another person's email is `409 identity-user-email-taken`.
+   * Returns the person; where the runtime invites people, one added with
+   * an email is invited (`invite`), and `inviteEmail` says whether the
+   * invitation was emailed.
    *
    * @wire `POST /v1/identity/users` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users/post`.
    */
-  create(spec: UserSpec, options?: { readonly idempotencyKey?: string }): Promise<UserId>;
+  create(spec: UserSpec, options?: { readonly idempotencyKey?: string }): Promise<UserCreated>;
 
   /**
    * A tenant admin reads anyone's record; anyone else only their own
@@ -151,6 +159,45 @@ export interface UsersClient {
   ): Promise<UnregisterUserResult>;
 
   /**
+   * Renew a person's invitation, for one who hasn't signed in yet: a new
+   * expiry, and the invitation emailed again where the deployment can
+   * send it (`inviteEmail` says whether it was). One who has joined, or
+   * was never invited, is `409 identity-user-not-invited`; too many
+   * resends is a `rate-limited` error (`invite-capped`), whose
+   * `retryAfterSeconds` says when to try again. Tenant admins only;
+   * mounted where the identity directory invites people.
+   *
+   * @wire `POST /v1/identity/users/{userId}/invite` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users~1{userId}~1invite/post`.
+   */
+  resendInvite(id: UserId, options?: { readonly idempotencyKey?: string }): Promise<InviteRenewed>;
+
+  /**
+   * Whether a person has a second factor set up, since when, how many
+   * recovery codes they have left, and whether their workspace requires
+   * one. Never a key or a code. Tenant admins only; mounted where the
+   * deployment keeps second factors.
+   *
+   * @wire `GET /v1/identity/users/{userId}/second-factor` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users~1{userId}~1second-factor/get`.
+   */
+  secondFactor(id: UserId): Promise<SecondFactorStatus>;
+
+  /**
+   * Remove a person's second factor, for a lost phone or lost recovery
+   * codes: they're told by email where the deployment sends it, and it's
+   * audited. Their sessions stay. `removed: false` when they had none.
+   * Tenant admins only.
+   *
+   * @wire `POST /v1/identity/users/{userId}/second-factor/remove` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1users~1{userId}~1second-factor~1remove/post`.
+   */
+  removeSecondFactor(
+    id: UserId,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<SecondFactorRemoved>;
+
+  /**
    * @unwired No user-update route — users live in the deployment's
    *   identity directory.
    */
@@ -200,6 +247,12 @@ export interface UserFilter extends Filter {
   /** People who were removed (`unregisteredAt`) too. Default: only the people still here. */
   readonly includeUnregistered?: boolean;
   /**
+   * Only the people with an open invitation (`invite` set: pending or
+   * expired). Against a runtime that doesn't filter, the page is kept to
+   * them here, so it may be short.
+   */
+  readonly pending?: boolean;
+  /**
    * Each person's `grants` too, in the same read (what `grants(id)`
    * answers). A runtime that doesn't read grants leaves them out.
    */
@@ -214,18 +267,18 @@ export function makeUsersClient(transport: Transport): UsersClient {
           notYetWired('users.create', '`orgId` and `metadata` are not on the wire'),
         );
       }
-      const created = await transport.request<User>({
+      return transport.request<UserCreated>({
         method: 'POST',
         path: '/v1/identity/users',
         body: {
           displayName: spec.displayName,
           ...(spec.email !== undefined && { primaryEmail: spec.email }),
+          ...(spec.sendInvite !== undefined && { sendInvite: spec.sendInvite }),
         },
         ...(options?.idempotencyKey !== undefined && {
           idempotencyKey: options.idempotencyKey,
         }),
       });
-      return created.userId;
     },
 
     async get(id) {
@@ -251,10 +304,18 @@ export function makeUsersClient(transport: Transport): UsersClient {
           ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
           ...(filter?.query !== undefined && { query: filter.query }),
           ...(filter?.includeUnregistered === true && { includeUnregistered: 'true' }),
+          ...(filter?.pending === true && { pending: 'true' }),
           ...(filter?.includeGrants === true && { include: 'grants' }),
         },
       });
-      return listPage(page);
+      // A runtime from before invitations ignores `pending` and lists
+      // everyone: kept to the invited here, as the route keeps a directory's
+      // that doesn't filter (a page may then be short).
+      return listPage(
+        filter?.pending === true
+          ? { ...page, data: page.data.filter((u) => u.invite !== undefined) }
+          : page,
+      );
     },
 
     async grants(id) {
@@ -286,6 +347,31 @@ export function makeUsersClient(transport: Transport): UsersClient {
       return transport.request<UnregisterUserResult>({
         method: 'POST',
         path: `/v1/identity/users/${encodeURIComponent(id as unknown as string)}/unregister`,
+        body: {},
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+
+    async resendInvite(id, options) {
+      return transport.request<InviteRenewed>({
+        method: 'POST',
+        path: `/v1/identity/users/${encodeURIComponent(id as unknown as string)}/invite`,
+        body: {},
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+
+    async secondFactor(id) {
+      return transport.request<SecondFactorStatus>({
+        method: 'GET',
+        path: `/v1/identity/users/${encodeURIComponent(id as unknown as string)}/second-factor`,
+      });
+    },
+
+    async removeSecondFactor(id, options) {
+      return transport.request<SecondFactorRemoved>({
+        method: 'POST',
+        path: `/v1/identity/users/${encodeURIComponent(id as unknown as string)}/second-factor/remove`,
         body: {},
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });

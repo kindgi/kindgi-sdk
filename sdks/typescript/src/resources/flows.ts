@@ -6,7 +6,7 @@ import type { Cursor, Filter, FlowId } from '@kindgi/types';
 import { KindgiApiError, notYetWired } from '../errors.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
-import type { Flow } from '../types.js';
+import type { Flow, GetLatestOptions } from '../types.js';
 
 /**
  * Flows resource — raw task-flow authoring.
@@ -57,8 +57,9 @@ export interface FlowsClient {
   /**
    * @wire `GET /v1/flows/{flowId}` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1flows~1{flowId}/get`.
+   *   Which version: `GetLatestOptions`.
    */
-  get(id: FlowId): Promise<Flow>;
+  get(id: FlowId, options?: GetLatestOptions): Promise<Flow>;
 
   /**
    * Flows, the latest version of each. `filter.includeRetired = true`
@@ -296,10 +297,11 @@ export function makeFlowsClient(transport: Transport): FlowsClient {
       );
     },
 
-    async get(id) {
+    async get(id, options) {
       return transport.request<Flow>({
         method: 'GET',
         path: `/v1/flows/${encodeURIComponent(id as unknown as string)}`,
+        query: { ...(options?.projectId !== undefined && { projectId: options.projectId }) },
       });
     },
 

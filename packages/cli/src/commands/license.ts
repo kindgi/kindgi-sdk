@@ -63,7 +63,7 @@ function store(ctx: CommandContext, flag: string, ref: string): SecretStore {
 }
 
 /** `--access-url`: https, or http to this machine (a local instance); access.kindgi.com by default. */
-function accessOrigin(ctx: CommandContext): string {
+export function accessOrigin(ctx: CommandContext): string {
   const raw = stringFlag(ctx, 'access-url') ?? KINDGI_ACCESS_ORIGIN;
   let url: URL;
   try {
@@ -82,8 +82,9 @@ function accessOrigin(ctx: CommandContext): string {
 
 /**
  * `--runtime <url>` with `--runtime-token <ref>`: the deployment's runtime (its
- * URL, as `KINDGI_API_URL` gives it) and where its own token is kept, to read
- * its use since the current key was issued (`GET /v1/license/usage`). Both or
+ * URL, as `KINDGI_API_URL` gives it) and where a token for it is kept (a
+ * system key holding `system:license`, or its own token), to read its use
+ * since the current key was issued (`GET /v1/license/usage`). Both or
  * neither. Neither value is printed: a URL can hold credentials, and a
  * reference given wrong can be the token itself.
  */
@@ -92,7 +93,7 @@ function runtimeUsage(ctx: CommandContext): ((since: Date) => Promise<RenewalUsa
   const tokenRef = stringFlag(ctx, 'runtime-token');
   if ((runtime === undefined) !== (tokenRef === undefined)) {
     throw new UsageError(
-      'Give --runtime <url> and --runtime-token <ref> together: the runtime, and where its own token (KINDGI_API_TOKEN) is kept.',
+      'Give --runtime <url> and --runtime-token <ref> together: the runtime, and where a token for it is kept (a system key holding system:license, or its own KINDGI_API_TOKEN).',
     );
   }
   if (runtime === undefined || tokenRef === undefined) return undefined;
@@ -160,7 +161,11 @@ function usageProblem(runtime: string, cause: unknown): string {
   return `${runtime} couldn't be asked (${cause instanceof Error ? cause.message : String(cause)})`;
 }
 
-/** The counts line, when a runtime was asked. */
+/**
+ * The counts line, when a runtime was asked. The Azure module's counts alert
+ * reads it, leaving out the production key's reason: the tests run renew
+ * against that query (deploy/azure-container-apps/license-renewal.tf).
+ */
 function countsLine(counts: CountsSent | undefined): string[] {
   if (counts === undefined) return [];
   if (!counts.sent) {
@@ -284,7 +289,7 @@ const renew: LeafCommand = {
     'runtime-token': {
       type: 'string',
       description:
-        "Where the runtime's own token (KINDGI_API_TOKEN) is kept: file:…, env-file:…#NAME, gcp:…, azure:…, aws:….",
+        'Where a token for the runtime is kept, a system key holding system:license or its own (KINDGI_API_TOKEN): file:…, env-file:…#NAME, gcp:…, azure:…, aws:….',
     },
   },
   async run(ctx): Promise<CommandResult> {
@@ -343,8 +348,8 @@ const renew: LeafCommand = {
             ]
           : []),
         ...(daysLeft <= LICENSE_WARN_DAYS
-          ? // The deploy modules' alerts match "It expires in <days> days" on this
-            // line (deploy/gcp-cloud-run, deploy/azure-container-apps): keep it.
+          ? // The Azure module's expiring alert reads this line's days: the tests
+            // run renew against its query (deploy/azure-container-apps).
             [`⚠ It expires in ${daysLeft} days. If renew keeps answering unchanged, ${nextKey}.`]
           : []),
       ];

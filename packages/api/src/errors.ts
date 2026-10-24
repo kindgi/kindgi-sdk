@@ -41,6 +41,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'schema-validation-failed': 400,
   // Platform hierarchy scope filter.
   'scope-invalid': 400,
+  // Another system's answer to a paused tool call doesn't fit the tool's output schema.
+  'wait-token-output-invalid': 400,
   // 401 — auth
   'auth-missing': 401,
   'auth-expired': 401,
@@ -70,6 +72,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'guardrail-not-found': 404,
   'fact-not-found': 404,
   'flow-not-found': 404,
+  // No wait token matches the link (an unknown token and a wrong secret alike).
+  'wait-token-not-found': 404,
   // 409 — conflict
   'already-terminal': 409,
   'fact-changed': 409,
@@ -77,6 +81,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'erasure-in-progress': 409,
   'run-already-terminal': 409,
   'run-lease-lost': 409,
+  // The wait a token belongs to is over (`details.state`).
+  'wait-token-closed': 409,
   'idempotency-key-body-mismatch': 409,
   'idempotency-key-in-flight': 409,
   'idempotency-key-replay-withheld': 409,
@@ -87,6 +93,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'agent-already-registered': 409,
   'agent-project-mismatch': 409,
   'registry-read-only': 409,
+  'live-scope-spans-environments': 409,
   'agent-gone': 410,
   'run-erased': 410,
   'flow-gone': 410,
@@ -95,6 +102,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'tool-gone': 410,
   'tool-already-registered': 409,
   'tool-project-mismatch': 409,
+  // A tool's active versions are all one kind: an MCP endpoint's, or published here.
+  'tool-kind-mismatch': 409,
   'guardrail-already-registered': 409,
   // A deploy's guardrail id is live in another project: a deploy never takes it.
   'guardrail-project-mismatch': 409,
@@ -102,6 +111,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'flow-already-registered': 409,
   'flow-project-mismatch': 409,
   'conversation-closed': 409,
+  // A turn names a project other than its conversation's: a conversation belongs to one.
+  'conversation-project-mismatch': 409,
   'invalid-agent': 400,
   'invalid-tool-definition': 400,
   'invalid-schema': 400,
@@ -117,6 +128,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'capability-unsatisfiable': 422,
   /** A tool the agent names has no version satisfying its range (or the pinned one is gone). */
   'tool-version-unresolvable': 422,
+  /**
+   * A data block the agent names can't be loaded: no version in its range
+   * (or the pinned one is gone), the wrong kind, or no blocks on the runtime.
+   */
+  'block-unresolvable': 422,
   'tool-invocation-failed': 422,
   'capability-routing-failed': 422,
   'runtime-not-configured': 422,
@@ -139,6 +155,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'rate-limit-exceeded': 429,
   // A gate asked for an approval past the tenant's limit on approvals waiting.
   'approvals-pending-limit': 429,
+  // An invitation renewed again too soon for one person, or past the
+  // invitation emails the workspace, or the deployment, may send in 24
+  // hours. With `Retry-After`.
+  'invite-capped': 429,
   // An agent turn's memory, charged by size, is past the tenant's share or
   // the runtime's whole (a runtime's limit, as Kindgi Cloud sets). No
   // `Retry-After`: there's no honest time to give.
@@ -210,6 +230,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'policy-already-registered': 409,
   'policy-scope-taken': 409,
   'policy-scope-changed': 409,
+  /** A retention policy that keeps its domain's rows longer than the server's limit allows (`retentionLimits`), or holds them. */
+  'retention-over-limit': 400,
   // Admin plane — eval suites.
   'block-not-found': 404,
   'block-already-registered': 409,
@@ -244,6 +266,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // The binding can't record a gated promotion, so one a policy applies to is refused.
   'promotion-gate-unsupported': 501,
   'separate-approver-required': 403,
+  // An approval addressed to one member: someone else who reads it can't decide it.
+  'named-approver-required': 403,
   'gate-policy-not-found': 404,
   'gate-policy-already-registered': 409,
   'gate-policy-scope-taken': 409,
@@ -270,15 +294,37 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'system-principal-required': 403,
   /** A system key without the scope the system route takes (`details.scope`). */
   'system-scope-missing': 403,
+  /** Serving one tenant: a system key holding more than `system:license` (`details.scopes`), refused on every route. */
+  'system-key-scope-not-served': 403,
   /** No system key with that id. */
   'system-key-not-found': 404,
   /** A full system key minted by another system key, with no `expiresAt`: only the deployment's own token mints one that never expires. */
   'system-key-expiry-required': 403,
   /** The operator's access record can't be written, so a system request that would change something was not acted on. */
   'access-record-unavailable': 503,
+  /**
+   * A pack service's secret values, not given just now: the secret store is
+   * out, a secret changed while it was read (twice), or their audit rows
+   * weren't written. No `Retry-After`: the orchestrator's back-off decides.
+   */
+  'pack-env-unavailable': 503,
   /** A system route naming a tenant in a state it refuses. */
   'tenant-closing': 409,
   'tenant-suspended': 409,
+  /** A purge's `confirm` that isn't the tenant's slug: nothing was changed. */
+  'tenant-slug-mismatch': 400,
+  /** A purge of a tenant that isn't closing (`details.state`). */
+  'tenant-not-closing': 409,
+  /** A purge of a closing tenant whose export window is still open (`details.windowEndsAt`). */
+  'tenant-export-window-open': 409,
+  /** A purge on a runtime with nowhere set to keep purge records, so a restore couldn't purge it again. */
+  'purge-record-unset': 409,
+  /** A purge of a tenant holding what a setting the runtime lacks reaches (its artifacts' bytes, its authorization store). */
+  'purge-setting-missing': 409,
+  /** A purge's delete of the tenant's authorization store failed; the message says what that left. */
+  'authz-store-delete-failed': 502,
+  /** A runtime whose tenants binding doesn't purge. */
+  'tenant-purge-unsupported': 501,
   /** A deployment, eval run or improvement pass whose project, or pack, is suspended. */
   'project-suspended': 409,
   'pack-suspended': 409,
@@ -294,8 +340,21 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'endpoint-info-mismatch': 422,
   /** A problem recorded for a deployment whose endpoint isn't pending. */
   'endpoint-not-pending': 409,
-  /** Creating a tenant with a slug another tenant has. */
+  /** What a pack service runs, recorded for a deployment whose endpoint isn't ready. */
+  'endpoint-not-ready': 409,
+  /** A retired deployment's pack env asked for: it isn't given out. */
+  'endpoint-retired': 409,
+  /** What a pack service runs, recorded over another revision recorded since. */
+  'pack-env-conflict': 409,
+  /** Creating or renaming a tenant with a slug another tenant has. */
   'tenant-slug-taken': 409,
+  /**
+   * Renaming a tenant's slug while the deployment's verified sign-in
+   * domains name its current slug, or name the new one.
+   */
+  'tenant-slug-in-config': 409,
+  /** Renaming a tenant whose setup hasn't finished. */
+  'tenant-setup-pending': 409,
   /** A deployment's image outside its tenant's repository (`details.imagePrefix`, the tenant's own). */
   'image-not-allowed': 409,
   /** A deployment on a runtime serving many tenants, by a tenant with no image repository set. */
@@ -319,6 +378,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'identity-user-unregister-refused': 409,
   /** A grant or a key for a person who was unregistered. */
   'identity-user-unregistered': 409,
+  /**
+   * Renewing the invitation of a person who has joined, was added before
+   * invitations, or has no email to send one to.
+   */
+  'identity-user-not-invited': 409,
   /** A person's grants on a runtime without an authorization store. */
   'person-grants-unsupported': 501,
   /** A caller's permissions on a runtime without an authorization store (`GET /v1/identity/me/permissions`). */
@@ -329,6 +393,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'artifact-too-large': 413,
   /** A request body over the API's limit (`requestMaxBytes`); `details.maxBytes` says how much. */
   'request-too-large': 413,
+  /** A body that isn't JSON where a route takes JSON alone (a wait token's answer). */
+  'unsupported-media-type': 415,
   'run-not-finished': 409,
   'item-not-found': 400,
   // The judgment binding can't list judged runs, so no test sets from judgments.
@@ -371,15 +437,56 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // The operator manages sign-in (KINDGI_AUTH_TENANT_PROVIDERS=off): a
   // change to a provider takes the deployment's own token.
   'identity-providers-operator-managed': 403,
+  // The deployment has no secrets store (KINDGI_SECRETS_BACKEND), which a
+  // provider's client secret and keys are references into: adding or
+  // changing a provider waits until it has one.
+  'identity-providers-need-secrets-store': 409,
   // `GET /v1/license` or `GET /v1/license/usage` by anyone but the
   // deployment's own token or a system key holding `system:license`, save a
   // sole tenant's admins reading the license's countdown.
   'license-operator-only': 403,
   'invalid-provider-config': 400,
   'auth-not-session-token': 400,
+  // A second factor (`/v1/identity/me/second-factor*`, token sign-in):
+  // the tenant requires one (token sign-in can't give it; taking yours
+  // off); a code that isn't right; too many wrong ones lately (with
+  // `Retry-After`); a key that can't be opened any more (a recovery code
+  // still works); requiring one from a session made without one; none set
+  // up; no new key to confirm.
+  'second-factor-required': 403,
+  'second-factor-invalid': 403,
+  'second-factor-locked': 429,
+  'second-factor-unusable': 403,
+  'second-factor-enroll-first': 409,
+  'second-factor-not-set-up': 409,
+  'second-factor-not-started': 409,
   // `POST /v1/auth/refresh` with a browser session (cookie): refused, so a
   // fresh session token never reaches page scripts.
   'cookie-session-not-refreshable': 400,
+  // `POST /v1/auth/refresh` with a session limited to a project or a role:
+  // refused, so no copy of it can come back without its limits.
+  'limited-session-not-refreshable': 400,
+  // `POST /v1/tokens` by a session limited to a project or a role: a key
+  // would outlive whatever ends the session.
+  'limited-session-cannot-mint': 403,
+  // Sites that sign their own people in to one project (`SiteBinding`).
+  'site-not-found': 404,
+  'site-invalid': 400,
+  // `POST /v1/auth/sites/enroll`: a wrong, used or expired code, or a
+  // paused or unregistered site, all alike.
+  'site-enrollment-refused': 401,
+  'site-key-invalid': 400,
+  // `POST /v1/auth/site-sign-in`: a statement refused; `details.reason` says why.
+  'site-sign-in-refused': 401,
+  'site-request-too-large': 413,
+  // A grant, membership or reviewer role given to a person a site signs in:
+  // they hold only what their site's sign-in writes.
+  'site-person-grants-managed': 403,
+  // `POST …/sites/:siteId/people/:userId/restore`: the site has no link to
+  // that person, live or retired.
+  'site-person-not-found': 404,
+  // The restore refused, with nothing changed; `details.reason` says why.
+  'site-person-restore-refused': 409,
   // `POST /v1/auth/token-sign-in` signed in by a session (a cookie or a
   // session token) rather than an API token: there's nothing to exchange.
   'token-sign-in-needs-an-api-token': 400,
@@ -420,6 +527,34 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'project-access-unsupported': 501,
   // The tenant's env names, from a runtime whose env or secret store can't list them.
   'environments-unsupported': 501,
+  // A pack service's declared env, from a server that doesn't give it one:
+  // the system routes (`pack-env-unsupported`), and a deployment's names
+  // (`pack-env-not-served`), where its pack services take it from how they're run.
+  'pack-env-unsupported': 501,
+  'pack-env-not-served': 501,
+  /** Secret values asked for from a server with nowhere to audit them: none is read or given. */
+  'pack-env-secrets-unaudited': 501,
+  // A project named in `PUT /v1/environment-orders/*` already belongs to another order.
+  'project-in-another-order': 409,
+  // A build, a publish or a derived version aimed at a later environment of
+  // an order: a later environment takes builds by promotion only.
+  'environment-takes-promotions': 409,
+  // Deleting or moving (to another parent) a project that is a member of an environment order.
+  'project-in-environment-order': 409,
+  // Deleting an org that is the parent of an environment order; a tenant admin clears the order first.
+  'org-has-environment-order': 409,
+  // A promotion to a project that isn't the next environment of the
+  // deployment's order (`details.nextProjectId` when the caller reads it).
+  'promotion-not-next-environment': 409,
+  // A promotion whose build needs values the target environment doesn't
+  // have ready, each in `details.values`.
+  'promotion-values-not-ready': 409,
+  // A promotion from a deployment that no longer serves its environment, or
+  // onto a copy in the target that doesn't: newer deployments serve its
+  // tool versions (`details.newerDeploymentId`).
+  'deployment-superseded': 409,
+  // A runtime whose deployment ledger can't promote.
+  'promotions-unsupported': 501,
   // A model provider's key is used by its provider only: named by a tool or
   // an endpoint (400), or registered for a provider while one uses it (409).
   'provider-key-refused': 400,
@@ -445,6 +580,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'scope-mismatch': 400,
   'env-name-required': 400,
   'env-name-mismatch': 400,
+  // A runtime that refuses other envs keeps every value under the one it
+  // serves: a value or a reference under another would never be read.
+  'env-not-served': 409,
   'env-cross-scope': 400,
   'reserved-name-prefix': 400,
   /** A name the secrets store can't write (the dev store's env-file keys); the message says its rule. */
@@ -485,6 +623,42 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'webhook-url-refused': 400,
   'webhook-secret-not-found': 400,
   'webhook-secret-too-weak': 400,
+  // Connections (`/v1/connection-apps`, `/v1/connections`).
+  'connection-app-not-found': 404,
+  'connection-not-found': 404,
+  'connection-request-not-found': 404,
+  /** A registration that doesn't fit its entry; `field` names what. */
+  'connection-app-invalid': 400,
+  'connection-app-unknown-entry': 400,
+  /** A registration removed while it still has live connections, without `withConnections`. */
+  'connection-app-in-use': 409,
+  /** A finish by someone other than whoever started the request. */
+  'connection-not-yours': 403,
+  /**
+   * A GitHub App's finish whose person's GitHub account doesn't reach the
+   * installation (or any): `details.connectRequestId` names the request,
+   * to start again with `newInstallation`.
+   */
+  'connection-installation-unreachable': 403,
+  'connection-request-expired': 410,
+  'connection-request-used': 409,
+  /** The sign-in at the app took longer than its state lives: start again. */
+  'connection-state-expired': 410,
+  /** A reconnect signed in to an account other than the connection's. */
+  'connection-account-mismatch': 409,
+  /**
+   * A connect, or its finish, for a connection still being disconnected:
+   * disconnect it again to finish, then connect.
+   */
+  'connection-removing': 409,
+  /** The app wouldn't give a token for the code: its client id, secret or redirect URL. */
+  'connection-app-refused': 502,
+  'connection-store-failed': 503,
+  // An app's notice (`POST /v1/connection-notices/…`): one answer for any
+  // notice not accepted, whatever the reason; the server's own trouble is a
+  // 503, and the app sends it again.
+  'connection-notice-invalid': 400,
+  'connection-notice-unavailable': 503,
   // Public run tokens.
   'token-mint-failed': 500,
 } as const;

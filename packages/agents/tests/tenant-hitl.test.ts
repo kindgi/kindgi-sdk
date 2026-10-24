@@ -3,6 +3,7 @@
 
 import { describe, expect, test } from 'vitest';
 
+import { type Principal, delegate, serviceAccountPrincipal, userPrincipal } from '@kindgi/authz';
 import { TenantBudgetError } from '@kindgi/bounds';
 import type { ModelMessage } from '@kindgi/capabilities';
 import { type NodeContext, WaitpointCancelledError } from '@kindgi/handler';
@@ -16,7 +17,7 @@ import { buildDispatchToolsHandler } from '../src/handlers/dispatch-tools.js';
 import { AgentTurnFailure } from '../src/handlers/errors.js';
 import { APPROVAL_WITHDRAWN_REASON } from '../src/handlers/gate-decision.js';
 import { resolveTurnHitlPolicy } from '../src/handlers/turn-environment.js';
-import { resolveEffectiveHitlPolicy } from '../src/hitl-policy.js';
+import { resolveEffectiveHitlPolicy, separateApproverFor } from '../src/hitl-policy.js';
 import type { Agent } from '../src/types.js';
 import { testNodeContext } from './node-context.js';
 
@@ -161,6 +162,8 @@ async function dispatchUnder(
   options: {
     readonly records?: Map<string, unknown>;
     readonly answer?: (tokenId: string) => Promise<unknown>;
+    /** Whom the turn runs for. */
+    readonly principal?: Principal;
   } = {},
 ) {
   const ran: unknown[] = [];
@@ -168,7 +171,13 @@ async function dispatchUnder(
   const enqueued: Record<string, unknown>[] = [];
   const waits: { readonly tokenId: string; readonly timeoutMs: number }[] = [];
   const ctx = {
-    input: { tenantId: 't-1' as TenantId, projectId: 'p-1', conversationId: 'conv-1', agent: a },
+    input: {
+      tenantId: 't-1' as TenantId,
+      projectId: 'p-1',
+      conversationId: 'conv-1',
+      agent: a,
+      ...(options.principal !== undefined && { principal: options.principal }),
+    },
     bindings: {
       conversationBinding: {
         appendMessage: async (m: Record<string, unknown>) => ({
@@ -351,5 +360,91 @@ describe('dispatch-tools — a gated call whose wait is cancelled', () => {
       message: 'Tool-call HITL cancelled for pack.lookup: timeout',
       reason: 'timeout',
     });
+  });
+});
+
+// --- who asked, and four eyes ----------------------------------------------
+
+describe("a tool call's approval names who asked", () => {
+  const gated = agent({ hitl: { tools: { overrides: { 'pack.lookup': 'always_ask' } } } });
+  const tenant = 't-1' as TenantId;
+
+  test.each([
+    ['a person', userPrincipal('u-jane', tenant), 'user:u-jane'],
+    [
+      'an agent acting for a person',
+      delegate(
+        { kind: 'agent', id: 'pack.agent', tenantId: tenant },
+        userPrincipal('u-jane', tenant).actor,
+      ),
+      'user:u-jane',
+    ],
+    ['a service account', serviceAccountPrincipal('sa-1', tenant), 'service_account:sa-1'],
+  ])('%s', async (_who, principal, expected) => {
+    const { enqueued } = await dispatchUnder(undefined, gated, { principal });
+    expect(enqueued[0]).toMatchObject({ requestedBy: expected });
+  });
+
+  test('a turn that runs for no one names nobody', async () => {
+    const { enqueued } = await dispatchUnder(undefined, gated);
+    expect(enqueued[0]).not.toHaveProperty('requestedBy');
+  });
+});
+
+describe("four eyes on a tool call, from the agent's policy", () => {
+  const policy = (separateApprover: unknown) =>
+    agent({
+      hitl: { tools: { overrides: { 'pack.lookup': 'always_ask' } }, separateApprover },
+    });
+  const jane = userPrincipal('u-jane', 't-1' as TenantId);
+
+  test.each([
+    ['absent: whoever asked may approve, as before', undefined, false],
+    ['true, for every gated tool', true, true],
+    ['per tool', { overrides: { 'pack.lookup': true } }, true],
+    [
+      'a default with an override off',
+      { default: true, overrides: { 'pack.lookup': false } },
+      false,
+    ],
+    [
+      'a default, for a tool with no override',
+      { default: true, overrides: { 'acme.pay': false } },
+      true,
+    ],
+    ['another tool only', { overrides: { 'acme.pay': true } }, false],
+  ])('%s', async (_what, separateApprover, expected) => {
+    const { enqueued } = await dispatchUnder(undefined, policy(separateApprover), {
+      principal: jane,
+    });
+    expect(enqueued[0]).toMatchObject({ separateApprover: expected, requestedBy: 'user:u-jane' });
+  });
+
+  test('a gate that parked keeps the four eyes it parked with', async () => {
+    const records = new Map<string, unknown>();
+    const parked = new Error('parked');
+    const first = dispatchUnder(undefined, policy(true), {
+      records,
+      principal: jane,
+      answer: async () => {
+        throw parked;
+      },
+    });
+    await expect(first).rejects.toBe(parked);
+    // The policy drops it meanwhile; the call resumes on what it parked with.
+    const resumed = await dispatchUnder(undefined, policy(false), { records, principal: jane });
+    expect(resumed.enqueued[0]).toMatchObject({ separateApprover: true });
+  });
+
+  test('resolves per tool, normalized', () => {
+    const effective = resolveEffectiveHitlPolicy({
+      tenant: undefined,
+      agent: policy({ default: true, overrides: { 'acme.pay': false } }),
+    });
+    expect(separateApproverFor(effective, 'pack.lookup')).toBe(true);
+    expect(separateApproverFor(effective, 'acme.pay')).toBe(false);
+    expect(
+      separateApproverFor(resolveEffectiveHitlPolicy({ tenant: undefined, agent: agent() }), 'x'),
+    ).toBe(false);
   });
 });
