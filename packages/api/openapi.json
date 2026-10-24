@@ -392,6 +392,7 @@
           "promotion-superseded": 409,
           "promotion-gate-unsupported": 501,
           "separate-approver-required": 403,
+          "named-approver-required": 403,
           "gate-policy-not-found": 404,
           "gate-policy-already-registered": 409,
           "gate-policy-scope-taken": 409,

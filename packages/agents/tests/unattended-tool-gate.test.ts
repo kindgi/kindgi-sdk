@@ -11,6 +11,7 @@ import {
   type RunStartedBy,
   needsPersonsYesUnattended,
   runIsAttended,
+  toolNeedsPersonsYesUnattended,
 } from '@kindgi/runtime';
 import { defineTool } from '@kindgi/tools';
 import type { AnyTool } from '@kindgi/tools';
@@ -114,6 +115,60 @@ describe('needsPersonsYesUnattended — the one rule the gate and the runtime sh
     for (const listed of [['pack.*'], ['pack'], ['PACK.REFUND'], ['pack.refund ']]) {
       expect(needsPersonsYesUnattended(declared, 'schedule', listed)).toBe(true);
     }
+  });
+});
+
+describe("toolNeedsPersonsYesUnattended — a change made with a person's connection counts", () => {
+  const asPerson = { mail: { app: 'google', permissions: ['gmail.send'], as: 'person' } } as const;
+  const asCompany = {
+    repo: { app: 'github', permissions: ['contents:write'], as: 'company' },
+  } as const;
+  const sends = { id: 'pack.send', needsSpec: { connections: asPerson } };
+
+  test("a tool that changes things with a person's connection, whatever its own flag says", () => {
+    expect(toolNeedsPersonsYesUnattended(sends)).toBe(true);
+    expect(toolNeedsPersonsYesUnattended({ ...sends, mutating: true })).toBe(true);
+    expect(toolNeedsPersonsYesUnattended({ ...sends, needsApprovalWhenUnattended: false })).toBe(
+      true,
+    );
+    // One person's connection among a company's is enough.
+    expect(
+      toolNeedsPersonsYesUnattended({
+        id: 'pack.both',
+        needsSpec: { connections: { ...asCompany, ...asPerson } },
+      }),
+    ).toBe(true);
+  });
+
+  test('so it waits in a run no person started, unless its trigger lists it', () => {
+    for (const by of UNATTENDED) expect(needsPersonsYesUnattended(sends, by, undefined)).toBe(true);
+    expect(needsPersonsYesUnattended(sends, 'person', undefined)).toBe(false);
+    for (const by of ['webhook', 'schedule'] as const) {
+      expect(needsPersonsYesUnattended(sends, by, ['pack.send'])).toBe(false);
+    }
+  });
+
+  test("not a read-only tool, a company's connection, or no connection", () => {
+    expect(
+      toolNeedsPersonsYesUnattended({
+        id: 'pack.read',
+        mutating: false,
+        needsSpec: { connections: asPerson },
+      }),
+    ).toBe(false);
+    expect(
+      toolNeedsPersonsYesUnattended({ id: 'pack.push', needsSpec: { connections: asCompany } }),
+    ).toBe(false);
+    expect(toolNeedsPersonsYesUnattended({ id: 'pack.plain', needsSpec: { env: {} } })).toBe(false);
+    expect(toolNeedsPersonsYesUnattended({ id: 'pack.plain' })).toBe(false);
+    // A declared flag counts, read-only or not.
+    expect(
+      toolNeedsPersonsYesUnattended({
+        id: 'pack.flag',
+        mutating: false,
+        needsApprovalWhenUnattended: true,
+      }),
+    ).toBe(true);
   });
 });
 

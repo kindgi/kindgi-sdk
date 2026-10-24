@@ -266,6 +266,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // The binding can't record a gated promotion, so one a policy applies to is refused.
   'promotion-gate-unsupported': 501,
   'separate-approver-required': 403,
+  // An approval addressed to one member: someone else who reads it can't decide it.
+  'named-approver-required': 403,
   'gate-policy-not-found': 404,
   'gate-policy-already-registered': 409,
   'gate-policy-scope-taken': 409,

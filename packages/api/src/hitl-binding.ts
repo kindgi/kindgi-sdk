@@ -80,8 +80,10 @@ export interface Approval {
   /**
    * The one member who may decide it, set when the call would use that
    * member's own connection: only they approve, reject or withdraw it, and
-   * only with a reviewer seat of the required rank. The other reviewers
-   * don't see it listed. Absent: any reviewer of the rank decides.
+   * only with a reviewer seat of the required rank. It's never escalated:
+   * an `escalate` decision on it answers `409 invalid-transition`, and at
+   * its deadline it expires. The other reviewers don't see it listed.
+   * Absent: any reviewer of the rank decides.
    */
   readonly approver?: ApprovalApprover;
   /** The person's connection the call would use: shown as "as <account>". */
