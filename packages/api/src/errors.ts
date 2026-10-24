@@ -266,6 +266,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // The binding can't record a gated promotion, so one a policy applies to is refused.
   'promotion-gate-unsupported': 501,
   'separate-approver-required': 403,
+  // An approval addressed to one member: someone else who reads it can't decide it.
+  'named-approver-required': 403,
   'gate-policy-not-found': 404,
   'gate-policy-already-registered': 409,
   'gate-policy-scope-taken': 409,
@@ -621,6 +623,42 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'webhook-url-refused': 400,
   'webhook-secret-not-found': 400,
   'webhook-secret-too-weak': 400,
+  // Connections (`/v1/connection-apps`, `/v1/connections`).
+  'connection-app-not-found': 404,
+  'connection-not-found': 404,
+  'connection-request-not-found': 404,
+  /** A registration that doesn't fit its entry; `field` names what. */
+  'connection-app-invalid': 400,
+  'connection-app-unknown-entry': 400,
+  /** A registration removed while it still has live connections, without `withConnections`. */
+  'connection-app-in-use': 409,
+  /** A finish by someone other than whoever started the request. */
+  'connection-not-yours': 403,
+  /**
+   * A GitHub App's finish whose person's GitHub account doesn't reach the
+   * installation (or any): `details.connectRequestId` names the request,
+   * to start again with `newInstallation`.
+   */
+  'connection-installation-unreachable': 403,
+  'connection-request-expired': 410,
+  'connection-request-used': 409,
+  /** The sign-in at the app took longer than its state lives: start again. */
+  'connection-state-expired': 410,
+  /** A reconnect signed in to an account other than the connection's. */
+  'connection-account-mismatch': 409,
+  /**
+   * A connect, or its finish, for a connection still being disconnected:
+   * disconnect it again to finish, then connect.
+   */
+  'connection-removing': 409,
+  /** The app wouldn't give a token for the code: its client id, secret or redirect URL. */
+  'connection-app-refused': 502,
+  'connection-store-failed': 503,
+  // An app's notice (`POST /v1/connection-notices/…`): one answer for any
+  // notice not accepted, whatever the reason; the server's own trouble is a
+  // 503, and the app sends it again.
+  'connection-notice-invalid': 400,
+  'connection-notice-unavailable': 503,
   // Public run tokens.
   'token-mint-failed': 500,
 } as const;

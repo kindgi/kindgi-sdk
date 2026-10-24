@@ -851,7 +851,7 @@ describe('kindgi build --hosted', () => {
     expect(fixtures.state.tarCalls).toBe(0);
   });
 
-  test('a pack over 30 MiB packed is never sent, and the message links what the image needs', async () => {
+  test("a pack over 30 MiB packed is never sent, and the message links what the image needs on the CLI's release line", async () => {
     const fixtures = makeFixtures({ tarballSize: 30 * 1024 * 1024 + 1 });
     const out = await runCli({
       ...baseInputs(fixtures, { env: loggedIn }, cloud()),
@@ -862,6 +862,9 @@ describe('kindgi build --hosted', () => {
       "over the 30 MiB the hosted build service takes, so it wasn't sent",
     );
     expect(out.stderr).toContain(PACK_IMAGE_DOCS_URL);
+    expect(PACK_IMAGE_DOCS_URL).toBe(
+      `https://docs.kindgi.com/v${CLI_VERSION.split('.').slice(0, 2).join('.')}/start/existing-app-typescript/#what-the-packs-image-needs`,
+    );
     expect(fixtures.state.postCalls).toBe(0);
   });
 
@@ -1331,6 +1334,107 @@ describe('kindgi build — output shape', () => {
     expect(streamed).toEqual([]);
   });
 
+  describe("--quiet: a warning still shows, streamed or kept; the build's other lines don't", () => {
+    const indexWarning =
+      'guardrails/cites.ts: check "cites" doesn\'t start with this pack\'s id ("my-pack.").';
+    const cases: readonly {
+      readonly warning: string;
+      readonly flags?: readonly string[];
+      readonly fixtures?: FixtureOptions;
+      readonly runners?: (runners: BuildRunners) => BuildRunners;
+      readonly config?: Record<string, unknown>;
+      readonly pack?: () => Promise<void>;
+    }[] = [
+      { warning: '    ⚠ Integrity gate SKIPPED', flags: ['--skip-integrity-gate'] },
+      { warning: '    ⚠ Image pull SKIPPED', flags: ['--skip-image-pull'] },
+      {
+        warning: '    ⚠ docker pull failed: no such image\n      Falling back',
+        runners: (runners) => ({
+          ...runners,
+          pullImageIndex: async () => {
+            throw new Error('no such image');
+          },
+        }),
+      },
+      { warning: '  ⚠ Signing SKIPPED', flags: ['--skip-sign'] },
+      {
+        warning: `    ⚠ ${indexWarning}`,
+        fixtures: {
+          indexOutcome: {
+            kind: 'ok',
+            packId: 'my-pack',
+            packVersion: '0.1.0',
+            counts: { tools: 1, guardrails: 1, agents: 0, flows: 0 },
+            fileErrors: [],
+            warnings: [
+              {
+                code: 'check-id-unprefixed',
+                message: indexWarning,
+                filePath: 'guardrails/cites.ts',
+              },
+            ],
+            index: SAMPLE_INDEX,
+          } as LocalIndexResult,
+        },
+      },
+      {
+        warning: '    ⚠ The build service gets no build secrets',
+        pack: () => writeFile(join(packDir, '.npmrc'), '//registry.example.com/:_authToken=x\n'),
+      },
+      {
+        warning: "    ⚠ postinstall runs patch-package, so its patches aren't applied in the image",
+        pack: () =>
+          writeFile(
+            join(packDir, 'package.json'),
+            `${JSON.stringify({ name: 'test-pack', version: '0.1.0', scripts: { postinstall: 'patch-package' } })}\n`,
+          ),
+      },
+      {
+        warning:
+          '    ⚠ Loaded by a computed name; image.keep (pino-pretty) must cover what these load:',
+        config: { image: { dependencies: 'loaded', keep: ['pino-pretty'] } },
+        runners: (runners) => ({
+          ...runners,
+          esbuildBundle: async (o) => ({
+            ...(await runners.esbuildBundle(o)),
+            computedImports: [
+              { file: join(packDir, 'tools', 'load.ts'), line: 4, text: 'return import(name);' },
+            ],
+          }),
+        }),
+      },
+    ];
+
+    test.each(cases)('$warning', async (c) => {
+      await c.pack?.();
+      for (const quiet of [false, true]) {
+        for (const streams of [true, false]) {
+          const streamed: string[] = [];
+          const fixtures = makeFixtures(c.fixtures);
+          const out = await runCli({
+            ...baseInputs(
+              fixtures,
+              streams ? { progress: (text) => streamed.push(text) } : {},
+              c.config,
+            ),
+            buildRunners: c.runners?.(fixtures.runners) ?? fixtures.runners,
+            argv: [
+              'build',
+              '--env=staging',
+              `--path=${packDir}`,
+              ...(c.flags ?? []),
+              ...(quiet ? ['--quiet'] : []),
+            ],
+          });
+          expect(out.exitCode, out.stderr).toBe(0);
+          const said = streams ? streamed.join('') : out.stderr;
+          expect(said).toContain(c.warning);
+          expect(said.includes('  Deploy envelope written to'), said).toBe(!quiet);
+        }
+      }
+    });
+  });
+
   test('--json: the summary alone on stdout, the progress on stderr as it comes', async () => {
     const streamed: string[] = [];
     const out = await runCli({
@@ -1391,6 +1495,22 @@ describe("kindgi deploy's inline build, as it goes", () => {
     return { out, posts };
   }
 
+  /** Fixtures whose build server fails the build. */
+  const failing = (): Fixtures => {
+    const fixtures = makeFixtures();
+    fixtures.runners = {
+      ...fixtures.runners,
+      streamBuildLogs: async (o): Promise<TerminalPayload> => {
+        o.onLog('step 3/7: npm ci exited 1');
+        return {
+          status: 'failed',
+          error: { code: 'docker-build-failed', message: 'buildx returned non-zero' },
+        };
+      },
+    };
+    return fixtures;
+  };
+
   test("streamed, the build's lines go out as they come, between deploy's, as the same text", async () => {
     const kept = await deploy(makeFixtures());
     expect(kept.out.exitCode, kept.out.stderr).toBe(0);
@@ -1419,35 +1539,33 @@ describe("kindgi deploy's inline build, as it goes", () => {
     expect(JSON.parse(run.out.stdout)).toEqual(JSON.parse(kept.out.stdout));
   });
 
-  test("--quiet leaves the build's lines out, streamed or kept; deploy's own still show", async () => {
+  test('--quiet: nothing from the build or from deploy, streamed or kept, and it still deploys', async () => {
     const streamed: string[] = [];
     for (const progress of [undefined, (text: string) => streamed.push(text)]) {
       const run = await deploy(makeFixtures(), ['--quiet'], progress);
       expect(run.out.exitCode, run.out.stderr).toBe(0);
-      const said = `${streamed.join('')}${run.out.stderr}`;
-      expect(said).toContain(missing);
-      expect(said).toContain('201 Created');
-      expect(said).not.toContain('Uploading to build service');
-      expect(said).not.toContain('Streaming build logs');
+      expect(run.posts).toBe(1);
+      expect(run.out.stdout).toBe('');
+      expect(run.out.stderr).toBe('');
     }
-    expect(streamed.length).toBeGreaterThan(0);
+    expect(streamed).toEqual([]);
+  });
+
+  test('--quiet: an inline build that fails says its error alone, streamed or kept', async () => {
+    const streamed: string[] = [];
+    for (const progress of [undefined, (text: string) => streamed.push(text)]) {
+      const run = await deploy(failing(), ['--quiet'], progress);
+      expect(run.out.exitCode).toBe(1);
+      expect(run.posts).toBe(0);
+      expect(run.out.stderr).toMatch(
+        /^Inline `kindgi build` failed \(exit 1\):\n\nBuild failed: \[docker-build-failed\]/,
+      );
+      expect(run.out.stderr).not.toContain('step 3/7');
+    }
+    expect(streamed).toEqual([]);
   });
 
   test("an inline build that fails: its error comes after deploy's lines and the build's, streamed or kept", async () => {
-    const failing = (): Fixtures => {
-      const fixtures = makeFixtures();
-      fixtures.runners = {
-        ...fixtures.runners,
-        streamBuildLogs: async (o): Promise<TerminalPayload> => {
-          o.onLog('step 3/7: npm ci exited 1');
-          return {
-            status: 'failed',
-            error: { code: 'docker-build-failed', message: 'buildx returned non-zero' },
-          };
-        },
-      };
-      return fixtures;
-    };
     const kept = await deploy(failing());
     expect(kept.out.exitCode).toBe(1);
     expect(kept.posts).toBe(0);

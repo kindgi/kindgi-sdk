@@ -49,6 +49,10 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
 - **Where:** `--project=<project-id>` is its project. Without it, it's the
   tenant's Default project.
 - **`--label`** names it, for lists and the console.
+- **`--allow-unattended=<tool-id>`** names a tool whose calls in its runs
+  needn't wait for a person's yes, though no person started them, once for
+  each tool. It takes `admin` on the project
+  ([Tools allowed unattended](../../approvals/ask-before-a-tool-runs/#tools-allowed-unattended)).
 
 It prints the schedule, with its `id`. To see the next three times it runs,
 where `<schedule-id>` is that `id`:
@@ -64,9 +68,11 @@ Python).
 
 ## Run as a service account
 
-A schedule's runs act as its **owner**: whoever created it. To have them act
-as a service account instead, with the account's grants rather than yours,
-and keep running after you leave, name it with `--run-as`:
+A schedule's runs act as its **owner**: whoever created it, or last changed
+what it runs ([Who owns it after a change](#who-owns-it-after-a-change)).
+To have them act as a service account instead, with the account's grants
+rather than yours, and keep running after you leave, name it with
+`--run-as`:
 
 ```sh
 pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" --timezone=America/Toronto \
@@ -88,11 +94,28 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
   take-ownership <schedule-id> --run-as=<service-account-id>`. It needs
   what taking it over yourself needs, `admin` on the project and `execute`
   on the agent or flow, and `act_as` on the account. Its next fire acts as
-  the account.
+  the account. The schedule keeps its tools allowed unattended.
 - **From your app:** `runAsServiceAccountId` on `schedules.register` and
   `schedules.takeOwnership` (`run_as_service_account_id` in Python).
 - **Each change of owner is recorded** as evidence, `trigger-owner-set`: a
-  schedule created to run as an account, and every take-over.
+  schedule created to run as an account, every take-over, and every change
+  that moves it.
+
+### Who owns it after a change
+
+When someone who isn't its owner changes what the schedule runs, they
+become its owner (runtime 0.2.0 or later), and its next fires act as
+them. So your own access only serves what you set it to run.
+
+- **These move it:** a new target or version, a new input, or a new list
+  of tools allowed unattended.
+- **These don't:** its label, its cron line or timezone, its catch-up,
+  overlap and deadline policies, and the same value sent again.
+- **A schedule a service account owns keeps its owner,** whoever changes
+  it. A service account that changes a person's schedule becomes its
+  owner.
+
+The answer to the change shows the owner after it.
 
 ## Each time it fires
 
@@ -183,7 +206,12 @@ none.
 - `kindgi schedules pause <schedule-id>` stops it. `resume` starts it again
   from its next time, without running the ones it missed while paused.
 - `kindgi schedules update <schedule-id>` changes when it runs, what it runs,
-  its input or its policies, with the same flags as `create`.
+  its input or its policies, with the same flags as `create`. A change to
+  what it runs can make you its owner
+  ([Who owns it after a change](#who-owns-it-after-a-change)).
+  `--allow-unattended` replaces its tools allowed unattended, and a new
+  `--agent` or `--flow` must name them again, or `none`. A new `--improve`
+  must name `none`.
 - `kindgi schedules unregister <schedule-id>` removes it.
 
 ## In the console
@@ -208,6 +236,9 @@ A schedule's page has:
   "It doesn’t fire while paused." instead.
 - **Runs as:** whose access its runs have, checked again at every fire, such
   as "Runs as you, with your access."
+- **Tools allowed unattended:** the tools its runs call without waiting
+  for a person's yes, or "None"
+  ([Tools allowed unattended](../../approvals/ask-before-a-tool-runs/#tools-allowed-unattended)).
 - **What it fired:** a summary, such as "Of its 2 fires, 2 started a run.",
   and a table of its fires, newest first. Each fire has when it fired, the
   time it was for, what happened or why the fire was refused, and the run it
@@ -227,7 +258,9 @@ Project editors and up have, on the list and on the page:
 
 On a schedule that runs as someone else, project admins also get **Take
 over**: "Its next runs start as you, with your access. Runs already started
-keep theirs. If it's paused, it stays paused."
+keep theirs. If it's paused, it stays paused." On a schedule with tools
+allowed unattended, the dialog adds that its runs still call them, with
+the new owner's access.
 
 ![The Take this schedule over? dialog on a paused schedule that runs as a service account: its next runs start as you, runs already started keep theirs, and a paused one stays paused.](../../../../assets/schedules/schedule-take-over.png)
 

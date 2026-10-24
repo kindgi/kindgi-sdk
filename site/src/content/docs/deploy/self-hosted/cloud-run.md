@@ -701,7 +701,8 @@ then reaches the runtime only when you change `version`.
   the emailed link comes with a second apply, or your own domain in front.
   Console sessions are then accepted from that address only. The plan
   refuses `KINDGI_AUTH_SECRET` without it, because the runtime wouldn't
-  start.
+  start. A tool that pauses hands other systems a link made from it too
+  ([On a server you run](../../../guides/tools/wait-for-another-system/#on-a-server-you-run)).
 
 **With Continue with Google,** you need the sign-in secret and `public_url`,
 as for the emailed link, and an OAuth client of type **Web application** in
@@ -792,9 +793,9 @@ A new grant can take a minute or two to apply.
 
 ## Operate it
 
-- **Upgrade at least every 90 days while Kindgi is in preview.** Until
-  Kindgi 1.0, a release stops starting 90 days after it was released. Cloud
-  Run starts new instances on its own, and after that day none comes up. The
+- **Upgrade at least every 90 days.** A preview release stops starting 90
+  days after it was released. Cloud Run starts new instances on its own,
+  and after that day none comes up. The
   runtime warns from 30 days before, at startup and once a day, in a log
   record with `jsonPayload.event = "kindgi.preview_expiry"`: set a log-based
   alert on it

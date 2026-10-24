@@ -58,6 +58,8 @@ export { agentStepOutput, invokeAgent, resumeAgentTurn } from './invoke.js';
 export { parseFailureMessage, turnFailureMessage } from './handlers/errors.js';
 export { isComputeOnlyTool, isReadOnlyTool } from './handlers/replay.js';
 export { SESSION_GATE_RECORD } from './handlers/setup.js';
+export { computeConnectWaitToken } from './handlers/tool-hitl.js';
+export type { ConnectWaitResult } from './handlers/tool-hitl.js';
 export type {
   ReplayApproval,
   ReplayBinding,
@@ -91,6 +93,8 @@ export type {
   TurnMemoryBinding,
   TurnMemoryCharge,
   TurnMemoryLimitReachedError,
+  TurnConnections,
+  ConnectionCallCode,
   UnresolvedToolError,
 } from './invoke.js';
 export {

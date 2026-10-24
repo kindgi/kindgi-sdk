@@ -13,6 +13,20 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a tool or an agent whose model has a pydantic tagged union
+  deploys.** With `Field(discriminator=...)`, pydantic writes OpenAPI's
+  `discriminator` keyword beside the union's `oneOf`, and the runtime refused
+  a tool's input or output, or an agent's typed answer, when it was
+  registered or deployed (`strict mode: unknown keyword: "discriminator"`).
+  The wire schema now leaves it out: each member's tag is a `const` (an
+  `enum` for several values), so the `oneOf` picks the member. Each member
+  also lists its tag in `required`, since pydantic refuses a value without
+  its tag, even when the tag has a default.
+- `kindgi`: **a union whose member a callable `Discriminator` picks takes
+  every value pydantic takes.** pydantic writes it as a plain `oneOf`, and its
+  members can overlap: a value that fit two of them was refused, as a tool's
+  input or output or an agent's typed answer, though pydantic took it. The
+  wire schema now writes it as an `anyOf`.
 - `kindgi`: **a tool can pause its run until another system answers.**
   `@tool(pauses=True)`: the handler hands `ctx.wait_token.url` to that system
   and returns `ctx.pause(timeout_ms=..., name=...)`, 24 hours by default and
@@ -38,6 +52,17 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `recoverable_until`**: when a hard revoke left a copy your secret manager can
   still recover, until when it keeps it. It's `None` on a soft revoke, and
   when a hard revoke left nothing recoverable.
+- `kindgi`: **connections to other apps.** The client gains
+  `connection_entries.list`; `connection_apps.list`, `create`, `get`,
+  `update` and `remove`; `connections.list`, `connect`, `finish`, `get` and
+  `disconnect`; and `connections.requests.get` and `start`, with their async
+  twins. A tool reads its connections from `ToolContext.connections`, a
+  mapping of each declared name to a `ToolConnection` (`connection_id`,
+  `app`, `app_name`, `access_token`, `account` as a `ConnectionAccount`,
+  `expires_at`), empty when the tool declares none; no `repr` shows a token.
+  A tool whose app refuses the token raises `ConnectionRejected(name)` (or
+  its own error `from` it), and the pack answers `connection-rejected` naming
+  the connection (pack protocol 2.9.0).
 - `kindgi`: **`ScheduleRecord`, `WebhookTriggerRecord`, their register and
   patch bodies, and `Run` gain `tools_allowed_unattended`**: the tools whose
   calls in a webhook's or a schedule's runs needn't wait for a person's yes.

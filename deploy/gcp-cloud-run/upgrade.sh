@@ -20,7 +20,8 @@
 # What it changes besides the deployment itself:
 #   - It grants the Cloud SQL instance's service account roles/storage.objectAdmin
 #     on the backup bucket (Cloud SQL writes the export as that account). The
-#     grant stays on the bucket.
+#     grant stays on the bucket. A new grant can take a few minutes to take
+#     effect; until it does, the export waits for it.
 #   - It rewrites the server_image line (and pack_image, with --pack-dir) in your
 #     var-file, so a later plain apply keeps the new image. The previous file is
 #     kept next to it as <var-file>.pre-upgrade-<UTC time>; if you don't confirm
@@ -72,6 +73,11 @@ readonly KNOWN_RELEASES=("0.1.9" "0.1.10")
 # How long to wait for the new revision to become ready (step 6).
 readonly POLL_INTERVAL=10
 readonly POLL_TRIES=60
+
+# How long to wait for a new bucket grant to reach Cloud SQL (step 3): Google
+# says an IAM change usually takes effect in 2 minutes, and can take 7.
+readonly GRANT_WAIT_INTERVAL=15
+readonly GRANT_WAIT_SECONDS=420
 
 # --- small helpers ----------------------------------------------------------
 
@@ -551,10 +557,28 @@ gcloud storage buckets add-iam-policy-binding "gs://${BUCKET_ONLY}" \
 info "granted $SQL_SA roles/storage.objectAdmin on gs://${BUCKET_ONLY} (the grant stays)."
 
 warn "The export is a point in time. Writes after it are not in the backup and are lost if you roll back. On a busy deployment, stop traffic first."
-info "exporting to $EXPORT_URI"
-gcloud sql export sql "$DB_INSTANCE" "$EXPORT_URI" \
-  --project="$PROJECT" --database="$DATABASE_NAME" \
-  || die "the export failed. Nothing has changed. Fix the cause and run again."
+info "exporting to $EXPORT_URI (a large database can take several minutes; gcloud's output follows when it ends)"
+# Until the grant above takes effect, Cloud SQL refuses the export with
+# HTTPError 412 and "the required permissions for the bucket". Only that is
+# waited out, for up to GRANT_WAIT_SECONDS; any other failure stops at once.
+waited=0
+until gcloud sql export sql "$DB_INSTANCE" "$EXPORT_URI" \
+    --project="$PROJECT" --database="$DATABASE_NAME" --quiet 2>"$WORK/export.err"; do
+  if ! grep -q 'HTTPError 412' "$WORK/export.err" || ! grep -q 'permissions for the bucket' "$WORK/export.err"; then
+    cat "$WORK/export.err" >&2
+    die "the export failed (above). Nothing has changed. Fix the cause and run again."
+  fi
+  if ((waited == 0)); then
+    cat "$WORK/export.err" >&2
+    info "the grant on gs://${BUCKET_ONLY} hasn't taken effect yet (a new grant can take a few minutes); waiting for it, up to $((GRANT_WAIT_SECONDS / 60)) minutes."
+  fi
+  ((waited < GRANT_WAIT_SECONDS)) \
+    || die "Cloud SQL still can't write to gs://${BUCKET_ONLY} after $((GRANT_WAIT_SECONDS / 60)) minutes. Nothing has changed. Check that the bucket grants $SQL_SA roles/storage.objectAdmin (gcloud storage buckets get-iam-policy gs://${BUCKET_ONLY}), then run again."
+  sleep "$GRANT_WAIT_INTERVAL"
+  waited=$((waited + GRANT_WAIT_INTERVAL))
+  info "trying the export again (${waited}s waited)"
+done
+cat "$WORK/export.err" >&2
 info "backup complete: $EXPORT_URI"
 
 # --- step 4: the pack image (if any) ----------------------------------------

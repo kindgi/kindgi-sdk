@@ -20,8 +20,11 @@ from ._version import __version__
 from .pack.context import (
     CallCancelled,
     Cancellation,
+    ConnectionAccount,
+    ConnectionRejected,
     PauseAnswer,
     PauseNotAvailable,
+    ToolConnection,
     ToolContext,
     WaitToken,
 )
@@ -42,6 +45,8 @@ __all__ = [
     "CallCancelled",
     "Cancellation",
     "CheckResult",
+    "ConnectionAccount",
+    "ConnectionRejected",
     "DefinitionError",
     "Flow",
     "Guardrail",
@@ -51,6 +56,7 @@ __all__ = [
     "RunTrace",
     "Tool",
     "ToolCallRecord",
+    "ToolConnection",
     "ToolContext",
     "ToolResultRecord",
     "WaitToken",
