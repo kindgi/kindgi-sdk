@@ -199,7 +199,7 @@ With `--push`, as here, the image is for `linux/amd64`, and on Apple silicon it 
 Your tools' code runs in the pack's own container. The runtime calls it with a token both sides share:
 
 ```sh
-echo "KINDGI_PACK_SERVICE_TOKEN=$(openssl rand -base64 32)" > pack.env
+echo "KINDGI_PACK_SERVICE_TOKEN=$(openssl rand -hex 32)" > pack.env
 chmod 600 pack.env
 
 docker run -d --name kindgi-pack --network kindgi --env-file pack.env \
