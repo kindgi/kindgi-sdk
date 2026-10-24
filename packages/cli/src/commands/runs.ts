@@ -23,6 +23,7 @@ import {
   RESUME_EXIT_CODES,
   type RunWaitPort,
   type WaitingApproval,
+  connectionLines,
   onlyTokenWait,
   runWaitAnswer,
   runWaitText,
@@ -128,14 +129,18 @@ const get: LeafCommand = {
   kind: 'leaf',
   name: 'get',
   description:
-    "Fetch a run snapshot by id. A run waiting for another system's answer also gets a line per wait, with the command that answers it.",
+    "Fetch a run snapshot by id. A run waiting for another system's answer also gets a line per wait, with the command that answers it, and one waiting for a person to connect an app gets a line per connect, with its link.",
   usage: 'kindgi runs get <run-id>',
   run: (ctx) =>
     runSdkRendered(ctx, 'runs get', async () => {
       const runId = requiredPositional(ctx, 0, 'run-id') as RunId;
       const run = await ctx.client().runs.get(runId);
       const json = renderJson(run, ctx.globals.format);
-      const waits = tokenLines(run.id as unknown as string, run.waitingFor?.tokens ?? []);
+      const id = run.id as unknown as string;
+      const waits = [
+        ...tokenLines(id, run.waitingFor?.tokens ?? []),
+        ...connectionLines(id, run.waitingFor?.connections ?? []),
+      ];
       const quiet = ctx.globals.format === 'quiet';
       return { stdout: json.stdout, stderr: quiet ? '' : waits.map((l) => `${l}\n`).join('') };
     }),
