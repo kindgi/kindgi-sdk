@@ -28,7 +28,8 @@ same version, and the CLI's own changes are in
   (`DefinitionError`) when a schema under `env` or `secrets` doesn't compile
   as the runtime compiles it (it isn't valid Draft 2020-12, or it or a schema
   inside it has a keyword or a `format` the runtime doesn't know, a misspelled
-  one say), or an `env` default isn't a string (`None` included).
+  one say, or a `$ref` that points nowhere), or an `env` default isn't a
+  string (`None` included).
   `ToolContext.for_test(tool=...)` builds a context whose `env` is what the
   tool declares under `needs_spec["env"]` — each name from the `env=` you pass
   or its schema's string default, checked against its schema — so a handler

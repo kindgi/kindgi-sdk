@@ -103,6 +103,16 @@ def test_rejects_an_env_default_of_none() -> None:
             {"anyOf": [{"type": "string", "format": "uri"}, {"type": "string", "maxLenght": 3}]},
             'strict mode: unknown keyword: "maxLenght"',
         ),
+        (
+            "env",
+            {"type": "string", "$ref": "#/$defs/regoin", "$defs": {"region": {"type": "string"}}},
+            "can't resolve reference #/$defs/regoin from id #",
+        ),
+        (
+            "secrets",
+            {"type": "string", "$ref": "https://example.com/key.json"},
+            "can't resolve reference https://example.com/key.json from id #",
+        ),
     ],
 )
 def test_rejects_a_keyword_or_format_the_runtime_does_not_know(
@@ -126,6 +136,12 @@ def test_accepts_the_keywords_and_formats_the_runtime_knows() -> None:
             "env": {
                 "BASE_URL": {"type": "string", "format": "uri", "x-kindgi-tunable": True},
                 "TIMEOUT": {"type": "string", "format": "duration", "$comment": "ISO 8601"},
+                # A ref the runtime resolves through `$id`s.
+                "REGION": {
+                    "$id": "https://acme.example/region",
+                    "$ref": "code",
+                    "$defs": {"code": {"$id": "https://acme.example/code", "type": "string"}},
+                },
             }
         },
     )
@@ -244,15 +260,28 @@ def test_resolve_env_rejects_a_declared_schema_that_does_not_compile() -> None:
         resolve_env("acme.env", {"env": {"REGION": {"type": "strng"}}}, {"REGION": "eu"})
 
 
-def test_resolve_env_rejects_a_keyword_the_runtime_does_not_know() -> None:
-    with pytest.raises(
-        ValueError,
-        match=r'declares env value "REGION" with a schema that doesn\'t compile: '
-        r'strict mode: unknown keyword: "enmu"',
-    ):
-        resolve_env(
-            "acme.env", {"env": {"REGION": {"type": "string", "enmu": ["eu"]}}}, {"REGION": "eu"}
-        )
+@pytest.mark.parametrize(
+    ("schema", "why"),
+    [
+        ({"type": "string", "enmu": ["eu"]}, 'strict mode: unknown keyword: "enmu"'),
+        (
+            {"type": "string", "$ref": "#/$defs/regoin", "$defs": {"region": {"type": "string"}}},
+            "can't resolve reference #/$defs/regoin from id #",
+        ),
+        (
+            {"type": "string", "$ref": "https://example.com/region.json"},
+            "can't resolve reference https://example.com/region.json from id #",
+        ),
+    ],
+)
+def test_resolve_env_rejects_a_schema_the_runtime_does_not_compile(
+    schema: dict[str, Any], why: str
+) -> None:
+    with pytest.raises(ValueError) as raised:
+        resolve_env("acme.env", {"env": {"REGION": schema}}, {"REGION": "eu"})
+    assert str(raised.value).endswith(
+        f'declares env value "REGION" with a schema that doesn\'t compile: {why}'
+    )
 
 
 # --- for_test without a tool still flows env/secrets straight through (backward compatible) --
