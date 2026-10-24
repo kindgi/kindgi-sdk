@@ -152,8 +152,9 @@ runtime refuses to start.
 The runtime then emails reviewers when an approval starts waiting, and when a
 waiting approval is assigned:
 
-- **Who:** the people the approvals list would show it to: its assigned
-  reviewer, or else every active reviewer of its required role or above.
+- **Who:** the people the approvals list would show it to: the one person
+  it's addressed to (its `approver`), else its assigned reviewer, or else
+  every active reviewer of its required role or above.
   Only those who may read its project are emailed.
 - **Assigned later:** a reviewer an approval is assigned to after it started
   waiting is emailed then, unless they were already emailed about it.
@@ -469,6 +470,15 @@ It prints the escalated approval and the new one:
 The new approval needs a `senior` reviewer, so the `standard` reviewer no
 longer sees it. A `senior` or `admin` reviewer approves or rejects
 `a65cd23c-…`, and the run continues.
+
+**An approval addressed to one person can't be escalated.** That's a tool
+call that acts with the person's own connection: its `approver` decides it
+at any role, and only they see it among the reviewers. A tenant admin sees
+it too, but can't decide it (`403 named-approver-required`). An escalation
+is refused with `409 invalid-transition`, and at its deadline it expires
+instead ([When nobody decides](../approvals-reference/#when-nobody-decides)).
+The person approves or rejects it
+([Use a connection in a tool](../../connections/use-a-connection/#approvals)).
 
 ### Withdraw
 
