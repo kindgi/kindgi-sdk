@@ -321,7 +321,7 @@ export interface IndexedTool {
    */
   readonly needsApprovalWhenUnattended?: boolean;
   /**
-   * The tool's declared `pauses` (schema-version 1.5.0+): each call gets a
+   * The tool's declared `pauses` (schema-version 1.6.0+): each call gets a
    * wait token and may answer `pause`. Absent means `false`.
    */
   readonly pauses?: boolean;

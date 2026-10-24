@@ -38,7 +38,20 @@ Keep an agent a piece of data that can be versioned, stored, and pinned by `{ id
       - `run-snapshot-missing` when no snapshot was stored;
       - `run-journal-unavailable` when the journal can't be read;
       - `capability-routing-failed` when the turn's provider or model is no longer registered or allowed.
-  - **`InvokeAgentError`** — the `AgentError` variants plus `UnresolvedToolError`, `tool-version-unresolvable`, `CapabilityRoutingError`, `ModelInvocationError`, `ToolInvocationError`, `BudgetExceededError` (`kind`: `steps` or `cost`), `AgentTurnAbortedError` (`reason`: `external`, or `timeout` when `maxWallMs` elapses), `HitlRequiredError`, `GuardrailViolationError`, `UnresolvedGuardrailError`, `TenantPolicyUnavailableError` (`code: 'tenant-policy-unavailable'`, with the `policyKind`: a tenant policy the turn must apply could not be evaluated, so the turn fails rather than run without it).
+  - **`InvokeAgentError`** — the `AgentError` variants plus:
+    - `UnresolvedToolError` and `tool-version-unresolvable`;
+    - `BlockUnresolvableError` (`code: 'block-unresolvable'`, with the `blockId` and, when it has one, the `requestedRange`): a data block the agent uses can't be loaded;
+    - `CapabilityRoutingError`, `ModelInvocationError` and `ToolInvocationError`;
+    - `BudgetExceededError` (`kind`: `steps` or `cost`);
+    - `RateLimitExceededError` (`code: 'rate-limit-exceeded'`): a budget kept per tenant refused work the turn needed (its template renders, its schema compiles); the same turn may run after `retryAfterMs`;
+    - `AgentTurnAbortedError` (`reason`: `external`, or `timeout` when `maxWallMs` elapses);
+    - `HitlRequiredError`, `GuardrailViolationError` and `UnresolvedGuardrailError`;
+    - `OutputSchemaViolationError` (`code: 'output-schema-violation'`, with the last attempt's `errors` and the `attempts` checked): the final answer still doesn't fit the agent's `output` schema after the allowed repairs;
+    - `TenantPolicyUnavailableError` (`code: 'tenant-policy-unavailable'`, with the `policyKind`): a tenant policy the turn must apply could not be evaluated, so the turn fails rather than run without it;
+    - `RunSnapshotError` (`code`: `run-snapshot-missing`, or `run-snapshot-unreadable` when resuming again may work): a turn being resumed can't be rebuilt from its snapshot;
+    - `SemanticUnavailableError` (`code: 'semantic-unavailable'`, with the `intent`'s position in `retrieval`): a retrieval intent searches by meaning and the runtime has no embeddings;
+    - `ApprovalsPendingLimitError` (`code: 'approvals-pending-limit'`): a gate asked for an approval past the tenant's limit on approvals waiting;
+    - `TurnMemoryLimitReachedError` (`code: 'turn-memory-limit-reached'`, with the `limit`, `tenant` or `server`): the turn holds more memory than that limit leaves it.
   - **Streaming** — `bindings.onEvent` (`OnTurnEvent`, sync or async) receives each `TurnEvent`: `turn.started`, `retrieval.completed`, `model.call.started`, `model.call.completed`, `tool.started`, `tool.completed`, `tool.failed`, `agent.message`, `guardrail.violated`, `guardrail.error` (a guardrail whose check couldn't run), `turn.completed`, `turn.failed`. Each has an exported type (`TurnStartedEvent`, `ToolStartedEvent`, …). Exceptions thrown by the handler are swallowed.
 - **Turn flow**
   - **`AGENT_TURN_FLOW`** — the [`@kindgi/flow`](../flow/) `Flow` every turn runs, with **`AGENT_TURN_FLOW_ID`** (`'agent.turn'`), **`AGENT_TURN_FLOW_VERSION`** (`'1.1.0'`), **`AGENT_TURN_LOOP_MAX_ITERATIONS`** (32), and one `*_NODE` constant per node id as it appears in run journals: `setup` → `render-prompt` → `persist-user-message` → `run-retrievals` → `build-initial-messages` → `agent-loop` (`model-call` → `dispatch-tools` → `budget-check`) → `evaluate-guardrails` → `persist-final-message` → `persist-provenance` → `compose-result`. Guardrails are evaluated once per turn, on the final response before it is stored; a failed check whose action is `halt` fails the turn with `guardrail-violation`, and the response is never written to the conversation. Failures with any other action (`log-only`, `retry`, `escalate`, `compensate`, or a custom action — guardrail kinds and actions are open strings) are reported in `violations` and as `guardrail.violated` events; the turn does not carry them out.

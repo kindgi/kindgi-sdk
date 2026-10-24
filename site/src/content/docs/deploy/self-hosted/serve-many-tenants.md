@@ -174,7 +174,7 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   tenant's audit log, by `system`, which the tenant's admins can read:
   making them admin and what that gives them carry your `--reason`.
 - **A tenant created without `firstAdmin` whose admin key is lost** (runtime
-  0.1.11 or later): `kindgi-runtime tenants admin-key` mints it again. The
+  0.2.0 or later): `kindgi-runtime tenants admin-key` mints it again. The
   live keys of the tenant's "First admin" service account are revoked, and
   the console sessions they opened end. Then one key is minted for it,
   carrying what the first one did: tenant admin, and the tenant's root
@@ -250,6 +250,17 @@ service is, and checks it. It never creates or deletes one.
    named, else the tenant's Default), and its image: the digest-pinned
    `imageRef`, its digest, the artifact version and when it went live. It
    has nothing else of the tenant.
+
+   A deployment that ships no tools and no guardrail checks of its own, such
+   as one of agents and flows whose guardrails use only built-in checks, has
+   nothing to route. It gets no endpoint, so it's never listed, and the routes
+   on its endpoint (`PUT` and `DELETE …/endpoint`, `PUT …/endpoint/problem`
+   and `PUT …/suspended`) answer `404`. Its agents and flows reach its
+   project's runs without a pack service. One registered by an earlier
+   runtime may still hold a `pending` endpoint from then. It's never listed
+   or shown, though those routes still find it. Leave it: clearing it retires
+   the deployment, and a version that reaches the project's runs only through
+   it, as a promoted one does, stops reaching them.
 2. **Run the image as a service** whose host begins with the deployment's own
    service name, `packServiceName(tenantId, deploymentId)` from `@kindgi/api`
    (`kp-` and 20 characters), then `-` or `.`. Give it a token of its own,
@@ -374,19 +385,21 @@ restoring clears both. A closing tenant can't be suspended (`409 tenant-closing`
 
 - **A tenant:** `PUT /v1/system/tenants/{tenantId}/suspended` with
   `{"suspended": true, "reason": "…"}`. It takes hold within 5 seconds. Its
-  own keys and sessions still read and export it. Nothing runs (its running
-  runs are cancelled), and any other write is refused
-  (`409 tenant-suspended`), but for deletes, signing in and out, revoking,
-  and erasing or searching memory. Its schedules and triggers are skipped,
-  not changed, and a webhook whose signature checks is answered `202` and
-  skipped. At the restore, nothing that came due meanwhile runs late: a schedule fires
-  next at its first time after the restore.
+  own keys and sessions still read and export it. Nothing runs (its
+  unfinished runs are cancelled, waiting ones included), and any other
+  write is refused (`409 tenant-suspended`), but for deletes, signing in
+  and out, revoking, and erasing or searching memory. Its schedules and
+  triggers are skipped, not changed, and a webhook whose signature checks
+  is answered `202` and skipped. At the restore, nothing that came due
+  meanwhile runs late: a schedule fires next at its first time after the
+  restore.
 - **A project:** `PUT /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`.
   Nothing new runs in it (`409 project-suspended`), and no pack service's
-  endpoint is recorded for it. Its running runs are cancelled, its schedules
-  and webhooks are skipped, and its deployments list to retire. The rest of
-  the tenant is untouched. While the Default project is suspended, a pack
-  call that names no project is refused too.
+  endpoint is recorded for it. Its unfinished runs are cancelled, waiting
+  ones included. Its schedules and webhooks are skipped, and its
+  deployments list to retire. The rest of the tenant is untouched. While
+  the Default project is suspended, a pack call that names no project is
+  refused too.
 - **A pack:** `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended`.
   Its calls fail with `pack-suspended`, never going to an older deployment,
   and it lists to retire. Restored, it serves again from the endpoint
@@ -398,9 +411,9 @@ restoring clears both. A closing tenant can't be suspended (`409 tenant-closing`
 `POST /v1/system/tenants/{tenantId}/close` starts the end of the tenant's
 contract, and there's no way back. The tenant is `closing`. For its 30-day
 export window, its own keys and sessions still read and export it, and its
-people can still sign in. Nothing runs (its running runs are cancelled),
-and writes are refused as for a suspended tenant, with `409 tenant-closing`.
-Its deployments list to retire.
+people can still sign in. Nothing runs (its unfinished runs are cancelled,
+waiting ones included), and writes are refused as for a suspended tenant,
+with `409 tenant-closing`. Its deployments list to retire.
 
 Once the window has passed, purge it. Its keys and sessions go with its
 rows. Until then, nothing of the tenant runs, and it writes only deletes,

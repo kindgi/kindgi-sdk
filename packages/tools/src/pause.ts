@@ -24,7 +24,7 @@ export const MAX_PAUSE_TIMEOUT_MS = 24 * 24 * 60 * 60 * 1000;
 export const DEFAULT_PAUSE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 /** The longest a pause's `name` may be. */
 export const MAX_PAUSE_NAME_LENGTH = 200;
-/** The waitpoint ids of pauses: minted by the runtime only, never by a handler. */
+/** Starts the waitpoint id of every pause: the runtime mints these ids, never a handler. */
 export const PAUSE_TOKEN_PREFIX = 'pause:';
 
 /** A call's wait token: its id, and the link the other system posts its answer to. */

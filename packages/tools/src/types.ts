@@ -436,8 +436,10 @@ export interface ToolManifest {
    * In such a run, an agent's call of the tool waits for a person's yes
    * whatever the agent's `conversationPolicy.hitl.tools` says (the
    * agent's rules can't lift it), and a flow's tool step that calls it is
-   * refused. In a run a person started, the agent's rules decide, as
-   * for any tool. Absent = `false`.
+   * refused. A webhook trigger or a schedule whose
+   * `toolsAllowedUnattended` names the tool (a project admin's to set)
+   * lifts that, in its own runs only. In a run a person started, the
+   * agent's rules decide, as for any tool. Absent = `false`.
    *
    * Declare it on a tool that moves money or changes something people
    * rely on, so that an agent reused under a trigger can't run it with no

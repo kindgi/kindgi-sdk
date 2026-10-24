@@ -30,9 +30,11 @@
  *     project-suspended`: nothing runs where the run is, and closing or
  *     suspending cancels its runs, so the answer isn't taken. An answer is
  *     a write to a run that's already there, so it's refused as the
- *     tenant's writes are; a webhook delivery would start a new run, and is
- *     answered `202` skipped. `503 tenant-state-unavailable`
- *     (`Retry-After`) when the tenant's state can't be read;
+ *     tenant's writes are; a webhook delivery would start a new run, so a
+ *     suspended tenant's or project's is answered `202` skipped, and a
+ *     closing tenant takes none (`409 tenant-closing`).
+ *     `503 tenant-state-unavailable` (`Retry-After`) when the tenant's
+ *     state can't be read;
  *   - `413 request-too-large` (`details.maxBytes`): past 1 MiB;
  *   - `415 unsupported-media-type`: a body that isn't JSON. An empty body is `{}`;
  *   - `429 rate-limit-exceeded` (`Retry-After`): past

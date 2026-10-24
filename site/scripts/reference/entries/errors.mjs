@@ -3453,9 +3453,9 @@ export const ERROR_ENTRIES = {
   },
   'secret-store-error': {
     description:
-      "The secrets store failed in a way the other secret codes don't cover, such as a database error, an invalid name for the store, or a provider feature it doesn't support.",
+      "The secrets store failed in a way the other secret codes don't cover, such as a database error, an invalid name for the store, or a provider feature it doesn't support. With your own secret manager, it's also the answer for a secret stored under a name outside the rule for new names: store its value again under a name that fits.",
     details: [],
-    seeAlso: ['guides/secrets/store-a-secret'],
+    seeAlso: ['guides/secrets/store-a-secret', 'deploy/self-hosted/secret-manager'],
   },
   'secret-operation-unsupported': {
     description:
