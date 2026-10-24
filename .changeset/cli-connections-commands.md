@@ -11,3 +11,4 @@
   - `remove` refuses a registration with live connections unless `--with-connections`, which disconnects them too.
 - `disconnect` and `remove` ask first at a terminal. Without one they need `--yes`.
 - `--json` prints the server's answer for `connect`, `disconnect` and `remove`, and `connect --json` doesn't wait.
+- **`kindgi runs resume <run-id>`** names a connect the run waits for: the app, what it asks for, and the link to connect it, with when the link stops working. A run that waits only for a connect exits 6. Next to an approval or another system's answer, the connect is listed after them, and the exit code stays theirs. `--json` adds `connections`.

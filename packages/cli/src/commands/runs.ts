@@ -429,7 +429,7 @@ const resume: LeafCommand = {
   kind: 'leaf',
   name: 'resume',
   description:
-    "Say what a run waits for before it resumes: an approval (named, with the command that decides it), another system's answer (a tool's call that paused), the runtime (a queued start, a child run, a retry, a lease, a timeout), or nothing. With --output, answer its wait for another system's answer as that system would, then say what it waits for next. Exit 0: not waiting; 3: waits for an approval; 4: waits on the runtime; 5: waits for another system's answer.",
+    "Say what a run waits for before it resumes: an approval (named, with the command that decides it), another system's answer (a tool's call that paused), a person's connect (an app a tool's call needs, with the link to connect it), the runtime (a queued start, a child run, a retry, a lease, a timeout), or nothing. With --output, answer its wait for another system's answer as that system would, then say what it waits for next. Exit 0: not waiting; 3: waits for an approval; 4: waits on the runtime; 5: waits for another system's answer; 6: waits for a person to connect an app.",
   usage: 'kindgi runs resume <run-id> [--output=<json-or-@file> [--waitpoint=<id>]]',
   optionSpec: {
     output: {
