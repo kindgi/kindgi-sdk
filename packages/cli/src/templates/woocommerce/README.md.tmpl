@@ -64,7 +64,9 @@ another reviewer decides.
 The table is for a person's turn. The four tools that refund or change the
 store also declare `needsApprovalWhenUnattended`: in a run no person
 started (a webhook, a schedule or a service account's key started it),
-every call of one waits for a person, whatever the agent's policy says.
+every call of one waits for a person, whatever the agent's policy says
+(only a project admin can lift that, for one trigger's runs, with
+`--allow-unattended`).
 So `{{PACK_ID}}.woo.refund` runs on its own only when a person asks for it.
 
 A call that waits shows in the console's approvals inbox, and in

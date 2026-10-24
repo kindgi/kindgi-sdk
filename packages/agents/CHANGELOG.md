@@ -1,5 +1,69 @@
 # @kindgi/agents
 
+## 0.1.10
+
+### Patch Changes
+
+- b9a68d5: An agent's `conversationPolicy.autoCloseAfterInactiveSeconds` is refused. It was accepted and never acted on: a conversation never closes by itself, only when someone closes it. `defineAgent` (and an agent registered through `POST /v1/agents`, which answers `400 validation-failed`) now refuses any value at `/conversationPolicy/autoCloseAfterInactiveSeconds`, saying so: `autoCloseAfterInactiveSeconds isn't supported: a conversation never closes by itself. It closes when someone closes it: Close in the console, kindgi conversations close, or POST /v1/conversations/{id}/close. Leave it out.` The field leaves the `ConversationPolicy` type, `agent.schema.json` and the API's `ConversationPolicy` schema. `pack-index.schema.json` refuses it on an agent, so a Java, Scala or Python pack that sets it fails to build. An agent stored before it was refused keeps working: a pack already built still deploys, nothing reads the setting, and agent answers (`GET /v1/agents`, `/v1/agents/{id}`, `/versions`, `/versions/{version}`) leave it out of `conversationPolicy`.
+- 72b63e8: **A worker template renderer's `close()` no longer fails to settle after its renders finish.** Idle render workers are unref'd so they don't hold the process up, which left a race: once the running renders had ended, if `await renderer.close()` was the last thing keeping the event loop alive, the loop could drain and the process exit before the workers' exit settled the promise — so `close()` never resolved and a top-level `await` on it saw the process leave with a non-zero exit. Stopping a worker now holds the loop with its own ref'd timer until the worker is gone: `SIGTERM`, then `SIGKILL` a second later if it hasn't stopped, then give up a second after that — so the stop settles within two seconds and can neither drain the loop early nor hang on a wedged worker. Running renders are unaffected: `close()` still lets them finish before any worker is stopped.
+- @kindgi/capabilities@0.1.10
+  - @kindgi/compliance@0.1.10
+  - @kindgi/flow@0.1.10
+  - @kindgi/guardrails@0.1.10
+  - @kindgi/provenance@0.1.10
+  - @kindgi/schema@0.1.10
+  - @kindgi/tools@0.1.10
+  - @kindgi/authz@0.1.10
+  - @kindgi/bounds@0.1.10
+  - @kindgi/embedding@0.1.10
+  - @kindgi/handler@0.1.10
+  - @kindgi/memory@0.1.10
+  - @kindgi/policy-contract@0.1.10
+  - @kindgi/runtime@0.1.10
+  - @kindgi/types@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/authz@0.1.10-rc.1
+  - @kindgi/bounds@0.1.10-rc.1
+  - @kindgi/capabilities@0.1.10-rc.1
+  - @kindgi/compliance@0.1.10-rc.1
+  - @kindgi/embedding@0.1.10-rc.1
+  - @kindgi/flow@0.1.10-rc.1
+  - @kindgi/guardrails@0.1.10-rc.1
+  - @kindgi/handler@0.1.10-rc.1
+  - @kindgi/memory@0.1.10-rc.1
+  - @kindgi/policy-contract@0.1.10-rc.1
+  - @kindgi/provenance@0.1.10-rc.1
+  - @kindgi/runtime@0.1.10-rc.1
+  - @kindgi/schema@0.1.10-rc.1
+  - @kindgi/tools@0.1.10-rc.1
+  - @kindgi/types@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- b9a68d5: An agent's `conversationPolicy.autoCloseAfterInactiveSeconds` is refused. It was accepted and never acted on: a conversation never closes by itself, only when someone closes it. `defineAgent` (and an agent registered through `POST /v1/agents`, which answers `400 validation-failed`) now refuses any value at `/conversationPolicy/autoCloseAfterInactiveSeconds`, saying so: `autoCloseAfterInactiveSeconds isn't supported: a conversation never closes by itself. It closes when someone closes it: Close in the console, kindgi conversations close, or POST /v1/conversations/{id}/close. Leave it out.` The field leaves the `ConversationPolicy` type, `agent.schema.json` and the API's `ConversationPolicy` schema. `pack-index.schema.json` refuses it on an agent, so a Java, Scala or Python pack that sets it fails to build. An agent stored before it was refused keeps working: a pack already built still deploys, nothing reads the setting, and agent answers (`GET /v1/agents`, `/v1/agents/{id}`, `/versions`, `/versions/{version}`) leave it out of `conversationPolicy`.
+- 72b63e8: **A worker template renderer's `close()` no longer fails to settle after its renders finish.** Idle render workers are unref'd so they don't hold the process up, which left a race: once the running renders had ended, if `await renderer.close()` was the last thing keeping the event loop alive, the loop could drain and the process exit before the workers' exit settled the promise — so `close()` never resolved and a top-level `await` on it saw the process leave with a non-zero exit. Stopping a worker now holds the loop with its own ref'd timer until the worker is gone: `SIGTERM`, then `SIGKILL` a second later if it hasn't stopped, then give up a second after that — so the stop settles within two seconds and can neither drain the loop early nor hang on a wedged worker. Running renders are unaffected: `close()` still lets them finish before any worker is stopped.
+- @kindgi/capabilities@0.1.10-rc.0
+  - @kindgi/compliance@0.1.10-rc.0
+  - @kindgi/flow@0.1.10-rc.0
+  - @kindgi/guardrails@0.1.10-rc.0
+  - @kindgi/provenance@0.1.10-rc.0
+  - @kindgi/schema@0.1.10-rc.0
+  - @kindgi/tools@0.1.10-rc.0
+  - @kindgi/authz@0.1.10-rc.0
+  - @kindgi/bounds@0.1.10-rc.0
+  - @kindgi/embedding@0.1.10-rc.0
+  - @kindgi/handler@0.1.10-rc.0
+  - @kindgi/memory@0.1.10-rc.0
+  - @kindgi/policy-contract@0.1.10-rc.0
+  - @kindgi/runtime@0.1.10-rc.0
+  - @kindgi/types@0.1.10-rc.0
+
 ## 0.1.9
 
 ### Patch Changes

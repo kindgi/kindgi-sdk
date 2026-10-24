@@ -86,6 +86,11 @@ export const EVIDENCE_KINDS = [
   // A trigger's owner (the principal its runs act as) set at registration
   // or changed on take-over — a delegation when it names a service account.
   'trigger-owner-set',
+  // A trigger's `toolsAllowedUnattended` set at registration or changed:
+  // the tools its runs may call without a person's yes though no person
+  // started them. The payload names the trigger, its target and project,
+  // and the tool ids before and after — never what a run did.
+  'trigger-tools-allowed-unattended-set',
   // The order a tenant (or one of its orgs) runs a project through to live
   // was set, changed or cleared. The payload carries the order before and
   // after, each a list of project ids — never anything a project holds.
