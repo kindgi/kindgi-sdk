@@ -412,6 +412,15 @@ def test_strict_refuses_a_ref_that_names_nothing() -> None:
         )
     nested = {"type": "object", "properties": {"p": {"type": "string", "$ref": "#/$defs/nope"}}}
     assert strict_schema_problem(nested) == "can't resolve reference #/$defs/nope from id #"
+    # Only a schema names a base: a property named `$id`, or a value holding one, doesn't.
+    for elsewhere in [
+        {"type": "object", "properties": {"$id": {"type": "string"}, **nested["properties"]}},
+        {**nested, "default": {"$id": "https://x.example/a"}},
+        {**nested, "const": {"$dynamicAnchor": "A"}},
+        {**nested, "enum": [{"$id": "https://x.example/a"}]},
+        {**nested, "examples": [{"$dynamicAnchor": "A"}]},
+    ]:
+        assert strict_schema_problem(elsewhere) == "can't resolve reference #/$defs/nope from id #"
 
 
 def test_strict_follows_a_ref_to_the_root_once() -> None:
@@ -442,5 +451,9 @@ def test_strict_leaves_a_ref_alone_in_a_schema_with_a_base() -> None:
         "$defs": {"q": {"type": "string", "format": "hostnmae"}},
     }
     assert strict_schema_problem(nested_base) is None
-    anchored = {"$ref": "#A", "$defs": {"a": {"$dynamicAnchor": "A", "type": "string"}}}
-    assert strict_schema_problem(anchored) is None
+    p, root_defs = nested_base["properties"]["p"], nested_base["$defs"]
+    for holder in [{"type": "array", "items": p}, {"type": "string", "allOf": [p]}]:
+        assert strict_schema_problem({**holder, "$defs": root_defs}) is None
+    for defs in ["$defs", "definitions"]:
+        anchored = {"$ref": "#A", defs: {"a": {"$dynamicAnchor": "A", "type": "string"}}}
+        assert strict_schema_problem(anchored) is None

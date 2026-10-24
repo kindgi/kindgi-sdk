@@ -248,6 +248,12 @@ _COMPILE_ORDER = (
 )  # fmt: skip
 # The keyword that evaluates every property (or item), which makes an unevaluated one moot.
 _EVALUATES_ALL = {"unevaluatedProperties": "additionalProperties", "unevaluatedItems": "items"}
+# Where a subschema sits: under a keyword the runtime compiles, or among the definitions.
+_SUBSCHEMAS = (
+    *((keyword, holds) for keyword, holds in _COMPILE_ORDER if holds in ("one", "list", "map")),
+    ("$defs", "map"),
+    ("definitions", "map"),
+)
 # The keywords that name a base or an anchor the runtime knows, which a `$ref` can resolve against.
 _BASE_KEYWORDS = ("$id", "$dynamicAnchor")
 _INDEX = re.compile(r"0|[1-9][0-9]*")
@@ -261,7 +267,7 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
     two problems the one it names first; `None` when there's none.
 
     A `$ref` is followed when it is `#` or a `#/...` pointer, and refused otherwise. When the
-    schema names a base or an anchor anywhere (`$id`, `$dynamicAnchor`), what a `$ref`
+    schema or a subschema names a base or an anchor (`$id`, `$dynamicAnchor`), what a `$ref`
     reaches depends on bases this walk doesn't track, so no `$ref` is followed or refused. Ajv's
     strict rules about types (`strictTypes`, `strictTuples`, `strictRequired`) aren't checked here.
     """
@@ -340,13 +346,25 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
 
 
 def _names_a_base(node: Any) -> bool:
-    if isinstance(node, Mapping):
-        here = cast("Mapping[str, Any]", node)
-        return any(keyword in here for keyword in _BASE_KEYWORDS) or any(
-            _names_a_base(value) for value in here.values()
-        )
-    if isinstance(node, list):
-        return any(_names_a_base(item) for item in cast("list[Any]", node))
+    """Whether `node` or a subschema of it names a base or an anchor (`_BASE_KEYWORDS`). Only a
+    schema names one: a property named `$id`, or a `default` holding one, doesn't."""
+    if not isinstance(node, Mapping):
+        return False
+    here = cast("Mapping[str, Any]", node)
+    if any(keyword in here for keyword in _BASE_KEYWORDS):
+        return True
+    for keyword, holds in _SUBSCHEMAS:
+        value = here.get(keyword)
+        if holds == "one":
+            inside = [value]
+        elif holds == "list" and isinstance(value, list):
+            inside = cast("list[Any]", value)
+        elif holds == "map" and isinstance(value, Mapping):
+            inside = list(cast("Mapping[str, Any]", value).values())
+        else:
+            continue
+        if any(_names_a_base(item) for item in inside):
+            return True
     return False
 
 
