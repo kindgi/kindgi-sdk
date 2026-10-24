@@ -1331,6 +1331,107 @@ describe('kindgi build — output shape', () => {
     expect(streamed).toEqual([]);
   });
 
+  describe("--quiet: a warning still shows, streamed or kept; the build's other lines don't", () => {
+    const indexWarning =
+      'guardrails/cites.ts: check "cites" doesn\'t start with this pack\'s id ("my-pack.").';
+    const cases: readonly {
+      readonly warning: string;
+      readonly flags?: readonly string[];
+      readonly fixtures?: FixtureOptions;
+      readonly runners?: (runners: BuildRunners) => BuildRunners;
+      readonly config?: Record<string, unknown>;
+      readonly pack?: () => Promise<void>;
+    }[] = [
+      { warning: '    ⚠ Integrity gate SKIPPED', flags: ['--skip-integrity-gate'] },
+      { warning: '    ⚠ Image pull SKIPPED', flags: ['--skip-image-pull'] },
+      {
+        warning: '    ⚠ docker pull failed: no such image\n      Falling back',
+        runners: (runners) => ({
+          ...runners,
+          pullImageIndex: async () => {
+            throw new Error('no such image');
+          },
+        }),
+      },
+      { warning: '  ⚠ Signing SKIPPED', flags: ['--skip-sign'] },
+      {
+        warning: `    ⚠ ${indexWarning}`,
+        fixtures: {
+          indexOutcome: {
+            kind: 'ok',
+            packId: 'my-pack',
+            packVersion: '0.1.0',
+            counts: { tools: 1, guardrails: 1, agents: 0, flows: 0 },
+            fileErrors: [],
+            warnings: [
+              {
+                code: 'check-id-unprefixed',
+                message: indexWarning,
+                filePath: 'guardrails/cites.ts',
+              },
+            ],
+            index: SAMPLE_INDEX,
+          } as LocalIndexResult,
+        },
+      },
+      {
+        warning: '    ⚠ The build service gets no build secrets',
+        pack: () => writeFile(join(packDir, '.npmrc'), '//registry.example.com/:_authToken=x\n'),
+      },
+      {
+        warning: "    ⚠ postinstall runs patch-package, so its patches aren't applied in the image",
+        pack: () =>
+          writeFile(
+            join(packDir, 'package.json'),
+            `${JSON.stringify({ name: 'test-pack', version: '0.1.0', scripts: { postinstall: 'patch-package' } })}\n`,
+          ),
+      },
+      {
+        warning:
+          '    ⚠ Loaded by a computed name; image.keep (pino-pretty) must cover what these load:',
+        config: { image: { dependencies: 'loaded', keep: ['pino-pretty'] } },
+        runners: (runners) => ({
+          ...runners,
+          esbuildBundle: async (o) => ({
+            ...(await runners.esbuildBundle(o)),
+            computedImports: [
+              { file: join(packDir, 'tools', 'load.ts'), line: 4, text: 'return import(name);' },
+            ],
+          }),
+        }),
+      },
+    ];
+
+    test.each(cases)('$warning', async (c) => {
+      await c.pack?.();
+      for (const quiet of [false, true]) {
+        for (const streams of [true, false]) {
+          const streamed: string[] = [];
+          const fixtures = makeFixtures(c.fixtures);
+          const out = await runCli({
+            ...baseInputs(
+              fixtures,
+              streams ? { progress: (text) => streamed.push(text) } : {},
+              c.config,
+            ),
+            buildRunners: c.runners?.(fixtures.runners) ?? fixtures.runners,
+            argv: [
+              'build',
+              '--env=staging',
+              `--path=${packDir}`,
+              ...(c.flags ?? []),
+              ...(quiet ? ['--quiet'] : []),
+            ],
+          });
+          expect(out.exitCode, out.stderr).toBe(0);
+          const said = streams ? streamed.join('') : out.stderr;
+          expect(said).toContain(c.warning);
+          expect(said.includes('  Deploy envelope written to'), said).toBe(!quiet);
+        }
+      }
+    });
+  });
+
   test('--json: the summary alone on stdout, the progress on stderr as it comes', async () => {
     const streamed: string[] = [];
     const out = await runCli({

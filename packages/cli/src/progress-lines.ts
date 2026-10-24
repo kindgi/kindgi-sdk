@@ -5,11 +5,11 @@
  * Where a command's lines go (`kindgi build`'s, `kindgi deploy`'s): each to
  * `progress` as it comes when the CLI streams them, else kept for the
  * result's stderr (`kept`). `quiet` leaves out each `line`, never a
- * `problem`; an error is said either way.
+ * `problem`: an error or a warning is said either way.
  */
 export interface ProgressLines {
   readonly line: (s: string) => void;
-  /** A line that's an error: said under `quiet` too, as `kindgi dev` does. */
+  /** A line that's an error or a warning: said under `quiet` too, as `kindgi dev` does. */
   readonly problem: (s: string) => void;
   readonly kept: () => string;
 }
