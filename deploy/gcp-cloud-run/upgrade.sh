@@ -557,7 +557,7 @@ gcloud storage buckets add-iam-policy-binding "gs://${BUCKET_ONLY}" \
 info "granted $SQL_SA roles/storage.objectAdmin on gs://${BUCKET_ONLY} (the grant stays)."
 
 warn "The export is a point in time. Writes after it are not in the backup and are lost if you roll back. On a busy deployment, stop traffic first."
-info "exporting to $EXPORT_URI"
+info "exporting to $EXPORT_URI (a large database can take several minutes; gcloud's output follows when it ends)"
 # Until the grant above takes effect, Cloud SQL refuses the export with
 # HTTPError 412 and "the required permissions for the bucket". Only that is
 # waited out, for up to GRANT_WAIT_SECONDS; any other failure stops at once.
