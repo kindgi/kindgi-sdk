@@ -5,7 +5,8 @@
  * `@kindgi/connections` — the app entries a Kindgi server reads to connect
  * accounts at other apps, and `defineApp` to check one. The entries
  * themselves are subpaths: `@kindgi/connections/google`,
- * `@kindgi/connections/github`, `@kindgi/connections/microsoft`.
+ * `@kindgi/connections/github`, `@kindgi/connections/microsoft`,
+ * `@kindgi/connections/linkedin`.
  */
 
 export {
