@@ -22,6 +22,12 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   first, so the tool hands nothing on. `ToolContext.for_test(wait_token=...)`
   tests one. New: `PauseAnswer`, `PauseNotAvailable` and `WaitToken`. The
   client's `Tool` model carries `pauses`.
+- `kindgi`: **the client answers a run's wait for another system.**
+  `runs.resume(run_id, waitpoint_id=..., value=...)` takes a `pause:` waitpoint
+  from `runs.get(run_id).waiting_for.tokens` (`RunWaitingToken`), with the
+  tool's output as `value`. Any other waitpoint is refused with
+  `run-resume-not-supported`. New error codes: `wait-token-not-found`,
+  `wait-token-closed`, `wait-token-output-invalid` and `unsupported-media-type`.
 - `kindgi`: **`SecretRevokeOutcome` and `SecretRevokeResult` gain an optional
   `recoverable_until`**: when a hard revoke left a copy your secret manager can
   still recover, until when it keeps it. It's `None` on a soft revoke, and
