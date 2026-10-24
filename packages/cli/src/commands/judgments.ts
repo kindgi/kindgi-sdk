@@ -53,15 +53,15 @@ function correctionItem(ctx: CommandContext): JudgedItem {
   const key = stringFlag(ctx, 'item');
   if (key !== undefined && key !== CORRECTION_ITEM.key) {
     throw new UsageError(
-      `a correction is recorded under --item=${CORRECTION_ITEM.key}; drop --item or set it to that`,
+      `--correction is recorded under --item=${CORRECTION_ITEM.key}; drop --item or set it to that`,
     );
   }
   const pointer = ctx.options.pointer;
   if (typeof pointer === 'string' && pointer !== CORRECTION_ITEM.pointer) {
-    throw new UsageError('a correction judges the whole output; drop --pointer');
+    throw new UsageError('--correction covers the whole output; drop --pointer');
   }
   if (integerFlag(ctx, 'rank') !== undefined) {
-    throw new UsageError('a correction judges the whole output; drop --rank');
+    throw new UsageError('--correction covers the whole output; drop --rank');
   }
   return { key: CORRECTION_ITEM.key, pointer: CORRECTION_ITEM.pointer };
 }
@@ -70,24 +70,30 @@ const add: LeafCommand = {
   kind: 'leaf',
   name: 'add',
   description:
-    "Judge one item of a finished run's output: yes or no, with an optional reason. Judging the same item again as the same caller replaces the earlier judgment.",
+    "Correct one item of a finished run's output: mark the answer right (`--yes`) or wrong (`--no`), with an optional reason. Correcting the same item again as the same caller replaces the earlier correction.",
   usage:
     'kindgi judgments add --run=<run-id> --item=<key> [--pointer=<json-pointer>] [--rank=<n>] (--yes | --no) [--reason=<text>] [--correction=<json-or-@file>] [--class=<judge-class-id>] [--participant=<id>]',
   optionSpec: {
-    run: { type: 'string', description: 'The run whose output is judged. Required.' },
+    run: { type: 'string', description: 'The run whose output is corrected. Required.' },
     item: {
       type: 'string',
-      description: 'Your stable id for the judged item, e.g. a matched case id. Required.',
+      description: 'Your stable id for the corrected item, e.g. a matched case id. Required.',
     },
     pointer: {
       type: 'string',
       description:
-        "Where the item is in the run's output, as a JSON Pointer such as `/matches/2`. Its value is kept with the judgment.",
+        "Where the item is in the run's output, as a JSON Pointer such as `/matches/2`. Its value is kept with the correction.",
     },
     rank: { type: 'string', description: "The item's position in a ranked list (0 = first)." },
-    yes: { type: 'boolean', description: 'The verdict is yes. Give `--yes` or `--no`.' },
-    no: { type: 'boolean', description: 'The verdict is no. Give `--yes` or `--no`.' },
-    reason: { type: 'string', description: 'Why, recorded with the judgment.' },
+    yes: {
+      type: 'boolean',
+      description: 'Mark the item right (the verdict `yes`). Give `--yes` or `--no`.',
+    },
+    no: {
+      type: 'boolean',
+      description: 'Mark the item wrong (the verdict `no`). Give `--yes` or `--no`.',
+    },
+    reason: { type: 'string', description: 'Why, recorded with the correction.' },
     correction: {
       type: 'string',
       description:
@@ -96,11 +102,12 @@ const add: LeafCommand = {
     class: {
       type: 'string',
       description:
-        'The judge class id to record the judgment under. Without one, the judgment is unclassified.',
+        'The judge class id to record the correction under. Without one, the correction is unclassified.',
     },
     participant: {
       type: 'string',
-      description: 'Your opaque id for the end user who judged, when you judge on their behalf.',
+      description:
+        'Your opaque id for the end user who corrected, when you correct on their behalf.',
     },
   },
   run: (ctx) =>
@@ -129,27 +136,27 @@ const add: LeafCommand = {
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: 'List judgments, newest first (replaced and removed ones are left out).',
+  description: 'List corrections, newest first (replaced and removed ones are left out).',
   usage:
     'kindgi judgments list [--run=<run-id>] [--agent=<id> [--agent-version=<v>]] [--flow=<id>] [--verdict=yes|no] [--class=<judge-class-id>] [--participant=<id>] [--project=<id>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
-    run: { type: 'string', description: 'Only judgments of this run.' },
-    agent: { type: 'string', description: 'Only judgments of runs of this agent.' },
+    run: { type: 'string', description: 'Only corrections of this run.' },
+    agent: { type: 'string', description: 'Only corrections of runs of this agent.' },
     'agent-version': {
       type: 'string',
-      description: 'Only judgments of runs of this agent version. Needs `--agent`.',
+      description: 'Only corrections of runs of this agent version. Needs `--agent`.',
     },
-    flow: { type: 'string', description: 'Only judgments of runs of this flow.' },
+    flow: { type: 'string', description: 'Only corrections of runs of this flow.' },
     verdict: { type: 'string', description: 'Only this verdict: `yes` or `no`.' },
-    class: { type: 'string', description: 'Only judgments under this judge class id.' },
+    class: { type: 'string', description: 'Only corrections under this judge class id.' },
     participant: {
       type: 'string',
-      description: "Only judgments made for this end user's opaque id.",
+      description: "Only corrections made for this end user's opaque id.",
     },
-    project: { type: 'string', description: 'Only judgments in this project.' },
+    project: { type: 'string', description: 'Only corrections in this project.' },
     limit: {
       type: 'string',
-      description: 'The most judgments to return (default 25, at most 100).',
+      description: 'The most corrections to return (default 25, at most 100).',
     },
     cursor: {
       type: 'string',
@@ -192,7 +199,7 @@ const show: LeafCommand = {
   kind: 'leaf',
   name: 'show',
   description:
-    "Show a judgment with the stored copies of the run's input and output, and the judged item's value.",
+    "Show a correction with the stored copies of the run's input and output, and the corrected item's value.",
   usage: 'kindgi judgments show <judgment-id>',
   run: (ctx) =>
     runSdk(ctx, 'judgments show', async () => {
@@ -204,7 +211,7 @@ const show: LeafCommand = {
 const remove: LeafCommand = {
   kind: 'leaf',
   name: 'remove',
-  description: 'Remove a judgment.',
+  description: 'Remove a correction.',
   usage: 'kindgi judgments remove <judgment-id>',
   run: (ctx) =>
     runSdk(ctx, 'judgments remove', async () => {
@@ -217,6 +224,7 @@ const remove: LeafCommand = {
 export const judgmentsCommand: Command = {
   kind: 'group',
   name: 'judgments',
-  description: "Judge items of a run's output, yes or no (add / list / show / remove).",
+  description:
+    "Correct items of a run's output, marking them right or wrong (add / list / show / remove).",
   subcommands: [add, list, show, remove],
 };

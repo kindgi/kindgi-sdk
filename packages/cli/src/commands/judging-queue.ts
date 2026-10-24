@@ -26,7 +26,7 @@ const PROJECT_OPTION: Readonly<Record<string, ParseArgsOption>> = {
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: 'List the runs in the project’s judging queue, oldest first.',
+  description: 'List the runs in the project’s To correct list, oldest first.',
   usage:
     'kindgi judging-queue list [--project=<id>] [--state=open|judged|dismissed|erased] [--agent=<id>] [--rule=<id>] [--class=<id>] [--for-me] [--added-after=<time>] [--closed-after=<time>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
@@ -41,7 +41,7 @@ const list: LeafCommand = {
     'for-me': {
       type: 'boolean',
       description:
-        'Only items a judgment of mine would close (any judgment, or one of my classes).',
+        'Only items a correction of mine would close (any correction, or one of my classes).',
     },
     'added-after': {
       type: 'string',
@@ -88,7 +88,7 @@ const list: LeafCommand = {
 const dismiss: LeafCommand = {
   kind: 'leaf',
   name: 'dismiss',
-  description: 'Dismiss a queued run so it needs no judgment; `reopen` undoes it.',
+  description: 'Dismiss a queued run so it needs no correction; `reopen` undoes it.',
   usage: 'kindgi judging-queue dismiss <run-id> [--project=<id>] [--reason=<text>]',
   optionSpec: {
     ...PROJECT_OPTION,
@@ -106,7 +106,7 @@ const dismiss: LeafCommand = {
 const reopen: LeafCommand = {
   kind: 'leaf',
   name: 'reopen',
-  description: 'Reopen a dismissed item, so it waits for a judgment again.',
+  description: 'Reopen a dismissed item, so it waits for a correction again.',
   usage: 'kindgi judging-queue reopen <run-id> [--project=<id>]',
   optionSpec: { ...PROJECT_OPTION },
   run: (ctx) =>
@@ -121,6 +121,6 @@ export const judgingQueueCommand: Command = {
   kind: 'group',
   name: 'judging-queue',
   description:
-    "A project's judging queue — the runs a rule puts up for a person's judgment, open or closed (list / dismiss / reopen).",
+    "A project's To correct list — the runs a rule puts up for a person's correction, open or closed (list / dismiss / reopen).",
   subcommands: [list, dismiss, reopen],
 };
