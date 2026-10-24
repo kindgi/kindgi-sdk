@@ -5,7 +5,9 @@
  * `directoryWatches`: one watch per folder, shared. Its subscribers each
  * get every event, by path relative to the folder; one that throws never
  * stops the others; a failure reaches each once; the last to leave closes
- * the watch.
+ * the watch. `folderGoneWhileRead`: which of a pack's own watch's errors
+ * aren't a failed watch. `mayHideChange`: which of them may hide a change to
+ * the pack's code.
  */
 
 import { realpathSync } from 'node:fs';
@@ -15,7 +17,13 @@ import { join, sep } from 'node:path';
 
 import { describe, expect, test, vi } from 'vitest';
 
-import { type WatchEvents, directoryWatches } from '../src/dev/shared-watch.js';
+import {
+  type WatchEvents,
+  directoryWatches,
+  folderGoneWhileRead,
+  mayHideChange,
+} from '../src/dev/shared-watch.js';
+import { permissionDenied, removedWhileRead, watchLimitReached } from './scripted-watch.js';
 
 /** vi.waitFor's own default (1 s) is too short on a loaded machine; a passing wait returns as soon as it holds. */
 const WAIT = { timeout: 15_000 } as const;
@@ -174,5 +182,81 @@ describe('directoryWatches', () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('folderGoneWhileRead', () => {
+  test("only ENOENT from scandir: Linux's folder removed while the watch read it", () => {
+    expect(folderGoneWhileRead(removedWhileRead('/pack/tools'))).toBe(true);
+    expect(folderGoneWhileRead(watchLimitReached('/pack/tools'))).toBe(false);
+    const gone = Object.assign(new Error("ENOENT: no such file or directory, watch '/pack'"), {
+      code: 'ENOENT',
+      syscall: 'watch',
+    });
+    expect(folderGoneWhileRead(gone)).toBe(false);
+    const unreadable = Object.assign(
+      new Error("EACCES: permission denied, scandir '/pack/tools'"),
+      {
+        code: 'EACCES',
+        syscall: 'scandir',
+      },
+    );
+    expect(folderGoneWhileRead(unreadable)).toBe(false);
+    expect(folderGoneWhileRead(undefined)).toBe(false);
+  });
+});
+
+describe('mayHideChange', () => {
+  const root = join(tmpdir(), 'pack');
+  // `target` and what's under it: a folder no build reads.
+  const skipped = (folder: string): boolean => folder === 'target' || folder.startsWith('target/');
+  const at = (...path: string[]): string => join(root, ...path);
+
+  test("ENOSPC: a path not watched hides its changes and its folder's new entries", () => {
+    expect(mayHideChange(watchLimitReached(at('target', 'streams', 'x')), root, skipped)).toBe(
+      false,
+    );
+    expect(mayHideChange(watchLimitReached(at('target', 'classes')), root, skipped)).toBe(false);
+    expect(mayHideChange(watchLimitReached(at('src', 'main', 'A.java')), root, skipped)).toBe(true);
+    // `target` itself: the root's other new entries went unreported with it.
+    expect(mayHideChange(watchLimitReached(at('target')), root, skipped)).toBe(true);
+  });
+
+  test('EACCES: a folder not read hides its entries; a path not watched, as ENOSPC', () => {
+    expect(mayHideChange(permissionDenied(at('target'), 'scandir'), root, skipped)).toBe(false);
+    expect(mayHideChange(permissionDenied(at('target', 'streams'), 'scandir'), root, skipped)).toBe(
+      false,
+    );
+    expect(mayHideChange(permissionDenied(at('src'), 'scandir'), root, skipped)).toBe(true);
+    expect(mayHideChange(permissionDenied(root, 'scandir'), root, skipped)).toBe(true);
+    expect(mayHideChange(permissionDenied(at('target', 'x'), 'watch'), root, skipped)).toBe(false);
+    expect(mayHideChange(permissionDenied(at('target'), 'watch'), root, skipped)).toBe(true);
+    expect(mayHideChange(permissionDenied(at('src', 'x'), 'watch'), root, skipped)).toBe(true);
+  });
+
+  test('a folder removed while read hides nothing: its removal comes as a change', () => {
+    expect(mayHideChange(removedWhileRead(at('src')), root, skipped)).toBe(false);
+  });
+
+  test('an error that names no path in the pack may hide any change', () => {
+    const everything = (): boolean => true;
+    expect(mayHideChange(new Error('the watch failed'), root, everything)).toBe(true);
+    expect(mayHideChange(undefined, root, everything)).toBe(true);
+    expect(mayHideChange(watchLimitReached(root), root, everything)).toBe(true);
+    // Beside the pack, not in it.
+    const beside = watchLimitReached(join(tmpdir(), 'target', 'x'));
+    expect(mayHideChange(beside, root, everything)).toBe(true);
+  });
+
+  test('the folder it asks about is relative to the root and `/`-separated', () => {
+    const asked: string[] = [];
+    const record = (folder: string): boolean => {
+      asked.push(folder);
+      return false;
+    };
+    mayHideChange(watchLimitReached(at('src', 'main', 'A.java')), root, record);
+    mayHideChange(watchLimitReached(at('pom.xml')), root, record);
+    mayHideChange(permissionDenied(at('src', 'main'), 'scandir'), root, record);
+    expect(asked).toEqual(['src/main', '', 'src/main']);
   });
 });

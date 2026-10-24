@@ -1,0 +1,15 @@
+{
+  "id": "conformance.greeting",
+  "version": "1.0.0",
+  "kind": "prompt",
+  "description": "Greets the person by name",
+  "content": {
+    "templateFile": "greeting.liquid",
+    "parameters": [
+      {
+        "name": "name",
+        "type": "string"
+      }
+    ]
+  }
+}

@@ -305,4 +305,78 @@ describe('kindgi webhooks: the rest of the group', () => {
       expect(calls).toEqual([[call, ID]]);
     }
   });
+
+  test('--run-as names a service account on register and take-over', async () => {
+    const BOT = '22222222-2222-4222-8222-222222222222';
+    const reg = await webhooks([
+      'register',
+      '--flow=acme.refund-review',
+      '--flow-version=1.0.0',
+      '--secret=acme-woo-secret',
+      `--run-as=${BOT}`,
+    ]);
+    expect(reg.out.exitCode, reg.out.stderr).toBe(0);
+    expect(reg.calls[0]).toMatchObject(['register', { runAsServiceAccountId: BOT }]);
+
+    const take = await webhooks(['take-ownership', ID, `--run-as=${BOT}`]);
+    expect(take.calls).toEqual([['takeOwnership', ID, { runAsServiceAccountId: BOT }]]);
+  });
+
+  test('--allow-unattended: repeatable on register and update; `none` clears on update only', async () => {
+    const reg = await webhooks([
+      'register',
+      '--flow=acme.refund-review',
+      '--flow-version=1.0.0',
+      '--secret=acme-woo-secret',
+      '--allow-unattended=acme.refund',
+      '--allow-unattended=acme.notify',
+    ]);
+    expect(reg.out.exitCode, reg.out.stderr).toBe(0);
+    expect(reg.calls[0]).toMatchObject([
+      'register',
+      { toolsAllowedUnattended: ['acme.refund', 'acme.notify'] },
+    ]);
+
+    const cleared = await webhooks(['update', ID, '--allow-unattended=none']);
+    expect(cleared.calls).toEqual([['update', ID, { toolsAllowedUnattended: [] }]]);
+    const replaced = await webhooks(['update', ID, '--allow-unattended=acme.refund']);
+    expect(replaced.calls).toEqual([['update', ID, { toolsAllowedUnattended: ['acme.refund'] }]]);
+    const kept = await webhooks(['update', ID, '--label=orders']);
+    expect(kept.calls).toEqual([['update', ID, { label: 'orders' }]]);
+
+    const noneAtRegister = await webhooks([
+      'register',
+      '--flow=acme.refund-review',
+      '--flow-version=1.0.0',
+      '--secret=acme-woo-secret',
+      '--allow-unattended=none',
+    ]);
+    expect(noneAtRegister.out.exitCode).not.toBe(0);
+    expect(noneAtRegister.out.stderr).toContain(
+      '--allow-unattended=none clears the list on update',
+    );
+    expect(noneAtRegister.calls).toEqual([]);
+    const noneWithIds = await webhooks([
+      'update',
+      ID,
+      '--allow-unattended=none',
+      '--allow-unattended=acme.refund',
+    ]);
+    expect(noneWithIds.out.exitCode).not.toBe(0);
+    expect(noneWithIds.calls).toEqual([]);
+  });
+
+  test('take-ownership names the tools the trigger keeps allowed unattended, when it lists any', async () => {
+    const listed = await webhooks(['take-ownership', ID], {
+      trigger: { ...TRIGGER, toolsAllowedUnattended: ['acme.refund'] },
+    });
+    expect(listed.out.exitCode, listed.out.stderr).toBe(0);
+    expect(listed.out.stderr).toContain('It keeps its tools allowed unattended (acme.refund)');
+    expect(listed.out.stderr).toContain(
+      "their calls in its runs still don't wait for a person's yes just because no person started them, now as the new owner.",
+    );
+    expect(listed.out.stderr).toContain(`kindgi webhooks update ${ID} --allow-unattended=none`);
+    const none = await webhooks(['take-ownership', ID]);
+    expect(none.out.stderr).not.toContain('allowed unattended');
+  });
 });

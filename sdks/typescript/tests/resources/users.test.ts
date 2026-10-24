@@ -19,6 +19,12 @@ const WIRE_USER = {
   lastActiveAt: '2026-09-20T00:00:00.000Z',
 };
 
+const WIRE_INVITE = {
+  state: 'pending',
+  expiresAt: '2026-01-08T00:00:00.000Z',
+  sentAt: '2026-01-01T00:00:00.000Z',
+};
+
 const WIRE_SESSION = {
   sessionId: 'sess-123',
   userId: 'user-alice',
@@ -187,6 +193,44 @@ describe('users.unregister — POST /v1/identity/users/{userId}/unregister', () 
     );
   });
 
+  it('list asks for only the invited people when told, and reads their invitation', async () => {
+    const invited = { ...WIRE_USER, invite: WIRE_INVITE };
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ data: [invited], hasMore: false }) },
+      { status: 200, body: JSON.stringify({ data: [WIRE_USER], hasMore: false }) },
+    ]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const page = await client.users.list({ pending: true });
+    await client.users.list({ pending: false });
+    expect(stub.calls[0]?.url).toBe('https://api.example.com/v1/identity/users?pending=true');
+    expect(stub.calls[1]?.url).toBe('https://api.example.com/v1/identity/users');
+    expect(page.data[0]?.invite).toEqual(WIRE_INVITE);
+  });
+
+  it('list keeps a pending page to the invited when the runtime lists everyone', async () => {
+    // A runtime from before invitations ignores `pending`.
+    const invited = { ...WIRE_USER, userId: 'carol', invite: WIRE_INVITE };
+    const everyone = JSON.stringify({ data: [WIRE_USER, invited], hasMore: false });
+    const stub = recordingFetch([
+      { status: 200, body: everyone },
+      { status: 200, body: everyone },
+    ]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const pending = await client.users.list({ pending: true });
+    const all = await client.users.list();
+    expect(pending.data.map((u) => u.userId)).toEqual(['carol']);
+    expect(pending.hasMore).toBe(false);
+    expect(all.data).toHaveLength(2);
+  });
+
   it("list carries each person's grants only when asked", async () => {
     const grants = { userId: WIRE_USER.userId, tenantAdmin: false, projects: [], teams: [] };
     const stub = recordingFetch([
@@ -212,18 +256,19 @@ describe('users.unregister — POST /v1/identity/users/{userId}/unregister', () 
 });
 
 describe('users.create — POST /v1/identity/users', () => {
-  it('adds a person and returns their id', async () => {
-    const stub = jsonFetch(WIRE_USER, { status: 201 });
+  it('adds a person and returns them, with whether their invitation was emailed', async () => {
+    const wire = { ...WIRE_USER, invite: WIRE_INVITE, inviteEmail: { sent: true } };
+    const stub = jsonFetch(wire, { status: 201 });
     const client = createClient({
       apiUrl: 'https://api.example.com',
       auth: AUTH,
       fetch: stub.fetch,
     });
-    const id = await client.users.create(
+    const created = await client.users.create(
       { displayName: 'Alice', email: 'alice@example.com' },
       { idempotencyKey: 'idem-u' },
     );
-    expect(id).toBe('user-alice');
+    expect(created).toEqual(wire);
     const req = stub.calls[0]!;
     expect(req.method).toBe('POST');
     expect(req.url).toBe('https://api.example.com/v1/identity/users');
@@ -231,6 +276,43 @@ describe('users.create — POST /v1/identity/users', () => {
     expect(JSON.parse(req.body ?? '{}')).toEqual({
       displayName: 'Alice',
       primaryEmail: 'alice@example.com',
+    });
+  });
+
+  it('from a runtime that does not invite, the person has no inviteEmail', async () => {
+    const stub = jsonFetch(WIRE_USER, { status: 201 });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const created = await client.users.create({ displayName: 'Alice' });
+    expect(created).toEqual(WIRE_USER);
+    expect('inviteEmail' in created).toBe(false);
+  });
+
+  it('sendInvite: false goes on the wire, and the invitation says not-requested', async () => {
+    const wire = {
+      ...WIRE_USER,
+      invite: { state: 'pending', expiresAt: WIRE_INVITE.expiresAt },
+      inviteEmail: { sent: false, reason: 'not-requested' },
+    };
+    const stub = jsonFetch(wire, { status: 201 });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const created = await client.users.create({
+      displayName: 'Alice',
+      email: 'alice@example.com',
+      sendInvite: false,
+    });
+    expect(created.inviteEmail).toEqual({ sent: false, reason: 'not-requested' });
+    expect(JSON.parse(stub.calls[0]?.body ?? '{}')).toEqual({
+      displayName: 'Alice',
+      primaryEmail: 'alice@example.com',
+      sendInvite: false,
     });
   });
 
@@ -264,6 +346,63 @@ describe('users.create — POST /v1/identity/users', () => {
   });
 });
 
+describe('users.resendInvite — POST /v1/identity/users/{userId}/invite', () => {
+  it('renews the invitation and says whether it was emailed again', async () => {
+    const wire = { user: { ...WIRE_USER, invite: WIRE_INVITE }, inviteEmail: { sent: true } };
+    const stub = jsonFetch(wire);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const renewed = await client.users.resendInvite('user/alice' as never, {
+      idempotencyKey: 'idem-i',
+    });
+    expect(renewed).toEqual(wire);
+    const req = stub.calls[0]!;
+    expect(req.method).toBe('POST');
+    expect(req.url).toBe('https://api.example.com/v1/identity/users/user%2Falice/invite');
+    expect(req.headers['idempotency-key']).toBe('idem-i');
+    expect(JSON.parse(req.body ?? 'null')).toEqual({});
+  });
+
+  it('someone who has joined is a conflict', async () => {
+    const stub = errorFetch(409, {
+      code: 'identity-user-not-invited',
+      message: 'joined',
+      details: { userId: 'user-alice' },
+    });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    await expect(client.users.resendInvite('user-alice' as never)).rejects.toMatchObject({
+      error: { code: 'conflict', reason: 'identity-user-not-invited' },
+    });
+  });
+
+  it('too many resends is rate-limited, with the wait from Retry-After', async () => {
+    const stub = recordingFetch([
+      {
+        status: 429,
+        body: JSON.stringify({
+          error: { requestId: 'req-test', code: 'invite-capped', message: 'later' },
+        }),
+        headers: { 'Retry-After': '43' },
+      },
+    ]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    await expect(client.users.resendInvite('user-alice' as never)).rejects.toMatchObject({
+      error: { code: 'rate-limited', serverCode: 'invite-capped', retryAfterSeconds: 43 },
+    });
+  });
+});
+
 describe('users not-yet-wired surface', () => {
   it('update / deactivate / sessions.revoke throw not-yet-wired', async () => {
     const stub = recordingFetch([]);
@@ -283,5 +422,39 @@ describe('users not-yet-wired surface', () => {
       error: { code: 'not-yet-wired', method: 'users.sessions.revoke' },
     });
     expect(stub.calls.length).toBe(0);
+  });
+});
+
+describe("users.secondFactor and removeSecondFactor — a person's second factor", () => {
+  it('reads theirs, and removes it with an Idempotency-Key', async () => {
+    const status = {
+      setUp: true,
+      since: '2026-10-17T00:00:00.000Z',
+      recoveryCodesLeft: 3,
+      usable: true,
+      required: false,
+    };
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify(status) },
+      { status: 200, body: JSON.stringify({ removed: true }) },
+    ]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    expect(await client.users.secondFactor('user/bob' as never)).toEqual(status);
+    expect(
+      await client.users.removeSecondFactor('user/bob' as never, { idempotencyKey: 'idem-sf' }),
+    ).toEqual({ removed: true });
+    const [read, removed] = stub.calls;
+    expect(`${read?.method} ${read?.url}`).toBe(
+      'GET https://api.example.com/v1/identity/users/user%2Fbob/second-factor',
+    );
+    expect(`${removed?.method} ${removed?.url}`).toBe(
+      'POST https://api.example.com/v1/identity/users/user%2Fbob/second-factor/remove',
+    );
+    expect(removed?.headers['idempotency-key']).toBe('idem-sf');
+    expect(JSON.parse(removed?.body ?? 'null')).toEqual({});
   });
 });

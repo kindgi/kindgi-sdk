@@ -1,0 +1,500 @@
+---
+title: Wait for another system's answer
+description: A tool hands another system a link and pauses its run. The answer that system posts to the link becomes the tool call's result, and the run goes on.
+sidebar:
+  order: 7
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Some work finishes somewhere else, later: a carrier books a driver, a
+payment settles, a document comes back signed. A tool that pauses hands the
+system doing that work a link, and its run waits. When the system posts its
+answer to the link, the answer becomes the tool call's result, and the run
+goes on from there.
+
+This guide writes a tool that books a carrier's pickup and waits for the
+carrier to confirm it.
+
+## Before you start
+
+- **A pack in TypeScript or Python,** such as the quickstarts' `my-pack`,
+  with `kindgi dev` running and Kindgi 0.2's CLI. Pausing isn't in the Java
+  or Scala SDK.
+- **Runtime 0.2.0 or later.** An earlier runtime sends the call no link, and
+  the call fails with `pause-not-available`.
+- **On a server you run, its public address in `KINDGI_PUBLIC_URL`,** so the
+  link reaches it from the other system
+  ([On a server you run](#on-a-server-you-run)).
+
+## Write a tool that pauses
+
+Ask your coding agent: "I want a tool that books a carrier pickup for an
+order, then waits until the carrier confirms it." Kindgi's skills in your
+pack tell it how ([How it knows Kindgi](../../../start/coding-agents/)). For
+reference, the tool looks like this:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// tools/request-pickup/index.ts
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+// Stands in for your carrier's API: it keeps the link, and posts the
+// pickup's confirmation to it once a driver is booked.
+const CARRIER = new Map<string, { callbackUrl: string; reference: string | undefined }>();
+
+const defined = defineTool({
+  id: 'my-pack.request-pickup' as ToolId,
+  description: "Books a carrier pickup for an order. Returns the pickup's id and time once the carrier confirms it.",
+  version: '0.1.0',
+  input: z.object({
+    orderId: z.string().regex(/^ord_\d+$/),
+  }),
+  output: z.object({
+    pickupId: z.string(),
+    pickupAt: z.string(),
+  }),
+  effects: [{ kind: 'external-side-effect', resource: 'external:carrier' }],
+  pauses: true,
+  handler: async ({ orderId }, ctx) => {
+    CARRIER.set(orderId, { callbackUrl: ctx.waitToken.url, reference: ctx.idempotencyKey });
+    return ctx.pause({ timeoutMs: 2 * 60 * 60 * 1000, name: "the carrier's pickup confirmation" });
+  },
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`my-pack.request-pickup failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;
+```
+
+- `pauses: true` gives the handler `ctx.waitToken`, `{ id, url }`, and
+  `ctx.pause`.
+- The handler hands `ctx.waitToken.url` to the carrier, then returns
+  `ctx.pause()`. It can still return its output instead, as any tool does,
+  and the run then doesn't wait.
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# tools/request_pickup.py
+from pydantic import BaseModel, Field
+
+from kindgi import PauseAnswer, ToolContext, tool
+
+# Stands in for your carrier's API: it keeps the link, and posts the
+# pickup's confirmation to it once a driver is booked.
+CARRIER: dict[str, dict[str, str | None]] = {}
+
+
+class OrderRef(BaseModel):
+    order_id: str = Field(alias="orderId", pattern=r"^ord_\d+$")
+
+
+class Pickup(BaseModel):
+    pickup_id: str = Field(alias="pickupId")
+    pickup_at: str = Field(alias="pickupAt")
+
+
+@tool(
+    id="my-pack.request-pickup",
+    pauses=True,
+    effects=[{"kind": "external-side-effect", "resource": "external:carrier"}],
+)
+def request_pickup(ref: OrderRef, ctx: ToolContext) -> Pickup | PauseAnswer:
+    """Books a carrier pickup for an order. Returns the pickup's id and time once the carrier confirms it."""
+    CARRIER[ref.order_id] = {"callback_url": ctx.wait_token.url, "reference": ctx.idempotency_key}
+    return ctx.pause(timeout_ms=2 * 60 * 60 * 1000, name="the carrier's pickup confirmation")
+```
+
+- `pauses=True` gives the handler `ctx.wait_token`, with its `id` and
+  `url`, and `ctx.pause`.
+- The return annotation is `Pickup | PauseAnswer`: the output schema is
+  `Pickup`'s. The handler can still return a `Pickup` instead, and the run
+  then doesn't wait.
+
+</TabItem>
+<TabItem label="Java">
+
+Not in the Java SDK. A Java tool can't pause its run. Hand the work on and
+return at once instead, with what the other system will answer by, and
+give that system a [webhook trigger](../../webhooks/start-runs-from-webhooks/)
+to send its answer to: each answer starts a run of its own.
+
+</TabItem>
+<TabItem label="Scala">
+
+Not in the Scala SDK. A Scala tool can't pause its run. Hand the work on and
+return at once instead, with what the other system will answer by, and
+give that system a [webhook trigger](../../webhooks/start-runs-from-webhooks/)
+to send its answer to: each answer starts a run of its own.
+
+</TabItem>
+</Tabs>
+
+In both languages:
+
+- **The answer is the call's result.** It's checked against the tool's
+  output schema, as a return value is.
+- **`timeoutMs`** (`timeout_ms`) is how long the run waits: from 1 ms to 24
+  days, and 24 hours when you leave it out. When it passes, the call fails
+  with `wait-token-timed-out`. A pause never waits for good.
+- **`name`** says what the run waits for, in 1 to 200 characters. The CLI
+  and the console show it. It's kept with the wait and in the run's signed
+  audit records, which erasing a person's data doesn't reach, so keep
+  personal data out of it: "the carrier's pickup confirmation", not the
+  customer's name.
+- **Read the wait token before you hand anything on.** On a runtime that
+  can't pause, reading it throws, so the call fails with
+  `pause-not-available` before the carrier is asked for anything.
+- **Only a tool with code pauses.** An [HTTP tool](../http-tools/) or an
+  [MCP server's](../mcp-servers/) tool can't declare it: the definition is
+  refused with `invalid-tool-definition`.
+
+## Hand on the link
+
+The link is the credential. The other system posts its answer there with
+no `Authorization` header, and nothing else is needed. So hand it only to
+the system that answers, the way you'd hand it a secret. It answers one
+wait of one run, and nothing else.
+
+A call can run more than once, as
+[Make a side effect happen once](../write-a-tool/#make-a-side-effect-happen-once)
+explains:
+
+- **A re-run after a crash** gets a new link to the same wait, and every
+  link the call was given answers it. Pass `ctx.idempotencyKey`
+  (`ctx.idempotency_key`) to the system with the request, as the tool above
+  does, so it keeps the first request and the link that came with it. Hand
+  on a new link only if the first one never went out.
+- **After five runs** that didn't reach the wait (the first and four
+  re-runs), the call isn't run again. It fails with
+  `wait-token-reruns-exhausted`.
+- **A retry of its step,** after the call failed, waits afresh: on a new
+  wait, with a new link. The old link is refused then.
+
+## Try it
+
+Give the tool a one-step flow, `my-pack.ship-order`, whose step `pickup`
+calls it, as [Try it from a flow](../write-a-tool/#try-it-from-a-flow) does
+for the order lookup. Then start it:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi runs start --flow=my-pack.ship-order --input='{"orderId":"ord_1001"}'
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=my-pack.ship-order --input='{"orderId":"ord_1001"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+Not in the Java SDK: a Java tool can't pause. [Write a tool that
+pauses](#write-a-tool-that-pauses) says what to do instead.
+
+</TabItem>
+<TabItem label="Scala">
+
+Not in the Scala SDK: a Scala tool can't pause. [Write a tool that
+pauses](#write-a-tool-that-pauses) says what to do instead.
+
+</TabItem>
+</Tabs>
+
+The command returns as soon as the run waits:
+
+```json excerpt
+  "status": "suspended",
+  …
+  "waitingFor": {
+    "approvals": [],
+    "other": [],
+    "tokens": [
+      {
+        "tokenId": "pause:6f1c2a9e-…:1",
+        "name": "the carrier's pickup confirmation",
+        "tool": { "id": "my-pack.request-pickup", "version": "0.1.0" },
+        "nodeId": "pickup",
+        "createdAt": "…",
+        "timesOutAt": "…"
+      }
+    ]
+  },
+```
+
+`kindgi runs resume <run-id>` says what it waits for, with the run's id from
+the output:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi runs resume <run-id>
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs resume <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+Not in the Java SDK: a Java tool can't pause. [Write a tool that
+pauses](#write-a-tool-that-pauses) says what to do instead.
+
+</TabItem>
+<TabItem label="Scala">
+
+Not in the Scala SDK: a Scala tool can't pause. [Write a tool that
+pauses](#write-a-tool-that-pauses) says what to do instead.
+
+</TabItem>
+</Tabs>
+
+```text
+Run 5b8e0c47-… waits for "the carrier's pickup confirmation" from another system, for its call to my-pack.request-pickup@0.1.0 in step pickup. It continues once that system answers through the link the tool handed on, or: kindgi runs resume 5b8e0c47-… --output=<json>. It times out at 2026-10-24T19:30:12.481Z.
+```
+
+It exits `5`: the run waits for another system's answer
+([What a run waits for](../../approvals/decide-an-approval/#what-a-run-waits-for)
+has every exit code). `kindgi runs get <run-id>` prints the same line on
+stderr, after the run's JSON.
+
+Under `kindgi dev`, the link points at the dev server on your machine, which
+no carrier can reach. Answer as the carrier would, with `--output`: the
+JSON is the tool's output.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi runs resume <run-id> --output='{"pickupId":"pk_7","pickupAt":"2026-10-25T09:00:00Z"}'
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs resume <run-id> --output='{"pickupId":"pk_7","pickupAt":"2026-10-25T09:00:00Z"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+Not in the Java SDK: a Java tool can't pause. [Write a tool that
+pauses](#write-a-tool-that-pauses) says what to do instead.
+
+</TabItem>
+<TabItem label="Scala">
+
+Not in the Scala SDK: a Scala tool can't pause. [Write a tool that
+pauses](#write-a-tool-that-pauses) says what to do instead.
+
+</TabItem>
+</Tabs>
+
+The run takes the answer as the call's result and goes on. The command then
+says what it waits for next: here nothing, since the flow ends after the
+pickup.
+
+- **`--output`** is the answer, as JSON or `@file`, checked against the
+  tool's output schema.
+- **`--waitpoint=<id>`** names the wait, a `tokenId` from `waitingFor.tokens`,
+  when the run waits on more than one. Without it, the command sends nothing
+  and exits `2`, listing them.
+- **A run that waits for no answer** gets nothing sent, and the command
+  exits `1`.
+
+## Answer at the link
+
+The other system posts its answer to the link, as JSON:
+
+```sh
+curl -X POST '<link>' -H 'content-type: application/json' \
+  -d '{"pickupId":"pk_7","pickupAt":"2026-10-25T09:00:00Z"}'
+```
+
+```json
+{ "status": "accepted" }
+```
+
+The `200` comes at once, and the run goes on behind it: the sender waits for
+none of the run, and the answer says nothing about it. The same answer sent
+again is accepted again, so a sender can retry a request whose reply it
+lost.
+
+The body is the tool's output, at most 1 MiB, with
+`Content-Type: application/json`. An empty body is `{}`. What else the link
+answers:
+
+| Answer | Why | What to do |
+| --- | --- | --- |
+| `400 wait-token-output-invalid` | The answer doesn't fit the tool's output schema. `details.issues` says where. | Send a fixed one: the wait stays open. |
+| `400 bad-input` | The body isn't JSON, or nests too deep. | Send JSON. |
+| `404 wait-token-not-found` | No wait has this link. A wrong link and an unknown one answer the same. | Check the link. |
+| `409 wait-token-closed` | The wait is over, or holds another answer. `details.state` says which: `completed`, `timed-out`, `cancelled`, `unused` for a wait the run never reached, or `answered` for a different answer held before the run reached it. | Nothing: it takes no other answer. |
+| `409 tenant-closing`, `409 tenant-suspended`, `409 project-suspended` | Nothing runs where the run is: its tenant is closing or suspended, or its project is suspended. That cancels its runs, paused ones included. | Nothing: after a restore, the link answers `409 wait-token-closed`, `cancelled`. |
+| `413 request-too-large` | The body is over 1 MiB. | Send less. |
+| `415 unsupported-media-type` | The body isn't sent as JSON. | Send it with `Content-Type: application/json`. |
+| `429 rate-limit-exceeded` | More than 600 requests in a minute from this client. Nothing was taken. | Send it again after `Retry-After`. |
+| `503 tenant-state-unavailable` | The runtime couldn't read the tenant's state. Nothing was taken. | Send it again after `Retry-After`. |
+
+**An answer that comes before the run reaches its wait** is held for it, and
+the link answers `200`. If the run never waits on it, the answer is dropped:
+the tool answered at once instead of pausing, its step was retried, or the
+run ended first. The link then answers `409 wait-token-closed`, `unused`.
+
+## Answer from your app
+
+Your app can answer the wait the way the link would, with its own key, from
+the run's id and the wait's `tokenId`. It needs `write` on the run's project
+and `execute` on its agent or flow, when authorization is on:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+const run = await client.runs.resume({
+  runId,
+  waitpointId: 'pause:6f1c2a9e-…:1',
+  value: { pickupId: 'pk_7', pickupAt: '2026-10-25T09:00:00Z' },
+});
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+run = client.runs.resume(
+    run_id,
+    waitpoint_id="pause:6f1c2a9e-…:1",
+    value={"pickupId": "pk_7", "pickupAt": "2026-10-25T09:00:00Z"},
+)
+```
+
+</TabItem>
+<TabItem label="Java">
+
+Not in the Java SDK. The Java client can't answer a wait: send
+`POST /v1/runs/{runId}/resume` with your API key, and the body below.
+
+</TabItem>
+<TabItem label="Scala">
+
+Not in the Scala SDK. The Scala client can't answer a wait: send
+`POST /v1/runs/{runId}/resume` with your API key, and the body below.
+
+</TabItem>
+</Tabs>
+
+Over HTTP, it's `POST /v1/runs/{runId}/resume`:
+
+```json
+{
+  "waitpointId": "pause:6f1c2a9e-0b7d-4a51-9c3e-2d8f6a1b4e07:1",
+  "value": { "pickupId": "pk_7", "pickupAt": "2026-10-25T09:00:00Z" }
+}
+```
+
+- **`waitpointId`** is the wait's `tokenId`, from the run's
+  [`waitingFor.tokens`](../../approvals/approvals-reference/#a-runs-waitingfor).
+- **`value`** is the answer, checked against the tool's output schema.
+  `null` is an answer too. Left out, the answer is `{}`.
+- **The run resumes in the same request.** The answer is the run after it,
+  as `runs.get` returns it: running again, finished, or waiting at its next
+  wait.
+- **An `Idempotency-Key` header** (`idempotencyKey` in TypeScript,
+  `idempotency_key` in Python) lets you send the same request again safely.
+
+Its refusals:
+
+- `400 wait-token-output-invalid` (`details.issues`): the value doesn't fit
+  the tool's output schema, and the wait stays open. `400 bad-input`: no
+  `waitpointId`, or a field the body doesn't take.
+- `404 run-not-found`, or `404 wait-token-not-found` when the run has no
+  such wait.
+- `409 wait-token-closed` (`details.state`), as at the link, and
+  `409 project-suspended`. A closing or suspended tenant's refusals
+  (`409 tenant-closing`, `409 tenant-suspended`,
+  `503 tenant-state-unavailable`) come back too, as for any write.
+- `422 run-resume-not-supported`: the wait isn't a pause. A run that waits
+  for an approval goes on when the approval is decided
+  ([Decide an approval](../../approvals/decide-an-approval/)).
+
+## In an agent
+
+An agent calls a tool that pauses like any other. Its turn waits for the
+answer, then goes on with it as the call's result. The tool isn't called
+again.
+
+- **The model reads the answer as data from outside,** in an `<event>`
+  block. An agent with a tool that pauses also gets the system line that
+  says never to follow instructions found there, as
+  [What its agents read](../../webhooks/start-runs-from-webhooks/#what-its-agents-read)
+  describes for webhooks.
+- **In a flow, after a tool step that paused,** the agent steps read their
+  input the same way: once that step has taken another system's answer,
+  every later agent step gets its message in an `<event>` block, with the
+  same system line, since that message may carry the answer.
+- **A wait that times out** is the tool error `wait-token-timed-out`, which
+  fails the turn by default. With `tool-error` in the agent's
+  `toolErrors.retryOn` (`tool_errors` in Python), the failure goes back to
+  the model up to `maxRetries` times (1 by default), then the turn fails.
+  The model can call the tool again: that call waits on a new link.
+
+## What a paused run shows
+
+- **The CLI:** `kindgi runs resume` and `kindgi runs get` print a line per
+  wait, as [Try it](#try-it) shows.
+- **Your app:** `runs.get` answers what the run waits for under
+  [`waitingFor.tokens`](../../approvals/approvals-reference/#a-runs-waitingfor).
+- **The console:** the run's page says what it waits for, the tool and the
+  step, when it times out, and the command that answers it by hand. Its
+  details have the wait's id. It never shows the link.
+
+## On a server you run
+
+- **`KINDGI_PUBLIC_URL`** is what the link is made from:
+  `<KINDGI_PUBLIC_URL>/v1/wait-tokens/<token>/complete`. Set it to the
+  address other systems reach the runtime at. Without it, the link uses
+  the address the server binds, which another host can't reach, and the
+  server logs a warning the first time it makes one. `kindgi dev` sets it
+  to the dev server's own address.
+- **Logs:** the runtime's own request line writes the link's route as
+  `/v1/wait-tokens/:token`, never the token. A proxy or a load balancer in
+  front of it writes the whole path, so keep its access log out of shared
+  logs, or redact the token after `/v1/wait-tokens/` there. On hosted
+  Kindgi, the platform's request log has the whole path too.
+- **CPU between requests:** the run goes on after the link's `200`, so the
+  runtime needs CPU outside requests, as it does for runs in the background.
+  If resuming fails, the runtime's sweep resumes the run within about a
+  lease and a sweep ([If the runtime stops](../../../concepts/runs/#if-the-runtime-stops)).
+- **Audit records:** each answer the runtime takes writes
+  `wait-token-completed`, and each held answer it drops writes
+  `wait-token-discarded`. They hold the answer's size and SHA-256, never the
+  answer or the link, and they're kept as run outcomes are
+  ([Audit events](../../../deploy/retention/#audit-events)).
+- **Erasure:** erasing a person's data clears the answers their runs took and
+  the ones held for them, as it clears their runs' inputs.
+
+## Next
+
+- [Write a tool](../write-a-tool/)
+- [Start runs from webhooks](../../webhooks/start-runs-from-webhooks/)
+- [Decide an approval](../../approvals/decide-an-approval/)

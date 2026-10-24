@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
 
+import type { PackBlockWrite, PackBlockWriteOutcome } from '../src/pack-blocks.js';
 import { createPackServiceSupervisor } from '../src/pack-service/index.js';
 import type {
   PackServiceSupervisor,
@@ -602,6 +603,104 @@ async function until(condition: () => boolean, timeoutMs = 5000): Promise<void> 
     await new Promise((r) => setTimeout(r, 10));
   }
 }
+
+describe('createPackServiceSupervisor — the front writes a block (kindgi dev)', () => {
+  const WRITE = { id: 'acme.reply', version: '1.0.1', content: { template: 'Hi.' } };
+
+  function writeBlock(running: Running, body: unknown, token = running.supervisor.token) {
+    return fetch(`${running.url}/v1/blocks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [PACK_HEADERS.token]: token },
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    });
+  }
+
+  function writer(outcome: PackBlockWriteOutcome) {
+    const writes: PackBlockWrite[] = [];
+    return {
+      writes,
+      writeBlock: async (write: PackBlockWrite) => {
+        writes.push(write);
+        return outcome;
+      },
+    };
+  }
+
+  test('POST /v1/blocks hands the write to writeBlock and answers what it wrote', async () => {
+    const w = writer({
+      kind: 'ok',
+      file: 'blocks/reply.json',
+      templateFile: 'blocks/reply.liquid',
+      replaced: '1.0.0',
+    });
+    const running = await supervisor({}, [], [], { writeBlock: w.writeBlock });
+    const res = await writeBlock(running, WRITE);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      file: 'blocks/reply.json',
+      templateFile: 'blocks/reply.liquid',
+      replaced: '1.0.0',
+    });
+    expect(w.writes).toEqual([WRITE]);
+  });
+
+  test('a missing or wrong token is refused (401), and nothing is written', async () => {
+    const w = writer({ kind: 'ok', file: 'blocks/reply.json', replaced: '1.0.0' });
+    const running = await supervisor({}, [], [], { writeBlock: w.writeBlock });
+    expect((await writeBlock(running, WRITE, 'not-the-token')).status).toBe(401);
+    expect(
+      (await fetch(`${running.url}/v1/blocks`, { method: 'POST', body: JSON.stringify(WRITE) }))
+        .status,
+    ).toBe(401);
+    expect(w.writes).toEqual([]);
+  });
+
+  test('without writeBlock (a deployment) the route is not there (404)', async () => {
+    const running = await supervisor();
+    expect((await writeBlock(running, WRITE)).status).toBe(404);
+    // Not there at all: no token asked for first.
+    expect(
+      (await fetch(`${running.url}/v1/blocks`, { method: 'POST', body: JSON.stringify(WRITE) }))
+        .status,
+    ).toBe(404);
+  });
+
+  test('GET is refused (405)', async () => {
+    const w = writer({ kind: 'ok', file: 'blocks/reply.json', replaced: '1.0.0' });
+    const running = await supervisor({}, [], [], { writeBlock: w.writeBlock });
+    const res = await fetch(`${running.url}/v1/blocks`, {
+      headers: { [PACK_HEADERS.token]: running.supervisor.token },
+    });
+    expect(res.status).toBe(405);
+  });
+
+  test.each([
+    ['not JSON', '{'],
+    ['no id', { version: '1.0.1', content: {} }],
+    ['content not an object', { id: 'acme.reply', version: '1.0.1', content: [] }],
+  ])(
+    'a body that is not a write (%s) is refused (400), and nothing is written',
+    async (_n, body) => {
+      const w = writer({ kind: 'ok', file: 'blocks/reply.json', replaced: '1.0.0' });
+      const running = await supervisor({}, [], [], { writeBlock: w.writeBlock });
+      const res = await writeBlock(running, body);
+      expect(res.status).toBe(400);
+      expect(w.writes).toEqual([]);
+    },
+  );
+
+  test.each([
+    ['not-in-pack', 404],
+    ['invalid', 400],
+    ['not-newer', 409],
+  ] as const)("the writer's refusal %s answers %i, with its message", async (reason, status) => {
+    const w = writer({ kind: 'err', reason, message: `refused: ${reason}` });
+    const running = await supervisor({}, [], [], { writeBlock: w.writeBlock });
+    const res = await writeBlock(running, WRITE);
+    expect(res.status).toBe(status);
+    expect(await res.json()).toEqual({ error: `refused: ${reason}`, reason });
+  });
+});
 
 describe('the service lines the supervisor reads', () => {
   const record = (fields: Record<string, unknown>) =>

@@ -33,7 +33,7 @@ An agent `acme.greeter` 1.0.0 asks for `acme.greet` `^1.0.0` while
 the version shows:
 
 ```sh
-curl "$KINDGI_API_URL/v1/agents/acme.greeter/versions/1.0.0" -H "Authorization: Bearer $KINDGI_API_TOKEN"
+curl "$KINDGI_API_URL/v1/agents/acme.greeter/versions/1.0.0" -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 `$KINDGI_API_URL` and `$KINDGI_API_TOKEN` are your runtime's URL and API
@@ -112,7 +112,9 @@ CLI. An app that runs the latest gets the pinned one.
 ## What unregistering a version does
 
 Unregistering a version stops it from being chosen. It doesn't stop the
-versions that pin it.
+versions that pin it. Ask your coding agent: "I want a script that takes an
+old version of my agent out of use, and can bring it back." For reference,
+the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

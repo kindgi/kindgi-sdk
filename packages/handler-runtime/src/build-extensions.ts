@@ -43,8 +43,9 @@ export interface BuildExtension {
   /** Debian packages the image needs. */
   readonly systemPackages?: readonly string[];
   /**
-   * Steps after the install, before the prune: dev dependencies (a
-   * generator's CLI) are still there. Run in the pack folder.
+   * Steps after the install, before the prune. With any, the image's
+   * install takes dev dependencies too (a generator's CLI), and the prune
+   * after the steps drops them. Run in the pack folder.
    */
   readonly postInstall?: readonly BuildStep[];
   /**
@@ -53,6 +54,12 @@ export interface BuildExtension {
    * image.
    */
   readonly buildEnv?: Readonly<Record<string, string>>;
+  /**
+   * What an image that carries only what the pack loads keeps besides
+   * the pack's imports: packages, or a generated folder (`.prisma/client`),
+   * by the name Node resolves (see `ImageConfig.keep`).
+   */
+  readonly keep?: readonly string[];
 }
 
 /** `image` in `kindgi.config.*` (a TypeScript pack). */
@@ -62,6 +69,20 @@ export interface ImageConfig {
   readonly extensions?: readonly BuildExtension[];
   /** Env for the build steps, merged over the extensions' (see `BuildExtension.buildEnv`). */
   readonly buildEnv?: Readonly<Record<string, string>>;
+  /**
+   * Which installed dependencies the image carries:
+   *   - `'all'` (the default): every production dependency of the app;
+   *   - `'loaded'`: only the packages the pack's code imports, with their
+   *     own dependencies, and what `keep` names. The build fails, naming
+   *     the package, when one the code loads would be missing.
+   */
+  readonly dependencies?: 'loaded' | 'all';
+  /**
+   * With `dependencies: 'loaded'`, packages the code loads without
+   * importing them by name (a plugin named in a config string, a
+   * package whose bin a tool runs), kept with their own dependencies.
+   */
+  readonly keep?: readonly string[];
 }
 
 /** An app's own extension: the shape checked by the type, returned as is. */
@@ -96,5 +117,9 @@ export function prisma(options: PrismaExtensionOptions): BuildExtension {
             : ['generate', '--schema', options.schema],
       },
     ],
+    // Prisma 6's `prisma-client-js` client loads the generated
+    // `.prisma/client`, which no package declares. Prisma 7's client is
+    // generated into the app's source, so the bundles carry it.
+    keep: ['.prisma/client'],
   };
 }

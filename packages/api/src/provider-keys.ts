@@ -37,7 +37,12 @@ export function providerKeysOf(registry: ProviderRegistryBinding | undefined): P
 }
 
 /** What may name a secret, in the words a refusal uses. */
-export type SecretUser = 'a tool' | 'an MCP endpoint' | 'a webhook endpoint' | 'a webhook trigger';
+export type SecretUser =
+  | 'a tool'
+  | 'an MCP endpoint'
+  | 'a webhook endpoint'
+  | 'a webhook trigger'
+  | 'a connection app';
 
 /** Why `name` can't be used by `user`: it's model provider `providerId`'s key. */
 export function providerKeyRefusal(
@@ -78,7 +83,7 @@ export interface SecretUsersDeps {
 const PAGE = 100;
 const MAX_PAGES = 100;
 
-async function* pages<T>(
+export async function* pages<T>(
   read: (cursor: Cursor | undefined) => Promise<{
     readonly data: readonly T[];
     readonly nextCursor?: Cursor;

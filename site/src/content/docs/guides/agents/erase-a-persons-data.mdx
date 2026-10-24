@@ -16,7 +16,7 @@ runs in the background.
 
 ## Before you start
 
-- **Tenant admin,** on a runtime with Kindgi 0.1's CLI. Only a tenant admin
+- **Tenant admin,** on a runtime with Kindgi 0.2's CLI. Only a tenant admin
   can start an erasure.
 - **Who to erase:** the id your app gives the person, their `participantId`,
   or one of the other selectors in [Who an erasure can name](#who-an-erasure-can-name).
@@ -43,7 +43,7 @@ with a `400`.
 An erasure starts at once, and clears the person's words in the background:
 
 ```sh
-kindgi memory erasures create --participant=end-7
+pnpm exec kindgi memory erasures create --participant=end-7
 ```
 
 `--participant=end-7` names the end user. `create` answers at once, with
@@ -72,8 +72,8 @@ kindgi memory erasures create --participant=end-7
 Follow it, where `<erasure-id>` is its `id`:
 
 ```sh
-kindgi memory erasures get <erasure-id>
-kindgi memory erasures list
+pnpm exec kindgi memory erasures get <erasure-id>
+pnpm exec kindgi memory erasures list
 ```
 
 `get` shows the erasure:
@@ -168,7 +168,7 @@ The turn it cancelled ends its journal like this, with nothing left of
 what it held, where `<run-id>` is the turn's run id:
 
 ```sh
-kindgi runs journal <run-id>
+pnpm exec kindgi runs journal <run-id>
 ```
 
 ```json
@@ -208,9 +208,10 @@ Once it completes, new turns for the person start again.
   stays, with `contentErasedAt`. Judging such a run is refused,
   `410 run-erased`.
 - **The reasons in its ratings:** a judgment of such a run keeps its
-  verdict, who judged and when, and loses its reason and the judged item's
-  value. A judging-queue item still waiting for it closes as `erased`, and a
-  dismissal's reason is cleared.
+  verdict, who judged and when, and loses its reason,
+  [what it says the run should have done](../../evals/judge-a-runs-output/#say-what-it-should-have-done)
+  and the judged item's value. A judging-queue item still waiting for it
+  closes as `erased`, and a dismissal's reason is cleared.
 - **What else held their words:**
   - approvals' text, such as a tool call's arguments and a reviewer's
     rationale. The title, the status and who decided stay;
@@ -219,7 +220,11 @@ Once it completes, new turns for the person start again.
     (its cost stays);
   - evals' copies. A test set's case copied from an erased run reads
     `erased: true`, and comparisons leave it out and count it, in
-    `summary.erased`.
+    `summary.erased`. For a case from such a run, or a replay of one, a run
+    on the test cases loses what could quote them: the case's `changes`,
+    `tools` and `error`, and what differed from what the run should have
+    done. Its scores, its counts, and whether each correction passed stay,
+    so its numbers do.
 
 Audit events of a kind your compliance setup holds, a legal hold, keep their
 text, and the erasure counts them. A fact under legal hold stops the erasure
@@ -228,7 +233,7 @@ before it starts: `409 legal-hold`, with the held facts in `details.factIds`.
 ### What it can't reach
 
 - **What the runtime logged** to your log system: keep production at `info`
-  or `warn`, as [What logs hold](../../../deploy/logs/#what-logs-hold)
+  or `warn`, as [What logs hold](../../../deploy/self-hosted/logs/#what-logs-hold)
   explains.
 - **Signed exports already made**, such as an approval's audit bundle.
 - **A webhook receiver's copy** of a delivery that was already sent.
@@ -249,8 +254,8 @@ flows they shared with others.
 To act before the deadline, where `<erasure-id>` is the erasure's id:
 
 ```sh
-kindgi memory erasures resume <erasure-id>           # try again now
-kindgi memory erasures resume <erasure-id> --force   # stop waiting: cancel that run and go on
+pnpm exec kindgi memory erasures resume <erasure-id>           # try again now
+pnpm exec kindgi memory erasures resume <erasure-id> --force   # stop waiting: cancel that run and go on
 ```
 
 Each prints the erasure as JSON, with its `status` and `phase`.
@@ -262,7 +267,7 @@ erasure ledger back too. So export the ledger off-box regularly, and replay
 it after a restore:
 
 ```sh
-kindgi memory erasures export --out=erasure-ledger.json
+pnpm exec kindgi memory erasures export --out=erasure-ledger.json
 ```
 
 `--out` is the file it writes. It prints:
@@ -277,14 +282,14 @@ kindgi memory erasures export --out=erasure-ledger.json
 After a restore, replay that file:
 
 ```sh
-kindgi memory erasures replay erasure-ledger.json
+pnpm exec kindgi memory erasures replay erasure-ledger.json
 ```
 
 The ledger keeps no identifier, only a keyed hash of whom each erasure
 erased. A replay needs the runtime's erasure ledger key to find them again.
 Without the key, an erasure still runs, but it answers with an
 `erasure-unmatchable` warning. A replay can't match that erasure.
-[Erasures and backups](../../../deploy/back-up-and-restore/#erasures-and-backups)
+[Erasures and backups](../../../deploy/self-hosted/back-up-and-restore/#erasures-and-backups)
 sets up the key and the restore.
 
 ## Next

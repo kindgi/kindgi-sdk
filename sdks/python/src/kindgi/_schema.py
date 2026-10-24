@@ -6,7 +6,9 @@
 `wire_schema` turns a pydantic model (or any type pydantic understands) into
 the JSON Schema a pack index carries — Draft 2020-12, field names as they
 travel (aliases), no generated titles, local `$ref`s inlined unless a type is
-recursive. A dict is taken as JSON Schema already.
+recursive, and no OpenAPI `discriminator` (a tagged union's `oneOf` picks its
+member by the tag; a union whose member a callable `Discriminator` picks is an
+`anyOf`). A dict is taken as JSON Schema already.
 
 `SchemaValidator` checks a value against a schema and reports issues shaped
 like Ajv's (`instancePath`, `schemaPath`, `keyword`, `params`, `message`) —
@@ -19,11 +21,14 @@ import copy
 import ipaddress
 import json
 import re
-from collections.abc import Callable, Iterable, Mapping
+import warnings
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from datetime import date, time
 from typing import Any, cast
+from urllib.parse import quote, unquote
 
 from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema.exceptions import SchemaError as InvalidSchemaError
 from jsonschema.exceptions import ValidationError as SchemaError
 from pydantic import BaseModel, TypeAdapter
 from pydantic import ValidationError as PydanticError
@@ -34,7 +39,9 @@ __all__ = [
     "SchemaValidator",
     "apply_defaults",
     "check_schema",
+    "compile_problem",
     "issues_from_pydantic",
+    "strict_schema_problem",
     "wire_schema",
 ]
 
@@ -47,6 +54,15 @@ class _WireSchema(GenerateJsonSchema):
 
     def field_title_should_be_set(self, schema: Any) -> bool:
         return False
+
+    def tagged_union_schema(self, schema: core_schema.TaggedUnionSchema) -> JsonSchemaValue:
+        out = super().tagged_union_schema(schema)
+        # With no `discriminator` beside it, as when a callable `Discriminator` picks the member,
+        # the members can overlap: a `oneOf` refuses a value that fits two of them, though
+        # pydantic takes it. An `anyOf` takes every value that fits the member pydantic picks.
+        if "discriminator" not in out and "oneOf" in out:
+            out["anyOf"] = out.pop("oneOf")
+        return out
 
     def model_schema(self, schema: core_schema.ModelSchema) -> JsonSchemaValue:
         out = super().model_schema(schema)
@@ -67,7 +83,7 @@ def wire_schema(source: Any, mode: JsonSchemaMode = "validation") -> JsonObject:
     else:
         adapter: TypeAdapter[Any] = TypeAdapter(cast(Any, source))
         schema = adapter.json_schema(by_alias=True, mode=mode, schema_generator=_WireSchema)
-    return _inline_refs(schema)
+    return _without_discriminators(_inline_refs(schema))
 
 
 def _inline_refs(schema: JsonObject) -> JsonObject:
@@ -106,6 +122,71 @@ def _inline_refs(schema: JsonObject) -> JsonObject:
     if done:
         out["$defs"] = done
     return out
+
+
+def _without_discriminators(schema: JsonObject) -> JsonObject:
+    """Take out the `discriminator` pydantic writes beside a tagged union's `oneOf`.
+
+    It is OpenAPI's keyword, not JSON Schema's: the runtime's strict compile refuses it, and its
+    `mapping` names `$defs` that `_inline_refs` has inlined. Each member keeps its tag as a
+    `const` (an `enum` when it has several values), so the `oneOf` alone picks the member. The tag
+    goes into each member's `required`, since pydantic refuses a value without its tag even when
+    the tag has a default. `schema` is `_inline_refs`' own copy, changed in place.
+    """
+
+    def walk(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        here = cast("dict[str, Any]", node)
+        found = here.get("discriminator")
+        members = here.get("oneOf")
+        if isinstance(found, Mapping) and isinstance(members, list):
+            tag = cast("Mapping[str, Any]", found).get("propertyName")
+            if isinstance(tag, str):
+                del here["discriminator"]
+                for member in cast("list[Any]", members):
+                    _require_tag(member, tag)
+        for keyword, holds in _SUBSCHEMAS:
+            value = here.get(keyword)
+            if holds == "one":
+                walk(value)
+            elif holds == "list" and isinstance(value, list):
+                for item in cast("list[Any]", value):
+                    walk(item)
+            elif holds == "map" and isinstance(value, dict):
+                for item in cast("dict[str, Any]", value).values():
+                    walk(item)
+
+    walk(schema)
+    return schema
+
+
+def _require_tag(member: Any, tag: str) -> None:
+    """Put `tag` first in a tagged union member's `required`: an object's own, or each member's
+    when the member is a union itself (a tagged union's `oneOf`, or the `anyOf` of a union a
+    callable picks). A recursive type's member is a `$ref`: the tag is
+    asked for beside it, with the `type` and the property the strict compile wants beside a
+    `required`. Its definition stays as it is: the type can sit outside the union, where its tag
+    isn't asked for."""
+    if not isinstance(member, dict):
+        return
+    here = cast("dict[str, Any]", member)
+    properties = here.get("properties")
+    if isinstance(properties, Mapping) and tag in properties:
+        required = cast("list[Any]", here.get("required", []))
+        if tag not in required:
+            here["required"] = [tag, *required]
+        return
+    for keyword in ("oneOf", "anyOf"):
+        members = here.get(keyword)
+        if isinstance(members, list):
+            for inner in cast("list[Any]", members):
+                _require_tag(inner, tag)
+            return
+    if isinstance(here.get("$ref"), str) and "properties" not in here:
+        here.setdefault("type", "object")
+        here["properties"] = {tag: True}
+        here["required"] = [tag]
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +283,618 @@ _FORMAT_CHECKER = _formats()
 def check_schema(schema: Mapping[str, Any]) -> None:
     """Raise `jsonschema.SchemaError` when `schema` is not a valid Draft 2020-12 schema."""
     Draft202012Validator.check_schema(schema)
+
+
+def compile_problem(schema: Mapping[str, Any]) -> str | None:
+    """Why the runtime's compile of an inline schema refuses `schema`: it isn't valid Draft
+    2020-12, or its strict mode refuses it (`strict_schema_problem`). `None` when it compiles."""
+    try:
+        check_schema(schema)
+    except InvalidSchemaError as exc:
+        return exc.message or str(exc)
+    return strict_schema_problem(schema)
+
+
+# The keywords the runtime's compile of an inline schema knows (Ajv's Draft 2020-12 ones, with
+# ajv-formats' format bounds), and the annotation Kindgi reads (`x-kindgi-tunable`). Its strict
+# mode refuses any other keyword, and any format but ajv-formats' (`_STRICT_FORMATS`). It knows
+# `id` only to refuse it.
+_STRICT_KEYWORDS = frozenset(
+    {
+        "$async", "$comment", "$defs", "$dynamicAnchor", "$dynamicRef", "$id", "$recursiveAnchor",
+        "$recursiveRef", "$ref", "$schema", "$vocabulary", "additionalProperties", "allOf", "anyOf",
+        "const", "contains", "contentEncoding", "contentMediaType", "contentSchema", "default",
+        "definitions", "dependencies", "dependentRequired", "dependentSchemas", "deprecated",
+        "description", "else", "enum", "examples", "exclusiveMaximum", "exclusiveMinimum", "format",
+        "formatExclusiveMaximum", "formatExclusiveMinimum", "formatMaximum", "formatMinimum", "id",
+        "if", "items", "maxContains", "maxItems", "maxLength", "maxProperties", "maximum",
+        "minContains", "minItems", "minLength", "minProperties", "minimum", "multipleOf", "not",
+        "nullable", "oneOf", "pattern", "patternProperties", "prefixItems", "properties",
+        "propertyNames", "readOnly", "required", "then", "title", "type", "unevaluatedItems",
+        "unevaluatedProperties", "uniqueItems", "writeOnly", "x-kindgi-tunable",
+    }
+)  # fmt: skip
+_STRICT_FORMATS = frozenset(
+    {
+        "binary", "byte", "date", "date-time", "double", "duration", "email", "float", "hostname",
+        "int32", "int64", "ipv4", "ipv6", "iso-date-time", "iso-time", "json-pointer",
+        "json-pointer-uri-fragment", "password", "regex", "relative-json-pointer", "time", "uri",
+        "uri-reference", "uri-template", "url", "uuid",
+    }
+)  # fmt: skip
+# What each keyword the runtime compiles as a subschema holds: one, a list or a map of them. `$defs`
+# and `contentSchema` aren't among them: a definition is compiled where a `$ref` reaches it, and
+# `contentSchema` is an annotation.
+_HOLDS = {
+    "not": "one", "anyOf": "list", "oneOf": "list", "allOf": "list", "if": "one", "then": "one",
+    "else": "one", "prefixItems": "list", "items": "one", "contains": "one",
+    "propertyNames": "one", "additionalProperties": "one", "dependencies": "map",
+    "properties": "map", "patternProperties": "map", "dependentSchemas": "map",
+    "unevaluatedItems": "one", "unevaluatedProperties": "one",
+}  # fmt: skip
+_FORMAT_BOUNDS = (
+    "formatMaximum",
+    "formatMinimum",
+    "formatExclusiveMaximum",
+    "formatExclusiveMinimum",
+)
+# The keywords that check data of a type, with the types (as the runtime lists them), in the order
+# its strict mode checks that the data can be of one where they are (`strictTypes`).
+_TYPED_KEYWORDS = (
+    ("maximum", "number"), ("minimum", "number"), ("exclusiveMaximum", "number"),
+    ("exclusiveMinimum", "number"), ("multipleOf", "number"), ("maxLength", "string"),
+    ("minLength", "string"), ("pattern", "string"), ("maxProperties", "object"),
+    ("minProperties", "object"), ("required", "object"), ("maxItems", "array"),
+    ("minItems", "array"), ("uniqueItems", "array"), ("propertyNames", "object"),
+    ("additionalProperties", "object"), ("dependencies", "object"), ("properties", "object"),
+    ("patternProperties", "object"), ("prefixItems", "array"), ("items", "array"),
+    ("contains", "array"), ("format", "number,string"), ("dependentRequired", "object"),
+    ("dependentSchemas", "object"), ("maxContains", "array"), ("minContains", "array"),
+    ("unevaluatedProperties", "object"), ("unevaluatedItems", "array"),
+    *((bound, "string") for bound in _FORMAT_BOUNDS),
+)  # fmt: skip
+# The keywords that make a schema one the runtime compiles: a schema without any (annotations
+# only, say) passes anything, and nothing in it is compiled.
+_RULES = frozenset(
+    {
+        "$dynamicAnchor", "$dynamicRef", "$recursiveAnchor", "$recursiveRef", "$comment", "id",
+        "$ref", "type", "nullable", "const", "enum", "not", "anyOf", "oneOf", "allOf", "if",
+        "then", "else", *(keyword for keyword, _ in _TYPED_KEYWORDS),
+    }
+)  # fmt: skip
+# The formats whose values ajv-formats can compare, the ones a format bound works with.
+_COMPARED_FORMATS = frozenset({"date", "time", "date-time", "iso-time", "iso-date-time"})
+# The keyword that evaluates every property (or item), which makes an unevaluated one moot.
+_EVALUATES_ALL = {"unevaluatedProperties": "additionalProperties", "unevaluatedItems": "items"}
+# Where a subschema sits: under a keyword the runtime compiles, among the definitions, or under
+# `contentSchema`, which the runtime doesn't compile but whose bases it registers.
+_SUBSCHEMAS = (
+    *_HOLDS.items(),
+    ("$defs", "map"),
+    ("definitions", "map"),
+    ("contentSchema", "one"),
+)
+# The keywords that name a base or an anchor the runtime knows, which a `$ref` can resolve against.
+_BASE_KEYWORDS = ("$id", "$dynamicAnchor")
+_INDEX = re.compile(r"0|[1-9][0-9]*")
+_NOWHERE = object()
+_UNKNOWN = object()
+# The meta-schemas the runtime knows, which a `$ref` may name.
+_META_SCHEMAS = frozenset(
+    {
+        "https://json-schema.org/draft/2020-12/schema",
+        *(
+            f"https://json-schema.org/draft/2020-12/meta/{vocabulary}"
+            for vocabulary in (
+                "core", "applicator", "unevaluated", "validation", "meta-data",
+                "format-annotation", "content",
+            )
+        ),
+    }
+)  # fmt: skip
+# The names every JavaScript object has: the runtime finds each among any schema's `properties`.
+_OBJECT_MEMBERS = frozenset(
+    {
+        "constructor", "__defineGetter__", "__defineSetter__", "hasOwnProperty",
+        "__lookupGetter__", "__lookupSetter__", "isPrototypeOf", "propertyIsEnumerable",
+        "toString", "valueOf", "__proto__", "toLocaleString",
+    }
+)  # fmt: skip
+# What Python's `re` may read otherwise than JavaScript's `RegExp` (`_js_matches`): in a pattern,
+# `\A`, `\Z`, `\N`, `\U`, `\a` and back references, `{,n}`, a `(?` group but `(?:`, a lookahead or
+# a lookbehind, `[]` and `[^]`, and possessive quantifiers; in a name, a line break, a space
+# beyond ASCII, or a character beyond the BMP.
+_NOT_JS_PATTERN = re.compile(r"\\[AZNUa1-9]|\{,|\(\?(?![:=!]|<[=!])|\[\^?\]|[*+?}]\+")
+_NOT_JS_NAME = re.compile(
+    "[\n\r\u2028\u2029\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff]|[^\u0000-\uffff]"
+)
+
+
+def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
+    """What the runtime's strict compile refuses in a valid Draft 2020-12 `schema`, in the schema or
+    a subschema it compiles (one a `$ref` reaches included). Worded as the runtime words it, and of
+    two problems the one it names first; `None` when there's none. It refuses:
+
+    - a keyword it doesn't know, `id`, a format it doesn't know, a `$ref` that names nothing, and
+      a chain of `$ref`s that only leads back to itself;
+    - a keyword for a type the data can't have there, or a `type` the context rules out (Ajv's
+      `strictTypes`), and `nullable` without a `type`, or `false` with a `null` one;
+    - a `prefixItems` tuple whose length `minItems` with `maxItems` or `items: false` doesn't pin
+      (`strictTuples`), and a `required` name not among those the runtime counts as defined so
+      far, where a schema it compiles for other data (an item, a property's value) starts the
+      count afresh with what that schema defines (`strictRequired`);
+    - a keyword that does nothing without another (`then` or `else` without `if`, `if` without
+      either, `minContains` or `maxContains` without `contains`, a format bound without a format
+      it can compare), `minContains` 0 without `maxContains` or above it, and an empty `enum`;
+    - a `properties` name a `patternProperties` pattern of the same schema matches;
+    - a `$dynamicRef` or `$recursiveRef` that isn't `#`-something, and a value of the wrong type
+      for a keyword Draft 2020-12 doesn't define (`nullable`, a format bound, `$recursiveAnchor`).
+
+    A `$ref` that is empty, `#`, a `#/...` pointer, or a plain anchor (`#name`) one schema's
+    `$anchor` names is followed, unless a subschema names a base of its own (`$id`): what it
+    reaches then depends on bases this walk doesn't track, so it is neither followed nor refused.
+    Another `$ref` is refused, but one naming a meta-schema the runtime knows, unless the schema
+    names a base or an anchor (`$id`, `$dynamicAnchor`): then it is left alone too. Nor are the
+    refusals of a base or an anchor itself checked (one that two schemas share, say). A pattern is
+    tried on a name only where Python's `re` reads both as JavaScript does (`_js_matches`); a
+    pattern's syntax isn't checked here, nor a `$recursiveAnchor` or `$recursiveRef` that isn't a
+    string, which Ajv's own meta-schema refuses.
+    """
+    pointers = not any(_names(sub, ("$id",)) for sub in _subschemas(schema))
+    others = not _names(schema, _BASE_KEYWORDS)
+    root_id = schema.get("$id")
+    # The root's base, which the runtime writes before the path of a type or a required problem.
+    base = re.sub(r"#/?$", "", root_id) if isinstance(root_id, str) else ""
+    compiled: set[int] = {id(schema)}
+
+    def target(ref: str) -> Any:
+        # What `ref` reaches: a schema, `_NOWHERE` (the runtime refuses it), or `_UNKNOWN`.
+        if ref == "" or ref.startswith("#/") or ref == "#":
+            return (schema if ref == "" else _local_ref(schema, ref)) if pointers else _UNKNOWN
+        if ref.startswith("#") and pointers:
+            # A plain anchor names the schema whose `$anchor` it is. The runtime finds it, then
+            # refuses `$anchor` there as a keyword it doesn't know.
+            anchored = _anchored(schema, ref[1:])
+            if len(anchored) == 1:
+                return anchored[0]
+        if not others or ref.removesuffix("#") in _META_SCHEMAS:
+            return _UNKNOWN
+        if any(ref.startswith(f"{meta}#") for meta in _META_SCHEMAS):
+            return _UNKNOWN  # a pointer into a meta-schema
+        return _NOWHERE
+
+    def problems(
+        node: Any, path: str, types: list[str], defined: set[str], compiling: tuple[int, ...]
+    ) -> Iterator[str]:
+        # `types`: the types the data can have here; `defined`: the property names the runtime
+        # counts as defined so far. Both are what the runtime knows of the data.
+        if not isinstance(node, Mapping):
+            return
+        here = cast("Mapping[str, Any]", node)
+        yield from _unknown_keywords(here)
+        if _passes_anything(here):
+            return
+        raw = here.get("type")
+        declared = list(cast("list[str]", raw)) if isinstance(raw, list) else [raw] if raw else []
+        if "null" in declared:
+            if here.get("nullable") is False:
+                yield "type: null contradicts nullable: false"
+        elif "nullable" in here:
+            if not declared:
+                yield '"nullable" cannot be used without "type"'
+            elif here["nullable"] is True:
+                declared.append("null")
+        if _only_ref(here):
+            yield from reach(here["$ref"], compiling)  # the runtime compiles nothing else here
+            return
+        for name in declared if types else ():
+            if not _includes(types, name):
+                context = ",".join(types)
+                yield (
+                    f'strict mode: type "{name}" not allowed by context "{context}" '
+                    f'at "{base}{path}" (strictTypes)'
+                )
+        if declared:
+            types = _narrowed(types, declared) if types else declared
+        for keyword, needs in _TYPED_KEYWORDS:
+            if keyword in here and not any(_fits(types, need) for need in needs.split(",")):
+                yield (
+                    f'strict mode: missing type "{needs}" for keyword "{keyword}" '
+                    f'at "{base}{path}" (strictTypes)'
+                )
+        # Then its keywords, in the order the runtime compiles them: those for any data, then
+        # those for numbers, strings, arrays and objects.
+        if "$dynamicAnchor" in here and path != "#":
+            # The runtime compiles a schema with a dynamic anchor on its own as well.
+            yield from on_its_own(here, compiling)
+        for keyword in ("$dynamicRef", "$recursiveAnchor", "$recursiveRef"):
+            value = here.get(keyword)
+            if not isinstance(value, str):
+                continue
+            if keyword == "$recursiveAnchor":
+                yield '$recursiveAnchor value must be ["boolean"]'
+            elif not value.startswith("#"):
+                yield f'"{keyword}" only supports hash fragment reference'
+        if "id" in here:
+            yield 'NOT SUPPORTED: keyword "id", use "$id" for schema ID'
+        if "$ref" in here:
+            yield from reach(here["$ref"], compiling)
+        if "nullable" in here and not isinstance(here["nullable"], bool):
+            yield 'nullable value must be ["boolean"]'
+        if here.get("enum") == []:
+            yield "enum must have non-empty array"
+        yield from problems(here.get("not"), f"{path}/not", types, defined, compiling)
+        # Before it compiles an `anyOf`, the runtime looks for a member any data passes.
+        for member in _list(here.get("anyOf")):
+            yield from _unknown_keywords(member)
+            if _passes_anything(member):
+                break
+        for keyword in ("anyOf", "oneOf", "allOf"):
+            for i, member in enumerate(_list(here.get(keyword))):
+                yield from problems(member, f"{path}/{keyword}/{i}", types, defined, compiling)
+        if "if" in here:
+            clauses = [clause for clause in ("then", "else") if clause in here]
+            if not clauses:
+                yield 'strict mode: "if" without "then" and "else" is ignored'
+            for clause in clauses:
+                yield from _unknown_keywords(here[clause])
+            # `if` is compiled only for a clause some data fails.
+            failing = [clause for clause in clauses if not _passes_anything(here[clause])]
+            if failing:
+                for keyword in ("if", *failing):
+                    yield from problems(
+                        here[keyword], f"{path}/{keyword}", types, defined, compiling
+                    )
+        else:
+            for clause in ("then", "else"):
+                if clause in here:
+                    yield f'strict mode: "{clause}" without "if" is ignored'
+        fmt = here.get("format")
+        if isinstance(fmt, str) and fmt not in _STRICT_FORMATS:
+            yield f'unknown format "{fmt}" ignored in schema at path "{path}"'
+        for bound in _FORMAT_BOUNDS:
+            if bound not in here:
+                continue
+            if fmt is None:
+                yield f"parent schema must have dependencies of {bound}: format"
+            elif not isinstance(here[bound], str):
+                yield f'{bound} value must be ["string"]'
+            elif fmt not in _COMPARED_FORMATS:
+                yield f'"{bound}": format "{fmt}" does not define "compare" function'
+        items = here.get("prefixItems")
+        if isinstance(items, list):
+            n = len(cast("list[Any]", items))
+            pinned = n == here.get("maxItems") or here.get("items") is False
+            if not (n == here.get("minItems") and pinned):
+                yield (
+                    f'strict mode: "prefixItems" is {n}-tuple, but minItems or maxItems/items '
+                    f'are not specified or different at path "{path}"'
+                )
+            for i, item in enumerate(cast("list[Any]", items)):
+                # The runtime compiles a schema for other data (an item, a property's value, a
+                # name) with the names it counts as defined set afresh, and keeps that set after:
+                # what the schema defines counts here from then on, what was defined before
+                # doesn't. `false` is compiled too, but not as `additionalProperties`, an
+                # `unevaluated...` keyword, or `items` after `prefixItems`.
+                if not _passes_anything(item):
+                    defined = set()
+                yield from problems(item, f"{path}/prefixItems/{i}", [], defined, compiling)
+        rest = here.get("items")
+        after_tuple = rest is False and isinstance(items, list)
+        if "items" in here and not _passes_anything(rest) and not after_tuple:
+            defined = set()
+        yield from problems(rest, f"{path}/items", [], defined, compiling)
+        if "contains" in here:
+            least, most = here.get("minContains", 1), here.get("maxContains")
+            if most is None and least == 0:
+                yield (
+                    'strict mode: "minContains" == 0 without "maxContains": '
+                    '"contains" keyword ignored'
+                )
+            elif most is not None and least > most:
+                yield 'strict mode: "minContains" > "maxContains" is always invalid'
+            if not _passes_anything(here["contains"]):
+                defined = set()
+            yield from problems(here["contains"], f"{path}/contains", [], defined, compiling)
+        else:
+            for keyword in ("maxContains", "minContains"):
+                if keyword in here:
+                    yield f'strict mode: "{keyword}" without "contains" is ignored'
+        if "unevaluatedItems" in here and not evaluated(here, "unevaluatedItems", compiling):
+            if _compiles_a_schema(here["unevaluatedItems"]):
+                defined = set()
+            yield from problems(
+                here["unevaluatedItems"], f"{path}/unevaluatedItems", [], defined, compiling
+            )
+        props = here.get("properties")
+        for key in _list(here.get("required")):
+            # Defined by the schema's own `properties` (a name any JavaScript object has
+            # included), or among the names the runtime counts as defined so far.
+            own = isinstance(props, Mapping) and (key in props or key in _OBJECT_MEMBERS)
+            if not own and key not in defined:
+                yield (
+                    f'strict mode: required property "{key}" is not defined '
+                    f'at "{base}{path}" (strictRequired)'
+                )
+        if "propertyNames" in here and not _passes_anything(here["propertyNames"]):
+            defined = set()
+        yield from problems(
+            here.get("propertyNames"), f"{path}/propertyNames", ["string"], defined, compiling
+        )
+        if _compiles_a_schema(here.get("additionalProperties")):
+            defined = set()
+        yield from problems(
+            here.get("additionalProperties"), f"{path}/additionalProperties", [], defined, compiling
+        )
+        for name, dependency in _entries(here.get("dependencies")):
+            if name != "__proto__" and not isinstance(dependency, list):
+                yield from problems(
+                    dependency, f"{path}/dependencies/{_segment(name)}", types, defined, compiling
+                )
+        properties = [(n, s) for n, s in _entries(props) if n != "__proto__"]
+        defined.update(name for name, _ in properties)
+        # Before it compiles any, the runtime looks for those any data passes.
+        for _, sub in properties:
+            yield from _unknown_keywords(sub)
+        for name, sub in properties:
+            if not _passes_anything(sub):
+                defined = set()
+                yield from problems(
+                    sub, f"{path}/properties/{_segment(name)}", [], defined, compiling
+                )
+                defined.add(name)
+        patterns = [(p, s) for p, s in _entries(here.get("patternProperties")) if p != "__proto__"]
+        for _, sub in patterns:
+            yield from _unknown_keywords(sub)
+        if all(_passes_anything(sub) for _, sub in patterns) and evaluated(
+            here, "unevaluatedProperties", compiling
+        ):
+            patterns = []  # the runtime checks nothing more of them
+        for pattern, sub in patterns:
+            for name, _ in _entries(props):
+                if _js_matches(pattern, name):
+                    yield (
+                        f"strict mode: property {name} matches pattern {pattern} "
+                        "(use allowMatchingProperties)"
+                    )
+            if not _passes_anything(sub):
+                defined = set()
+            yield from problems(
+                sub, f"{path}/patternProperties/{_segment(pattern)}", [], defined, compiling
+            )
+        for name, dependent in _entries(here.get("dependentSchemas")):
+            yield from problems(
+                dependent, f"{path}/dependentSchemas/{_segment(name)}", types, defined, compiling
+            )
+        if "unevaluatedProperties" in here and not evaluated(
+            here, "unevaluatedProperties", compiling
+        ):
+            if _compiles_a_schema(here["unevaluatedProperties"]):
+                defined = set()
+            yield from problems(
+                here["unevaluatedProperties"],
+                f"{path}/unevaluatedProperties",
+                [],
+                defined,
+                compiling,
+            )
+
+    def reach(ref: Any, compiling: tuple[int, ...]) -> Iterator[str]:
+        if not isinstance(ref, str):
+            return
+        reached = target(ref)
+        if reached is _NOWHERE:
+            yield f"can't resolve reference {ref} from id {base or '#'}"
+        elif reached is not _UNKNOWN and loops(reached):
+            yield "Maximum call stack size exceeded"
+        elif reached is not _UNKNOWN:
+            yield from on_its_own(reached, compiling)
+
+    def loops(node: Any) -> bool:
+        # The runtime reads through a schema that is only a `#/...` ref to the schema it reaches,
+        # and overflows its stack on a loop of them. A `#` or `#/` ref ends the chain: the runtime
+        # calls the root for it.
+        chain: set[int] = set()
+        while _only_ref(node) and node["$ref"].startswith("#/") and node["$ref"] != "#/":
+            if id(node) in chain:
+                return True
+            chain.add(id(node))
+            node = _local_ref(schema, node["$ref"])
+        return False
+
+    def on_its_own(node: Any, compiling: tuple[int, ...]) -> Iterator[str]:
+        # The runtime compiles `node` as a schema of its own, once: its path starts at `#`, and
+        # it knows nothing yet of the data.
+        if id(node) not in compiled:
+            compiled.add(id(node))
+            yield from problems(node, "#", [], set(), (*compiling, id(node)))
+
+    def evaluated(node: Mapping[str, Any], unevaluated: str, compiling: tuple[int, ...]) -> bool:
+        # Whether the runtime knows, before it compiles `unevaluated`, that every property (or
+        # item) is evaluated: by `node`'s own keyword, or by an `allOf` member or what a `$ref`
+        # reaches (their `unevaluated` keyword included), unless that is still compiling.
+        if _EVALUATES_ALL[unevaluated] in node:
+            return True
+        contains = node.get("contains", True)
+        if unevaluated == "unevaluatedItems" and not _passes_anything(contains):
+            return True  # a `contains` that some data fails evaluates every item
+        members = node.get("allOf")
+        if isinstance(members, list) and any(
+            covers(member, unevaluated, compiling) for member in cast("list[Any]", members)
+        ):
+            return True
+        ref = node.get("$ref")
+        if not isinstance(ref, str):
+            return False
+        reached = target(ref)
+        if reached is _UNKNOWN:
+            return True  # what it reaches is unknown, so `unevaluated` is left unwalked
+        return id(reached) not in compiling and covers(
+            reached, unevaluated, (*compiling, id(reached))
+        )
+
+    def covers(node: Any, unevaluated: str, compiling: tuple[int, ...]) -> bool:
+        if not isinstance(node, Mapping):
+            return False
+        here = cast("Mapping[str, Any]", node)
+        return unevaluated in here or evaluated(here, unevaluated, compiling)
+
+    return next(problems(schema, "#", [], set(), (id(schema),)), None)
+
+
+def _names(node: Any, keywords: tuple[str, ...]) -> bool:
+    """Whether `node` or a subschema of it has one of `keywords` (`_BASE_KEYWORDS`, say). Only a
+    schema has one: a property named `$id`, or a `default` holding one, doesn't."""
+    if not isinstance(node, Mapping):
+        return False
+    here = cast("Mapping[str, Any]", node)
+    return any(keyword in here for keyword in keywords) or any(
+        _names(sub, keywords) for sub in _subschemas(here)
+    )
+
+
+def _anchored(node: Any, anchor: str) -> list[Mapping[str, Any]]:
+    """The schemas in `node` (itself included) whose `$anchor` is `anchor`."""
+    if not isinstance(node, Mapping):
+        return []
+    here = cast("Mapping[str, Any]", node)
+    found = [here] if here.get("$anchor") == anchor else []
+    for sub in _subschemas(here):
+        found.extend(_anchored(sub, anchor))
+    return found
+
+
+def _subschemas(node: Mapping[str, Any]) -> list[Any]:
+    """The subschemas directly in `node`, where `_SUBSCHEMAS` says they sit."""
+    inside: list[Any] = []
+    for keyword, holds in _SUBSCHEMAS:
+        value = node.get(keyword)
+        if holds == "one":
+            inside.append(value)
+        elif holds == "list" and isinstance(value, list):
+            inside.extend(cast("list[Any]", value))
+        elif holds == "map" and isinstance(value, Mapping):
+            inside.extend(cast("Mapping[str, Any]", value).values())
+    return inside
+
+
+def _segment(name: str) -> str:
+    """`name` as a path segment, written as the runtime writes it: JSON Pointer escaped, then
+    URI encoded."""
+    return quote(name.replace("~", "~0").replace("/", "~1"), safe="!*'()")
+
+
+def _local_ref(root: Mapping[str, Any], ref: str) -> Any:
+    """What a `#` or `#/...` ref names in `root`, read as the runtime reads it; `_NOWHERE` for
+    another ref, or one naming nothing."""
+    if ref in ("#", "#/"):
+        return root
+    if not ref.startswith("#/"):
+        return _NOWHERE
+    node: Any = root
+    for raw in ref[2:].split("/"):
+        part = unquote(raw).replace("~1", "/").replace("~0", "~")
+        if isinstance(node, Mapping) and part in node:
+            node = cast("Mapping[str, Any]", node)[part]
+        elif (
+            isinstance(node, list)
+            and _INDEX.fullmatch(part)
+            and int(part) < len(cast("list[Any]", node))
+        ):
+            node = cast("list[Any]", node)[int(part)]
+        else:
+            return _NOWHERE
+    return node
+
+
+def _unknown_keywords(node: Any) -> Iterator[str]:
+    """The runtime's refusal of each keyword in `node` it doesn't know, in the order it meets
+    them."""
+    if isinstance(node, Mapping):
+        for keyword in _js_keys(cast("Mapping[str, Any]", node)):
+            if keyword not in _STRICT_KEYWORDS:
+                yield f'strict mode: unknown keyword: "{keyword}"'
+
+
+def _only_ref(node: Any) -> bool:
+    """Whether `node` is a schema whose only keyword the runtime compiles is a `$ref`."""
+    if not isinstance(node, Mapping):
+        return False
+    here = cast("Mapping[str, Any]", node)
+    ref = here.get("$ref")
+    return isinstance(ref, str) and ref != "" and not any(k in _RULES for k in here if k != "$ref")
+
+
+def _compiles_a_schema(node: Any) -> bool:
+    """Whether the runtime compiles `node` as a schema where `false` is a check of its own:
+    `additionalProperties` and the `unevaluated...` keywords."""
+    return isinstance(node, Mapping) and not _passes_anything(node)
+
+
+def _passes_anything(node: Any) -> bool:
+    """Whether the runtime takes `node` for a schema any data passes, so compiles nothing in it."""
+    if not isinstance(node, Mapping):
+        return node is True
+    return not any(keyword in _RULES for keyword in cast("Mapping[str, Any]", node))
+
+
+def _list(value: Any) -> list[Any]:
+    return cast("list[Any]", value) if isinstance(value, list) else []
+
+
+def _entries(value: Any) -> list[tuple[str, Any]]:
+    """A map's entries, in the order the runtime's JavaScript object holds them; none for another
+    value."""
+    if not isinstance(value, Mapping):
+        return []
+    mapping = cast("Mapping[str, Any]", value)
+    return [(key, mapping[key]) for key in _js_keys(mapping)]
+
+
+def _js_keys(mapping: Mapping[str, Any]) -> list[str]:
+    """`mapping`'s keys in the order a JavaScript object parsed from its JSON holds them: the
+    array indices first, ascending, then the rest as written."""
+    indices = sorted((k for k in mapping if _INDEX.fullmatch(k) and int(k) < 2**32 - 1), key=int)
+    first = set(indices)
+    return [*indices, *(key for key in mapping if key not in first)]
+
+
+def _includes(types: list[str], name: str) -> bool:
+    """Whether a context whose data can be `types` lets a schema say the data is `name`: an
+    integer is a number."""
+    return name in types or (name == "integer" and "number" in types)
+
+
+def _fits(types: list[str], need: str) -> bool:
+    """Whether a keyword that checks data of type `need` applies to data that can be `types`: a
+    number keyword applies to an integer."""
+    return need in types or (need == "number" and "integer" in types)
+
+
+def _narrowed(types: list[str], declared: list[str]) -> list[str]:
+    """The types the data can have once a schema in a context of `types` declares `declared`."""
+    narrowed: list[str] = []
+    for name in types:
+        if _includes(declared, name):
+            narrowed.append(name)
+        elif name == "number" and "integer" in declared:
+            narrowed.append("integer")
+    return narrowed
+
+
+def _js_matches(pattern: str, name: str) -> bool:
+    """Whether JavaScript's `new RegExp(pattern).test(name)` holds, as the runtime tries a
+    `patternProperties` pattern on a `properties` name. `False` when Python's `re` may read the
+    pattern or the name otherwise (`_NOT_JS_PATTERN`, `_NOT_JS_NAME`), or can't read the pattern:
+    then the runtime's answer isn't known here, and the schema isn't refused for it."""
+    if _NOT_JS_PATTERN.search(pattern) or _NOT_JS_NAME.search(name):
+        return False
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # `re` warns of sets a later Python may read otherwise
+        try:
+            return re.search(pattern, name, re.ASCII) is not None
+        except re.error:
+            return False
 
 
 class SchemaValidator:
