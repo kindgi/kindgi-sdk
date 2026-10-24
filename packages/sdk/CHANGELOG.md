@@ -1,5 +1,64 @@
 # @kindgi/sdk
 
+## 0.1.10
+
+### Patch Changes
+
+- 2e60ae2: A TypeScript pack's image can carry only what the pack loads: `image: { dependencies: 'loaded' }` in `kindgi.config` keeps the packages the pack's bundles import by name, with their own dependencies, and what `image.keep` names, instead of every production dependency of the app (`'all'`, still the default).
+  
+  - Each package is resolved as Node resolves it, over the layout the package manager made (pnpm's links, npm's and Yarn's hoisting), and kept whole.
+  - Most misses fail the build, naming the package. An import that isn't installed fails the image's closure step, by name. Every package the bundles import is loaded on the trimmed install before indexing, which runs there too. A `require(x)` / `import(x)` with a computed name in the pack's own code fails `kindgi build`, by file and line, until `image.keep` names what it loads.
+  - The build prints what it kept of what's installed, and which of the pack's own dependencies its tools don't import.
+  - What no check can see reaches a run: a package loaded by a name in a string (a plugin named in a config), through a `createRequire` alias or `module.require`, or a dependency's own undeclared one. That call fails, saying what to add to `image.keep`.
+  - `prisma()` keeps Prisma 6's generated `.prisma/client` when it's there.
+  - A Python pack's `[tool.kindgi.image] dependencies = "loaded"` (or `keep`) is refused for now: its image keeps every dependency in the lockfile.
+- 4bdb49f: **The `kindgi-authoring-providers` skill leads with the pack's config: declare the provider there and commit it.** Its step 2 used to be `kindgi providers register --preset=…`, which puts the provider in one worktree's dev database and leaves nothing to commit, so another worktree, a `--reset` or a teammate's `kindgi dev` had none. Step 2 is now the declaration (`providers` in `kindgi.config.ts`, `[[tool.kindgi.providers]]` in `pyproject.toml`, `providers` in `kindgi.config.json`), which holds a key's name, never the key, and is committed. Registering by hand comes second, for a runtime `kindgi dev` doesn't run (staging, production, Kindgi Cloud): once per runtime, since a registration is shared by every environment it serves, with the key set in each environment that runs the pack. `kindgi deploy` doesn't register providers, and `kindgi promote` stops while the target has none. A hand-written `provider.json` is committed too. A new mistake says `.kindgi/dev/providers.json` is `kindgi dev`'s local record, not the file to commit, and the end-to-end check declares the provider. The getting-started skills (TypeScript, Python, Java, Scala) and the Java and Scala agent-authoring skills say to commit the declaration where they show it.
+- a21cec2: **The tool-authoring skill covers a default import of a package that ships only CommonJS.** A pack's code runs as ES modules, loaded with Node's own `import()`, so Node gives such an import the package's whole `module.exports`, with the class on its `default`, where Vitest, Next.js and tsx in a CommonJS app give the class. A tool, or app code it imports, then passes `kindgi test` and fails under `kindgi dev` with "is not a constructor". The skill tells a coding agent to take the class either way, with a typed helper that compiles under both `NodeNext` and `bundler` module resolution.
+- e1fd4cd: **The tool-authoring skill covers a dynamic import of a package that ships only CommonJS.** `(await import('…')).default` is the class under Vitest and the package's whole `module.exports` under Node, as with a default import, so the skill takes it with the same helper.
+- a05a216: **The getting-started and tool-authoring skills cover a tool that needs code from a Next.js module with `import 'server-only'`.** Outside Next.js that line stops the module from loading, so `kindgi test`, `kindgi dev` and `kindgi build` fail on such a tool. The skills tell a coding agent to keep the line, move the code the tool needs into a module without it, have the guarded module re-export that module so the app's own imports don't change, and import the new module from the tool.
+- 9b6da8a: **Usage reads: a tenant reads its own usage, aggregated, and the operator reads usage across tenants.**
+  
+  - **What's counted:** usage records (`USAGE_KINDS`): runs started and ended, each with its class; approvals requested and decided; model calls, inference and embedding; and a project put in production or taken out. A read answers groups: each group's count, the sum of its quantities (milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count) and its first and last times. It never answers a record's content. Model-call cost stays on `/v1/cost`.
+  - **The query,** the same on both routes:
+    - `from` and `to`: times with a zone, `to` not included, at most 92 days apart. A longer span is read in parts;
+    - `groupBy`, comma-separated;
+    - the filters `kind`, `class` and `state`, each comma-separated. A list naming an unknown value, or one value twice, is `400 bad-input`;
+    - `limit`: groups a page, from 1 to 10000 (default 1000);
+    - `cursor`: the last page's `nextCursor`. A cursor the route didn't give is `400 bad-input`.
+  - **The answer** is `{ data, watermark, nextCursor? }`. Every record at or before `watermark` is in it, so a reader re-reads a window until its watermark is past the window's end. Every page of one read carries the same watermark. A group's `kind`, `class` and `state` are plain strings: a runtime may count more later, and a reader shows a value it doesn't know as it is.
+  - **`GET /v1/usage`:** the caller's tenant's usage. `groupBy` takes `project`, `agent`, `kind`, `class`, `state` and `day` (the UTC date); the default is `project,kind`. `projectId` reads one project.
+    - **Which projects:** a tenant admin, or a deployment without authorization, reads every project and the tenant's records with no project. Anyone else, an admin's API key limited to a project included, reads only the projects they may `read`, and no record without a project.
+    - **A project the caller can't read** is absent from the answer, never an error, so the answer doesn't say it exists.
+    - **When the projects a caller may read can't be listed,** one asked for with `projectId` is still read. A read across projects is refused (`403`), never over-counted.
+  - **`GET /v1/system/usage`** takes the new system capability `system:usage:read` (`kindgi:system` includes it). `groupBy` also takes `tenant`; the default is `tenant,kind`. `tenantId` reads one tenant.
+    - A test tenant's usage, and that of a tenant whose setup is pending, is never in the answer, even when `tenantId` names one.
+    - The access record marks a read across every tenant, or names the one read.
+  - **Mounting:** `createApp` takes `usage`, a `UsageBinding` (`acrossTenants`, `ofTenant`). Without it, neither route is mounted (`404`). `@kindgi/api` exports the binding's types and the lists the query takes (`USAGE_STATES`, `USAGE_GROUP_KEYS`, `TENANT_USAGE_GROUP_KEYS`, `USAGE_WINDOW_MAX_DAYS`).
+  - **The TypeScript client** adds `client.usage.read` (`TenantUsageClient`) and `client.systemUsage.read` (`SystemUsageClient`); lists are sent comma-separated. `@kindgi/sdk` exports `TenantUsageClient`, `UsageQuery`, `UsagePage`, `UsageGroup` and `UsageGroupKey`. `UsageClient` is still `client.cost.usage`'s.
+  - **The Python client** adds `client.usage.read` and `client.system_usage.read`.
+  - **The CLI adds `kindgi usage`:**
+    - **The window:** a calendar month in UTC (`--month=YYYY-MM`, the current one by default), or `--from` and `--to` together;
+    - **The query:** `--project`, `--group-by`, `--kind`, `--class` and `--state` (comma-separated), `--limit` and `--cursor`;
+    - **The output:** the page as JSON. `--table` prints a row per group, with `(none)` for no project or agent, and on stderr the watermark and the next page's `--cursor`.
+- Updated dependencies [997470e]
+- Updated dependencies [b9a68d5]
+- Updated dependencies [d6f844d]
+- Updated dependencies [2e60ae2]
+- Updated dependencies [72b63e8]
+- Updated dependencies [01964ed]
+- Updated dependencies [05b762e]
+- Updated dependencies [25a7309]
+- Updated dependencies [9b6da8a]
+  - @kindgi/client@0.1.10
+  - @kindgi/agents@0.1.10
+  - @kindgi/handler-runtime@0.1.10
+  - @kindgi/flow@0.1.10
+  - @kindgi/guardrails@0.1.10
+  - @kindgi/schema@0.1.10
+  - @kindgi/tools@0.1.10
+  - @kindgi/crypto@0.1.10
+  - @kindgi/types@0.1.10
+
 ## 0.1.10-rc.1
 
 ### Patch Changes

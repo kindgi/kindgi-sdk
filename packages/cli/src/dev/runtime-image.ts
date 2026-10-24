@@ -14,7 +14,7 @@
  * then `kindgi auth registry --username <name>`.
  */
 export const DEFAULT_RUNTIME_IMAGE =
-  'quay.io/kindgi/runtime:0.1.10-rc.1@sha256:44238dc2cdc17298aedb86bb63f96cdc04641a282ed97bc561051561f8514067';
+  'quay.io/kindgi/runtime:0.1.10@sha256:b6bdf6bcc6fb86fd1e16a2fce7d37dc066b766a0b4313dd3f19e2c904b3b01b3';
 
 /** Docker Hub, the registry of a reference that names none (`busybox`, `library/busybox`). */
 const DOCKER_HUB = 'docker.io';
