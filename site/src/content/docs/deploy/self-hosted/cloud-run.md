@@ -31,7 +31,8 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
 - **Your pack's service** (`kindgi-pack`): your tools' code. Internal ingress,
   and IAM-protected: only the runtime's service account may call it, with a
   Google ID token on every call. Its CPU is allocated only while a call runs,
-  so an instance waiting between calls bills at Cloud Run's lower idle rate.
+  so the instance `pack_min_instances` keeps up bills at Cloud Run's lower
+  idle rate between calls, and any others aren't billed then.
 - **Cloud SQL** (Postgres 16) for the runtime's data, reached through the
   Cloud SQL socket.
 - **Artifact Registry** for both images. The runtime also reads your pack's
