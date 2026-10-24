@@ -965,17 +965,35 @@ function serializePage<T>(
 }
 
 function serializeEntry(entry: AppEntry): Record<string, unknown> {
+  const { signIn, removal } = entry;
   return {
     id: entry.id,
     name: entry.name,
     owners: [...entry.owners],
-    signIn: { kind: entry.signIn.kind },
+    signIn: {
+      kind: signIn.kind,
+      ...(signIn.kind === 'oauth2' &&
+        signIn.tenant !== undefined && {
+          tenant: {
+            ...(signIn.tenant.default !== undefined && { default: signIn.tenant.default }),
+          },
+        }),
+    },
     permissions: Object.fromEntries(
       Object.entries(entry.permissions).map(([key, p]) => [
         key,
         { says: p.says, changes: p.changes },
       ]),
     ),
+    // Field by field, so a field the entry gains later reaches the wire only
+    // once its schema says it does.
+    removal: {
+      ...(removal.revoke !== undefined && { revoke: removal.revoke }),
+      ...(removal.revokeIsGrantWide !== undefined && {
+        revokeIsGrantWide: removal.revokeIsGrantWide,
+      }),
+      ...(removal.notices !== undefined && { notices: removal.notices }),
+    },
     setupGuide: entry.setupGuide,
   };
 }
