@@ -21,6 +21,7 @@ import {
   SyncError,
   fixedGroupVersion,
   lockedVersion,
+  prereleasesOf,
   projectString,
   toPep440,
 } from './sync-python-version.mjs';
@@ -57,6 +58,27 @@ describe('toPep440', () => {
       assert.throws(() => toPep440(version), SyncError, version);
     }
     assert.throws(() => toPep440('1.0.0-preview.3'), /has no PEP 440 spelling/);
+  });
+});
+
+describe('prereleasesOf', () => {
+  test("a release's are its own a, b and rc versions; a prerelease has none", () => {
+    const of = prereleasesOf('1.2.0');
+    for (const section of ['1.2.0rc0', '1.2.0rc12', '1.2.0a1', '1.2.0b3']) {
+      assert.ok(of(section), section);
+    }
+    for (const section of [
+      '1.2.0',
+      '1.1.0rc0',
+      '1.2.1rc0',
+      '11.2.0rc0',
+      '1x2.0rc0',
+      '1.2.0rc01',
+      '1.2.0-rc.0',
+    ]) {
+      assert.ok(!of(section), section);
+    }
+    assert.equal(prereleasesOf('1.2.0rc1'), undefined);
   });
 });
 
@@ -395,6 +417,21 @@ describe('sync-python-version (writing)', () => {
       assert.equal(
         read(root, 'sdks/python/CHANGELOG.md'),
         `# Acme Python\n\n## Unreleased\n\n## 1.2.1\n\n${NO_CHANGES}\n\n## 1.2.0\n\n- the first release\n`,
+      );
+    },
+  );
+
+  test(
+    "--release of a release gathers its release candidates' entries",
+    { skip: HAS_UV ? false : 'uv is not installed' },
+    () => {
+      const candidate =
+        '# Acme Python\n\n## Unreleased\n\n- a fix\n\n## 1.2.1rc0\n\n- a change\n\n## 1.2.0\n\n- the first release\n';
+      const root = workspace({ sdk: '1.2.1', changelog: candidate });
+      assert.equal(run(root, ['--release']).status, 0);
+      assert.equal(
+        read(root, 'sdks/python/CHANGELOG.md'),
+        '# Acme Python\n\n## Unreleased\n\n## 1.2.1\n\n- a fix\n- a change\n\n## 1.2.1rc0\n\n- a change\n\n## 1.2.0\n\n- the first release\n',
       );
     },
   );

@@ -3,7 +3,10 @@
 Every artifact under `sdks/java` and `sdks/scala` has one version, the same as
 the npm packages' and PyPI's. Each user-visible change adds its line under
 **Unreleased** in the pull request that makes it. A release turns that
-heading into its version.
+heading into its version. From 0.2.0 on, a release after release candidates
+lists their changes too, so its section has every change since the release
+before. An earlier release's section has only what came after its
+candidates, and theirs are just below it.
 
 ## Unreleased
 
