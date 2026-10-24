@@ -500,6 +500,7 @@ export const CLI_DEFAULTS = {
     model: 'none (needed with `--tier=prompt`, with `--provider`)',
     objective: '`weightedYesShare`',
     org: 'none',
+    'pass-project': "the scope's project, else the agent version's",
     project: 'none',
     provider: 'none (needed with `--tier=prompt`, with `--model`)',
     segment: 'none',

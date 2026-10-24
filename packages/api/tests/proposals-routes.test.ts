@@ -3040,6 +3040,37 @@ describe('POST /v1/proposals/improve/estimate', () => {
     expect((await none.call('POST', '/v1/proposals/improve/estimate', IMPROVE)).status).toBe(501);
   });
 
+  // A pass can work in a project other than its version's: an order carries
+  // the agent from its project to prod, and prod reaches the agent, its own
+  // test set and the versions shipped to it.
+  const PROD = randomUUID() as ProjectId;
+  const PROD_SEGMENT = { ...SEGMENT_WIRE, projectId: PROD };
+  const PROD_SET = 'acme.scoring-prod-judged';
+  function inProd(shipped: string[], grants?: string[]): Parameters<typeof harness>[0] {
+    const reached = new Map<string, Set<string>>([
+      [projectId, new Set([AGENT, `${AGENT}@1.0.0`, IMPROVE.suiteId])],
+      [PROD, new Set([AGENT, ...shipped.map((v) => `${AGENT}@${v}`), PROD_SET])],
+    ]);
+    return {
+      orders: [[projectId, PROD]],
+      items: [
+        {
+          kind: 'agent',
+          id: AGENT,
+          projects: [projectId, PROD],
+          versions: [{ version: '1.0.0', projects: [projectId, PROD] }],
+        },
+      ],
+      referenceScope: {
+        async reachable({ fromProjectId, ref }) {
+          const key = ref.version === undefined ? ref.id : `${ref.id}@${ref.version}`;
+          return reached.get(fromProjectId)?.has(key) === true;
+        },
+      },
+      ...(grants !== undefined && { grants }),
+    };
+  }
+
   // `/improve` and `/improve/estimate` take the same body and resolve +
   // reach-check it through the one shared helper (`resolveImproveTarget`), so
   // a bad body is refused identically. One case per branch of that helper,
@@ -3084,6 +3115,27 @@ describe('POST /v1/proposals/improve/estimate', () => {
       label: 'a scope in another project',
       opts: { referenceScope: reach(new Set()) },
       body: { ...IMPROVE, scope: OTHER_SEGMENT, fromVersion: '1.0.0' },
+      status: 400,
+      code: 'reference-out-of-scope',
+    },
+    {
+      label: 'a scope outside `projectId`',
+      opts: inProd(['1.0.0']),
+      body: { ...IMPROVE, projectId: PROD, fromVersion: '1.0.0' },
+      status: 400,
+      code: 'bad-input',
+    },
+    {
+      label: 'another project, without write there',
+      opts: inProd(['1.0.0'], [`read project:${projectId}`, `write project:${projectId}`]),
+      body: { ...IMPROVE, scope: PROD_SEGMENT, suiteId: PROD_SET, fromVersion: '1.0.0' },
+      status: 403,
+      code: 'permission-denied',
+    },
+    {
+      label: "a version its project doesn't reach",
+      opts: inProd([]),
+      body: { ...IMPROVE, scope: PROD_SEGMENT, suiteId: PROD_SET, fromVersion: '1.0.0' },
       status: 400,
       code: 'reference-out-of-scope',
     },
@@ -3328,5 +3380,154 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
     });
     expect(releases.calls.slice(before).map((c) => c.method)).not.toContain('unpin');
     expect(releases.calls.slice(before).map((c) => c.method)).not.toContain('rollback');
+  });
+});
+
+describe("a pass started by hand works in one project: the one named, else its scope's, else its version's", () => {
+  const PROD = randomUUID() as ProjectId;
+  const orders = [[projectId, PROD]] as const;
+  const items = (): ItemRow[] => [
+    {
+      kind: 'agent',
+      id: AGENT,
+      projects: [projectId, PROD],
+      versions: [{ version: '1.0.0', projects: [projectId, PROD] }],
+    },
+  ];
+  const PROD_SEGMENT = { ...SEGMENT_WIRE, projectId: PROD };
+  /** A test set built from prod's judged runs: made in prod, so only prod reaches it. */
+  const PROD_SET = 'acme.scoring-prod-judged';
+  const DEV_SET = 'acme.scoring-judged';
+
+  /**
+   * What each project reaches: the agent's first environment its own
+   * items; prod the agent, the versions shipped to it, its own test set
+   * and the earlier environment's (test data moves forward). A version is
+   * asked as `id@version`.
+   */
+  function reachByProject(shipped = ['1.0.0']): ReferenceScopeBinding {
+    const reached = new Map<string, Set<string>>([
+      [projectId, new Set([AGENT, `${AGENT}@1.0.0`, DEV_SET])],
+      [PROD, new Set([AGENT, ...shipped.map((v) => `${AGENT}@${v}`), PROD_SET, DEV_SET])],
+    ]);
+    return {
+      async reachable({ fromProjectId, ref }) {
+        const key = ref.version === undefined ? ref.id : `${ref.id}@${ref.version}`;
+        return reached.get(fromProjectId)?.has(key) === true;
+      },
+    };
+  }
+
+  async function improver(opts: { grants?: string[]; shipped?: string[] } = {}) {
+    const passes = inMemoryPasses();
+    const asked: string[] = [];
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      orders,
+      items: items(),
+      referenceScope: reachByProject(opts.shipped),
+      projectSuspended: async (_tenantId, pid) => {
+        asked.push(pid as unknown as string);
+        return false;
+      },
+      ...(opts.grants !== undefined && { grants: opts.grants }),
+    });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const improve = (body: Record<string, unknown>) =>
+      h.call('POST', '/v1/proposals/improve', { agentId: AGENT, ...body });
+    return { ...h, passes, asked, improve };
+  }
+
+  test("a scope in prod: the pass works in prod, on prod's test set, and asks whether prod is suspended", async () => {
+    const h = await improver();
+    const res = await h.improve({ scope: PROD_SEGMENT, suiteId: PROD_SET });
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(h.passes.started.map((p) => p.projectId)).toEqual([PROD]);
+    expect(h.asked).toEqual([PROD]);
+    // In the first environment, prod's test set is out of reach, as before.
+    expect(refused(await h.improve({ scope: SEGMENT_WIRE, suiteId: PROD_SET }))).toEqual([
+      `/suiteId suite ${PROD_SET}`,
+    ]);
+    expect(h.passes.started).toHaveLength(1);
+  });
+
+  test("a tenant scope: the version's project, unless `projectId` names another", async () => {
+    const h = await improver();
+    const own = await h.improve({ scope: { kind: 'tenant' }, suiteId: DEV_SET });
+    expect(own.status, JSON.stringify(own.body)).toBe(202);
+    expect(refused(await h.improve({ scope: { kind: 'tenant' }, suiteId: PROD_SET }))).toEqual([
+      `/suiteId suite ${PROD_SET}`,
+    ]);
+    const prod = await h.improve({ scope: { kind: 'tenant' }, projectId: PROD, suiteId: PROD_SET });
+    expect(prod.status, JSON.stringify(prod.body)).toBe(202);
+    expect(h.passes.started.map((p) => p.projectId)).toEqual([projectId, PROD]);
+  });
+
+  test('a project or segment scope must be in `projectId`: 400, naming no project, and no pass', async () => {
+    const h = await improver();
+    for (const body of [
+      { scope: SEGMENT_WIRE, projectId: PROD, suiteId: PROD_SET },
+      { scope: PROD_SEGMENT, projectId, suiteId: DEV_SET },
+      { scope: { kind: 'project', projectId: PROD }, projectId, suiteId: DEV_SET },
+    ]) {
+      const res = await h.improve(body);
+      expect(res.status, JSON.stringify(res.body)).toBe(400);
+      expect(res.body.error.code).toBe('bad-input');
+      expect(res.body.error.message).toBe(
+        "An improve pass's scope must be in its project (`projectId`): it learns from that project's runs",
+      );
+    }
+    expect(h.passes.started).toEqual([]);
+  });
+
+  test('a version prod never got: refused at /fromVersion, naming no project, and no pass', async () => {
+    const h = await improver({ shipped: [] });
+    for (const body of [
+      { scope: PROD_SEGMENT, suiteId: PROD_SET },
+      { scope: PROD_SEGMENT, fromVersion: '1.0.0', suiteId: PROD_SET },
+      { scope: { kind: 'tenant' }, projectId: PROD, suiteId: PROD_SET },
+    ]) {
+      const res = await h.improve(body);
+      expect(refused(res)).toEqual([`/fromVersion agent ${AGENT}`]);
+      expect(res.body.error.message).not.toContain(PROD);
+      expect(res.body.error.message).not.toContain(projectId);
+    }
+    // Its own project reaches the version it was made in: not asked again there.
+    const own = await h.improve({ scope: SEGMENT_WIRE, suiteId: DEV_SET });
+    expect(own.status, JSON.stringify(own.body)).toBe(202);
+    expect(h.passes.started.map((p) => p.projectId)).toEqual([projectId]);
+  });
+
+  test("a project other than the version's needs write there, as the pass's eval runs do", async () => {
+    const grants = [`read project:${projectId}`, `write project:${projectId}`];
+    const h = await improver({ grants });
+    const denied = await h.improve({ scope: PROD_SEGMENT, suiteId: PROD_SET });
+    expect(denied.status, JSON.stringify(denied.body)).toBe(403);
+    expect(denied.body.error.code).toBe('permission-denied');
+    // The version's own project needs nothing more than before.
+    const own = await h.improve({ scope: SEGMENT_WIRE, suiteId: DEV_SET });
+    expect(own.status, JSON.stringify(own.body)).toBe(202);
+    grants.push(`write project:${PROD}`);
+    const prod = await h.improve({ scope: PROD_SEGMENT, suiteId: PROD_SET });
+    expect(prod.status, JSON.stringify(prod.body)).toBe(202);
+    expect(h.passes.started.map((p) => p.projectId)).toEqual([projectId, PROD]);
+  });
+
+  test('`projectId` must be a project id when given', async () => {
+    const h = await improver();
+    for (const projectIdValue of ['', 7, null]) {
+      const res = await h.improve({
+        scope: { kind: 'tenant' },
+        projectId: projectIdValue,
+        suiteId: DEV_SET,
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(400);
+      expect(res.body.error).toMatchObject({
+        code: 'bad-input',
+        message: '`projectId` must be a project id (a UUID)',
+      });
+    }
+    expect(h.passes.started).toEqual([]);
   });
 });
