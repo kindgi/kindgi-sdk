@@ -696,7 +696,7 @@ and `--published-at`: the same inputs then give the same image.
 | `--tenant=<id>` | The tenant the signature names. Default: the env block's `tenantId`, else `KINDGI_TENANT_ID`. |
 | `--signing-key=<path>` | The Ed25519 private key (PEM). Default: the env block's `signingKey`. |
 | `--skip-integrity-gate` | Sign without re-checking the image's index. Prints a warning. |
-| `--skip-sign` | Write an unsigned envelope (for CI that signs elsewhere); `kindgi deploy` refuses it, and `kindgi deploy --dry-run` shows what it would send, less the signature. |
+| `--skip-sign` | Write an unsigned envelope (for CI that signs elsewhere); `kindgi deploy` refuses it, and `kindgi deploy --dry-run` shows what it would send, less the signature and, unless you pass `--idempotency-key`, the Idempotency-Key. |
 
 ## `kindgi deploy`
 
@@ -720,6 +720,8 @@ deployment. The envelope is `--from-envelope`, else
 - **`--tenant`** must match the envelope's tenant, checked before anything
   is sent.
 - **`--dry-run`** prints the equivalent `curl` command and sends nothing.
+  On an unsigned envelope, it shows the body without the signature's
+  fields, and the Idempotency-Key only if you pass one.
 - **The pack service's env, checked first.** When the pack declares `env`,
   the deploy prints the plan for `--env` (see `kindgi env plan`). It refuses
   when a required name has no value or reference in `environments.<env>.env`
