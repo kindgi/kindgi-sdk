@@ -142,15 +142,16 @@ role. A tenant admin can also add reviewers in the console, on
 ## Reviewer email
 
 Email lets reviewers hear about an approval without watching the console.
-It's optional, and off by default.
+On Kindgi Cloud it's on, with nothing to set. On a runtime of your own, it's
+optional, and off by default.
 
-Set `KINDGI_REVIEWER_EMAIL=on` in the runtime's environment. It sends through
+To turn it on, set `KINDGI_REVIEWER_EMAIL=on` in the runtime's environment. It sends through
 the emailed sign-in link's server, so `KINDGI_AUTH_EMAIL_SMTP_URL` and
 `KINDGI_AUTH_EMAIL_FROM` must be set too. Turned on without them, the
 runtime refuses to start.
 
-The runtime then emails reviewers when an approval starts waiting, and when a
-waiting approval is assigned:
+With it on, the runtime emails reviewers when an approval starts waiting, and
+when a waiting approval is assigned:
 
 - **Who:** the people the approvals list would show it to: its assigned
   reviewer, or else every active reviewer of its required role or above.
