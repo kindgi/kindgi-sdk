@@ -265,7 +265,7 @@ variable "database_name" {
 variable "database_private_network" {
   description = <<-EOT
     Empty: public IP with no authorized networks, reached only through the /cloudsql connector (IAM-checked).
-    A VPC self-link (projects/<project>/global/networks/<name>): private IP only on that network, which needs private services access already. The server then connects over TCP to the private IP through its VPC egress: KINDGI_DATABASE_URL = postgres://<user>:<password>@<private ip>:5432/<db>?sslmode=require.
+    A VPC self-link (projects/<project>/global/networks/<name>): private IP only on that network, which needs private services access already. The server then connects over TCP to the private IP through its VPC egress: KINDGI_DATABASE_URL = postgres://<user>:<password>@<private ip>:5432/<db>?sslmode=require. The module sets KINDGI_DATABASE_SERVER_CA to the instance's CAs, so the server (runtime 0.2.0 on) checks that the database's certificate chains to one of them and is in date.
   EOT
   type        = string
   default     = ""
