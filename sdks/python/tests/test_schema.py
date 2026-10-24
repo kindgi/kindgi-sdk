@@ -127,6 +127,14 @@ def test_limits_formats_and_enums_read_like_ajv() -> None:
     assert issue_of({"format": "email"}, "a@b.co") == []
 
 
+def test_the_regex_format_is_what_javascript_reads_without_flags() -> None:
+    # As ajv-formats: `new RegExp(value)`, and no `\Z` after a character.
+    assert issue_of({"format": "regex"}, "[\\d-a]") == []
+    assert issue_of({"format": "regex"}, "(?<a>.)\\k<a>") == []
+    for refused in ("(", "(?P<a>.)", "a\\Z", "[z-a]"):
+        assert issue_of({"format": "regex"}, refused)[0]["params"] == {"format": "regex"}
+
+
 class Ranged(BaseModel):
     low: int
     high: int
@@ -474,6 +482,18 @@ def test_strict_leaves_a_ref_alone_in_a_schema_with_a_base() -> None:
             "$ref": "https://x.example/c",
         }
         assert strict_schema_problem(in_content) is None
+
+
+def test_a_pattern_python_cant_read_is_refused_after_the_runtimes_refusals() -> None:
+    # JavaScript reads `\p{L}` and the runtime compiles it; this SDK can't check data against it.
+    assert compile_problem({"type": "string", "pattern": "\\p{L}"}) == "'\\\\p{L}' is not a 'regex'"
+    assert compile_problem({"type": "string", "pattern": "\\p{L}", "x-unknown": 1}) == (
+        'strict mode: unknown keyword: "x-unknown"'
+    )
+    # The `u` flag refuses `\Z`, before the matching check can say whether `fooZ` matches.
+    assert compile_problem(
+        {"type": "object", "properties": {"fooZ": {}}, "patternProperties": {"foo\\Z": {}}}
+    ) == ("Invalid regular expression: /foo\\Z/u: Invalid escape")
 
 
 # The strict-schema test vectors (packages/specs/test-vectors/README.md): Python's answer to a

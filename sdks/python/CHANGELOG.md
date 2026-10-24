@@ -99,6 +99,15 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
   A corpus of schemas, with the runtime's answer to each, keeps the two in
   step.
+- `kindgi`: **a pattern is checked as the runtime's JavaScript reads it.**
+  The definition check refuses a `pattern`, or a `patternProperties`
+  pattern, that the runtime's `RegExp` refuses, in the runtime's words
+  (`Invalid regular expression: /(/u: Unterminated group`). Before, it went
+  by Python's `re`: a pattern only Python reads, such as `(?P<name>…)` or
+  `a\Z`, reached the deploy, which refused it. A pattern only JavaScript
+  reads, such as `\p{L}`, is still refused, since the SDK checks data
+  against it with Python's `re`. A `"format": "regex"` value is checked as
+  the runtime checks it, too.
 
 ## 0.1.10
 

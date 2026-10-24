@@ -33,6 +33,8 @@ from pydantic import ValidationError as PydanticError
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaMode, JsonSchemaValue
 from pydantic_core import core_schema
 
+from ._regexp import regexp_problem
+
 __all__ = [
     "SchemaValidator",
     "apply_defaults",
@@ -156,6 +158,7 @@ _HOSTNAME = re.compile(
 )
 _URI = re.compile(r"^[a-z][a-z0-9+\-.]*:[^\s]*$", re.IGNORECASE)
 _NO_SPACE = re.compile(r"^[^\s]*$")
+_Z_ANCHOR = re.compile(r"[^\\]\\Z")
 
 
 def _is_date(value: str) -> bool:
@@ -194,11 +197,8 @@ def _is_ip(value: str, version: int) -> bool:
 
 
 def _is_regex(value: str) -> bool:
-    try:
-        re.compile(value)
-    except re.error:
-        return False
-    return True
+    # As ajv-formats: what JavaScript's `RegExp` takes with no flags, but a `\Z` after a character.
+    return _Z_ANCHOR.search(value) is None and regexp_problem(value, unicode=False) is None
 
 
 _FORMAT_CHECKER = _formats()
@@ -211,12 +211,25 @@ def check_schema(schema: Mapping[str, Any]) -> None:
 
 def compile_problem(schema: Mapping[str, Any]) -> str | None:
     """Why the runtime's compile of an inline schema refuses `schema`: it isn't valid Draft
-    2020-12, or its strict mode refuses it (`strict_schema_problem`). `None` when it compiles."""
+    2020-12, or its strict mode refuses it (`strict_schema_problem`). `None` when it compiles.
+
+    Then, of a schema the runtime compiles, a pattern Python's `re` can't read, which JavaScript
+    does: this SDK can't check data against it (`SchemaValidator`), so it's refused here too, as
+    `check_schema` refuses it."""
+    try:
+        # The runtime checks a schema against the meta-schema without its formats: a pattern's
+        # syntax is its compile's to refuse.
+        Draft202012Validator.check_schema(schema, format_checker=FormatChecker(formats=()))
+    except InvalidSchemaError as exc:
+        return exc.message or str(exc)
+    problem = strict_schema_problem(schema)
+    if problem is not None:
+        return problem
     try:
         check_schema(schema)
     except InvalidSchemaError as exc:
         return exc.message or str(exc)
-    return strict_schema_problem(schema)
+    return None
 
 
 # The keywords the runtime's compile of an inline schema knows (Ajv's Draft 2020-12 ones, with
@@ -351,6 +364,9 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
       either, `minContains` or `maxContains` without `contains`, a format bound without a format
       it can compare), `minContains` 0 without `maxContains` or above it, and an empty `enum`;
     - a `properties` name a `patternProperties` pattern of the same schema matches;
+    - a pattern JavaScript's `RegExp` refuses (`_regexp`): `pattern`'s and every
+      `patternProperties` pattern with the `u` flag, the latter also without it first when the
+      schema has `properties`;
     - a `$dynamicRef` or `$recursiveRef` that isn't `#`-something, and a value of the wrong type
       for a keyword Draft 2020-12 doesn't define (`nullable`, a format bound, `$recursiveAnchor`).
 
@@ -360,9 +376,9 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
     Another `$ref` is refused, but one naming a meta-schema the runtime knows, unless the schema
     names a base or an anchor (`$id`, `$dynamicAnchor`): then it is left alone too. Nor are the
     refusals of a base or an anchor itself checked (one that two schemas share, say). A pattern is
-    tried on a name only where Python's `re` reads both as JavaScript does (`_js_matches`); a
-    pattern's syntax isn't checked here, nor a `$recursiveAnchor` or `$recursiveRef` that isn't a
-    string, which Ajv's own meta-schema refuses.
+    tried on a name only where Python's `re` reads both as JavaScript does (`_js_matches`). Nor is
+    a `$recursiveAnchor` or `$recursiveRef` that isn't a string checked, which Ajv's own
+    meta-schema refuses.
     """
     pointers = not any(_names(sub, ("$id",)) for sub in _subschemas(schema))
     others = not _names(schema, _BASE_KEYWORDS)
@@ -476,6 +492,8 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
         fmt = here.get("format")
         if isinstance(fmt, str) and fmt not in _STRICT_FORMATS:
             yield f'unknown format "{fmt}" ignored in schema at path "{path}"'
+        if isinstance(here.get("pattern"), str):
+            yield from _regexp_syntax(here["pattern"], unicode=True)
         for bound in _FORMAT_BOUNDS:
             if bound not in here:
                 continue
@@ -545,6 +563,13 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
         yield from problems(
             here.get("propertyNames"), f"{path}/propertyNames", ["string"], defined, compiling
         )
+        if "additionalProperties" in here:
+            yield from _unknown_keywords(here["additionalProperties"])
+            if not _passes_anything(here["additionalProperties"]):
+                # To tell an additional property, the runtime compiles every pattern first.
+                for pattern, _ in _entries(here.get("patternProperties")):
+                    if pattern != "__proto__":
+                        yield from _regexp_syntax(pattern, unicode=True)
         if _compiles_a_schema(here.get("additionalProperties")):
             defined = set()
         yield from problems(
@@ -575,12 +600,17 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
         ):
             patterns = []  # the runtime checks nothing more of them
         for pattern, sub in patterns:
+            # Each `properties` name is tried on the pattern without the `u` flag, then the
+            # pattern is compiled with it.
+            if _entries(props):
+                yield from _regexp_syntax(pattern, unicode=False)
             for name, _ in _entries(props):
                 if _js_matches(pattern, name):
                     yield (
                         f"strict mode: property {name} matches pattern {pattern} "
                         "(use allowMatchingProperties)"
                     )
+            yield from _regexp_syntax(pattern, unicode=True)
             if not _passes_anything(sub):
                 defined = set()
             yield from problems(
@@ -738,6 +768,14 @@ def _unknown_keywords(node: Any) -> Iterator[str]:
         for keyword in _js_keys(cast("Mapping[str, Any]", node)):
             if keyword not in _STRICT_KEYWORDS:
                 yield f'strict mode: unknown keyword: "{keyword}"'
+
+
+def _regexp_syntax(source: str, *, unicode: bool) -> Iterator[str]:
+    """The runtime's refusal of `source` as a regular expression, as JavaScript's `RegExp` refuses
+    it: with the `u` flag when `unicode`, else with none."""
+    reason = regexp_problem(source, unicode=unicode)
+    if reason is not None:
+        yield f"Invalid regular expression: /{source}/{'u' if unicode else ''}: {reason}"
 
 
 def _only_ref(node: Any) -> bool:

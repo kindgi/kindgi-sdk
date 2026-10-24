@@ -146,8 +146,10 @@ keywords tool schemas use, and the indexer refuses a schema with any other
 keyword (`if`, `prefixItems`, a remote `$ref`, …). It also refuses what the
 runtime's strict compile refuses: a keyword with no `type` it applies to
 (`minLength` with no `"type": "string"`), a `type` its context can't be, a
-`required` property nothing defines, an empty `enum`, and references that only
-lead back to themselves.
+`required` property nothing defines, an empty `enum`, references that only
+lead back to themselves, and a `pattern` the runtime's JavaScript `RegExp`
+refuses. A pattern only JavaScript reads, such as `[^]`, is refused too: the
+service checks data against it with Java's `Pattern`.
 
 A JVM language's own types (Scala's `Option`, `Seq`, a case class's defaults)
 come from its layer: it implements `com.kindgi.pack.spi.SchemaTypeAdapter` and

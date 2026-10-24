@@ -103,6 +103,14 @@ jobs:
       - name: Java pack service — the Ajv oracle is current
         run: node sdks/java/kindgi-pack/scripts/ajv-oracle.mjs --check
 
+      # The SDKs read a pattern's syntax as the runtime's JavaScript does:
+      # packages/specs/test-vectors/regexp-syntax/answers.json holds what this
+      # Node's `new RegExp` says to each source of the corpus, with the u flag
+      # and without, and the Unicode tables the SDKs read are this Node's. The
+      # Python and Java tests replay the answers.
+      - name: Regular-expression test vectors and tables are current
+        run: node scripts/regexp-syntax-oracle.mjs --check && node scripts/regexp-tables.mjs --check
+
       - name: Docs ship with the change
         if: github.event_name == 'pull_request'
         run: pnpm run check:docs-ship

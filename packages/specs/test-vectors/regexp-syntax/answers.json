@@ -1,0 +1,1466 @@
+{
+  "group: a capture": {
+    "u": null,
+    "plain": null
+  },
+  "group: an empty capture": {
+    "u": null,
+    "plain": null
+  },
+  "group: a non-capturing group": {
+    "u": null,
+    "plain": null
+  },
+  "group: an empty non-capturing group": {
+    "u": null,
+    "plain": null
+  },
+  "group: groups in groups": {
+    "u": null,
+    "plain": null
+  },
+  "group: left open": {
+    "u": "Unterminated group",
+    "plain": "Unterminated group"
+  },
+  "group: left open around a closed one": {
+    "u": "Unterminated group",
+    "plain": "Unterminated group"
+  },
+  "group: a non-capturing group left open": {
+    "u": "Unterminated group",
+    "plain": "Unterminated group"
+  },
+  "group: a named group left open": {
+    "u": "Unterminated group",
+    "plain": "Unterminated group"
+  },
+  "group: left open after an alternative": {
+    "u": "Unterminated group",
+    "plain": "Unterminated group"
+  },
+  "group: a lone (": {
+    "u": "Unterminated group",
+    "plain": "Unterminated group"
+  },
+  "group: a lone )": {
+    "u": "Unmatched ')'",
+    "plain": "Unmatched ')'"
+  },
+  "group: a ) with nothing open": {
+    "u": "Unmatched ')'",
+    "plain": "Unmatched ')'"
+  },
+  "group: one ) too many": {
+    "u": "Unmatched ')'",
+    "plain": "Unmatched ')'"
+  },
+  "group: a ) before an open group": {
+    "u": "Unmatched ')'",
+    "plain": "Unmatched ')'"
+  },
+  "group: (? at the end": {
+    "u": "Invalid group",
+    "plain": "Invalid group"
+  },
+  "group: (? with nothing after it": {
+    "u": "Invalid group",
+    "plain": "Invalid group"
+  },
+  "group: (?a)": {
+    "u": "Invalid group",
+    "plain": "Invalid group"
+  },
+  "group: (?P<n>…)": {
+    "u": "Invalid group",
+    "plain": "Invalid group"
+  },
+  "group: (?#…)": {
+    "u": "Invalid group",
+    "plain": "Invalid group"
+  },
+  "group: a flag group": {
+    "u": "Invalid group",
+    "plain": "Invalid group"
+  },
+  "group: a flag group taking a flag away": {
+    "u": "Invalid group",
+    "plain": "Invalid group"
+  },
+  "group: flags for the rest of the pattern": {
+    "u": "Invalid group",
+    "plain": "Invalid group"
+  },
+  "group: several flags": {
+    "u": "Invalid group",
+    "plain": "Invalid group"
+  },
+  "group: a bad group before an open one": {
+    "u": "Invalid group",
+    "plain": "Invalid group"
+  },
+  "group: a bad group inside an open one": {
+    "u": "Invalid group",
+    "plain": "Invalid group"
+  },
+  "lookaround: a lookahead": {
+    "u": null,
+    "plain": null
+  },
+  "lookaround: a negative lookahead": {
+    "u": null,
+    "plain": null
+  },
+  "lookaround: a lookbehind": {
+    "u": null,
+    "plain": null
+  },
+  "lookaround: a negative lookbehind": {
+    "u": null,
+    "plain": null
+  },
+  "lookaround: an empty lookahead": {
+    "u": null,
+    "plain": null
+  },
+  "lookaround: a lookahead left open": {
+    "u": "Unterminated group",
+    "plain": "Unterminated group"
+  },
+  "lookaround: a lookbehind left open": {
+    "u": "Unterminated group",
+    "plain": "Unterminated group"
+  },
+  "lookaround: a capture in a lookbehind": {
+    "u": null,
+    "plain": null
+  },
+  "lookaround: a lookahead with *": {
+    "u": "Invalid quantifier",
+    "plain": null
+  },
+  "lookaround: a negative lookahead with +": {
+    "u": "Invalid quantifier",
+    "plain": null
+  },
+  "lookaround: a lookahead with {1}": {
+    "u": "Invalid quantifier",
+    "plain": null
+  },
+  "lookaround: a lookahead with ??": {
+    "u": "Invalid quantifier",
+    "plain": null
+  },
+  "lookaround: a lookbehind with *": {
+    "u": "Invalid quantifier",
+    "plain": "Invalid quantifier"
+  },
+  "lookaround: a negative lookbehind with ?": {
+    "u": "Invalid quantifier",
+    "plain": "Invalid quantifier"
+  },
+  "lookaround: a lookbehind with {2,}": {
+    "u": "Invalid quantifier",
+    "plain": "Invalid quantifier"
+  },
+  "lookaround: a lookahead inside a repeated group": {
+    "u": null,
+    "plain": null
+  },
+  "lookaround: a repeated capture after a lookahead": {
+    "u": null,
+    "plain": null
+  },
+  "lookaround: a lookahead with bounds out of order": {
+    "u": "numbers out of order in {} quantifier",
+    "plain": "numbers out of order in {} quantifier"
+  },
+  "alternation: two alternatives": {
+    "u": null,
+    "plain": null
+  },
+  "alternation: empty alternatives": {
+    "u": null,
+    "plain": null
+  },
+  "alternation: an empty alternative in a group": {
+    "u": null,
+    "plain": null
+  },
+  "assertion: ^ and $": {
+    "u": null,
+    "plain": null
+  },
+  "assertion: a repeated ^": {
+    "u": "Nothing to repeat",
+    "plain": "Nothing to repeat"
+  },
+  "assertion: a repeated $": {
+    "u": "Nothing to repeat",
+    "plain": "Nothing to repeat"
+  },
+  "assertion: a repeated \\b": {
+    "u": "Nothing to repeat",
+    "plain": "Nothing to repeat"
+  },
+  "assertion: a repeated \\B": {
+    "u": "Nothing to repeat",
+    "plain": "Nothing to repeat"
+  },
+  "assertion: \\B{1}": {
+    "u": "Nothing to repeat",
+    "plain": "Nothing to repeat"
+  },
+  "assertion: \\b then {": {
+    "u": "Lone quantifier brackets",
+    "plain": null
+  },
+  "quantifier: * first": {
+    "u": "Nothing to repeat",
+    "plain": "Nothing to repeat"
+  },
+  "quantifier: + after |": {
+    "u": "Nothing to repeat",
+    "plain": "Nothing to repeat"
+  },
+  "quantifier: ? first in a group": {
+    "u": "Nothing to repeat",
+    "plain": "Nothing to repeat"
+  },
+  "quantifier: * first in a capture": {
+    "u": "Nothing to repeat",
+    "plain": "Nothing to repeat"
+  },
+  "quantifier: a quantifier on a quantifier": {
+    "u": "Nothing to repeat",
+    "plain": "Nothing to repeat"
+  },
+  "quantifier: a possessive quantifier": {
+    "u": "Nothing to repeat",
+    "plain": "Nothing to repeat"
+  },
+  "quantifier: a lazy *": {
+    "u": null,
+    "plain": null
+  },
+  "quantifier: lazy + and ?": {
+    "u": null,
+    "plain": null
+  },
+  "quantifier: {1}": {
+    "u": null,
+    "plain": null
+  },
+  "quantifier: {1,}": {
+    "u": null,
+    "plain": null
+  },
+  "quantifier: {1,2}": {
+    "u": null,
+    "plain": null
+  },
+  "quantifier: {0}": {
+    "u": null,
+    "plain": null
+  },
+  "quantifier: {0,0}": {
+    "u": null,
+    "plain": null
+  },
+  "quantifier: a lazy {1,2}": {
+    "u": null,
+    "plain": null
+  },
+  "quantifier: two intervals": {
+    "u": "Nothing to repeat",
+    "plain": "Nothing to repeat"
+  },
+  "quantifier: an interval first": {
+    "u": "Nothing to repeat",
+    "plain": "Nothing to repeat"
+  },
+  "quantifier: {2,1}": {
+    "u": "numbers out of order in {} quantifier",
+    "plain": "numbers out of order in {} quantifier"
+  },
+  "quantifier: a lazy {2,1}": {
+    "u": "numbers out of order in {} quantifier",
+    "plain": "numbers out of order in {} quantifier"
+  },
+  "quantifier: {,1}": {
+    "u": "Incomplete quantifier",
+    "plain": null
+  },
+  "quantifier: { after an atom": {
+    "u": "Incomplete quantifier",
+    "plain": null
+  },
+  "quantifier: {1 left open": {
+    "u": "Incomplete quantifier",
+    "plain": null
+  },
+  "quantifier: {1, left open": {
+    "u": "Incomplete quantifier",
+    "plain": null
+  },
+  "quantifier: {1,2 left open": {
+    "u": "Incomplete quantifier",
+    "plain": null
+  },
+  "quantifier: {a}": {
+    "u": "Incomplete quantifier",
+    "plain": null
+  },
+  "quantifier: a space before the count": {
+    "u": "Incomplete quantifier",
+    "plain": null
+  },
+  "quantifier: {}": {
+    "u": "Incomplete quantifier",
+    "plain": null
+  },
+  "quantifier: a lone {": {
+    "u": "Lone quantifier brackets",
+    "plain": null
+  },
+  "quantifier: a lone }": {
+    "u": "Lone quantifier brackets",
+    "plain": null
+  },
+  "quantifier: a lone ]": {
+    "u": "Lone quantifier brackets",
+    "plain": null
+  },
+  "quantifier: } after an atom": {
+    "u": "Lone quantifier brackets",
+    "plain": null
+  },
+  "quantifier: a huge count": {
+    "u": null,
+    "plain": null
+  },
+  "quantifier: huge bounds out of order": {
+    "u": "numbers out of order in {} quantifier",
+    "plain": "numbers out of order in {} quantifier"
+  },
+  "quantifier: bounds past 2^31 - 1 are taken as 2^31 - 1": {
+    "u": null,
+    "plain": null
+  },
+  "quantifier: 2^31 - 1 and 2^31": {
+    "u": null,
+    "plain": null
+  },
+  "quantifier: a huge minimum and no maximum": {
+    "u": null,
+    "plain": null
+  },
+  "quantifier: bounds out of order before an open group": {
+    "u": "numbers out of order in {} quantifier",
+    "plain": "numbers out of order in {} quantifier"
+  },
+  "quantifier: on a capture": {
+    "u": null,
+    "plain": null
+  },
+  "quantifier: on a named group": {
+    "u": null,
+    "plain": null
+  },
+  "quantifier: on a non-capturing group": {
+    "u": null,
+    "plain": null
+  },
+  "quantifier: on a class": {
+    "u": null,
+    "plain": null
+  },
+  "quantifier: on a dot": {
+    "u": null,
+    "plain": null
+  },
+  "quantifier: on an astral character": {
+    "u": null,
+    "plain": null
+  },
+  "escape: \\ at the end": {
+    "u": "\\ at end of pattern",
+    "plain": "\\ at end of pattern"
+  },
+  "escape: \\ at the end after an atom": {
+    "u": "\\ at end of pattern",
+    "plain": "\\ at end of pattern"
+  },
+  "escape: \\ at the end in a group": {
+    "u": "\\ at end of pattern",
+    "plain": "\\ at end of pattern"
+  },
+  "escape: the syntax characters": {
+    "u": null,
+    "plain": null
+  },
+  "escape: \\a": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\e": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\- outside a class": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\_": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\ before a space": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\\"": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\é": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\ before an astral character": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\ before a lone surrogate": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: the class escapes": {
+    "u": null,
+    "plain": null
+  },
+  "escape: the control escapes": {
+    "u": null,
+    "plain": null
+  },
+  "escape: \\cA": {
+    "u": null,
+    "plain": null
+  },
+  "escape: \\cz": {
+    "u": null,
+    "plain": null
+  },
+  "escape: \\c at the end": {
+    "u": "Invalid Unicode escape",
+    "plain": null
+  },
+  "escape: \\c1": {
+    "u": "Invalid Unicode escape",
+    "plain": null
+  },
+  "escape: \\c_": {
+    "u": "Invalid Unicode escape",
+    "plain": null
+  },
+  "escape: \\c then \\ at the end": {
+    "u": "Invalid Unicode escape",
+    "plain": "\\ at end of pattern"
+  },
+  "escape: \\c before a letter outside ASCII": {
+    "u": "Invalid Unicode escape",
+    "plain": null
+  },
+  "escape: \\x41": {
+    "u": null,
+    "plain": null
+  },
+  "escape: \\xff": {
+    "u": null,
+    "plain": null
+  },
+  "escape: \\x with one digit": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\x at the end": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\x before a non-digit": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: A": {
+    "u": null,
+    "plain": null
+  },
+  "escape: \\u with three digits": {
+    "u": "Invalid Unicode escape",
+    "plain": null
+  },
+  "escape: \\u at the end": {
+    "u": "Invalid Unicode escape",
+    "plain": null
+  },
+  "escape: \\u{41}": {
+    "u": null,
+    "plain": null
+  },
+  "escape: \\u{10FFFF}": {
+    "u": null,
+    "plain": null
+  },
+  "escape: \\u{110000}": {
+    "u": "Invalid Unicode escape",
+    "plain": null
+  },
+  "escape: \\u{}": {
+    "u": "Invalid Unicode escape",
+    "plain": null
+  },
+  "escape: \\u{41 left open": {
+    "u": "Invalid Unicode escape",
+    "plain": null
+  },
+  "escape: \\u{…} with leading zeros": {
+    "u": null,
+    "plain": null
+  },
+  "escape: a huge \\u{…}": {
+    "u": "Invalid Unicode escape",
+    "plain": null
+  },
+  "escape: \\u{g}": {
+    "u": "Invalid Unicode escape",
+    "plain": null
+  },
+  "escape: a surrogate pair of \\u escapes": {
+    "u": null,
+    "plain": null
+  },
+  "escape: a lone high surrogate escape": {
+    "u": null,
+    "plain": null
+  },
+  "escape: a lone low surrogate escape": {
+    "u": null,
+    "plain": null
+  },
+  "escape: a high surrogate escape before A": {
+    "u": null,
+    "plain": null
+  },
+  "escape: \\u{…} of a surrogate": {
+    "u": null,
+    "plain": null
+  },
+  "escape: \\0": {
+    "u": null,
+    "plain": null
+  },
+  "escape: \\0 before a letter": {
+    "u": null,
+    "plain": null
+  },
+  "escape: \\00": {
+    "u": "Invalid decimal escape",
+    "plain": null
+  },
+  "escape: \\01": {
+    "u": "Invalid decimal escape",
+    "plain": null
+  },
+  "escape: \\07": {
+    "u": "Invalid decimal escape",
+    "plain": null
+  },
+  "escape: \\08": {
+    "u": "Invalid decimal escape",
+    "plain": null
+  },
+  "escape: \\377": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\400": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\1 with no group": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\1 after its group": {
+    "u": null,
+    "plain": null
+  },
+  "escape: \\1 before its group": {
+    "u": null,
+    "plain": null
+  },
+  "escape: \\2 with one group": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\8": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\9": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\10 with ten groups": {
+    "u": null,
+    "plain": null
+  },
+  "escape: \\10 with one group": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\11 with ten groups": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: a huge back reference": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\1 after a ( in a class": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\1 after an escaped (": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\1 after a non-capturing group": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "escape: \\1 after a named group": {
+    "u": null,
+    "plain": null
+  },
+  "escape: \\1 after a capture in a lookahead": {
+    "u": null,
+    "plain": null
+  },
+  "escape: \\k": {
+    "u": "Invalid named reference",
+    "plain": null
+  },
+  "escape: \\k before a letter": {
+    "u": "Invalid named reference",
+    "plain": null
+  },
+  "escape: \\k<a> with no named group": {
+    "u": "Invalid named capture referenced",
+    "plain": null
+  },
+  "escape: \\k<a left open with no named group": {
+    "u": "Invalid capture group name",
+    "plain": null
+  },
+  "name: a letter": {
+    "u": null,
+    "plain": null
+  },
+  "name: $ and _": {
+    "u": null,
+    "plain": null
+  },
+  "name: letters and digits": {
+    "u": null,
+    "plain": null
+  },
+  "name: a digit first": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "name: a hyphen": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "name: a space": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "name: empty": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "name: left open": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "name: left open at (?<": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "name: a \\u escape": {
+    "u": null,
+    "plain": null
+  },
+  "name: a \\u{…} escape, with or without the u flag": {
+    "u": null,
+    "plain": null
+  },
+  "name: a \\u escape after the first character": {
+    "u": null,
+    "plain": null
+  },
+  "name: a surrogate pair of \\u escapes": {
+    "u": null,
+    "plain": null
+  },
+  "name: an astral letter as \\u{…}": {
+    "u": null,
+    "plain": null
+  },
+  "name: an astral letter as written": {
+    "u": null,
+    "plain": null
+  },
+  "name: an astral letter after the first character": {
+    "u": null,
+    "plain": null
+  },
+  "name: an emoji": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "name: an emoji as \\u{…}": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "name: a lone high surrogate escape": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "name: a lone surrogate as written": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "name: an escaped > ends it": {
+    "u": null,
+    "plain": null
+  },
+  "name: an escaped > first": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "name: an escaped backslash": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "name: an escape other than \\u": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "name: a lone \\": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "name: a \\u escape left short": {
+    "u": "Invalid Unicode escape",
+    "plain": "Invalid Unicode escape"
+  },
+  "name: \\u{…} past the last code point": {
+    "u": "Invalid Unicode escape",
+    "plain": "Invalid Unicode escape"
+  },
+  "name: \\u alone": {
+    "u": "Invalid Unicode escape",
+    "plain": "Invalid Unicode escape"
+  },
+  "name: é": {
+    "u": null,
+    "plain": null
+  },
+  "name: Ł": {
+    "u": null,
+    "plain": null
+  },
+  "name: a CJK character": {
+    "u": null,
+    "plain": null
+  },
+  "name: a combining mark first": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "name: a combining mark after the first character": {
+    "u": null,
+    "plain": null
+  },
+  "name: ZWNJ first": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "name: ZWNJ and ZWJ after the first character": {
+    "u": null,
+    "plain": null
+  },
+  "name: a middle dot after the first character": {
+    "u": null,
+    "plain": null
+  },
+  "name: an Arabic-Indic digit after the first character": {
+    "u": null,
+    "plain": null
+  },
+  "name: two names": {
+    "u": null,
+    "plain": null
+  },
+  "name: names that differ by case": {
+    "u": null,
+    "plain": null
+  },
+  "name: repeated": {
+    "u": "Duplicate capture group name",
+    "plain": "Duplicate capture group name"
+  },
+  "name: repeated in another alternative": {
+    "u": "Duplicate capture group name",
+    "plain": "Duplicate capture group name"
+  },
+  "name: repeated inside itself": {
+    "u": "Duplicate capture group name",
+    "plain": "Duplicate capture group name"
+  },
+  "name: repeated, the second left open": {
+    "u": "Unterminated group",
+    "plain": "Unterminated group"
+  },
+  "name: repeated inside itself, the outer left open": {
+    "u": "Unterminated group",
+    "plain": "Unterminated group"
+  },
+  "name: a bad name before a repeat": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "name: repeated after a reference to it": {
+    "u": "Duplicate capture group name",
+    "plain": "Duplicate capture group name"
+  },
+  "reference: to an earlier group": {
+    "u": null,
+    "plain": null
+  },
+  "reference: to a later group": {
+    "u": null,
+    "plain": null
+  },
+  "reference: to the group it's in": {
+    "u": null,
+    "plain": null
+  },
+  "reference: to a group in another alternative": {
+    "u": null,
+    "plain": null
+  },
+  "reference: to no group": {
+    "u": "Invalid named capture referenced",
+    "plain": "Invalid named capture referenced"
+  },
+  "reference: to no group, before the named group": {
+    "u": "Invalid named capture referenced",
+    "plain": "Invalid named capture referenced"
+  },
+  "reference: \\k alone": {
+    "u": "Invalid named reference",
+    "plain": "Invalid named reference"
+  },
+  "reference: \\k before a letter": {
+    "u": "Invalid named reference",
+    "plain": "Invalid named reference"
+  },
+  "reference: left open": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "reference: empty": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "reference: a bad name": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "reference: a \\u escape": {
+    "u": null,
+    "plain": null
+  },
+  "reference: a \\u{…} escape": {
+    "u": null,
+    "plain": null
+  },
+  "reference: another case": {
+    "u": "Invalid named capture referenced",
+    "plain": "Invalid named capture referenced"
+  },
+  "reference: two, one to no group": {
+    "u": "Invalid named capture referenced",
+    "plain": "Invalid named capture referenced"
+  },
+  "reference: to no group, checked after the rest": {
+    "u": "Unterminated group",
+    "plain": "Unterminated group"
+  },
+  "reference: a named group in a class doesn't count": {
+    "u": "Invalid named capture referenced",
+    "plain": null
+  },
+  "reference: \\k in a class with a named group": {
+    "u": "Invalid escape",
+    "plain": "Invalid escape"
+  },
+  "reference: \\k in a class with no named group": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "reference: \\k<a> in a class with a named group": {
+    "u": "Invalid escape",
+    "plain": "Invalid escape"
+  },
+  "class: a range": {
+    "u": null,
+    "plain": null
+  },
+  "class: a negated range": {
+    "u": null,
+    "plain": null
+  },
+  "class: a range of one": {
+    "u": null,
+    "plain": null
+  },
+  "class: a range out of order": {
+    "u": "Range out of order in character class",
+    "plain": "Range out of order in character class"
+  },
+  "class: a range of \\x escapes out of order": {
+    "u": "Range out of order in character class",
+    "plain": "Range out of order in character class"
+  },
+  "class: a range of control escapes": {
+    "u": null,
+    "plain": null
+  },
+  "class: a range of \\u escapes": {
+    "u": null,
+    "plain": null
+  },
+  "class: a class escape at the start of a range": {
+    "u": "Invalid character class",
+    "plain": null
+  },
+  "class: a class escape at the end of a range": {
+    "u": "Invalid character class",
+    "plain": null
+  },
+  "class: two class escapes as a range": {
+    "u": "Invalid character class",
+    "plain": null
+  },
+  "class: a class escape before a closing -": {
+    "u": null,
+    "plain": null
+  },
+  "class: - first": {
+    "u": null,
+    "plain": null
+  },
+  "class: - last": {
+    "u": null,
+    "plain": null
+  },
+  "class: - alone": {
+    "u": null,
+    "plain": null
+  },
+  "class: two ranges": {
+    "u": null,
+    "plain": null
+  },
+  "class: a range then -": {
+    "u": null,
+    "plain": null
+  },
+  "class: empty": {
+    "u": null,
+    "plain": null
+  },
+  "class: empty and negated": {
+    "u": null,
+    "plain": null
+  },
+  "class: left open": {
+    "u": "Unterminated character class",
+    "plain": "Unterminated character class"
+  },
+  "class: left open at [": {
+    "u": "Unterminated character class",
+    "plain": "Unterminated character class"
+  },
+  "class: left open at [^": {
+    "u": "Unterminated character class",
+    "plain": "Unterminated character class"
+  },
+  "class: left open at an escaped ]": {
+    "u": "Unterminated character class",
+    "plain": "Unterminated character class"
+  },
+  "class: an escaped ]": {
+    "u": null,
+    "plain": null
+  },
+  "class: \\ at the end": {
+    "u": "\\ at end of pattern",
+    "plain": "\\ at end of pattern"
+  },
+  "class: \\b": {
+    "u": null,
+    "plain": null
+  },
+  "class: \\B": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "class: \\-": {
+    "u": null,
+    "plain": null
+  },
+  "class: a range ending at \\-": {
+    "u": null,
+    "plain": null
+  },
+  "class: \\cA": {
+    "u": null,
+    "plain": null
+  },
+  "class: \\c1": {
+    "u": "Invalid Unicode escape",
+    "plain": null
+  },
+  "class: \\c_": {
+    "u": "Invalid Unicode escape",
+    "plain": null
+  },
+  "class: \\c alone": {
+    "u": "Invalid Unicode escape",
+    "plain": null
+  },
+  "class: \\c before -": {
+    "u": "Invalid Unicode escape",
+    "plain": "Range out of order in character class"
+  },
+  "class: \\0": {
+    "u": null,
+    "plain": null
+  },
+  "class: \\00": {
+    "u": "Invalid class escape",
+    "plain": null
+  },
+  "class: \\1": {
+    "u": "Invalid class escape",
+    "plain": null
+  },
+  "class: \\8": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "class: \\q": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "class: \\x41": {
+    "u": null,
+    "plain": null
+  },
+  "class: \\x with one digit": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "class: \\u{41}": {
+    "u": null,
+    "plain": null
+  },
+  "class: \\u{…} range read without the u flag": {
+    "u": null,
+    "plain": "Range out of order in character class"
+  },
+  "class: an astral range": {
+    "u": null,
+    "plain": "Range out of order in character class"
+  },
+  "class: an astral range out of order": {
+    "u": "Range out of order in character class",
+    "plain": "Range out of order in character class"
+  },
+  "class: a range of surrogate pair escapes": {
+    "u": null,
+    "plain": "Range out of order in character class"
+  },
+  "class: an astral character to a lone surrogate": {
+    "u": "Range out of order in character class",
+    "plain": "Range out of order in character class"
+  },
+  "class: a range of lone surrogates": {
+    "u": null,
+    "plain": null
+  },
+  "class: \\p{L}": {
+    "u": null,
+    "plain": null
+  },
+  "class: a negated \\P{Lu}": {
+    "u": null,
+    "plain": null
+  },
+  "class: \\p{…} with a bad name": {
+    "u": "Invalid property name in character class",
+    "plain": null
+  },
+  "class: \\p alone": {
+    "u": "Invalid property name in character class",
+    "plain": null
+  },
+  "class: \\p{…} at the start of a range": {
+    "u": "Invalid character class",
+    "plain": "Range out of order in character class"
+  },
+  "class: \\p{…} left open": {
+    "u": "Invalid property name in character class",
+    "plain": null
+  },
+  "class: left open after \\p{L}": {
+    "u": "Unterminated character class",
+    "plain": "Unterminated character class"
+  },
+  "class: parentheses and braces": {
+    "u": null,
+    "plain": null
+  },
+  "class: a named group in it": {
+    "u": null,
+    "plain": null
+  },
+  "class: a range out of order before the end": {
+    "u": "Range out of order in character class",
+    "plain": "Range out of order in character class"
+  },
+  "class: a class escape range before the end": {
+    "u": "Invalid character class",
+    "plain": "Unterminated character class"
+  },
+  "class: \\ before a lone surrogate": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "class: \\ before an astral character": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "class: an escaped /": {
+    "u": null,
+    "plain": null
+  },
+  "class: a /": {
+    "u": null,
+    "plain": null
+  },
+  "property: \\p{L}": {
+    "u": null,
+    "plain": null
+  },
+  "property: \\P{L}": {
+    "u": null,
+    "plain": null
+  },
+  "property: a long category name": {
+    "u": null,
+    "plain": null
+  },
+  "property: \\p{Lu}": {
+    "u": null,
+    "plain": null
+  },
+  "property: \\p{LC}": {
+    "u": null,
+    "plain": null
+  },
+  "property: lower case": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: L&": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: gc=Lu": {
+    "u": null,
+    "plain": null
+  },
+  "property: General_Category=Letter": {
+    "u": null,
+    "plain": null
+  },
+  "property: General_Category=letter": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: Script=Greek": {
+    "u": null,
+    "plain": null
+  },
+  "property: sc=Grek": {
+    "u": null,
+    "plain": null
+  },
+  "property: scx=Latn": {
+    "u": null,
+    "plain": null
+  },
+  "property: Script_Extensions=Latin": {
+    "u": null,
+    "plain": null
+  },
+  "property: Script=greek": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: script=Greek": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: a script alone": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: a script as a general category": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: a general category as a script": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: Script=Hrkt": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: Script=Kawi": {
+    "u": null,
+    "plain": null
+  },
+  "property: Alpha": {
+    "u": null,
+    "plain": null
+  },
+  "property: Alphabetic": {
+    "u": null,
+    "plain": null
+  },
+  "property: a binary property with a value": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: ID_Start": {
+    "u": null,
+    "plain": null
+  },
+  "property: Emoji": {
+    "u": null,
+    "plain": null
+  },
+  "property: Any": {
+    "u": null,
+    "plain": null
+  },
+  "property: ASCII": {
+    "u": null,
+    "plain": null
+  },
+  "property: Assigned": {
+    "u": null,
+    "plain": null
+  },
+  "property: any": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: a block": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: In_Greek": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: RGI_Emoji, a property of strings": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: Basic_Emoji, a property of strings": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: empty": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: left open": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: no braces": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: \\p alone": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: \\P alone": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: \\p at the end": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: = alone": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: an empty value": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: an empty name": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: two =": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: a leading space": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: a trailing space": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: a hyphen": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: a character read by its low byte": {
+    "u": null,
+    "plain": null
+  },
+  "property: an astral character read by its low byte": {
+    "u": null,
+    "plain": null
+  },
+  "property: a value character read by its low byte": {
+    "u": null,
+    "plain": null
+  },
+  "property: a character read by its low byte in a class": {
+    "u": null,
+    "plain": null
+  },
+  "property: a character whose low byte isn't a name character": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: a character whose low byte is =": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "property: a lone surrogate": {
+    "u": "Invalid property name",
+    "plain": null
+  },
+  "limit: 32767 groups": {
+    "u": null,
+    "plain": null
+  },
+  "limit: 32768 groups": {
+    "u": "Too many captures",
+    "plain": "Too many captures"
+  },
+  "limit: the count is checked before the name": {
+    "u": "Too many captures",
+    "plain": "Too many captures"
+  },
+  "limit: other groups don't count": {
+    "u": null,
+    "plain": null
+  },
+  "limit: \\32767 with 32767 groups": {
+    "u": null,
+    "plain": null
+  },
+  "limit: \\32768 with 32767 groups": {
+    "u": "Invalid escape",
+    "plain": null
+  },
+  "order: a ) too many before a bad escape": {
+    "u": "Unmatched ')'",
+    "plain": "Unmatched ')'"
+  },
+  "order: a bad escape in an open group": {
+    "u": "Invalid escape",
+    "plain": "Unterminated group"
+  },
+  "order: an open class holds a )": {
+    "u": "Unterminated character class",
+    "plain": "Unterminated character class"
+  },
+  "order: a bad name before an open group": {
+    "u": "Invalid capture group name",
+    "plain": "Invalid capture group name"
+  },
+  "unicode: a lone high surrogate": {
+    "u": null,
+    "plain": null
+  },
+  "unicode: a lone low surrogate": {
+    "u": null,
+    "plain": null
+  },
+  "unicode: a lone surrogate repeated": {
+    "u": null,
+    "plain": null
+  },
+  "unicode: an astral character repeated": {
+    "u": null,
+    "plain": null
+  },
+  "unicode: an astral character in a class": {
+    "u": null,
+    "plain": null
+  },
+  "unicode: control characters": {
+    "u": null,
+    "plain": null
+  },
+  "unicode: line terminators": {
+    "u": null,
+    "plain": null
+  },
+  "unicode: a / as written": {
+    "u": null,
+    "plain": null
+  }
+}
