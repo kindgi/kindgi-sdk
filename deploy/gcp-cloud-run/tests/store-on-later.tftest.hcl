@@ -5,7 +5,8 @@
 # step by step. Each run applies against a mock Google provider and keeps
 # its state for the next, so the runs are in order: a deployment without a
 # store, the targeted apply of what the store stands on, then the full
-# apply once the AAD key's version is set. A file of its own, since
+# apply, once the AAD-key secret has its first version (added outside
+# Terraform) and secrets_aad_key_version names it. A file of its own, since
 # module.tftest.hcl's runs are each from nothing.
 
 mock_provider "google" {
@@ -59,7 +60,8 @@ run "a_full_plan_before_the_key_has_a_version_is_refused" {
 }
 
 # Only what the store stands on, and no service, so the server's
-# precondition isn't reached.
+# precondition isn't reached. Its asserts can name only what it applied:
+# terraform test refuses a reference to anything the targets leave out.
 run "the_targeted_apply_makes_what_the_store_stands_on" {
   command = apply
 
@@ -114,6 +116,6 @@ run "the_full_apply_turns_the_store_on" {
   }
   assert {
     condition     = length(google_kms_crypto_key_iam_member.server_reads_key) == 1
-    error_message = "The full apply adds the grant on the key's metadata, which the targeted one left out."
+    error_message = "After the full apply the server also has the grant on the key's metadata."
   }
 }
