@@ -6331,6 +6331,12 @@ export const ImproveBodySchema: JsonSchema = {
       type: 'string',
       description: 'The version whose settings it tunes. Default: the one serving `scope`.',
     },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The project the pass works in: `suiteId` must be a test set it reaches, the version must reach it, and the pass's eval runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.",
+    },
     scope: { $ref: '#/components/schemas/LiveScope' },
     suiteId: {
       type: 'string',

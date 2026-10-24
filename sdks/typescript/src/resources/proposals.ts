@@ -125,6 +125,12 @@ export interface ImproveInput {
   readonly agentId: AgentId | string;
   /** Default: the version serving `scope`. */
   readonly fromVersion?: string;
+  /**
+   * The project the pass works in: the test sets it may use, and where
+   * its eval runs run. Default: the scope's project, else (a tenant or
+   * org scope) the agent version's.
+   */
+  readonly projectId?: string;
   readonly scope: LiveScope;
   /** The test set to search and prove on. */
   readonly suiteId: string;

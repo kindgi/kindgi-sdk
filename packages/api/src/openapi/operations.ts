@@ -4715,7 +4715,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'proposals.improve',
     summary: 'Start an improvement pass',
     description:
-      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts for an agent whose project is suspended (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.",
     tags: ['proposals'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -4724,13 +4724,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '202': { description: 'The pass, running.', schema: ref('ImprovementPass') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed request body, or `validation-failed`. Or `reference-out-of-scope`: the test set isn't registered in the agent's project, its org or the tenant, or a project or segment scope doesn't reach the agent (`details.issues`).",
+        "Malformed request body, `validation-failed`, or a project or segment scope that isn't in `projectId`. Or `reference-out-of-scope`: a project or segment scope doesn't reach the agent, the version doesn't reach the pass's project (`/fromVersion`), or the test set isn't one that project reaches (`details.issues`).",
       ),
       '404': ErrorResponse(
-        '`fromVersion` (or the version serving the scope) is not an active version.',
+        "`fromVersion` (or the version serving the scope) is not an active version; or the body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
       '409': ErrorResponse(
-        "`registry-read-only` (under `kindgi dev`, also a scope narrower than the whole tenant), `proposal-needs-pin`, or `project-suspended`: the agent's project is suspended. Or Idempotency-Key was reused with a different body.",
+        "`registry-read-only` (under `kindgi dev`, also a scope narrower than the whole tenant), `proposal-needs-pin`, or `project-suspended`: the pass's project is suspended. Or Idempotency-Key was reused with a different body.",
       ),
       '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
     },
@@ -4742,7 +4742,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'proposals.improveEstimate',
     summary: 'Estimate an improvement pass',
     description:
-      "What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the agent's project doesn't reach answers `400 reference-out-of-scope`, exactly as `improve` would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count times the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt pass's one-off drafting of its templates — a pass can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the pass is expected to spend its whole budget; the pass checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+      "What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the pass's project doesn't reach answers `400 reference-out-of-scope`, exactly as `improve` would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count times the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt pass's one-off drafting of its templates — a pass can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the pass is expected to spend its whole budget; the pass checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.",
     tags: ['proposals'],
     security: 'bearer',
     requestBody: { required: true, schema: ref('ImproveBody') },
@@ -4750,10 +4750,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The estimated cost.', schema: ref('ImprovementPassEstimate') },
       ...CommonAuthErrors,
       '400': ErrorResponse(
-        "Malformed request body (`bad-input`). Or `reference-out-of-scope`: the test set isn't registered in the agent's project, its org or the tenant, or a project or segment scope doesn't reach the agent (`details.issues`).",
+        "Malformed request body (`bad-input`), or a project or segment scope that isn't in `projectId`. Or `reference-out-of-scope`: a project or segment scope doesn't reach the agent, the version doesn't reach the pass's project (`/fromVersion`), or the test set isn't one that project reaches (`details.issues`).",
       ),
       '404': ErrorResponse(
-        '`fromVersion` (or the version serving the scope) is not an active version (`agent-version-not-found`).',
+        "`fromVersion` (or the version serving the scope) is not an active version (`agent-version-not-found`); or the body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
       '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
     },

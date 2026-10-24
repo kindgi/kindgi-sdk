@@ -448,14 +448,19 @@ const improve: LeafCommand = {
   kind: 'leaf',
   name: 'improve',
   description:
-    "Ask the runtime to look for better values for an agent version's tunable settings — or, with `--tier=prompt`, have a model draft new prompt templates — for a scope, within a budget. It searches on part of the test set and proves its best candidate on the rest; if that candidate is better, it writes a proposal, which a reviewer decides (`kindgi proposals request`). Answers at once with the pass; `--wait` waits for its outcome. Needs `publish` on the agent.",
-  usage: `kindgi proposals improve --agent=<agent-id> ${SCOPE_USAGE} --test-set=<suite-id> [--from-version=<semver>] [--tier=settings|prompt] [--objective=weightedYesShare|weightedPrecisionAtK] [--class-weights=as-recorded|restricted-only] [--provider=<id> --model=<model>] [--drafts=<n>] [--max-cost=<usd>] [--max-candidates=<n>] [--wait]`,
+    "Ask the runtime to look for better values for an agent version's tunable settings — or, with `--tier=prompt`, have a model draft new prompt templates — for a scope, within a budget. It searches on part of the test set and proves its best candidate on the rest; if that candidate is better, it writes a proposal, which a reviewer decides (`kindgi proposals request`). The pass works in one project: the test set must be one that project reaches, and its eval runs run there. With `--project`, it's that project; with `--tenant` or `--org`, `--pass-project`, else the agent version's. Answers at once with the pass; `--wait` waits for its outcome. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's.",
+  usage: `kindgi proposals improve --agent=<agent-id> ${SCOPE_USAGE} --test-set=<suite-id> [--pass-project=<project-id>] [--from-version=<semver>] [--tier=settings|prompt] [--objective=weightedYesShare|weightedPrecisionAtK] [--class-weights=as-recorded|restricted-only] [--provider=<id> --model=<model>] [--drafts=<n>] [--max-cost=<usd>] [--max-candidates=<n>] [--wait]`,
   optionSpec: {
     agent: { type: 'string', description: 'The agent.' },
     ...SCOPE_FLAGS,
     'test-set': {
       type: 'string',
       description: 'The judged test set to search and prove on, by id.',
+    },
+    'pass-project': {
+      type: 'string',
+      description:
+        "The project the pass works in, by id, for a tenant or org scope (default: the agent version's). With `--project`, it's that project, and another is refused.",
     },
     'from-version': {
       type: 'string',
@@ -508,6 +513,7 @@ const improve: LeafCommand = {
       const scope = scopeFrom(ctx, true);
       const suiteId = required(ctx, 'test-set');
       const fromVersion = stringFlag(ctx, 'from-version');
+      const passProject = stringFlag(ctx, 'pass-project');
       const tier = oneOfFlag(ctx, 'tier', IMPROVE_TIERS);
       const objective = oneOfFlag(ctx, 'objective', OBJECTIVES);
       const classWeights = oneOfFlag(ctx, 'class-weights', CLASS_WEIGHTS);
@@ -521,6 +527,7 @@ const improve: LeafCommand = {
         agentId,
         scope,
         suiteId,
+        ...(passProject !== undefined && { projectId: passProject }),
         ...(fromVersion !== undefined && { fromVersion }),
         ...(tier !== undefined && { tiers: [tier] }),
         ...(objective !== undefined && { objective }),

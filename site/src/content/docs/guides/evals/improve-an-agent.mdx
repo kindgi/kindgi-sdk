@@ -27,7 +27,8 @@ lists:
 - **a runtime: `kindgi dev`, or a deployed one,** with Kindgi 0.2's CLI.
   Under `kindgi dev`, making a proposal live writes it into the pack's files,
   as [Under `kindgi dev`](../propose-a-change/#under-kindgi-dev) shows;
-- **`publish` on the agent,** to start one.
+- **`publish` on the agent,** to start one, and `write` on the project it
+  works in when that isn't the agent version's.
 
 ## Mark what a pass may tune
 
@@ -131,6 +132,15 @@ pnpm exec kindgi proposals improve --agent=acme.rank.scorer --tenant --test-set=
 - **The agent and scope:** `--agent` and `--tenant`, or another scope flag.
 - **The version** is the one serving the scope, unless `--from-version` names
   another.
+- **The project:** a pass works in one project and learns from its runs. Its
+  version and test set must be ones
+  [that project's runs can use](../../projects/organize-by-org-and-project/#what-a-projects-runs-can-use),
+  and its eval runs run there. With `--project`, it's that project. With
+  `--tenant` or `--org`, it's `--pass-project=<project-id>`, else the agent
+  version's. A project other than the version's needs `write` there. In the
+  API and the clients, it's `projectId` (`project_id` in Python). The pass's
+  project needs runtime 0.2.0 or later: an earlier one refuses
+  `--pass-project`, and its pass works in the agent version's project.
 - **The test set:** `--test-set`, a judged one.
 - **The budget:** `--max-cost` in US dollars, 5 by default and at most 100,
   and `--max-candidates`, 30 by default and at most 200. A pass stops at
