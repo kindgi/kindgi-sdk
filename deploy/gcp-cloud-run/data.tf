@@ -113,6 +113,14 @@ data "google_sql_database_instance" "host" {
   name  = var.database_host_instance
 
   lifecycle {
+    # A host's backups are the app's, set where that instance is managed. The
+    # module makes no instance here to set them on, so a backup variable given
+    # with a host would be dropped without a word: a promise of where backups
+    # are kept, broken at the apply that said it.
+    precondition {
+      condition     = var.database_backup_retention == null && var.database_backup_location == null && var.database_point_in_time_days == null
+      error_message = "database_host_instance names ${var.database_host_instance}, whose backups are set where that instance is managed: leave database_backup_retention, database_backup_location and database_point_in_time_days unset."
+    }
     # Public IP: the server reaches it through Cloud Run's /cloudsql volume.
     postcondition {
       condition     = try(self.settings[0].ip_configuration[0].ipv4_enabled, false)

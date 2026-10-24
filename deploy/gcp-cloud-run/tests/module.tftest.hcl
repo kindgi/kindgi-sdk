@@ -1271,6 +1271,33 @@ run "host_refuses_an_instance_without_a_public_ip" {
   expect_failures = [data.google_sql_database_instance.host]
 }
 
+run "host_refuses_a_backup_location" {
+  command = plan
+  variables {
+    database_host_instance   = "acme-app-db"
+    database_backup_location = "us"
+  }
+  expect_failures = [data.google_sql_database_instance.host]
+}
+
+run "host_refuses_a_backup_retention" {
+  command = plan
+  variables {
+    database_host_instance    = "acme-app-db"
+    database_backup_retention = 30
+  }
+  expect_failures = [data.google_sql_database_instance.host]
+}
+
+run "host_refuses_point_in_time_days" {
+  command = plan
+  variables {
+    database_host_instance      = "acme-app-db"
+    database_point_in_time_days = 3
+  }
+  expect_failures = [data.google_sql_database_instance.host]
+}
+
 run "host_refuses_private_ip_mode" {
   command = plan
   variables {

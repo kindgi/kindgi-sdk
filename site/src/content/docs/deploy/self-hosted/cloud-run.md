@@ -780,6 +780,10 @@ A new grant can take a minute or two to apply.
   - **Setting it on a running deployment** changes the instance in place.
     The backups taken before stay where they were
     ([Google: custom backup locations](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/backup-options#sb-custom-backup-location)).
+  - **On a host or a restored instance:** these set the module's own
+    instance only. With `database_host_instance` they're refused at plan:
+    the host's backups are the app's, set where that instance is managed.
+    An instance `database_instance` names keeps its own.
 - **Restore Cloud SQL:** a point-in-time recovery always makes a new
   instance, and a backup can go into one too (restored into the serving
   instance, it overwrites everything on it). `database_instance` moves the
