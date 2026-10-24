@@ -81,7 +81,7 @@ import {
   requestBodyLimit,
 } from './middleware/request-body.js';
 import { requestIdMiddleware } from './middleware/request-id.js';
-import { requestLogMiddleware } from './middleware/request-log.js';
+import { loggablePath, requestLogMiddleware } from './middleware/request-log.js';
 import { sealedCursors } from './middleware/sealed-cursors.js';
 import { sigv4Middleware } from './middleware/sigv4.js';
 import {
@@ -206,6 +206,7 @@ import { tokenSignInRouter } from './routes/token-sign-in.js';
 import { tokensRouter } from './routes/tokens.js';
 import { toolsRouter } from './routes/tools.js';
 import { usageRouter } from './routes/usage.js';
+import { waitTokensRouter } from './routes/wait-tokens.js';
 import { webhookEndpointsRouter } from './routes/webhook-endpoints.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import type { S3CredentialBinding } from './s3-credential-binding.js';
@@ -224,6 +225,7 @@ import type { ToolRegistryBinding } from './tool-binding.js';
 import { TRIGGER_KINDS, type TriggerKind, type TriggerRegistryBinding } from './trigger-binding.js';
 import type { AppEnv } from './types.js';
 import type { UsageBinding } from './usage.js';
+import type { WaitTokenBinding } from './wait-token-binding.js';
 import type { WebhookEndpointBinding } from './webhook-endpoint-binding.js';
 
 /**
@@ -450,6 +452,17 @@ export interface CreateAppInput {
    * supplies an implementation.
    */
   readonly hitlBinding?: HitlBinding;
+  /**
+   * Runs paused until another system answers (a pack tool that declares
+   * `pauses`): the token's link (`POST /v1/wait-tokens/{token}/complete`,
+   * no bearer), `POST /v1/runs/{runId}/resume` with a `pause:` waitpoint
+   * id, and a suspended run's `waitingFor.tokens`. Absent: the link
+   * answers `404 wait-token-not-found`, and the resume route `422
+   * run-resume-not-supported`. The Kindgi runtime supplies one. The link
+   * limits requests per client, telling clients apart and counting where
+   * `webhookReceiver` says (its defaults when it's absent).
+   */
+  readonly waitTokens?: WaitTokenBinding;
   /**
    * Optional. When present, mounts the reviewer roster sub-resource
    * at `/v1/approvals/reviewers` — list / get / register / unregister.
@@ -1024,11 +1037,12 @@ export interface CreateAppInput {
     readonly envName: import('@kindgi/types').EnvName;
     /**
      * Who the client is (for the per-client refusal limit and the audit
-     * record); `undefined` when clients can't be told apart, which turns
-     * the per-client limit off.
+     * record, and the wait token link's per-client limit); `undefined`
+     * when clients can't be told apart, which turns the per-client limits
+     * off.
      */
     readonly clientAddress?: (request: Request) => string | undefined;
-    /** Where the counts live; default this process's memory. */
+    /** Where the counts live, the wait token link's too; default this process's memory. */
     readonly rateLimitStore?: RateLimitStore;
   };
   /**
@@ -1569,6 +1583,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       {
         ...(input.eventBus !== undefined && { eventBus: input.eventBus }),
         ...(input.hitlBinding !== undefined && { hitl: input.hitlBinding }),
+        ...(input.waitTokens !== undefined && { waitTokens: input.waitTokens }),
         ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
         ...(itemRights !== undefined && { itemRights }),
         ...(input.agentRegistry !== undefined &&
@@ -2496,6 +2511,23 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       }),
     );
   }
+  // Another system answers a paused run through its wait token's link:
+  // outside the bearer chain (mounted ahead of `/v1`), since that system
+  // has no Kindgi key; the token in the path is the credential. Always
+  // mounted, so a link to a runtime that pauses no run is a clear 404.
+  app.route(
+    '/v1/wait-tokens',
+    waitTokensRouter({
+      ...(input.waitTokens !== undefined && { binding: input.waitTokens }),
+      runHandler: input.runHandler,
+      ...(input.webhookReceiver?.clientAddress !== undefined && {
+        clientAddress: input.webhookReceiver.clientAddress,
+      }),
+      ...(input.webhookReceiver?.rateLimitStore !== undefined && {
+        rateLimitStore: input.webhookReceiver.rateLimitStore,
+      }),
+    }),
+  );
   // A site enrolls its key, and signs its people in: outside the bearer
   // chain (mounted ahead of `/v1`), since nobody is signed in yet.
   if (input.sites !== undefined) {
@@ -2589,7 +2621,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     const body: WireErrorBody = {
       error: {
         code: 'route-not-found',
-        message: `No route registered for ${c.req.method} ${c.req.path}. If this endpoint is expected, verify the deployment wired the required binding.`,
+        message: `No route registered for ${c.req.method} ${loggablePath(c.req.path)}. If this endpoint is expected, verify the deployment wired the required binding.`,
         requestId,
       },
     };

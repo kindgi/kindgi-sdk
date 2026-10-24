@@ -25,7 +25,7 @@ OPERATIONS: dict[str, Operation] = {
     "runs.failures": Operation("runs.failures", "GET", "/v1/runs/failures", "json", False),
     "runs.get": Operation("runs.get", "GET", "/v1/runs/{runId}", "json", False),
     "runs.cancel": Operation("runs.cancel", "POST", "/v1/runs/{runId}/cancel", "json", True),
-    "runs.resume": Operation("runs.resume", "POST", "/v1/runs/{runId}/resume", "empty", True),
+    "runs.resume": Operation("runs.resume", "POST", "/v1/runs/{runId}/resume", "json", True),
     "runs.journal": Operation("runs.journal", "GET", "/v1/runs/{runId}/journal", "json", False),
     "runs.stream": Operation("runs.stream", "GET", "/v1/runs/{runId}/stream", "sse", False),
     "runs.progress": Operation("runs.progress", "GET", "/v1/runs/{runId}/progress", "json", False),
@@ -1381,10 +1381,10 @@ class RunsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> None:
-        """Resume a suspended run at a waitpoint (not available in this release). `POST /v1/runs/{runId}/resume`
+    ) -> _models.Run:
+        """Answer a run's wait for another system. `POST /v1/runs/{runId}/resume`
 
-        Not available in this release: always `422 run-resume-not-supported`, and no waitpoint is completed. Every waitpoint a run can wait at belongs to an approval or to the runtime itself. A run waiting for an approval continues when a reviewer decides it: `POST /v1/approvals/{approvalId}/complete`.
+        Answers a run paused on a tool call until another system answers (a pack tool that declares `pauses`; its waitpoint id starts with `pause:`, as the run's `waitingFor.tokens` lists it), as that system would through the wait token's link, and resumes the run in the same request. `value` is the tool's output, checked against its output schema; absent, `{}`. Answering stands in for the other system, and the run acts on the answer, so it needs `write` on the run's project and `execute` on the agent or flow it runs, as starting it does. The same answer again is accepted again, even after the run has ended; a different one to a wait that's over is `409 wait-token-closed`. Every other waitpoint belongs to an approval or to the runtime itself, and is `422 run-resume-not-supported`: a run waiting for an approval continues when a reviewer decides it (`POST /v1/approvals/{approvalId}/complete`).
         """
         return self._client._request(
             _OPERATIONS["runs.resume"],
@@ -1392,6 +1392,7 @@ class RunsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ResumeRunBody, body, fields),
+            response=_models.Run,
             timeout=timeout,
         )
 
@@ -1905,7 +1906,7 @@ class SystemTenantsResource:
     ) -> _models.SystemTenant:
         """Close a tenant. `POST /v1/system/tenants/{tenantId}/close`
 
-        Starts the end of its contract: the tenant becomes `closing`. Its own keys and sessions still read and export it for its window; nothing runs (its running runs are cancelled), and nothing is written but deletes. One-way: the purge follows the window. A second close keeps the first. Takes `system:tenants`.
+        Starts the end of its contract: the tenant becomes `closing`. Its own keys and sessions still read and export it for its window; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. One-way: the purge follows the window. A second close keeps the first. Takes `system:tenants`.
         """
         return self._client._request(
             _OPERATIONS["systemTenants.close"],
@@ -1928,7 +1929,7 @@ class SystemTenantsResource:
     ) -> _models.SystemTenant:
         """Suspend a tenant, or restore it. `PUT /v1/system/tenants/{tenantId}/suspended`
 
-        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
+        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
         """
         return self._client._request(
             _OPERATIONS["systemTenants.setSuspended"],
@@ -1977,7 +1978,7 @@ class SystemTenantsResource:
     ) -> _models.ProjectSuspension:
         """Suspend one of a tenant's projects, or restore it. `PUT /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`
 
-        Reversible: nothing new runs or deploys in the project, its running runs are cancelled and its deployments retired; reads and the rest of the tenant are untouched. Its schedules' fires are recorded `skipped` (`project-suspended`) and don't count toward the auto-pause, so a schedule stays on and fires again once the project is restored. A delivery to one of its webhook triggers is answered `skipped: project-suspended`, and nothing is recorded. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).
+        Reversible: nothing new runs or deploys in the project, its unfinished runs, waiting ones included, are cancelled, and its deployments retired; reads and the rest of the tenant are untouched. Its schedules' fires are recorded `skipped` (`project-suspended`) and don't count toward the auto-pause, so a schedule stays on and fires again once the project is restored. A delivery to one of its webhook triggers is answered `skipped: project-suspended`, and nothing is recorded. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).
         """
         return self._client._request(
             _OPERATIONS["systemTenants.setProjectSuspended"],
@@ -10155,10 +10156,10 @@ class AsyncRunsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> None:
-        """Resume a suspended run at a waitpoint (not available in this release). `POST /v1/runs/{runId}/resume`
+    ) -> _models.Run:
+        """Answer a run's wait for another system. `POST /v1/runs/{runId}/resume`
 
-        Not available in this release: always `422 run-resume-not-supported`, and no waitpoint is completed. Every waitpoint a run can wait at belongs to an approval or to the runtime itself. A run waiting for an approval continues when a reviewer decides it: `POST /v1/approvals/{approvalId}/complete`.
+        Answers a run paused on a tool call until another system answers (a pack tool that declares `pauses`; its waitpoint id starts with `pause:`, as the run's `waitingFor.tokens` lists it), as that system would through the wait token's link, and resumes the run in the same request. `value` is the tool's output, checked against its output schema; absent, `{}`. Answering stands in for the other system, and the run acts on the answer, so it needs `write` on the run's project and `execute` on the agent or flow it runs, as starting it does. The same answer again is accepted again, even after the run has ended; a different one to a wait that's over is `409 wait-token-closed`. Every other waitpoint belongs to an approval or to the runtime itself, and is `422 run-resume-not-supported`: a run waiting for an approval continues when a reviewer decides it (`POST /v1/approvals/{approvalId}/complete`).
         """
         return await self._client._request(
             _OPERATIONS["runs.resume"],
@@ -10166,6 +10167,7 @@ class AsyncRunsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ResumeRunBody, body, fields),
+            response=_models.Run,
             timeout=timeout,
         )
 
@@ -10681,7 +10683,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.SystemTenant:
         """Close a tenant. `POST /v1/system/tenants/{tenantId}/close`
 
-        Starts the end of its contract: the tenant becomes `closing`. Its own keys and sessions still read and export it for its window; nothing runs (its running runs are cancelled), and nothing is written but deletes. One-way: the purge follows the window. A second close keeps the first. Takes `system:tenants`.
+        Starts the end of its contract: the tenant becomes `closing`. Its own keys and sessions still read and export it for its window; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. One-way: the purge follows the window. A second close keeps the first. Takes `system:tenants`.
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.close"],
@@ -10704,7 +10706,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.SystemTenant:
         """Suspend a tenant, or restore it. `PUT /v1/system/tenants/{tenantId}/suspended`
 
-        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
+        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.setSuspended"],
@@ -10753,7 +10755,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.ProjectSuspension:
         """Suspend one of a tenant's projects, or restore it. `PUT /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`
 
-        Reversible: nothing new runs or deploys in the project, its running runs are cancelled and its deployments retired; reads and the rest of the tenant are untouched. Its schedules' fires are recorded `skipped` (`project-suspended`) and don't count toward the auto-pause, so a schedule stays on and fires again once the project is restored. A delivery to one of its webhook triggers is answered `skipped: project-suspended`, and nothing is recorded. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).
+        Reversible: nothing new runs or deploys in the project, its unfinished runs, waiting ones included, are cancelled, and its deployments retired; reads and the rest of the tenant are untouched. Its schedules' fires are recorded `skipped` (`project-suspended`) and don't count toward the auto-pause, so a schedule stays on and fires again once the project is restored. A delivery to one of its webhook triggers is answered `skipped: project-suspended`, and nothing is recorded. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.setProjectSuspended"],

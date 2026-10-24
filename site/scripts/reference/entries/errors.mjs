@@ -1072,7 +1072,38 @@ export const ERROR_ENTRIES = {
   },
   'run-resume-not-supported': {
     description:
-      "Resuming a run at a waitpoint through `POST /v1/runs/{runId}/resume` isn't available. A run waiting for an approval continues when a reviewer decides it.",
+      "Resuming a run at this waitpoint through `POST /v1/runs/{runId}/resume` isn't available. Only a run paused until another system answers (a `pause:` waitpoint) resumes there, on a server that pauses runs. A run waiting for an approval continues when a reviewer decides it.",
+    details: [],
+  },
+  'wait-token-not-found': {
+    description:
+      "No open wait matches: the link's token is unknown (a wrong or mistyped link answers the same), or the run doesn't wait at the `waitpointId` you named. A run's open waits are in `waitingFor.tokens` on `GET /v1/runs/{runId}`.",
+    details: [],
+  },
+  'wait-token-closed': {
+    description:
+      'The wait is over, so it takes no other answer: it already took a different answer, its time passed, its run was cancelled, or its tool call answered without waiting or was retried and waits on a new link. Sending the answer it took again is accepted, not refused.',
+    details: [
+      {
+        key: 'state',
+        meaning:
+          'why the wait is over: `answered` or `completed` (it took a different answer), `timed-out`, `cancelled` or `unused`',
+      },
+    ],
+  },
+  'wait-token-output-invalid': {
+    description:
+      "The answer doesn't fit the output schema of the tool that waits for it. Nothing is taken and the wait stays open: fix the answer and send it again before the wait times out.",
+    details: [
+      {
+        key: 'issues',
+        meaning: 'list of problems, each with a path to the offending field and a message',
+      },
+    ],
+  },
+  'unsupported-media-type': {
+    description:
+      "The body isn't JSON where the route takes JSON alone: an answer to a wait (`POST /v1/wait-tokens/{token}/complete`) is sent with `Content-Type: application/json`, or with no body at all.",
     details: [],
   },
   'semantic-unavailable': {
@@ -1087,7 +1118,7 @@ export const ERROR_ENTRIES = {
   },
   'rate-limit-exceeded': {
     description:
-      "You sent too many requests, or a tenant reached one of its limits: a webhook trigger got more deliveries than its per-minute limit, a client sent too many refused webhook requests, too many sign-in lookups came from one source, or the tenant reached its limit on API requests or webhook deliveries a minute, or on runs waiting to start. A tenant's API requests to `/v1` and `/s3` count together; on `/s3`, its limit answers as S3 does, with `503 SlowDown` and `Retry-After`, not with this code. On a server with budgets kept per tenant (Kindgi Cloud), it's also the answer when the tenant's schemas took their budget compiling, or its instructions templates rendering, in the last 60 seconds; an agent's turn refused this way fails its run with this code. A deploy is refused with it too when the tenant's image reads unpacked as much as they may in an hour. Retry after the `Retry-After` header; a refusal by the limit on runs waiting to start has none: retry once some have started.",
+      "You sent too many requests, or a tenant reached one of its limits: a webhook trigger got more deliveries than its per-minute limit, a client sent too many refused webhook requests, too many sign-in lookups came from one source, a client sent wait tokens' links more than 600 requests in a minute, or the tenant reached its limit on API requests or webhook deliveries a minute, or on runs waiting to start. A tenant's API requests to `/v1` and `/s3` count together; on `/s3`, its limit answers as S3 does, with `503 SlowDown` and `Retry-After`, not with this code. On a server with budgets kept per tenant (Kindgi Cloud), it's also the answer when the tenant's schemas took their budget compiling, or its instructions templates rendering, in the last 60 seconds; an agent's turn refused this way fails its run with this code. A deploy is refused with it too when the tenant's image reads unpacked as much as they may in an hour. Retry after the `Retry-After` header; a refusal by the limit on runs waiting to start has none: retry once some have started.",
     details: [
       {
         key: 'limit',
@@ -2082,7 +2113,7 @@ export const ERROR_ENTRIES = {
   },
   'tenant-closing': {
     description:
-      "The tenant is closing. Its own keys and sessions can read and export it until it's deleted, but not change it: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers that proves its sender is refused the same way, and nothing is recorded for it. A schedule's or webhook trigger's fire whose run starts as the tenant starts closing is recorded `skipped`, with `tenant-closing` in its `detail`, and doesn't count toward a schedule's auto-pause. An eval run or an improvement pass going as it starts closing stops at its next case: it ends `cancelled`, with `tenant-closing` in its `cancelReason`. The system routes that change its settings, limits, image prefix, a suspension or a deployment's endpoint refuse a closing tenant; clearing its deployments' endpoints, which retires its pack services, still works. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+      "The tenant is closing. Its own keys and sessions can read and export it until it's deleted, but not change it: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers that proves its sender is refused the same way, and nothing is recorded for it. So is an answer to one of its runs' waits through the wait token's link, and nothing is taken. A schedule's or webhook trigger's fire whose run starts as the tenant starts closing is recorded `skipped`, with `tenant-closing` in its `detail`, and doesn't count toward a schedule's auto-pause. An eval run or an improvement pass going as it starts closing stops at its next case: it ends `cancelled`, with `tenant-closing` in its `cancelReason`. The system routes that change its settings, limits, image prefix, a suspension or a deployment's endpoint refuse a closing tenant; clearing its deployments' endpoints, which retires its pack services, still works. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
     details: [
       {
         key: 'state',
@@ -2096,7 +2127,7 @@ export const ERROR_ENTRIES = {
   },
   'tenant-suspended': {
     description:
-      "The tenant is suspended. Its own keys and sessions can read and export it, but not change it until it's restored: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: tenant-suspended`, and nothing is recorded or kept for it. A sender that can redeliver by hand can resend it once the tenant is restored, and a restore is seen within 5 seconds. Its schedules don't fire while it's suspended, and nothing is caught up: at the restore, a schedule's or webhook trigger's fire whose run or pass hadn't started is recorded `skipped`, with `tenant-suspended` in its `detail`, and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. An eval run or an improvement pass going as it's suspended stops at its next case: it ends `cancelled`, with `tenant-suspended` in its `cancelReason`. A fire whose run was starting as the tenant was suspended is recorded `skipped` right away, with `tenant-suspended` in its `detail`. None of it counts toward a schedule's auto-pause. Setting a deployment's endpoint (`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`) refuses a suspended tenant too. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+      "The tenant is suspended. Its own keys and sessions can read and export it, but not change it until it's restored: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: tenant-suspended`, and nothing is recorded or kept for it. A sender that can redeliver by hand can resend it once the tenant is restored, and a restore is seen within 5 seconds. An answer to one of its runs' waits through the wait token's link is refused with this code, and nothing is taken: a suspension cancels the tenant's runs, paused ones included. Its schedules don't fire while it's suspended, and nothing is caught up: at the restore, a schedule's or webhook trigger's fire whose run or pass hadn't started is recorded `skipped`, with `tenant-suspended` in its `detail`, and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. An eval run or an improvement pass going as it's suspended stops at its next case: it ends `cancelled`, with `tenant-suspended` in its `cancelReason`. A fire whose run was starting as the tenant was suspended is recorded `skipped` right away, with `tenant-suspended` in its `detail`. None of it counts toward a schedule's auto-pause. Setting a deployment's endpoint (`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`) refuses a suspended tenant too. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
     details: [
       {
         key: 'state',
@@ -2825,7 +2856,7 @@ export const ERROR_ENTRIES = {
   },
   'project-suspended': {
     description:
-      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an eval run started in it, an improvement pass for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. An eval run or a pass already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or pass: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project. A promotion from it or into it is refused too: `details.environment` says which.",
+      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an answer to one of its runs' waits (through the wait token's link or `POST /v1/runs/{runId}/resume`; a suspension cancels its runs, paused ones included), an eval run started in it, an improvement pass for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. An eval run or a pass already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or pass: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project. A promotion from it or into it is refused too: `details.environment` says which.",
     details: [
       {
         key: 'environment',
