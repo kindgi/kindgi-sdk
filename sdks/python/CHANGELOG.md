@@ -13,6 +13,14 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a tool whose model has a pydantic tagged union deploys.** With
+  `Field(discriminator=...)`, pydantic writes OpenAPI's `discriminator`
+  keyword beside the union's `oneOf`, and the runtime refused the tool at
+  registration (`strict mode: unknown keyword: "discriminator"`). The wire
+  schema now leaves it out: each member's tag is a `const` (an `enum` for
+  several values), so the `oneOf` picks the member. Each member also lists
+  its tag in `required`, since pydantic refuses a member without one, even
+  when the tag has a default.
 - `kindgi`: **a tool can pause its run until another system answers.**
   `@tool(pauses=True)`: the handler hands `ctx.wait_token.url` to that system
   and returns `ctx.pause(timeout_ms=..., name=...)`, 24 hours by default and
