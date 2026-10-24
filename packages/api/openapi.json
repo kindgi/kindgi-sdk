@@ -60300,11 +60300,8 @@
             "name": "includeRemoved",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "true",
-                "false"
-              ]
+              "type": "boolean",
+              "default": false
             },
             "required": false,
             "description": "`true` lists removed registrations too."
@@ -60864,11 +60861,8 @@
             "name": "includeRemoved",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "true",
-                "false"
-              ]
+              "type": "boolean",
+              "default": false
             },
             "required": false,
             "description": "`true` lists removed connections too."
