@@ -437,6 +437,21 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'run-held-by-parent': {
+    description:
+      "The run is a subflow's child run, left for its parent run's next resume, which resumes it too. Only the parent's resume resumes it, so a resume of the child itself is refused.",
+    details: [
+      {
+        key: 'runId',
+        meaning: 'the run',
+      },
+      {
+        key: 'parentRunId',
+        meaning: 'its parent run, whose resume resumes it',
+      },
+    ],
+    seeAlso: ['concepts/runs'],
+  },
   'idempotency-key-body-mismatch': {
     description:
       'You reused an Idempotency-Key with a different request body. Send the original body to get its answer back, or use a fresh key.',

@@ -77,6 +77,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'erasure-in-progress': 409,
   'run-already-terminal': 409,
   'run-lease-lost': 409,
+  'run-held-by-parent': 409,
   'idempotency-key-body-mismatch': 409,
   'idempotency-key-in-flight': 409,
   'idempotency-key-replay-withheld': 409,
