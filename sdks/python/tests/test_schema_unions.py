@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import pytest
@@ -20,6 +22,7 @@ from kindgi._schema import (
     strict_schema_problem,
     wire_schema,
 )
+from kindgi.pack.index import run_indexer
 
 MODES = ("validation", "serialization")
 
@@ -262,3 +265,40 @@ def test_a_tool_with_a_tagged_union_defines_and_says_so_on_the_wire() -> None:
     for schema in (adopt.input_schema, adopt.output_schema):
         assert "discriminator" not in json.dumps(schema)
         assert strict_schema_problem(schema) is None
+
+
+def test_an_agents_typed_answer_with_a_tagged_union_indexes_without_it(
+    make_pack: Callable[..., Path],
+) -> None:
+    root = make_pack(
+        {
+            "agents/adopter.py": """
+                from typing import Literal
+                from pydantic import BaseModel, Field
+                from kindgi import Agent
+
+                class Cat(BaseModel):
+                    kind: Literal["cat"]
+
+                class Dog(BaseModel):
+                    kind: Literal["dog"]
+
+                class Answer(BaseModel):
+                    pet: Cat | Dog = Field(discriminator="kind")
+
+                agent = Agent(
+                    id="acme.adopter", version="1.0.0", name="Adopter",
+                    instructions="Picks a pet.", output=Answer,
+                )
+            """,
+        }
+    )
+    outcome = run_indexer(
+        root, artifact_version="20261001.3", published_at="2026-10-01T00:00:00.000Z"
+    )
+    assert outcome["kind"] == "ok", outcome
+    index = json.loads(Path(outcome["value"]["outputPath"]).read_text())
+    schema = index["agents"][0]["output"]["schema"]
+    assert "discriminator" not in json.dumps(schema)
+    assert [m["required"] for m in schema["properties"]["pet"]["oneOf"]] == [["kind"], ["kind"]]
+    assert strict_schema_problem(schema) is None
