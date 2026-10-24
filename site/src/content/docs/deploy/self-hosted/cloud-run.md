@@ -32,7 +32,8 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
   and IAM-protected: only the runtime's service account may call it, with a
   Google ID token on every call.
 - **Cloud SQL** (Postgres 16) for the runtime's data, reached through the
-  Cloud SQL socket.
+  Cloud SQL socket, which encrypts the connection and checks the server
+  ([Check the database's certificate](../database-tls/)).
 - **Artifact Registry** for both images. The runtime also reads your pack's
   image from it when you deploy.
 - **Secret Manager** for the runtime's secrets, and **a Cloud KMS key** that

@@ -15,6 +15,9 @@ export const ENV_DEFAULTS = {
   KINDGI_PUBLIC_URL:
     'none: the address the server binds (shown as `http://localhost:<port>` when it binds all interfaces)',
   KINDGI_DATABASE_URL: '`postgres://localhost:5432/kindgi`',
+  KINDGI_DATABASE_SERVER_CA_PATH:
+    "none (with `KINDGI_DATABASE_SERVER_CA` unset): `KINDGI_DATABASE_URL`'s `sslmode` decides",
+  KINDGI_DATABASE_SERVER_CA: 'none: same as `KINDGI_DATABASE_SERVER_CA_PATH`',
   KINDGI_DB_STATEMENT_TIMEOUT_MS:
     '`60000` (60 seconds); `0` turns it off; longer than the lock timeout when both are on',
   KINDGI_DB_LOCK_TIMEOUT_MS:
@@ -254,6 +257,10 @@ export const ENV_EXAMPLES = {
   },
   KINDGI_MEMORY_EMBEDDINGS_API_KEY: {
     value: '<API key of the embeddings endpoint>',
+  },
+  KINDGI_DATABASE_SERVER_CA: {
+    value: '<the database server CA certificates in PEM>',
+    make: 'cat database-ca.pem',
   },
   KINDGI_ERASURE_LEDGER_KEY: {
     value: '<32 random bytes, base64>',

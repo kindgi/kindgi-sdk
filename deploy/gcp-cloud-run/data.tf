@@ -10,14 +10,23 @@
 
 # ---- Cloud SQL ----------------------------------------------------------------
 # Either public IP with no authorized networks, reachable only through the
-# Cloud SQL connector Cloud Run mounts at /cloudsql (which checks IAM), or
-# private IP only on an existing VPC (database_private_network), reached
-# over TCP through the services' VPC egress. ENCRYPTED_ONLY either way:
-# over TCP the URL says sslmode=require (postgres.js then speaks TLS; the
-# private IP isn't in the server certificate, so it isn't verified).
+# Cloud SQL connector Cloud Run mounts at /cloudsql (which checks IAM, and
+# encrypts the connection and verifies the instance itself), or private IP
+# only on an existing VPC (database_private_network), reached over TCP
+# through the services' VPC egress. ENCRYPTED_ONLY either way. Over TCP
+# the URL says sslmode=require, which encrypts and checks no certificate,
+# and the private IP isn't in the server certificate, so the server checks
+# its certificate against the instance's own CAs (KINDGI_DATABASE_SERVER_CA,
+# read from runtime 0.2.0 on): the chain and the dates, not the name.
+# That's enough with the per-instance CA the instance gets by default,
+# which signs this one instance's certificate alone.
 
 locals {
   database_private = var.database_private_network != ""
+  # Private-IP mode: the CAs the server's certificate must chain to.
+  database_server_ca = (length(data.google_sql_ca_certs.kindgi) > 0
+    ? join("\n", [for ca in data.google_sql_ca_certs.kindgi[0].certs : trimspace(ca.cert)])
+  : "")
 }
 
 resource "google_sql_database_instance" "kindgi" {
@@ -54,6 +63,25 @@ resource "google_sql_database_instance" "kindgi" {
     database_flags {
       name  = "idle_in_transaction_session_timeout"
       value = tostring(var.database_idle_in_transaction_timeout_ms)
+    }
+  }
+}
+
+# Private-IP mode: every CA the instance trusts (the one in use, one added
+# for a rotation, one rotated out), read at each plan, so a CA added before
+# a rotation reaches the server at the next apply. Private-IP mode serves
+# from the module's own instance alone: database_instance and
+# database_host_instance are reached through /cloudsql, and services.tf
+# refuses either with private-IP mode. With database_host_instance set
+# there's no instance here to read.
+data "google_sql_ca_certs" "kindgi" {
+  count    = local.database_private ? length(google_sql_database_instance.kindgi) : 0
+  instance = google_sql_database_instance.kindgi[count.index].name
+
+  lifecycle {
+    postcondition {
+      condition     = length(self.certs) > 0
+      error_message = "The instance lists no server CA: the server would have nothing to check the database's certificate against."
     }
   }
 }
