@@ -158,7 +158,7 @@ import { loadProviderPresets } from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
 import { consoleUrlOf, couldNotOpen } from './console.js';
 import { defaultSdkSkillsRoot } from './init.js';
-import { describeSkillDrift, detectSkillDrift } from './skills.js';
+import { describeDevSkillsRefresh, refreshSkillsForDev } from './skills.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 export const devCommand: LeafCommand = {
@@ -1079,7 +1079,10 @@ async function runDevForPack(
     `    echo "…" | ${kindgi('feedback', 'write', '--kind=bug', '--title="…"', '--body-stdin')}  (appends to FEEDBACK.md)`,
   );
   emitProgress('');
-  await emitSkillDriftHint(args.packDir, code.value.language, kindgi('skills', 'sync'));
+  await emitSkillsRefresh(args.packDir, code.value.language, {
+    sync: kindgi('skills', 'sync'),
+    force: kindgi('skills', 'sync', '--force'),
+  });
   if (args.watch) {
     emitProgress(`  Watching ${args.packDir}`);
     emitProgress('  Ctrl+C to stop.');
@@ -1887,30 +1890,32 @@ function emitWarningsSince({ fresh, standing }: WarningsSince): void {
 }
 
 /**
- * Compare the pack's installed framework skills against the bundled
- * SDK versions; print a one-liner if drift is detected. Silent when
- * everything is up to date. Never fails boot — a drift-check crash
- * (missing skills root, unreadable manifest) is swallowed because
- * the drift check is advisory, not load-bearing.
+ * Bring the pack's framework skills up to this CLI's (`refreshSkillsForDev`),
+ * and say what changed and what's still behind. Silent when nothing is. A
+ * refresh that fails is said, never fails boot: the skills help the coding
+ * agent, not the pack.
  */
-async function emitSkillDriftHint(
+async function emitSkillsRefresh(
   packDir: string,
   language: PackLanguage,
-  syncCommand: string,
+  commands: { readonly sync: string; readonly force: string },
 ): Promise<void> {
   const skillsRoot = defaultSdkSkillsRoot();
   if (skillsRoot === undefined) return;
+  let lines: string[];
   try {
-    const drift = describeSkillDrift(
-      await detectSkillDrift({ skillsRoot, targetDir: packDir, language }),
-    );
-    if (drift === undefined) return;
-    emitProgress(`  ⚠ Framework skills: ${drift}.`);
-    emitProgress(`    Run \`${syncCommand}\` to pull the latest.`);
-    emitProgress('');
-  } catch {
-    // Advisory; never block boot on a drift-check failure.
+    const refresh = await refreshSkillsForDev({ skillsRoot, targetDir: packDir, language });
+    lines = describeDevSkillsRefresh(refresh, commands);
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    lines = [
+      `  ⚠ Framework skills: couldn't refresh them: ${why}`,
+      `    Run \`${commands.sync}\` to pull the latest.`,
+    ];
   }
+  if (lines.length === 0) return;
+  for (const line of lines) emitProgress(line);
+  emitProgress('');
 }
 
 /**
