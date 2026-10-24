@@ -509,7 +509,7 @@ function noWaitToken(toolId: string): PauseNotAvailableError {
  * The context a handler gets. A tool that declares `pauses` gets the
  * call's `waitToken` and `pause`; any other tool gets neither, even when
  * the call carried a token. The caller's context isn't changed; its
- * properties, non-enumerable ones too (`secrets`, `log`), are kept.
+ * properties, non-enumerable ones too (`secrets`, `connections`, `log`), are kept.
  */
 function callContext(ctx: HandlerContext, tool: ToolInvocationSpec): HandlerContext {
   const { waitToken } = ctx;
