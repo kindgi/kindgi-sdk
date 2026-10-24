@@ -30,6 +30,7 @@ import type { LicenseCommandDeps } from './license/renew.js';
 import type { OpenUrl } from './open-url.js';
 import { loadPackConfig } from './pack-config.js';
 import { type CommandParse, GLOBAL_OPTION_SPEC, parseCommand } from './parse.js';
+import { progressAfterHead } from './progress-head.js';
 import type { RateLimitWaitSeam } from './rate-limit-wait.js';
 import type { TestRunners } from './test/runners.js';
 import { CLI_VERSION } from './version-info.js';
@@ -416,39 +417,6 @@ function givenString(value: unknown): string | undefined {
 
 /** Commands that never warn about the pin: they make it, move it, or don't run against a pack. */
 const PIN_EXEMPT: ReadonlySet<string> = new Set(['init', 'upgrade', 'version']);
-
-/**
- * `ctx.progress` when the CLI streams it (`write`): the first line goes
- * after what main says first, the dev runtime's line (`hint`, said once a
- * command reads its key) and the pin's. `unsaid` is what's left of those
- * for the outcome, before `later` (the pin's line, when the outcome says
- * it): all of it when nothing was streamed, else the hint when it came
- * after the first line.
- */
-function progressAfterHead(
-  write: ((text: string) => void) | undefined,
-  hint: () => string,
-  pin: () => string,
-): {
-  readonly progress: ((text: string) => void) | undefined;
-  readonly unsaid: (later: string) => string;
-} {
-  let opened: { readonly hint: string } | undefined;
-  const unsaid = (later: string): string => {
-    if (opened === undefined) return `${hint()}${later}`;
-    return opened.hint === '' ? hint() : '';
-  };
-  if (write === undefined) return { progress: undefined, unsaid };
-  const progress = (text: string): void => {
-    if (opened !== undefined) {
-      write(text);
-      return;
-    }
-    opened = { hint: hint() };
-    write(`${opened.hint}${pin()}${text}`);
-  };
-  return { progress, unsaid };
-}
 
 async function pinWarningFor(cwd: string, pathOption: unknown): Promise<string | undefined> {
   const dir = typeof pathOption === 'string' && pathOption !== '' ? resolve(cwd, pathOption) : cwd;

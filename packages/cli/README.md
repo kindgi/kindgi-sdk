@@ -497,7 +497,8 @@ Builds a signed pack image with a Kindgi build server, and writes
 build server's log among them, so a long build shows where it is. A build
 that fails keeps those lines, with the error after them. The summary goes
 to stdout at the end, as JSON, so `kindgi build > build.json` keeps it
-apart. With `--quiet`, only an error is printed.
+apart. With `--quiet`, the build's own lines are left out: an error still
+shows, and so do the CLI pin's warning and a rate limit's wait.
 
 **The image (a TypeScript pack):**
 - **Base:** `node:22` or `node:24-bookworm-slim`, pinned by digest: the
