@@ -6,7 +6,8 @@
 # runtime, in order: check, back up, upgrade. It never changes the running
 # deployment before you type "yes" at the plan, and it never rolls back by
 # itself — if the new revision doesn't come up it prints the commands to go
-# back and stops.
+# back and stops. With --dry-run it changes nothing: it lists, in order, what a
+# real run would change.
 #
 # Scope: the small dev shape from README "A small dev deployment" — no VPC, and
 # a public-IP Cloud SQL instance reached over /cloudsql. Any other network_mode
@@ -16,6 +17,10 @@
 # Run it from this module directory, after `terraform init`, as the identity
 # that deploys the module (it reads the running service and the module's state,
 # backs up the database, mirrors the new image, and plans/applies the module).
+#
+# Log in to registry.kindgi.com first, where the runtime image comes from:
+#   docker login registry.kindgi.com --username kindgi
+# and paste your license key when it asks for the password.
 #
 # What it changes besides the deployment itself:
 #   - It grants the Cloud SQL instance's service account roles/storage.objectAdmin
@@ -30,9 +35,9 @@
 #   ./upgrade.sh --var-file dev.tfvars \
 #                --runtime-digest sha256:<64 hex> \
 #                --backup-bucket gs://<bucket>[/<prefix>] \
-#                [--to 0.1.10] [--from 0.1.8|0.1.9] \
+#                [--to 0.1.11] [--from 0.1.8|0.1.9|0.1.10] \
 #                [--pack-dir <path to the pack project>] \
-#                [--check-tenant <uuid>]
+#                [--check-tenant <uuid>] [--dry-run]
 #
 #   --var-file         The tfvars the deployment already uses (.tfvars or
 #                      .tfvars.json), with server_image on one line. Read for
@@ -44,14 +49,25 @@
 #   --backup-bucket    A GCS bucket (optionally a prefix) the database export
 #                      is written to. The export is one database, never an
 #                      instance backup.
-#   --to               The target runtime version (default 0.1.10; an rc such
-#                      as 0.1.10-rc.1 works too).
+#   --to               The target runtime version, 0.1.11 or later (default
+#                      0.1.11; an rc such as 0.1.11-rc.0 works too). Earlier
+#                      releases aren't on registry.kindgi.com: for those, use
+#                      this script as of the @kindgi/sdk@0.1.10 tag. This
+#                      script knows the steps up to 0.1.11; for a later
+#                      release, use this script as of that release's
+#                      @kindgi/sdk@<version> tag.
 #   --from             Assert the current version when it can't be read from the
 #                      deployment (no version tag on the running image).
 #   --pack-dir         Rebuild and push the pack from here with `kindgi build`
 #                      (only if the deployment has a pack service). Without it,
 #                      the runtime is upgraded alone and the pack is left as is.
 #   --check-tenant     Limit the runtime's read-only checks to one tenant.
+#   --dry-run          Change nothing. Run the reads and the read-only checks,
+#                      list every change a real run would make, in order, with
+#                      the names it would use, and show the Terraform plan for
+#                      the new image (read-only: no state lock, no plan file,
+#                      the var-file untouched). The runtime's own checks run as
+#                      jobs in your project, so only a real run runs them.
 
 set -euo pipefail
 
@@ -63,11 +79,12 @@ export CLOUDSDK_CORE_DISABLE_FILE_LOGGING=true
 # instances, service accounts and bucket paths — keep it to this user.
 umask 077
 
-readonly RUNTIME_REPO="quay.io/kindgi/runtime"
+readonly RUNTIME_REPO="registry.kindgi.com/kindgi/runtime"
 readonly VERSION_FLOOR="0.1.8"         # upgrades from before this are refused
-readonly DEFAULT_TARGET="0.1.10"
+readonly TARGET_FLOOR="0.1.11"         # the first release on registry.kindgi.com
+readonly DEFAULT_TARGET="0.1.11"
 # Releases this script knows the upgrade steps for, oldest first.
-readonly KNOWN_RELEASES=("0.1.9" "0.1.10")
+readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.1.11")
 
 # How long to wait for the new revision to become ready (step 6).
 readonly POLL_INTERVAL=10
@@ -75,8 +92,9 @@ readonly POLL_TRIES=60
 
 # --- small helpers ----------------------------------------------------------
 
-die() { printf 'upgrade: %s\n' "$*" >&2; exit 1; }
-warn() { printf 'upgrade: %s\n' "$*" >&2; }
+ME="upgrade"  # "upgrade (dry run)" with --dry-run
+die() { printf '%s: %s\n' "$ME" "$*" >&2; exit 1; }
+warn() { printf '%s: %s\n' "$ME" "$*" >&2; }
 step() { printf '\n== %s ==\n' "$*"; }
 info() { printf '  %s\n' "$*"; }
 
@@ -113,11 +131,17 @@ varfile_value() {
   sed -nE "s/^[[:space:]]*${name}[[:space:]]*=[[:space:]]*\"([^\"]*)\"[[:space:]]*((#|\/\/).*)?$/\1/p" <<<"$lines"
 }
 
+# A value varfile_set will write: an image reference, nothing that could
+# break out of the line.
+varfile_value_ok() {
+  [[ $2 =~ ^[A-Za-z0-9./:@_-]+$ ]] || die "refusing to write an unexpected $1 value \"$2\"."
+}
+
 # Rewrite one variable's value in the var-file in place (its mode is kept),
 # then read it back.
 varfile_set() {
   local name="$1" value="$2" tmp="$WORK/varfile.new"
-  [[ $value =~ ^[A-Za-z0-9./:@_-]+$ ]] || die "refusing to write an unexpected $name value \"$value\"."
+  varfile_value_ok "$name" "$value"
   if [[ $VARFILE_JSON == true ]]; then
     jq --arg n "$name" --arg v "$value" '.[$n] = $v' "$VAR_FILE" >"$tmp"
   else
@@ -182,6 +206,24 @@ To go back:
 EOT
 }
 
+# The names a run gives what it creates, so a dry run lists the ones a real
+# run uses. A check job's name is at most 63 characters: the prefix is cut to
+# 45 (the rest adds 18) and loses a trailing "-". $2 is the run's HHMMSS.
+readonly CHECKS=("provider-keys" "secret-scopes" "mcp-header-credentials")
+check_job_name() {
+  local prefix="${NAME_PREFIX:0:45}" suffix
+  while [[ $prefix == *- ]]; do prefix="${prefix%-}"; done
+  case "$1" in
+    provider-keys) suffix="pk" ;;
+    secret-scopes) suffix="ss" ;;
+    mcp-header-credentials) suffix="mhc" ;;
+  esac
+  printf '%s-upgchk-%s-%s' "$prefix" "$2" "$suffix"
+}
+# The export and the var-file's backup copy. $1 is the run's UTC stamp.
+export_uri() { printf '%s/%s-%s-%s-%s.sql.gz' "${BACKUP_BUCKET%/}" "$NAME_PREFIX" "$DATABASE_NAME" "$CURRENT" "$1"; }
+varfile_backup_name() { printf '%s.pre-upgrade-%s' "$VAR_FILE" "$1"; }
+
 # --- arguments --------------------------------------------------------------
 
 VAR_FILE=""
@@ -191,6 +233,7 @@ TARGET="$DEFAULT_TARGET"
 FROM_OVERRIDE=""
 PACK_DIR=""
 CHECK_TENANT=""
+DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -201,6 +244,7 @@ while [[ $# -gt 0 ]]; do
     --from) FROM_OVERRIDE="${2:-}"; shift 2 ;;
     --pack-dir) PACK_DIR="${2:-}"; shift 2 ;;
     --check-tenant) CHECK_TENANT="${2:-}"; shift 2 ;;
+    --dry-run) DRY_RUN=true; ME="upgrade (dry run)"; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *) die "unknown argument \"$1\" (see --help)." ;;
   esac
@@ -212,7 +256,15 @@ done
 [[ $RUNTIME_DIGEST =~ ^sha256:[0-9a-f]{64}$ ]] || die "--runtime-digest must look like sha256:<64 hex>."
 [[ -n $BACKUP_BUCKET ]] || die "--backup-bucket is required (see --help)."
 [[ $BACKUP_BUCKET =~ ^gs://[a-z0-9][-a-z0-9._]*(/.*)?$ ]] || die "--backup-bucket must look like gs://<bucket>[/<prefix>]."
-is_semver "$TARGET" || die "--to \"$TARGET\" isn't a version like 0.1.10."
+BUCKET_ONLY="${BACKUP_BUCKET#gs://}"; BUCKET_ONLY="${BUCKET_ONLY%%/*}"
+is_semver "$TARGET" || die "--to \"$TARGET\" isn't a version like 0.1.11."
+[[ "$(ver_num "${TARGET%%-*}")" -ge "$(ver_num "$TARGET_FLOOR")" ]] \
+  || die "--to $TARGET: this script copies the runtime from registry.kindgi.com, which has $TARGET_FLOOR and later. For an earlier release, use this script as of the @kindgi/sdk@0.1.10 tag."
+# A later release may need steps this copy doesn't have, so it isn't run past
+# the newest release it knows (an rc counts as its final).
+NEWEST_KNOWN="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
+[[ "$(ver_num "${TARGET%%-*}")" -le "$(ver_num "$NEWEST_KNOWN")" ]] \
+  || die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. Use this script as of the @kindgi/sdk@${TARGET%%-*} tag (before it's out, that release's newest @kindgi/sdk@${TARGET%%-*}-rc.N tag)."
 if [[ -n $FROM_OVERRIDE ]]; then is_semver "$FROM_OVERRIDE" || die "--from \"$FROM_OVERRIDE\" isn't a version like 0.1.8."; fi
 if [[ -n $PACK_DIR ]]; then [[ -d $PACK_DIR ]] || die "--pack-dir \"$PACK_DIR\" isn't a directory."; fi
 
@@ -244,6 +296,10 @@ trap cleanup EXIT
 # --- resolve the deployment's configuration ---------------------------------
 # Outputs come from `terraform output`; variables (including their defaults)
 # come from `terraform console`, which evaluates them without reading state.
+
+if [[ $DRY_RUN == true ]]; then
+  printf '%s\n' "upgrade: DRY RUN. It reads only: nothing is mirrored, granted, exported, built, written or applied, and no job is run."
+fi
 
 step "Reading the deployment"
 
@@ -356,7 +412,7 @@ else
   if [[ -n $CURRENT ]]; then
     info "read $CURRENT from the mirrored image's tag"
   else
-    die "couldn't read the version from the running image (no version tag on its digest). Re-run with --from <0.1.8|0.1.9>."
+    die "couldn't read the version from the running image (no version tag on its digest). Re-run with --from <0.1.8|0.1.9|0.1.10>."
   fi
 fi
 
@@ -423,11 +479,11 @@ fi
 
 # The release's own tag must be the digest given, or the mirror below would put
 # the version tag (which a later run's step 1 reads) on the wrong image.
-quay_digest="$(docker buildx imagetools inspect "${RUNTIME_REPO}:${TARGET}" --format '{{json .Manifest}}' 2>"$WORK/inspect.err" | jq -r '.digest // empty' 2>/dev/null || true)"
-if [[ -z $quay_digest ]]; then
-  fail_check "couldn't read ${RUNTIME_REPO}:${TARGET}. $(cat "$WORK/inspect.err")"
-elif [[ $quay_digest != "$RUNTIME_DIGEST" ]]; then
-  fail_check "${RUNTIME_REPO}:${TARGET} is $quay_digest, not the --runtime-digest $RUNTIME_DIGEST. Check the pair against the release notes."
+release_digest="$(docker buildx imagetools inspect "${RUNTIME_REPO}:${TARGET}" --format '{{json .Manifest}}' 2>"$WORK/inspect.err" | jq -r '.digest // empty' 2>/dev/null || true)"
+if [[ -z $release_digest ]]; then
+  fail_check "couldn't read ${RUNTIME_REPO}:${TARGET}. Are you logged in? docker login registry.kindgi.com --username kindgi, with your license key as the password. $(cat "$WORK/inspect.err")"
+elif [[ $release_digest != "$RUNTIME_DIGEST" ]]; then
+  fail_check "${RUNTIME_REPO}:${TARGET} is $release_digest, not the --runtime-digest $RUNTIME_DIGEST. Check the pair against the release notes."
 fi
 
 # Stop on a failed precondition before spending anything: no image is mirrored
@@ -436,15 +492,115 @@ if [[ $CHECK_FAILED == true ]]; then
   die "a precondition failed (above). Nothing was mirrored, backed up or changed. Fix it and run again."
 fi
 
+# 2d. Steps that need an operator's eye or the app's source, printed, not
+# run; then what doesn't apply here. A dry run prints them too.
+print_by_hand_steps() {
+  local r
+  step "Steps to confirm by hand (per release crossed)"
+  for r in "${CROSSED[@]}"; do
+    case "$r" in
+      0.1.9)
+        cat <<'EOT'
+  0.1.9:
+   - A tool id registered with both an active draft and an active published
+     version: unregister one kind first.
+   - If your CLI reaches the server by a different name, re-authenticate:
+       kindgi auth login --url <name> --token <key>
+   - An MCP endpoint id containing a "." must be re-registered under "-" or "_".
+     List them:  GET /v1/mcp/endpoints
+   - First start rewrites fga_tuple_outbox (about 6s per million rows). On a
+     large table, pick a quiet time:  SELECT count(*) FROM fga_tuple_outbox;
+   - A start can stop on a held lock: a migration waits 5s at a time, 6 times,
+     then the new revision fails, naming the table and the session holding it
+     (end it with pg_terminate_backend, or let it finish). The old revision
+     keeps serving meanwhile.
+EOT
+        ;;
+      0.1.10)
+        cat <<'EOT'
+  0.1.10:
+   - If any agent sets conversationPolicy.autoCloseAfterInactiveSeconds, remove
+     it before you rebuild the pack. In the pack source:
+       grep -rn "autoCloseAfterInactiveSeconds" src/
+   - Before re-registering a tool or MCP endpoint, drop "secretScopes" from any
+     definition you read back from the server.
+EOT
+        ;;
+      0.1.11)
+        cat <<'EOT'
+  0.1.11:
+   - Nothing to do by hand. The runtime image now comes from
+     registry.kindgi.com, with your license key as the password; this
+     script copies it from there.
+EOT
+        ;;
+    esac
+  done
+
+  # Not applicable on this shape — said plainly so nobody goes looking.
+  step "Not applicable on Cloud Run (skipped)"
+  info "PgBouncer minimum version — the small dev shape has no PgBouncer."
+  info "The secret-manager secret-name grammar — this module stores secrets under \"$SECRETS_BACKEND\", never KINDGI_SECRETS_BACKEND=secret-manager."
+}
+
+# A dry run stops here. It lists what the steps below would change, with the
+# names they'd use, prints the steps to confirm by hand, and shows the plan for
+# the new image without a state lock or a plan file. It changes nothing.
+if [[ $DRY_RUN == true ]]; then
+  info "the read-only checks passed."
+  [[ -n $SQL_SA ]] || die "couldn't read instance $DB_INSTANCE's service account; a real run would stop at the backup."
+  varfile_value_ok server_image "$NEW_SERVER_IMAGE"
+  if [[ $REBUILD_PACK == true ]]; then require_cmd kindgi; fi
+
+  step "What a real run would change, in order"
+  info "2. add gcloud as the credential helper for ${REGION}-docker.pkg.dev in your docker config"
+  info "   (gcloud auth configure-docker; no change if it's there already)"
+  info "2. add the image tag ${IMAGE_REPOSITORY}/runtime:${TARGET} to Artifact Registry"
+  info "   (a copy of ${RUNTIME_REPO}:${TARGET}@${RUNTIME_DIGEST}; it serves nothing until step 5)"
+  info "2. create, run and then delete ${#CHECKS[@]} Cloud Run jobs with the new image, one per check:"
+  for check in "${CHECKS[@]}"; do
+    info "     $(check_job_name "$check" "<HHMMSS>")  (check $check)"
+  done
+  info "   A dry run doesn't run them; a real run stops before the backup if one fails."
+  info "3. grant serviceAccount:${SQL_SA} roles/storage.objectAdmin on gs://${BUCKET_ONLY} (the grant stays)"
+  info "   export the \"${DATABASE_NAME}\" database to $(export_uri "<YYYYMMDDTHHMMSSZ>")"
+  if [[ $REBUILD_PACK == true ]]; then
+    info "4. rebuild and push the pack from ${PACK_DIR} (kindgi build --local --push --env dev)"
+  elif [[ $HAS_PACK == true ]]; then
+    info "4. nothing: without --pack-dir the pack image stays as it is"
+  else
+    info "4. nothing: no pack service"
+  fi
+  info "5. copy ${VAR_FILE} to $(varfile_backup_name "<YYYYMMDDTHHMMSSZ>")"
+  info "   set server_image = \"${NEW_SERVER_IMAGE}\" in ${VAR_FILE}"
+  if [[ $REBUILD_PACK == true ]]; then
+    info "   set pack_image to the rebuilt pack (its digest is known only after the build)"
+  fi
+  info "   show the plan, ask you to type yes, then terraform apply"
+  info "6. wait for the new revision of ${SERVER_SERVICE}"
+
+  print_by_hand_steps
+
+  step "Terraform plan for the new image (read-only; ${VAR_FILE} is untouched)"
+  if [[ $REBUILD_PACK == true ]]; then
+    info "pack_image is unchanged in this plan: the rebuilt pack's digest is known only after the build."
+  fi
+  terraform plan -var-file="$VAR_FILE" -var "server_image=${NEW_SERVER_IMAGE}" -lock=false \
+    || die "terraform plan failed. Nothing has changed."
+
+  printf '\n%s\n' "upgrade: dry run done. Nothing was changed. Run the same command without --dry-run to upgrade."
+  exit 0
+fi
+
 # 2b. Mirror the new runtime image into the deployment's Artifact Registry, so
 # the read-only check job (and step 5) can pull it (Cloud Run can't pull from
-# quay). The mirror keeps the release digest. This adds an image; it serves
-# nothing until step 5.
+# a registry that takes a password, like registry.kindgi.com). The mirror keeps
+# the release digest. This adds an image; it serves nothing until step 5.
 step "Mirroring runtime ${TARGET} into Artifact Registry"
 gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet >/dev/null 2>&1 || true
 docker buildx imagetools create --tag "${IMAGE_REPOSITORY}/runtime:${TARGET}" \
   "${RUNTIME_REPO}:${TARGET}@${RUNTIME_DIGEST}" \
-  || die "couldn't mirror ${RUNTIME_REPO}:${TARGET}@${RUNTIME_DIGEST} into ${IMAGE_REPOSITORY}. Is 'kindgi auth registry' done and do you have push access?"
+  || die "couldn't mirror ${RUNTIME_REPO}:${TARGET}@${RUNTIME_DIGEST} into ${IMAGE_REPOSITORY}. Are you logged in to registry.kindgi.com (docker login registry.kindgi.com --username kindgi), and can you push to Artifact Registry?"
 info "mirrored to $NEW_SERVER_IMAGE"
 
 # 2c. The runtime's own read-only checks, run with the NEW image against the
@@ -456,16 +612,8 @@ info "mirrored to $NEW_SERVER_IMAGE"
 # check; purged-tenants is multi-tenant only).
 step "Running the new runtime's read-only checks (as jobs)"
 check_stamp="$(date -u +%H%M%S)"
-# A job name is at most 63 characters; the id below adds 18 to the prefix,
-# and name_prefix has no length limit of its own.
-job_prefix="${NAME_PREFIX:0:45}"
-while [[ $job_prefix == *- ]]; do job_prefix="${job_prefix%-}"; done
-check_suffix_provider_keys="pk"
-check_suffix_secret_scopes="ss"
-check_suffix_mcp_header_credentials="mhc"
-for check in provider-keys secret-scopes mcp-header-credentials; do
-  suffix_var="check_suffix_${check//-/_}"
-  job="${job_prefix}-upgchk-${check_stamp}-${!suffix_var}"
+for check in "${CHECKS[@]}"; do
+  job="$(check_job_name "$check" "$check_stamp")"
   args="check,${check}"
   if [[ -n $CHECK_TENANT ]]; then args="${args},--tenant,${CHECK_TENANT}"; fi
   if gcloud run jobs create "$job" \
@@ -489,44 +637,8 @@ for check in provider-keys secret-scopes mcp-header-credentials; do
   fi
 done
 
-# 2d. Steps that need an operator's eye or the app's source — printed, not run.
-step "Steps to confirm by hand (per release crossed)"
-for r in "${CROSSED[@]}"; do
-  case "$r" in
-    0.1.9)
-      cat <<'EOT'
-  0.1.9:
-   - A tool id registered with both an active draft and an active published
-     version: unregister one kind first.
-   - If your CLI reaches the server by a different name, re-authenticate:
-       kindgi auth login --url <name> --token <key>
-   - An MCP endpoint id containing a "." must be re-registered under "-" or "_".
-     List them:  GET /v1/mcp/endpoints
-   - First start rewrites fga_tuple_outbox (about 6s per million rows). On a
-     large table, pick a quiet time:  SELECT count(*) FROM fga_tuple_outbox;
-   - A start can stop on a held lock: a migration waits 5s at a time, 6 times,
-     then the new revision fails, naming the table and the session holding it
-     (end it with pg_terminate_backend, or let it finish). The old revision
-     keeps serving meanwhile.
-EOT
-      ;;
-    0.1.10)
-      cat <<'EOT'
-  0.1.10:
-   - If any agent sets conversationPolicy.autoCloseAfterInactiveSeconds, remove
-     it before you rebuild the pack. In the pack source:
-       grep -rn "autoCloseAfterInactiveSeconds" src/
-   - Before re-registering a tool or MCP endpoint, drop "secretScopes" from any
-     definition you read back from the server.
-EOT
-      ;;
-  esac
-done
-
-# Not applicable on this shape — said plainly so nobody goes looking.
-step "Not applicable on Cloud Run (skipped)"
-info "PgBouncer minimum version — the small dev shape has no PgBouncer."
-info "The secret-manager secret-name grammar — this module stores secrets under \"$SECRETS_BACKEND\", never KINDGI_SECRETS_BACKEND=secret-manager."
+# 2d. The steps to confirm by hand, and what doesn't apply here.
+print_by_hand_steps
 
 if [[ $CHECK_FAILED == true ]]; then
   die "one or more checks failed (above). Nothing was backed up or changed. Fix them and run again."
@@ -539,11 +651,10 @@ info "all automated checks passed."
 
 step "3. Backing up the \"$DATABASE_NAME\" database"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-EXPORT_URI="${BACKUP_BUCKET%/}/${NAME_PREFIX}-${DATABASE_NAME}-${CURRENT}-${STAMP}.sql.gz"
+EXPORT_URI="$(export_uri "$STAMP")"
 
 # The export is written by the instance's own service account, which needs
 # object-create on the bucket. Grant it (idempotent), scoped to this bucket.
-BUCKET_ONLY="${BACKUP_BUCKET#gs://}"; BUCKET_ONLY="${BUCKET_ONLY%%/*}"
 [[ -n $SQL_SA ]] || die "couldn't read instance $DB_INSTANCE's service account; can't grant the export."
 gcloud storage buckets add-iam-policy-binding "gs://${BUCKET_ONLY}" \
   --member="serviceAccount:${SQL_SA}" --role="roles/storage.objectAdmin" --quiet >/dev/null \
@@ -592,7 +703,7 @@ fi
 # file says from now on. Until the apply starts, the EXIT trap puts it back.
 
 step "5. Terraform plan"
-VARFILE_BACKUP="${VAR_FILE}.pre-upgrade-${STAMP}"
+VARFILE_BACKUP="$(varfile_backup_name "$STAMP")"
 cp "$VAR_FILE" "$VARFILE_BACKUP"
 VARFILE_PENDING=true
 varfile_set server_image "$NEW_SERVER_IMAGE"
