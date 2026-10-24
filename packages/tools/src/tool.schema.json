@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kindgi.com/schemas/v1/tool.schema.json",
-  "$comment": "schema-version: 1.2.0",
+  "$comment": "schema-version: 1.3.0",
   "title": "Tool",
   "description": "A tool definition. Authored once; the runtime picks transport (native in-process for tools built into the runtime, MCP over the wire for cross-process / cross-org / third-party tools). Every tool declares its typed I/O, its context needs (typed DI), and its side-effects — enabling policy enforcement and parallel scheduling by the kernel.",
   "type": "object",
@@ -110,13 +110,19 @@
     "needsSpec": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Typed discriminated needs (env / secrets / config / capabilities / bindings). Optional additive field.",
+      "description": "Typed discriminated needs (env / secrets / config / capabilities / bindings / connections). Optional additive field.",
       "properties": {
         "env": { "type": "object", "additionalProperties": { "type": "object" } },
         "secrets": { "type": "object", "additionalProperties": { "type": "object" } },
         "config": { "type": "object", "additionalProperties": { "type": "object" } },
         "capabilities": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-        "bindings": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        "bindings": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "connections": {
+          "type": "object",
+          "description": "Accounts at other apps the tool acts with, by the tool's own name for each (`mail`). The runtime resolves them per call into the context's `connections`.",
+          "propertyNames": { "pattern": "^[a-z][a-zA-Z0-9_]{0,63}$" },
+          "additionalProperties": { "$ref": "#/$defs/ConnectionNeed" }
+        }
       }
     },
     "codeArtifactRef": {
@@ -211,6 +217,29 @@
         "value": { "type": "string" }
       }
     },
+    "ConnectionNeed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["app", "permissions", "as"],
+      "properties": {
+        "app": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{1,31}$",
+          "description": "The app's entry id: `google`, `github`."
+        },
+        "permissions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" },
+          "description": "The entry's permission keys the call needs: `gmail.send`."
+        },
+        "as": {
+          "enum": ["person", "company"],
+          "description": "Whose connection: `person`, the run's person (the one it acts for, who started it or owns its trigger); `company`, the tenant's."
+        }
+      }
+    },
     "HttpAuthSpec": {
       "oneOf": [
         {
@@ -230,6 +259,16 @@
             "kind": { "const": "header" },
             "headerName": { "type": "string", "minLength": 1 },
             "secretRef": { "$ref": "#/$defs/ToolSecretRef" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "connection"],
+          "description": "A connection the tool declares in `needsSpec.connections`, by its name there: sent as `Authorization: Bearer <access token>`.",
+          "properties": {
+            "kind": { "const": "connection" },
+            "connection": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9_]{0,63}$" }
           }
         }
       ]

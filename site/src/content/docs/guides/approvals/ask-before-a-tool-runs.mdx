@@ -810,14 +810,19 @@ run. Once the approval is decided, the agent's turn finishes and the flow
 continues from that step.
 
 **A tool step can't wait for a person.** In a run no person started, a step
-whose tool declares `needsApprovalWhenUnattended` fails, and the tool never
-runs. The run's `failureMessage` says why:
+whose tool needs a person's yes fails, and the tool never runs: one that
+declares `needsApprovalWhenUnattended`, or one that changes things with a
+person's connection
+([Use a connection in a tool](../../connections/use-a-connection/#approvals)).
+The run's `failureMessage` says why:
 
 ```text
 needs-a-person: tool "acme-ops.post-update" needs a person's yes when no person started the run (needsApprovalWhenUnattended), and a flow's tool step can't wait for one. Call it from an agent step instead: there the call waits for a person to approve it.
 ```
 
-Call such a tool from an agent step, whose call waits for a reviewer.
+For a tool that changes things with a person's connection, the reason in
+parentheses reads `it changes things with a person's connection`. Call such a
+tool from an agent step, whose call waits for a reviewer.
 
 ## Next
 

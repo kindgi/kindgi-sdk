@@ -3231,6 +3231,29 @@ class HttpHeaderSpec(BaseModel):
     value: str
 
 
+class Permission(RootModel[str]):
+    root: Annotated[str, Field(pattern="^[a-z][a-z0-9_.-]{0,63}$")]
+
+
+class ConnectionNeed(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    app: Annotated[str, Field(pattern="^[a-z][a-z0-9-]{1,31}$")]
+    """
+    The app's entry id: `google`, `github`.
+    """
+    permissions: Annotated[list[Permission], Field(min_length=1)]
+    """
+    The entry's permission keys the call needs: `gmail.send`.
+    """
+    as_: Annotated[Annotated[Literal["person", "company"] | str, _open.OPEN], Field(alias="as")]
+    """
+    Whose connection: `person`, the run's person (the one it acts for, who started it or owns its trigger); `company`, the tenant's.
+    """
+
+
 class SuccessStatus(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -3292,7 +3315,7 @@ class Binding(RootModel[str]):
 
 class TypedNeeds(BaseModel):
     """
-    Typed discriminated needs (env / secrets / config / capabilities / bindings). Optional additive field.
+    Typed discriminated needs (env / secrets / config / capabilities / bindings / connections). Optional additive field.
     """
 
     model_config = ConfigDict(
@@ -3304,6 +3327,10 @@ class TypedNeeds(BaseModel):
     config: dict[str, dict[str, Any]] | None = None
     capabilities: list[Capability5] | None = None
     bindings: list[Binding] | None = None
+    connections: dict[constr(pattern=r"^[a-z][a-zA-Z0-9_]{0,63}$"), ConnectionNeed] | None = None
+    """
+    Accounts at other apps the tool acts with, by the tool's own name for each (`mail`). The runtime resolves them per call into the context's `connections`.
+    """
 
 
 class RegisterToolResult(BaseModel):
@@ -10550,6 +10577,473 @@ class WebhookEndpointUnregisterResult(BaseModel):
     """
 
 
+class ConnectionSecretRef(BaseModel):
+    """
+    A secret by name in the deployment's secrets store, resolved at tenant scope. The registration keeps only this reference, never the value.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    env_name: Annotated[str, Field(alias="envName", pattern="^[a-z][a-z0-9-]{0,62}$")]
+    name: Annotated[str, Field(max_length=256, min_length=1)]
+
+
+class ConnectionOwner(BaseModel):
+    """
+    Who owns a connection: one member (`kind: member`, with their `userId`), or the company (`kind: company`, the tenant's own account).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Annotated[Literal["member", "company"] | str, _open.OPEN]
+    user_id: Annotated[str | None, Field(alias="userId")] = None
+    """
+    The member. Present when `kind` is `member`.
+    """
+
+
+class ConnectionAccount(BaseModel):
+    """
+    Whose account a connection is at the app.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The account's stable id at the app.
+    """
+    label: str
+    """
+    What people see: an email address, a login.
+    """
+
+
+class ConnectionEntryPermission(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    says: str
+    """
+    In plain words, for the person asked.
+    """
+    changes: bool
+    """
+    Whether it changes anything at the app. `false` is read only.
+    """
+
+
+class Removal(BaseModel):
+    """
+    How a disconnect withdraws access at the app, and how the app reports a removal made there. `{}` when the app has neither: a disconnect then withdraws nothing at the app, and a removal made there is not reported.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    revoke: (
+        Annotated[Literal["oauth2-revoke", "github-installation-token"] | str, _open.OPEN] | None
+    ) = None
+    """
+    How a disconnect withdraws access at the app: an OAuth revoke, or revoking the GitHub App's installation tokens (the app stays installed).
+    """
+    revoke_is_grant_wide: Annotated[bool | None, Field(alias="revokeIsGrantWide")] = None
+    """
+    Whether the app's revoke withdraws everything the person granted the registration, not only this connection's permissions. Google's does.
+    """
+    notices: Annotated[Literal["google-risc", "github-webhooks"] | str, _open.OPEN] | None = None
+    """
+    How the app reports a removal made at the app.
+    """
+
+
+class ConnectionOAuth2App(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    client_id: Annotated[str, Field(alias="clientId")]
+    client_secret: Annotated[ConnectionSecretRef, Field(alias="clientSecret")]
+    tenant: Annotated[str | None, Field(max_length=253, min_length=1)] = None
+    """
+    The directory the app signs people in at, for an app whose sign-in names one: Microsoft's tenant id or domain for a single-tenant app, `organizations`, `common` or `consumers` for a multi-tenant one. Required when the app's entry has no default, refused for an app without one (`connection-app-invalid`, `details.field` `oauth2.tenant`).
+    """
+
+
+class ConnectionGitHubApp(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    app_number: Annotated[int, Field(alias="appNumber", ge=1)]
+    slug: str
+    """
+    The app's slug.
+    """
+    client_id: Annotated[str, Field(alias="clientId")]
+    client_secret: Annotated[ConnectionSecretRef, Field(alias="clientSecret")]
+    private_key: Annotated[ConnectionSecretRef, Field(alias="privateKey")]
+    webhook_secret: Annotated[ConnectionSecretRef, Field(alias="webhookSecret")]
+
+
+class ConnectionApp(BaseModel):
+    """
+    A tenant's registration of its own client at an app. Secrets are references, never values.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    app_id: Annotated[UUID, Field(alias="appId")]
+    app: str
+    """
+    The app's entry id.
+    """
+    label: str | None = None
+    oauth2: ConnectionOAuth2App | None = None
+    github_app: Annotated[ConnectionGitHubApp | None, Field(alias="githubApp")] = None
+    projects: list[str] | None = None
+    """
+    The projects whose runs may use its connections. Absent: every project.
+    """
+    redirect_url: Annotated[AnyUrl, Field(alias="redirectUrl")]
+    """
+    Give this to the app as its redirect URL: a GitHub App's Callback URL, with "Request user authorization (OAuth) during installation" ticked.
+    """
+    notices_url: Annotated[AnyUrl, Field(alias="noticesUrl")]
+    """
+    Give this to the app as the place it reports removals.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    removed_at: Annotated[AwareDatetime | None, Field(alias="removedAt")] = None
+
+
+class ConnectionAppPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ConnectionApp]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class CreateConnectionAppBody(BaseModel):
+    """
+    Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    app: Annotated[str, Field(pattern="^[a-z][a-z0-9-]{1,31}$")]
+    """
+    The app's entry id.
+    """
+    label: Annotated[str | None, Field(max_length=200)] = None
+    oauth2: ConnectionOAuth2App | None = None
+    github_app: Annotated[ConnectionGitHubApp | None, Field(alias="githubApp")] = None
+    projects: Annotated[list[str] | None, Field(max_length=500, min_length=1)] = None
+    """
+    The projects whose runs may use its connections. Leave out for every project.
+    """
+
+
+class UpdateConnectionAppBody(BaseModel):
+    """
+    Fields to change; absent fields are kept. The app itself cannot change.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    label: Annotated[str | None, Field(max_length=200)] = None
+    oauth2: ConnectionOAuth2App | None = None
+    github_app: Annotated[ConnectionGitHubApp | None, Field(alias="githubApp")] = None
+    projects: Annotated[list[str] | None, Field(max_length=500, min_length=1)] = None
+    """
+    `null` allows every project.
+    """
+
+
+class ConnectionAppRemoved(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    connections_removed: Annotated[int, Field(alias="connectionsRemoved", ge=0)]
+    """
+    How many live connections the removal took with it.
+    """
+
+
+class Connection(BaseModel):
+    """
+    One owner's account at an app, through a registration, in one env. Never its token.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    env_name: Annotated[str, Field(alias="envName")]
+    app_id: Annotated[UUID, Field(alias="appId")]
+    """
+    The registration it goes through.
+    """
+    app: str
+    """
+    The app's entry id.
+    """
+    owner: ConnectionOwner
+    account: ConnectionAccount
+    permissions: list[str]
+    """
+    The entry's permission keys the app granted.
+    """
+    state: Annotated[
+        Literal["working", "needs-reconnecting", "removing", "removed"] | str, _open.OPEN
+    ]
+    """
+    `working`: runs can use it. `needs-reconnecting`: the app no longer accepts it; connect again. `removing`: a disconnect is under way. `removed`: gone.
+    """
+    state_reason: Annotated[str | None, Field(alias="stateReason")] = None
+    """
+    Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions), `access-expired` (the app gave no refresh token, and its access token ends within a minute, or has ended). Other values may be added; `state` says what to do.
+    """
+    installation_id: Annotated[str | None, Field(alias="installationId")] = None
+    """
+    A GitHub App's installation.
+    """
+    access_ends_at: Annotated[AwareDatetime | None, Field(alias="accessEndsAt")] = None
+    """
+    When its access token ends, for a connection the app gave no refresh token. From one minute before then, it needs reconnecting (`access-expired`), and reads say so too. Absent for one that renews.
+    """
+    connected_at: Annotated[AwareDatetime, Field(alias="connectedAt")]
+    """
+    When its current grant was stored: the connect, or the last reconnect.
+    """
+    last_used_at: Annotated[AwareDatetime | None, Field(alias="lastUsedAt")] = None
+    """
+    When a run last used it, to the hour.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    created_by: Annotated[str, Field(alias="createdBy")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    removed_at: Annotated[AwareDatetime | None, Field(alias="removedAt")] = None
+    removed_by: Annotated[str | None, Field(alias="removedBy")] = None
+    removed_reason: Annotated[
+        Annotated[
+            Literal[
+                "disconnected", "revoked-at-app", "uninstalled", "registration-removed", "replaced"
+            ]
+            | str,
+            _open.OPEN,
+        ]
+        | None,
+        Field(alias="removedReason"),
+    ] = None
+    withdrawn: (
+        Annotated[
+            Literal["at-app", "app-failed", "kept-for-other-connection", "not-supported"] | str,
+            _open.OPEN,
+        ]
+        | None
+    ) = None
+    """
+    What a removal did at the app. `at-app`: access was withdrawn there. `app-failed`: the app refused the revoke; the token is gone here all the same. `kept-for-other-connection`: another live connection uses the same grant. `not-supported`: the app has no revoke that would touch only this connection.
+    """
+
+
+class ConnectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Connection]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class CreateConnectRequestBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    app: Annotated[str, Field(pattern="^[a-z][a-z0-9-]{1,31}$")]
+    """
+    The app's entry id.
+    """
+    app_id: Annotated[UUID | None, Field(alias="appId")] = None
+    """
+    Which registration, when the tenant has more than one for the app.
+    """
+    project_id: Annotated[str | None, Field(alias="projectId", min_length=1)] = None
+    """
+    When given, the registration must allow this project.
+    """
+    permissions: Annotated[list[str], Field(max_length=64, min_length=1)]
+    """
+    The entry's permission keys to ask for.
+    """
+    for_: Annotated[Literal["me", "company"] | None, Field(alias="for")] = "me"
+    """
+    `me`: the caller's own account (signed in as a person). `company`: the company's account; a tenant admin only.
+    """
+
+
+class ConnectRequestInstallation(BaseModel):
+    """
+    A GitHub App installation the person can reach.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    installation_id: Annotated[str, Field(alias="installationId")]
+    account: ConnectionAccount
+    """
+    The account it's on: its login, or the enterprise's slug.
+    """
+
+
+class StartConnectBody(BaseModel):
+    """
+    Optional, and a GitHub App's only: the installation to attach, or a new one. Leave it out for any other app.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    installation_id: Annotated[
+        str | None, Field(alias="installationId", max_length=64, min_length=1)
+    ] = None
+    """
+    The installation to attach: one of the request's `installations`.
+    """
+    new_installation: Annotated[bool | None, Field(alias="newInstallation")] = None
+    """
+    `true`: go to the app's install page to install it on another account, even when it has installations. Not with `installationId`.
+    """
+
+
+class FinishConnectBody(BaseModel):
+    """
+    What the app sent back to the callback page, each as a string. Only whoever started the request may finish it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    state: Annotated[str, Field(max_length=2048, min_length=1)]
+    """
+    The one the app sent back.
+    """
+    code: Annotated[str | None, Field(max_length=2048, min_length=1)] = None
+    installation_id: Annotated[
+        str | None, Field(alias="installationId", max_length=2048, min_length=1)
+    ] = None
+    setup_action: Annotated[
+        str | None, Field(alias="setupAction", max_length=2048, min_length=1)
+    ] = None
+    error: Annotated[str | None, Field(max_length=2048, min_length=1)] = None
+    error_description: Annotated[
+        str | None, Field(alias="errorDescription", max_length=2048, min_length=1)
+    ] = None
+
+
+class ConnectStart(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    authorize_url: Annotated[AnyUrl, Field(alias="authorizeUrl")]
+    """
+    The app's consent page, with a fresh sign-in state good for 10 minutes. Send the person there.
+    """
+
+
+class WaitingForConnection(BaseModel):
+    """
+    A connect the run waits for: the person opens `connectUrl`, consents at the app, and the run goes on.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: str
+    """
+    The tool's name for the connection.
+    """
+    request_id: Annotated[UUID, Field(alias="requestId")]
+    wait_token: Annotated[str, Field(alias="waitToken")]
+    app: str
+    """
+    The app's entry id.
+    """
+    app_name: Annotated[str, Field(alias="appName")]
+    says: list[str]
+    """
+    What each permission asked for allows, in plain words.
+    """
+    connect_url: Annotated[AnyUrl, Field(alias="connectUrl")]
+    expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
+    reconnects: bool | None = None
+    """
+    The person connected this app before, and connects it again.
+    """
+
+
+class ApprovalApprover(BaseModel):
+    """
+    The one member who may decide it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Annotated[Literal["member"] | str, _open.OPEN]
+    user_id: Annotated[str, Field(alias="userId")]
+
+
+class ApprovalConnection(BaseModel):
+    """
+    The person's account the call would use.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    app: str
+    """
+    The app's entry id.
+    """
+    app_name: Annotated[str, Field(alias="appName")]
+    account: str
+    """
+    The account's label at the app: an email address, a login.
+    """
+
+
 class RunTreeUsage(BaseModel):
     """
     The model calls of the run tree (this run and every run it started) that the cost ledger had recorded when this run finished: a child run still running then isn't in it. `calls` counts failed calls too. Absent when the runtime records no usage.
@@ -11128,6 +11622,19 @@ class HttpAuthSpecHeader(BaseModel):
     kind: Literal["header"]
     header_name: Annotated[str, Field(alias="headerName", min_length=1)]
     secret_ref: Annotated[ToolSecretRef, Field(alias="secretRef")]
+
+
+class HttpAuthSpecConnection(BaseModel):
+    """
+    A connection the tool declares in `needsSpec.connections`, by its name there: sent as `Authorization: Bearer <access token>`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["connection"]
+    connection: Annotated[str, Field(pattern="^[a-z][a-zA-Z0-9_]{0,63}$")]
 
 
 class HttpRequestBodySpecJsonInput(BaseModel):
@@ -11717,6 +12224,21 @@ class PromotionMovesGuardrail(BaseModel):
     """
 
 
+class ConnectionEntrySignInTenant(BaseModel):
+    """
+    Present when the sign-in happens in a directory of the app's own (Microsoft's tenant, not a Kindgi tenant). A registration's `oauth2.tenant` names it; without `default`, each registration must give its own.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    default: str | None = None
+    """
+    The directory a registration that names none signs in at.
+    """
+
+
 class AccessPathUnrecognized(BaseModel):
     """
     A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
@@ -12046,6 +12568,8 @@ class RunWaitingApproval(BaseModel):
     """
     For a tool call held for review: which tool and which call. Never the call's arguments.
     """
+    approver: ApprovalApprover | None = None
+    connection: ApprovalConnection | None = None
 
 
 class RunWaitingToken(BaseModel):
@@ -12809,6 +13333,8 @@ class Approval(BaseModel):
     """
     The approval this one was escalated to.
     """
+    approver: ApprovalApprover | None = None
+    connection: ApprovalConnection | None = None
 
 
 class ApprovalCollectionPage(BaseModel):
@@ -13240,7 +13766,10 @@ class HttpToolSpec(BaseModel):
     headers: list[HttpHeaderSpec] | None = None
     authorization: (
         Annotated[
-            HttpAuthSpecBearer | HttpAuthSpecHeader | HttpAuthSpecUnrecognized,
+            HttpAuthSpecBearer
+            | HttpAuthSpecHeader
+            | HttpAuthSpecConnection
+            | HttpAuthSpecUnrecognized,
             _open.OpenUnion("kind", HttpAuthSpecUnrecognized),
         ]
         | None
@@ -15091,6 +15620,158 @@ class WebhookEndpointCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class SignIn(BaseModel):
+    """
+    How a person signs in at the app.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Annotated[Literal["oauth2", "github-app"] | str, _open.OPEN]
+    tenant: ConnectionEntrySignInTenant | None = None
+    """
+    Present when the sign-in happens in a directory of the app's own (Microsoft's tenant, not a Kindgi tenant). A registration's `oauth2.tenant` names it; without `default`, each registration must give its own.
+    """
+
+
+class ConnectionEntry(BaseModel):
+    """
+    An app this server can connect to.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The entry id: `'google'`, `'github'`.
+    """
+    name: str
+    """
+    The app's name as people know it.
+    """
+    owners: list[Annotated[Literal["member", "company"] | str, _open.OPEN]]
+    """
+    Who may own a connection to this app.
+    """
+    sign_in: Annotated[SignIn, Field(alias="signIn")]
+    """
+    How a person signs in at the app.
+    """
+    permissions: dict[str, ConnectionEntryPermission]
+    """
+    What a tool may ask for, by permission key (`gmail.send`).
+    """
+    removal: Removal | None = None
+    """
+    How a disconnect withdraws access at the app, and how the app reports a removal made there. `{}` when the app has neither: a disconnect then withdraws nothing at the app, and a removal made there is not reported.
+    """
+    setup_guide: Annotated[str, Field(alias="setupGuide")]
+    """
+    The docs page an admin follows to register the app.
+    """
+
+
+class ConnectionEntryList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ConnectionEntry]
+
+
+class ConnectRequest(BaseModel):
+    """
+    A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    request_id: Annotated[UUID, Field(alias="requestId")]
+    env_name: Annotated[str, Field(alias="envName")]
+    app_id: Annotated[UUID, Field(alias="appId")]
+    app: str
+    """
+    The app's entry id.
+    """
+    owner: ConnectionOwner
+    permissions: list[str]
+    """
+    The permissions asked for: the ones needed, and the ones already granted.
+    """
+    says: list[str]
+    """
+    What each asks for, in plain words.
+    """
+    reconnects: UUID | None = None
+    """
+    The connection it connects again; the same account is required.
+    """
+    run_id: Annotated[str | None, Field(alias="runId")] = None
+    """
+    The run that waits for it.
+    """
+    name: str | None = None
+    """
+    The tool's name for the connection, when a run waits.
+    """
+    started_by: Annotated[str | None, Field(alias="startedBy")] = None
+    """
+    Who started it last: `<kind>:<id>`. Only they may finish it.
+    """
+    state: Annotated[
+        Literal["pending", "connected", "declined", "expired", "failed"] | str, _open.OPEN
+    ]
+    failure: str | None = None
+    """
+    Why it failed: `account-mismatch`, `app-refused`, `store-write-failed`.
+    """
+    missing: list[str] | None = None
+    """
+    The permissions the app granted less than asked.
+    """
+    installations: list[ConnectRequestInstallation] | None = None
+    """
+    A GitHub App's, while it's `pending`: the app's installations the person's GitHub account reaches, when the finish found several and none was picked. They pick one and start again with `installationId`, or install the app on another account with `newInstallation`.
+    """
+    connection_id: Annotated[UUID | None, Field(alias="connectionId")] = None
+    """
+    The connection it made.
+    """
+    connect_url: Annotated[AnyUrl, Field(alias="connectUrl")]
+    """
+    Where the owner starts.
+    """
+    expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    created_by: Annotated[str, Field(alias="createdBy")]
+
+
+class ConnectFinish(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Annotated[Literal["connected", "declined", "pick-installation"] | str, _open.OPEN]
+    """
+    `declined`: the person declined, or granted less than asked (`request.missing`). `pick-installation`: a GitHub App's person reaches several installations and picked none; the request stays `pending` with its `installations`.
+    """
+    request: ConnectRequest
+    connection: Connection | None = None
+    """
+    Present when `kind` is `connected`.
+    """
+    reviewer_seat: Annotated[bool | None, Field(alias="reviewerSeat")] = None
+    """
+    On a server with approvals, for a member who connected: whether they have a reviewer seat, which approving a send from their own account needs.
+    """
+
+
 class Data1(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -15217,7 +15898,7 @@ class RunAgent(BaseModel):
 
 class RunWaitingFor(BaseModel):
     """
-    Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `tokens`: its waits for another system's answer. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.
+    Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `connections`: the connects it waits for. `tokens`: its waits for another system's answer. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.
     """
 
     model_config = ConfigDict(
@@ -15225,6 +15906,10 @@ class RunWaitingFor(BaseModel):
         populate_by_name=True,
     )
     approvals: list[RunWaitingApproval]
+    connections: list[WaitingForConnection] | None = None
+    """
+    The connects the run waits for. Left out when there are none.
+    """
     tokens: list[RunWaitingToken] | None = None
     """
     Its waits for another system's answer (a pausing tool's calls). Absent on a runtime that pauses no run, or when they can't be read: those waits are then `unattributed`.

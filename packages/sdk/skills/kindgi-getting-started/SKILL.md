@@ -97,7 +97,7 @@ Either way, `init` adds `@kindgi/sdk` and `@kindgi/cli` to the project's
 one. (`npx @kindgi/cli` is the scoped package; a bare `npx kindgi` would
 fetch an unrelated package.)
 
-Four templates:
+Five templates:
 
 - `--template=minimal` (default) — folder structure only, no example
   primitives. Right when you know what you want to build.
@@ -111,6 +111,10 @@ Four templates:
   Server signed in with OAuth: house-style fixes as drafts with every
   change approved, and a flow that checks each saved article before an
   agent sees it. Its README explains each choice.
+- `--template=follow-up` — an agent that writes a follow-up mail from
+  your notes and sends it from your own Gmail, each send approved first.
+  Its send tool comes from `@kindgi/connections`, under the pack's own
+  id. Its README explains each choice.
 
 ## Boot the dev harness
 

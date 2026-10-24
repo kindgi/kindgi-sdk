@@ -9,6 +9,8 @@
  * - an approval: which one, and the command that decides it;
  * - another system's answer: a tool's call that paused, answered through
  *   the link its tool handed on, or here (`--output`);
+ * - a person's connect: an app a tool's call needs, which the person who
+ *   started the run connects from its page or the request's link;
  * - the runtime: a queued start, a child run, a scheduled retry, a lease
  *   another run holds, or a wait this runtime can't attribute;
  * - nothing: the run is running or finished.
@@ -29,6 +31,7 @@ export const RESUME_EXIT_CODES = {
   approval: 3,
   runtime: 4,
   token: 5,
+  connection: 6,
 } as const;
 
 export interface JournalEntry {
@@ -62,6 +65,22 @@ export interface WaitingToken {
   readonly nodeId?: string;
   readonly createdAt: string;
   readonly timesOutAt: string;
+}
+
+/** A connect the run waits for: an app a tool's call needs (`waitingFor.connections`). */
+export interface WaitingConnection {
+  /** The tool's name for the connection. */
+  readonly name: string;
+  readonly requestId: string;
+  readonly waitToken: string;
+  readonly app: string;
+  readonly appName: string;
+  /** What each permission asked for allows, in plain words. */
+  readonly says: readonly string[];
+  readonly connectUrl: string;
+  readonly expiresAt: string;
+  /** The person connected this app before, and connects it again. */
+  readonly reconnects?: boolean;
 }
 
 export type RuntimeWait =
@@ -104,12 +123,24 @@ export type RunWaitAnswer =
       readonly alsoWaitsOn: readonly RuntimeWait[];
       /** Answers from other systems it waits for too. */
       readonly tokens?: readonly WaitingToken[];
+      /** Connects it waits for too. */
+      readonly connections?: readonly WaitingConnection[];
     }
   | {
       readonly kind: 'token';
       readonly runId: string;
       readonly status: string;
       readonly tokens: readonly WaitingToken[];
+      /** Other things it waits on too (a child run, …). */
+      readonly alsoWaitsOn: readonly RuntimeWait[];
+      /** Connects it waits for too. */
+      readonly connections?: readonly WaitingConnection[];
+    }
+  | {
+      readonly kind: 'connection';
+      readonly runId: string;
+      readonly status: string;
+      readonly connections: readonly WaitingConnection[];
       /** Other things it waits on too (a child run, …). */
       readonly alsoWaitsOn: readonly RuntimeWait[];
     }
@@ -135,6 +166,8 @@ export interface RunWaitingForWire {
   readonly other: readonly unknown[];
   /** Its waits for another system's answer; absent from a runtime that pauses no tool call. */
   readonly tokens?: readonly WaitingToken[];
+  /** The connects it waits for; absent when there are none. */
+  readonly connections?: readonly WaitingConnection[];
 }
 
 /** What the answer reads; the CLI passes the client's calls. */
@@ -185,9 +218,14 @@ export async function runWaitAnswer(port: RunWaitPort, runId: string): Promise<R
 function fromWaitingFor(runId: string, status: string, waiting: RunWaitingForWire): RunWaitAnswer {
   const other = waiting.other as readonly RuntimeWait[];
   const tokens = waiting.tokens ?? [];
+  const connections = waiting.connections ?? [];
+  const withConnections = connections.length > 0 ? { connections } : {};
   if (waiting.approvals.length === 0) {
-    return tokens.length > 0
-      ? { kind: 'token', runId, status, tokens, alsoWaitsOn: other }
+    if (tokens.length > 0) {
+      return { kind: 'token', runId, status, tokens, alsoWaitsOn: other, ...withConnections };
+    }
+    return connections.length > 0
+      ? { kind: 'connection', runId, status, connections, alsoWaitsOn: other }
       : { kind: 'runtime', runId, status, waits: other };
   }
   const approvals: WaitingApproval[] = waiting.approvals.map((a) => ({
@@ -204,6 +242,7 @@ function fromWaitingFor(runId: string, status: string, waiting: RunWaitingForWir
     approvals,
     alsoWaitsOn: other,
     ...(tokens.length > 0 && { tokens }),
+    ...withConnections,
   };
 }
 
@@ -315,12 +354,20 @@ export function runWaitText(answer: RunWaitAnswer): string {
     return `${[
       ...lines,
       ...tokenLines(runId, answer.tokens ?? []),
+      ...connectionLines(runId, answer.connections ?? []),
       ...answer.alsoWaitsOn.map((w) => runtimeWaitText(runId, w)),
     ].join('\n')}\n`;
   }
   if (answer.kind === 'token') {
     return `${[
       ...tokenLines(runId, answer.tokens),
+      ...connectionLines(runId, answer.connections ?? []),
+      ...answer.alsoWaitsOn.map((w) => runtimeWaitText(runId, w)),
+    ].join('\n')}\n`;
+  }
+  if (answer.kind === 'connection') {
+    return `${[
+      ...connectionLines(runId, answer.connections),
       ...answer.alsoWaitsOn.map((w) => runtimeWaitText(runId, w)),
     ].join('\n')}\n`;
   }
@@ -338,6 +385,19 @@ export function tokenLines(runId: string, tokens: readonly WaitingToken[]): stri
     const step = t.nodeId !== undefined ? ` in step ${t.nodeId}` : '';
     const which = tokens.length > 1 ? ` --waitpoint=${t.tokenId}` : '';
     return `Run ${runId} waits for ${what} from another system, for its call to ${t.tool.id}@${t.tool.version}${step}. It continues once that system answers through the link the tool handed on, or: kindgi runs resume ${runId} --output=<json>${which}. It times out at ${t.timesOutAt}.`;
+  });
+}
+
+/** A line per connect it waits for: what it asks for, and where the person connects. */
+export function connectionLines(
+  runId: string,
+  connections: readonly WaitingConnection[],
+): string[] {
+  return connections.map((c) => {
+    const verb = c.reconnects === true ? 'reconnect' : 'connect';
+    const asks = c.says.length > 0 ? ` (it asks for: ${c.says.join('; ')})` : '';
+    // The link goes last, so no full stop runs into it.
+    return `Run ${runId} waits for the person who started it to ${verb} ${c.appName} for its "${c.name}" connection${asks}. It continues once they have, from the run's page or this link, which works until ${c.expiresAt}: ${c.connectUrl}`;
   });
 }
 

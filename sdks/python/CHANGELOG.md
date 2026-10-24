@@ -38,6 +38,17 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `recoverable_until`**: when a hard revoke left a copy your secret manager can
   still recover, until when it keeps it. It's `None` on a soft revoke, and
   when a hard revoke left nothing recoverable.
+- `kindgi`: **connections to other apps.** The client gains
+  `connection_entries.list`; `connection_apps.list`, `create`, `get`,
+  `update` and `remove`; `connections.list`, `connect`, `finish`, `get` and
+  `disconnect`; and `connections.requests.get` and `start`, with their async
+  twins. A tool reads its connections from `ToolContext.connections`, a
+  mapping of each declared name to a `ToolConnection` (`connection_id`,
+  `app`, `app_name`, `access_token`, `account` as a `ConnectionAccount`,
+  `expires_at`), empty when the tool declares none; no `repr` shows a token.
+  A tool whose app refuses the token raises `ConnectionRejected(name)` (or
+  its own error `from` it), and the pack answers `connection-rejected` naming
+  the connection (pack protocol 2.9.0).
 - `kindgi`: **`ScheduleRecord`, `WebhookTriggerRecord`, their register and
   patch bodies, and `Run` gain `tools_allowed_unattended`**: the tools whose
   calls in a webhook's or a schedule's runs needn't wait for a person's yes.

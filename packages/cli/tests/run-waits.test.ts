@@ -10,6 +10,7 @@ import {
   RESUME_EXIT_CODES,
   type RunWaitPort,
   type WaitingApproval,
+  type WaitingConnection,
   type WaitingToken,
   onlyTokenWait,
   runWaitAnswer,
@@ -425,5 +426,126 @@ describe("a wait for another system's answer (`waitingFor.tokens`): exit 5", () 
     expect(() => onlyTokenWait(run([signOff, shipping]))).toThrow(
       'Run r1 waits for 2 answers: name one with --waitpoint=<id> (pause:k1:1, "manager sign-off", pause:k2:1).',
     );
+  });
+});
+
+describe("a wait for a person's connect (`waitingFor.connections`): exit 6", () => {
+  const T1 = '2026-10-07T12:00:00.000Z';
+  const mail: WaitingConnection = {
+    name: 'mail',
+    requestId: 'cr-1',
+    waitToken: 'connect:cr-1',
+    app: 'acme-mail',
+    appName: 'Acme Mail',
+    says: ['Send mail as you', 'Read your mail'],
+    connectUrl: 'https://kindgi.example/connect/cr-1',
+    expiresAt: T1,
+  };
+  const signOff: WaitingToken = {
+    tokenId: 'pause:k1:1',
+    name: 'manager sign-off',
+    tool: { id: 'acme.review', version: '1.0.0' },
+    createdAt: T0,
+    timesOutAt: T1,
+  };
+  function withWaitingFor(
+    waitingFor: NonNullable<Awaited<ReturnType<RunWaitPort['getRun']>>['waitingFor']>,
+  ) {
+    const base = port({ runs: { r1: 'suspended' } });
+    return {
+      ...base,
+      getRun: async (id: string) => ({ id, status: 'suspended', waitingFor }),
+    } satisfies RunWaitPort;
+  }
+
+  test('only a connect: what it asks for, where to connect and until when; nothing else is read', async () => {
+    const p = withWaitingFor({ approvals: [], other: [], connections: [mail] });
+    const answer = await runWaitAnswer(p, 'r1');
+    expect(answer).toEqual({
+      kind: 'connection',
+      runId: 'r1',
+      status: 'suspended',
+      connections: [mail],
+      alsoWaitsOn: [],
+    });
+    expect(p.sinces).toEqual([]);
+    expect(p.asked).toEqual([]);
+    expect(runWaitText(answer)).toBe(
+      'Run r1 waits for the person who started it to connect Acme Mail for its "mail" connection (it asks for: Send mail as you; Read your mail). It continues once they have, from the run\'s page or this link, which works until 2026-10-07T12:00:00.000Z: https://kindgi.example/connect/cr-1\n',
+    );
+    expect(RESUME_EXIT_CODES[answer.kind]).toBe(6);
+  });
+
+  test('a reconnect that asks for nothing new, and a child run: the reconnect, then the child run', async () => {
+    const answer = await runWaitAnswer(
+      withWaitingFor({
+        approvals: [],
+        other: [{ what: 'child-run', childRunId: 'c2', childStatus: 'running' }],
+        connections: [{ ...mail, says: [], reconnects: true }],
+      }),
+      'r1',
+    );
+    expect(answer.kind).toBe('connection');
+    expect(runWaitText(answer).split('\n')).toEqual([
+      'Run r1 waits for the person who started it to reconnect Acme Mail for its "mail" connection. It continues once they have, from the run\'s page or this link, which works until 2026-10-07T12:00:00.000Z: https://kindgi.example/connect/cr-1',
+      'Run r1 waits for its child run c2 (running); it continues when that run finishes.',
+      '',
+    ]);
+  });
+
+  test('with an approval and an answer from another system: exit 3, and the connect is listed after both', async () => {
+    const answer = await runWaitAnswer(
+      withWaitingFor({
+        approvals: [{ approvalId: 'ap-9', status: 'pending', requiredRole: 'senior' }],
+        other: [],
+        tokens: [signOff],
+        connections: [mail],
+      }),
+      'r1',
+    );
+    expect(answer).toMatchObject({ kind: 'approval', tokens: [signOff], connections: [mail] });
+    expect(RESUME_EXIT_CODES[answer.kind]).toBe(3);
+    const lines = runWaitText(answer).split('\n');
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toContain('waits for approval ap-9');
+    expect(lines[1]).toContain('waits for "manager sign-off" from another system');
+    expect(lines[2]).toContain('to connect Acme Mail for its "mail" connection');
+  });
+
+  test('with an answer from another system: exit 5, and the connect follows it', async () => {
+    const answer = await runWaitAnswer(
+      withWaitingFor({ approvals: [], other: [], tokens: [signOff], connections: [mail] }),
+      'r1',
+    );
+    expect(answer).toEqual({
+      kind: 'token',
+      runId: 'r1',
+      status: 'suspended',
+      tokens: [signOff],
+      alsoWaitsOn: [],
+      connections: [mail],
+    });
+    expect(RESUME_EXIT_CODES[answer.kind]).toBe(5);
+    const lines = runWaitText(answer).split('\n');
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toContain('waits for "manager sign-off" from another system');
+    expect(lines[1]).toContain('to connect Acme Mail for its "mail" connection');
+  });
+
+  test('an empty list is no wait: the runtime answer, and an approval answer lists none', async () => {
+    const runtime = await runWaitAnswer(
+      withWaitingFor({ approvals: [], other: [{ what: 'no-open-wait' }], connections: [] }),
+      'r1',
+    );
+    expect(runtime.kind).toBe('runtime');
+    const approval = await runWaitAnswer(
+      withWaitingFor({
+        approvals: [{ approvalId: 'ap-9', status: 'pending', requiredRole: 'senior' }],
+        other: [],
+        connections: [],
+      }),
+      'r1',
+    );
+    expect(approval).not.toHaveProperty('connections');
   });
 });

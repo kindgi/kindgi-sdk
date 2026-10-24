@@ -217,6 +217,10 @@
       "description": "Outbound webhooks: endpoints the platform sends signed events to (`run.finished` when a top-level run completes, fails or is cancelled), their delivery log, redelivery and a test event. Signed in the Standard Webhooks format with a secret the endpoint references by name (`secretRef`); delivered at least once, so receivers deduplicate on `webhook-id`. Event bodies are under `webhooks`. Not to be confused with `/v1/webhooks`, which are inbound triggers. Caller-plugged via `WebhookEndpointBinding`."
     },
     {
+      "name": "connections",
+      "description": "Accounts at other apps (a member's Google account, the company's GitHub App) that tools act with. `connection-entries` lists the apps this server can connect to; `connection-apps` is the tenant's own registration of its client at an app (a tenant admin's, secrets by reference); `connections` are the accounts connected through them, with the connect that makes one (`requests`, `start`, `finish`). A connection is a member's own or the company's, and its token never leaves the server. `POST /v1/connection-notices/{tenantId}/{appId}` is where an app reports a removal, signed its own way. Caller-plugged via `ConnectionBinding`."
+    },
+    {
       "name": "sites",
       "description": "Sites that sign their own people in to one project: a site (a WordPress admin, say) vouches for whoever is signed in there, so they ask the project's agents and decide its approvals as themselves. A site holds its own Ed25519 key; Kindgi only ever has the public half."
     }
@@ -388,6 +392,7 @@
           "promotion-superseded": 409,
           "promotion-gate-unsupported": 501,
           "separate-approver-required": 403,
+          "named-approver-required": 403,
           "gate-policy-not-found": 404,
           "gate-policy-already-registered": 409,
           "gate-policy-scope-taken": 409,
@@ -588,6 +593,23 @@
           "webhook-url-refused": 400,
           "webhook-secret-not-found": 400,
           "webhook-secret-too-weak": 400,
+          "connection-app-not-found": 404,
+          "connection-not-found": 404,
+          "connection-request-not-found": 404,
+          "connection-app-invalid": 400,
+          "connection-app-unknown-entry": 400,
+          "connection-app-in-use": 409,
+          "connection-not-yours": 403,
+          "connection-installation-unreachable": 403,
+          "connection-request-expired": 410,
+          "connection-request-used": 409,
+          "connection-state-expired": 410,
+          "connection-account-mismatch": 409,
+          "connection-removing": 409,
+          "connection-app-refused": 502,
+          "connection-store-failed": 503,
+          "connection-notice-invalid": 400,
+          "connection-notice-unavailable": 503,
           "token-mint-failed": 500
         },
         "properties": {
@@ -690,13 +712,20 @@
           "approvals",
           "other"
         ],
-        "description": "Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `tokens`: its waits for another system's answer. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.",
+        "description": "Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `connections`: the connects it waits for. `tokens`: its waits for another system's answer. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.",
         "properties": {
           "approvals": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/RunWaitingApproval"
             }
+          },
+          "connections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WaitingForConnection"
+            },
+            "description": "The connects the run waits for. Left out when there are none."
           },
           "tokens": {
             "type": "array",
@@ -810,6 +839,12 @@
                 "description": "The model's id for the call."
               }
             }
+          },
+          "approver": {
+            "$ref": "#/components/schemas/ApprovalApprover"
+          },
+          "connection": {
+            "$ref": "#/components/schemas/ApprovalConnection"
           }
         }
       },
@@ -4640,6 +4675,12 @@
             "type": "string",
             "format": "uuid",
             "description": "The approval this one was escalated to."
+          },
+          "approver": {
+            "$ref": "#/components/schemas/ApprovalApprover"
+          },
+          "connection": {
+            "$ref": "#/components/schemas/ApprovalConnection"
           }
         }
       },
@@ -7782,8 +7823,59 @@
                 "$ref": "#/components/schemas/ToolSecretRef"
               }
             }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "connection"
+            ],
+            "description": "A connection the tool declares in `needsSpec.connections`, by its name there: sent as `Authorization: Bearer <access token>`.",
+            "properties": {
+              "kind": {
+                "const": "connection"
+              },
+              "connection": {
+                "type": "string",
+                "pattern": "^[a-z][a-zA-Z0-9_]{0,63}$"
+              }
+            }
           }
         ]
+      },
+      "ConnectionNeed": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "app",
+          "permissions",
+          "as"
+        ],
+        "properties": {
+          "app": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{1,31}$",
+            "description": "The app's entry id: `google`, `github`."
+          },
+          "permissions": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_.-]{0,63}$"
+            },
+            "description": "The entry's permission keys the call needs: `gmail.send`."
+          },
+          "as": {
+            "enum": [
+              "person",
+              "company"
+            ],
+            "description": "Whose connection: `person`, the run's person (the one it acts for, who started it or owns its trigger); `company`, the tenant's."
+          }
+        }
       },
       "HttpRequestBodySpec": {
         "oneOf": [
@@ -7974,7 +8066,7 @@
       "TypedNeeds": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Typed discriminated needs (env / secrets / config / capabilities / bindings). Optional additive field.",
+        "description": "Typed discriminated needs (env / secrets / config / capabilities / bindings / connections). Optional additive field.",
         "properties": {
           "env": {
             "type": "object",
@@ -8006,6 +8098,16 @@
             "items": {
               "type": "string",
               "minLength": 1
+            }
+          },
+          "connections": {
+            "type": "object",
+            "description": "Accounts at other apps the tool acts with, by the tool's own name for each (`mail`). The runtime resolves them per call into the context's `connections`.",
+            "propertyNames": {
+              "pattern": "^[a-z][a-zA-Z0-9_]{0,63}$"
+            },
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ConnectionNeed"
             }
           }
         }
@@ -23825,6 +23927,940 @@
           "unregistered": {
             "type": "boolean",
             "description": "`true` iff this call unregistered the endpoint; `false` when it was unknown or already unregistered."
+          }
+        }
+      },
+      "ConnectionSecretRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "envName",
+          "name"
+        ],
+        "description": "A secret by name in the deployment's secrets store, resolved at tenant scope. The registration keeps only this reference, never the value.",
+        "properties": {
+          "envName": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      },
+      "ConnectionOwner": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "description": "Who owns a connection: one member (`kind: member`, with their `userId`), or the company (`kind: company`, the tenant's own account).",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "member",
+              "company"
+            ]
+          },
+          "userId": {
+            "type": "string",
+            "description": "The member. Present when `kind` is `member`."
+          }
+        }
+      },
+      "ConnectionAccount": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label"
+        ],
+        "description": "Whose account a connection is at the app.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The account's stable id at the app."
+          },
+          "label": {
+            "type": "string",
+            "description": "What people see: an email address, a login."
+          }
+        }
+      },
+      "ConnectionState": {
+        "type": "string",
+        "enum": [
+          "working",
+          "needs-reconnecting",
+          "removing",
+          "removed"
+        ],
+        "description": "`working`: runs can use it. `needs-reconnecting`: the app no longer accepts it; connect again. `removing`: a disconnect is under way. `removed`: gone."
+      },
+      "ConnectionEntryPermission": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "says",
+          "changes"
+        ],
+        "properties": {
+          "says": {
+            "type": "string",
+            "description": "In plain words, for the person asked."
+          },
+          "changes": {
+            "type": "boolean",
+            "description": "Whether it changes anything at the app. `false` is read only."
+          }
+        }
+      },
+      "ConnectionEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "owners",
+          "signIn",
+          "permissions",
+          "setupGuide"
+        ],
+        "description": "An app this server can connect to.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The entry id: `'google'`, `'github'`."
+          },
+          "name": {
+            "type": "string",
+            "description": "The app's name as people know it."
+          },
+          "owners": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "member",
+                "company"
+              ]
+            },
+            "description": "Who may own a connection to this app."
+          },
+          "signIn": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind"
+            ],
+            "description": "How a person signs in at the app.",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "oauth2",
+                  "github-app"
+                ]
+              },
+              "tenant": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "Present when the sign-in happens in a directory of the app's own (Microsoft's tenant, not a Kindgi tenant). A registration's `oauth2.tenant` names it; without `default`, each registration must give its own.",
+                "properties": {
+                  "default": {
+                    "type": "string",
+                    "description": "The directory a registration that names none signs in at."
+                  }
+                }
+              }
+            }
+          },
+          "permissions": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ConnectionEntryPermission"
+            },
+            "description": "What a tool may ask for, by permission key (`gmail.send`)."
+          },
+          "removal": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "How a disconnect withdraws access at the app, and how the app reports a removal made there. `{}` when the app has neither: a disconnect then withdraws nothing at the app, and a removal made there is not reported.",
+            "properties": {
+              "revoke": {
+                "type": "string",
+                "enum": [
+                  "oauth2-revoke",
+                  "github-installation-token"
+                ],
+                "description": "How a disconnect withdraws access at the app: an OAuth revoke, or revoking the GitHub App's installation tokens (the app stays installed)."
+              },
+              "revokeIsGrantWide": {
+                "type": "boolean",
+                "description": "Whether the app's revoke withdraws everything the person granted the registration, not only this connection's permissions. Google's does."
+              },
+              "notices": {
+                "type": "string",
+                "enum": [
+                  "google-risc",
+                  "github-webhooks"
+                ],
+                "description": "How the app reports a removal made at the app."
+              }
+            }
+          },
+          "setupGuide": {
+            "type": "string",
+            "description": "The docs page an admin follows to register the app."
+          }
+        }
+      },
+      "ConnectionEntryList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectionEntry"
+            }
+          }
+        }
+      },
+      "ConnectionOAuth2App": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "clientId",
+          "clientSecret"
+        ],
+        "properties": {
+          "clientId": {
+            "type": "string"
+          },
+          "clientSecret": {
+            "$ref": "#/components/schemas/ConnectionSecretRef"
+          },
+          "tenant": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 253,
+            "description": "The directory the app signs people in at, for an app whose sign-in names one: Microsoft's tenant id or domain for a single-tenant app, `organizations`, `common` or `consumers` for a multi-tenant one. Required when the app's entry has no default, refused for an app without one (`connection-app-invalid`, `details.field` `oauth2.tenant`)."
+          }
+        }
+      },
+      "ConnectionGitHubApp": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "appNumber",
+          "slug",
+          "clientId",
+          "clientSecret",
+          "privateKey",
+          "webhookSecret"
+        ],
+        "properties": {
+          "appNumber": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "slug": {
+            "type": "string",
+            "description": "The app's slug."
+          },
+          "clientId": {
+            "type": "string"
+          },
+          "clientSecret": {
+            "$ref": "#/components/schemas/ConnectionSecretRef"
+          },
+          "privateKey": {
+            "$ref": "#/components/schemas/ConnectionSecretRef"
+          },
+          "webhookSecret": {
+            "$ref": "#/components/schemas/ConnectionSecretRef"
+          }
+        }
+      },
+      "ConnectionApp": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "appId",
+          "app",
+          "redirectUrl",
+          "noticesUrl",
+          "createdAt",
+          "updatedAt"
+        ],
+        "description": "A tenant's registration of its own client at an app. Secrets are references, never values.",
+        "properties": {
+          "appId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "app": {
+            "type": "string",
+            "description": "The app's entry id."
+          },
+          "label": {
+            "type": "string"
+          },
+          "oauth2": {
+            "$ref": "#/components/schemas/ConnectionOAuth2App"
+          },
+          "githubApp": {
+            "$ref": "#/components/schemas/ConnectionGitHubApp"
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The projects whose runs may use its connections. Absent: every project."
+          },
+          "redirectUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Give this to the app as its redirect URL: a GitHub App's Callback URL, with \"Request user authorization (OAuth) during installation\" ticked."
+          },
+          "noticesUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Give this to the app as the place it reports removals."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "removedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ConnectionAppPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectionApp"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CreateConnectionAppBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "app"
+        ],
+        "description": "Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App.",
+        "properties": {
+          "app": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{1,31}$",
+            "description": "The app's entry id."
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "oauth2": {
+            "$ref": "#/components/schemas/ConnectionOAuth2App"
+          },
+          "githubApp": {
+            "$ref": "#/components/schemas/ConnectionGitHubApp"
+          },
+          "projects": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 500,
+            "items": {
+              "type": "string"
+            },
+            "description": "The projects whose runs may use its connections. Leave out for every project."
+          }
+        }
+      },
+      "UpdateConnectionAppBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Fields to change; absent fields are kept. The app itself cannot change.",
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "oauth2": {
+            "$ref": "#/components/schemas/ConnectionOAuth2App"
+          },
+          "githubApp": {
+            "$ref": "#/components/schemas/ConnectionGitHubApp"
+          },
+          "projects": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "minItems": 1,
+            "maxItems": 500,
+            "items": {
+              "type": "string"
+            },
+            "description": "`null` allows every project."
+          }
+        }
+      },
+      "ConnectionAppRemoved": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "connectionsRemoved"
+        ],
+        "properties": {
+          "connectionsRemoved": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many live connections the removal took with it."
+          }
+        }
+      },
+      "Connection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "connectionId",
+          "envName",
+          "appId",
+          "app",
+          "owner",
+          "account",
+          "permissions",
+          "state",
+          "connectedAt",
+          "createdAt",
+          "createdBy",
+          "updatedAt"
+        ],
+        "description": "One owner's account at an app, through a registration, in one env. Never its token.",
+        "properties": {
+          "connectionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "envName": {
+            "type": "string"
+          },
+          "appId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The registration it goes through."
+          },
+          "app": {
+            "type": "string",
+            "description": "The app's entry id."
+          },
+          "owner": {
+            "$ref": "#/components/schemas/ConnectionOwner"
+          },
+          "account": {
+            "$ref": "#/components/schemas/ConnectionAccount"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The entry's permission keys the app granted."
+          },
+          "state": {
+            "$ref": "#/components/schemas/ConnectionState"
+          },
+          "stateReason": {
+            "type": "string",
+            "description": "Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions), `access-expired` (the app gave no refresh token, and its access token ends within a minute, or has ended). Other values may be added; `state` says what to do."
+          },
+          "installationId": {
+            "type": "string",
+            "description": "A GitHub App's installation."
+          },
+          "accessEndsAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When its access token ends, for a connection the app gave no refresh token. From one minute before then, it needs reconnecting (`access-expired`), and reads say so too. Absent for one that renews."
+          },
+          "connectedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When its current grant was stored: the connect, or the last reconnect."
+          },
+          "lastUsedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When a run last used it, to the hour."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "removedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "removedBy": {
+            "type": "string"
+          },
+          "removedReason": {
+            "type": "string",
+            "enum": [
+              "disconnected",
+              "revoked-at-app",
+              "uninstalled",
+              "registration-removed",
+              "replaced"
+            ]
+          },
+          "withdrawn": {
+            "type": "string",
+            "enum": [
+              "at-app",
+              "app-failed",
+              "kept-for-other-connection",
+              "not-supported"
+            ],
+            "description": "What a removal did at the app. `at-app`: access was withdrawn there. `app-failed`: the app refused the revoke; the token is gone here all the same. `kept-for-other-connection`: another live connection uses the same grant. `not-supported`: the app has no revoke that would touch only this connection."
+          }
+        }
+      },
+      "ConnectionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Connection"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ConnectRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "requestId",
+          "envName",
+          "appId",
+          "app",
+          "owner",
+          "permissions",
+          "says",
+          "state",
+          "connectUrl",
+          "expiresAt",
+          "createdAt",
+          "createdBy"
+        ],
+        "description": "A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one.",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "envName": {
+            "type": "string"
+          },
+          "appId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "app": {
+            "type": "string",
+            "description": "The app's entry id."
+          },
+          "owner": {
+            "$ref": "#/components/schemas/ConnectionOwner"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The permissions asked for: the ones needed, and the ones already granted."
+          },
+          "says": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What each asks for, in plain words."
+          },
+          "reconnects": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The connection it connects again; the same account is required."
+          },
+          "runId": {
+            "type": "string",
+            "description": "The run that waits for it."
+          },
+          "name": {
+            "type": "string",
+            "description": "The tool's name for the connection, when a run waits."
+          },
+          "startedBy": {
+            "type": "string",
+            "description": "Who started it last: `<kind>:<id>`. Only they may finish it."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "connected",
+              "declined",
+              "expired",
+              "failed"
+            ]
+          },
+          "failure": {
+            "type": "string",
+            "description": "Why it failed: `account-mismatch`, `app-refused`, `store-write-failed`."
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The permissions the app granted less than asked."
+          },
+          "installations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectRequestInstallation"
+            },
+            "description": "A GitHub App's, while it's `pending`: the app's installations the person's GitHub account reaches, when the finish found several and none was picked. They pick one and start again with `installationId`, or install the app on another account with `newInstallation`."
+          },
+          "connectionId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The connection it made."
+          },
+          "connectUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Where the owner starts."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateConnectRequestBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "app",
+          "permissions"
+        ],
+        "properties": {
+          "app": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{1,31}$",
+            "description": "The app's entry id."
+          },
+          "appId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Which registration, when the tenant has more than one for the app."
+          },
+          "projectId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "When given, the registration must allow this project."
+          },
+          "permissions": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "items": {
+              "type": "string"
+            },
+            "description": "The entry's permission keys to ask for."
+          },
+          "for": {
+            "type": "string",
+            "enum": [
+              "me",
+              "company"
+            ],
+            "default": "me",
+            "description": "`me`: the caller's own account (signed in as a person). `company`: the company's account; a tenant admin only."
+          }
+        }
+      },
+      "ConnectRequestInstallation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "installationId",
+          "account"
+        ],
+        "description": "A GitHub App installation the person can reach.",
+        "properties": {
+          "installationId": {
+            "type": "string"
+          },
+          "account": {
+            "$ref": "#/components/schemas/ConnectionAccount",
+            "description": "The account it's on: its login, or the enterprise's slug."
+          }
+        }
+      },
+      "StartConnectBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Optional, and a GitHub App's only: the installation to attach, or a new one. Leave it out for any other app.",
+        "properties": {
+          "installationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The installation to attach: one of the request's `installations`."
+          },
+          "newInstallation": {
+            "type": "boolean",
+            "description": "`true`: go to the app's install page to install it on another account, even when it has installations. Not with `installationId`."
+          }
+        }
+      },
+      "FinishConnectBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state"
+        ],
+        "description": "What the app sent back to the callback page, each as a string. Only whoever started the request may finish it.",
+        "properties": {
+          "state": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "description": "The one the app sent back."
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "installationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "setupAction": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "error": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "errorDescription": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
+        }
+      },
+      "ConnectFinish": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "request"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "connected",
+              "declined",
+              "pick-installation"
+            ],
+            "description": "`declined`: the person declined, or granted less than asked (`request.missing`). `pick-installation`: a GitHub App's person reaches several installations and picked none; the request stays `pending` with its `installations`."
+          },
+          "request": {
+            "$ref": "#/components/schemas/ConnectRequest"
+          },
+          "connection": {
+            "$ref": "#/components/schemas/Connection",
+            "description": "Present when `kind` is `connected`."
+          },
+          "reviewerSeat": {
+            "type": "boolean",
+            "description": "On a server with approvals, for a member who connected: whether they have a reviewer seat, which approving a send from their own account needs."
+          }
+        }
+      },
+      "ConnectStart": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "authorizeUrl"
+        ],
+        "properties": {
+          "authorizeUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The app's consent page, with a fresh sign-in state good for 10 minutes. Send the person there."
+          }
+        }
+      },
+      "WaitingForConnection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "requestId",
+          "waitToken",
+          "app",
+          "appName",
+          "says",
+          "connectUrl",
+          "expiresAt"
+        ],
+        "description": "A connect the run waits for: the person opens `connectUrl`, consents at the app, and the run goes on.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The tool's name for the connection."
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "waitToken": {
+            "type": "string"
+          },
+          "app": {
+            "type": "string",
+            "description": "The app's entry id."
+          },
+          "appName": {
+            "type": "string"
+          },
+          "says": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What each permission asked for allows, in plain words."
+          },
+          "connectUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reconnects": {
+            "type": "boolean",
+            "description": "The person connected this app before, and connects it again."
+          }
+        }
+      },
+      "ApprovalApprover": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "userId"
+        ],
+        "description": "The one member who may decide it.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "member"
+            ]
+          },
+          "userId": {
+            "type": "string"
+          }
+        }
+      },
+      "ApprovalConnection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "app",
+          "appName",
+          "account"
+        ],
+        "description": "The person's account the call would use.",
+        "properties": {
+          "app": {
+            "type": "string",
+            "description": "The app's entry id."
+          },
+          "appName": {
+            "type": "string"
+          },
+          "account": {
+            "type": "string",
+            "description": "The account's label at the app: an email address, a login."
           }
         }
       },
@@ -57984,9 +59020,19 @@
                 }
               }
             }
+          },
+          "501": {
+            "description": "`trigger-operation-unsupported`: the change would move the schedule's owner, and this deployment's schedules can't change owner. Nothing changes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
-        "description": "Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it.",
+        "description": "Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule runs as whoever created it, or last changed what it runs: when anyone but the person who owns it changes its target or version, its input or `toolsAllowedUnattended`, the caller becomes its owner, as `POST /v1/schedules/{triggerId}/owner` would make them, and the change is audited as `trigger-owner-set`. A label, the cron line or the policies don't move it, nor does the same value sent again. A schedule a service account owns keeps its owner. The answer shows the owner after the change.",
         "parameters": [
           {
             "name": "triggerId",
@@ -58950,9 +59996,19 @@
                 }
               }
             }
+          },
+          "501": {
+            "description": "`trigger-operation-unsupported`: the change would move the trigger's owner, and this deployment's webhook triggers can't change owner. Nothing changes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
-        "description": "Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited.",
+        "description": "Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited. A trigger runs as whoever created it, or last changed what it runs: when anyone but the person who owns it changes its flow version, its input, its `toolsAllowedUnattended` or `hmacSecretName`, the caller becomes its owner, as `POST /v1/webhooks/{triggerId}/owner` would make them, and the change is audited as `trigger-owner-set`. The label, the delivery settings or the same value sent again don't move it. A trigger a service account owns keeps its owner. The answer shows the owner after the change.",
         "parameters": [
           {
             "name": "triggerId",
@@ -60614,6 +61670,1425 @@
             "bearerAuth": []
           }
         ]
+      }
+    },
+    "/v1/connection-entries": {
+      "get": {
+        "operationId": "connectionEntries.list",
+        "summary": "List the apps this server can connect to",
+        "tags": [
+          "connections"
+        ],
+        "responses": {
+          "200": {
+            "description": "The apps.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionEntryList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Each app with who may own a connection to it, how a person signs in, the permissions a tool may ask for (in plain words, and whether each changes anything) and the guide an admin follows to register the app. Any signed-in member. Mounted when the deployment supplies a `ConnectionBinding`.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/connection-apps": {
+      "get": {
+        "operationId": "connectionApps.list",
+        "summary": "List the tenant's app registrations",
+        "tags": [
+          "connections"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of registrations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionAppPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "An `includeRemoved` other than `true` or `false` (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The tenant's own registrations of its client at an app: its client id, and its secrets by reference. Tenant admins only. Removed registrations are listed only with `includeRemoved=true`.",
+        "parameters": [
+          {
+            "name": "includeRemoved",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "`true` lists removed registrations too."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "connectionApps.create",
+        "summary": "Register an app",
+        "tags": [
+          "connections"
+        ],
+        "responses": {
+          "201": {
+            "description": "App registered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionApp"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed body or unknown field (`bad-input`, `details.field`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (`connection-app-invalid`, `details.field`); no such app (`connection-app-unknown-entry`); or a model provider's key named as a secret (`provider-key-refused`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the secret reference names another. Name it under `details.servedEnv`. Nothing is stored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Registers the tenant's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateConnectionAppBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/connection-apps/{appId}": {
+      "get": {
+        "operationId": "connectionApps.get",
+        "summary": "Fetch an app registration",
+        "tags": [
+          "connections"
+        ],
+        "responses": {
+          "200": {
+            "description": "The registration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionApp"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`appId` is not a UUID (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No registration with that id (`connection-app-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "appId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The app registration id (a UUID)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "connectionApps.update",
+        "summary": "Update an app registration",
+        "tags": [
+          "connections"
+        ],
+        "responses": {
+          "200": {
+            "description": "The updated registration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionApp"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed body, unknown field or an `app` (`bad-input`, `details.field`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (`oauth2.clientId`, `oauth2.tenant`, `githubApp.appNumber` or `githubApp.clientId`) while it has live connections: disconnect them first (`connection-app-invalid`, `details.field`); or a model provider's key named as a secret (`provider-key-refused`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No registration with that id (`connection-app-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `env-not-served`: this runtime keeps every value under the env it serves (whoami's `servedEnv`, with `refusesOtherEnvs`), and the secret reference names another. Name it under `details.servedEnv`. Nothing is stored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Changes the label, the client or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.",
+        "parameters": [
+          {
+            "name": "appId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The app registration id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateConnectionAppBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "connectionApps.remove",
+        "summary": "Remove an app registration",
+        "tags": [
+          "connections"
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionAppRemoved"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`appId` is not a UUID, or `withConnections` is not a boolean (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No registration with that id (`connection-app-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or the registration still has live connections (`connection-app-in-use`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Without `withConnections=true`, a registration that still has live connections is refused (`connection-app-in-use`). With it, those connections are removed too. Tenant admins only.",
+        "parameters": [
+          {
+            "name": "appId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The app registration id (a UUID)."
+          },
+          {
+            "name": "withConnections",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "Remove its live connections too. Default `false`."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/connections": {
+      "get": {
+        "operationId": "connections.list",
+        "summary": "List connections",
+        "tags": [
+          "connections"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of connections.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "An unknown `app`, `owner`, `ownerKind` or `state`, or an `includeRemoved` other than `true` or `false` (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`, or with the others under `includeRemoved=true`.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Only those whose registration allows this project."
+          },
+          {
+            "name": "app",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Only this app's (its entry id)."
+          },
+          {
+            "name": "owner",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "me"
+              ]
+            },
+            "required": false,
+            "description": "`me`: only the caller's own, even for a tenant admin."
+          },
+          {
+            "name": "ownerKind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "member",
+                "company"
+              ]
+            },
+            "required": false,
+            "description": "Only those a member owns, or only the company's."
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ConnectionState"
+            },
+            "required": false,
+            "description": "Only those in this state."
+          },
+          {
+            "name": "includeRemoved",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "`true` lists removed connections too."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "connections.connect",
+        "summary": "Start a connect",
+        "tags": [
+          "connections"
+        ],
+        "responses": {
+          "201": {
+            "description": "Connect request made.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectRequest"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed body or unknown field (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`for: 'company'` from a caller who is not a tenant admin (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No registration with that `appId` (`connection-app-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body; or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateConnectRequestBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/connections/finish": {
+      "post": {
+        "operationId": "connections.finish",
+        "summary": "Finish a connect",
+        "tags": [
+          "connections"
+        ],
+        "responses": {
+          "200": {
+            "description": "The outcome.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectFinish"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed body, unknown field or no `state`; or neither `code` nor `error` (`bad-input`, `details.field`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Someone other than whoever started the request (`connection-not-yours`); or a GitHub App's person whose GitHub account doesn't reach the installation, or any (`connection-installation-unreachable`, with `details.connectRequestId`: start that request again with `newInstallation` to install the app on their account).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No request for that state (`connection-request-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body; the request was finished already (`connection-request-used`); a reconnect signed in to another account (`connection-account-mismatch`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The request expired (`connection-request-expired`), or the sign-in took longer than its state lives: start again (`connection-state-expired`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The app wouldn't give a token for the code: its client id, secret or redirect URL (`connection-app-refused`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The connection couldn't be stored just now (`connection-store-failed`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`).",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinishConnectBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/connections/requests/{requestId}": {
+      "get": {
+        "operationId": "connections.requests.get",
+        "summary": "Fetch a connect request",
+        "tags": [
+          "connections"
+        ],
+        "responses": {
+          "200": {
+            "description": "The request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectRequest"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`requestId` is not a UUID (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No request with that id, or not the caller's (`connection-request-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A member's request is the member's alone; the company's is a tenant admin's. Anyone else gets the `404` of a request that doesn't exist.",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The connect request id (a UUID)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/connections/requests/{requestId}/start": {
+      "post": {
+        "operationId": "connections.requests.start",
+        "summary": "Start a connect request",
+        "tags": [
+          "connections"
+        ],
+        "responses": {
+          "200": {
+            "description": "Where to send the person.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectStart"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`requestId` is not a UUID; a malformed body or unknown field; both `installationId` and `newInstallation`; or either on a request whose app is not a GitHub App (`bad-input`, `details.field`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No request with that id, or not the caller's (`connection-request-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or a retry of one that succeeded (`idempotency-key-replay-withheld`); or the request was finished already (`connection-request-used`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The request expired (`connection-request-expired`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`.",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The connect request id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartConnectBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/connections/{connectionId}": {
+      "get": {
+        "operationId": "connections.get",
+        "summary": "Fetch a connection",
+        "tags": [
+          "connections"
+        ],
+        "responses": {
+          "200": {
+            "description": "The connection.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Connection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`connectionId` is not a UUID (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No connection with that id, or not the caller's (`connection-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A member's connection is its owner's or a tenant admin's. Anyone else gets the `404` of a connection that doesn't exist.",
+        "parameters": [
+          {
+            "name": "connectionId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The connection id (a UUID)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "connections.disconnect",
+        "summary": "Disconnect",
+        "tags": [
+          "connections"
+        ],
+        "responses": {
+          "200": {
+            "description": "The connection, removed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Connection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`connectionId` is not a UUID (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No connection with that id, or not the caller's (`connection-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The removal couldn't be stored just now (`connection-store-failed`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal.",
+        "parameters": [
+          {
+            "name": "connectionId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The connection id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/connection-notices/{tenantId}/{appId}": {
+      "post": {
+        "operationId": "connectionNotices.receive",
+        "summary": "Receive an app notice",
+        "tags": [
+          "connections"
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted. No body."
+          },
+          "400": {
+            "description": "`connection-notice-invalid`: the notice was not accepted (the same answer whatever the reason).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate-limit-exceeded`: too many refused notices from this client; `Retry-After` says when.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`connection-notice-unavailable`: the notice couldn't be handled just now; the app may send it again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Where an app reports a removal (an uninstall, a revoke at the app): the registration's `noticesUrl`. No sign-in, and a bearer token, if sent, is never read. The app's own signature over the body's exact bytes is what the server checks: a JSON webhook from GitHub, or a security event token from Google. Every notice not accepted (an unknown tenant or id, a bad signature, a body over the cap) is the same `400 connection-notice-invalid`. A client past its refusals this minute gets `429`. If the server couldn't check or apply the notice just now, `503 connection-notice-unavailable`: the app may send it again.",
+        "x-kindgi-sender-only": true,
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The registration's tenant."
+          },
+          {
+            "name": "appId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The registration id (`appId`)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "The app's signed notice, any content type: a JSON webhook from GitHub, or a security event token from Google.",
+          "content": {
+            "*/*": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "security": []
       }
     },
     "/v1/projects/{projectId}/sites": {

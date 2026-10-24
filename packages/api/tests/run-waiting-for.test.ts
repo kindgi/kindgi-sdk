@@ -12,10 +12,12 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import { google } from '@kindgi/connections/google';
 import type { JournalEntry, RunBinding } from '@kindgi/runtime';
-import type { RunId, TenantId } from '@kindgi/types';
+import type { EnvName, RunId, TenantId } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
+import type { ConnectRequestRecord, ConnectionBinding } from '../src/connection-binding.js';
 import type { Approval, HitlBinding } from '../src/hitl-binding.js';
 import { createApp } from '../src/index.js';
 import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
@@ -89,6 +91,7 @@ function harness(options: {
   journal?: readonly JournalEntry[] | 'unreadable';
   approvals?: readonly Approval[];
   hitl?: boolean;
+  connects?: readonly ConnectRequestRecord[] | 'unreadable';
 }) {
   const stubs = createStubAppBindings();
   const run = {
@@ -107,10 +110,21 @@ function harness(options: {
   const hitlBinding = {
     listApprovals: async () => ({ kind: 'ok', value: { approvals: options.approvals ?? [] } }),
   } as unknown as HitlBinding;
+  const connections = {
+    entries: () => [google],
+    requestsForRun: async ({ runId }: { runId: string }) => {
+      if (options.connects === 'unreadable') throw new Error('the store is down');
+      return (options.connects ?? []).filter((r) => r.runId === runId);
+    },
+  } as unknown as ConnectionBinding;
   const app = createApp({
     ...stubs,
     kernelBinding: { ...stubs.kernelBinding, run },
     ...(options.hitl !== false && { hitlBinding }),
+    ...(options.connects !== undefined && {
+      connections,
+      envName: 'local' as EnvName,
+    }),
     resolveToken,
     runHandler: {} as RunHandlerBinding,
   });
@@ -207,6 +221,95 @@ describe("a suspended run's waitingFor", () => {
     expect(body.waitingFor).toEqual({
       approvals: [],
       other: [{ what: 'unattributed', tokenId: 'tok-6' }],
+    });
+  });
+});
+
+function connectRequest(
+  waitToken: string,
+  overrides: Partial<ConnectRequestRecord> = {},
+): ConnectRequestRecord {
+  return {
+    requestId: randomUUID(),
+    tenantId,
+    envName: 'local' as EnvName,
+    appId: randomUUID(),
+    app: 'google',
+    owner: { kind: 'member', userId: 'user-ana' },
+    permissions: ['gmail.send'],
+    says: ['Send mail as you'],
+    runId: RUN,
+    waitToken,
+    name: 'mail',
+    state: 'pending',
+    connectUrl: 'https://kindgi.acme.example/console/connect/requests/r-1',
+    expiresAt: '2026-10-09T13:00:00.000Z',
+    createdAt: at,
+    createdBy: 'system:resolver',
+    ...overrides,
+  };
+}
+
+describe("a suspended run's waitingFor: connects", () => {
+  test('a tool waiting for a person to connect an app: what it asks for, in plain words, and where', async () => {
+    const waiting = connectRequest('connect-1');
+    const get = harness({
+      journal: [suspended('connect-1')],
+      connects: [
+        waiting,
+        // A request already connected, and one for a wait that isn't open: not listed.
+        connectRequest('connect-0', { state: 'connected' }),
+        connectRequest('connect-9'),
+      ],
+    });
+    const { status, body } = await get();
+    expect(status).toBe(200);
+    expect(body.waitingFor).toEqual({
+      approvals: [],
+      other: [],
+      connections: [
+        {
+          name: 'mail',
+          requestId: waiting.requestId,
+          waitToken: 'connect-1',
+          app: 'google',
+          appName: 'Google',
+          says: ['Send mail as you'],
+          connectUrl: 'https://kindgi.acme.example/console/connect/requests/r-1',
+          expiresAt: '2026-10-09T13:00:00.000Z',
+        },
+      ],
+    });
+  });
+
+  test('a reconnect says so', async () => {
+    const get = harness({
+      journal: [suspended('connect-1')],
+      connects: [connectRequest('connect-1', { reconnects: randomUUID() })],
+    });
+    const { body } = await get();
+    expect(body.waitingFor.connections[0].reconnects).toBe(true);
+  });
+
+  test("requests that can't be read leave the wait unattributed", async () => {
+    const get = harness({ journal: [suspended('connect-1')], connects: 'unreadable' });
+    const { body } = await get();
+    expect(body.waitingFor).toEqual({
+      approvals: [],
+      other: [{ what: 'unattributed', tokenId: 'connect-1' }],
+    });
+  });
+
+  test('an approval only one member decides says who, and the account the call would use', async () => {
+    const pending = approval('tok-1', {
+      approver: { kind: 'member', userId: 'user-ana' },
+      connection: { app: 'google', appName: 'Google', account: 'ana@acme.example' },
+    });
+    const get = harness({ journal: [suspended('tok-1')], approvals: [pending] });
+    const { body } = await get();
+    expect(body.waitingFor.approvals[0]).toMatchObject({
+      approver: { kind: 'member', userId: 'user-ana' },
+      connection: { app: 'google', appName: 'Google', account: 'ana@acme.example' },
     });
   });
 });
