@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `kindgi connection-apps …`: list, get, add (Google, Microsoft and GitHub, secrets by reference), remove. */
+/** `kindgi connection-apps …`: list, get, add (Google, Microsoft, GitHub and LinkedIn, secrets by reference), remove. */
 
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -129,6 +129,33 @@ describe('kindgi connection-apps add', () => {
             clientId: '0e6f3a2b-3333-4c4d-8e5f-000000000003',
             clientSecret: { envName: 'prod', name: 'MS_CLIENT_SECRET' },
             tenant: 'acme.onmicrosoft.com',
+          },
+        },
+      ],
+    ]);
+  });
+
+  test('linkedin: the client id and the secret by <env>/<name>, as google', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      [
+        'connection-apps',
+        'add',
+        'linkedin',
+        '--client-id=86acme0client1d',
+        '--client-secret-ref=prod/LINKEDIN_CLIENT_SECRET',
+      ],
+      { connectionApps: { create: rec('create', { ...GOOGLE, app: 'linkedin' }) } },
+    );
+    expect(out.exitCode).toBe(0);
+    expect(calls).toEqual([
+      [
+        'create',
+        {
+          app: 'linkedin',
+          oauth2: {
+            clientId: '86acme0client1d',
+            clientSecret: { envName: 'prod', name: 'LINKEDIN_CLIENT_SECRET' },
           },
         },
       ],
