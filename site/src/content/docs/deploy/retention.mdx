@@ -515,7 +515,7 @@ then every hour, in the tenants it serves:
 | --- | --- |
 | Access decisions (`authz-decision`) | 90 days; denied ones 365 days |
 | Run outcomes (`run-outcome`), guardrail violations (`guardrail-violation`), changes to [env values](../../guides/tools/give-a-tool-env-values/) (`env-set`, `env-deleted`) | 730 days |
-| Approval decisions (`hitl-decision`), and changes to secrets, API keys, service accounts and people's access ([On legal hold](#on-legal-hold)) | For good: they're on legal hold |
+| Approval decisions (`hitl-decision`), promotions between environments (`deployment-promoted`), and changes to secrets, API keys, service accounts and people's access ([On legal hold](#on-legal-hold)) | For good: they're on legal hold |
 | Any other kind | For good |
 
 Run outcomes and guardrail violations are recorded (runtime 0.1.9 or
@@ -541,7 +541,9 @@ The changes on legal hold are these kinds:
 - **API keys:** `api-key-minted`, `api-key-revoked`;
 - **Service accounts:** `service-account-created`, `service-account-granted`,
   `service-account-ungranted`, `service-account-unregistered`;
-- **People:** `person-added`, `person-granted`, `person-ungranted`.
+- **People:** `person-added`, `person-granted`, `person-ungranted`;
+- **Promotions:** `deployment-promoted`, a build
+  [promoted into the next environment](../environments/#promote-to-the-next-environment).
 
 ### Check that it's on
 

@@ -496,6 +496,10 @@ kindgi.orgs().delete(org.id)
   endpoint in it, and creating or moving a project or a team into it. Creating
   or moving a project or a team there answers `404 org-not-found`, as for an
   org that never existed: `No org with id "0404cbc2-9612-461d-9997-0cbf1d12341a"`.
+- **An org that holds an environment order isn't deleted:** the delete is
+  refused with `409 org-has-environment-order`, and nothing changes. A
+  tenant admin clears the order first
+  ([Environments: from staging to production](../../../deploy/environments/)).
 
 Kindgi keeps the deleted org's record until a
 [retention policy](../../../deploy/retention/) on `org` purges it. That
