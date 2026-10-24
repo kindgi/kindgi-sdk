@@ -1084,3 +1084,11 @@ function defaultOf<T>(loaded: T): DefaultOf<T> {
 
 const OrdersClient = defaultOf(OrdersClientExport);
 ```
+
+A dynamic import is the same: `(await import('@acme/orders-client')).default`
+is the class under Vitest and, under Node, the package's whole
+`module.exports`. Take it with `defaultOf` too:
+
+```ts excerpt
+const OrdersClient = defaultOf((await import('@acme/orders-client')).default);
+```

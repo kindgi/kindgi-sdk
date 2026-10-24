@@ -23,6 +23,7 @@ import type { EnvName, TenantId, UserId } from '@kindgi/types';
 import { createApp } from '../src/index.js';
 import type { RunHandlerBinding, SecretBinding, TokenResolver } from '../src/index.js';
 import { createInMemoryTriggerRegistry, createStubAppBindings } from '../src/testing/index.js';
+import { validateAgainst } from './support/openapi-schema.js';
 
 const TENANT = '00000000-0000-4000-8000-00000000000a' as TenantId;
 const P = '00000000-0000-4000-8000-0000000000a1';
@@ -474,7 +475,11 @@ describe('generateSecret', () => {
 });
 
 describe('MCP endpoints and tools record where their secrets are read, the same way', () => {
-  /** An app with an MCP registry and a tool registry that keep what they're given. */
+  /**
+   * An app with an MCP registry and a tool registry that keep what they're
+   * given, and read it back as the stores do: a tool version with its
+   * project and the scopes recorded with it, the latest the last published.
+   */
   function items(options: { readonly envName?: boolean } = {}) {
     const stored = new Map<string, string>();
     const secrets = {
@@ -486,6 +491,17 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
     } as unknown as SecretBinding;
     const endpoints = new Map<string, Record<string, unknown>>();
     const published: Record<string, unknown>[] = [];
+    const versions = (toolId: string) =>
+      published
+        .filter((input) => (input.tool as { id: string }).id === toolId)
+        .map(
+          (input): Record<string, unknown> => ({
+            ...(input.tool as Record<string, unknown>),
+            projectId: input.projectId,
+            ...(input.secretScopes !== undefined && { secretScopes: input.secretScopes }),
+          }),
+        );
+    const latest = (toolId: string) => versions(toolId).at(-1) ?? null;
     const check = checkBinding();
     const app = createApp({
       ...createStubAppBindings(),
@@ -499,7 +515,7 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
       tenantHostAccess: 'local',
       ...(options.envName !== false && { envName: ENV }),
       mcpEndpointRegistry: {
-        list: async () => ({ data: [] }),
+        list: async () => ({ data: [...endpoints.values()] }),
         get: async ({ endpointId }: { endpointId: string }) => endpoints.get(endpointId) ?? null,
         register: async ({ endpoint }: { endpoint: Record<string, unknown> }) => {
           endpoints.set(endpoint.endpointId as string, endpoint);
@@ -513,8 +529,15 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
           const tool = input.tool as { id: string; version: string };
           return { kind: 'ok', toolId: tool.id, version: tool.version };
         },
-        get: async () => null,
-        headExists: async () => false,
+        list: async () => {
+          const ids = new Set(published.map((input) => (input.tool as { id: string }).id));
+          return { data: [...ids].map(latest) };
+        },
+        get: async ({ toolId }: { toolId: string }) => latest(toolId),
+        getVersion: async ({ toolId, version }: { toolId: string; version: string }) =>
+          versions(toolId).find((v) => v.version === version) ?? null,
+        listVersions: async ({ toolId }: { toolId: string }) => ({ data: versions(toolId) }),
+        headExists: async ({ toolId }: { toolId: string }) => versions(toolId).length > 0,
       } as never,
       authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: check },
     });
@@ -526,7 +549,17 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
       });
       return { status: res.status, body: (await res.json()) as Record<string, any> };
     };
-    return { stored, endpoints, published, post };
+    // A read, checked against the spec's schema for its answer.
+    const get = async (path: string, schema: string) => {
+      const res = await app.request(path, {
+        headers: { authorization: 'Bearer tenant-admin' },
+      });
+      expect(res.status, path).toBe(200);
+      const body = (await res.json()) as Record<string, any>;
+      expect(validateAgainst(schema, body), path).toEqual([]);
+      return body;
+    };
+    return { stored, endpoints, published, post, get };
   }
 
   test("an MCP endpoint in P: P's secret for P's admin; the tenant's never read for them", async () => {
@@ -661,6 +694,108 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
     expect(h.published[1]?.secretScopes).toEqual({
       ACME_API_KEY: { kind: 'project', projectId: P },
     });
+  });
+
+  test("an MCP endpoint's reads answer the scopes recorded for it; one that names no secret, none", async () => {
+    const h = items();
+    h.stored.set(keyOf(project, ENV, 'P_TOKEN'), 'y');
+    const endpoint = (endpointId: string) => ({
+      endpointId,
+      name: 'Docs',
+      transport: 'stdio',
+      config: { transport: 'stdio', command: '/usr/local/bin/docs-mcp', args: [] },
+      scopeKind: 'project',
+      scopeId: P,
+    });
+    const own = { ...endpoint('acme-own'), secretRef: { envName: ENV, name: 'P_TOKEN' } };
+    expect((await h.post('p-admin', '/v1/mcp/endpoints', own)).status).toBe(201);
+    expect((await h.post('p-admin', '/v1/mcp/endpoints', endpoint('acme-plain'))).status).toBe(201);
+    // The list `kindgi exports create` reads, and the one-endpoint read.
+    const listed = (await h.get('/v1/mcp/endpoints', 'MCPEndpointCollectionPage')).data as Record<
+      string,
+      unknown
+    >[];
+    const answers = async (endpointId: string) => [
+      listed.find((e) => e.endpointId === endpointId),
+      await h.get(`/v1/mcp/endpoints/${endpointId}`, 'MCPEndpoint'),
+    ];
+    for (const answer of await answers('acme-own')) {
+      expect(answer?.endpointId).toBe('acme-own');
+      expect(answer?.secretScopes).toEqual({ P_TOKEN: { kind: 'project', projectId: P } });
+    }
+    for (const answer of await answers('acme-plain')) {
+      expect(answer?.endpointId).toBe('acme-plain');
+      expect(answer).not.toHaveProperty('secretScopes');
+    }
+  });
+
+  test("a tool version's reads answer the scopes recorded with it, a null kept; a tool that names no secret, none", async () => {
+    const h = items();
+    h.stored.set(keyOf(tenant, ENV, 'ACME_API_KEY'), 'x');
+    const tool = (id: string, version: string) => ({
+      id,
+      description: 'Looks things up.',
+      version,
+      input: { type: 'object' },
+      output: { type: 'object' },
+      projectId: P,
+    });
+    const lookup = (version: string) => ({
+      ...tool('acme.lookup', version),
+      spec: {
+        kind: 'http',
+        method: 'GET',
+        urlTemplate: 'https://api.acme.example/lookup',
+        authorization: { kind: 'bearer', secretRef: { envName: ENV, name: 'ACME_API_KEY' } },
+      },
+    });
+    const tenantWide = { ACME_API_KEY: { kind: 'tenant' } };
+    const none = { ACME_API_KEY: null };
+    expect((await h.post('tenant-admin', '/v1/tools', lookup('1.0.0'))).status).toBe(201);
+    // A version kept with no scope usable for its secret (`null`), as the store holds it.
+    const { projectId: _, ...manifest } = lookup('1.0.1');
+    h.published.push({ projectId: P, tool: manifest, secretScopes: none });
+    expect((await h.post('tenant-admin', '/v1/tools', tool('acme.plain', '1.0.0'))).status).toBe(
+      201,
+    );
+
+    // The routes and queries `kindgi exports create` reads, and the one-version reads.
+    const listed = (await h.get('/v1/tools?includeRetired=true', 'ToolCollectionPage'))
+      .data as Record<string, unknown>[];
+    const versions = async (toolId: string) =>
+      (
+        await h.get(
+          `/v1/tools/${toolId}/versions?includeTombstoned=true`,
+          'ToolVersionCollectionPage',
+        )
+      ).data as Record<string, unknown>[];
+    expect(listed.find((t) => t.id === 'acme.lookup')?.secretScopes).toEqual(none);
+    expect((await h.get('/v1/tools/acme.lookup', 'Tool')).secretScopes).toEqual(none);
+    expect((await versions('acme.lookup')).map((v) => [v.version, v.secretScopes])).toEqual([
+      ['1.0.0', tenantWide],
+      ['1.0.1', none],
+    ]);
+    expect((await h.get('/v1/tools/acme.lookup/versions/1.0.0', 'Tool')).secretScopes).toEqual(
+      tenantWide,
+    );
+    for (const answer of [
+      listed.find((t) => t.id === 'acme.plain'),
+      await h.get('/v1/tools/acme.plain', 'Tool'),
+      ...(await versions('acme.plain')),
+      await h.get('/v1/tools/acme.plain/versions/1.0.0', 'Tool'),
+    ]) {
+      expect(answer?.id).toBe('acme.plain');
+      expect(answer).not.toHaveProperty('secretScopes');
+    }
+
+    // A caller never sets it: a register body doesn't carry it, so one sent back as read is refused.
+    const sent = await h.post('tenant-admin', '/v1/tools', {
+      ...lookup('1.0.2'),
+      secretScopes: tenantWide,
+    });
+    expect(sent.status).toBe(400);
+    expect(sent.body.error.code).toBe('validation-failed');
+    expect(h.published).toHaveLength(3);
   });
 });
 

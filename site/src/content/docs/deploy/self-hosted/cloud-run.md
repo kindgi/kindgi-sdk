@@ -30,9 +30,12 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
   started in the background keeps running after its answer.
 - **Your pack's service** (`kindgi-pack`): your tools' code. Internal ingress,
   and IAM-protected: only the runtime's service account may call it, with a
-  Google ID token on every call.
+  Google ID token on every call. Its CPU is allocated only while a call runs,
+  so the instance `pack_min_instances` keeps up bills at Cloud Run's lower
+  idle rate between calls, and any others aren't billed then.
 - **Cloud SQL** (Postgres 16) for the runtime's data, reached through the
-  Cloud SQL socket.
+  Cloud SQL socket, which encrypts the connection and checks the server
+  ([Check the database's certificate](../database-tls/)).
 - **Artifact Registry** for both images. The runtime also reads your pack's
   image from it when you deploy.
 - **Secret Manager** for the runtime's secrets, and **a Cloud KMS key** that
@@ -64,8 +67,8 @@ Who calls whom:
 - **Terraform 1.6 or later, gcloud, Docker** with `buildx`, **jq**, **curl**,
   **openssl**, and your pack's `kindgi` CLI, 0.1.2 or later, which has
   `kindgi key trust`.
-- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead. The
   build, `env plan` and deploy steps need the pack's folder, so they use
   `pnpm exec kindgi`.
@@ -134,8 +137,8 @@ built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.1.8" \
-  quay.io/kindgi/runtime:0.1.8@sha256:48b81defe532ec284abb2a9cd8fac5ff7543dea998e7cbf67704a163ce183358
+docker buildx imagetools create --tag "$REPO/runtime:0.1.10" \
+  quay.io/kindgi/runtime:0.1.10@sha256:b6bdf6bcc6fb86fd1e16a2fce7d37dc066b766a0b4313dd3f19e2c904b3b01b3
 ```
 
 - `REPO` is the repository's address, from the foundation's output.
@@ -323,6 +326,30 @@ Google Cloud is still applying it. It clears without a restart: in our run,
 the first tool call, 3½ minutes after the warning, worked. If tool calls still
 fail after that, check that the runtime's service account has
 `roles/run.invoker` on the pack's service.
+
+**Keep the pack's service warm when response time matters.** The default,
+`pack_min_instances = 1`, keeps one instance running, so the first tool
+call after a quiet spell doesn't wait for one to start. That instance runs
+around the clock ([Cloud Run pricing](https://cloud.google.com/run/pricing)).
+`pack_min_instances = 0` lets the service stop when it's idle, which suits
+a dev deployment: the first tool call after that waits for an instance to
+start.
+
+**When the runtime starts with the pack's service at zero**
+(`pack_min_instances = 0`), the line can read instead:
+
+```text
+⚠ Pack service at https://… didn't answer within 5 s. The server is up; pack tools and checks fail until it answers.
+```
+
+The runtime waits 5 seconds for the pack's service when it starts, and a
+service at zero takes longer than that to start an instance. It's harmless:
+the first tool call waits for the instance, for up to about two minutes (the
+service's startup check), and the runtime gives a call 120 seconds
+(`pack_call_timeout_ms`; raise it if starts run near that). If tool calls keep
+failing, read the pack's service logs: its startup check fails until every
+module has loaded and every `env.required` value is set, and its logs name
+what's missing.
 
 ### Call your app's Cloud Run services from a tool
 
@@ -548,7 +575,7 @@ endpoint ([Serve many tenants](#serve-many-tenants)).
 ```sh
 URL=$(terraform output -raw server_url)
 export KINDGI_API_TOKEN=$(gcloud secrets versions access latest --secret=$N-api-token)
-npx --yes @kindgi/cli@0.1 key trust acme-prod --url "$URL"
+npx --yes @kindgi/cli@0.2 key trust acme-prod --url "$URL"
 ```
 
 It prints the key the runtime now trusts, then says so:
@@ -607,8 +634,8 @@ Check the runtime answers, lists your pack's tools, and runs a flow:
 
 ```sh
 curl "$URL/health"                                  # {"ok":true}
-npx --yes @kindgi/cli@0.1 tools list --url "$URL"   # your pack's tools
-npx --yes @kindgi/cli@0.1 runs start --flow=acme.greet-echo --input='{"name":"Ada"}' --url "$URL"
+npx --yes @kindgi/cli@0.2 tools list --url "$URL"   # your pack's tools
+npx --yes @kindgi/cli@0.2 runs start --flow=acme.greet-echo --input='{"name":"Ada"}' --url "$URL"
 ```
 
 `--flow` names the flow to run, and `--input` is its input, as JSON.
@@ -655,14 +682,14 @@ read -rs SMTP_URL && printf '%s' "$SMTP_URL" | gcloud secrets create $N-smtp-url
 ```
 
 ```hcl excerpt
-public_url = "https://kindgi-dev-server-abc123-pd.a.run.app" # terraform output -raw server_url
+public_url = "https://kindgi-server-abc123-pd.a.run.app" # terraform output -raw server_url
 server_env = {
   KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
   KINDGI_AUTH_EMAIL_FROM       = "kindgi@acme.example"
 }
 server_secret_env = {
-  KINDGI_AUTH_SECRET         = { secret = "kindgi-dev-auth-secret", version = "1" }
-  KINDGI_AUTH_EMAIL_SMTP_URL = { secret = "kindgi-dev-smtp-url", version = "1" }
+  KINDGI_AUTH_SECRET         = { secret = "kindgi-auth-secret", version = "1" }
+  KINDGI_AUTH_EMAIL_SMTP_URL = { secret = "kindgi-smtp-url", version = "1" }
 }
 ```
 
@@ -674,13 +701,50 @@ then reaches the runtime only when you change `version`.
   the emailed link comes with a second apply, or your own domain in front.
   Console sessions are then accepted from that address only. The plan
   refuses `KINDGI_AUTH_SECRET` without it, because the runtime wouldn't
-  start.
-- **Continue with Google, Microsoft or GitHub, verified domains and
-  Turnstile** go the same way: each provider's client id,
-  `KINDGI_AUTH_VERIFIED_DOMAINS` and the Turnstile site key in `server_env`;
-  each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET` in
-  `server_secret_env`. The module mounts no files, so use the value forms of
-  the settings, not their `…_PATH` forms.
+  start. A tool that pauses hands other systems a link made from it too
+  ([On a server you run](../../../guides/tools/wait-for-another-system/#on-a-server-you-run)).
+
+**With Continue with Google,** you need the sign-in secret and `public_url`,
+as for the emailed link, and an OAuth client of type **Web application** in
+the Google Cloud console ([Google](../sign-in/#google)). Its authorized
+redirect URI is `public_url` followed by
+`/auth/kindgi/social/callback/google`:
+
+```text
+https://kindgi-server-abc123-pd.a.run.app/auth/kindgi/social/callback/google
+```
+
+Store the client's secret, then give the runtime the client's ID and the
+secret:
+
+```sh
+# The Google client's secret: paste it; it never goes in a file.
+read -rs GOOGLE_SECRET && printf '%s' "$GOOGLE_SECRET" | gcloud secrets create $N-google-client-secret --data-file=- && unset GOOGLE_SECRET
+```
+
+```hcl excerpt
+public_url = "https://kindgi-server-abc123-pd.a.run.app"
+server_env = {
+  KINDGI_AUTH_GOOGLE_CLIENT_ID = "<client id>"
+}
+server_secret_env = {
+  KINDGI_AUTH_SECRET               = { secret = "kindgi-auth-secret", version = "1" }
+  KINDGI_AUTH_GOOGLE_CLIENT_SECRET = { secret = "kindgi-google-client-secret", version = "1" }
+}
+```
+
+- `<client id>` is the client's ID in the Google Cloud console, ending in
+  `.apps.googleusercontent.com`.
+- **Microsoft and GitHub** go the same way, with `MICROSOFT` or `GITHUB` in
+  the names, and a redirect URI ending in `microsoft` or `github`
+  ([Continue with Google, Microsoft or GitHub](../sign-in/#continue-with-google-microsoft-or-github)).
+  So do verified domains and Turnstile: `KINDGI_AUTH_VERIFIED_DOMAINS` and
+  the Turnstile site key in `server_env`, and `KINDGI_AUTH_TURNSTILE_SECRET`
+  in `server_secret_env`.
+- **Several ways in** share the two maps: with the emailed link too, they
+  hold both sets of settings.
+- **The module mounts no files,** so use the value forms of the settings,
+  such as `KINDGI_AUTH_GOOGLE_CLIENT_SECRET`, not their `…_PATH` forms.
 
 **Check it worked:** after the apply, the new revision's startup lines say
 where it's reached, and which ways in the console has, instead of the
@@ -704,7 +768,7 @@ on the Vertex AI API and grants the runtime's service account
 `roles/aiplatform.user`. Then register the preset:
 
 ```sh
-npx --yes @kindgi/cli@0.1 providers register --preset=gemini --project=<project> --models=gemini-3.8-flash --url "$URL"
+npx --yes @kindgi/cli@0.2 providers register --preset=gemini --project=<project> --models=gemini-3.8-flash --url "$URL"
 ```
 
 ```text
@@ -729,9 +793,9 @@ A new grant can take a minute or two to apply.
 
 ## Operate it
 
-- **Upgrade at least every 90 days while Kindgi is in preview.** Until
-  Kindgi 1.0, a release stops starting 90 days after it was released. Cloud
-  Run starts new instances on its own, and after that day none comes up. The
+- **Upgrade at least every 90 days.** A preview release stops starting 90
+  days after it was released. Cloud Run starts new instances on its own,
+  and after that day none comes up. The
   runtime warns from 30 days before, at startup and once a day, in a log
   record with `jsonPayload.event = "kindgi.preview_expiry"`: set a log-based
   alert on it
@@ -744,6 +808,29 @@ A new grant can take a minute or two to apply.
   version your server reads, normally `1`
   (`gcloud secrets versions list $N-secrets-aad-key` lists them). Without
   it, `terraform plan` stops and asks for it.
+- **Backups:** Cloud SQL backs the database up daily, with point-in-time
+  recovery. On the module's edition (`ENTERPRISE`) it keeps 7 backups and
+  7 days of transaction logs by default, in the multi-region nearest the
+  instance ([Google: Cloud SQL backup options](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/backup-options)).
+  To keep more, or choose where they're stored, set
+  `database_backup_retention`, `database_point_in_time_days` (at most 7 on
+  `ENTERPRISE`, and at most as many days as backups kept) and
+  `database_backup_location`. A restore reaches any second within the
+  logs' days, or one of the kept backups.
+  - **Where the backups are kept:** the nearest multi-region can be
+    outside the instance's region and country. When you promise where
+    backups are kept, set `database_backup_location` to a region
+    (`northamerica-northeast2`, say) or a multi-region (`us`, `eu`,
+    `asia`); a zone is refused at plan. Point-in-time recovery's
+    transaction logs stay in the instance's own location
+    ([Google: transaction log retention](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/backup-options#sb-log-retention)).
+  - **Setting it on a running deployment** changes the instance in place.
+    The backups taken before stay where they were
+    ([Google: custom backup locations](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/backup-options#sb-custom-backup-location)).
+  - **On a host or a restored instance:** these set the module's own
+    instance only. With `database_host_instance` they're refused at plan:
+    the host's backups are the app's, set where that instance is managed.
+    An instance `database_instance` names keeps its own.
 - **Restore Cloud SQL:** a point-in-time recovery always makes a new
   instance, and a backup can go into one too (restored into the serving
   instance, it overwrites everything on it). `database_instance` moves the
@@ -792,7 +879,7 @@ A new grant can take a minute or two to apply.
 
   ```hcl excerpt
   server_secret_env = {
-    KINDGI_ERASURE_LEDGER_KEY = { secret = "kindgi-dev-erasure-ledger-key", version = "1" }
+    KINDGI_ERASURE_LEDGER_KEY = { secret = "kindgi-erasure-ledger-key", version = "1" }
   }
   ```
 

@@ -27,9 +27,9 @@ rolled back.
   shows: `kindgi agents promote <agent-id> <version> --tenant`. Without one,
   the version a proposal makes would serve every scope nothing is pinned for.
   So evaluating is refused with `409 proposal-needs-pin`.
-- **A deployed runtime,** with Kindgi 0.1's CLI. Under `kindgi dev`, the pack
-  is the source of agents, so evaluating is refused with
-  `registry-read-only`.
+- **A runtime: `kindgi dev`, or a deployed one,** with Kindgi 0.2's CLI.
+  Under `kindgi dev`, making a proposal live writes it into the pack's files,
+  as [Under `kindgi dev`](#under-kindgi-dev) shows.
 - **`publish` on the agent** to draft and evaluate, and **`promote`** to
   request and roll back.
 
@@ -112,7 +112,9 @@ takes the same options: `--objective`, `--reads`, `--repetitions`, `--k` and
 The proposal is `evaluating`, then:
 
 - `evaluated`: the candidate beat the recorded outputs on the objective, by
-  more than the noise;
+  more than the noise. Or, kept as `cheaper` (its `evaluation.rule`), it was
+  no worse than the current version on the same cases and cost less
+  ([Let it try a cheaper model or another temperature](../improve-an-agent/#let-it-try-a-cheaper-model-or-another-temperature));
 - `not-better`: it didn't;
 - `evaluation-failed`: the comparison failed or was cancelled.
 
@@ -340,7 +342,9 @@ through:
 
 A proposal a [pass](../improve-an-agent/) wrote, rather than
 a person, always waits for a reviewer, even where the scope's policy asks for
-no approval. Requesting needs `promote` on the agent.
+no approval. While another active reviewer could approve it, someone other
+than whoever requested it must, even where the policy's `approvals` sets
+`"separateApprover": false`. Requesting needs `promote` on the agent.
 
 ## Roll it back, or withdraw it
 
@@ -381,6 +385,43 @@ pnpm exec kindgi proposals withdraw <proposal-id> --reason="Superseded by a bett
 It prints the proposal, now `withdrawn`. `--reason` is required, and
 withdrawing needs `publish` on the agent.
 
+## Under `kindgi dev`
+
+Under `kindgi dev`, the pack's files are what runs, so a proposal ends in
+them:
+
+- **A pass, a draft and an evaluation** work as on a deployed runtime, for
+  the whole tenant (`--tenant`). The version a proposal makes is kept for its
+  evaluation only: runs go on using the pack's version.
+- **Making it live writes it into the pack.** A request, or the approval it
+  waits for, writes each data block the proposal changes into the block's own
+  file: its new version and content, and a prompt's template into its
+  template file. `kindgi dev` reloads, the next run uses it, and the log says
+  so:
+
+  ```text
+  ✎ acme.rank.weights 1.0.1 made live: written into blocks/weights.json (was 1.0.0)
+  ```
+
+  Commit the change to keep it. A deploy then publishes the block's new
+  version, as [Keep them in the pack](../change-a-prompt-or-setting/#keep-them-in-the-pack)
+  shows.
+- **For the whole tenant only,** since the pack's files serve every scope. A
+  pass, a draft, an evaluation or a request for a project or a segment is
+  refused with `409 registry-read-only`, before anything is made.
+- **The proposal is `promoted`, with `liveNow` false:** nothing is pinned.
+  The console says it was written into the pack's files.
+- **If the block's file changed since the proposal was made,** so it holds
+  another version than the one the proposal changed (another proposal made
+  live, or your edit at a new version), or the block left the pack, the
+  request is refused with `409 promotion-superseded`, naming the file, and an
+  approval settles it `superseded`. Draft again from what the pack holds now.
+  An edit that kept the file's version is written over, so give a block you
+  edit by hand a new version.
+- **Rolling back is refused,** and so is unpinning. Undo the change in the
+  pack's files, with git:
+  `Error [registry-read-only]: Under kindgi dev, a version made live was written into the pack's files: undo it there, with git, and kindgi dev reloads it.`
+
 ## Find them
 
 ```sh
@@ -401,7 +442,7 @@ Proposals are authorized on their agent: `read` to see one.
 | --- | --- |
 | `draft` | Not evaluated yet. |
 | `evaluating` | Its comparison is queued or running. |
-| `evaluated` | The candidate beat the recorded outputs. |
+| `evaluated` | The candidate beat the recorded outputs. Or, kept as `cheaper`, it was no worse than the current version and cost less. |
 | `not-better` | It didn't. |
 | `evaluation-failed` | The comparison failed or was cancelled. |
 | `in-review` | Requested; the gate passed and an approval is open. |

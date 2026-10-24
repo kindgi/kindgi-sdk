@@ -24,9 +24,11 @@ lists:
 - **a judged test set;**
 - **a live version of the agent for the whole tenant.** Without one, the
   pass is refused with `proposal-needs-pin`;
-- **a deployed runtime,** with Kindgi 0.1's CLI. Under `kindgi dev`, it's
-  refused with `registry-read-only`;
-- **`publish` on the agent,** to start one.
+- **a runtime: `kindgi dev`, or a deployed one,** with Kindgi 0.2's CLI.
+  Under `kindgi dev`, making a proposal live writes it into the pack's files,
+  as [Under `kindgi dev`](../propose-a-change/#under-kindgi-dev) shows;
+- **`publish` on the agent,** to start one, and `write` on the project it
+  works in when that isn't the agent version's.
 
 ## Mark what a pass may tune
 
@@ -57,6 +59,68 @@ refund limit. Publish the schema with the block's next version, with
 shows. A version that pins no block with a marked key has nothing to tune,
 and the pass is refused, saying so.
 
+### Let it try a cheaper model or another temperature
+
+The agent's model-settings block (the one it names as `modelSettings`) is
+tuned the same way: mark its keys. It takes `temperature` (0 to 2),
+`maxOutputTokens`, and the model the turn prefers, `model` (with
+`providerId` for its provider). List the models a pass may try as the
+`model` key's `enum`:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "temperature": { "type": "number", "minimum": 0, "maximum": 1, "x-kindgi-tunable": true },
+    "model": { "enum": ["claude-sonnet-5-5", "claude-haiku-4-5"], "x-kindgi-tunable": true }
+  }
+}
+```
+
+A pass tries each marked key within these bounds, kept inside what model
+settings allow. It compares what the replays cost at the models' registered
+prices, as a [budget](../../agents/budgets/) counts them, so list models
+registered with their prices. List ones your registered providers serve,
+too: a preference never excludes, so a model none of them serves replays on
+the next one in line.
+
+- **Name the model in one place.** When the block sets `model` or
+  `providerId`, it's the turn's preference instead of the agent's
+  `preferredModel` and `preferredProvider`. A version that names the model in
+  both places is refused when it's published or deployed, and so is a version derived to
+  pin such a block (a proposal's candidate). When the agent sets
+  `preferredModel` or `preferredProvider`, a pass doesn't try `model` or
+  `providerId`, and says why.
+- **The decisions must stay right.** A change to this block is kept only when
+  no [correction](../judge-a-runs-output/) the current version gets right
+  goes wrong: the tool calls an expert said the agent should have made,
+  graded on each replay. The pass checks one on the part it searches and
+  again on the part that proves its best change, and the split puts cases
+  that carry a correction in both parts only when there are two or more. So
+  the test set needs corrections on at least two cases; without them,
+  nothing is kept, and the pass says why.
+- **Better, or no worse and cheaper.** Such a change is kept when it's better,
+  as any candidate is. Or when it's no worse than the current version (beyond
+  the spread of the current version's repeated runs) and costs less, by more
+  than the spread of what those runs cost. A temperature change is usually
+  the first kind, a cheaper model the second.
+
+To hold its best change to that, the pass also replays the current version on
+the hold-out part, twice for a spread. That counts in the pass's cost, like
+the best change's own comparison there, but the budget doesn't stop it (see
+[the budget](#start-a-pass)). The proposal's `evaluation` says which rule
+kept it (`"rule": "cheaper"`), what each side cost
+(`costUsd`), and how the corrections went (`decisions`):
+
+```json
+"evaluation": {
+  "rule": "cheaper",
+  "costUsd": { "current": 0.42, "candidate": 0.26 },
+  "decisions": { "checked": 15, "held": 12, "broken": 0, "stillWrong": 3 },
+  …
+}
+```
+
 ## Start a pass
 
 A pass searches for a better version of the agent's marked settings:
@@ -68,30 +132,69 @@ pnpm exec kindgi proposals improve --agent=acme.rank.scorer --tenant --test-set=
 - **The agent and scope:** `--agent` and `--tenant`, or another scope flag.
 - **The version** is the one serving the scope, unless `--from-version` names
   another.
+- **The project:** a pass works in one project and learns from its runs. Its
+  version and test set must be ones
+  [that project's runs can use](../../projects/organize-by-org-and-project/#what-a-projects-runs-can-use),
+  and its eval runs run there. With `--project`, it's that project. With
+  `--tenant` or `--org`, it's `--pass-project=<project-id>`, else the agent
+  version's. A project other than the version's needs `write` there. In the
+  API and the clients, it's `projectId` (`project_id` in Python). The pass's
+  project needs runtime 0.2.0 or later: an earlier one refuses
+  `--pass-project`, and its pass works in the agent version's project.
 - **The test set:** `--test-set`, a judged one.
 - **The budget:** `--max-cost` in US dollars, 5 by default and at most 100,
   and `--max-candidates`, 30 by default and at most 200. A pass stops at
   whichever it reaches first. It checks the cost between comparisons, so the
-  one already running can take it a little over `--max-cost`.
+  one already running can take it a little over `--max-cost`. Its cost
+  counts every comparison it runs, the ones that prove its best candidate on
+  the cases it didn't search too. Those run after the search, so the budget
+  doesn't stop them, and they can take a pass past `--max-cost`.
 - **What better means:** `--objective`, `weightedYesShare` by default or
   `weightedPrecisionAtK`, as in a
   [comparison](../compare-an-agent-version/#read-the-result).
 - **How it decides:** it searches on 70% of the test set's cases and proves
-  its best candidate on the other 30%, a split fixed for the pass. Only a
-  candidate that beats the recorded outputs there, by more than the noise,
-  becomes a proposal.
+  its best candidate on the other 30% (the cases it didn't learn from), a
+  split fixed for the pass. On the 70%, a candidate has to beat the current
+  version by more than the spread between the current version's own repeated
+  runs. On the 30%, the best one has to beat the recorded outputs, and only
+  then does it become a proposal, which carries both figures: the recorded
+  outputs' score and the candidate's. A change to the model-settings block is
+  also held to the current version replayed on each part, and can instead be
+  kept as no worse and cheaper:
+  [Let it try a cheaper model or another temperature](#let-it-try-a-cheaper-model-or-another-temperature).
+
+Before you start, you can ask what a pass would cost: `POST
+/v1/proposals/improve/estimate`, with the body a pass would start from,
+answers `estimatedCostUsd` — the replay count times the version's mean cost
+over its recent completed runs, capped at `--max-cost` — and starts nothing.
+Treat it as an approximation: a candidate can cost more or less per run than
+that mean, and a prompt pass also pays to draft its templates, so a pass can
+cost more than it estimates; what stops it is the budget above. An estimate
+equal to `--max-cost` means the pass is expected to spend its whole budget.
 
 It answers at once with the pass. `--wait` waits for its outcome, at most 30
 minutes, and prints it:
 
-- **`proposed`**, with the proposal it wrote, which a reviewer decides: run
-  `kindgi proposals request <proposal-id>`, then decide the approval.
-- **`nothing-found`**, with why. No candidate beat the current version by
-  more than the noise, and the reason gives the best one's numbers on the
-  hold-out part. Or the best one is a change an existing proposal already
-  holds. Or nothing could be measured, because no candidate's output had an
-  item the test set's judgments cover. A changed free-text answer is a new
-  item no one has judged: then
+- **`proposed`**, with the proposal it wrote, which a person decides: run
+  `kindgi proposals request <proposal-id>`, then decide the approval. A pass's
+  proposal always waits for a reviewer, because a pass, not a person, drafted
+  it. Who may approve it depends on the scope's
+  [gate policy](../release-an-agent-version/#gate-a-release):
+  - **No `approvals`:** someone other than you, when there's another active
+    reviewer who can see the approval. If there isn't, you can approve it
+    yourself, as a registered reviewer.
+  - **`approvals`:** someone other than you, with its role or a higher one.
+    With `"separateApprover": false`, that holds only while there's such a
+    reviewer; if there isn't, you can approve it yourself.
+- **`nothing-found`**, with why. No candidate beat the current version by more
+  than the noise on the 70%. Or the best one didn't beat the recorded outputs
+  on the 30%, and the outcome's hold-out comparison gives both figures there.
+  Or a model-settings change wasn't
+  [kept under its rule](#let-it-try-a-cheaper-model-or-another-temperature).
+  Or the best one is a change an existing proposal already holds. Or nothing
+  could be measured: a pass scores only the items of an output that judgments
+  cover (a ranking's entries, say). So a changed free-text answer is a new
+  answer no one has judged yet and has nothing to score, and then you
   [judge the new answers, then rescore](../propose-a-change/#judge-the-new-answers-then-rescore).
   The reason also says if the pass ran out of budget before comparing the
   rest.
@@ -143,20 +246,52 @@ The cost is 0 on `dev-echo`, which costs nothing:
 
 `kindgi proposals passes get <pass-id>` reads the same pass back later.
 
-### It learns from trusted judgments
+### Whose judgments it learns from
 
-A pass counts only judgments recorded under a
-[restricted judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class)
-by default, `classWeights: "restricted-only"`. So who may steer it is a
-choice you make. `"as-recorded"` counts every judgment, by its class's
-weight: set it in the API or the clients.
+By default, once your test set's project, its tenant, or the agent you're
+improving there has a [restricted judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class),
+a pass counts only the judgments recorded under one
+(`classWeights: "restricted-only"`), so who may steer a pass is a choice
+you make. That's the test set's project, which can differ from the one the
+agent is made in. Until then it counts every judgment, each by its class's
+weight (`classWeights: "as-recorded"`), since counting only restricted
+classes would count nothing. A class restricted for a different agent,
+or in a different project, doesn't count. Set it with the `--class-weights`
+flag, or `classWeights` in the API or the clients, to choose either,
+whatever classes exist.
+
+The proposal a pass writes names the judgments it learned from on the
+search part, never the hold-out: the ones its comparisons counted and, for
+a prompt pass, the ones its drafter was shown, corrections included. Its
+`evidence.judgmentIds` lists up to 100 of them: first
+the ones the drafter was shown, case by case, each case's corrections right
+after its items judged wrong; then the ones behind items judged wrong, then
+the rest. When there are more, `evidence.judgmentCount` gives how many. Its
+comparisons also grade a correction's calls on each replay and show the
+result, and that result decides only whether a change to the model settings
+is kept
+([the decisions must stay right](#let-it-try-a-cheaper-model-or-another-temperature)).
+A pass on a test set built before judgment ids names none.
 
 ## Draft a prompt instead
 
 A pass can also draft prompt templates. The agent version must take its
 instructions from a [prompt block](../change-a-prompt-or-setting/) it pins.
-The CLI starts settings passes, so start a prompt pass from the API or the
-clients:
+Start a prompt pass with `--tier=prompt`:
+
+```sh
+pnpm exec kindgi proposals improve --agent=acme-ops.reply-drafter --tenant \
+  --test-set=acme.reply-cases --tier=prompt \
+  --provider=anthropic --model=claude-sonnet-5-5 --drafts=3
+```
+
+- `--tier=prompt` drafts prompt templates.
+- `--provider` and `--model` are the provider and model of yours that draft
+  them, given together.
+- `--drafts` is how many templates it drafts: 1 to 5, 3 by default.
+
+In the API and the clients, they're `tiers: ["prompt"]`, `model` and
+`candidates`:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/proposals/improve" \
@@ -164,16 +299,16 @@ curl -X POST "$KINDGI_API_URL/v1/proposals/improve" \
   -d '{"agentId":"acme-ops.reply-drafter","scope":{"kind":"tenant"},"suiteId":"acme.reply-cases","tiers":["prompt"],"model":{"providerId":"anthropic","model":"claude-sonnet-5-5"},"candidates":3}'
 ```
 
-- `$KINDGI_API_URL` and `$KINDGI_API_TOKEN` are your runtime's URL and API
-  token.
-- `tiers: ["prompt"]` drafts prompt templates.
-- `model` is the provider and model of yours that drafts them.
-- `candidates` is how many templates it drafts: 1 to 5, 3 by default.
+- `$KINDGI_API_URL` and `$KINDGI_API_TOKEN` are your runtime's URL and API token.
 
 It answers at once (`202`) with the pass, as the CLI does without `--wait`.
 
-The drafter sees the cases judged wrong and their reasons. A template it
-writes is compared only if it stays within what the agent already has:
+The drafter sees the cases judged wrong, their reasons, and
+[the corrections on them](../fix-what-experts-corrected/): the
+calls the agent should have made and the tools it shouldn't have called,
+as an example for that case, not a rule. It's shown only the corrections
+the pass [counts](#whose-judgments-it-learns-from). A template it writes is
+compared only if it stays within what the agent already has:
 
 - it parses as Liquid;
 - it reads only the prompt's declared parameters, the variables the current
@@ -253,9 +388,22 @@ when it ends ([Webhook events and deliveries](../../webhooks/webhook-events/#imp
 
 ## Run passes on a schedule
 
-A schedule can start a pass when enough new trusted judgments have come in,
-as [Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule)
+A schedule can start a pass when enough new judgments have come in, counted
+the way the pass will count them, as
+[Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule)
 shows.
+
+## In the console
+
+The same loop runs in the console. On an agent's proposals page, **Improve**
+starts a pass, and the pass's page follows it. The proposal it writes shows
+its verdict and the comparison figures, under **Evidence** the judgments it
+learned from, each with its verdict and reason and a link to its run, and a
+**Request promotion** button to send it for a decision. A schedule that
+starts passes is made with the CLI, the API or the clients, as
+[Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule)
+shows: the console lists schedules and can pause, resume, run or remove them, but
+doesn't make them.
 
 ## Next
 

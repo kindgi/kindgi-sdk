@@ -21,12 +21,12 @@ recorded runs.
   new version of its agent or flow. Under `kindgi dev`, saving the agent's
   file with its new `version` is enough. On a runtime you deploy to, deploy
   the new version first.
-- **Kindgi 0.1's CLI**, and the project's id.
+- **Kindgi 0.2's CLI**, and the project's id.
 - **The right to start one:** an editor of the test set's project, or anyone
   who may execute the test set, who may write to the project the run lands
   in and run its agent or flow.
 - **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
-  Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+  Kindgi 0.2's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
 
 ## Compare a version
 
@@ -193,11 +193,80 @@ weightedPrecisionAtK: 0.3333333333333333 → 1.0
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/Compare.java
+package com.acme.app;
+
+import com.kindgi.client.Comparisons;
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.ComparisonMetric;
+import com.kindgi.client.models.EvalRun;
+import com.kindgi.client.models.EvalRunAgentRef;
+import com.kindgi.client.models.JudgedComparisonSummary;
+import com.kindgi.client.models.StartEvalRunBody;
+import com.kindgi.client.models.StartEvalRunResult;
+import java.util.UUID;
+
+public final class Compare {
+  public static void main(String[] args) throws InterruptedException {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+    UUID projectId = UUID.fromString(args[0]);
+
+    // Replay version 0.2.0 on each case of the test set.
+    StartEvalRunResult started =
+        kindgi.evalRuns().start(
+            "acme.article-picks",
+            StartEvalRunBody.builder()
+                .projectId(projectId)
+                .agentRef(
+                    EvalRunAgentRef.builder().agentId("acme-ops.article-picker").version("0.2.0").build())
+                .build());
+
+    EvalRun run = kindgi.evalRuns().get(started.runId());
+    while (run.status().equals(EvalRun.Status.PENDING) || run.status().equals(EvalRun.Status.RUNNING)) {
+      Thread.sleep(2000);
+      run = kindgi.evalRuns().get(started.runId());
+    }
+
+    // comparisonOf is empty until the run finishes, or for a dry run.
+    Comparisons.comparisonOf(run)
+        .ifPresent(
+            comparison -> {
+              JudgedComparisonSummary.Metrics metrics = comparison.summary().metrics();
+              print("judgedCoverage", metrics.judgedCoverage());
+              print("weightedYesShare", metrics.weightedYesShare());
+              print("weightedPrecisionAtK", metrics.weightedPrecisionAtK());
+            });
+  }
+
+  private static void print(String name, ComparisonMetric metric) {
+    System.out.println(name + ": " + metric.baseline() + " → " + metric.candidate());
+  }
+
+  private Compare() {}
+}
+```
+
+```text
+judgedCoverage: 0.75 → 0.5
+weightedYesShare: 0.3333333333333333 → 1.0
+weightedPrecisionAtK: 0.3333333333333333 → 1.0
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+Scala apps use the Java helper: call `Comparisons.comparisonOf` from `com.kindgi.client` as the Java tab shows. It takes the `EvalRun` and returns a `java.util.Optional` of the `JudgedComparisonResult`: its `summary()`, and each case in `perCase()`.
+
+</TabItem>
 </Tabs>
 
-`comparisonOf`, or `comparison_of` in Python, reads a finished comparison's
-result, typed: its `summary` and each case. It returns `undefined`, or
-`None`, for a comparison that hasn't finished, or a dry run.
+`comparisonOf` reads a finished comparison's result, typed: its `summary`
+and each case. It's `comparison_of` in Python, and `Comparisons.comparisonOf`
+in Java and Scala. For a comparison that hasn't finished, or a dry run, it
+returns `undefined`: `None` in Python, an empty `Optional` in Java and Scala.
 
 A model doesn't answer the same way every time: run the same comparison
 again, and the scores may differ. `--repetitions=<n>` runs each case several
@@ -276,6 +345,37 @@ restricted afterwards:
   read ran live. Here, 0.2.0 left the final period off the customer's
   question when it searched, so the call wasn't the same as 0.1.0's.
 
+### What it should have done
+
+When the test cases' runs have corrections that say
+[what the run should have done](../judge-a-runs-output/#say-what-it-should-have-done)
+(runtime 0.2.0 or later), each one is checked against what the version
+did on that case:
+
+```text
+CAPTURE: one perCase entry with "corrections": [{ "judgmentId": …, "pass": false, "repetitionsPassed": 0, "repetitions": 1 }] and "correctionDifferences": [{ "judgmentId": …, "repetition": 1, "differences": [ … ] }]
+```
+
+- **`corrections`:** for each one, whether it passed, and in how many of
+  the case's repetitions (`repetitionsPassed` of `repetitions`). It passes
+  only when every repetition did.
+- **`correctionDifferences`:** for one that failed, what differed in the
+  first repetition that failed it, and that repetition's number. A
+  difference is a call count (`count`), a call that shouldn't have been
+  made (`must-not-call`), or an argument that's missing (`missing-field`)
+  or has another value (`field-value`). `refused` marks a call the replay
+  refused.
+- **The summary's `corrections`** counts the ones `checked`, and how many
+  `passed`:
+
+```text
+CAPTURE: "corrections": { "checked": …, "passed": … } from the same run's summary
+```
+
+With `--class-weights=restricted-only`, only the ones made under a
+restricted judge class are checked. No release gate policy checks them: read them
+before you [make the version live](../release-an-agent-version/#check-before-you-promote).
+
 ## What a replay does
 
 A replay does nothing the past run didn't do. "The same call" means the same
@@ -298,6 +398,13 @@ tool with the same arguments.
   `replay: this call changes things and has no recorded result`, or that the
   call needs an approval, or reaches outside. The case shows what it would
   have done, and `refusedWrites` counts these calls.
+- **A case with a correction that says what the run should have done
+  replays strictly** (runtime 0.2.0 or later): no tool runs live, even
+  with `--reads=live`, or when the version pins other settings blocks. A
+  read gets the past run's result for the same call, or doesn't run: the
+  model is told
+  `replay: this read has no recorded result`, and `refusedWrites` counts
+  it. So the version is checked on the results the expert saw.
 - **A replay never waits for an approval.** Where the past run's conversation
   was approved or rejected, the replay follows that decision. Where there's
   no decision, the case says `approvalSkipped`.

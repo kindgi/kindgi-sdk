@@ -17,7 +17,7 @@ whether it should be a fallback.
 
 ## Before you start
 
-- **A pack** with `kindgi dev` running, from Kindgi 0.1's CLI.
+- **A pack** with `kindgi dev` running, from Kindgi 0.2's CLI.
 - **A server that answers the OpenAI Chat Completions API,** with tool
   calling on and a model that supports it.
 - **An agent,** to try it. This guide uses `acme.order-desk`.

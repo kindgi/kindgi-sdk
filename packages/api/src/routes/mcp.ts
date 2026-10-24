@@ -704,6 +704,7 @@ function serializeEndpoint(e: MCPEndpoint): Record<string, unknown> {
     ...(e.instructions !== undefined && { instructions: e.instructions }),
     ...(e.metadata !== undefined && { metadata: e.metadata }),
     ...(e.sendTraceparent !== undefined && { sendTraceparent: e.sendTraceparent }),
+    ...(e.secretScopes !== undefined && { secretScopes: e.secretScopes }),
   };
 }
 

@@ -17,14 +17,14 @@ credentials, then log in once with `kindgi auth registry`.
 ## 1. Create the pack
 
 ```sh tutorial=run
-npx --yes @kindgi/cli@0.1 init my-pack --template=sample
+npx --yes @kindgi/cli@0.2 init my-pack --template=sample
 cd my-pack
 pnpm install
 ```
 
-- `npx --yes @kindgi/cli@0.1` runs the newest 0.1 release of the Kindgi CLI,
+- `npx --yes @kindgi/cli@0.2` runs the newest 0.2 release of the Kindgi CLI,
   the line these docs describe, without installing it
-  ([Check this machine](../install/#check-this-machine) says how). `@0.1` is
+  ([Check this machine](../install/#check-this-machine) says how). `@0.2` is
   optional: `npx --yes @kindgi/cli init my-pack --template=sample` runs the
   newest release, which may be on a later line than these docs.
 - `init my-pack` makes the pack in a new folder, `my-pack`.

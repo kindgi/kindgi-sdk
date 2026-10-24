@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { verifySignedExport } from '@kindgi/client';
 import type { SignedExportEnvelope } from '@kindgi/client';
 
+import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
 import { createExport } from '../exports/create.js';
 import type { Manifest } from '../exports/create.js';
@@ -159,16 +160,11 @@ const create: LeafCommand = {
           ((line) => {
             process.stderr.write(line);
           }),
+        quiet: ctx.globals.format === 'quiet',
         ...(seam.now !== undefined && { now: seam.now }),
         ...(ctx.stopSignal !== undefined && { stopSignal: ctx.stopSignal }),
       });
-      const failed = Object.values(manifest.kinds).some((k) => k.status === 'failed');
-      const stopped = manifest.finishedAt === undefined;
-      const exitCode = stopped ? 130 : failed ? 1 : 0;
-      if (ctx.globals.formatRequested && ctx.globals.format === 'json') {
-        return { kind: 'ok', rendered: renderJson(manifest, 'json'), exitCode };
-      }
-      return { kind: 'ok', rendered: { stdout: summary(manifest, out), stderr: '' }, exitCode };
+      return exported(ctx, manifest, out);
     } catch (err) {
       return commandResultFromThrown(err, ctx, 'exports create');
     }
@@ -208,20 +204,55 @@ async function caller(
   return { tenantId: me.tenantId, admin };
 }
 
+/** What `kindgi exports create` says of the export it made, and its exit code. */
+function exported(ctx: CommandContext, manifest: Manifest, out: string): CommandResult {
+  const failed = Object.values(manifest.kinds).some((k) => k.status === 'failed');
+  const stopped = manifest.finishedAt === undefined;
+  const exitCode = stopped ? 130 : failed ? 1 : 0;
+  if (ctx.globals.formatRequested && ctx.globals.format === 'json') {
+    return { kind: 'ok', rendered: renderJson(manifest, 'json'), exitCode };
+  }
+  if (ctx.globals.format === 'quiet') {
+    return { kind: 'ok', rendered: { stdout: '', stderr: unfinished(manifest, out) }, exitCode };
+  }
+  return { kind: 'ok', rendered: { stdout: summary(manifest, out), stderr: '' }, exitCode };
+}
+
+const READ_FAILED_AGAIN = 'Run it again with --resume to read the failed kinds again.';
+
 /** What the export holds, in a few lines. */
 function summary(manifest: Manifest, out: string): string {
   const outcomes = Object.entries(manifest.kinds);
   const count = (status: string) => outcomes.filter(([, k]) => k.status === status).length;
   const lines = [
     manifest.finishedAt === undefined
-      ? `Stopped. The export in ${out} is unfinished: run it again with --resume to finish it.`
+      ? stoppedLine(out)
       : `Exported to ${out}: ${count('ok')} kinds written, ${count('skipped')} skipped, ${count('failed')} failed. manifest.json says what each file holds.`,
   ];
   for (const [name, k] of outcomes) {
     if (k.status === 'failed') lines.push(`  ${name}: failed, ${k.error}`);
   }
-  if (count('failed') > 0) lines.push('Run it again with --resume to read the failed kinds again.');
+  if (count('failed') > 0) lines.push(READ_FAILED_AGAIN);
   return `${lines.join('\n')}\n`;
+}
+
+/**
+ * What `--quiet` says at the end, on stderr: an export that stopped, or
+ * that has kinds that failed, says how to finish it (each failed kind
+ * said its line as it ended). One that's whole says nothing.
+ */
+function unfinished(manifest: Manifest, out: string): string {
+  const lines = [
+    ...(manifest.finishedAt === undefined ? [stoppedLine(out)] : []),
+    ...(Object.values(manifest.kinds).some((k) => k.status === 'failed')
+      ? [READ_FAILED_AGAIN]
+      : []),
+  ];
+  return lines.length === 0 ? '' : `${lines.join('\n')}\n`;
+}
+
+function stoppedLine(out: string): string {
+  return `Stopped. The export in ${out} is unfinished: run it again with --resume to finish it.`;
 }
 
 export const exportsCommand: Command = {

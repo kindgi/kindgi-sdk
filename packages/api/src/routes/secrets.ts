@@ -960,11 +960,15 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
         toWireError({ code: outcome.error.code, message: outcome.error.message, name }, requestId),
       );
     }
+    // A hard revoke that left a recoverable copy in the secret manager
+    // says until when, in the answer and on the record.
+    const { recoverableUntil } = outcome.value;
+    const recoverable = recoverableUntil === undefined ? {} : { recoverableUntil };
     // Only a revoke that changed something is recorded.
     if (outcome.value.revoked) {
-      await auditWrite(c, auditEvents, { ...revokeAudit, outcome: 'succeeded' });
+      await auditWrite(c, auditEvents, { ...revokeAudit, outcome: 'succeeded', ...recoverable });
     }
-    return c.json({ revoked: outcome.value.revoked, hard: outcome.value.hard });
+    return c.json({ revoked: outcome.value.revoked, hard: outcome.value.hard, ...recoverable });
   });
 
   return r;

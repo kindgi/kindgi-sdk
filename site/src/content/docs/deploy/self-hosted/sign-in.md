@@ -16,21 +16,32 @@ People sign in to the console with their email first. The sign-in page then
 offers the ways in that this deployment has. Whatever way someone signs in,
 the runtime lets in **only people already added to a workspace**, by an
 email their provider has proved. Nobody is created by signing in, and roles
-stay Kindgi's.
+stay Kindgi's. Without [authorization](../../authorization/), everyone signed
+in works in every project, and the tenant's settings change only with the
+API token or an `admin` key made for the seed user
+([Without authorization](../../people-and-keys/#without-authorization)).
 
 ## Before you start
 
-- **A runtime you deploy yourself,** whose settings you can change
-  ([Self-host with Docker](../self-host/)).
+- **A runtime you deploy yourself,** whose settings you can change. This
+  page writes them for Docker, in `kindgi.env` with secrets in files
+  ([Self-host with Docker](../self-host/)). Kindgi's Terraform modules mount
+  no files: on [Cloud Run](../cloud-run/#7-turn-on-sign-in) and
+  [Azure Container Apps](../azure-container-apps/#7-turn-on-sign-in), plain
+  values go in `server_env`, and secrets in `server_secret_env` by their
+  value forms, such as `KINDGI_AUTH_GOOGLE_CLIENT_SECRET` rather than
+  `KINDGI_AUTH_GOOGLE_CLIENT_SECRET_PATH`.
 - **The address people reach it at,** over `https`, such as
   `https://kindgi.acme.com`.
-- **A secrets store for the runtime,** set by `KINDGI_SECRETS_BACKEND`. An
-  identity provider's client secret and keys are references into it
-  ([Keep secrets in your own secret manager](../secret-manager/), or the
-  default Postgres one).
+- **A secrets store for the runtime,** set by `KINDGI_SECRETS_BACKEND`, for
+  a workspace's own identity providers: their client secret and keys are
+  references into it ([Keep secrets in your own secret manager](../secret-manager/),
+  or the Postgres one). Without one, Continue with Google, Microsoft or
+  GitHub and the emailed link still work, and adding or changing a
+  workspace's own provider answers `409 identity-providers-need-secrets-store`.
 - **`openssl`,** to make sign-in's own secret.
-- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## 1. Turn it on
@@ -200,6 +211,20 @@ KINDGI_AUTH_TENANT_PROVIDERS=off
 
 `on` is the default. Like the other settings here, it needs sign-in on.
 
+Without a secrets store (`KINDGI_SECRETS_BACKEND=none`), nobody adds or
+changes a workspace's own provider, whichever the setting. The startup
+output says so instead:
+
+```text
+  Identity providers: a tenant's own are off: their client secret and keys go in a secrets store, and this server has none (KINDGI_SECRETS_BACKEND)
+```
+
+A provider added while the deployment had a store signs nobody in once the
+store is gone. People are sent back to the sign-in page with
+`sign-in-unavailable`, and the runtime's log says why. On a domain verified
+to its workspace, GitHub and the emailed link still don't sign people in
+([Who gets in](#who-gets-in)). Remove the provider, or set up a store again.
+
 ## Continue with Google, Microsoft or GitHub
 
 The deployment's own apps let people sign in with their Google, Microsoft or
@@ -289,7 +314,12 @@ nothing. Access is decided after the provider signs them in:
    such as gmail.com, keep every way in.
 4. **That email belongs to someone already added to a workspace** this
    runtime serves, and not removed. In several workspaces, they choose one.
-   In none, they're refused with `not-invited`.
+   In none, they're refused with `not-invited`, or with `invite-expired`
+   where their [invitation](../../people-and-keys/#their-invitation) to one
+   expired before they first signed in. That refusal is audited, and stands
+   until an admin of that workspace sends the invitation again:
+
+   ![The console's sign-in page: Your invitation has expired. An invitation is open for 7 days. Ask an admin of the workspace to send it again, then sign in. Detail: invite-expired.](../../../../assets/sso/sign-in-invite-expired.png)
 5. **The first sign-in links the provider account to the person.** A
    different account with the same email is refused afterwards, with
    `account-mismatch`. So an address that later moves to someone else can't
@@ -351,7 +381,12 @@ If you didn't ask to sign in, ignore this email: nobody can sign in without the 
 ```
 
 The page always answers the same, for any email, so it can't be used to
-find out who has an account. The limits:
+find out who has an account. No link goes to someone whose
+[invitation](../../people-and-keys/#their-invitation) expired, and a link
+opened after it expired is refused as a stranger's is, with `not-invited`.
+The workspace's audit still records each as a sign-in refused for
+`invite-expired`.
+The limits:
 
 - An address gets at most one link a minute, and three per 15 minutes.
 - A backstop of 20 a day per address and client network
@@ -418,7 +453,7 @@ sign in.
 A tenant admin can require one for the whole workspace:
 
 ```sh
-npx --yes @kindgi/cli@0.1 sign-in settings --require-second-factor=on
+npx --yes @kindgi/cli@0.2 sign-in settings --require-second-factor=on
 ```
 
 - Someone without one sets one up at their next sign-in.
@@ -442,7 +477,7 @@ factor for the rest of that time (`second-factor-locked`). For a lost phone, a t
 theirs, and they're told by email where the deployment sends it:
 
 ```sh
-npx --yes @kindgi/cli@0.1 people reset-second-factor <user-id>
+npx --yes @kindgi/cli@0.2 people reset-second-factor <user-id>
 ```
 
 An admin's own isn't removed this way: they take it off on My access, with a
@@ -473,6 +508,36 @@ Set either one, or both. Each is an absolute `https` URL, with no username
 or password in it: with anything else, the runtime doesn't start. Unset,
 the page links neither. The links
 show beside kindgi.com and Docs, or under the form on a narrow screen.
+These two are for the sign-in page alone; links for every page are
+[your own links](#your-own-links-in-the-console).
+
+## Your own links in the console
+
+The console can show links of your own, such as your help desk, status
+page or data processing terms (runtime 0.2.0 or later):
+
+```sh
+# kindgi.env
+KINDGI_CONSOLE_LINKS={"Help":"https://help.acme-live.example","Status":"https://status.acme-live.example"}
+```
+
+Each name is the label shown, and each value is where it goes, in the
+order you write them. They show in the menu under your name, below Docs,
+and in a line at the foot of every page, the sign-in page too. Write the
+JSON on one line with no quotes around it: an env file passes the value
+as it is.
+
+At most 8 links. A label is 1 to 40 characters once trimmed, isn't only
+digits, and isn't another link's label once trimmed. It can't hold a
+control or format character, such as a bidirectional override or a
+zero-width space, since those can disguise what a label says. Each URL is
+an absolute `https` URL with no username or password in it. With anything
+else, the runtime doesn't start, and says why. Unset, the console
+shows none.
+
+The console reads the links once on each page load, from the sign-in
+options, without an email. Sign-in's limit of 30 lookups a minute per
+client counts only lookups with an email, so these reads don't spend it.
 
 ## Behind a load balancer
 
@@ -484,7 +549,31 @@ as the proxy
 ## Sessions
 
 A session lasts 12 hours (`KINDGI_SESSION_TTL_MS`), and ends after an hour
-without use (`KINDGI_SESSION_IDLE_TIMEOUT_MS`).
+without use (`KINDGI_SESSION_IDLE_TIMEOUT_MS`). Each is in milliseconds, at
+least `60000`, and the idle can't be longer than the lifetime. So a
+lifetime under an hour needs a shorter idle too:
+
+```sh
+KINDGI_SESSION_TTL_MS=1800000
+KINDGI_SESSION_IDLE_TIMEOUT_MS=900000
+```
+
+Set alone, a lifetime under an hour stops the runtime at start, because the
+hour's idle is then longer:
+
+```text
+KINDGI_SESSION_IDLE_TIMEOUT_MS (3600000, the default) can't be longer than KINDGI_SESSION_TTL_MS (1800000).
+```
+
+Both are for people signed in to the console, so they need a way to sign
+in: sign-in [turned on](#1-turn-it-on), or
+`KINDGI_CONSOLE_TOKEN_SIGN_IN=on`. With neither, setting one stops the
+runtime at start too:
+
+```text
+KINDGI_SESSION_TTL_MS is for browser sessions, and nobody can open one here: turn on sign-in with an identity provider (KINDGI_AUTH_SECRET_PATH), or KINDGI_CONSOLE_TOKEN_SIGN_IN=on.
+```
+
 [Sessions](../../../guides/sso/sessions/) has the rest.
 
 ## Next

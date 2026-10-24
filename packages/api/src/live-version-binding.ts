@@ -152,6 +152,13 @@ export type PromotionErrorCode =
    * Nothing is recorded.
    */
   | 'approvals-pending-limit'
+  /**
+   * A registry that takes Improve's candidates (`RegistryReadOnly.takesCandidates`,
+   * `kindgi dev`): making a version live writes it into the pack's files,
+   * which serve every scope, so a narrower scope is refused; and a rollback
+   * or unpin is undone there, with git. The message says which.
+   */
+  | 'registry-read-only'
   | 'persistence-error';
 
 export interface PromotionError {

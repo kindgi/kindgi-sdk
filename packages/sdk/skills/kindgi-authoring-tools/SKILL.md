@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.12"
+version: "0.4.13"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -172,6 +172,38 @@ const defined = defineTool({
 
 Everything else comes from the process environment: `process.env.CITATOR_URL`. The pack service runs with the pack's env files in `kindgi dev` (less any secret stored with `kindgi secrets set`, which a tool declares and reads from `ctx.secrets`, and any model provider's key, which no tool gets), and with the container's environment in an image. Declare the names your code reads in `kindgi.config.ts`, `env: { required: ['CITATOR_URL'], optional: [...] }`: a deployment injects exactly those, a pack service missing a required one isn't ready and says which, and `kindgi dev` warns about it. In an image the pack service also drops every variable the pack doesn't declare before your code loads (`kindgi dev` keeps them), so an undeclared name works locally and is unset once deployed: declare every name the code reads. Values per environment go in `environments.<name>.env`, secrets only as references.
 
+### Connections to other apps
+
+A tool that acts in another app as a person or as the company (sending mail, opening an issue) declares a **connection**, never a secret holding someone's token, and reads the call's short-lived token from `ctx.connections` (runtime 0.2.0 or later):
+
+```ts
+import { ConnectionRejectedError, defineTool } from '@kindgi/sdk/define';
+
+const defined = defineTool({
+  // …id, description, version, input, output, effects…
+  needsSpec: {
+    connections: { mail: { app: 'google', permissions: ['gmail.send'], as: 'person' } },
+  },
+  handler: async (input, ctx) => {
+    const mail = ctx.connections?.mail;
+    const res = await fetch(url, { headers: { authorization: `Bearer ${mail?.accessToken}` } });
+    if (res.status === 401) throw new ConnectionRejectedError('mail');
+    // …
+  },
+});
+```
+
+- **Whose connection:** `as: 'person'` is the connection of the person the run acts as (whoever started it, or the owner of the schedule or webhook that did); `as: 'company'` is the company's. The runtime picks it from the run, never from the input or the model. A run that acts as nobody (a service account's, an event's) fails a `'person'` call with `connection-needs-a-person`.
+- **The token:** `accessToken` is current for this call only. Never keep, print, log or return it; it never reaches the journal. `account.label` says whose account it is (`ana@acme.com`).
+- **A 401 from the app:** throw `new ConnectionRejectedError('mail')`, with the connection's name (a second argument can say what the app answered, never the token), or your own error with it as its `cause`. The runtime renews the token once and runs the call again; refused again, the call fails with `connection-rejected`.
+- **An HTTP tool** sends the token with no code: `authorization: { kind: 'connection', connection: 'mail' }`.
+- **Ready-made tools:** for Gmail, Outlook, GitHub and LinkedIn, include one from `@kindgi/connections` instead of writing it. Each is a factory, and the pack names its id; there's no default, because a tool id is the tenant's, filed under the first project that publishes it. A tool folder's `index.ts` is one line, `export default gmailSend({ id: 'acme.gmail.send' })` (`@kindgi/connections/google/tools`); `githubIssuesList`, `githubLabelsList` and `githubIssuesAddLabels` come from `@kindgi/connections/github/tools`, `outlookSend`, `outlookMessagesList` and `outlookMessageGet` from `@kindgi/connections/microsoft/tools`, and `linkedinPost` from `@kindgi/connections/linkedin/tools`. Agents and approval settings use the pack's id.
+- **Your own calls to an app's API:** `appFetch(ctx, { entry, connection, toolId, url, method, headers, body })` from `@kindgi/connections/app-fetch` sends the connection's token as the only `Authorization`, paces calls by the entry's `rateLimits` (`toolId` is what its `costs` charge; 1 when not listed), tries a busy answer again, and throws a 401 as `ConnectionRejectedError`.
+- **Unattended runs:** in a run no person started, a tool that uses an `as: 'person'` connection waits for that person's yes, unless it's marked `mutating: false` (mark read-only tools so). The agent's `conversationPolicy.hitl` can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needsApprovalWhenUnattended` (below).
+- **In a unit test:** `ctx.connections` is optional in the type; build a context with `toolContextForTest({ connections: { mail: { accessToken: 'test', account: { id: '1', label: 'ana@acme.com' }, … } } })` (`@kindgi/sdk/define`).
+
+Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
+
 ## Declarative HTTP spec
 
 ```ts
@@ -231,6 +263,7 @@ The kinds are `reads`, `writes`, `deletes`, `network`, `spawns-run`, `emits-even
 
 - **An agent's call waits** for a person's yes, whatever the agent's `conversationPolicy.hitl.tools` says. The agent's rules can't lift it: agents are reused, and the tool's author knows what it does.
 - **A flow's tool step that calls it is refused.** Put the tool behind an agent step instead, whose call waits.
+- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's or a schedule's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks` and `kindgi schedules`). In that trigger's runs, the tool is then as in a run a person started. The tenant's approval rules still apply.
 
 In a run a person started (signed in, or with their own API key), the agent's rules decide, as for any tool. Absent means `false`. Declare it on a tool that moves money or changes something people rely on:
 
@@ -426,6 +459,10 @@ run start via `semver.maxSatisfying`. No implicit `:latest`.
 
     const OrdersClient = defaultOf(OrdersClientExport);
     ```
+
+    A dynamic import is the same: `(await import('@acme/orders-client')).default`
+    is the class under Vitest and the whole `module.exports` under Node, so
+    take it with `defaultOf((await import('@acme/orders-client')).default)`.
 
 ## References
 

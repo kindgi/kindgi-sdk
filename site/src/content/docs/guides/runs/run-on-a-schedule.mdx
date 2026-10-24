@@ -21,7 +21,7 @@ Or have the other system [start a run](../start-a-run/) with `POST /v1/runs`.
 
 - **An agent or a flow to run,** registered on your runtime, such as
   `kindgi dev`. This guide runs the agent `acme.order-desk`.
-- **Kindgi 0.1's CLI**, in your pack's directory.
+- **Kindgi 0.2's CLI**, in your pack's directory.
 - **`write` on the schedule's project and `execute` on the agent or flow,**
   when authorization is on: its runs act as you, unless you name a service
   account for them ([Run as a service account](#run-as-a-service-account)).
@@ -49,6 +49,10 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
 - **Where:** `--project=<project-id>` is its project. Without it, it's the
   tenant's Default project.
 - **`--label`** names it, for lists and the console.
+- **`--allow-unattended=<tool-id>`** names a tool whose calls in its runs
+  needn't wait for a person's yes, though no person started them, once for
+  each tool. It takes `admin` on the project
+  ([Tools allowed unattended](../../approvals/ask-before-a-tool-runs/#tools-allowed-unattended)).
 
 It prints the schedule, with its `id`. To see the next three times it runs,
 where `<schedule-id>` is that `id`:
@@ -64,9 +68,11 @@ Python).
 
 ## Run as a service account
 
-A schedule's runs act as its **owner**: whoever created it. To have them act
-as a service account instead, with the account's grants rather than yours,
-and keep running after you leave, name it with `--run-as`:
+A schedule's runs act as its **owner**: whoever created it, or last changed
+what it runs ([Who owns it after a change](#who-owns-it-after-a-change)).
+To have them act as a service account instead, with the account's grants
+rather than yours, and keep running after you leave, name it with
+`--run-as`:
 
 ```sh
 pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" --timezone=America/Toronto \
@@ -81,16 +87,35 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
   service-account-not-found`) or it was unregistered (`409
   service-account-unregistered`).
 - **The account must be able to run it,** as any owner must: a fire it may
-  no longer run is `refused`.
+  no longer run is `refused`. So is every fire after the account is
+  unregistered (runtime 0.1.9 or later): take the schedule over, or
+  delete it.
 - **To hand an existing schedule to an account:** `kindgi schedules
   take-ownership <schedule-id> --run-as=<service-account-id>`. It needs
   what taking it over yourself needs, `admin` on the project and `execute`
   on the agent or flow, and `act_as` on the account. Its next fire acts as
-  the account.
+  the account. The schedule keeps its tools allowed unattended.
 - **From your app:** `runAsServiceAccountId` on `schedules.register` and
   `schedules.takeOwnership` (`run_as_service_account_id` in Python).
 - **Each change of owner is recorded** as evidence, `trigger-owner-set`: a
-  schedule created to run as an account, and every take-over.
+  schedule created to run as an account, every take-over, and every change
+  that moves it.
+
+### Who owns it after a change
+
+When someone who isn't its owner changes what the schedule runs, they
+become its owner (runtime 0.2.0 or later), and its next fires act as
+them. So your own access only serves what you set it to run.
+
+- **These move it:** a new target or version, a new input, or a new list
+  of tools allowed unattended.
+- **These don't:** its label, its cron line or timezone, its catch-up,
+  overlap and deadline policies, and the same value sent again.
+- **A schedule a service account owns keeps its owner,** whoever changes
+  it. A service account that changes a person's schedule becomes its
+  owner.
+
+The answer to the change shows the owner after it.
 
 ## Each time it fires
 
@@ -109,7 +134,8 @@ each time still fires once.
   `--catch-up=skip` fires none of them. A time is missed when the fire would
   start more than `--starting-deadline` seconds late, 600 by default.
 - **Its owner may no longer run it,** such as when they lost their role on
-  the project, or were removed from the tenant (runtime 0.1.9 or later).
+  the project, or were removed from the tenant, or it's a service account
+  that was unregistered (runtime 0.1.9 or later).
   The fire is `refused`, with why. Whoever holds `admin` on the project can
   make themselves its owner: `kindgi schedules take-ownership <schedule-id>`,
   or hand it to a service account
@@ -180,7 +206,12 @@ none.
 - `kindgi schedules pause <schedule-id>` stops it. `resume` starts it again
   from its next time, without running the ones it missed while paused.
 - `kindgi schedules update <schedule-id>` changes when it runs, what it runs,
-  its input or its policies, with the same flags as `create`.
+  its input or its policies, with the same flags as `create`. A change to
+  what it runs can make you its owner
+  ([Who owns it after a change](#who-owns-it-after-a-change)).
+  `--allow-unattended` replaces its tools allowed unattended, and a new
+  `--agent` or `--flow` must name them again, or `none`. A new `--improve`
+  must name `none`.
 - `kindgi schedules unregister <schedule-id>` removes it.
 
 ## In the console
@@ -205,6 +236,9 @@ A schedule's page has:
   "It doesn’t fire while paused." instead.
 - **Runs as:** whose access its runs have, checked again at every fire, such
   as "Runs as you, with your access."
+- **Tools allowed unattended:** the tools its runs call without waiting
+  for a person's yes, or "None"
+  ([Tools allowed unattended](../../approvals/ask-before-a-tool-runs/#tools-allowed-unattended)).
 - **What it fired:** a summary, such as "Of its 2 fires, 2 started a run.",
   and a table of its fires, newest first. Each fire has when it fired, the
   time it was for, what happened or why the fire was refused, and the run it
@@ -224,7 +258,9 @@ Project editors and up have, on the list and on the page:
 
 On a schedule that runs as someone else, project admins also get **Take
 over**: "Its next runs start as you, with your access. Runs already started
-keep theirs. If it's paused, it stays paused."
+keep theirs. If it's paused, it stays paused." On a schedule with tools
+allowed unattended, the dialog adds that its runs still call them, with
+the new owner's access.
 
 ![The Take this schedule over? dialog on a paused schedule that runs as a service account: its next runs start as you, runs already started keep theirs, and a paused one stays paused.](../../../../assets/schedules/schedule-take-over.png)
 
@@ -232,6 +268,20 @@ After it, the page says "Runs as you, with your access.", and a paused
 schedule stays paused:
 
 ![The weekly report's page after Take over: Paused, with Resume, Run now and Unregister, "Starts the flow acme.refunds 1.0.0. Paused.", "It doesn’t fire while paused.", "Runs as you, with your access.", and "It hasn’t fired yet. Its runs →".](../../../../assets/schedules/schedule-page.png)
+
+A tenant admin gets **Change owner…** instead (runtime 0.1.9 or later),
+whenever the tenant has a registered service account the schedule doesn't
+already run as. Its **Runs
+as** list has "You — with your access", the take-over above, and each
+registered service account, such as "nightly-bot — a service account, with
+its own access". The account it runs as now isn't listed, and on a schedule
+that runs as you the list starts at "Pick a service account". Under the
+list, the dialog says what changes before anything does, such as "Its next
+runs act as nightly-bot, with its access, not yours: it needs its own access
+to what this schedule starts." After **Change owner**, the page reads:
+"Runs as the service account nightly-bot." Naming an account needs what
+[`--run-as`](#run-as-a-service-account) needs, and a refusal shows in the
+runtime's words.
 
 A run a schedule started says so at the top of its page: "Started by the
 schedule “nightly digest” (0 2 * * *).", with **Its other runs →**, the runs
@@ -242,8 +292,8 @@ list filtered to that schedule.
 ## Improve on a schedule
 
 A schedule can start [improvement passes](../../evals/improve-an-agent/)
-instead of runs, when enough new trusted judgments have come in on an
-agent's runs:
+instead of runs, when enough new judgments have come in on an agent's runs,
+counted the way the pass will count them:
 
 ```sh
 pnpm exec kindgi schedules create --cron="0 3 * * *" --improve=acme.rank.scorer --project=<project-id> --segment=company:acme \
@@ -294,14 +344,16 @@ It prints the schedule, with the defaults applied to its input:
 }
 ```
 
-At each fire, it counts the trusted "no" judgments on the agent's runs in
-its scope since the agent's last pass there. A trusted judgment is one
-recorded under a
-[restricted judge class](../../evals/judge-a-runs-output/#restrict-who-may-judge-as-a-class).
-The last pass is one that didn't fail or get cancelled, whoever started it.
-With enough of them, across enough runs, from enough judges, it starts a
-pass on a fresh test set of those runs, `improve.<pass-id>`. Otherwise the
-fire is `skipped`, and its note says which count was short.
+At each fire, it counts the "no" judgments on the agent's runs in its scope
+since the agent's last pass there, the way the pass will count them:
+everyone's until the tenant, the project, or the agent being improved has a
+[restricted judge class](../../evals/judge-a-runs-output/#restrict-who-may-judge-as-a-class),
+then only the ones recorded under one. With `classWeights` in the schedule's
+input, it counts the way that value says. The last pass is one that didn't
+fail or get cancelled, whoever started it. With enough of them, across enough
+runs, from enough judges, it starts a pass on a fresh test set of those runs,
+`improve.<pass-id>`. Otherwise the fire is `skipped`, and its note says which
+count was short.
 
 That schedule's first fire, started with `run-now`, was skipped: one judge
 short. Then the threshold was lowered to one judge:
@@ -325,6 +377,10 @@ FIRED                     FOR      OUTCOME          STARTED                     
 2026-10-09T13:25:39.201Z  run-now  skipped                                                     Not enough new trusted judgments so far: 1 of 2 judges (trusted "no" judgments met: 10, runs met: 10).
 ```
 
+This project has a restricted judge class, so the pass counts trusted
+judgments and the skip note names them. Without one, it would count every
+"no", and the note would drop "trusted".
+
 - **Its scope** is the schedule's project, `--project`, or a segment of it,
   `--segment=<key:value>`, repeated for a path. It's never the tenant or an
   org: a pass learns from one project's runs, so its evidence must cover the
@@ -335,7 +391,9 @@ FIRED                     FOR      OUTCOME          STARTED                     
   month.
 - **A monthly cap:** once the schedule's passes this month, in UTC, have
   cost `monthlyCapUsd`, its fires are skipped until the next month. A pass's
-  budget is never more than what's left of it.
+  budget is never more than what's left of it. Its cost counts the
+  comparisons that prove its best candidate, which its budget doesn't stop,
+  so a month's passes can cost more than the cap.
 - **One pass at a time:** while the schedule's previous pass still runs, a
   fire is `skipped-overlap`.
 - **At most once an hour.** Registering needs `publish` on the agent.

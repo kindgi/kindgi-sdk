@@ -41,6 +41,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'schema-validation-failed': 400,
   // Platform hierarchy scope filter.
   'scope-invalid': 400,
+  // Another system's answer to a paused tool call doesn't fit the tool's output schema.
+  'wait-token-output-invalid': 400,
   // 401 — auth
   'auth-missing': 401,
   'auth-expired': 401,
@@ -70,6 +72,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'guardrail-not-found': 404,
   'fact-not-found': 404,
   'flow-not-found': 404,
+  // No wait token matches the link (an unknown token and a wrong secret alike).
+  'wait-token-not-found': 404,
   // 409 — conflict
   'already-terminal': 409,
   'fact-changed': 409,
@@ -77,6 +81,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'erasure-in-progress': 409,
   'run-already-terminal': 409,
   'run-lease-lost': 409,
+  // The wait a token belongs to is over (`details.state`).
+  'wait-token-closed': 409,
   'idempotency-key-body-mismatch': 409,
   'idempotency-key-in-flight': 409,
   'idempotency-key-replay-withheld': 409,
@@ -122,6 +128,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'capability-unsatisfiable': 422,
   /** A tool the agent names has no version satisfying its range (or the pinned one is gone). */
   'tool-version-unresolvable': 422,
+  /**
+   * A data block the agent names can't be loaded: no version in its range
+   * (or the pinned one is gone), the wrong kind, or no blocks on the runtime.
+   */
+  'block-unresolvable': 422,
   'tool-invocation-failed': 422,
   'capability-routing-failed': 422,
   'runtime-not-configured': 422,
@@ -255,6 +266,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // The binding can't record a gated promotion, so one a policy applies to is refused.
   'promotion-gate-unsupported': 501,
   'separate-approver-required': 403,
+  // An approval addressed to one member: someone else who reads it can't decide it.
+  'named-approver-required': 403,
   'gate-policy-not-found': 404,
   'gate-policy-already-registered': 409,
   'gate-policy-scope-taken': 409,
@@ -281,6 +294,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'system-principal-required': 403,
   /** A system key without the scope the system route takes (`details.scope`). */
   'system-scope-missing': 403,
+  /** Serving one tenant: a system key holding more than `system:license` (`details.scopes`), refused on every route. */
+  'system-key-scope-not-served': 403,
   /** No system key with that id. */
   'system-key-not-found': 404,
   /** A full system key minted by another system key, with no `expiresAt`: only the deployment's own token mints one that never expires. */
@@ -378,6 +393,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'artifact-too-large': 413,
   /** A request body over the API's limit (`requestMaxBytes`); `details.maxBytes` says how much. */
   'request-too-large': 413,
+  /** A body that isn't JSON where a route takes JSON alone (a wait token's answer). */
+  'unsupported-media-type': 415,
   'run-not-finished': 409,
   'item-not-found': 400,
   // The judgment binding can't list judged runs, so no test sets from judgments.
@@ -420,6 +437,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // The operator manages sign-in (KINDGI_AUTH_TENANT_PROVIDERS=off): a
   // change to a provider takes the deployment's own token.
   'identity-providers-operator-managed': 403,
+  // The deployment has no secrets store (KINDGI_SECRETS_BACKEND), which a
+  // provider's client secret and keys are references into: adding or
+  // changing a provider waits until it has one.
+  'identity-providers-need-secrets-store': 409,
   // `GET /v1/license` or `GET /v1/license/usage` by anyone but the
   // deployment's own token or a system key holding `system:license`, save a
   // sole tenant's admins reading the license's countdown.
@@ -602,6 +623,42 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'webhook-url-refused': 400,
   'webhook-secret-not-found': 400,
   'webhook-secret-too-weak': 400,
+  // Connections (`/v1/connection-apps`, `/v1/connections`).
+  'connection-app-not-found': 404,
+  'connection-not-found': 404,
+  'connection-request-not-found': 404,
+  /** A registration that doesn't fit its entry; `field` names what. */
+  'connection-app-invalid': 400,
+  'connection-app-unknown-entry': 400,
+  /** A registration removed while it still has live connections, without `withConnections`. */
+  'connection-app-in-use': 409,
+  /** A finish by someone other than whoever started the request. */
+  'connection-not-yours': 403,
+  /**
+   * A GitHub App's finish whose person's GitHub account doesn't reach the
+   * installation (or any): `details.connectRequestId` names the request,
+   * to start again with `newInstallation`.
+   */
+  'connection-installation-unreachable': 403,
+  'connection-request-expired': 410,
+  'connection-request-used': 409,
+  /** The sign-in at the app took longer than its state lives: start again. */
+  'connection-state-expired': 410,
+  /** A reconnect signed in to an account other than the connection's. */
+  'connection-account-mismatch': 409,
+  /**
+   * A connect, or its finish, for a connection still being disconnected:
+   * disconnect it again to finish, then connect.
+   */
+  'connection-removing': 409,
+  /** The app wouldn't give a token for the code: its client id, secret or redirect URL. */
+  'connection-app-refused': 502,
+  'connection-store-failed': 503,
+  // An app's notice (`POST /v1/connection-notices/…`): one answer for any
+  // notice not accepted, whatever the reason; the server's own trouble is a
+  // 503, and the app sends it again.
+  'connection-notice-invalid': 400,
+  'connection-notice-unavailable': 503,
   // Public run tokens.
   'token-mint-failed': 500,
 } as const;

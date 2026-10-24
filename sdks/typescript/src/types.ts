@@ -467,7 +467,15 @@ export interface FixProposal {
   };
   /** What the change should improve, and why. */
   readonly hypothesis: string;
-  readonly evidence?: { readonly judgmentIds?: readonly string[] };
+  /**
+   * What it rests on. `judgmentCount` is how many judgments, when
+   * `judgmentIds` names only the first of them (an improvement pass names at
+   * most 100).
+   */
+  readonly evidence?: {
+    readonly judgmentIds?: readonly string[];
+    readonly judgmentCount?: number;
+  };
   readonly drafter:
     | { readonly kind: 'person'; readonly by: string }
     | {
@@ -495,6 +503,26 @@ export interface FixProposal {
     readonly spread?: number;
     readonly cases?: number;
     readonly better?: boolean;
+    /**
+     * How the candidate is kept: `better` (it beats the recorded outputs) or
+     * `cheaper` (no worse than the current version on the same cases, and
+     * costing less). A proposal kept as `cheaper` is `evaluated` with
+     * `better` false. Absent: `better`.
+     */
+    readonly rule?: 'better' | 'cheaper';
+    /** What the replays cost in model calls, in US dollars: the current version's and the candidate's. */
+    readonly costUsd?: { readonly current: number; readonly candidate: number };
+    /**
+     * The corrections the current version was checked on, against the
+     * candidate's: both passed (`held`), only the current version did
+     * (`broken`), or neither (`stillWrong`); the rest the candidate fixed.
+     */
+    readonly decisions?: {
+      readonly checked: number;
+      readonly held: number;
+      readonly broken: number;
+      readonly stillWrong: number;
+    };
   };
   /** The promotion its request made. */
   readonly promotion?: {
@@ -2822,6 +2850,12 @@ export interface BlobMeta {
   /** Who uploaded it: `user:<id>` or `service_account:<id>`. */
   readonly createdBy?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
+  /**
+   * The blob's S3-compatible address (`/s3/{bucket}/{key}`), both or
+   * neither: present when the server's storage gives the blob one.
+   */
+  readonly bucket?: string;
+  readonly key?: string;
 }
 
 /** Input for `artifacts.upload` (`POST /v1/artifacts`, multipart). */
@@ -3113,6 +3147,32 @@ export interface JudgmentAssertedBy {
   readonly id: string;
 }
 
+/**
+ * One call the agent should have made: the tool and the partial set of
+ * top-level argument fields to compare. Fields left out are not compared.
+ *
+ * Matches `@kindgi/api/openapi.json#ExpectedCall`.
+ */
+export interface ExpectedCall {
+  readonly tool: string;
+  readonly args: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * An expert's correction of a run's decisions: the calls the agent should
+ * have made and the tools it should not have called at all. Graded
+ * deterministically on a replay. A tool cannot be in both `calls` and
+ * `notCalled`, and one of them must be non-empty.
+ *
+ * Matches `@kindgi/api/openapi.json#Correction`.
+ */
+export interface Correction {
+  /** The calls the agent should have made. */
+  readonly calls: readonly ExpectedCall[];
+  /** Tools that should not have been called at all. */
+  readonly notCalled: readonly string[];
+}
+
 /** Matches `@kindgi/api/openapi.json#Judgment`. */
 export interface Judgment {
   readonly id: string;
@@ -3123,6 +3183,8 @@ export interface Judgment {
   readonly item: JudgedItem;
   readonly verdict: Verdict;
   readonly reason?: string;
+  /** What the agent should have done, graded on a replay. Cleared by an erasure. */
+  readonly correction?: Correction;
   /** Absent when the judgment is unclassified (it counts with weight 1). */
   readonly judgeClassId?: string;
   /**
@@ -3178,6 +3240,8 @@ export interface CreateJudgmentInput {
   readonly item: JudgedItem;
   readonly verdict: Verdict;
   readonly reason?: string;
+  /** What the agent should have done: the calls it should have made and the tools it should not have. */
+  readonly correction?: Correction;
   /** Optional. When given it must exist and apply to the run. */
   readonly judgeClassId?: string;
   /** Your opaque id for the end user who judged, when judging on their behalf. */

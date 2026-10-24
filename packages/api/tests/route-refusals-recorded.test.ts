@@ -47,6 +47,8 @@ const ID = '00000000-0000-4000-8000-0000000000ff';
  */
 const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'permission-denied',
+  'connection-not-yours',
+  'connection-installation-unreachable',
   'identity-providers-operator-managed',
   'token-sign-in-not-allowed',
   'token-sign-in-off',
@@ -58,6 +60,7 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'system-key-on-tenant-route',
   'system-principal-required',
   'system-scope-missing',
+  'system-key-scope-not-served',
 ]);
 
 /**

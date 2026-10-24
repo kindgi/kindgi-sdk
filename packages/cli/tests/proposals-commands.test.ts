@@ -437,6 +437,40 @@ describe('kindgi proposals improve', () => {
     ]);
   });
 
+  test('--pass-project: the project a tenant-scoped pass works in; left out, the API decides', async () => {
+    const { calls, rec } = recorder();
+    const improve = rec('improve', PASS);
+    const named = await run(
+      [
+        'proposals',
+        'improve',
+        '--agent=acme.scorer',
+        '--tenant',
+        '--test-set=acme.prod-judged',
+        `--pass-project=${PROJECT}`,
+      ],
+      { proposals: { improve } },
+    );
+    expect(named.exitCode, named.stderr).toBe(0);
+    const left = await run(
+      ['proposals', 'improve', '--agent=acme.scorer', '--tenant', '--test-set=acme.judged'],
+      { proposals: { improve } },
+    );
+    expect(left.exitCode, left.stderr).toBe(0);
+    expect(calls).toEqual([
+      [
+        'improve',
+        {
+          agentId: 'acme.scorer',
+          scope: { kind: 'tenant' },
+          suiteId: 'acme.prod-judged',
+          projectId: PROJECT,
+        },
+      ],
+      ['improve', { agentId: 'acme.scorer', scope: { kind: 'tenant' }, suiteId: 'acme.judged' }],
+    ]);
+  });
+
   test('--wait reads the pass until it is no longer running', async () => {
     const reads = [
       { ...PASS, candidatesEvaluated: 3 },
@@ -476,6 +510,89 @@ describe('kindgi proposals improve', () => {
         { proposals: { improve: rec('improve') } },
       );
       expect(out.exitCode, flag).toBe(2); // a usage error
+    }
+    expect(calls).toEqual([]);
+  });
+
+  test('passes the prompt-pass tuning flags through', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      [
+        'proposals',
+        'improve',
+        '--agent=acme.scorer',
+        `--project=${PROJECT}`,
+        '--segment=company:acme',
+        '--test-set=acme.judged',
+        '--tier=prompt',
+        '--class-weights=as-recorded',
+        '--provider=openai',
+        '--model=gpt-4o',
+        '--drafts=4',
+      ],
+      { proposals: { improve: rec('improve', PASS) } },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      [
+        'improve',
+        {
+          agentId: 'acme.scorer',
+          scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
+          suiteId: 'acme.judged',
+          tiers: ['prompt'],
+          classWeights: 'as-recorded',
+          model: { providerId: 'openai', model: 'gpt-4o' },
+          candidates: 4,
+        },
+      ],
+    ]);
+  });
+
+  test('--provider and --model must come together', async () => {
+    const { calls, rec } = recorder();
+    for (const flag of ['--provider=openai', '--model=gpt-4o']) {
+      const out = await run(
+        ['proposals', 'improve', '--agent=a', '--tenant', '--test-set=s', flag],
+        { proposals: { improve: rec('improve') } },
+      );
+      expect(out.exitCode, flag).toBe(2); // a usage error
+    }
+    expect(calls).toEqual([]);
+  });
+
+  test('--tier only accepts settings or prompt', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      ['proposals', 'improve', '--agent=a', '--tenant', '--test-set=s', '--tier=bogus'],
+      { proposals: { improve: rec('improve') } },
+    );
+    expect(out.exitCode).toBe(2); // a usage error
+    expect(calls).toEqual([]);
+  });
+
+  test('--tier=prompt needs --provider and --model', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      ['proposals', 'improve', '--agent=a', '--tenant', '--test-set=s', '--tier=prompt'],
+      { proposals: { improve: rec('improve') } },
+    );
+    expect(out.exitCode).toBe(2); // a usage error
+    expect(out.stderr).toContain('--tier=prompt needs --provider and --model.');
+    expect(calls).toEqual([]);
+  });
+
+  test('--provider, --model and --drafts are for a prompt pass', async () => {
+    const { calls, rec } = recorder();
+    const settingsPass = ['proposals', 'improve', '--agent=a', '--tenant', '--test-set=s'];
+    for (const extra of [['--provider=openai', '--model=gpt-4o'], ['--drafts=3']]) {
+      const out = await run([...settingsPass, ...extra], {
+        proposals: { improve: rec('improve') },
+      });
+      expect(out.exitCode, extra.join(' ')).toBe(2); // a usage error
+      expect(out.stderr, extra.join(' ')).toContain(
+        '--provider, --model and --drafts are for --tier=prompt.',
+      );
     }
     expect(calls).toEqual([]);
   });

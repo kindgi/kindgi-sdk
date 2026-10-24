@@ -14,9 +14,9 @@ A **webhook trigger** turns a signed request from outside, such as "an order
 was created" from WooCommerce, into a run of one of your flows. The sender
 posts to the trigger's **receive URL**. Kindgi checks the request's signature
 with a secret only the two of you know, and starts the flow, with the request
-body as its event. The run acts as the trigger's **owner**, whoever
-registered it or a service account named for it, checked again at every
-delivery, in the trigger's project.
+body as its event. The run acts as the trigger's **owner**, checked again
+at every delivery, in the trigger's project. That's whoever registered it
+or last changed what it runs, or a service account named for it.
 
 This guide is about Kindgi **receiving** webhooks. For Kindgi sending your
 app a request when a run ends, see
@@ -24,7 +24,18 @@ app a request when a run ends, see
 
 ## Before you start
 
-- **A pack and a runtime,** such as `kindgi dev`, with Kindgi 0.1's CLI.
+- **A pack and a runtime,** such as `kindgi dev`, with Kindgi 0.2's CLI.
+- **A secrets store and `KINDGI_ENV` on the runtime,** which `kindgi dev`
+  has. A trigger's signing secret is kept in the store, in the env the
+  runtime serves, so without either the runtime has no webhook triggers:
+  `/v1/webhooks` and `/v1/hooks` answer `404 route-not-found`. On your own
+  deployment, the store is Postgres, with `KINDGI_SECRETS_BACKEND=postgres`,
+  or [your own secret manager](../../../deploy/self-hosted/secret-manager/).
+  The environment variable reference has
+  [`KINDGI_SECRETS_BACKEND`](../../../reference/env-vars/#kindgi_secrets_backend)
+  and [`KINDGI_ENV`](../../../reference/env-vars/#kindgi_env). On Cloud Run,
+  the module sets both, unless `secrets_backend = "none"`
+  ([Without a KMS key](../../../deploy/self-hosted/cloud-run-reference/#without-a-kms-key)).
 - **A runtime the sender can reach,** with its public address in
   `KINDGI_PUBLIC_URL`, for a real sender. `kindgi dev` on your machine isn't
   reachable from a hosted store.
@@ -302,6 +313,10 @@ preset, where to paste them. With the WooCommerce preset, the secret left out:
   `runAsServiceAccountId` on `webhooks.register`
   (`run_as_service_account_id` in Python). It's recorded as evidence,
   `trigger-owner-set`.
+- **`--allow-unattended=<tool-id>`** names a tool whose calls in its runs
+  needn't wait for a person's yes, though no person started them, once for
+  each tool. It takes `admin` on the project
+  ([Tools allowed unattended](../../approvals/ask-before-a-tool-runs/#tools-allowed-unattended)).
 
 ### The presets
 
@@ -497,7 +512,8 @@ A delivery is data from outside. Its run says a webhook started it,
   a tool that asks for a person's yes when no one is watching
   waits for one, as
   [When no person started the run](../../approvals/ask-before-a-tool-runs/#when-no-person-started-the-run)
-  shows.
+  shows, unless the trigger lists it in its
+  [tools allowed unattended](../../approvals/ask-before-a-tool-runs/#tools-allowed-unattended).
 
 A run an event trigger starts reads the same, with `startedBy: "event"`.
 
@@ -510,7 +526,9 @@ A run an event trigger starts reads the same, with `startedBy: "event"`.
   resuming doesn't bring them back.
 - **`kindgi webhooks update <trigger-id>`** changes the flow version with
   `--flow-version`, which needs `execute` on the flow. It also changes the
-  secret with `--secret`, the scheme, the delivery-id header and the limits.
+  secret with `--secret`, the scheme, the delivery-id header, the limits and
+  the tools allowed unattended (`--allow-unattended`, which replaces the
+  list, or `none` to clear it).
   A delivery-id header of `none` stops deduping. The flow itself stays:
   register another trigger for another flow. To rotate the secret's value, use `kindgi secrets rotate`, then paste
   the new value into the sender. Deliveries in between are refused (`401`),
@@ -518,15 +536,31 @@ A run an event trigger starts reads the same, with `startedBy: "event"`.
   rotate when the store is quiet. The runtime keeps a trigger's signing key
   for up to 10 seconds: the old secret stops verifying at once on the
   instance that took the rotation, and within 10 seconds on the others.
+
+  When you aren't its owner, a new flow version, input, secret or list of
+  tools allowed unattended makes you its owner (runtime 0.2.0 or later),
+  and its runs act as you from the next delivery. So your own access only
+  serves what you set it to run. The label, scheme, delivery-id header and
+  limits leave its owner as it is. A trigger a service account owns keeps
+  its owner, whoever changes it, and a service account that changes a
+  person's trigger becomes its owner. Each change that moves the owner is
+  recorded as evidence, `trigger-owner-set`.
 - **`kindgi webhooks take-ownership <trigger-id>`:** for a trigger whose owner
-  left. Once they're removed from the tenant, its deliveries are refused
-  (runtime 0.1.9 or later). After 5 deliveries in a row that were refused
-  or failed, a trigger pauses itself, with the reason in its `statusReason`:
-  take it over, then `kindgi webhooks resume <trigger-id>`. Its runs act as
-  you from the next delivery. This needs `admin` on the project and `execute`
-  on the flow. With `--run-as=<service-account-id>`, the account becomes its
-  owner instead, which needs `act_as` on it too. Every take-over is recorded
-  as evidence, `trigger-owner-set`.
+  left. Once they're removed from the tenant, or the service account it runs
+  as is unregistered, its deliveries are refused (runtime 0.1.9 or later).
+  After 5 deliveries in a row whose run was refused or failed to start, a
+  trigger pauses itself, with the reason in its `statusReason`. A run refused
+  for a limit, such as `rate-limited`, or one the database was too busy to
+  start (runtime 0.1.9 or later) neither counts nor starts the count over.
+  Nor does a request turned away before that, such as one that doesn't prove
+  its sender or is past the trigger's
+  [limits](#what-kindgi-does-with-each-request). Take the trigger over, then
+  `kindgi webhooks resume <trigger-id>`. Its runs act as you from the next
+  delivery. This needs `admin` on the project and `execute` on the flow.
+  With `--run-as=<service-account-id>`, the account becomes its owner
+  instead, which needs `act_as` on it too. The trigger keeps its tools
+  allowed unattended. Every take-over is recorded as evidence,
+  `trigger-owner-set`.
 - **`kindgi webhooks unregister <trigger-id>`:** the sender is answered `410`
   from then on. WooCommerce switches a webhook off after 7 refusals in a row,
   and a `410` counts as one. A sender that doesn't prove itself still gets
@@ -536,6 +570,29 @@ From your app, the clients have the same calls on `webhooks`: `register`,
 `list`, `get`, `update`, `pause`, `resume`, `fires`, `takeOwnership` and
 `unregister`. The receive URL itself is the sender's: no Kindgi client calls
 it.
+
+## Change who it runs as, in the console
+
+A project's **Incoming webhooks** page lists its incoming webhooks, each with
+its own page. On one that runs as someone else, project admins get **Take
+over**: "The runs it starts from now on act as you, with your access. Runs
+already started keep theirs. If it's paused, it stays paused." On a
+webhook with tools allowed unattended, the dialog adds that its runs still
+call them, with the new owner's access. The webhook's page lists them
+under **Tools allowed unattended**.
+
+A tenant admin gets **Change owner…** instead (runtime 0.1.9 or later),
+whenever the tenant has a registered service account the webhook doesn't
+already run as. Its **Runs
+as** list has "You — with your access", which takes it over, and each
+registered service account, such as "nightly-bot — a service account, with
+its own access". The account it runs as now isn't listed, and on a webhook
+that runs as you the list starts at "Pick a service account". Under the
+list, the dialog says what changes before anything does, such as "The runs
+it starts from now on act as nightly-bot, with its access, not yours: it
+needs its own access to what this webhook starts." Naming an account needs
+what [`--run-as`](#2-register-the-trigger) needs, and a refusal shows in the
+runtime's words.
 
 ## Next
 

@@ -29,9 +29,8 @@ These pages continue [Self-host Kindgi](../self-host/): the same containers
 
 ## Upgrade the runtime
 
-**Upgrade at least every 90 days while Kindgi is in preview.** Until
-Kindgi 1.0, a release stops starting 90 days after it was released, and the
-runtime warns from 30 days before
+**Upgrade at least every 90 days.** A preview release stops starting 90
+days after it was released, and the runtime warns from 30 days before
 ([Licensing](../../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
 A restart after that day doesn't come back up.
 

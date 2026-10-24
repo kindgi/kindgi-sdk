@@ -153,7 +153,7 @@ export const ERROR_ENTRIES = {
   },
   'participant-not-allowed': {
     description:
-      "A turn would run as a participant, and you may not read that participant's memory. A turn reads and keeps its participant's memory, so running as one takes what the memory API takes: you're the participant yourself (that user, with their session or their own API key, never a service account's key), or you hold `write` on the turn's project. When the turn's project isn't known, only the participant may. It's checked wherever a turn gets a participant: `input.participantId` on `POST /v1/runs`, `participantId` on `POST /v1/conversations`, and a conversation's own participant when you post a turn into it, whatever the body names. Nothing was started or opened. Use a key or role with `write` on the turn's project, or have the participant run it.",
+      "A turn would run as a participant, and you may not read that participant's memory. A turn reads and keeps its participant's memory, so running as one takes what the memory API takes: you're the participant yourself (that user, with their session or their own API key, never a service account's key), or you hold `write` on the turn's project. When the turn's project isn't known, only the participant may. It's checked wherever a turn gets a participant: `input.participantId` on `POST /v1/runs`, `participantId` on `POST /v1/conversations`, and a conversation's own participant when you post a turn into it, whatever the body names. Into a conversation you can't read, the refusal answers `404 conversation-not-found` instead. Nothing was started or opened. Use a key or role with `write` on the turn's project, or have the participant run it.",
     details: [
       {
         key: 'action',
@@ -315,7 +315,7 @@ export const ERROR_ENTRIES = {
   },
   'conversation-not-found': {
     description:
-      "The conversation doesn't exist in your tenant, or a turn names one in a project your key can't read. Check the conversation id.",
+      "The conversation doesn't exist in your tenant, or you can't read it: one you can't read answers as if it weren't there when you read it or its messages, or are refused closing it, unregistering it or adding a turn. Check the conversation id, and that your key or role can read its project.",
     details: [
       {
         key: 'conversationId',
@@ -1007,6 +1007,25 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['guides/agents/agent-and-tool-versions'],
   },
+  'block-unresolvable': {
+    description:
+      "A data block the agent uses (its prompt, settings or model settings) can't be loaded: no published version matches its version range, the pinned version is gone, it's the other kind of block, or the runtime serves no blocks. Under `kindgi dev`, blocks come only from the pack's files: add the block under the pack's blocks folder, at a version the range takes.",
+    details: [
+      {
+        key: 'blockId',
+        meaning: 'the block',
+      },
+      {
+        key: 'requestedRange',
+        meaning: 'the version range or pin the agent asked for',
+      },
+      {
+        key: 'runId',
+        meaning: 'the run that failed',
+      },
+    ],
+    seeAlso: ['guides/evals/change-a-prompt-or-setting'],
+  },
   'tool-invocation-failed': {
     description:
       "A tool the agent called failed, and the agent's tool-error policy didn't let the model recover. The message carries the tool's own error.",
@@ -1072,7 +1091,38 @@ export const ERROR_ENTRIES = {
   },
   'run-resume-not-supported': {
     description:
-      "Resuming a run at a waitpoint through `POST /v1/runs/{runId}/resume` isn't available. A run waiting for an approval continues when a reviewer decides it.",
+      "Resuming a run at this waitpoint through `POST /v1/runs/{runId}/resume` isn't available. Only a run paused until another system answers (a `pause:` waitpoint) resumes there, on a server that pauses runs. A run waiting for an approval continues when a reviewer decides it.",
+    details: [],
+  },
+  'wait-token-not-found': {
+    description:
+      "No open wait matches: the link's token is unknown (a wrong or mistyped link answers the same), or the run doesn't wait at the `waitpointId` you named. A run's open waits are in `waitingFor.tokens` on `GET /v1/runs/{runId}`.",
+    details: [],
+  },
+  'wait-token-closed': {
+    description:
+      'The wait is over, so it takes no other answer: it already took a different answer, its time passed, its run was cancelled, or its tool call answered without waiting or was retried and waits on a new link. Sending the answer it took again is accepted, not refused.',
+    details: [
+      {
+        key: 'state',
+        meaning:
+          'why the wait is over: `answered` or `completed` (it took a different answer), `timed-out`, `cancelled` or `unused`',
+      },
+    ],
+  },
+  'wait-token-output-invalid': {
+    description:
+      "The answer doesn't fit the output schema of the tool that waits for it. Nothing is taken and the wait stays open: fix the answer and send it again before the wait times out.",
+    details: [
+      {
+        key: 'issues',
+        meaning: 'list of problems, each with a path to the offending field and a message',
+      },
+    ],
+  },
+  'unsupported-media-type': {
+    description:
+      "The body isn't JSON where the route takes JSON alone: an answer to a wait (`POST /v1/wait-tokens/{token}/complete`) is sent with `Content-Type: application/json`, or with no body at all.",
     details: [],
   },
   'semantic-unavailable': {
@@ -1087,7 +1137,7 @@ export const ERROR_ENTRIES = {
   },
   'rate-limit-exceeded': {
     description:
-      "You sent too many requests, or a tenant reached one of its limits: a webhook trigger got more deliveries than its per-minute limit, a client sent too many refused webhook requests, too many sign-in lookups came from one source, or the tenant reached its limit on API requests or webhook deliveries a minute, or on runs waiting to start. A tenant's API requests to `/v1` and `/s3` count together; on `/s3`, its limit answers as S3 does, with `503 SlowDown` and `Retry-After`, not with this code. On a server with budgets kept per tenant (Kindgi Cloud), it's also the answer when the tenant's schemas took their budget compiling, or its instructions templates rendering, in the last 60 seconds; an agent's turn refused this way fails its run with this code. A deploy is refused with it too when the tenant's image reads unpacked as much as they may in an hour. Retry after the `Retry-After` header; a refusal by the limit on runs waiting to start has none: retry once some have started.",
+      "You sent too many requests, or a tenant reached one of its limits: a webhook trigger got more deliveries than its per-minute limit, a client sent too many refused webhook requests, too many sign-in lookups came from one source, a client sent wait tokens' links more than 600 requests in a minute, or the tenant reached its limit on API requests or webhook deliveries a minute, or on runs waiting to start. A tenant's API requests to `/v1` and `/s3` count together; on `/s3`, its limit answers as S3 does, with `503 SlowDown` and `Retry-After`, not with this code. On a server with budgets kept per tenant (Kindgi Cloud), it's also the answer when the tenant's schemas took their budget compiling, or its instructions templates rendering, in the last 60 seconds; an agent's turn refused this way fails its run with this code. A deploy is refused with it too when the tenant's image reads unpacked as much as they may in an hour. Retry after the `Retry-After` header; a refusal by the limit on runs waiting to start has none: retry once some have started.",
     details: [
       {
         key: 'limit',
@@ -1665,25 +1715,41 @@ export const ERROR_ENTRIES = {
   },
   'block-already-registered': {
     description:
-      'That block version is already published; versions never change, so publish a new version.',
+      "That block version is already published; versions never change, so publish a new version. On a deployment, the runtime holds a version of the pack's block with other content, or unregistered: give the block a new version in the pack, or reinstate the unregistered one (`kindgi blocks reinstate`). The message names each one.",
     details: [
       {
         key: 'blockId',
-        meaning: 'the block id',
+        meaning: 'the block id (single publish)',
       },
       {
         key: 'version',
-        meaning: 'the version that exists',
+        meaning: 'the version that exists (single publish)',
+      },
+      {
+        key: 'primitive',
+        meaning: 'on a deployment: the kind of item refused (`block`)',
+      },
+      {
+        key: 'id',
+        meaning: 'on a deployment: the refused block, as `id@version`',
       },
     ],
   },
   'block-project-mismatch': {
     description:
-      'The block belongs to another project. Publish its versions in the project that owns it.',
+      'The block belongs to another project. Publish its versions, or deploy the pack that brings it, in the project that owns it.',
     details: [
       {
         key: 'blockId',
-        meaning: 'the block id',
+        meaning: 'the block id (single publish)',
+      },
+      {
+        key: 'primitive',
+        meaning: 'on a deployment: the kind of item refused (`block`)',
+      },
+      {
+        key: 'id',
+        meaning: 'on a deployment: the refused block, as `id@version`',
       },
     ],
   },
@@ -1854,6 +1920,17 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['guides/approvals/decide-an-approval'],
   },
+  'named-approver-required': {
+    description:
+      "The approval is addressed to one person: the call it gates acts with that person's own connection, so only they decide it. You can read it, but not decide it.",
+    details: [
+      {
+        key: 'approvalId',
+        meaning: 'the approval only its approver decides',
+      },
+    ],
+    seeAlso: ['guides/approvals/decide-an-approval'],
+  },
   'gate-policy-not-found': {
     description: 'No gate policy with that id exists, or it has no version with that number.',
     details: [
@@ -2019,7 +2096,7 @@ export const ERROR_ENTRIES = {
   },
   'system-scope-missing': {
     description:
-      "The system key doesn't hold the scope this request takes, which `scope` names: the route's own, or more for what the request asks (creating a tenant without `firstAdmin`, for one). Every `/v1/system/keys` route takes the full system capability, which a scoped key doesn't hold. A deployment's secret values (`secrets=values` on its pack env) take a key holding `system:pack-env` itself: `kindgi:system` doesn't stand in for it.",
+      "The system key doesn't hold the scope this request takes, which `scope` names: the route's own, or more for what the request asks (creating a tenant without `firstAdmin`, for one). Every `/v1/system/keys` route takes the full system capability, which a scoped key doesn't hold. A deployment's secret values (`secrets=values` on its pack env) take a key holding `system:pack-env` itself: `kindgi:system` doesn't stand in for it. On a runtime serving one tenant, a system key reaches no `/v1/system/*` route, and `scope` is `kindgi:system`: the system keys take the deployment's own token there.",
     details: [
       {
         key: 'scope',
@@ -2039,6 +2116,33 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'system-key-scope-not-served': {
+    description:
+      "The runtime serves one tenant, where a system key holds `system:license` alone, and this key holds anything else, which `scopes` names: it was minted while the runtime served many tenants, say. It's refused on every route. Mint one holding `system:license` with the deployment's own token, and revoke this one.",
+    details: [
+      {
+        key: 'scopes',
+        meaning: 'the scopes the key holds',
+      },
+      {
+        key: 'served',
+        meaning: 'the scopes a system key may hold on this runtime',
+      },
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+    seeAlso: ['POST /v1/system/keys', 'POST /v1/system/keys/{keyId}/revoke'],
+  },
   'system-key-not-found': {
     description: 'No system key has that id.',
     details: [],
@@ -2055,7 +2159,7 @@ export const ERROR_ENTRIES = {
   },
   'tenant-closing': {
     description:
-      "The tenant is closing. Its own keys and sessions can read and export it until it's deleted, but not change it: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers that proves its sender is refused the same way, and nothing is recorded for it. A schedule's or webhook trigger's fire whose run starts as the tenant starts closing is recorded `skipped`, with `tenant-closing` in its `detail`, and doesn't count toward a schedule's auto-pause. An eval run or an improvement pass going as it starts closing stops at its next case: it ends `cancelled`, with `tenant-closing` in its `cancelReason`. The system routes that change its settings, limits, image prefix, a suspension or a deployment's endpoint refuse a closing tenant; clearing its deployments' endpoints, which retires its pack services, still works. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+      "The tenant is closing. Its own keys and sessions can read and export it until it's deleted, but not change it: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers that proves its sender is refused the same way, and nothing is recorded for it. So is an answer to one of its runs' waits through the wait token's link, and nothing is taken. A schedule's or webhook trigger's fire whose run starts as the tenant starts closing is recorded `skipped`, with `tenant-closing` in its `detail`, and doesn't count toward a schedule's auto-pause. An eval run or an improvement pass going as it starts closing stops at its next case: it ends `cancelled`, with `tenant-closing` in its `cancelReason`. The system routes that change its settings, limits, image prefix, a suspension or a deployment's endpoint refuse a closing tenant; clearing its deployments' endpoints, which retires its pack services, still works. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
     details: [
       {
         key: 'state',
@@ -2069,7 +2173,7 @@ export const ERROR_ENTRIES = {
   },
   'tenant-suspended': {
     description:
-      "The tenant is suspended. Its own keys and sessions can read and export it, but not change it until it's restored: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: tenant-suspended`, and nothing is recorded or kept for it. A sender that can redeliver by hand can resend it once the tenant is restored, and a restore is seen within 5 seconds. Its schedules don't fire while it's suspended, and nothing is caught up: at the restore, a schedule's or webhook trigger's fire whose run or pass hadn't started is recorded `skipped`, with `tenant-suspended` in its `detail`, and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. An eval run or an improvement pass going as it's suspended stops at its next case: it ends `cancelled`, with `tenant-suspended` in its `cancelReason`. A fire whose run was starting as the tenant was suspended is recorded `skipped` right away, with `tenant-suspended` in its `detail`. None of it counts toward a schedule's auto-pause. Setting a deployment's endpoint (`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`) refuses a suspended tenant too. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+      "The tenant is suspended. Its own keys and sessions can read and export it, but not change it until it's restored: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: tenant-suspended`, and nothing is recorded or kept for it. A sender that can redeliver by hand can resend it once the tenant is restored, and a restore is seen within 5 seconds. An answer to one of its runs' waits through the wait token's link is refused with this code, and nothing is taken: a suspension cancels the tenant's runs, paused ones included. Its schedules don't fire while it's suspended, and nothing is caught up: at the restore, a schedule's or webhook trigger's fire whose run or pass hadn't started is recorded `skipped`, with `tenant-suspended` in its `detail`, and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. An eval run or an improvement pass going as it's suspended stops at its next case: it ends `cancelled`, with `tenant-suspended` in its `cancelReason`. A fire whose run was starting as the tenant was suspended is recorded `skipped` right away, with `tenant-suspended` in its `detail`. None of it counts toward a schedule's auto-pause. Setting a deployment's endpoint (`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`) refuses a suspended tenant too. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
     details: [
       {
         key: 'state',
@@ -2565,6 +2669,17 @@ export const ERROR_ENTRIES = {
       "The deployment's operator manages sign-in, so changing identity providers needs the deployment's own token; a tenant admin's key is refused.",
     details: [],
   },
+  'identity-providers-need-secrets-store': {
+    description:
+      "The deployment has no secrets store (`KINDGI_SECRETS_BACKEND` is `none`), and an identity provider's client secret and keys are references into one, so no provider is added or changed until the operator sets one up. Removing a provider still works. Continue with Google, Microsoft or GitHub and the emailed link don't need a store.",
+    details: [
+      {
+        key: 'providerId',
+        meaning: 'the provider that was being added or changed',
+      },
+    ],
+    seeAlso: ['deploy/self-hosted/sign-in', 'deploy/self-hosted/secret-manager'],
+  },
   'license-operator-only': {
     description:
       "`GET /v1/license` and `GET /v1/license/usage` are for the deployment's own token, or a system key holding `system:license`. Where the deployment is set up to serve one tenant (without `KINDGI_TENANCY=multi`) and its database holds only that one, that tenant's admins also read the license's countdown, never its use. Other callers are refused, and the refusal recorded.",
@@ -2787,7 +2902,7 @@ export const ERROR_ENTRIES = {
   },
   'project-suspended': {
     description:
-      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an eval run started in it, an improvement pass for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. An eval run or a pass already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or pass: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project. A promotion from it or into it is refused too: `details.environment` says which.",
+      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an answer to one of its runs' waits (through the wait token's link or `POST /v1/runs/{runId}/resume`; a suspension cancels its runs, paused ones included), an eval run started in it, an improvement pass for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. An eval run or a pass already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or pass: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project. A promotion from it or into it is refused too: `details.environment` says which.",
     details: [
       {
         key: 'environment',
@@ -3384,9 +3499,9 @@ export const ERROR_ENTRIES = {
   },
   'secret-store-error': {
     description:
-      "The secrets store failed in a way the other secret codes don't cover, such as a database error, an invalid name for the store, or a provider feature it doesn't support.",
+      "The secrets store failed in a way the other secret codes don't cover, such as a database error, an invalid name for the store, or a provider feature it doesn't support. With your own secret manager, it's also the answer for a secret stored under a name outside the rule for new names: store its value again under a name that fits.",
     details: [],
-    seeAlso: ['guides/secrets/store-a-secret'],
+    seeAlso: ['guides/secrets/store-a-secret', 'deploy/self-hosted/secret-manager'],
   },
   'secret-operation-unsupported': {
     description:
@@ -3538,6 +3653,128 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'connection-app-not-found': {
+    description:
+      'No app registration with that id in the tenant, or it was removed. On a connect, no registration of the app is set up, or none serves the project: a tenant admin adds one. A connect request whose registration has been removed since answers it too: start a new connect once a tenant admin sets the app up again. `GET /v1/connection-apps` lists the registrations.',
+    details: [
+      {
+        key: 'appId',
+        meaning: 'the registration id that was not found, when the call named it in its path',
+      },
+      {
+        key: 'field',
+        meaning:
+          'on a connect, the field that names the app (`app`, or `appId` when it named a registration)',
+      },
+    ],
+  },
+  'connection-not-found': {
+    description:
+      "No connection with that id that the caller can reach. A person's connection is reachable by that person and a tenant admin; the company's, by a tenant admin. It may have been disconnected.",
+    details: [
+      {
+        key: 'connectionId',
+        meaning: 'the connection id that was not found',
+      },
+    ],
+  },
+  'connection-request-not-found': {
+    description:
+      "No connect request with that id that the caller can act on, or none for the sign-in that came back from the app. A person's connect request is that person's alone; the company's, a tenant admin's. Start a new connect.",
+    details: [
+      {
+        key: 'requestId',
+        meaning: 'the connect request id that was not found, when the call named one',
+      },
+      {
+        key: 'field',
+        meaning: '`state`, when the sign-in came back with no state',
+      },
+    ],
+  },
+  'connection-app-invalid': {
+    description:
+      "An app registration that doesn't fit its app's entry, or no registration that fits a connect. A project uses one registration of an app, so a registration that would serve a project another registration of the app serves answers it too (field `projects`). So does changing a registration's client (its client id, its directory, or its GitHub App) while it has live connections: disconnect them first, then change it and connect again. The message says what's wrong.",
+    details: [
+      {
+        key: 'field',
+        meaning: 'the input field at fault, when there is one',
+      },
+    ],
+  },
+  'connection-app-unknown-entry': {
+    description:
+      'A registration or a connect names an app this server has no entry for, or no longer has. `GET /v1/connection-entries` lists the apps it knows.',
+    details: [
+      {
+        key: 'field',
+        meaning: 'the input field that names the app (`app`)',
+      },
+    ],
+  },
+  'connection-app-in-use': {
+    description:
+      'Removing an app registration that still has live connections. Remove it with `withConnections=true` to remove those connections too, or disconnect them first.',
+    details: [],
+  },
+  'connection-not-yours': {
+    description:
+      'Finishing a connect that someone else started: only whoever started it can finish it, signed in as themselves.',
+    details: [],
+  },
+  'connection-installation-unreachable': {
+    description:
+      "A GitHub App's connect whose person's GitHub account doesn't reach the installation, or any installation of the app. Start that request again with `newInstallation` to install the app on an account they manage, or ask an owner of the account it's installed on.",
+    details: [
+      {
+        key: 'connectRequestId',
+        meaning: 'the connect request to start again',
+      },
+    ],
+  },
+  'connection-request-expired': {
+    description: 'The connect request expired before it was used. Start a new connect.',
+    details: [],
+  },
+  'connection-request-used': {
+    description:
+      'The connect request was finished already: each one is used once. Start a new connect to connect again.',
+    details: [],
+  },
+  'connection-state-expired': {
+    description:
+      'The sign-in at the app took longer than its state lives. Start the connect again.',
+    details: [],
+  },
+  'connection-account-mismatch': {
+    description:
+      "A reconnect signed in to an account other than the connection's. Sign in with the same account; to connect another account instead, disconnect, then connect again.",
+    details: [],
+  },
+  'connection-removing': {
+    description:
+      "A connect, or its finish, for a connection that's still being disconnected: an earlier disconnect didn't get to the end. Disconnect it again to finish, then connect.",
+    details: [],
+  },
+  'connection-app-refused': {
+    description:
+      "The app refused or failed a call the connect needed, or didn't give what a connection needs (a refresh token, or which account signed in). Often the registration's client id, client secret or redirect URL doesn't match the app's settings. On GitHub, an install still waiting for an owner's approval is refused too, until an owner approves it. Start the connect again.",
+    details: [],
+  },
+  'connection-store-failed': {
+    description:
+      "The server couldn't read or write its connections (registrations, connect requests, connections or their tokens) just now. Try again; if it keeps failing, an operator checks the database and the secrets store.",
+    details: [],
+  },
+  'connection-notice-invalid': {
+    description:
+      "An app's notice to `POST /v1/connection-notices/{tenantId}/{appId}` wasn't accepted. It's one answer for every reason, such as a signature or token that doesn't check out, so the sender learns nothing from it.",
+    details: [],
+  },
+  'connection-notice-unavailable': {
+    description: "The server couldn't handle an app's notice just now. The app sends it again.",
+    details: [],
+  },
   'token-mint-failed': {
     description:
       "The runtime couldn't sign a public run token, for example because it has no usable signing key. Report it to an admin of the deployment.",
@@ -3611,7 +3848,7 @@ export const OUTSIDE_THE_MAP = [
     code: 'sign-in-unavailable',
     status: 500,
     description:
-      "Signing in failed on the server, for example because its database didn't answer. Nothing about the cause is sent to the browser; a sign-in page shows the code instead of JSON. The runtime's log says why, as an `sso` warning: `sign-in request failed: <reason>`. Try again.",
+      "Signing in failed on the server: its database didn't answer, say, or an identity provider's settings can't start a sign-in, or a SAML response the provider's page posted was refused. Nothing about the cause is sent to the browser; a sign-in page shows the code instead of JSON. The runtime's log says why, as an `sso` warning: `sign-in request failed: <reason>`, `sign-in with provider <id> didn't start: <reason>`, or `a SAML response for provider <id> was refused: <status> <code>: <message>`. Try again; when it keeps failing, the warning says what to fix.",
     seeAlso: ['deploy/self-hosted/sign-in'],
   },
 ];

@@ -25,7 +25,7 @@ API, as this guide shows.
 
 ## Before you start
 
-- **A runtime,** such as `kindgi dev`, with Kindgi 0.1's CLI.
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.2's CLI.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set in your shell: your
   runtime's URL and its API token. `kindgi dev` prints both.
 - **`uv`,** to run the example server.
@@ -484,9 +484,16 @@ Store the secret with
 unregister the endpoint and register it again, as
 [When the server changes](#when-the-server-changes) shows.
 
+Whichever way it's sent, a credential the server quotes back in an error
+shows as `[redacted]`: in the tool call's result, the run's events, the
+endpoint's
+[resource and prompt reads](../../../reference/api/operations/tags/mcp/),
+and the logs ([what's looked for](../give-a-tool-a-secret/#store-the-secret)).
+
 A `stdio` server gets no headers, so `secretRef` and `auth` aren't for it:
 it's given its secrets as variables
-([Give a stdio server a secret](#give-a-stdio-server-a-secret)).
+([Give a stdio server a secret](#give-a-stdio-server-a-secret)). Neither
+those nor what's in its `env` are looked for.
 
 ### Sign in with a user name and password
 

@@ -144,14 +144,31 @@ describe('an improve schedule', () => {
       input: {
         tiers: ['settings'],
         objective: 'weightedYesShare',
-        classWeights: 'restricted-only',
         budget: { maxCostUsd: 5, maxCandidates: 30 },
         threshold: { judgments: 5, runs: 3, judges: 2 },
         monthlyCapUsd: 20,
       },
     });
+    // classWeights is not defaulted onto the schedule: it's resolved against
+    // the project each time the schedule fires, so naming a restricted judge class
+    // later flips the default without editing the schedule.
+    expect(body.input).not.toHaveProperty('classWeights');
     expect(body).not.toHaveProperty('agentId');
     expect(body).not.toHaveProperty('flowId');
+  });
+
+  test('a schedule keeps an explicit classWeights instead of resolving it later', async () => {
+    const res = await app().built.request(
+      '/v1/schedules',
+      send('POST', {
+        ...hourly,
+        config: { cronExpression: '0 * * * *', input: { classWeights: 'as-recorded' } },
+      }),
+    );
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { input: unknown }).input).toMatchObject({
+      classWeights: 'as-recorded',
+    });
   });
 
   test('a prompt improve schedule keeps its model, and its own threshold and cap', async () => {

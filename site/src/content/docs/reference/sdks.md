@@ -41,7 +41,7 @@ Java client.
 | [Agents](../../guides/agents/write-an-agent/), with [typed answers](../../guides/agents/typed-answer/), [memory](../../guides/agents/give-an-agent-memory/) and [budgets](../../guides/agents/budgets/) | Yes | Yes | Yes | Yes |
 | [Flows](../../guides/flows/write-a-flow/): branches, loops, parallel steps, retries, approvals | Yes | Yes | Yes | Yes |
 | Unit-testing a tool | Yes | Yes | Yes | Yes |
-| A test context with env values and secrets, checked as a run checks them | Yes | Partly | Partly | Partly |
+| A test context with env values and secrets, its env values decided as a run decides them | Yes | Yes | Yes | Yes |
 
 In Java and Scala, an agent's or a flow's fields beyond the builder's own go
 in as data, as the API names them: `set("budget", …)`, `node(Map.of(…))`,
@@ -55,32 +55,15 @@ in as data, as the API names them: `set("budget", …)`, `node(Map.of(…))`,
 | [Start a run](../../guides/runs/start-a-run/), and wait for it or not | Yes | Yes | Yes | Yes |
 | [Follow a run's events](../../guides/runs/follow-a-run/), reconnecting until it ends | Yes | Yes | Yes | Yes |
 | Typed errors, and retries a call can take | Yes | Yes | Yes | Yes |
-| [Comparing an agent version](../../guides/evals/compare-an-agent-version/): a helper that reads the comparison | Yes | Yes | No | No |
-| [Verifying a webhook](../../guides/webhooks/verify-a-webhook/), reading its event, signing a test one | Yes | Yes | No | No |
-| [Checking a signed export](../../guides/observability/export-signed-evidence/#check-an-export) | Yes | Yes | No | No |
+| [Comparing an agent version](../../guides/evals/compare-an-agent-version/): a helper that reads the comparison | Yes | Yes | Yes | Yes |
+| [Verifying a webhook](../../guides/webhooks/verify-a-webhook/), reading its event, signing a test one | Yes | Yes | Yes | Yes |
+| [Checking a signed export](../../guides/observability/export-signed-evidence/#check-an-export) | Yes | Yes | Yes | Yes |
 
 ## Where an SDK lacks a feature
 
 - **HTTP tools without code:** in a Java or Scala pack, write a tool whose
   handler makes the request
   ([When to write a handler instead](../../guides/tools/http-tools/#when-to-write-a-handler-instead)).
-- **A test context with env values and secrets:** in Python,
-  `ToolContext.for_test(env=…, secrets=…)` sets them. In Java and Scala,
-  build the context with `new ToolContext(…)`, which takes them. In those
-  three, nothing fills in the defaults a tool declares for its env values or
-  checks them, as TypeScript's `invokeToolForTest` does.
-- **The comparison helper:** an eval run's `result()`, from
-  `client.evalRuns().get(runId)`, is a map; for a comparison, read it as the
-  client's `JudgedComparisonResult`:
-  `KindgiJson.read(KindgiJson.write(run.result()), JudgedComparisonResult.class)`.
-  Check first that the run is a comparison (`kind` `judged`) and has ended.
-- **Webhooks:** Kindgi's deliveries are
-  [Standard Webhooks](https://www.standardwebhooks.com), so a Standard
-  Webhooks library verifies them with the same secret.
-  `client.webhookEndpoints().generateSecret()` gives a new secret.
-- **Signed exports:** check one with the CLI, `./kindgiw exports verify <file>
-  --from-runtime`. `<file>` is the export's path. `--from-runtime` trusts the
-  keys your runtime signs exports with.
 
 The guides show each language in its own tab. Where a guide has no tab for
 your language, the [In a pack](#in-a-pack) and [In your app](#in-your-app)
