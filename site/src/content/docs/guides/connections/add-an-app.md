@@ -14,8 +14,9 @@ Google, Microsoft, GitHub and LinkedIn have entries in `@kindgi/connections`.
 
 An app that signs people in with standard OAuth 2.0 (the authorization code
 flow, with PKCE) fits the sign-in Kindgi already has, so adding it takes
-only its entry and its tools in `@kindgi/connections`, and its setup page
-in these docs. An app that signs in
+its entry and its tools in `@kindgi/connections`, its setup page in these
+docs, and a runtime release that serves it: a runtime registers only the
+apps whose entries it ships with. An app that signs in
 some other way needs code in the runtime as well.
 
 ## An entry

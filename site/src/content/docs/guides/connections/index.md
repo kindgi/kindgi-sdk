@@ -50,8 +50,10 @@ secret), its runs act as them from then on, with their connections
 
 ## When nobody has connected yet
 
-- **Your own connection, in a run you started:** the run waits, and its
-  page shows a **Connect** button. Once you've connected, the run goes on.
+- **Your own connection, in a run you started:** an agent's call waits,
+  and the run's page asks you to connect, as in **Connect Google**, with
+  a link. Once you've connected, the run goes on. A flow's tool step
+  can't wait, so it fails with `connection-missing`.
 - **Anything else** fails the call with `connection-missing`, naming the
   app and what's missing: a person's connection in a schedule's or a
   webhook's run, where nobody is there to connect, and the company's

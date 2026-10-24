@@ -124,10 +124,14 @@ doesn't withdraw at Google, and only destroys this connection's token.
   again. In any other run, the call fails with `connection-missing`, and
   the **Connections** page shows it.
 - **Removed by the person at Google,** or their account disabled: Kindgi
-  finds out at the next call, and the connection needs reconnecting.
+  finds out the next time it renews the token, and the connection needs
+  reconnecting.
 
 To hear about it at once, Google can send a notice to Kindgi
 ([Cross-Account Protection](https://developers.google.com/identity/protocols/risc)).
+Then a removal, or a disabled account, removes the person's connections
+as soon as the notice comes, since their access is already gone at
+Google.
 It needs the runtime's public address to be reachable from the internet
 over HTTPS. Register the **RISC receiver** address the **App
 registrations** page shows for the client as your receiver
