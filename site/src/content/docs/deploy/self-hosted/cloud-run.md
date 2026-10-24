@@ -679,14 +679,14 @@ read -rs SMTP_URL && printf '%s' "$SMTP_URL" | gcloud secrets create $N-smtp-url
 ```
 
 ```hcl excerpt
-public_url = "https://kindgi-dev-server-abc123-pd.a.run.app" # terraform output -raw server_url
+public_url = "https://kindgi-server-abc123-pd.a.run.app" # terraform output -raw server_url
 server_env = {
   KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
   KINDGI_AUTH_EMAIL_FROM       = "kindgi@acme.example"
 }
 server_secret_env = {
-  KINDGI_AUTH_SECRET         = { secret = "kindgi-dev-auth-secret", version = "1" }
-  KINDGI_AUTH_EMAIL_SMTP_URL = { secret = "kindgi-dev-smtp-url", version = "1" }
+  KINDGI_AUTH_SECRET         = { secret = "kindgi-auth-secret", version = "1" }
+  KINDGI_AUTH_EMAIL_SMTP_URL = { secret = "kindgi-smtp-url", version = "1" }
 }
 ```
 
@@ -707,7 +707,7 @@ redirect URI is `public_url` followed by
 `/auth/kindgi/social/callback/google`:
 
 ```text
-https://kindgi-dev-server-abc123-pd.a.run.app/auth/kindgi/social/callback/google
+https://kindgi-server-abc123-pd.a.run.app/auth/kindgi/social/callback/google
 ```
 
 Store the client's secret, then give the runtime the client's ID and the
@@ -719,13 +719,13 @@ read -rs GOOGLE_SECRET && printf '%s' "$GOOGLE_SECRET" | gcloud secrets create $
 ```
 
 ```hcl excerpt
-public_url = "https://kindgi-dev-server-abc123-pd.a.run.app"
+public_url = "https://kindgi-server-abc123-pd.a.run.app"
 server_env = {
   KINDGI_AUTH_GOOGLE_CLIENT_ID = "<client id>"
 }
 server_secret_env = {
-  KINDGI_AUTH_SECRET               = { secret = "kindgi-dev-auth-secret", version = "1" }
-  KINDGI_AUTH_GOOGLE_CLIENT_SECRET = { secret = "kindgi-dev-google-client-secret", version = "1" }
+  KINDGI_AUTH_SECRET               = { secret = "kindgi-auth-secret", version = "1" }
+  KINDGI_AUTH_GOOGLE_CLIENT_SECRET = { secret = "kindgi-google-client-secret", version = "1" }
 }
 ```
 
@@ -852,7 +852,7 @@ A new grant can take a minute or two to apply.
 
   ```hcl excerpt
   server_secret_env = {
-    KINDGI_ERASURE_LEDGER_KEY = { secret = "kindgi-dev-erasure-ledger-key", version = "1" }
+    KINDGI_ERASURE_LEDGER_KEY = { secret = "kindgi-erasure-ledger-key", version = "1" }
   }
   ```
 
