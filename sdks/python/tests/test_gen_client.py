@@ -94,8 +94,34 @@ def holder(field: str) -> dict[str, Any]:
     }
 
 
-def generate(tmp_path: Path, schemas: dict[str, Any], names: Path | None = None) -> Path:
-    """Generate from `schemas`; the generated module's path."""
+def generate(
+    tmp_path: Path,
+    schemas: dict[str, Any],
+    names: Path | None = None,
+    response: str = "Flow",
+    body: str | None = None,
+    answers: dict[str, str] | None = None,
+) -> Path:
+    """Generate from `schemas`, `response` the one operation's answer (or `answers`, by
+    status; and `body` another's request); the generated module's path."""
+    responses = {
+        status: {
+            "description": "The flow.",
+            "content": {"application/json": {"schema": {"$ref": f"#/components/schemas/{name}"}}},
+        }
+        for status, name in (answers or {"200": response}).items()
+    }
+    sent = {
+        "post": {
+            "operationId": "flows.send",
+            "requestBody": {
+                "content": {
+                    "application/json": {"schema": {"$ref": f"#/components/schemas/{body}"}}
+                }
+            },
+            "responses": {"204": {"description": "Sent."}},
+        }
+    }
     openapi = tmp_path / "openapi.json"
     openapi.write_text(
         json.dumps(
@@ -114,18 +140,10 @@ def generate(tmp_path: Path, schemas: dict[str, Any], names: Path | None = None)
                                     "schema": {"type": "string"},
                                 }
                             ],
-                            "responses": {
-                                "200": {
-                                    "description": "The flow.",
-                                    "content": {
-                                        "application/json": {
-                                            "schema": {"$ref": "#/components/schemas/Flow"}
-                                        }
-                                    },
-                                }
-                            },
+                            "responses": responses,
                         }
-                    }
+                    },
+                    **({"/v1/flows": sent} if body else {}),
                 },
                 "components": {"schemas": schemas},
             }
@@ -352,3 +370,225 @@ def test_a_member_put_first_in_any_numbered_union_fails_generation_naming_its_na
         generate_api(tmp_path, first_in(union))
     for name in names:
         assert re.search(rf"^  {name}: was at ", str(failed.value), re.M), name
+
+
+# `Secret` answered: its enums and its union `Scope` are a response's. An enum of one value
+# may gain values, so it's open too; a `const` never does.
+SECRET: dict[str, Any] = {
+    **SCHEMAS,
+    "Secret": {
+        "type": "object",
+        "properties": {
+            "scope": {"$ref": "#/components/schemas/Scope"},
+            "state": {"type": "string", "enum": ["live", "retired"]},
+            "algorithm": {"type": "string", "enum": ["ed25519"]},
+            "format": {"type": "string", "const": "pem"},
+        },
+    },
+}
+
+
+def typed(models: Path, name: str) -> dict[str, str]:
+    """`name`'s fields by wire name, each to its annotation as `ast` writes it."""
+    rows = gen.model_fields(ast.parse(models.read_text("utf-8")))[name]
+    return {wire: ast.unparse(annotation) for wire, annotation in rows}
+
+
+def test_a_responses_enums_and_tagged_unions_are_read_open(tmp_path: Path) -> None:
+    models = generate(tmp_path, SECRET, response="Secret")
+    secret = typed(models, "Secret")
+    assert secret["state"] == "Annotated[Literal['live', 'retired'] | str, _open.OPEN] | None"
+    assert secret["algorithm"] == "Annotated[Literal['ed25519'] | str, _open.OPEN] | None"
+    assert secret["format"] == "Literal['pem'] | None"
+    assert secret["scope"] == (
+        "Annotated[ScopeTenant | ScopeOrg | ScopeUnrecognized,"
+        " _open.OpenUnion('kind', ScopeUnrecognized)] | None"
+    )
+    assert typed(models, "ScopeUnrecognized") == {"kind": "str"}
+    # The members keep their tags closed, an enum's (`org`) too: `OpenUnion` picks a member
+    # by them.
+    assert typed(models, "ScopeTenant")["kind"] == "Literal['tenant']"
+    assert typed(models, "ScopeOrg")["kind"] == "Literal['org']"
+    written = json.loads((tmp_path / "out" / "model_names.json").read_text("utf-8"))
+    assert written["ScopeUnrecognized"] == ["ScopeUnrecognized"]
+
+
+def test_what_no_response_reaches_stays_closed(tmp_path: Path) -> None:
+    models = generate(tmp_path, SECRET)
+    assert typed(models, "Secret")["state"] == "Literal['live', 'retired'] | None"
+    assert typed(models, "Secret")["algorithm"] == "Literal['ed25519'] | None"
+    assert "ScopeUnrecognized" not in fields(models)
+
+
+def test_a_fallback_named_like_a_component_fails_generation(tmp_path: Path) -> None:
+    taken = {"type": "object", "properties": {"note": {"type": "string"}}}
+    with pytest.raises(
+        SystemExit, match="Scope's fallback ScopeUnrecognized collides with a component"
+    ):
+        generate(tmp_path, {**SECRET, "ScopeUnrecognized": taken}, response="Secret")
+
+
+def test_a_fallback_named_like_a_pinned_model_fails_generation(tmp_path: Path) -> None:
+    generate(tmp_path, SECRET)
+    names = tmp_path / "pinned.json"
+    pinned = json.loads((tmp_path / "out" / "model_names.json").read_text("utf-8"))
+    names.write_text(json.dumps({**pinned, "ScopeUnrecognized": ["Judged.flow"]}), "utf-8")
+    with pytest.raises(
+        SystemExit,
+        match=r"Scope's fallback ScopeUnrecognized collides with a model at Judged\.flow",
+    ):
+        generate(tmp_path, SECRET, names, response="Secret")
+
+
+def test_a_response_left_closed_fails_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(gen, "open_responses", lambda doc, ops, pinned, tags: {})
+    with pytest.raises(SystemExit, match="closed in a response") as failed:
+        generate(tmp_path, SECRET, response="Secret")
+    lines = str(failed.value).splitlines()
+    assert "  Secret.state: an enum (flows.get)" in lines
+    # An enum of one value: from the document, as its `Literal` is a `const`'s too.
+    assert "  Secret.algorithm: an enum (flows.get)" in lines
+    assert "  Secret.format: an enum (flows.get)" not in lines
+    assert "  Secret.scope: a union by `kind` (flows.get)" in lines
+
+
+def test_an_opened_tag_fails_generation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(gen, "union_tags", lambda doc, ops: set())
+    with pytest.raises(SystemExit, match="a union can't tell its members apart") as failed:
+        generate(tmp_path, SECRET, response="Secret")
+    lines = str(failed.value).splitlines()
+    assert "  ScopeOrg.kind: opened, but the union at Secret.scope picks its member by it" in lines
+
+
+# `Grant` is a request's union, told apart by `kind`; a response reaches one of its members.
+GRANT: dict[str, Any] = {
+    **SECRET,
+    "Grant": {
+        "oneOf": [
+            {"$ref": "#/components/schemas/GrantOrg"},
+            {"$ref": "#/components/schemas/GrantTenant"},
+        ],
+        "discriminator": {"propertyName": "kind"},
+    },
+    "GrantOrg": {
+        "type": "object",
+        "required": ["kind", "orgId"],
+        "properties": {
+            "kind": {"type": "string", "enum": ["org"]},
+            "orgId": {"type": "string"},
+        },
+    },
+    "GrantTenant": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": {"kind": {"type": "string", "enum": ["tenant"]}},
+    },
+    "Secret": {
+        "type": "object",
+        "properties": {
+            **SECRET["Secret"]["properties"],
+            "grant": {"$ref": "#/components/schemas/GrantOrg"},
+        },
+    },
+}
+
+
+def test_a_requests_union_keeps_the_tag_its_members_answered_with_closed(tmp_path: Path) -> None:
+    models = generate(tmp_path, GRANT, response="Secret", body="Grant")
+    assert typed(models, "GrantOrg")["kind"] == "Literal['org']"
+    assert typed(models, "Secret")["grant"] == "GrantOrg | None"
+    assert typed(models, "Secret")["algorithm"] == (
+        "Annotated[Literal['ed25519'] | str, _open.OPEN] | None"
+    )
+
+
+# An answer by status, as `secrets.rotate`'s: the method returns `Synced | Started`, and
+# `kind` tells them apart (`answer.kind == "started"` narrows it).
+ROTATED: dict[str, Any] = {
+    **SCHEMAS,
+    "Synced": {
+        "type": "object",
+        "required": ["kind", "version"],
+        "properties": {
+            "kind": {"type": "string", "enum": ["synced"]},
+            "version": {"type": "integer"},
+        },
+    },
+    "Started": {
+        "type": "object",
+        "required": ["kind", "eventsUrl"],
+        "properties": {
+            "kind": {"type": "string", "enum": ["started"]},
+            "eventsUrl": {"type": "string"},
+            "phase": {"type": "string", "enum": ["queued"]},
+        },
+    },
+}
+
+
+def test_an_answer_by_status_keeps_the_tag_its_members_are_told_apart_by_closed(
+    tmp_path: Path,
+) -> None:
+    models = generate(tmp_path, ROTATED, answers={"201": "Synced", "202": "Started"})
+    assert typed(models, "Synced")["kind"] == "Literal['synced']"
+    assert typed(models, "Started")["kind"] == "Literal['started']"
+    assert typed(models, "Started")["phase"] == (
+        "Annotated[Literal['queued'] | str, _open.OPEN] | None"
+    )
+
+
+def test_an_answer_by_status_with_its_tag_opened_fails_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(gen, "union_tags", lambda doc, ops: set())
+    with pytest.raises(SystemExit, match="a union can't tell its members apart") as failed:
+        generate(tmp_path, ROTATED, answers={"201": "Synced", "202": "Started"})
+    lines = str(failed.value).splitlines()
+    assert "  Started.kind: opened, but the answer of flows.get picks its member by it" in lines
+    assert "  Synced.kind: opened, but the answer of flows.get picks its member by it" in lines
+
+
+def tiered(kind: str, tier: str) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "required": ["kind", "tier"],
+        "properties": {
+            "kind": {"type": "string", "enum": [kind]},
+            "tier": {"type": "string", "enum": [tier]},
+        },
+    }
+
+
+# `Plan` is told apart by `kind` and by `tier` alike: either could be read as its tag.
+PLANS: dict[str, Any] = {
+    **SCHEMAS,
+    "PlanFree": tiered("free", "basic"),
+    "PlanTeam": tiered("team", "pro"),
+    "Plan": {
+        "oneOf": [
+            {"$ref": "#/components/schemas/PlanFree"},
+            {"$ref": "#/components/schemas/PlanTeam"},
+        ]
+    },
+    "Account": {"type": "object", "properties": {"plan": {"$ref": "#/components/schemas/Plan"}}},
+}
+
+
+@pytest.mark.parametrize(
+    ("options", "line"),
+    [
+        ({"response": "Account"}, "  the union at Plan: kind, tier"),
+        (
+            {"answers": {"201": "PlanFree", "202": "PlanTeam"}},
+            "  the answer of flows.get: kind, tier",
+        ),
+    ],
+)
+def test_a_union_held_apart_by_two_fields_fails_generation(
+    tmp_path: Path, options: dict[str, Any], line: str
+) -> None:
+    with pytest.raises(SystemExit, match="held apart by more than one field") as failed:
+        generate(tmp_path, PLANS, **options)
+    assert line in str(failed.value).splitlines()

@@ -1,55 +1,75 @@
 ---
 title: Kindgi documentation
-description: Write tools, agents and flows in your app's own code. Kindgi runs them durably, on your infrastructure, and records every step.
+description: Your coding agent writes tools, agents and flows in your app's own code. Kindgi runs them in production, on your own infrastructure or hosted by us (private preview), and records every step.
 template: splash
 hero:
-  title: Kindgi documentation
-  tagline: Write tools, agents and flows in your app's own TypeScript or Python. Kindgi runs them durably, on your infrastructure, and records every step.
-  actions:
-    - text: What is Kindgi?
-      link: start/introduction/
-      icon: right-arrow
-    - text: Concepts
-      link: concepts/
-      variant: minimal
+  title: Kindgi - a full-stack AI agent framework and runtime.
+  tagline: Your coding agent writes tools, agents, flows and guardrails in your app's own code. Kindgi runs them in production, durably, on your own infrastructure or hosted by us (private preview). It records every step, so you can audit what they did, trace each answer and its cost, and keep making them better.
 ---
 
-import { Card, LinkCard, CardGrid } from '@astrojs/starlight/components';
+import { LinkCard } from '@astrojs/starlight/components';
 
-## Your coding agent already knows Kindgi
+## Start with your coding agent
 
-`kindgi init` gives your project Kindgi's skills: instructions your coding
-agent loads when the task calls for them. Describe what you want in your own
-words. The agent writes the code, runs it, reads what happened and fixes it.
+Paste this prompt into your coding agent: Claude Code, Cursor, Codex or any
+other. It takes you from nothing to a first agent that answers. Along the way, you
+sign in, copy two values and answer one question.
 
-<CardGrid>
-  <Card title="It knows your version" icon="open-book">
-    The skills ship with the CLI, written for the Kindgi version you
-    installed. Claude Code loads the one the task needs.
-  </Card>
-  <Card title="It writes the code" icon="pencil">
-    Tools, agents, guardrails and flows, in your project's TypeScript or
-    Python.
-  </Card>
-  <Card title="It runs Kindgi" icon="rocket">
-    `kindgi dev` to start Kindgi on your machine, `kindgi runs start` to try
-    what it wrote, the run's journal to find what went wrong.
-  </Card>
-  <Card title="You still decide" icon="comment-alt">
-    You name your pack and its agents, and you provide the credentials, such as
-    your model provider's API key. The agent never writes them into code.
-  </Card>
-</CardGrid>
+```text
+Set up Kindgi for me: read https://docs.kindgi.com/start/agent.md and follow it step by step. Tell me whenever you need me to do something, and wait for me.
+```
 
-[How your coding agent knows Kindgi](start/coding-agents/)
+[What your coding agent follows](start/agent/) ·
+[How it knows Kindgi](start/coding-agents/)
+
+## Quickstart
+
+From an empty folder to an agent that answers: you run one command, and your
+coding agent does the rest. [Quickstart](start/quickstart/)
+
+**Rather write it yourself?** A first pack by hand, running on your machine in
+ten minutes: [TypeScript](start/quickstart-typescript/),
+[Python](start/quickstart-python/), [Java](start/quickstart-java/) or
+[Scala](start/quickstart-scala/).
+
+## What you need
+
+- **Either Node or Python.** Which one depends on your pack's language:
+  - **TypeScript:** Node 22.12 or later.
+  - **Python:** Python 3.11 or later, and uv (or Poetry, or pip). The `kindgi`
+    CLI comes from PyPI with its own copy of Node.
+  - **Java or Scala (preview):** a JDK 17 or later, and Node or uv to run the
+    CLI. A Java pack brings Maven; a Scala pack needs sbt.
+- **Docker** (Docker Desktop, or the Docker engine on Linux). `kindgi dev`
+  runs Kindgi's runtime in it on your machine.
+- **Access to the runtime image:** sign in at
+  [access.kindgi.com](https://access.kindgi.com) with GitHub, to get the
+  image's pull credentials and a free non-production license key, for staging
+  and CI.
+- **A model:** your model provider's API key, or an open model you serve
+  yourself, such as Ollama on your machine, with no key.
+
+[Install](start/install/) has the details, and `kindgi doctor` checks what
+Kindgi needs.
+
+## Free on your machine, with support for local models
+
+Everything you build and test on your machine is free: `kindgi dev` runs the
+runtime in development mode, which needs no license key. Your agents can run
+on a model on your machine too, with no API key and no cost per call.
+[Connect a model you serve](guides/models/serve-your-own-model/) shows how,
+with Ollama as the example.
+
+Running Kindgi in production needs a commercial license. Check
+[Licensing](concepts/licensing/) for more details.
 
 ## The documentation
 
-<CardGrid>
-  <LinkCard title="Start" href="start/" description="What Kindgi is, installing it, and your first pack in TypeScript or Python." />
-  <LinkCard title="Tutorials" href="tutorials/" description="Build something real, step by step, in TypeScript or Python." />
-  <LinkCard title="Guides" href="guides/" description="How to do one thing: tools, agents, models, flows, runs, webhooks, approvals, secrets." />
-  <LinkCard title="Concepts" href="concepts/" description="How Kindgi works: packs, runs and the journal, the security model, licensing." />
-  <LinkCard title="Reference" href="reference/" description="Every API route, SDK export, CLI command, setting and event." />
-  <LinkCard title="Contributing" href="contributing/" description="How the SDK repository is organized and the rules for changes." />
-</CardGrid>
+<LinkCard title="What is Kindgi?" href="start/introduction/" description="Packs, the runtime, and how your app and your coding agent work with them." />
+<LinkCard title="Add Kindgi to an existing app" href="start/existing-app/" description="Your app's own code as tools, in TypeScript, Python, Java or Scala." />
+<LinkCard title="Tutorials" href="tutorials/" description="Build a support desk, step by step, in TypeScript or Python." />
+<LinkCard title="Guides" href="guides/" description="How to do one thing: tools, agents, models, flows, runs, webhooks, approvals, secrets." />
+<LinkCard title="Concepts" href="concepts/" description="How Kindgi works: packs, runs and the journal, the security model, licensing." />
+<LinkCard title="Deploy" href="deploy/" description="Run Kindgi in your own infrastructure, or let us run it for you on Kindgi Cloud (private preview)." />
+<LinkCard title="Reference" href="reference/" description="Every API route, SDK export, CLI command, setting and event." />
+<LinkCard title="Contributing" href="contributing/" description="How the SDK repository is organized and the rules for changes." />

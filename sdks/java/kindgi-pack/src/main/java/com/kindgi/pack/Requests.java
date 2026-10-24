@@ -123,7 +123,22 @@ final class Requests {
         settings,
         cancellation,
         log,
-        text(ctx, "idempotencyKey"));
+        text(ctx, "idempotencyKey"),
+        connections(ctx));
+  }
+
+  /** The call's connections, by the tool's name for each; one sent malformed is left out. */
+  private static Map<String, ToolConnection> connections(Map<String, Object> ctx) {
+    Map<String, ToolConnection> out = new LinkedHashMap<>();
+    if (ctx.get("connections") instanceof Map<?, ?> sent) {
+      sent.forEach((name, value) -> {
+        ToolConnection connection = ToolConnection.fromWire(value);
+        if (name instanceof String n && connection != null) {
+          out.put(n, connection);
+        }
+      });
+    }
+    return out;
   }
 
   private static @Nullable String text(Map<String, Object> ctx, String key) {

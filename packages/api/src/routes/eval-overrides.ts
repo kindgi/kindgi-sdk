@@ -14,12 +14,13 @@
 import {
   type AgentId,
   checkDraftedTemplate,
+  modelNamedTwice,
   modelSettingsIssues,
   settingsSchemaIssues,
 } from '@kindgi/agents';
 import type { Semver, TenantId } from '@kindgi/types';
 
-import type { AgentRegistryBinding } from '../agent-binding.js';
+import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
 import type { EvalOverrides } from '../eval-run-binding.js';
 
@@ -36,6 +37,31 @@ export interface OverridesIssue {
 
 /** A JSON Pointer token: `~` and `/` escaped. */
 const token = (id: string): string => id.replaceAll('~', '~0').replaceAll('/', '~1');
+
+/**
+ * What's wrong with values that replace settings block `id`'s, at `path`:
+ * against its schema, or, for the agent's model settings, against what
+ * model settings take and the model the agent version names.
+ */
+function valuesIssues(
+  agent: AgentVersionRecord,
+  id: string,
+  values: unknown,
+  schema: Readonly<Record<string, unknown>> | undefined,
+  path: string,
+): OverridesIssue[] {
+  const modelSettings = agent.modelSettings?.id === id;
+  const problems = modelSettings
+    ? modelSettingsIssues(values)
+    : schema === undefined
+      ? []
+      : settingsSchemaIssues(values, schema);
+  if (problems.length > 0) {
+    return problems.map((issue) => ({ path: `${path}${issue.path}`, message: issue.message }));
+  }
+  const twice = modelSettings ? modelNamedTwice(agent, values) : undefined;
+  return twice === undefined ? [] : [{ path, message: `model-settings block "${id}": ${twice}` }];
+}
 
 export async function checkSettingsOverrides(
   check: SettingsOverridesCheck,
@@ -74,16 +100,7 @@ export async function checkSettingsOverrides(
       issues.push({ path, message: `settings block "${id}" version ${version} isn't published` });
       continue;
     }
-    const schema = block.content.schema;
-    const problems =
-      found.modelSettings?.id === id
-        ? modelSettingsIssues(values)
-        : schema === undefined
-          ? []
-          : settingsSchemaIssues(values, schema);
-    for (const issue of problems) {
-      issues.push({ path: `${path}${issue.path}`, message: issue.message });
-    }
+    issues.push(...valuesIssues(found, id, values, block.content.schema, path));
   }
   for (const [id, { template }] of Object.entries(overrides.prompts ?? {})) {
     const path = `/overrides/prompts/${token(id)}`;

@@ -118,6 +118,12 @@ function memoryBinding() {
     readonly last: number;
     readonly ruleId?: string;
   }[] = [];
+  const queueRecentCalls: {
+    readonly ruleId: string;
+    readonly last?: number;
+    readonly since?: Timestamp;
+    readonly by?: string;
+  }[] = [];
   let seq = 0;
   const at = () => new Date(Date.UTC(2026, 9, 10, 12, 0, seq++)).toISOString() as Timestamp;
   const rule = (
@@ -211,6 +217,18 @@ function memoryBinding() {
       previewed.push({ spec, last, ...(ruleId !== undefined && { ruleId }) });
       return { considered: last, matched: 3 };
     },
+    async queueRecent({ ruleId, last, since, by }) {
+      if (!rules.has(ruleId)) {
+        return { kind: 'err', error: { code: 'judging-rule-not-found', message: 'no' } };
+      }
+      queueRecentCalls.push({
+        ruleId,
+        ...(last !== undefined && { last }),
+        ...(since !== undefined && { since }),
+        ...(by !== undefined && { by }),
+      });
+      return { kind: 'ok', value: { queued: 2, alreadyQueued: 1, alreadyReviewed: 4 } };
+    },
   };
   const queue = (runId: string) =>
     items.set(runId, {
@@ -228,7 +246,7 @@ function memoryBinding() {
       addedAt: at(),
       state: 'open',
     });
-  return { binding, asked, previewed, queue };
+  return { binding, asked, previewed, queueRecentCalls, queue };
 }
 
 function harness(opts: { readonly projects?: boolean } = {}) {
@@ -376,6 +394,63 @@ describe('judging rules', () => {
     expect((await h.call(VIEWER, 'GET', '/judging-rules/preview?status=failed')).status).toBe(400);
     await h.call(VIEWER, 'GET', '/judging-rules/preview?agentIds=acme.refunds&ruleId=r-1');
     expect(h.previewed.at(-1)).toMatchObject({ ruleId: 'r-1' });
+  });
+});
+
+describe('queue the recent matches', () => {
+  test("an editor queues a rule's recent matches; `last`/`since` reach the binding", async () => {
+    const h = harness();
+    const ruleId = (await h.call(EDITOR, 'POST', '/judging-rules', RULE)).body.ruleId;
+
+    const queued = await h.call(EDITOR, 'POST', `/judging-rules/${ruleId}/queue-recent`, {
+      last: 100,
+    });
+    expect(queued.status).toBe(200);
+    expect(queued.body).toEqual({ queued: 2, alreadyQueued: 1, alreadyReviewed: 4 });
+    expect(h.queueRecentCalls.at(-1)).toEqual({ ruleId, last: 100, by: 'user:editor' });
+
+    await h.call(EDITOR, 'POST', `/judging-rules/${ruleId}/queue-recent`, {
+      since: '2026-10-01T00:00:00.000Z',
+    });
+    expect(h.queueRecentCalls.at(-1)).toMatchObject({ since: '2026-10-01T00:00:00.000Z' });
+    expect(h.queueRecentCalls.at(-1)).not.toHaveProperty('last');
+
+    // A bare date reads as UTC midnight and is normalized; both bounds may be given.
+    await h.call(EDITOR, 'POST', `/judging-rules/${ruleId}/queue-recent`, {
+      last: 50,
+      since: '2026-10-01',
+    });
+    expect(h.queueRecentCalls.at(-1)).toMatchObject({
+      last: 50,
+      since: '2026-10-01T00:00:00.000Z',
+    });
+  });
+
+  test('the body is checked, and at least one of `last`/`since` is required', async () => {
+    const h = harness();
+    const ruleId = (await h.call(EDITOR, 'POST', '/judging-rules', RULE)).body.ruleId;
+    const bad = async (body: unknown) =>
+      (await h.call(EDITOR, 'POST', `/judging-rules/${ruleId}/queue-recent`, body)).status;
+    expect(await bad({})).toBe(400);
+    expect(await bad({ last: 0 })).toBe(400);
+    expect(await bad({ last: 1001 })).toBe(400);
+    expect(await bad({ last: 1.5 })).toBe(400);
+    expect(await bad({ last: 'x' })).toBe(400);
+    expect(await bad({ since: 'not-a-date' })).toBe(400);
+    expect(h.queueRecentCalls).toHaveLength(0);
+  });
+
+  test('queueing needs write, and the rule must exist', async () => {
+    const h = harness();
+    const ruleId = (await h.call(EDITOR, 'POST', '/judging-rules', RULE)).body.ruleId;
+    expect(
+      (await h.call(VIEWER, 'POST', `/judging-rules/${ruleId}/queue-recent`, { last: 10 })).status,
+    ).toBe(403);
+    const unknown = await h.call(EDITOR, 'POST', '/judging-rules/r-nope/queue-recent', {
+      last: 10,
+    });
+    expect(unknown.status).toBe(404);
+    expect(unknown.body.error.code).toBe('judging-rule-not-found');
   });
 });
 

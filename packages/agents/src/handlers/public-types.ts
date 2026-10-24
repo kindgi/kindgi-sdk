@@ -12,11 +12,13 @@ import type {
   RunBinding,
   RunIdempotencyKey,
   RunReplayRef,
+  RunStartedBy,
   RunTriggerRef,
 } from '@kindgi/runtime';
-import type { ToolRegistry, ToolSecretRef } from '@kindgi/tools';
+import type { ConnectionResolver, ToolRegistry, ToolSecretRef } from '@kindgi/tools';
 import type {
   AgentVersionVia,
+  EnvName,
   LiveScope,
   OrgId,
   ProjectId,
@@ -93,6 +95,33 @@ export interface InvokeAgentInput {
   readonly idempotencyKey?: RunIdempotencyKey;
   /** Set when a trigger starts the turn; its run records it (`RunTriggerRef`). */
   readonly trigger?: RunTriggerRef;
+  /**
+   * How the turn's run started (`RunStartedBy`); its run records it. Only
+   * `person` counts as attended: in any other turn, or one without it, a
+   * tool that declares `needsApprovalWhenUnattended` waits for a person's
+   * yes whatever the agent's approval rules say, and a turn a webhook or
+   * an event started reads its message as data (`<event>`).
+   */
+  readonly startedBy?: RunStartedBy;
+  /**
+   * The tools, by id, whose `needsApprovalWhenUnattended` doesn't hold in
+   * this turn though no person started its run: the
+   * `toolsAllowedUnattended` of the webhook or schedule that started it,
+   * recorded with the run (`RunFlowInput.toolsAllowedUnattended`). Only
+   * that wait is lifted: the tenant's floor and the agent's own rules
+   * still apply. Set by the runtime from the run, never from a request.
+   */
+  readonly toolsAllowedUnattended?: readonly string[];
+  /**
+   * The turn's message is an event's, though no webhook or event starts
+   * this run: a replay of a run one started sets it (its turn, or a flow's
+   * agent step's), and records no start of its own. The turn reads its
+   * message as data (`<event>`), as `startedBy` `webhook` or `event` makes
+   * it, and keeps it marked (`ConversationMessage.fromEvent`). It changes
+   * nothing else: the run stays as unattended as `startedBy` says. Set by
+   * the runtime, never from a request.
+   */
+  readonly messageFromEvent?: true;
   readonly participantId?: string;
   readonly abortSignal?: AbortSignal;
   /**
@@ -256,6 +285,10 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    *   tenant-scope fact.
    * - **`principal` is absent** for a turn that has none. The authorizer
    *   decides what that gets.
+   * - **`toolVersion` is the version the call runs:** the one the turn
+   *   resolved for the agent's range, or a built-in's own. The turn sets it
+   *   on every check, so a rule can differ per version, as a flow's tool
+   *   step is checked on the exact version it runs.
    *
    * The Kindgi runtime checks `invoke` on the tool for the turn's
    * principal. Absent: every call is allowed.
@@ -265,7 +298,31 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
     readonly projectId: ProjectId;
     readonly principal?: Principal;
     readonly toolId: string;
+    /** The version the call runs. The turn sets it on every check. */
+    readonly toolVersion?: string;
   }) => Promise<ToolCallAuthorization>;
+  /**
+   * Where a tool call gets the connections its tool declares
+   * (`needsSpec.connections`), before it runs: the runtime's resolver, and
+   * the env it serves.
+   *
+   * - **Once per call, recorded:** a person's connection that's missing,
+   *   lacks a permission or needs reconnecting makes a connect request when
+   *   a person started the run, and the call waits for them to connect
+   *   (`waitingFor.connections`). Any other run can't wait: the call fails.
+   * - **Every time the tool runs,** the tokens are asked for fresh and never
+   *   recorded (`ToolContext.connections`). When the app refuses one
+   *   (`ConnectionRejectedError`), it's renewed and the call runs once more.
+   * - **A call it stops runs nothing:** its result tells the model why
+   *   (`{ status: 'failed', error: { code, message } }`, a `connection-*`
+   *   code), and the turn goes on.
+   * - **Approvals:** a call that acts with a person's connection and asks
+   *   for an approval asks that person alone (`HitlEnqueueInput.approver`).
+   *
+   * Absent: a call to a tool that declares a connection fails with
+   * `connection-app-missing`; no other call changes.
+   */
+  readonly connections?: TurnConnections;
   /**
    * How replay turns (`InvokeAgentInput.replay`) decide their tool calls,
    * retrievals and session approval. Consulted only for a replay turn.
@@ -280,13 +337,24 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
   readonly templateRenderer?: TemplateRenderer;
 }
 
+/** `InvokeAgentBindings.connections`. */
+export interface TurnConnections {
+  /** The env the runtime serves: a call uses the connections made in it. */
+  readonly envName: EnvName;
+  readonly resolver: ConnectionResolver;
+}
+
 export interface HitlBindings {
   /**
    * Open the approval a gate asks for. A binding refuses one past the
    * tenant's limit on approvals waiting by throwing an error with
    * `code: 'approvals-pending-limit'` (and `approvalsPending`, the limit):
-   * the step then fails with that code, naming the limit. Any other throw
-   * is soft: the gate still waits.
+   * the step then fails with that code, naming the limit. It refuses one
+   * whose `approver` has no reviewer seat at its `requiredRole` or above
+   * by throwing an error with `code: 'approver-not-a-reviewer'` (and
+   * `approverUserId`, `requiredRole`): the call then fails with
+   * `connection-approver-not-a-reviewer`, and the turn goes on. Any other
+   * throw is soft: the gate still waits.
    */
   readonly enqueue: (input: HitlEnqueueInput) => Promise<HitlEnqueueResult>;
 }
@@ -310,6 +378,24 @@ export interface HitlEnqueueInput {
    * `false`.
    */
   readonly separateApprover?: boolean;
+  /**
+   * The one member who decides it: approves, rejects or withdraws it. It's
+   * listed to them alone among the reviewers, and needs them to hold a
+   * reviewer seat at `requiredRole` or above. The tool gate sets it when
+   * the call acts with a person's connection: to that connection's owner.
+   * Absent: the reviewers decide, as before.
+   */
+  readonly approver?: { readonly kind: 'member'; readonly userId: string };
+  /**
+   * The account the call acts as, shown to its reviewer: the app's id and
+   * name, and the account as people know it (`owner@acme.example`). Set
+   * with `approver`.
+   */
+  readonly connection?: {
+    readonly app: string;
+    readonly appName: string;
+    readonly account: string;
+  };
   readonly title?: string;
   readonly description?: string;
   readonly context?: Readonly<Record<string, unknown>>;

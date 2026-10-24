@@ -45,6 +45,8 @@ export interface AppendMessageInput {
   readonly content: string | Readonly<Record<string, unknown>>;
   readonly actor?: string;
   readonly toolCall?: { readonly toolId: string; readonly invocationId: string };
+  /** The message came from outside (`ConversationMessage.fromEvent`): kept with it. */
+  readonly fromEvent?: true;
   /**
    * When true, this message is a mid-turn assistant emission (e.g. the
    * assistant message that contains tool calls before the final
