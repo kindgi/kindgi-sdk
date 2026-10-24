@@ -117,8 +117,8 @@ def _without_discriminators(schema: JsonObject) -> JsonObject:
     It is OpenAPI's keyword, not JSON Schema's: the runtime's strict compile refuses it, and its
     `mapping` names `$defs` that `_inline_refs` has inlined. Each member keeps its tag as a
     `const` (an `enum` when it has several values), so the `oneOf` alone picks the member. The tag
-    goes into each member's `required`, since pydantic refuses a member without one even when the
-    tag has a default. `schema` is `_inline_refs`' own copy, changed in place.
+    goes into each member's `required`, since pydantic refuses a value without its tag even when
+    the tag has a default. `schema` is `_inline_refs`' own copy, changed in place.
     """
 
     def walk(node: Any) -> None:
@@ -150,8 +150,10 @@ def _without_discriminators(schema: JsonObject) -> JsonObject:
 
 def _require_tag(member: Any, tag: str) -> None:
     """Put `tag` first in a tagged union member's `required`: an object's own, or each member's
-    when the member is a tagged union itself. A recursive type's member is a `$ref`, and its
-    definition stays as it is: the type can sit outside the union, where its tag isn't asked for."""
+    when the member is a tagged union itself. A recursive type's member is a `$ref`: the tag is
+    asked for beside it, with the `type` and the property the strict compile wants beside a
+    `required`. Its definition stays as it is: the type can sit outside the union, where its tag
+    isn't asked for."""
     if not isinstance(member, dict):
         return
     here = cast("dict[str, Any]", member)
@@ -165,6 +167,11 @@ def _require_tag(member: Any, tag: str) -> None:
     if isinstance(members, list):
         for inner in cast("list[Any]", members):
             _require_tag(inner, tag)
+        return
+    if isinstance(here.get("$ref"), str) and "properties" not in here:
+        here.setdefault("type", "object")
+        here["properties"] = {tag: True}
+        here["required"] = [tag]
 
 
 # ---------------------------------------------------------------------------

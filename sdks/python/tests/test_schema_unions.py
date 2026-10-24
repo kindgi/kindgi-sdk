@@ -218,6 +218,48 @@ def test_a_recursive_union_keeps_its_definition_without_a_discriminator() -> Non
     assert accepts(Branch, tree)
 
 
+class Twig(BaseModel):
+    kind: Literal["twig"] = "twig"
+    value: int
+
+
+class Bough(BaseModel):
+    """A recursive union whose tags have defaults: its `$ref` member is asked for the tag."""
+
+    kind: Literal["bough"] = "bough"
+    children: list[Annotated[Bough | Twig, Field(discriminator="kind")]]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"kind": "bough", "children": [{"children": []}]},
+        {"kind": "bough", "children": [{"value": 1}]},
+        {"kind": "bough", "children": [{"kind": "bough", "children": [{"value": 1}]}]},
+        {"kind": "bough", "children": [{"kind": "bough", "children": []}]},
+        {"children": [{"kind": "twig", "value": 1}]},
+    ],
+)
+def test_a_recursive_member_is_asked_for_its_tag_when_it_has_a_default(value: Any) -> None:
+    schema = wire_schema(Bough)
+    assert strict_schema_problem(schema) is None
+    assert (SchemaValidator(schema).issues(value) == []) == accepts(Bough, value)
+
+
+def test_a_recursive_member_asks_for_its_tag_beside_its_ref() -> None:
+    schema = wire_schema(Bough)
+    # The definition stays as it is: outside the union, as the whole value, the tag is not asked for.
+    for where in (schema, schema["$defs"]["Bough"]):
+        assert where["required"] == ["children"]
+        member = where["properties"]["children"]["items"]["oneOf"][0]
+        assert member == {
+            "$ref": "#/$defs/Bough",
+            "type": "object",
+            "properties": {"kind": True},
+            "required": ["kind"],
+        }
+
+
 def test_a_property_named_discriminator_stays() -> None:
     class Rule(BaseModel):
         discriminator: str
