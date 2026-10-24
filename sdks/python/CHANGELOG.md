@@ -10,6 +10,12 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **a run says whom it acts for.** The client's `Run` gains
+  `acts_for`: `user:<id>` (a person) or `service_account:<id>` (a service
+  account), whose access the run has. A schedule's or a webhook's run acts
+  for the trigger's owner, and a child run for its parent's. It is an id,
+  never a name, and it is `None` on a run that acts for no one and on older
+  runs.
 - `kindgi`: **`SecretRevokeOutcome` and `SecretRevokeResult` gain an optional
   `recoverable_until`**: when a hard revoke left a copy your secret manager can
   still recover, until when it keeps it. It's `None` on a soft revoke, and
