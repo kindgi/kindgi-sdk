@@ -64,8 +64,8 @@ Who calls whom:
 - **Terraform 1.6 or later, gcloud, Docker** with `buildx`, **jq**, **curl**,
   **openssl**, and your pack's `kindgi` CLI, 0.1.2 or later, which has
   `kindgi key trust`.
-- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead. The
   build, `env plan` and deploy steps need the pack's folder, so they use
   `pnpm exec kindgi`.
@@ -134,8 +134,8 @@ built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.1.9" \
-  quay.io/kindgi/runtime:0.1.9@sha256:604e283abed492f5bd50c88dcf582d13e38e19534ee7ddad817ba08012f99523
+docker buildx imagetools create --tag "$REPO/runtime:0.1.10" \
+  quay.io/kindgi/runtime:0.1.10@sha256:b6bdf6bcc6fb86fd1e16a2fce7d37dc066b766a0b4313dd3f19e2c904b3b01b3
 ```
 
 - `REPO` is the repository's address, from the foundation's output.
@@ -323,6 +323,23 @@ Google Cloud is still applying it. It clears without a restart: in our run,
 the first tool call, 3½ minutes after the warning, worked. If tool calls still
 fail after that, check that the runtime's service account has
 `roles/run.invoker` on the pack's service.
+
+**When the runtime starts with the pack's service at zero**
+(`pack_min_instances = 0`; the default, 1, keeps one instance up), the line
+can read instead:
+
+```text
+⚠ Pack service at https://… didn't answer within 5 s. The server is up; pack tools and checks fail until it answers.
+```
+
+The runtime waits 5 seconds for the pack's service when it starts, and a
+service at zero takes longer than that to start an instance. It's harmless:
+the first tool call waits for the instance, for up to about two minutes (the
+service's startup check), and the runtime gives a call 120 seconds
+(`pack_call_timeout_ms`; raise it if starts run near that). If tool calls keep
+failing, read the pack's service logs: its startup check fails until every
+module has loaded and every `env.required` value is set, and its logs name
+what's missing.
 
 ### Call your app's Cloud Run services from a tool
 
@@ -548,7 +565,7 @@ endpoint ([Serve many tenants](#serve-many-tenants)).
 ```sh
 URL=$(terraform output -raw server_url)
 export KINDGI_API_TOKEN=$(gcloud secrets versions access latest --secret=$N-api-token)
-npx --yes @kindgi/cli@0.1 key trust acme-prod --url "$URL"
+npx --yes @kindgi/cli@0.2 key trust acme-prod --url "$URL"
 ```
 
 It prints the key the runtime now trusts, then says so:
@@ -607,8 +624,8 @@ Check the runtime answers, lists your pack's tools, and runs a flow:
 
 ```sh
 curl "$URL/health"                                  # {"ok":true}
-npx --yes @kindgi/cli@0.1 tools list --url "$URL"   # your pack's tools
-npx --yes @kindgi/cli@0.1 runs start --flow=acme.greet-echo --input='{"name":"Ada"}' --url "$URL"
+npx --yes @kindgi/cli@0.2 tools list --url "$URL"   # your pack's tools
+npx --yes @kindgi/cli@0.2 runs start --flow=acme.greet-echo --input='{"name":"Ada"}' --url "$URL"
 ```
 
 `--flow` names the flow to run, and `--input` is its input, as JSON.
@@ -704,7 +721,7 @@ on the Vertex AI API and grants the runtime's service account
 `roles/aiplatform.user`. Then register the preset:
 
 ```sh
-npx --yes @kindgi/cli@0.1 providers register --preset=gemini --project=<project> --models=gemini-3.8-flash --url "$URL"
+npx --yes @kindgi/cli@0.2 providers register --preset=gemini --project=<project> --models=gemini-3.8-flash --url "$URL"
 ```
 
 ```text

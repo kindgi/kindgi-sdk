@@ -19,6 +19,30 @@ same version, and the CLI's own changes are in
   first, so the tool hands nothing on. `ToolContext.for_test(wait_token=...)`
   tests one. New: `PauseAnswer`, `PauseNotAvailable` and `WaitToken`. The
   client's `Tool` model carries `pauses`.
+- `kindgi`: **`SecretRevokeOutcome` and `SecretRevokeResult` gain an optional
+  `recoverable_until`**: when a hard revoke left a copy your secret manager can
+  still recover, until when it keeps it. It's `None` on a soft revoke, and
+  when a hard revoke left nothing recoverable.
+- `kindgi`: **`ScheduleRecord`, `WebhookTriggerRecord`, their register and
+  patch bodies, and `Run` gain `tools_allowed_unattended`**: the tools whose
+  calls in a webhook's or a schedule's runs needn't wait for a person's yes.
+  Naming it takes `admin` on the trigger's project, and each id must be a tool
+  the trigger's flow or agent calls. A take-over keeps it.
+- `kindgi`: **`secrets.revoke`'s docstrings say what a hard revoke does**: it
+  erases the value at Kindgi and hard-deletes it in a secret manager, and
+  can't be undone; backups, and a secret manager's own retention, may keep
+  copies for a time. They no longer call it cryptographic erasure.
+
+## 0.1.10
+
+No Python changes; the version moves with the npm packages.
+
+## 0.1.10rc1
+
+No Python changes; the version moves with the npm packages.
+
+## 0.1.10rc0
+
 - `kindgi`: **`system_keys.mint`, `list`, `revoke` and `whoami` say what a
   runtime serving one tenant answers.** Its own token mints, lists and revokes
   keys holding `system:license` alone, for the license renewal, and such a key
