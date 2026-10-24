@@ -282,7 +282,7 @@ variable "database_backup_retention" {
 }
 
 variable "database_backup_location" {
-  description = "Where Cloud SQL stores the backups: a multi-region (us, eu, asia) or a region (northamerica-northeast2, say). Null (the default): Cloud SQL's own choice, the multi-region nearest the instance, which can be in another region and country than the instance. Set it when where backups are kept is a promise you make. Point-in-time recovery's transaction logs stay in the instance's own location whatever it says. Setting it on a running deployment changes the instance in place, and the backups taken before stay where they were."
+  description = "Where Cloud SQL stores the backups: a multi-region (us, eu, asia) or a region (northamerica-northeast2, say). Null (the default): Cloud SQL's own choice, the multi-region nearest the instance, which can be outside the instance's region and country. Set it when you promise where backups are kept. Point-in-time recovery's transaction logs stay in the instance's own location whatever it says. Setting it on a running deployment changes the instance in place, and the backups taken before stay where they were."
   type        = string
   default     = null
   validation {
@@ -292,7 +292,7 @@ variable "database_backup_location" {
 }
 
 variable "database_point_in_time_days" {
-  description = "How many days of transaction logs point-in-time recovery keeps: any second within them can be restored. Null (the default): Cloud SQL's own default, 7 on ENTERPRISE and 14 on ENTERPRISE_PLUS. At most 7 on ENTERPRISE and 35 on ENTERPRISE_PLUS, checked at plan."
+  description = "How many days of transaction logs point-in-time recovery keeps: any second within them can be restored. Null (the default): Cloud SQL's own default, 7 on ENTERPRISE and 14 on ENTERPRISE_PLUS. At most 7 on ENTERPRISE and 35 on ENTERPRISE_PLUS, and at most as many days as database_backup_retention keeps backups (Cloud SQL's rule), both checked at plan."
   type        = number
   default     = null
   validation {

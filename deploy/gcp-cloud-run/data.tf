@@ -36,6 +36,16 @@ resource "google_sql_database_instance" "kindgi" {
       condition     = var.database_point_in_time_days == null ? true : var.database_point_in_time_days <= (var.database_edition == "ENTERPRISE_PLUS" ? 35 : 7)
       error_message = "database_point_in_time_days is at most 7 on ENTERPRISE (35 on ENTERPRISE_PLUS)."
     }
+    # Cloud SQL keeps no more days of logs than backups: "The transaction log
+    # retention setting must always be less than or equal to the backup
+    # retention setting". Unset, each is Cloud SQL's default for the edition.
+    precondition {
+      condition = (
+        coalesce(var.database_point_in_time_days, var.database_edition == "ENTERPRISE_PLUS" ? 14 : 7)
+        <= coalesce(var.database_backup_retention, var.database_edition == "ENTERPRISE_PLUS" ? 15 : 7)
+      )
+      error_message = "database_point_in_time_days is more than the backups kept (database_backup_retention; unset, 7 on ENTERPRISE and 15 on ENTERPRISE_PLUS, with 7 and 14 days of logs): Cloud SQL keeps at most as many days of logs as backups. Google recommends one backup more than days of logs."
+    }
   }
 
   settings {

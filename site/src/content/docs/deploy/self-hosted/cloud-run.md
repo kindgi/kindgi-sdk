@@ -767,11 +767,12 @@ A new grant can take a minute or two to apply.
   instance ([Google: Cloud SQL backup options](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/backup-options)).
   To keep more, or choose where they're stored, set
   `database_backup_retention`, `database_point_in_time_days` (at most 7 on
-  `ENTERPRISE`) and `database_backup_location`. A restore reaches any
-  second within the logs' days, or one of the kept backups.
-  - **Where the backups are kept:** the nearest multi-region can be in
-    another region and country than the instance. When where backups are
-    kept is a promise you make, set `database_backup_location` to a region
+  `ENTERPRISE`, and at most as many days as backups kept) and
+  `database_backup_location`. A restore reaches any second within the
+  logs' days, or one of the kept backups.
+  - **Where the backups are kept:** the nearest multi-region can be
+    outside the instance's region and country. When you promise where
+    backups are kept, set `database_backup_location` to a region
     (`northamerica-northeast2`, say) or a multi-region (`us`, `eu`,
     `asia`); a zone is refused at plan. Point-in-time recovery's
     transaction logs stay in the instance's own location

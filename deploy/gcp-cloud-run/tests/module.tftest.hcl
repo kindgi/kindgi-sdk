@@ -549,6 +549,55 @@ run "point_in_time_days_over_7_need_enterprise_plus" {
   expect_failures = [google_sql_database_instance.kindgi]
 }
 
+run "fewer_backups_than_the_default_log_days_are_refused" {
+  # ENTERPRISE keeps 7 days of logs unless told otherwise.
+  command = plan
+
+  variables {
+    database_backup_retention = 3
+  }
+
+  expect_failures = [google_sql_database_instance.kindgi]
+}
+
+run "more_log_days_than_backups_are_refused" {
+  command = plan
+
+  variables {
+    database_backup_retention   = 4
+    database_point_in_time_days = 5
+  }
+
+  expect_failures = [google_sql_database_instance.kindgi]
+}
+
+run "more_log_days_than_the_default_backups_are_refused" {
+  # ENTERPRISE_PLUS keeps 15 backups unless told otherwise.
+  command = plan
+
+  variables {
+    database_edition            = "ENTERPRISE_PLUS"
+    database_tier               = "db-perf-optimized-N-2"
+    database_point_in_time_days = 20
+  }
+
+  expect_failures = [google_sql_database_instance.kindgi]
+}
+
+run "as_many_log_days_as_backups_plan" {
+  command = plan
+
+  variables {
+    database_backup_retention   = 5
+    database_point_in_time_days = 5
+  }
+
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].transaction_log_retention_days == 5
+    error_message = "As many days of logs as backups kept is Cloud SQL's limit, and plans."
+  }
+}
+
 run "point_in_time_days_up_to_35_on_enterprise_plus" {
   command = plan
 
