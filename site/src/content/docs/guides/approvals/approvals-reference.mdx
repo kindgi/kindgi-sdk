@@ -152,6 +152,13 @@ From your app, `runs.get(runId)` answers what a suspended run waits for, as
 `waitingFor`. It's the API's answer to the CLI's `kindgi runs resume`:
 
 - **`approvals`** are the approvals still to be decided.
+- **`tokens`** are its waits for another system's answer: a tool's call that
+  paused. Each has the wait's `tokenId`, for `runs.resume`, what it waits
+  for (`name`), the tool and its call (`tool`), the flow's step (`nodeId`),
+  and when it times out (`timesOutAt`), never the link. It's left out on a
+  runtime that pauses no run. When the waits can't be read, they're in
+  `other`, as `unattributed`
+  ([Wait for another system's answer](../../tools/wait-for-another-system/)).
 - **`other`** is the rest: a child run to finish, an approval already
   decided, or a wait no approval is linked to.
 
