@@ -100,14 +100,16 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   A corpus of schemas, with the runtime's answer to each, keeps the two in
   step.
 - `kindgi`: **a pattern is checked as the runtime's JavaScript reads it.**
-  The definition check refuses a `pattern`, or a `patternProperties`
-  pattern, that the runtime's `RegExp` refuses, in the runtime's words
-  (`Invalid regular expression: /(/u: Unterminated group`). Before, it went
-  by Python's `re`: a pattern only Python reads, such as `(?P<name>…)` or
-  `a\Z`, reached the deploy, which refused it. A pattern only JavaScript
-  reads, such as `\p{L}`, is still refused, since the SDK checks data
-  against it with Python's `re`. A `"format": "regex"` value is checked as
-  the runtime checks it, too.
+  When a tool is defined, a `pattern`, or a `patternProperties` pattern,
+  that the runtime's `RegExp` refuses raises `DefinitionError` in the
+  runtime's words (`Invalid regular expression: /(/u: Unterminated group`),
+  in a schema given as a dict and in one derived from a model alike. Before,
+  a dict's went by Python's `re` and a model's wasn't checked: a pattern only
+  Python or pydantic reads, such as `(?P<name>…)`, reached the deploy, which
+  refused it. In a dict, a pattern only JavaScript reads, such as `\p{L}`, is
+  still refused, since the SDK checks data against it with Python's `re`. In
+  a model, pydantic checks the data, and reads `\p{L}`. A `"format": "regex"`
+  value is checked as the runtime checks it, too.
 
 ## 0.1.10
 

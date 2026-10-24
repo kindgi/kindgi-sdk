@@ -14,6 +14,7 @@ from kindgi._schema import (
     SchemaValidator,
     compile_problem,
     issues_from_pydantic,
+    pattern_problem,
     strict_schema_problem,
     wire_schema,
 )
@@ -494,6 +495,39 @@ def test_a_pattern_python_cant_read_is_refused_after_the_runtimes_refusals() -> 
     assert compile_problem(
         {"type": "object", "properties": {"fooZ": {}}, "patternProperties": {"foo\\Z": {}}}
     ) == ("Invalid regular expression: /foo\\Z/u: Invalid escape")
+
+
+def test_a_derived_schemas_patterns_are_read_as_the_runtime_reads_them() -> None:
+    # Only its patterns: the strict compile's other refusals are of keywords pydantic writes.
+    assert pattern_problem({"type": "string", "pattern": "\\p{L}", "x-unknown": 1}) is None
+    assert pattern_problem({"pattern": "(?P<a>.)"}) == (
+        "Invalid regular expression: /(?P<a>.)/u: Invalid group"
+    )
+    # Where the compile meets it: a `patternProperties` pattern without flags first when the
+    # schema has `properties`, and a `$defs` schema only when a `$ref` reaches it.
+    assert pattern_problem({"type": "object", "patternProperties": {"(": {}}}) == (
+        "Invalid regular expression: /(/u: Unterminated group"
+    )
+    assert pattern_problem(
+        {"type": "object", "properties": {"a": {}}, "patternProperties": {"(": {}}}
+    ) == ("Invalid regular expression: /(/: Unterminated group")
+    node = {"type": "object", "properties": {"code": {"type": "string", "pattern": "("}}}
+    kids = {"kids": {"type": "array", "items": {"$ref": "#/$defs/Node"}}}
+    assert pattern_problem({"type": "object", "properties": kids, "$defs": {"Node": node}}) == (
+        "Invalid regular expression: /(/u: Unterminated group"
+    )
+    assert pattern_problem({"type": "object", "$defs": {"Node": node}}) is None
+
+
+def test_the_strict_walk_reads_every_corpus_schema_to_its_end() -> None:
+    # `pattern_problem` reads past the strict compile's first refusal: it finds the corpus's
+    # pattern refusals, and reads every other schema without failing.
+    for group, cases in _CORPUS.items():
+        for name, schema in cases.items():
+            answer = _ANSWERS[group][name]
+            found = pattern_problem(schema)
+            if group == "parity" and answer is not None and answer.startswith("Invalid regular"):
+                assert found == answer, name
 
 
 # The strict-schema test vectors (packages/specs/test-vectors/README.md): Python's answer to a

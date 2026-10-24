@@ -41,6 +41,7 @@ __all__ = [
     "check_schema",
     "compile_problem",
     "issues_from_pydantic",
+    "pattern_problem",
     "strict_schema_problem",
     "wire_schema",
 ]
@@ -232,6 +233,16 @@ def compile_problem(schema: Mapping[str, Any]) -> str | None:
     return None
 
 
+def pattern_problem(schema: Mapping[str, Any]) -> str | None:
+    """Of the runtime's strict compile's refusals of a valid Draft 2020-12 `schema`, the first that
+    is a pattern JavaScript's `RegExp` refuses, where the compile meets it
+    (`strict_schema_problem`), or `None`.
+
+    For a schema derived from a model or a type: pydantic writes its keywords, but its patterns
+    are the tool's. `compile_problem` checks a schema given as a dict, patterns included."""
+    return next((p for p in _strict_problems(schema) if p.startswith(_REGEXP_REFUSED)), None)
+
+
 # The keywords the runtime's compile of an inline schema knows (Ajv's Draft 2020-12 ones, with
 # ajv-formats' format bounds), and the annotation Kindgi reads (`x-kindgi-tunable`). Its strict
 # mode refuses any other keyword, and any format but ajv-formats' (`_STRICT_FORMATS`). It knows
@@ -380,6 +391,11 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
     a `$recursiveAnchor` or `$recursiveRef` that isn't a string checked, which Ajv's own
     meta-schema refuses.
     """
+    return next(_strict_problems(schema), None)
+
+
+def _strict_problems(schema: Mapping[str, Any]) -> Iterator[str]:
+    """`strict_schema_problem`'s refusals of `schema`, in the order the runtime meets them."""
     pointers = not any(_names(sub, ("$id",)) for sub in _subschemas(schema))
     others = not _names(schema, _BASE_KEYWORDS)
     root_id = schema.get("$id")
@@ -693,7 +709,7 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
         here = cast("Mapping[str, Any]", node)
         return unevaluated in here or evaluated(here, unevaluated, compiling)
 
-    return next(problems(schema, "#", [], set(), (id(schema),)), None)
+    yield from problems(schema, "#", [], set(), (id(schema),))
 
 
 def _names(node: Any, keywords: tuple[str, ...]) -> bool:
@@ -770,12 +786,15 @@ def _unknown_keywords(node: Any) -> Iterator[str]:
                 yield f'strict mode: unknown keyword: "{keyword}"'
 
 
+_REGEXP_REFUSED = "Invalid regular expression: /"
+
+
 def _regexp_syntax(source: str, *, unicode: bool) -> Iterator[str]:
     """The runtime's refusal of `source` as a regular expression, as JavaScript's `RegExp` refuses
     it: with the `u` flag when `unicode`, else with none."""
     reason = regexp_problem(source, unicode=unicode)
     if reason is not None:
-        yield f"Invalid regular expression: /{source}/{'u' if unicode else ''}: {reason}"
+        yield f"{_REGEXP_REFUSED}{source}/{'u' if unicode else ''}: {reason}"
 
 
 def _only_ref(node: Any) -> bool:
