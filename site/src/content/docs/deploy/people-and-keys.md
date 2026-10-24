@@ -119,11 +119,8 @@ It prints the new person, and says on stderr what being added gives them:
   "displayName": "Sam Rivera",
   "email": "sam@acme.example"
 }
-Added to the tenant: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:002ee784-0b05-47fb-918e-34d192be94c1
+Added to the tenant: they can read its settings. Give them a project role to work on its agents and runs, then their first key: kindgi tokens create --for=user:002ee784-0b05-47fb-918e-34d192be94c1
 ```
-
-Without authorization, a project role gives them nothing more
-([Without authorization](#without-authorization)).
 
 An email another person already has is refused with
 `409 identity-user-email-taken`.
