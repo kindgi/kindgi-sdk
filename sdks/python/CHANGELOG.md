@@ -18,7 +18,9 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   calls to read-only tools (`mutating=False`, no changing effect) that come
   one after another at the same time, up to 8 at once, and any other call
   on its own, in the order the model asked; the
-  results reach the conversation in that order either way. The indexer
+  results reach the conversation in that order either way. A call that may
+  wait, for another system's answer or for its person to connect an app,
+  runs on its own too. The indexer
   writes it as the agent's `parallelToolCalls`, and `Agent` refuses a value
   that isn't `True` or `False`. The client's `Agent` and `PublishAgentBody`
   models gain `parallel_tool_calls`. `mutating`'s description says it

@@ -38,6 +38,7 @@ import {
   connectionApprovalConflict,
   connectionApprovalOf,
   connectionFailureResult,
+  connectionNeedsOf,
   connectionPersonOf,
   freshConnections,
   gateConnections,
@@ -576,8 +577,9 @@ type Invoked =
 
 /**
  * How many calls from `at` run together: the calls in a row to read-only
- * tools (`isReadOnlyTool`), at most `MAX_CALLS_TOGETHER`, or any other call
- * alone. With the agent's `parallelToolCalls: false`, every call alone.
+ * tools that can't park the step (`readsOnly`), at most `MAX_CALLS_TOGETHER`,
+ * or any other call alone. With the agent's `parallelToolCalls: false`,
+ * every call alone.
  */
 function batchLength(step: StepCalls, calls: readonly ModelToolCall[], at: number): number {
   if (step.ctx.input.agent.parallelToolCalls === false) return 1;
@@ -586,10 +588,19 @@ function batchLength(step: StepCalls, calls: readonly ModelToolCall[], at: numbe
   return Math.max(length, 1);
 }
 
-/** Whether `call` is to a tool of the agent's that declares it changes nothing. */
+/**
+ * Whether `call` is to a tool of the agent's that declares it changes
+ * nothing (`isReadOnlyTool`), and can't park the step. A park runs the step
+ * again, so a call that may park runs alone, as calls did before they ran
+ * together: one to a tool that pauses (`Tool.pauses`) may wait for another
+ * system's answer, and one to a tool that declares connections
+ * (`needsSpec.connections`) may wait for its person to connect.
+ */
 function readsOnly(step: StepCalls, call: ModelToolCall | undefined): boolean {
   const binding = call === undefined ? undefined : step.tools.byName.get(call.name);
-  return binding !== undefined && isReadOnlyTool(binding.tool);
+  if (binding === undefined) return false;
+  const { tool } = binding;
+  return isReadOnlyTool(tool) && tool.pauses !== true && connectionNeedsOf(tool) === undefined;
 }
 
 /**
@@ -671,7 +682,8 @@ async function planCall(step: StepCalls, call: ModelToolCall): Promise<DecidedCa
   // The call's connections (`needsSpec.connections`), before any
   // approval: a person's missing connection waits for them to connect,
   // and four eyes on a call only that person may approve can't be met.
-  // A call they stop runs nothing; its result tells the model why.
+  // A call they stop runs nothing; its result tells the model why. A
+  // call that may wait runs alone (`readsOnly`): nothing runs alongside.
   const conflict = connectionApprovalConflict(call, tool, gate?.separateApprover === true);
   const connected: ConnectionGate =
     conflict !== undefined

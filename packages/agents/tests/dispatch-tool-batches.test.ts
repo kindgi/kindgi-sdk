@@ -5,7 +5,8 @@
  * dispatch-tools runs a model step's calls in batches: the calls in a row
  * to read-only tools run at the same time, any other call on its own. The
  * results reach the conversation, the model and the events in call order;
- * a call that waits for a review runs on its own, as do the calls after it.
+ * a call that waits for a review runs on its own, as do the calls after it,
+ * and so does a call that may wait for another system or for a connect.
  */
 
 import type { NodeContext } from '@kindgi/handler';
@@ -38,6 +39,10 @@ interface Probe {
   readonly runsUntilStopped?: boolean;
   /** The call waits for a reviewer (`always_ask`). */
   readonly gated?: boolean;
+  /** The tool may pause for another system's answer (`Tool.pauses`); this one answers at once. */
+  readonly pauses?: boolean;
+  /** The tool declares a person's connection; the step serves none, so its call runs nothing. */
+  readonly connects?: boolean;
 }
 
 /**
@@ -98,6 +103,11 @@ function probeTool(probe: Probe, seen: Seen): AnyTool {
     },
     effects: [],
     ...(probe.mutating !== undefined && { mutating: probe.mutating }),
+    ...(probe.connects === true && {
+      needsSpec: {
+        connections: { mail: { app: 'acme', permissions: ['mail.read'], as: 'person' as const } },
+      },
+    }),
     handler: async (_input, ctx: ToolContext) => {
       seen.log.push(`start ${probe.name}`);
       seen.runs.set(probe.name, (seen.runs.get(probe.name) ?? 0) + 1);
@@ -122,7 +132,9 @@ function probeTool(probe: Probe, seen: Seen): AnyTool {
     },
   });
   if (defined.kind === 'err') throw new Error(defined.error.message);
-  return defined.value as unknown as AnyTool;
+  return (probe.pauses === true
+    ? { ...defined.value, pauses: true }
+    : defined.value) as unknown as AnyTool;
 }
 
 /** The probe a stored message or a call id is for. */
@@ -331,6 +343,34 @@ describe('dispatch-tools — read-only calls run together', () => {
     expect(ranBefore(step.seen.log, 'stored rb', 'start m')).toBe(true);
     expect(ranBefore(step.seen.log, 'stored m', 'start rc')).toBe(true);
     expect(results(step.stored)).toEqual(['ra', 'rb', 'm', 'rc']);
+  });
+
+  test('a call to a read-only tool that may wait runs on its own, in its place: one that pauses, one with a connection', async () => {
+    const a = latch();
+    const step = runStep({
+      probes: [
+        { name: 'ra', mutating: false, until: a.promise },
+        // May wait for another system's answer.
+        { name: 'p', mutating: false, pauses: true },
+        { name: 'rb', mutating: false },
+        // May wait for its person to connect an app.
+        { name: 'c', mutating: false, connects: true },
+        { name: 'rc', mutating: false },
+      ],
+    });
+    await until(() => step.seen.inFlight === 1);
+    await settle();
+    expect(step.seen.log).toEqual(['start ra']);
+    a.open();
+    expect((await step.done).error).toBeUndefined();
+    expect(step.seen.mostInFlight).toBe(1);
+    expect(ranBefore(step.seen.log, 'stored ra', 'start p')).toBe(true);
+    expect(ranBefore(step.seen.log, 'stored p', 'start rb')).toBe(true);
+    // Its connection isn't served: it runs nothing, and its failure is its result.
+    expect(step.seen.runs.has('c')).toBe(false);
+    expect(ranBefore(step.seen.log, 'stored rb', 'stored c')).toBe(true);
+    expect(ranBefore(step.seen.log, 'stored c', 'start rc')).toBe(true);
+    expect(results(step.stored)).toEqual(['ra', 'p', 'rb', 'c', 'rc']);
   });
 
   test('parallelToolCalls: false: every call runs on its own, in order', async () => {

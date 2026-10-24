@@ -236,8 +236,11 @@ Any other tool waits for approval on its first use.
 A model can ask for several tool calls in one step. An agent runs calls to
 read-only tools that come one after another at the same time, up to 8 of
 them, and a call to any other tool on its own, in the order the model asked
-(runtime 0.1.12 or later; earlier ones run every call on its own). Once a
-call needs an approval, the step's calls
+(runtime 0.3.0 or later; earlier ones run every call on its own). A call to
+a read-only tool that may wait, for
+[another system's answer](../wait-for-another-system/) or for its person to
+[connect an app](../../connections/), runs on its own too. Once a call needs
+an approval, the step's calls
 that haven't started run one at a time. Either way, the results reach the
 conversation and the model in the order the model asked for them, and each
 call's events carry its own duration.

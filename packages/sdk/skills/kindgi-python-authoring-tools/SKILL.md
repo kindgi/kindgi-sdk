@@ -264,7 +264,7 @@ before a read-only tool, and asks before any other on first use.
 And it decides what runs together: when a model step asks for several
 calls at once, an agent runs calls to read-only tools (no changing effect
 either) that come one after another at the same time, up to 8 of them, and
-any other call on its own, in the order the model asked. The
+any other call on its own, in the order the model asked. A call that may wait, for another system's answer or for its person to connect an app, runs on its own too. The
 results reach the conversation and the model in that order either way.
 `Agent(..., parallel_tool_calls=False)` runs every call on its own.
 

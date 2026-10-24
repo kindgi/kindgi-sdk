@@ -170,7 +170,7 @@ public final class BriefWriter {
 - **`set("parallelToolCalls", false)`:** when a model step asks for several
   calls at once, an agent runs calls to read-only tools (`mutating(false)`, no
   changing effect) that come one after another at the same time, up to 8 of
-  them, and any other call on its own, in the order the model asked; the results reach the conversation in that order either way. `false`
+  them, and any other call on its own, in the order the model asked; the results reach the conversation in that order either way. A call that may wait, for another system's answer or for its person to connect an app, runs on its own too. `false`
   runs every call on its own, for read-only tools that mustn't overlap (a
   rate-limited API, say).
 

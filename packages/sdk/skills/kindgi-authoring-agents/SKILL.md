@@ -166,7 +166,7 @@ export default defined.value;
   for several calls at once, calls to read-only tools (`mutating: false`,
   no changing effect) that come one after another run at the same time, up
   to 8 of them, and a call to any other tool runs on its own, in the order
-  the model asked. Once a call needs an approval, the
+  the model asked. A call that may wait, for another system's answer or for its person to connect an app, runs on its own too. Once a call needs an approval, the
   step's calls that haven't started run one at a time. The results reach the
   conversation and the model in the model's order either way. `false`
   runs every call on its own, for read-only tools that mustn't overlap

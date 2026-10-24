@@ -252,7 +252,7 @@ first use. And it decides what runs together: when a model step asks for
 several calls at once, an agent runs calls to read-only tools (no changing
 effect either) that come one after another at the same time, up to 8 of them,
 and any other call on its own, in the order the model asked (an agent
-with `set("parallelToolCalls", false)` runs every call on its own).
+with `set("parallelToolCalls", false)` runs every call on its own). A call that may wait, for another system's answer or for its person to connect an app, runs on its own too.
 
 `effect(kind, resource)` declares a side effect, such as
 `.effect("writes", "db:ledger")`. A dry run also stops at a tool with a
