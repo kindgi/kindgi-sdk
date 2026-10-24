@@ -1075,6 +1075,50 @@ describe('kindgi deploy — dry-run + safety gates', () => {
     }
   });
 
+  test('unsigned envelope + --dry-run: shows the body less the signature, exits 0', async () => {
+    const unsigned = makeEnvelope();
+    (unsigned as Record<string, unknown>).signature = undefined;
+    (unsigned as Record<string, unknown>).signerKeyId = undefined;
+    (unsigned as Record<string, unknown>).signerPublicKey = undefined;
+    await writeAutoEnvelope();
+    const dir = join(packDir, '.kindgi', 'build');
+    await writeFile(join(dir, 'deploy-envelope.json'), JSON.stringify(unsigned, null, 2), 'utf8');
+    for (const key of [undefined, 'acme-deploy-1']) {
+      const fixtures = makeFixtures({ envelope: unsigned });
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        argv: [
+          'deploy',
+          '--env=staging',
+          '--dry-run',
+          `--path=${packDir}`,
+          ...(key !== undefined ? [`--idempotency-key=${key}`] : []),
+        ],
+      });
+      expect(out.exitCode).toBe(0);
+      expect(fixtures.state.postCalls).toBe(0);
+      expect(out.stderr).not.toContain('Internal error');
+      expect(out.stderr).toContain(
+        'plus the signerKeyId, signerPublicKey and signature a signed build adds',
+      );
+      expect(out.stderr).toContain(`"imageRef": "${unsigned.imageRef as string}"`);
+      expect(out.stderr).not.toContain('"signature"');
+      expect(out.stderr).not.toContain('Idempotency-Key: sha256:');
+      expect(out.stderr.includes(`-H "Idempotency-Key: ${key}"`)).toBe(key !== undefined);
+      const summary = JSON.parse(out.stdout) as {
+        dryRun: boolean;
+        idempotencyKey?: string;
+        wouldPost: Record<string, unknown>;
+      };
+      expect(summary.dryRun).toBe(true);
+      expect(summary.idempotencyKey).toBe(key);
+      expect(summary.wouldPost.imageRef).toBe(unsigned.imageRef);
+      expect(summary.wouldPost).not.toHaveProperty('signature');
+      expect(summary.wouldPost).not.toHaveProperty('signerKeyId');
+      expect(summary.wouldPost).not.toHaveProperty('signerPublicKey');
+    }
+  });
+
   test('--tenant mismatch with envelope → refuses to POST', async () => {
     await writeAutoEnvelope();
     const fixtures = makeFixtures();

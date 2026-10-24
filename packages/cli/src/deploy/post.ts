@@ -91,6 +91,27 @@ export function buildPostBody(envelope: DeployEnvelope): PostDeploymentBody {
   };
 }
 
+/** The wire body without the signature's three fields: all an unsigned envelope has. */
+export type UnsignedPostBody = Omit<
+  PostDeploymentBody,
+  'signerKeyId' | 'signerPublicKey' | 'signature'
+>;
+
+/**
+ * What `--dry-run` shows for an unsigned envelope: the body it would
+ * POST, less the signature's fields, which a signed build adds. The
+ * server refuses it as it is, so nothing sends it.
+ */
+export function unsignedPostBody(envelope: DeployEnvelope): UnsignedPostBody {
+  return {
+    imageRef: envelope.imageRef,
+    artifactVersion: envelope.artifactVersion,
+    index: envelope.index,
+    indexHash: envelope.indexHash,
+    publishedAt: envelope.publishedAt,
+  };
+}
+
 /**
  * `sha256:<hex>` over the canonical (sorted-key, no-whitespace) JSON
  * representation of the wire body. Matches the sha256 shape every other hash in the framework uses.

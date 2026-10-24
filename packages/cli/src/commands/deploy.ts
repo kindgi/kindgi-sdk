@@ -19,7 +19,8 @@
  *      `buildLogsUrl`).
  *   5. Compute `Idempotency-Key: sha256(canonicalBody)` (or `--idempotency-key`).
  *   6. If `--dry-run`: print the curl-equivalent + body + headers to
- *      stderr, exit 0.
+ *      stderr, exit 0. An unsigned envelope shows the body less the
+ *      signature's fields, and no derived key.
  *   7. Otherwise POST via `ctx.fetch`, waiting out the server's rate
  *      limits (`429` with `Retry-After`) for up to 10 minutes in all.
  *   8. Handle response (201 / 200 / 4xx / 5xx / transport).
@@ -39,9 +40,11 @@ import { isEnvelopeSigned } from '../deploy/envelope-loader.js';
 import { packBlocksRefusal } from '../deploy/pack-blocks-gate.js';
 import { packServiceProblemText, packServiceRetiredText } from '../deploy/pack-service-text.js';
 import {
+  type UnsignedPostBody,
   buildPostBody,
   deriveIdempotencyKey,
   deriveSyncSecretsIdempotencyKey,
+  unsignedPostBody,
 } from '../deploy/post.js';
 import { type PromotionStop, promotionPath } from '../deploy/promotion-path.js';
 import { renderResponse } from '../deploy/response.js';
@@ -391,13 +394,7 @@ async function deployWith(
 
   // ---- 4. Signed-envelope gate ----------------------------------------
   if (!isEnvelopeSigned(envelope)) {
-    if (!args.dryRun) {
-      return failure(
-        'deploy-envelope.json is unsigned. The server will refuse the deployment.\n' +
-          'Re-run `kindgi build` without --skip-sign, or pass --dry-run to inspect ' +
-          'what would be POSTed.\n',
-      );
-    }
+    if (!args.dryRun) return failure(UNSIGNED_REFUSAL);
     out.problem('  ⚠ Envelope is unsigned — --dry-run is proceeding for inspection only.');
     out.problem('');
   }
@@ -410,19 +407,17 @@ async function deployWith(
   }
 
   // ---- 6. Build POST body + Idempotency-Key ---------------------------
-  let postBody: PostDeploymentBody;
-  try {
-    postBody = {
-      ...buildPostBody(envelope),
-      ...(project.id !== undefined && { projectId: project.id }),
-    };
-  } catch (err) {
-    return failure(`Internal error building POST body: ${(err as Error).message}\n`);
-  }
+  //
+  // An unsigned envelope comes this far only under --dry-run (step 4). It
+  // has no POST body: the dry run shows the body less the signature's
+  // fields, and no derived Idempotency-Key, which hashes the signed body.
+  const projectField = project.id !== undefined ? { projectId: project.id } : {};
+  const postBody: PostDeploymentBody | undefined = isEnvelopeSigned(envelope)
+    ? { ...buildPostBody(envelope), ...projectField }
+    : undefined;
   const idempotencyKey =
-    args.idempotencyKeyOverride !== undefined
-      ? args.idempotencyKeyOverride
-      : deriveIdempotencyKey(postBody);
+    args.idempotencyKeyOverride ??
+    (postBody !== undefined ? deriveIdempotencyKey(postBody) : undefined);
 
   // ---- 7. Secrets sync detection + warning ---------------------------
   //
@@ -451,34 +446,11 @@ async function deployWith(
 
   // ---- 8. Dry-run ------------------------------------------------------
   if (args.dryRun) {
-    line('  Dry run — would POST the following:');
-    line('');
-    line(`    curl -X POST ${args.endpoint.replace(/\/+$/, '')}/v1/deployments \\`);
-    line('      -H "Authorization: Bearer <redacted>" \\');
-    line('      -H "Content-Type: application/json" \\');
-    line(`      -H "Idempotency-Key: ${idempotencyKey}" \\`);
-    line("      -d @-  <<'JSON'");
-    for (const bodyLine of JSON.stringify(postBody, null, 2).split('\n')) {
-      line(`    ${bodyLine}`);
-    }
-    line('    JSON');
-    line('');
-    line('  --dry-run set. No request sent. Exiting 0.');
-    line('');
-    const summary = {
-      envName: args.envName,
-      endpoint: args.endpoint,
-      envelopePath: args.envelopePath,
-      idempotencyKey,
-      dryRun: true,
-      wouldPost: postBody,
-    };
-    const rendered = renderJson(summary, ctx.globals.format);
-    return {
-      kind: 'ok',
-      rendered: { stdout: rendered.stdout, stderr: '' },
-    };
+    const shown = postBody ?? { ...unsignedPostBody(envelope), ...projectField };
+    return dryRunResult(ctx, args, line, shown, idempotencyKey);
   }
+  // Step 4 refused an unsigned envelope without --dry-run; this tells the types.
+  if (postBody === undefined || idempotencyKey === undefined) return failure(UNSIGNED_REFUSAL);
 
   // ---- 9. POST ---------------------------------------------------------
   //
@@ -1436,9 +1408,63 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * `--dry-run`'s answer: the curl-equivalent and body as progress, the
+ * summary on stdout. An unsigned envelope's body lacks the signature's
+ * fields, and has no derived Idempotency-Key, which hashes the signed body.
+ */
+function dryRunResult(
+  ctx: CommandContext,
+  args: ResolvedDeployArgs,
+  line: ProgressLines['line'],
+  body: PostDeploymentBody | UnsignedPostBody,
+  idempotencyKey: string | undefined,
+): CommandResult {
+  const missing =
+    idempotencyKey === undefined
+      ? 'signerKeyId, signerPublicKey and signature a signed build adds, and the Idempotency-Key, which hashes that body'
+      : 'signerKeyId, signerPublicKey and signature a signed build adds';
+  line(
+    'signature' in body
+      ? '  Dry run — would POST the following:'
+      : `  Dry run — would POST the following, plus the ${missing}:`,
+  );
+  line('');
+  line(`    curl -X POST ${args.endpoint.replace(/\/+$/, '')}/v1/deployments \\`);
+  line('      -H "Authorization: Bearer <redacted>" \\');
+  line('      -H "Content-Type: application/json" \\');
+  if (idempotencyKey !== undefined) line(`      -H "Idempotency-Key: ${idempotencyKey}" \\`);
+  line("      -d @-  <<'JSON'");
+  for (const bodyLine of JSON.stringify(body, null, 2).split('\n')) {
+    line(`    ${bodyLine}`);
+  }
+  line('    JSON');
+  line('');
+  line('  --dry-run set. No request sent. Exiting 0.');
+  line('');
+  const summary = {
+    envName: args.envName,
+    endpoint: args.endpoint,
+    envelopePath: args.envelopePath,
+    ...(idempotencyKey !== undefined && { idempotencyKey }),
+    dryRun: true,
+    wouldPost: body,
+  };
+  const rendered = renderJson(summary, ctx.globals.format);
+  return {
+    kind: 'ok',
+    rendered: { stdout: rendered.stdout, stderr: '' },
+  };
+}
+
 function failure(stderr: string): CommandResult {
   return { kind: 'error', stderr, exitCode: 1 };
 }
+
+const UNSIGNED_REFUSAL =
+  'deploy-envelope.json is unsigned. The server will refuse the deployment.\n' +
+  'Re-run `kindgi build` without --skip-sign, or pass --dry-run to inspect ' +
+  'what would be POSTed.\n';
 
 function countIndexPrimitives(index: Readonly<Record<string, unknown>>): {
   tools: number;
