@@ -507,9 +507,9 @@ describe('kindgi connections connect', () => {
   });
 
   describe('--quiet: the link alone, since it is what the person opens', () => {
-    const LINK = `Open this link to connect google:\n  ${REQUEST.connectUrl}\n`;
+    const LINK = `${REQUEST.connectUrl}\n`;
 
-    test('without a terminal: stdout is exactly the link line', async () => {
+    test('without a terminal: stdout is exactly the bare URL, on one line', async () => {
       const { calls, rec } = recorder();
       const out = await run(
         ['connections', 'connect', 'google', '--permissions=gmail.send', '--quiet'],

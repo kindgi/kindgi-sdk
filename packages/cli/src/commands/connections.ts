@@ -394,8 +394,9 @@ const connect: LeafCommand = {
 /**
  * What a made connect says: its link, and at a terminal the wait's end.
  * --quiet changes only what's said, never what's done: the link is still the
- * result the person acts on, and at a terminal it still waits, saying after it
- * only a warning or an error.
+ * result the person acts on, as the bare URL on one line so a script can take it
+ * as it is, and at a terminal it still waits, saying after it only a warning or
+ * an error.
  */
 async function linkThenWait(
   ctx: CommandContext,
@@ -407,12 +408,14 @@ async function linkThenWait(
   const seam = ctx.connectionsSeam ?? {};
   if (!(seam.interactive ?? isInteractive)()) {
     return {
-      stdout: quiet ? link : `${link}It works until ${String(request.expiresAt)}.\n`,
+      stdout: quiet
+        ? `${request.connectUrl}\n`
+        : `${link}It works until ${String(request.expiresAt)}.\n`,
       stderr: '',
     };
   }
   if (quiet) {
-    (seam.result ?? ((line: string) => process.stdout.write(line)))(link);
+    (seam.result ?? ((line: string) => process.stdout.write(line)))(`${request.connectUrl}\n`);
     const ended = await afterWaiting(ctx, request, await waitForConnect(ctx, request));
     return { ...ended, stdout: '' };
   }
