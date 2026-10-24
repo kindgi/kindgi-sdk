@@ -46,8 +46,8 @@
 #                      instance backup.
 #   --to               The target runtime version (default 0.1.10; an rc such
 #                      as 0.1.10-rc.1 works too). This script knows the steps
-#                      up to 0.1.10; for a later release, use the upgrade.sh
-#                      from that release.
+#                      up to 0.1.10; for a later release, use this script as
+#                      of that release's @kindgi/sdk@<version> tag.
 #   --from             Assert the current version when it can't be read from the
 #                      deployment (no version tag on the running image).
 #   --pack-dir         Rebuild and push the pack from here with `kindgi build`
@@ -219,7 +219,7 @@ is_semver "$TARGET" || die "--to \"$TARGET\" isn't a version like 0.1.10."
 # the newest release it knows (an rc counts as its final).
 NEWEST_KNOWN="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 [[ "$(ver_num "${TARGET%%-*}")" -le "$(ver_num "$NEWEST_KNOWN")" ]] \
-  || die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. Use the upgrade.sh from the release you're upgrading to."
+  || die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. Use this script as of the @kindgi/sdk@$TARGET tag."
 if [[ -n $FROM_OVERRIDE ]]; then is_semver "$FROM_OVERRIDE" || die "--from \"$FROM_OVERRIDE\" isn't a version like 0.1.8."; fi
 if [[ -n $PACK_DIR ]]; then [[ -d $PACK_DIR ]] || die "--pack-dir \"$PACK_DIR\" isn't a directory."; fi
 
