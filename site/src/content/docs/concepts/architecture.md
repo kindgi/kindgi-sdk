@@ -66,9 +66,9 @@ The same runtime image runs everywhere:
 - **Kindgi Cloud:** Kindgi operates the runtime for you (private preview).
 
 :::note[Access to the runtime image]
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
-runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your
+email address for a license key. The key is also the runtime image's
+password ([Pull the runtime image](../../deploy/self-hosted/pull-the-runtime-image/)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## What stays yours
