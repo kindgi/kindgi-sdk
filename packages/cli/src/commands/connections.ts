@@ -42,6 +42,8 @@ export interface ConnectionsSeam {
   readonly pause?: (ms: number, signal?: AbortSignal) => Promise<void>;
   /** Where the link and the waiting line go while it waits. Default: stderr. */
   readonly progress?: (line: string) => void;
+  /** Where the link goes before a `--quiet` connect waits: it's the command's result. Default: stdout. */
+  readonly result?: (line: string) => void;
 }
 
 /** How often a waiting `connect` reads its request. */
@@ -346,7 +348,7 @@ const connect: LeafCommand = {
   kind: 'leaf',
   name: 'connect',
   description:
-    "Connect your account at an app (the company's with --for-company): prints the link to open, and at a terminal waits until the connect finishes and says whose account it is.",
+    "Connect your account at an app (the company's with --for-company): prints the link to open, and at a terminal waits until the connect finishes and says whose account it is. --quiet prints the link alone, and still waits.",
   usage:
     'kindgi connections connect <app> [--app-id=<registration-id>] [--project=<project-id>] [--permissions=<key>,…] [--for-company]',
   optionSpec: {
@@ -388,18 +390,43 @@ const connect: LeafCommand = {
         ...(projectId !== undefined && { projectId }),
         ...(ctx.options['for-company'] === true && { for: 'company' as const }),
       });
-      if (ctx.globals.formatRequested) return renderJson(request, ctx.globals.format);
-      const link = `Open this link to connect ${app}:\n  ${request.connectUrl}\n`;
-      const seam = ctx.connectionsSeam ?? {};
-      if (!(seam.interactive ?? isInteractive)()) {
-        return { stdout: `${link}It works until ${String(request.expiresAt)}.\n`, stderr: '' };
+      if (ctx.globals.formatRequested && ctx.globals.format !== 'quiet') {
+        return renderJson(request, ctx.globals.format);
       }
-      (seam.progress ?? ((line: string) => process.stderr.write(line)))(
-        `${link}Waiting for the connect to finish (Ctrl-C stops waiting; the link works until ${String(request.expiresAt)})…\n`,
-      );
-      return await afterWaiting(ctx, request, await waitForConnect(ctx, request));
+      return await linkThenWait(ctx, app, request);
     }),
 };
+
+/**
+ * What a made connect says: its link, and at a terminal the wait's end.
+ * --quiet changes only what's said, never what's done: the link is still the
+ * result the person acts on, and at a terminal it still waits, saying after it
+ * only a warning or an error.
+ */
+async function linkThenWait(
+  ctx: CommandContext,
+  app: string,
+  request: ConnectRequest,
+): Promise<Rendered & { readonly exitCode?: number }> {
+  const quiet = ctx.globals.format === 'quiet';
+  const link = `Open this link to connect ${app}:\n  ${request.connectUrl}\n`;
+  const seam = ctx.connectionsSeam ?? {};
+  if (!(seam.interactive ?? isInteractive)()) {
+    return {
+      stdout: quiet ? link : `${link}It works until ${String(request.expiresAt)}.\n`,
+      stderr: '',
+    };
+  }
+  if (quiet) {
+    (seam.result ?? ((line: string) => process.stdout.write(line)))(link);
+    const ended = await afterWaiting(ctx, request, await waitForConnect(ctx, request));
+    return { ...ended, stdout: '' };
+  }
+  (seam.progress ?? ((line: string) => process.stderr.write(line)))(
+    `${link}Waiting for the connect to finish (Ctrl-C stops waiting; the link works until ${String(request.expiresAt)})…\n`,
+  );
+  return await afterWaiting(ctx, request, await waitForConnect(ctx, request));
+}
 
 /** What a removal did at the app, in words. */
 export function withdrawnWords(withdrawn: Connection['withdrawn']): string {
@@ -437,11 +464,14 @@ const disconnect: LeafCommand = {
       });
       if (ok.kind === 'refused') return { stdout: '', stderr: ok.stderr, exitCode: 1 };
       const c = await client.connections.disconnect(id);
+      const said = `Disconnected ${c.account.label} at ${c.app}: ${withdrawnWords(c.withdrawn)}.\n`;
+      if (ctx.globals.format === 'quiet') {
+        // --quiet still says what's left to do at the app: a warning.
+        const left = c.withdrawn === 'app-failed' || c.withdrawn === 'not-supported';
+        return { stdout: '', stderr: left ? said : '' };
+      }
       if (ctx.globals.formatRequested) return renderJson(c, ctx.globals.format);
-      return {
-        stdout: `Disconnected ${c.account.label} at ${c.app}: ${withdrawnWords(c.withdrawn)}.\n`,
-        stderr: '',
-      };
+      return { stdout: said, stderr: '' };
     }),
 };
 
