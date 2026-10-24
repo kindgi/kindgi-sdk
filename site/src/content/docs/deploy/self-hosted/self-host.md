@@ -56,7 +56,7 @@ license key, and pull it:
 
 ```sh
 docker login registry.kindgi.com --username kindgi
-docker pull quay.io/kindgi/runtime:0.1.9
+docker pull registry.kindgi.com/kindgi/runtime:0.1.11
 ```
 
 `docker login` asks for the password: paste your key. It prints
@@ -284,7 +284,7 @@ Start the runtime:
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.9
+  registry.kindgi.com/kindgi/runtime:0.1.11
 ```
 
 - **`--restart unless-stopped`** brings the runtime back by itself after a
