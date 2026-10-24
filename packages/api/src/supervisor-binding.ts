@@ -279,9 +279,20 @@ export interface ObservationPosition {
   readonly id: string;
 }
 
+/**
+ * A page, or the runtime's failure to read one. A failure's `cause` is the
+ * error it came from, if any: a storage failure marked `database-busy` down
+ * it answers a GET `503` with `Retry-After`, not the code's status. It
+ * never reaches the response body.
+ */
 export type SupervisorQueryObservationsOutcome =
   | { readonly kind: 'ok'; readonly page: SupervisorObservationPage }
-  | { readonly kind: 'runtime-error'; readonly code: string; readonly message: string };
+  | {
+      readonly kind: 'runtime-error';
+      readonly code: string;
+      readonly message: string;
+      readonly cause?: unknown;
+    };
 
 /**
  * Classified outcome of an observed turn. The observations route

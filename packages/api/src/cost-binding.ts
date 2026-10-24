@@ -116,6 +116,8 @@ export interface CostRecordFilter {
   readonly servedModel?: string;
   /** Every record of the run tree whose root is this run. */
   readonly rootRunId?: string;
+  /** Every record of the run trees whose root is a run of this flow (the record's `flowId`). */
+  readonly flowId?: string;
   /**
    * With `runId`: that run's records and those of every run it started,
    * at any depth.

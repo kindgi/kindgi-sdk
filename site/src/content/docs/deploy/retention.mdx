@@ -235,6 +235,22 @@ PublishPolicyResult[policyId=acme.keep-providers, version=1.0.0]
 - **A spec that doesn't fit is refused** with `400 validation-failed`, naming
   the field: `policy.spec/mode can't be "archive" yet: use "purge"`, or
   `policy.spec/domain must be one of: org, agent, …, provider, * (got "blocks")`.
+- **A server can limit how long a domain's records are kept.** A runtime
+  limits runs with `KINDGI_RUN_RETENTION_MAX_DAYS`, in whole days
+  ([the variable](../../reference/env-vars/#kindgi_run_retention_max_days)).
+  Unset, there's no limit. Where there is one, a policy for that domain
+  that keeps records longer, or for good (`-1`), is refused
+  (`400 retention-over-limit`), and so is reinstating a retired version
+  that does:
+
+  ```text
+  `graceSeconds` 31536000 (365 days) is over the retention limit for `run` rows, 90 days.
+  ```
+
+  A `*` policy isn't refused: in a limited domain, the server keeps
+  records no longer than the limit. A limited domain that no policy covers
+  gets the limit too, and so does a policy stored before the limit was set
+  that keeps records longer or for good.
 - **Two policies can still cover one domain** when an older runtime took
   both. The console warns. Lists, sweeps and the runtime's log say which one
   applies: unregister the others.
@@ -264,7 +280,9 @@ const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the runni
 
 // What a sweep would purge now, then purge it.
 const due = await kindgi.retention.scheduled({ pastGraceOnly: true });
-console.log(due.data.map((row) => `${row.domain} ${row.id} (policy ${row.policyId})`));
+console.log(
+  due.data.map((row) => `${row.domain} ${row.id} (${row.policyId ? `policy ${row.policyId}` : 'the server limit'})`),
+);
 
 const swept = await kindgi.retention.sweep({ domain: 'provider' });
 console.log(`${swept.totalPurged} purged`);
@@ -286,7 +304,10 @@ kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
 # What a sweep would purge now, then purge it.
 due = kindgi.retention.scheduled(past_grace_only=True)
-print([f"{row.domain} {row.id} (policy {row.policy_id})" for row in due.data])
+print([
+    f"{row.domain} {row.id} ({f'policy {row.policy_id}' if row.policy_id else 'the server limit'})"
+    for row in due.data
+])
 
 swept = kindgi.retention.sweep(domain="provider")
 print(f"{swept.total_purged} purged")
@@ -319,7 +340,8 @@ public final class RetentionSweep {
     RetentionScheduledPage due =
         kindgi.retention().scheduled(RetentionScheduledParams.builder().pastGraceOnly(true).build());
     System.out.println(due.data().stream()
-        .map(row -> row.domain() + " " + row.id() + " (policy " + row.policyId() + ")")
+        .map(row -> row.domain() + " " + row.id() + " ("
+            + (row.policyId() != null ? "policy " + row.policyId() : "the server limit") + ")")
         .toList());
 
     RetentionSweepResult swept =
@@ -352,7 +374,10 @@ object RetentionSweep {
 
     // What a sweep would purge now, then purge it.
     val due = kindgi.retention().scheduled(RetentionScheduledParams.builder().pastGraceOnly(true).build())
-    println(due.data.asScala.map(row => s"${row.domain} ${row.id} (policy ${row.policyId})").toList)
+    println(due.data.asScala.map { row =>
+      val decidedBy = Option(row.policyId).fold("the server limit")(id => s"policy $id")
+      s"${row.domain} ${row.id} ($decidedBy)"
+    }.toList)
 
     val swept = kindgi.retention().sweep(RetentionSweepBody.builder().domain(RetentionDomain.PROVIDER).build())
     println(s"${swept.totalPurged} purged")
@@ -388,7 +413,11 @@ purged:
 - **`pastGraceOnly`**, `past_grace_only` in Python, narrows the list to what
   a sweep would purge now.
 - **`unpolicedDomains`**, in the list's answer, names the domains no policy
-  covers. Their deleted records are kept.
+  covers and the server doesn't limit. Their deleted records are kept.
+- **`limitApplied: true`**, `limit_applied` in Python, marks a record the
+  server's limit decides: no policy covers its domain, so it has no
+  `policyId`, or its policy keeps records longer than the limit.
+  `graceSeconds` is then the limit.
 - **A long list comes in pages.** `limit` is how many records per domain:
   25 unless you say, at most 100. `hasMore` says there are more, and
   `nextCursor`, passed back as `cursor`, gets the next page. In Python,
@@ -407,13 +436,23 @@ purged:
 ### Sweep on a schedule
 
 Set `KINDGI_RETENTION_SWEEP_INTERVAL_MS` in `kindgi.env`: how often to sweep,
-in milliseconds, at least `60000`. `3600000` is hourly. Each pass is the same
-sweep, for every tenant the runtime serves. It purges up to 500 records per
-domain, and the rest wait for the next pass. The startup log says which way
-it runs:
+in milliseconds, at least `60000`. `3600000` is hourly. Each round is the
+same sweep, for every tenant the runtime serves, page by page until nothing
+due is left. However many replicas you run, one of them runs each round.
+
+- **Rounds keep to the interval.** After the runtime was down longer than
+  one, a round is due at once, and that one round catches up.
+- **A round that stops part way is carried on.** It has 30 minutes. One
+  that runs out of time, or meets a tenant whose sweep fails, stays due,
+  and the next check goes on with it. A failed tenant is logged and
+  skipped, never the end of the round.
+
+The startup log says which way it runs, and the limit for runs when
+there is one:
 
 ```text
   Retention: purges deleted rows past their grace every 1 min
+  Retention: every 1 h; the limit for runs: 90 days
   Retention: manual (POST /v1/retention/sweep; KINDGI_RETENTION_SWEEP_INTERVAL_MS purges on its own)
 ```
 
@@ -421,6 +460,13 @@ A pass that purged something logs it, per tenant:
 
 ```text
 17:41:42.348 INFO  [retention] tenant 5c0a7e11-0000-4000-8000-00000000c0de: purged 1 (provider 1)
+```
+
+Rows purged more than a day after they were due mean rounds were missed,
+such as while the runtime was down. Each round warns about them once:
+
+```text
+purged rows more than 24 h past their retention limit (run <count>, the oldest <hours> h past it): retention rounds were missed
 ```
 
 A value under `60000` stops the runtime at start:
@@ -439,8 +485,10 @@ startup log says so:
 ## Keep records for good
 
 A policy with `graceSeconds: -1` keeps a domain's deleted records, and sweeps
-skip it. With `"domain": "*"`, nothing is purged except in the domains that
-have a policy of their own:
+skip it. Not where the server limits the domain: there a hold is refused, and
+one stored before the limit purges at the limit. With `"domain": "*"`, nothing
+is purged except in the domains that have a policy of their own, or a limit on
+the server:
 
 ```json
 { "id": "acme.keep-everything", "version": "1.0.0", "kind": "retention",
@@ -452,8 +500,9 @@ will purge them.
 
 ## Audit events
 
-Retention policies don't touch the audit trail: each access decision, each
-approval decision and each run's outcome. Kindgi keeps it for good, unless
+Retention policies don't touch the audit trail, where the runtime records
+each access decision, approval decision and sign-in, and changes like those
+in the table below. Kindgi keeps it for good, unless
 you start the runtime with `KINDGI_COMPLIANCE_CLASSIFIER` set to:
 
 - `shipped`, the classifier the runtime ships;
@@ -468,6 +517,19 @@ then every hour, in the tenants it serves:
 | Run outcomes (`run-outcome`), guardrail violations (`guardrail-violation`), changes to [env values](../../guides/tools/give-a-tool-env-values/) (`env-set`, `env-deleted`) | 730 days |
 | Approval decisions (`hitl-decision`), and changes to secrets, API keys, service accounts and people's access ([On legal hold](#on-legal-hold)) | For good: they're on legal hold |
 | Any other kind | For good |
+
+Run outcomes and guardrail violations are recorded (runtime 0.1.9 or
+later):
+
+- **A run's end** (`run-outcome`): one record for each run, however it
+  ends. It's written with the end itself, so no run ends without one;
+  runs that ended before the upgrade have none. Child runs, replays, eval
+  runs and dry runs each have theirs, and the record says which. It says
+  how the run ended, and its only text is the run's failure message.
+- **A guardrail violation** (`guardrail-violation`): one record for each
+  guardrail that blocked a step's answer, or let it through with a
+  violation, for each run and step. It holds the check's ids and what it
+  came to, never the check's reason or a judge's answer.
 
 ### On legal hold
 
@@ -495,7 +557,7 @@ and no audit event is ever purged. With it on, a pass that purged something
 logs it, per tenant:
 
 ```text
-<time> INFO  [audit.retention] tenant 5c0a7e11-0000-4000-8000-00000000c0de: purged 2 (authz-decision 1, run-outcome 1)
+22:19:29.073 INFO  [audit.retention] tenant 5c0a7e11-0000-4000-8000-00000000c0de: purged 1 (authz-decision 1)
 ```
 
 Any other value stops the runtime at start:
@@ -510,8 +572,8 @@ good. A kind it doesn't list is kept.
 An entry can name another kind instead of giving a policy. It's then kept,
 and purged, as that kind is, so the two can't drift apart. The shipped
 classifier does this for each family above, such as
-`"secret-revoked": "secret-set"`. This one keeps run outcomes 50 days, and
-guardrail violations with them:
+`"secret-revoked": "secret-set"`. This one keeps changes to env values 50
+days, removals with them:
 
 ```json
 {
@@ -519,8 +581,8 @@ guardrail violations with them:
   "default": { "retention": { "days": 90 }, "signed": false, "exportable": false },
   "byKind": {
     "authz-decision": { "retention": { "days": 90, "onDenyDays": 365 }, "signed": false, "exportable": true },
-    "run-outcome": { "retention": { "days": 50 }, "signed": true, "exportable": true },
-    "guardrail-violation": "run-outcome",
+    "env-set": { "retention": { "days": 50 }, "signed": true, "exportable": true },
+    "env-deleted": "env-set",
     "hitl-decision": { "retention": { "days": 2555, "legalHold": true }, "signed": true, "exportable": true }
   }
 }
@@ -534,7 +596,7 @@ names the file:
 ```
 
 A pass still counts each kind under its own name:
-`purged 2 (run-outcome 1, guardrail-violation 1)`.
+`purged 2 (env-set 1, env-deleted 1)`.
 
 The kind an entry names must have a policy of its own. A name that names
 another name, or a kind the file doesn't list, stops the runtime at start
@@ -558,13 +620,15 @@ events as compliance evidence. Without it, that route answers `404`.
   after 30 days."
 - **Deleted data** lists each deleted record with when it was deleted, when
   it will be purged and the policy that decides it, and has **Purge what's
-  due now**, the same sweep as the API.
+  due now**, the same sweep as the API. Where the server's limit decides
+  instead, its grace line says so ("grace 90d, this server's limit"), and a
+  record no policy covers shows **No policy**.
 
 ## Next
 
 - [Erase a person's data](../../guides/agents/erase-a-persons-data/): remove
   what Kindgi holds about one person.
-- [Back up and restore the runtime's database](../back-up-and-restore/):
+- [Back up and restore the runtime's database](../self-hosted/back-up-and-restore/):
   backups, restores, and replaying erasures after a restore.
-- [Logs](../logs/): what the runtime logs, and how long your log system
+- [Logs](../self-hosted/logs/): what the runtime logs, and how long your log system
   keeps it.

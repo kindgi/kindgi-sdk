@@ -19,7 +19,12 @@
 
 import type { PrepareEvent } from '@kindgi/client';
 
-import { commandResultFromThrown, requiredPositional, stringFlag } from './helpers.js';
+import {
+  commandResultFromThrown,
+  readJsonInput,
+  requiredPositional,
+  stringFlag,
+} from './helpers.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
 
 const prepareCmd: LeafCommand = {
@@ -36,7 +41,8 @@ const prepareCmd: LeafCommand = {
     },
     params: {
       type: 'string' as const,
-      description: "The adapter's prepare settings, as an inline JSON object.",
+      description:
+        "The adapter's prepare settings as a JSON object, or `@<file>` to read it from a file.",
     },
   },
   run: async (ctx): Promise<CommandResult> => {
@@ -49,19 +55,15 @@ const prepareCmd: LeafCommand = {
 
     // Compose adapter params. `--model=<key>` is a shorthand for the
     // in-process ONNX adapter (its only meaningful param); `--params`
-    // accepts an arbitrary JSON blob for any adapter.
+    // accepts an arbitrary JSON blob for any adapter, inline or `@<file>`.
     const paramsFlag = stringFlag(ctx, 'params');
     const modelFlag = stringFlag(ctx, 'model');
     let params: Readonly<Record<string, unknown>> | undefined;
     if (paramsFlag !== undefined) {
       try {
-        params = JSON.parse(paramsFlag) as Readonly<Record<string, unknown>>;
+        params = (await readJsonInput(paramsFlag)) as Readonly<Record<string, unknown>>;
       } catch (err) {
-        return {
-          kind: 'error',
-          stderr: `Malformed --params JSON: ${(err as Error).message}\n`,
-          exitCode: 2,
-        };
+        return commandResultFromThrown(err, ctx, 'kindgi adapters prepare');
       }
     }
     if (modelFlag !== undefined) {

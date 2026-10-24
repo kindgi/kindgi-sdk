@@ -15,7 +15,7 @@ import { homedir, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } from 'vitest';
 
 import { packServiceCommand, runJavaIndexer } from '../src/dev/defaults.js';
 import { createJavaPackBuilder, isJavaSourceChange, mavenErrors } from '../src/dev/java-builder.js';
@@ -27,6 +27,12 @@ import {
   resolvePackCode,
   resolvePackJava,
 } from '../src/dev/pack-code.js';
+import {
+  permissionDenied,
+  removedWhileRead,
+  scriptedWatch,
+  watchLimitReached,
+} from './scripted-watch.js';
 
 let packDir: string;
 beforeEach(async () => {
@@ -198,6 +204,47 @@ describe('the Java pack builder', () => {
     expect(argsFileText(['/a/classes', '/b c/x.jar', '/q"d/y.jar'])).toBe(
       `-cp "/a/classes${delimiter}/b c/x.jar${delimiter}/q\\"d/y.jar"\n`,
     );
+  });
+
+  // As the Python builder's (pack-code.test.ts): on Linux, Node's recursive
+  // watch emits an 'error' for a folder removed while it reads it, as well as
+  // when it fails.
+  test('an error for a folder removed while read, or in the build output, builds nothing; a failed watch builds; the watch goes on', async () => {
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const { watchFs, watcher } = scriptedWatch();
+    const workDir = join(packDir, '.kindgi', 'dev', 'java');
+    const builder = createJavaPackBuilder({
+      packDir,
+      code: { language: 'java', java: 'java', maven: ['mvn'], workDir },
+      env: async () => ({ PATH: process.env.PATH ?? '' }),
+      debounceMs: 50,
+      watchFs,
+      share: false,
+      scanSources: async () => 'unchanged',
+    });
+    // A folder a build makes and removes, in its own output.
+    const made = join(workDir, 'classes');
+    await mkdir(made, { recursive: true });
+    await builder.watch(() => undefined);
+    // One timer: the scan's interval.
+    expect(vi.getTimerCount()).toBe(1);
+    await rm(made, { recursive: true });
+    watcher.emit('error', removedWhileRead(made));
+    expect(vi.getTimerCount()).toBe(1);
+    // In the build's output: the class files, and Maven's `target/`.
+    watcher.emit('error', watchLimitReached(join(made, 'com', 'acme', 'Tool.class')));
+    watcher.emit('error', permissionDenied(join(packDir, 'target', 'classes'), 'scandir'));
+    expect(vi.getTimerCount()).toBe(1);
+    watcher.emit('error', watchLimitReached(join(packDir, 'src')));
+    // A build, due in 50 ms (stopped before it runs: no Maven here).
+    expect(vi.getTimerCount()).toBe(2);
+    expect(watcher.closed).toBe(false);
+    await builder.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(watcher.closed).toBe(true);
   });
 });
 

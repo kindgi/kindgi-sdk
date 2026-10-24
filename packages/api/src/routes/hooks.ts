@@ -13,6 +13,7 @@ import {
   inboundSigningKey,
   verifyInboundSignature,
 } from '@kindgi/crypto';
+import type { Logger } from '@kindgi/log';
 import type { Scope } from '@kindgi/platform';
 import type { EnvName, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
@@ -217,9 +218,12 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
    * can't be read or used with the scheme: kept too when only a write can
    * change that (missing, revoked, a provider's key, a value the scheme
    * can't use), and a write through this app drops it at once; a store
-   * failure isn't kept.
+   * failure isn't kept. `log` is where a failed audit append is logged.
    */
-  async function signingKeyOf(found: FoundWebhookTrigger): Promise<KeyObject | undefined> {
+  async function signingKeyOf(
+    found: FoundWebhookTrigger,
+    log: Logger,
+  ): Promise<KeyObject | undefined> {
     // Read where it was recorded when the trigger was registered, and only
     // there (`secret-scope.ts`); none usable, nothing verifies. A trigger
     // from before it was recorded reads the tenant's, as it did.
@@ -246,7 +250,7 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
     const secret =
       found.hmacSecretScope === undefined
         ? await secrets.resolve(read)
-        : await resolveAtScope(secrets, read, options.auditEvents);
+        : await resolveAtScope(secrets, read, options.auditEvents, log);
     const derived =
       secret.kind === 'err' ? undefined : inboundSigningKey(found.signature, secret.value.value);
     const key = derived?.kind === 'ok' ? derived.key : undefined;
@@ -363,7 +367,7 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
     // 4. The signature, with the trigger's scheme and its signing key. Only
     //    a request that fails it counts against its client: one that
     //    proves its sender goes on, whatever its address's refusals.
-    const key = await signingKeyOf(found);
+    const key = await signingKeyOf(found, c.get('log').child({ subsystem: 'audit' }));
     if (key === undefined) {
       return refusedUnproven(c, client, found, 'secret-unavailable');
     }

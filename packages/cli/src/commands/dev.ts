@@ -193,7 +193,7 @@ export const devCommand: LeafCommand = {
     tenant: {
       type: 'string',
       description:
-        "Pin the tenant. Default: the previous run's (from `.kindgirc.json`), else a new one.",
+        "Pin the tenant. Default: with the bundled Postgres, the project's own (the same for every pack and restart of the project); else the previous run's (from `.kindgirc.json`), else a new one.",
     },
     // Named `dev-token` to avoid clobbering the global `--token`
     // (which is the caller's bearer token to a remote API). In dev
@@ -686,16 +686,17 @@ async function runDevForPack(
   // console, curl bookmarks and anything else holding the printed token
   // keep working. Each one, highest first:
   //   1. Its flag (`--tenant`, `--dev-token`).
-  //   2. The previous boot's, from `.kindgirc.json` in the pack dir.
-  //   3. Server-generated on this boot (the very first one, or after
+  //   2. The tenant only: with a project database (the bundled Postgres),
+  //      the project's tenant and user. Every pack of the project, and
+  //      every restart, get the same ones.
+  //   3. The previous boot's, from `.kindgirc.json` in the pack dir.
+  //   4. Server-generated on this boot (the very first one, or after
   //      `--reset`, which already deleted the file), then persisted.
-  // Per field: `--dev-token` alone keeps the previous tenant.
+  // Per field: `--dev-token` alone leaves the tenant to steps 2-4.
   // Start the runtime. A failed start is the loudest error path, so
   // we tear down auto-started services (if any) before returning. The
   // first boot (or the first after `--reset`) makes the tenant, token and
   // user here; they're persisted after the runtime serves.
-  // With a project database, the project's tenant and user: every pack of
-  // the project, and every restart, get the same ones.
   const effectiveTenantId = args.tenantId ?? project?.tenantId ?? previous.tenantId ?? randomUUID();
   const effectiveToken = args.token ?? previous.token ?? generateDevToken();
   // The user the token resolves to comes back with the tenant it

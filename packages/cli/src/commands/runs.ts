@@ -158,12 +158,11 @@ const journal: LeafCommand = {
     },
     limit: {
       type: 'string',
-      description:
-        'The most entries to return. Not applied yet: the API returns the whole journal.',
+      description: 'The most entries to return (1 to 100). Without it, the whole journal.',
     },
     cursor: {
       type: 'string',
-      description: 'Resume after this cursor. Not applied yet: the API returns the whole journal.',
+      description: "Resume after this cursor, from the previous page's `nextCursor`.",
     },
   },
   run: (ctx) =>

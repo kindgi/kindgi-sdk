@@ -1,5 +1,377 @@
 # @kindgi/secrets-dotenv
 
+## 0.1.10
+
+### Patch Changes
+
+- Updated dependencies [2d2ee60]
+- Updated dependencies [997470e]
+- Updated dependencies [b9a68d5]
+- Updated dependencies [6c5006c]
+- Updated dependencies [43eafb2]
+- Updated dependencies [019a6fd]
+- Updated dependencies [d6f844d]
+- Updated dependencies [8111046]
+- Updated dependencies [01964ed]
+- Updated dependencies [05b762e]
+- Updated dependencies [25a7309]
+- Updated dependencies [c90dd53]
+- Updated dependencies [9b6da8a]
+  - @kindgi/api@0.1.10
+  - @kindgi/platform@0.1.10
+  - @kindgi/dotenv-file@0.1.10
+  - @kindgi/types@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/api@0.1.10-rc.1
+  - @kindgi/dotenv-file@0.1.10-rc.1
+  - @kindgi/platform@0.1.10-rc.1
+  - @kindgi/types@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- Updated dependencies [2d2ee60]
+- Updated dependencies [997470e]
+- Updated dependencies [b9a68d5]
+- Updated dependencies [6c5006c]
+- Updated dependencies [43eafb2]
+- Updated dependencies [019a6fd]
+- Updated dependencies [d6f844d]
+- Updated dependencies [8111046]
+- Updated dependencies [01964ed]
+- Updated dependencies [05b762e]
+- Updated dependencies [25a7309]
+- Updated dependencies [c90dd53]
+- Updated dependencies [9b6da8a]
+  - @kindgi/api@0.1.10-rc.0
+  - @kindgi/platform@0.1.10-rc.0
+  - @kindgi/dotenv-file@0.1.10-rc.0
+  - @kindgi/types@0.1.10-rc.0
+
+## 0.1.9
+
+### Patch Changes
+
+- 53b09f7: **`GET /v1/environments` lists the tenant's env names,** for a tenant admin: each name that holds an env value or a secret, at any scope, once, in byte order, paged by `cursor` and `limit`.
+  - An env store and a secrets store each say their own names through a new optional `listEnvNames({ tenantId, limit, after })` (`EnvBinding`, `SecretBinding`). A runtime whose store doesn't answers `501 environments-unsupported`, which names the store, rather than a list missing its names.
+  - The in-memory env store gives the names its tenant's values are under. The dotenv secrets store gives `local` and each `.env.<name>` file that holds a name.
+  - The TypeScript and Python clients list them with `client.environments.list()`.
+- Updated dependencies [83ad88a]
+- Updated dependencies [6ed7bc6]
+- Updated dependencies [5d68d0d]
+- Updated dependencies [d563887]
+- Updated dependencies [499082a]
+- Updated dependencies [17bc390]
+- Updated dependencies [66e5ec7]
+- Updated dependencies [22b619b]
+- Updated dependencies [4101430]
+- Updated dependencies [d0ee5c5]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [e5b38a8]
+- Updated dependencies [c56f757]
+- Updated dependencies [1ac8e67]
+- Updated dependencies [404c4c9]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [53b09f7]
+- Updated dependencies [d563887]
+- Updated dependencies [8f52412]
+- Updated dependencies [f56c6ae]
+- Updated dependencies [c46503d]
+- Updated dependencies [7be0273]
+- Updated dependencies [e35d94f]
+- Updated dependencies [010fd72]
+- Updated dependencies [7be42d0]
+- Updated dependencies [f605c7e]
+- Updated dependencies [d563887]
+- Updated dependencies [f82bb04]
+- Updated dependencies [d563887]
+- Updated dependencies [6d3ccdd]
+- Updated dependencies [3c8afcf]
+- Updated dependencies [c8d3c1e]
+- Updated dependencies [66bb5eb]
+- Updated dependencies [d563887]
+- Updated dependencies [c1a61c7]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [5b5bd3b]
+- Updated dependencies [c44d803]
+- Updated dependencies [bd3bcd7]
+- Updated dependencies [3be3ba0]
+- Updated dependencies [ec3dbf9]
+- Updated dependencies [409b9bf]
+- Updated dependencies [10ec595]
+- Updated dependencies [16bbb17]
+- Updated dependencies [d563887]
+- Updated dependencies [2a05fac]
+- Updated dependencies [cf339d3]
+- Updated dependencies [3502389]
+- Updated dependencies [dd34dcf]
+  - @kindgi/api@0.1.9
+  - @kindgi/platform@0.1.9
+  - @kindgi/dotenv-file@0.1.9
+  - @kindgi/types@0.1.9
+
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/api@0.1.9-rc.1
+  - @kindgi/dotenv-file@0.1.9-rc.1
+  - @kindgi/platform@0.1.9-rc.1
+  - @kindgi/types@0.1.9-rc.1
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- 53b09f7: **`GET /v1/environments` lists the tenant's env names,** for a tenant admin: each name that holds an env value or a secret, at any scope, once, in byte order, paged by `cursor` and `limit`.
+  - An env store and a secrets store each say their own names through a new optional `listEnvNames({ tenantId, limit, after })` (`EnvBinding`, `SecretBinding`). A runtime whose store doesn't answers `501 environments-unsupported`, which names the store, rather than a list missing its names.
+  - The in-memory env store gives the names its tenant's values are under. The dotenv secrets store gives `local` and each `.env.<name>` file that holds a name.
+  - The TypeScript and Python clients list them with `client.environments.list()`.
+- Updated dependencies [83ad88a]
+- Updated dependencies [6ed7bc6]
+- Updated dependencies [5d68d0d]
+- Updated dependencies [d563887]
+- Updated dependencies [499082a]
+- Updated dependencies [17bc390]
+- Updated dependencies [66e5ec7]
+- Updated dependencies [22b619b]
+- Updated dependencies [4101430]
+- Updated dependencies [d0ee5c5]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [e5b38a8]
+- Updated dependencies [c56f757]
+- Updated dependencies [1ac8e67]
+- Updated dependencies [404c4c9]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [53b09f7]
+- Updated dependencies [d563887]
+- Updated dependencies [8f52412]
+- Updated dependencies [f56c6ae]
+- Updated dependencies [c46503d]
+- Updated dependencies [7be0273]
+- Updated dependencies [e35d94f]
+- Updated dependencies [010fd72]
+- Updated dependencies [7be42d0]
+- Updated dependencies [f605c7e]
+- Updated dependencies [d563887]
+- Updated dependencies [f82bb04]
+- Updated dependencies [d563887]
+- Updated dependencies [6d3ccdd]
+- Updated dependencies [3c8afcf]
+- Updated dependencies [c8d3c1e]
+- Updated dependencies [66bb5eb]
+- Updated dependencies [d563887]
+- Updated dependencies [c1a61c7]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [5b5bd3b]
+- Updated dependencies [c44d803]
+- Updated dependencies [bd3bcd7]
+- Updated dependencies [3be3ba0]
+- Updated dependencies [ec3dbf9]
+- Updated dependencies [409b9bf]
+- Updated dependencies [10ec595]
+- Updated dependencies [16bbb17]
+- Updated dependencies [d563887]
+- Updated dependencies [2a05fac]
+- Updated dependencies [cf339d3]
+- Updated dependencies [3502389]
+- Updated dependencies [dd34dcf]
+  - @kindgi/api@0.1.9-rc.0
+  - @kindgi/platform@0.1.9-rc.0
+  - @kindgi/dotenv-file@0.1.9-rc.0
+  - @kindgi/types@0.1.9-rc.0
+
+## 0.1.8
+
+### Patch Changes
+
+- ba8d9a1: **A secret name the store can't write is the caller's `400`, saying the store's rule, never a `500`.**
+  - **Under `kindgi dev`,** a secret is a key in your env files, so a name Kindgi writes is capital letters, digits and underscores, not starting with a digit.
+    - Any other name (`acme-woo-orders`) is refused with `400 secret-name-invalid`, and when one can be made from it, the message offers a name that works (`ACME_WOO_ORDERS`). So is a `KINDGI_*` name.
+    - A `kindgi.` name is refused with `400 reserved-name-prefix`.
+    - These used to answer `500 secret-store-error`.
+    - This applies to `POST /v1/secrets`, `PATCH /v1/tenant/config` and `POST /v1/webhooks` with `generateSecret`.
+  - **`POST /v1/webhooks` with `generateSecret` refuses such a name before anything is stored.** No trigger is registered and then taken back.
+  - **A name typed into `.env` by hand still resolves,** even one Kindgi wouldn't write (`acme-woo-orders=…`). A webhook trigger may still name it, and `PATCH /v1/webhooks/{triggerId}` may switch to it.
+  - **`PATCH /v1/tenant/config` answers a refused secret write at its code's status,** as `POST /v1/secrets` does. That's a `400` for a secret the store refuses for its name or its size, or a `429`, `502` or `503` when the store's external provider limits the runtime's requests, refuses its credentials or can't be reached. It answered `500` for every code.
+  - **The API reference lists those `429`, `502` and `503` answers** for both operations.
+  - **`SecretBinding.nameRefusal(name)` is a new optional method.** It's how a store says which names it can't write, and `set` refuses those names with the same code. `observeSecretWrites` and `guardProviderKeys` pass it through.
+  - **`kindgi webhooks register --secret` now says the rule that applies under `kindgi dev`.**
+- ebf405d: **Where a secret an item names is read is decided when the item is registered, and recorded on it.**
+  - **Which items:** an MCP endpoint (`secretRef`, `auth.secretRef`), a tool (a spec tool's `secretRef`, the secrets a pack tool declares; through `POST /v1/tools` or a deployment), and a webhook trigger's signing secret.
+  - **How it's decided:** the secret is looked for at the item's own scope, then its project's org, then the tenant, at the scopes the person registering it administers. The first that has it is recorded. If none has it yet, the broadest scope they administer is: the tenant for a tenant admin, the project for a project admin. Nothing is refused for it.
+  - **What's recorded:** `secretScopes` (by name) on an MCP endpoint and a tool version, `hmacSecretScope` on a webhook trigger. They're the server's, never a caller's. The runtime reads the secret there only. A secret removed from that scope is missing, never read from a broader one, and one set later at another scope changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+  - **Webhook triggers:** the receiver reads the signing secret at `hmacSecretScope`; a trigger registered before it was recorded reads the tenant's, as before.
+  - **`generateSecret`:** `POST /v1/webhooks` can make the signing secret itself, in the trigger's project, needing only `write` there; the answer carries it once (`signingSecret`). A name the project already has is refused (`409 secret-write-conflict`). `kindgi webhooks register --generate-secret` now uses it, in one call, and no longer takes `--env`.
+  - **Read there only:** `SecretResolveInput.exact` reads at the given scope with no walk to a broader one, and every secrets store must honour it. `SecretResolveOutcome.scope` says where a value was read. `resolveAtScope` reads an item's secret at its recorded scope with `exact`. A value a store reads at another scope anyway, or without saying which, is refused as not set, and the refusal is audited (`secret-resolved`, failed, `secret-scope-mismatch`) without the value. A custom store must honour `exact` and report the scope it read. The dotenv store keeps one set of values for every scope, so it reports the scope it was asked at.
+  - **`emitResolveEvent`** (`@kindgi/compliance`): `projectId` is optional, for a read at the tenant or an org.
+  - **`CreateAppInput.envName`:** the env this deployment serves, where the secrets a tool's code declares are looked for.
+  - **`RecordedSecretScope`** (`@kindgi/types`): the recorded scope's shape.
+- 14d02c5: **A secret value the store can't hold is the caller's `400`, saying why, never a `500`.**
+  - **Under `kindgi dev`,** a secret is a key in your env files. No env-file quoting holds a value that has a double quote, or a backslash followed by `n` or `r`, together with a carriage return or with both a single quote and a backtick.
+    - Such a value is refused with `400 secret-value-invalid`, the new code, before any file is read. It used to answer `500 secret-store-error`.
+    - The message says why and never repeats the value.
+    - This applies to `POST /v1/secrets`, `PATCH /v1/tenant/config` and `POST /v1/deployments/{deploymentId}/secrets`.
+  - **`SecretError` gains the codes a store's `set` refuses with:** `reserved-name-prefix`, `secret-name-invalid`, `secret-value-too-large` and `secret-value-invalid`. A store that rotates by setting a new version can answer a rotation's new value as it answers the write, and `POST /v1/secrets/{name}/rotate` answers any of them it gets at `400`.
+  - **The API reference:**
+    - lists `secret-value-invalid` beside the other refusals for those three operations;
+    - gives `POST /v1/secrets/{name}/rotate` its `400` (`secret-value-too-large`, `reserved-name-prefix`);
+    - lists the `429`, `502` and `503` an external provider answers for the rotation and the deployment sync, as it already did for the other two.
+- d985473: **`GET /v1/secrets` reads `includeRevoked`, and the `kindgi dev` secrets store pages.**
+  - `?includeRevoked=true` lists revoked secrets too, with `revokedAt` and `revokeReason`. It's metadata only, never a value. The route used to drop it, so `kindgi secrets list --include-revoked` and the TypeScript client's `secrets.list({ includeRevoked })` did nothing; now they reach the store. The operation documents the parameter, and the Python client's `secrets.list` gains `include_revoked`.
+  - `SecretBinding.list`'s contract says what a store returns: name order, at most `limit` records, and a `nextCursor` while more remain. `listVersions`' says the same, oldest first.
+  - `GET /v1/secrets` and `GET /v1/secrets/{name}/versions` answer `400 bad-input` to a `cursor` the store didn't issue, as the agents, flows, policies and eval-suites version lists do, so a client paging until done is never sent back to the first page. A store says which cursors it issued with `SecretBinding.issuedCursor` (optional: a store without it gets any cursor, as before); `@kindgi/secrets-dotenv` has it.
+  - `@kindgi/secrets-dotenv` pages by name: a `nextCursor` while more remain, and the next page starts after the page's last name, so a name added between pages neither repeats nor skips another. Before, it stopped at `limit`, and a 26th secret was out of reach.
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [fddc8f7]
+- Updated dependencies [3a3f233]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ba8d9a1]
+- Updated dependencies [ebf405d]
+- Updated dependencies [059c2c2]
+- Updated dependencies [3a3f233]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [b22e616]
+- Updated dependencies [ebf405d]
+- Updated dependencies [cfe5422]
+- Updated dependencies [70b85f8]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [3a3f233]
+- Updated dependencies [1c8b391]
+- Updated dependencies [08bf3e5]
+- Updated dependencies [6329f93]
+- Updated dependencies [ebf405d]
+- Updated dependencies [9ba9e5f]
+- Updated dependencies [ebf405d]
+- Updated dependencies [14d02c5]
+- Updated dependencies [d985473]
+- Updated dependencies [718e635]
+- Updated dependencies [036605f]
+- Updated dependencies [fddc8f7]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [9f4340c]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [a2ee44b]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [f05d320]
+- Updated dependencies [1bd39aa]
+  - @kindgi/api@0.1.8
+  - @kindgi/platform@0.1.8
+  - @kindgi/types@0.1.8
+  - @kindgi/dotenv-file@0.1.8
+
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- ba8d9a1: **A secret name the store can't write is the caller's `400`, saying the store's rule, never a `500`.**
+  - **Under `kindgi dev`,** a secret is a key in your env files, so a name Kindgi writes is capital letters, digits and underscores, not starting with a digit.
+    - Any other name (`acme-woo-orders`) is refused with `400 secret-name-invalid`, and when one can be made from it, the message offers a name that works (`ACME_WOO_ORDERS`). So is a `KINDGI_*` name.
+    - A `kindgi.` name is refused with `400 reserved-name-prefix`.
+    - These used to answer `500 secret-store-error`.
+    - This applies to `POST /v1/secrets`, `PATCH /v1/tenant/config` and `POST /v1/webhooks` with `generateSecret`.
+  - **`POST /v1/webhooks` with `generateSecret` refuses such a name before anything is stored.** No trigger is registered and then taken back.
+  - **A name typed into `.env` by hand still resolves,** even one Kindgi wouldn't write (`acme-woo-orders=…`). A webhook trigger may still name it, and `PATCH /v1/webhooks/{triggerId}` may switch to it.
+  - **`PATCH /v1/tenant/config` answers a refused secret write at its code's status,** as `POST /v1/secrets` does. That's a `400` for a secret the store refuses for its name or its size, or a `429`, `502` or `503` when the store's external provider limits the runtime's requests, refuses its credentials or can't be reached. It answered `500` for every code.
+  - **The API reference lists those `429`, `502` and `503` answers** for both operations.
+  - **`SecretBinding.nameRefusal(name)` is a new optional method.** It's how a store says which names it can't write, and `set` refuses those names with the same code. `observeSecretWrites` and `guardProviderKeys` pass it through.
+  - **`kindgi webhooks register --secret` now says the rule that applies under `kindgi dev`.**
+- ebf405d: **Where a secret an item names is read is decided when the item is registered, and recorded on it.**
+  - **Which items:** an MCP endpoint (`secretRef`, `auth.secretRef`), a tool (a spec tool's `secretRef`, the secrets a pack tool declares; through `POST /v1/tools` or a deployment), and a webhook trigger's signing secret.
+  - **How it's decided:** the secret is looked for at the item's own scope, then its project's org, then the tenant, at the scopes the person registering it administers. The first that has it is recorded. If none has it yet, the broadest scope they administer is: the tenant for a tenant admin, the project for a project admin. Nothing is refused for it.
+  - **What's recorded:** `secretScopes` (by name) on an MCP endpoint and a tool version, `hmacSecretScope` on a webhook trigger. They're the server's, never a caller's. The runtime reads the secret there only. A secret removed from that scope is missing, never read from a broader one, and one set later at another scope changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+  - **Webhook triggers:** the receiver reads the signing secret at `hmacSecretScope`; a trigger registered before it was recorded reads the tenant's, as before.
+  - **`generateSecret`:** `POST /v1/webhooks` can make the signing secret itself, in the trigger's project, needing only `write` there; the answer carries it once (`signingSecret`). A name the project already has is refused (`409 secret-write-conflict`). `kindgi webhooks register --generate-secret` now uses it, in one call, and no longer takes `--env`.
+  - **Read there only:** `SecretResolveInput.exact` reads at the given scope with no walk to a broader one, and every secrets store must honour it. `SecretResolveOutcome.scope` says where a value was read. `resolveAtScope` reads an item's secret at its recorded scope with `exact`. A value a store reads at another scope anyway, or without saying which, is refused as not set, and the refusal is audited (`secret-resolved`, failed, `secret-scope-mismatch`) without the value. A custom store must honour `exact` and report the scope it read. The dotenv store keeps one set of values for every scope, so it reports the scope it was asked at.
+  - **`emitResolveEvent`** (`@kindgi/compliance`): `projectId` is optional, for a read at the tenant or an org.
+  - **`CreateAppInput.envName`:** the env this deployment serves, where the secrets a tool's code declares are looked for.
+  - **`RecordedSecretScope`** (`@kindgi/types`): the recorded scope's shape.
+- 14d02c5: **A secret value the store can't hold is the caller's `400`, saying why, never a `500`.**
+  - **Under `kindgi dev`,** a secret is a key in your env files. No env-file quoting holds a value that has a double quote, or a backslash followed by `n` or `r`, together with a carriage return or with both a single quote and a backtick.
+    - Such a value is refused with `400 secret-value-invalid`, the new code, before any file is read. It used to answer `500 secret-store-error`.
+    - The message says why and never repeats the value.
+    - This applies to `POST /v1/secrets`, `PATCH /v1/tenant/config` and `POST /v1/deployments/{deploymentId}/secrets`.
+  - **`SecretError` gains the codes a store's `set` refuses with:** `reserved-name-prefix`, `secret-name-invalid`, `secret-value-too-large` and `secret-value-invalid`. A store that rotates by setting a new version can answer a rotation's new value as it answers the write, and `POST /v1/secrets/{name}/rotate` answers any of them it gets at `400`.
+  - **The API reference:**
+    - lists `secret-value-invalid` beside the other refusals for those three operations;
+    - gives `POST /v1/secrets/{name}/rotate` its `400` (`secret-value-too-large`, `reserved-name-prefix`);
+    - lists the `429`, `502` and `503` an external provider answers for the rotation and the deployment sync, as it already did for the other two.
+- d985473: **`GET /v1/secrets` reads `includeRevoked`, and the `kindgi dev` secrets store pages.**
+  - `?includeRevoked=true` lists revoked secrets too, with `revokedAt` and `revokeReason`. It's metadata only, never a value. The route used to drop it, so `kindgi secrets list --include-revoked` and the TypeScript client's `secrets.list({ includeRevoked })` did nothing; now they reach the store. The operation documents the parameter, and the Python client's `secrets.list` gains `include_revoked`.
+  - `SecretBinding.list`'s contract says what a store returns: name order, at most `limit` records, and a `nextCursor` while more remain. `listVersions`' says the same, oldest first.
+  - `GET /v1/secrets` and `GET /v1/secrets/{name}/versions` answer `400 bad-input` to a `cursor` the store didn't issue, as the agents, flows, policies and eval-suites version lists do, so a client paging until done is never sent back to the first page. A store says which cursors it issued with `SecretBinding.issuedCursor` (optional: a store without it gets any cursor, as before); `@kindgi/secrets-dotenv` has it.
+  - `@kindgi/secrets-dotenv` pages by name: a `nextCursor` while more remain, and the next page starts after the page's last name, so a name added between pages neither repeats nor skips another. Before, it stopped at `limit`, and a 26th secret was out of reach.
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [fddc8f7]
+- Updated dependencies [3a3f233]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ba8d9a1]
+- Updated dependencies [ebf405d]
+- Updated dependencies [059c2c2]
+- Updated dependencies [3a3f233]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [b22e616]
+- Updated dependencies [ebf405d]
+- Updated dependencies [cfe5422]
+- Updated dependencies [70b85f8]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [3a3f233]
+- Updated dependencies [1c8b391]
+- Updated dependencies [08bf3e5]
+- Updated dependencies [6329f93]
+- Updated dependencies [ebf405d]
+- Updated dependencies [9ba9e5f]
+- Updated dependencies [ebf405d]
+- Updated dependencies [14d02c5]
+- Updated dependencies [d985473]
+- Updated dependencies [718e635]
+- Updated dependencies [036605f]
+- Updated dependencies [fddc8f7]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [9f4340c]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [a2ee44b]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [f05d320]
+- Updated dependencies [1bd39aa]
+  - @kindgi/api@0.1.8-rc.0
+  - @kindgi/platform@0.1.8-rc.0
+  - @kindgi/types@0.1.8-rc.0
+  - @kindgi/dotenv-file@0.1.8-rc.0
+
 ## 0.1.7
 
 ### Patch Changes

@@ -13,31 +13,32 @@ const config = {
     flows: 'flows/**/*.ts',
   },
   // ---------------------------------------------------------------
-  // Environments — one entry per deploy target (staging / production
-  // / preview / custom). Each names the build server endpoint, the
-  // signing key path (Ed25519 PEM, never leaves the developer's
-  // machine), the target registry (build server pushes here on your
-  // behalf), and the tenantId the Kindgi runtime scopes the
-  // deployment to. Consumed by `kindgi build` + `kindgi deploy`.
+  // Environments: one entry per place you deploy to, picked with
+  // `--env <name>` (default `staging`). `kindgi build` reads `build`,
+  // `registry`, `signingKey` and `tenantId`; `kindgi deploy` reads
+  // `endpoint`. Local `kindgi dev` doesn't read this block.
   //
-  // Fill these in when you're ready to push a build off the laptop.
-  // Local `kindgi dev` does NOT read this block.
+  // Your API key goes only to the address you signed in to
+  // (`kindgi auth login --url <url>`), so an `endpoint` here must be
+  // that address. Builds are signed with a key of yours: make it with
+  // `kindgi key create <id>`, and let the runtime trust it with
+  // `kindgi key trust <id>` (once).
   // ---------------------------------------------------------------
   environments: {
-    staging: {
-      endpoint: 'https://api.staging.example.com',
-      build: 'http://localhost:8787', // your Kindgi build server
-      registry: 'ghcr.io/your-org',
-      signingKey: '~/.kindgi/keys/staging.pem',
-      tenantId: 'tenant-your-org-staging',
-    },
-    production: {
-      endpoint: 'https://api.example.com',
-      build: 'https://build.example.com',
-      registry: 'ghcr.io/your-org',
-      signingKey: '~/.kindgi/keys/production.pem',
-      tenantId: 'tenant-your-org-production',
-    },
+    // Kindgi Cloud: `kindgi deploy --env=prod` builds there and deploys.
+    // prod: {
+    //   build: 'hosted',
+    //   signingKey: '~/.kindgi/keys/<id>.pem',
+    // },
+    //
+    // A runtime of your own:
+    // production: {
+    //   endpoint: 'https://kindgi.your-company.example', // the address you signed in to
+    //   build: 'https://build.your-company.example', // your Kindgi build server
+    //   registry: 'ghcr.io/your-org',
+    //   signingKey: '~/.kindgi/keys/<id>.pem',
+    //   tenantId: '<your tenant id>',
+    // },
   },
 } as const;
 

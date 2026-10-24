@@ -24,7 +24,8 @@
  *   - `signEnvelope` — returns a canned signature.
  */
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -38,6 +39,7 @@ import {
   DEFAULT_JAVA_RUNTIME_IMAGE_REF,
   JAVA_PACK_SERVICE_COMMAND,
 } from '../src/build/java-image.js';
+import type { LoadedInstallOptions, LoadedInstallOutcome } from '../src/build/loaded-install.js';
 import { DEFAULT_UV_IMAGE_REF, PYTHON_PACK_SERVICE_COMMAND } from '../src/build/python-image.js';
 import type {
   BuildRunners,
@@ -157,8 +159,12 @@ interface Fixtures {
     containerfileImages: unknown[];
     /** The install each Containerfile was written for. */
     containerfileInstalls: unknown[];
+    /** The install each context was written for. */
+    contextInstalls: unknown[];
     /** Roots `hostPnpmVersion` was asked about. */
     hostPnpmCalls: string[];
+    /** What `loadedInstall` was asked to cut down. */
+    loadedInstallCalls: LoadedInstallOptions[];
     contextExtensionFiles: (readonly string[])[];
     postCalls: number;
     streamCalls: number;
@@ -198,6 +204,8 @@ interface FixtureOptions {
   readonly streamThrows?: unknown;
   /** The packed pack's size, in bytes (default: a few bytes). */
   readonly tarballSize?: number;
+  /** What `loadedInstall` answers (default: the install, cut down to 3 of 9 packages). */
+  readonly loadedInstall?: LoadedInstallOutcome;
 }
 
 function makeFixtures(opts: FixtureOptions = {}): Fixtures {
@@ -210,7 +218,9 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
     pullOptions: [],
     containerfileImages: [],
     containerfileInstalls: [],
+    contextInstalls: [],
     hostPnpmCalls: [],
+    loadedInstallCalls: [],
     contextExtensionFiles: [],
     postCalls: 0,
     streamCalls: 0,
@@ -269,6 +279,7 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
     writeContext: async (o) => {
       state.contextCalls += 1;
       state.contextExtensionFiles.push(o.extensionFiles);
+      state.contextInstalls.push(o.install);
       await mkdir(o.contextDir, { recursive: true });
     },
     dockerBuild: async (o) => {
@@ -328,6 +339,25 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
       state.hostPnpmCalls.push(root);
       if (opts.hostPnpm instanceof Error) throw opts.hostPnpm;
       return opts.hostPnpm ?? '10.28.0';
+    },
+    loadedInstall: async (o) => {
+      state.loadedInstallCalls.push(o);
+      return (
+        opts.loadedInstall ?? {
+          kind: 'reduced',
+          install: {
+            ...o.install,
+            workspace: false,
+            reduced: {
+              written: { 'package.json': '{}\n' },
+              copied: [],
+              kept: 3,
+              total: 9,
+              leftOut: ['next'],
+            },
+          },
+        }
+      );
     },
     signEnvelope: async (o) => {
       state.signCalls += 1;
@@ -454,6 +484,68 @@ describe('kindgi build — argument resolution', () => {
     ) as { tenantId: string };
     expect(envelope.tenantId).toBe('via-env-var');
   });
+
+  test('--out inside the pack root is accepted', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', '--out=inside-out', `--path=${packDir}`],
+    });
+    expect(out.stderr).not.toContain('outside the pack root');
+    expect(out.exitCode).toBe(0);
+  });
+
+  test('--out outside the pack root is refused', async () => {
+    const fixtures = makeFixtures();
+    const outside = join(cwd, 'outside-out');
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', `--out=${outside}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('outside the pack root');
+  });
+
+  test('--out via an in-pack symlink that escapes the pack root is refused', async () => {
+    const fixtures = makeFixtures();
+    const target = join(cwd, 'symlink-target');
+    await mkdir(target, { recursive: true });
+    const link = join(packDir, 'escape');
+    await symlink(target, link);
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      // `escape` is lexically inside packDir; only resolving the symlink
+      // reveals it points outside — a lexical-only check would accept it.
+      argv: ['build', '--env=staging', `--out=${link}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('outside the pack root');
+  });
+
+  test('--out via a dangling in-pack symlink pointing outside the pack root is refused', async () => {
+    const fixtures = makeFixtures();
+    // A symlink inside the pack whose target does NOT exist and points
+    // outside: realpath can't resolve it, so only reading the link (not an
+    // opaque ENOENT, not a lexical in-pack check) reveals the escape.
+    const link = join(packDir, 'dangle');
+    await symlink(join(cwd, 'dangling-target'), link);
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', `--out=${link}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('outside the pack root');
+  });
+
+  test('--out equal to the pack root is refused', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', `--out=${packDir}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('is the pack root');
+  });
 });
 
 describe('kindgi build --hosted', () => {
@@ -461,6 +553,12 @@ describe('kindgi build --hosted', () => {
   const KEY = 'kgi_tk_test-key';
   /** The CLI's API URL and key, as `kindgi auth login` or the env gives them. */
   const loggedIn = { KINDGI_API_URL: API, KINDGI_API_TOKEN: KEY };
+  /** A Kindgi Cloud env block: no `endpoint`, as the API is the CLI's own address. */
+  const cloud = (): Record<string, unknown> => ({
+    environments: {
+      staging: { signingKey: join(home, 'signing-key.pem'), tenantId: 'tenant-acme-staging' },
+    },
+  });
   /** A client whose `whoami` names the key's tenant. */
   const whoamiClient =
     (calls: { url: string; token: string }[]) => (url: string, token: string) => {
@@ -473,13 +571,13 @@ describe('kindgi build --hosted', () => {
   test("builds at the API's /cloud with the key, the pack's id and the project label, checked by hash", async () => {
     const fixtures = makeFixtures();
     const out = await runCli({
-      ...baseInputs(fixtures, { env: { ...loggedIn, KINDGI_TENANT_ID: 'env-tenant' } }),
+      ...baseInputs(fixtures, { env: { ...loggedIn, KINDGI_TENANT_ID: 'env-tenant' } }, cloud()),
       argv: ['build', '--hosted', '--project=p-1', '--env=staging', `--path=${packDir}`],
     });
     expect(out.exitCode, out.stderr).toBe(0);
-    // The env block's `endpoint` is the API; its `build` URL isn't used.
+    // The CLI's own address is the API.
     expect(fixtures.state.capturedPostBody).toMatchObject({
-      endpoint: 'https://api.staging.example.com/cloud',
+      endpoint: `${API}/cloud`,
       authorization: `Bearer ${KEY}`,
       packId: 'my-pack',
       projectId: 'p-1',
@@ -487,7 +585,7 @@ describe('kindgi build --hosted', () => {
     expect(fixtures.state.streamAuthorizations).toEqual([`Bearer ${KEY}`]);
     // The image stays in the workspace's repository: no pull.
     expect(fixtures.state.pullCalls).toBe(0);
-    expect(out.stderr).toContain('Build:       hosted (https://api.staging.example.com/cloud)');
+    expect(out.stderr).toContain(`Build:       hosted (${API}/cloud)`);
   });
 
   test("the env block's `build: 'hosted'` is the same; a self-hosted build server never gets the key", async () => {
@@ -529,14 +627,170 @@ describe('kindgi build --hosted', () => {
     expect(selfHosted.state.streamAuthorizations).toEqual([undefined]);
   });
 
-  test("`--url` names the API over the env block's endpoint", async () => {
+  test("--env=prod with prod's `build: 'hosted'` and no `kindgi dev` file here: hosted, the env block read all the same", async () => {
     const fixtures = makeFixtures();
     const out = await runCli({
-      ...baseInputs(fixtures, { env: { KINDGI_API_TOKEN: KEY, KINDGI_TENANT_ID: 't-1' } }),
-      argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`, `--url=${API}`],
+      ...baseInputs(
+        fixtures,
+        { env: loggedIn },
+        {
+          environments: {
+            prod: { build: 'hosted', signingKey: join(home, 'signing-key.pem'), tenantId: 't-1' },
+          },
+        },
+      ),
+      argv: ['build', '--env=prod', `--path=${packDir}`],
+    });
+    expect(existsSync(join(cwd, '.kindgirc.json'))).toBe(false);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.capturedPostBody).toMatchObject({
+      endpoint: `${API}/cloud`,
+      authorization: `Bearer ${KEY}`,
+    });
+    expect(out.stderr).toContain(`Build:       hosted (${API}/cloud)`);
+  });
+
+  test("an env block's `endpoint` other than the CLI's own address is refused, naming both; nothing is built", async () => {
+    const STAGING = 'https://api.staging.example.com';
+    for (const [env, flags, from] of [
+      [loggedIn, [], 'from KINDGI_API_URL'],
+      [{ KINDGI_API_TOKEN: KEY }, [`--url=${API}`], 'from --url'],
+    ] as const) {
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures, { env }),
+        argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`, ...flags],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `kindgi build --hosted sends your API key to ${API}, the address it's for (${from}), and environments.staging.endpoint names another: ${STAGING}. The key goes only to its own address: remove environments.staging.endpoint (Kindgi Cloud needs none), or sign in to ${STAGING} with \`kindgi auth login --url ${STAGING} --token <its key>\`.`,
+      );
+      expect(fixtures.state.esbuildCalls).toBe(0);
+      expect(fixtures.state.postCalls).toBe(0);
+    }
+  });
+
+  test.each([
+    'https://PLATFORM.Example.com',
+    'https://platform.example.com:443',
+    'https://platform.example.com/',
+  ])('an env block `endpoint` of %s is the same address: built there', async (endpoint) => {
+    const fixtures = makeFixtures();
+    const block = { endpoint, signingKey: join(home, 'signing-key.pem'), tenantId: 't-1' };
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: loggedIn }, { environments: { staging: block } }),
+      argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
     });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(fixtures.state.capturedPostBody?.endpoint).toBe(`${API}/cloud`);
+  });
+
+  test("with no API address set it stops before building; the env block's `endpoint` isn't taken for one", async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: { KINDGI_API_TOKEN: KEY } }),
+      argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      'kindgi build --hosted goes to the API your key is for, and no API address is set. Run `kindgi auth login --url <url> --token <its key>`, export KINDGI_API_URL, or pass --url <url>.',
+    );
+    expect(fixtures.state.esbuildCalls).toBe(0);
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test.each([
+    [
+      [],
+      'prod',
+      'pass --signing-key ~/.kindgi/keys/<id>.pem, or set signingKey in an env block of kindgi.config.ts and pick that block with --env=<name> (with no --env, the block is `staging`)',
+    ],
+    [
+      ['--env=prod'],
+      'prod',
+      'set environments.prod.signingKey to ~/.kindgi/keys/<id>.pem in kindgi.config.ts, or pass --signing-key ~/.kindgi/keys/<id>.pem',
+    ],
+    [
+      [],
+      'staging',
+      'set environments.staging.signingKey to ~/.kindgi/keys/<id>.pem in kindgi.config.ts, or pass --signing-key ~/.kindgi/keys/<id>.pem',
+    ],
+  ])(
+    "no key, flags %j, and only a `%s` block: the hint names the block picked, never one that isn't there",
+    async (flags, block, hint) => {
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(
+          fixtures,
+          { env: { ...loggedIn, KINDGI_TENANT_ID: 'env-tenant' } },
+          { environments: { [block]: { build: 'hosted', tenantId: 't-1' } } },
+        ),
+        argv: ['build', '--hosted', ...flags, `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(`(once). Then ${hint}. (--skip-sign`);
+      expect(fixtures.state.postCalls).toBe(0);
+    },
+  );
+
+  describe('with a stored key', () => {
+    const STORED = 'kgi_tk_stored';
+    const OTHER = 'https://other.example.com';
+    const homeFile = () => join(home, '.kindgi/config.json');
+    const folderFile = () => join(cwd, '.kindgirc.json');
+    async function store(path: string, saved: Record<string, unknown>) {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, JSON.stringify(saved), 'utf8');
+    }
+    const hostedBuild = (fixtures: Fixtures, env: Record<string, string>, ...flags: string[]) =>
+      runCli({
+        ...baseInputs(fixtures, { env: { KINDGI_TENANT_ID: 'env-tenant', ...env } }, cloud()),
+        argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`, ...flags],
+      });
+
+    test.each([
+      [{ KINDGI_API_URL: OTHER }, [], 'KINDGI_API_URL', undefined],
+      [{}, [`--url=${OTHER}`], '--url', undefined],
+      [{}, [], 'the apiUrl in <folder>', { apiUrl: OTHER }],
+    ] as const)(
+      "the CLI address elsewhere than the key's (%j %j) is refused, naming both; nothing is built",
+      async (env, flags, named, folder) => {
+        await store(homeFile(), { apiUrl: API, token: STORED });
+        if (folder !== undefined) await store(folderFile(), folder);
+        const where = named.replace('<folder>', folderFile());
+        const fixtures = makeFixtures();
+        const out = await hostedBuild(fixtures, env, ...flags);
+        expect(out.exitCode).toBe(1);
+        expect(out.stderr).toContain(
+          `kindgi build --hosted would send the API key stored in ${homeFile()}, which is for ${API}, to ${OTHER}, which ${where} names. The key goes only to its own address: point ${where} at ${API}, or sign in to ${OTHER} with \`kindgi auth login --url ${OTHER} --token <its key>\`.`,
+        );
+        expect(fixtures.state.esbuildCalls).toBe(0);
+        expect(fixtures.state.postCalls).toBe(0);
+      },
+    );
+
+    test.each([
+      { apiUrl: 'http://127.0.0.1:4000', token: 'kgi_tk_dev' },
+      {
+        apiUrl: 'http://192.168.1.20:4000',
+        token: 'kgi_tk_dev',
+        packServicePort: 4100,
+        packServiceToken: 'kgi_ps_dev',
+      },
+    ])(
+      "a `kindgi dev` runtime's .kindgirc.json (%j) isn't read: built at the signed-in address, with its key",
+      async (devFile) => {
+        await store(homeFile(), { apiUrl: API, token: STORED });
+        await store(folderFile(), devFile);
+        const fixtures = makeFixtures();
+        const out = await hostedBuild(fixtures, {});
+        expect(out.exitCode, out.stderr).toBe(0);
+        expect(fixtures.state.capturedPostBody).toMatchObject({
+          endpoint: `${API}/cloud`,
+          authorization: `Bearer ${STORED}`,
+        });
+      },
+    );
   });
 
   test("with no tenant set, the signature names the key's own tenant (whoami)", async () => {
@@ -585,7 +839,7 @@ describe('kindgi build --hosted', () => {
   test('without an API key it stops before building', async () => {
     const fixtures = makeFixtures();
     const out = await runCli({
-      ...baseInputs(fixtures, { env: { KINDGI_API_URL: API } }),
+      ...baseInputs(fixtures, { env: { KINDGI_API_URL: API } }, cloud()),
       argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
     });
     expect(out.exitCode).toBe(1);
@@ -596,7 +850,7 @@ describe('kindgi build --hosted', () => {
   test('a pack over 30 MiB packed is never sent, and the message links what the image needs', async () => {
     const fixtures = makeFixtures({ tarballSize: 30 * 1024 * 1024 + 1 });
     const out = await runCli({
-      ...baseInputs(fixtures, { env: loggedIn }),
+      ...baseInputs(fixtures, { env: loggedIn }, cloud()),
       argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
     });
     expect(out.exitCode).toBe(1);
@@ -613,7 +867,7 @@ describe('kindgi build --hosted', () => {
     });
     const waits = fakeRateLimitWaits();
     const out = await runCli({
-      ...baseInputs(fixtures, { env: loggedIn, rateLimitWaits: waits.seam }),
+      ...baseInputs(fixtures, { env: loggedIn, rateLimitWaits: waits.seam }, cloud()),
       argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
     });
     expect(out.exitCode, out.stderr).toBe(0);
@@ -628,7 +882,7 @@ describe('kindgi build --hosted', () => {
       ],
     });
     const out = await runCli({
-      ...baseInputs(fixtures, { env: loggedIn }),
+      ...baseInputs(fixtures, { env: loggedIn }, cloud()),
       argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
     });
     expect(out.exitCode).toBe(1);
@@ -642,7 +896,7 @@ describe('kindgi build --hosted', () => {
       streamThrows: new BuildServiceRefusal(403, 'tenant-suspended', 'The workspace is suspended.'),
     });
     const out = await runCli({
-      ...baseInputs(fixtures, { env: loggedIn }),
+      ...baseInputs(fixtures, { env: loggedIn }, cloud()),
       argv: ['build', '--hosted', '--env=staging', `--path=${packDir}`],
     });
     expect(out.exitCode).toBe(1);
@@ -668,6 +922,8 @@ describe('kindgi build — pipeline stages fire in order', () => {
     expect(fixtures.state.streamCalls).toBe(1);
     expect(fixtures.state.signCalls).toBe(1);
     expect(fixtures.state.dockerBuilds).toEqual([]);
+    // No build steps: the image installs production dependencies only.
+    expect(out.stderr).toContain('    ✓ Install: production dependencies only\n');
     // Pull runner fires once because integrity gate is on + docker is
     // available (fake).
     expect(fixtures.state.pullCalls).toBe(1);
@@ -686,7 +942,8 @@ describe('kindgi build — pipeline stages fire in order', () => {
     expect(parsed.$schema).toBe('kindgi-deploy-envelope/v1');
     expect(parsed.imageRef).toContain('ghcr.io/acme/');
     expect(parsed.signature).toBeTruthy();
-    expect(parsed.signerKeyId).toBeTruthy();
+    // No --signer-key-id and no `signerKeyId` in the env block: the key file's name.
+    expect(parsed.signerKeyId).toBe('signing-key');
     expect(parsed.tenantId).toBe('tenant-acme-staging');
   });
 
@@ -817,6 +1074,90 @@ describe('kindgi build — signing surface', () => {
     ) as { signature?: string; signerKeyId?: string };
     expect(envelope.signature).toBeUndefined();
     expect(envelope.signerKeyId).toBeUndefined();
+  });
+
+  test('no key set: refused before anything is built, saying how to make and trust one; --skip-sign needs none', async () => {
+    const noKey = {
+      environments: {
+        staging: {
+          build: 'https://build.staging.example.com',
+          registry: 'ghcr.io/acme',
+          tenantId: 'tenant-acme-staging',
+        },
+      },
+    };
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, noKey),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "No signing key is set. Make a key with `kindgi key create <id>`, and add it to the runtime's trust list with `kindgi key trust <id>` (once). Then set environments.staging.signingKey to ~/.kindgi/keys/<id>.pem in kindgi.config.ts, or pass --signing-key ~/.kindgi/keys/<id>.pem.",
+    );
+    expect(fixtures.state.esbuildCalls).toBe(0);
+    expect(fixtures.state.postCalls).toBe(0);
+
+    const skipped = makeFixtures();
+    const unsigned = await runCli({
+      ...baseInputs(skipped, {}, noKey),
+      argv: ['build', '--env=staging', '--skip-sign', `--path=${packDir}`],
+    });
+    expect(unsigned.exitCode, unsigned.stderr).toBe(0);
+  });
+
+  test.each([
+    [[], 'environments.staging.signingKey', () => join(home, 'signing-key.pem')],
+    [
+      ['--signing-key=~/.kindgi/keys/acme-agency.pem'],
+      '--signing-key',
+      () => join(home, '.kindgi/keys/acme-agency.pem'),
+    ],
+    [['--local', '--push'], 'environments.staging.signingKey', () => join(home, 'signing-key.pem')],
+  ])(
+    "a key file that isn't there (%s): refused before anything is built, naming it",
+    async (flags, from, path) => {
+      await rm(join(home, 'signing-key.pem'));
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        argv: ['build', '--env=staging', ...flags, `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `The signing key ${path()} (${from}) isn't there. Make a key with \`kindgi key create <id>\``,
+      );
+      expect(fixtures.state.esbuildCalls).toBe(0);
+      expect(fixtures.state.postCalls).toBe(0);
+      expect(fixtures.state.dockerBuilds).toHaveLength(0);
+    },
+  );
+
+  test("a key path that isn't a file is refused before anything is built, naming it", async () => {
+    const dir = join(home, '.kindgi/keys');
+    await mkdir(dir, { recursive: true });
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', `--signing-key=${dir}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      `The signing key ${dir} (--signing-key) isn't a file. Name the key's .pem file, as \`kindgi key create <id>\` writes it: ~/.kindgi/keys/<id>.pem.`,
+    );
+    expect(fixtures.state.esbuildCalls).toBe(0);
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test("--local without --push signs nothing, so a missing key file doesn't stop it", async () => {
+    await rm(join(home, 'signing-key.pem'));
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--local', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.signCalls).toBe(0);
   });
 });
 
@@ -970,6 +1311,34 @@ describe('kindgi build — a Python pack', () => {
     expect(fixtures.state.postCalls).toBe(1);
     expect(fixtures.state.pullCalls).toBe(1);
     expect(fixtures.state.signCalls).toBe(1);
+  });
+
+  test('--out outside the pack root is accepted (the Python indexer takes the pack dir, not <out>/dist)', async () => {
+    await pythonPack();
+    const fixtures = makeFixtures();
+    withPython(fixtures);
+    const outside = join(cwd, 'outside-py');
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, { language: 'python', dev: { python: ['/opt/py/bin/python'] } }),
+      argv: ['build', '--env=staging', `--out=${outside}`, `--path=${packDir}`],
+    });
+    expect(out.stderr).not.toContain('outside the pack root');
+    expect(out.exitCode).toBe(0);
+  });
+
+  test('--out that contains the pack root is refused (a Python pack too, not only TypeScript)', async () => {
+    await pythonPack();
+    const fixtures = makeFixtures();
+    withPython(fixtures);
+    // cwd is the parent of packDir; building here would write dist/, the
+    // Containerfile and context/ beside the pack. A Python pack has no
+    // outside-root rule, so only the contains-the-pack-root guard refuses it.
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, { language: 'python', dev: { python: ['/opt/py/bin/python'] } }),
+      argv: ['build', '--env=staging', `--out=${cwd}`, `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('contains the pack root');
   });
 
   test('without uv.lock the build stops before uploading', async () => {
@@ -1158,6 +1527,19 @@ describe('kindgi build — a Java pack', () => {
     expect(fixtures.state.tarCalls).toBe(1);
     expect(fixtures.state.postCalls).toBe(1);
     expect(fixtures.state.signCalls).toBe(1);
+  });
+
+  test('--out outside the pack root is accepted (the JVM indexer compiles into <out>/java with an explicit classpath)', async () => {
+    await javaPack();
+    const fixtures = makeFixtures();
+    withJava(fixtures);
+    const outside = join(cwd, 'outside-java');
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, JAVA_CONFIG),
+      argv: ['build', '--env=staging', `--out=${outside}`, `--path=${packDir}`],
+    });
+    expect(out.stderr).not.toContain('outside the pack root');
+    expect(out.exitCode, out.stderr).toBe(0);
   });
 
   test("the image's launcher keeps the names the index declares, required and optional", async () => {
@@ -1521,6 +1903,169 @@ describe('kindgi build --local', () => {
   });
 });
 
+describe("kindgi build — image.dependencies: 'loaded'", () => {
+  test('the bundler is asked for it, and the build says which dependencies the image keeps', async () => {
+    const fixtures = makeFixtures();
+    const modes: (string | undefined)[] = [];
+    const runners: BuildRunners = {
+      ...fixtures.runners,
+      esbuildBundle: async (o) => {
+        modes.push(o.dependencies);
+        return fixtures.runners.esbuildBundle(o);
+      },
+    };
+    const out = await runCli({
+      ...baseInputs(
+        fixtures,
+        { env: {} },
+        { environments: {}, image: { dependencies: 'loaded', keep: ['pino-pretty'] } },
+      ),
+      buildRunners: runners,
+      argv: ['build', '--local', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(modes).toEqual(['loaded']);
+    expect(out.stderr).toContain(
+      "✓ Dependencies: only what the pack loads (image.dependencies: 'loaded'), and pino-pretty",
+    );
+    expect(fixtures.state.containerfileImages[0]).toMatchObject({
+      dependencies: 'loaded',
+      keep: ['pino-pretty'],
+    });
+  });
+
+  test('the install is cut down to what the pack loads, and the image is built from that', async () => {
+    const fixtures = makeFixtures();
+    const runners: BuildRunners = {
+      ...fixtures.runners,
+      esbuildBundle: async (o) => ({
+        ...(await fixtures.runners.esbuildBundle(o)),
+        externals: ['pino'],
+      }),
+    };
+    const out = await runCli({
+      ...baseInputs(
+        fixtures,
+        { env: {} },
+        { environments: {}, image: { dependencies: 'loaded', keep: ['pino-pretty'] } },
+      ),
+      buildRunners: runners,
+      argv: ['build', '--local', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.loadedInstallCalls).toHaveLength(1);
+    expect(fixtures.state.loadedInstallCalls[0]).toMatchObject({
+      packDir,
+      externals: ['pino'],
+      image: { dependencies: 'loaded', keep: ['pino-pretty'] },
+    });
+    const cut = { workspace: false, reduced: { kept: 3, total: 9 } };
+    expect(fixtures.state.containerfileInstalls[0]).toMatchObject(cut);
+    expect(fixtures.state.contextInstalls[0]).toMatchObject(cut);
+    expect(out.stderr).toContain(
+      "    ✓ Install: only what the pack loads, 3 of the lockfile's 9 packages; production dependencies only\n" +
+        "      Left out 1 of the pack's own dependencies its tools don't import: next\n",
+    );
+  });
+
+  test("an install kindgi build can't cut down: the full one, trimmed after, and the build says why", async () => {
+    const fixtures = makeFixtures({
+      loadedInstall: {
+        kind: 'fallback',
+        reason: "the lockfile is version 6.0, which kindgi build doesn't read",
+      },
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { environments: {}, image: { dependencies: 'loaded' } }),
+      argv: ['build', '--local', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.containerfileInstalls[0]).not.toHaveProperty('reduced');
+    expect(fixtures.state.contextInstalls[0]).not.toHaveProperty('reduced');
+    expect(out.stderr).toContain(
+      '    ✓ Install: production dependencies only, then trimmed to what the pack loads\n' +
+        "      It downloads the app's whole install first, since the lockfile is version 6.0, which kindgi build doesn't read.\n",
+    );
+  });
+
+  test("a package the pack loads that the app's install doesn't have as it says: refused before any image is built", async () => {
+    const fixtures = makeFixtures({
+      loadedInstall: {
+        kind: 'err',
+        message:
+          'pino in node_modules is 9.1.0, and pnpm-lock.yaml has 9.2.0: run pnpm install, then kindgi build again.',
+      },
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { environments: {}, image: { dependencies: 'loaded' } }),
+      argv: ['build', '--local', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      'pnpm-lock.yaml has 9.2.0: run pnpm install, then kindgi build again.\n',
+    );
+    expect(fixtures.state.containerfileCalls).toBe(0);
+    expect(fixtures.state.dockerBuilds).toHaveLength(0);
+  });
+
+  test("'all': the app's install, uncut", async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { environments: {} }),
+      argv: ['build', '--local', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.loadedInstallCalls).toHaveLength(0);
+    expect(fixtures.state.containerfileInstalls[0]).not.toHaveProperty('reduced');
+    expect(out.stderr).toContain('    ✓ Install: production dependencies only\n');
+  });
+
+  test("a computed import in the pack's code, and no image.keep: refused before any image is built", async () => {
+    const fixtures = makeFixtures();
+    const runners: BuildRunners = {
+      ...fixtures.runners,
+      esbuildBundle: async (o) => ({
+        ...(await fixtures.runners.esbuildBundle(o)),
+        computedImports: [
+          { file: join(packDir, 'tools', 'load.ts'), line: 4, text: 'return import(name);' },
+        ],
+      }),
+    };
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { environments: {}, image: { dependencies: 'loaded' } }),
+      buildRunners: runners,
+      argv: ['build', '--local', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('tools/load.ts:4  return import(name);');
+    expect(out.stderr).toContain(
+      "Name the packages these load in image.keep, or set image.dependencies: 'all'.",
+    );
+    expect(fixtures.state.dockerBuilds).toHaveLength(0);
+  });
+
+  test("the default, 'all': said, and a computed import is the app's own business", async () => {
+    const fixtures = makeFixtures();
+    const runners: BuildRunners = {
+      ...fixtures.runners,
+      esbuildBundle: async (o) => ({
+        ...(await fixtures.runners.esbuildBundle(o)),
+        computedImports: [
+          { file: join(packDir, 'tools', 'load.ts'), line: 4, text: 'return import(name);' },
+        ],
+      }),
+    };
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { environments: {} }),
+      buildRunners: runners,
+      argv: ['build', '--local', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain("✓ Dependencies: all of the app's production dependencies");
+    expect(out.stderr).not.toContain('computed name');
+  });
+});
+
 describe('kindgi build — image extensions', () => {
   const prismaImage = {
     image: {
@@ -1556,6 +2101,9 @@ describe('kindgi build — image extensions', () => {
           },
         ],
         extensions: ['prisma'],
+        dependencies: 'all',
+        keep: [],
+        keepIfInstalled: [],
       },
     ]);
     expect(fixtures.state.contextExtensionFiles).toEqual([['prisma/schema.prisma']]);

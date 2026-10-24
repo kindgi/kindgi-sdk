@@ -10,7 +10,7 @@
  */
 
 import { type Context, Hono } from 'hono';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import {
   type Action,
@@ -20,6 +20,7 @@ import {
   ref,
   userPrincipal,
 } from '@kindgi/authz';
+import { createLogger } from '@kindgi/log';
 import type { TenantId, UserId } from '@kindgi/types';
 
 import { createAuthorizer } from '../src/middleware/authorize.js';
@@ -70,10 +71,13 @@ function harness(
     },
   };
   const authorizer = createAuthorizer(binding);
+  const lines: string[] = [];
+  const log = createLogger({ write: (line) => lines.push(line) }).child({ requestId: 'req-own-1' });
   /** A fresh app per call (Hono takes no route once it has answered), the caller set as given. */
   const mount = () => {
     const app = new Hono<AppEnv>();
     app.use('*', async (c, next) => {
+      c.set('log', log);
       c.set('tenantId' as never, tenantId as never);
       c.set('requestId' as never, 'req-own-1' as never);
       c.set('principal' as never, userPrincipal('u-1' as UserId, tenantId) as never);
@@ -106,7 +110,8 @@ function harness(
     );
     return app.request('/guarded');
   };
-  return { recorded, checked, ask, filter, guarded };
+  const logged = () => lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+  return { recorded, checked, ask, filter, guarded, logged };
 }
 
 describe('the authorizer records the refusals it decides itself', () => {
@@ -148,6 +153,33 @@ describe('the authorizer records the refusals it decides itself', () => {
     expect(await h.ask('execute', ref('tenant', tenantId))).toBe(false);
     expect(h.recorded).toHaveLength(1);
     expect(h.recorded[0]?.decision).toMatchObject({ allowed: false, failing: 'invalid-action' });
+  });
+
+  test("and it's logged once, at error, through the request's logger (subsystem authz)", async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const h = harness();
+      await h.ask('execute', ref('tenant', tenantId));
+      expect(h.logged()).toEqual([
+        expect.objectContaining({
+          level: 'error',
+          subsystem: 'authz',
+          message:
+            'the authorization model has no `execute` on `tenant` (a check that can never pass: a bug in the route)',
+          requestId: 'req-own-1',
+          action: 'execute',
+          resource: `tenant:${tenantId}`,
+          inMessage: ['action'],
+        }),
+      ]);
+      expect(consoleError).not.toHaveBeenCalled();
+      // A refusal the key decides is recorded, not logged.
+      const member = harness({ role: 'member' });
+      await member.ask('admin', ref('tenant', tenantId));
+      expect(member.logged()).toEqual([]);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   test("the binding's own decisions aren't recorded here: the binding records them", async () => {

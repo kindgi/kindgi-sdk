@@ -397,6 +397,25 @@ describe('approvals.list — status, assignedTo, order (a reviewer inbox in one 
 
     expect(page.order).toBeUndefined();
   });
+
+  it('sends decidedBy=me, and the page says it filtered; one that ignored it says nothing', async () => {
+    const filtered = jsonFetch({ data: [], hasMore: false, order: 'desc', decidedBy: 'me' });
+    const ignored = jsonFetch({ data: [], hasMore: false, order: 'desc' });
+    const [page, older] = await Promise.all(
+      [filtered, ignored].map((stub) =>
+        createClient({
+          apiUrl: 'https://api.example.com',
+          auth: AUTH,
+          fetch: stub.fetch,
+        }).approvals.list({ decidedBy: 'me' }),
+      ),
+    );
+
+    expect(new URL(filtered.calls[0]?.url ?? '').searchParams.get('decidedBy')).toBe('me');
+    expect(page?.decidedBy).toBe('me');
+    expect(page?.order).toBe('desc');
+    expect(older?.decidedBy).toBeUndefined();
+  });
 });
 
 describe('approvals.list — waitTokenIds (T272)', () => {

@@ -88,6 +88,12 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
   agent with tool approval gates on (and no override or `default` for it)
   doesn't ask before it. Without it a tool may change something (as with
   `mutating=True`).
+- `needs_approval_when_unattended=True` makes each call wait for a person's
+  approval in a run no person started (a webhook, a schedule, an event, or a
+  service account's key). A flow's tool step that calls it is refused there.
+  A webhook trigger or a schedule whose `toolsAllowedUnattended` names the
+  tool (a project admin's to set) lifts that, in its own runs only. A run a
+  person starts is unaffected.
 - The handler is `(input)` or `(input, ctx)`, `def` or `async def`. A `def`
   handler runs in a worker thread, so blocking I/O is fine.
 - Before calling you, the pack service validates the input against the schema
@@ -167,7 +173,10 @@ type here — without it the check gets `{}`, its defaults. `RunTrace` holds the
 `tool_calls`, `tool_results`, `model_calls`, … (snake_case here, camelCase on
 the wire). `on_violation` names the action (`halt`, `retry`, `escalate`,
 `log-only`, `compensate`); `action=` takes the whole object
-(`{"on-violation": "retry", "retry": {"maxAttempts": 2}}`).
+(`{"on-violation": "retry", "retry": {"maxAttempts": 2}}`). In 0.1 the
+runtime acts only on `halt`: the turn fails with `guardrail-violation`. Any
+other action is recorded on the turn's violations and the turn completes;
+nothing runs it again, escalates or calls a compensating tool.
 
 ### Agents and flows
 
@@ -297,6 +306,17 @@ never reads `.kindgirc.json`. It's the same lookup as the TypeScript SDK's
 
 - A request body is a model from `kindgi.client.models`, a mapping, or its
   fields as keywords (snake_case or the wire's camelCase); answers are models.
+- A model has its API schema's name (`Flow`, `Tool`). An object inside a
+  schema is named after the field that holds it, and after the schema too when
+  that name is another schema's (`JudgedRunContextFlow`). A union's members
+  are named by the value that tells them apart (`ScopeTenant`, `ScopeOrg`,
+  `ScopeProject`).
+- **Newer runtimes are expected.** An enum in an answer is typed
+  `Literal[...] | str`: a value this client doesn't know comes back as its
+  text. A union in an answer has a member for a kind it doesn't know,
+  `<Union>Unrecognized` (`ScopeUnrecognized`), with every field kept. A
+  request body is checked against the values this client knows before it's
+  sent, so a value read from a newer runtime can't be sent back.
 - Path parameters are positional; query and header parameters keyword-only.
 - An operation that takes an `Idempotency-Key` gets one when you pass none.
   Retries (`max_retries=2`, honouring `Retry-After`):
@@ -386,8 +406,16 @@ The vendored schemas in `src/kindgi/_specs` are copies of `@kindgi/specs`;
 `tests/test_specs_drift.py` fails when they drift. The client's
 `_models.py` and `_resources.py` are generated —
 `uv run python scripts/gen_client.py` after `openapi.json` changes;
-`tests/test_client.py` fails while they are out of step. `@kindgi/pack-conformance`
-runs its suite against this package's `.venv`.
+`tests/test_client.py` fails while they are out of step. `scripts/model_names.json`
+holds where each model sits, and generation fails when a model's name would
+move to another schema or vanish: such a change is an edit to that file, and
+an entry in `CHANGELOG.md`. A union's member sits at its discriminator's
+value, or in a union without one at its properties, so a member that gains a
+property reads as moved too: check it, then edit its line.
+`@kindgi/pack-conformance` runs its suite against this package's `.venv`.
+
+The version is the npm packages' (`scripts/sync-python-version.mjs`
+moves it); changes go in [`CHANGELOG.md`](./CHANGELOG.md).
 
 ## License
 

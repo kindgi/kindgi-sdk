@@ -35,6 +35,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { type SecretScopeDeps, secretScopesFor } from '../secret-scope.js';
+import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import { type TenantHostAccess, deniesHostReach, stdioRefusal } from '../tenant-host-access.js';
 import type { AppEnv } from '../types.js';
 import { refused } from './denied.js';
@@ -66,6 +67,12 @@ export function mcpRouter(
     /** Where each secret an endpoint names is read is recorded at registration (`secret-scope.ts`). */
     readonly secrets?: SecretScopeDeps['secrets'];
     readonly projects?: SecretScopeDeps['projects'];
+    /**
+     * On a runtime that refuses other envs: an endpoint that names a secret
+     * under another env answers `409 env-not-served`
+     * (`refuseUnservedReference`). Absent: any env.
+     */
+    readonly servedEnv?: ServedEnvRule;
   },
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
@@ -239,6 +246,18 @@ export function mcpRouter(
     if (refusal !== undefined) {
       c.status(statusFor(refusal.code) as never);
       return c.json(toWireError(refusal, requestId));
+    }
+
+    for (const ref of mcpEndpointSecretRefs(validation.value)) {
+      const unserved = refuseUnservedReference(
+        options.servedEnv,
+        ref,
+        `endpoint "${validation.value.endpointId}"`,
+      );
+      if (unserved !== undefined) {
+        c.status(statusFor(unserved.code) as never);
+        return c.json(toWireError(unserved, requestId));
+      }
     }
 
     if (validation.value.transport === 'stdio' && deniesHostReach(options.hostAccess, 'exec')) {
@@ -679,6 +698,7 @@ function serializeEndpoint(e: MCPEndpoint): Record<string, unknown> {
     ...(e.instructions !== undefined && { instructions: e.instructions }),
     ...(e.metadata !== undefined && { metadata: e.metadata }),
     ...(e.sendTraceparent !== undefined && { sendTraceparent: e.sendTraceparent }),
+    ...(e.secretScopes !== undefined && { secretScopes: e.secretScopes }),
   };
 }
 
@@ -740,6 +760,18 @@ function validateMCPEndpoint(
     return {
       kind: 'err',
       error: { message: 'endpointId required (non-empty string)', reason: 'empty-endpoint-id' },
+    };
+  }
+  // A tool's id is `<endpointId>.<tool name>`: with a `.` here, two
+  // endpoints' tools could share one id. An endpoint registered with one
+  // before keeps it.
+  if (b.endpointId.includes('.')) {
+    return {
+      kind: 'err',
+      error: {
+        message: `endpointId "${b.endpointId}" contains ".": an MCP tool's id is "<endpointId>.<tool name>", so an endpoint id can't. Use "-" or "_" instead.`,
+        reason: 'dot-in-endpoint-id',
+      },
     };
   }
   if (typeof b.name !== 'string' || b.name.length === 0) {

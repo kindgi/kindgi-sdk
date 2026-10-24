@@ -14,7 +14,7 @@ credentials, and Vertex AI runs and bills them in a project you name.
 
 ## Before you start
 
-- **A pack** with `kindgi dev` running, from Kindgi 0.1's CLI.
+- **A pack** with `kindgi dev` running, from Kindgi 0.2's CLI.
 - **The `gcloud` CLI.**
 - **A Google Cloud project** with the Vertex AI API turned on, and an account
   with access to Vertex AI in it.
@@ -63,7 +63,7 @@ A `GOOGLE_APPLICATION_CREDENTIALS` in your shell isn't used unless you name it:
 Register the preset's models with the runtime:
 
 ```sh
-kindgi providers register --preset=gemini --project=<gcp-project>
+pnpm exec kindgi providers register --preset=gemini --project=<gcp-project>
 ```
 
 It prints `✓ Registered gemini:` with the models it registered.
@@ -78,7 +78,7 @@ Error: preset "gemini" needs --project=<…> (The Google Cloud project Vertex AI
 `--models` registers only some of the models:
 
 ```sh
-kindgi providers register --preset=gemini --project=<gcp-project> --models=gemini-3.8-flash
+pnpm exec kindgi providers register --preset=gemini --project=<gcp-project> --models=gemini-3.8-flash
 ```
 
 ```text
@@ -91,10 +91,12 @@ kindgi providers register --preset=gemini --project=<gcp-project> --models=gemin
 The preset's models answer with up to 65,536 tokens, thinking included.
 `--max-output-tokens=<n>` registers them with another limit, `<n>` tokens.
 
-To have `kindgi dev` register it on every boot, declare it in the pack's config
-instead: `{ preset: 'gemini', project: '<gcp-project>' }` in
-`kindgi.config.ts`'s `providers`, or a `[[tool.kindgi.providers]]` table with
-`preset = "gemini"` and `project = "<gcp-project>"` in `pyproject.toml`.
+To have `kindgi dev` register it on every boot, ask your coding agent to
+declare it in the pack's config instead. Kindgi's skills in your pack tell it
+how ([How it knows Kindgi](../../../start/coding-agents/)). It goes there as
+`{ preset: 'gemini', project: '<gcp-project>' }` in `kindgi.config.ts`'s
+`providers`, or a `[[tool.kindgi.providers]]` table with `preset = "gemini"`
+and `project = "<gcp-project>"` in `pyproject.toml`.
 [Declare them in your pack's config](../#declare-them-in-your-packs-config)
 shows how.
 
@@ -103,7 +105,7 @@ shows how.
 Get the provider by its id to see what it registered:
 
 ```sh
-kindgi providers get gemini
+pnpm exec kindgi providers get gemini
 ```
 
 It prints the provider as JSON. Its id is `gemini` and its region `global`,
@@ -152,8 +154,8 @@ fails. Update the CLI, then:
   it and register the preset again. A registration can't be edited:
 
   ```sh
-  kindgi providers unregister gemini
-  kindgi providers register --preset=gemini --project=<gcp-project>
+  pnpm exec kindgi providers unregister gemini
+  pnpm exec kindgi providers register --preset=gemini --project=<gcp-project>
   ```
 
   `unregister` prints its answer as JSON, and `register` prints its
@@ -186,10 +188,10 @@ service account. On Cloud Run, that's the service's account. That account needs
 `roles/aiplatform.user` in the project, and the project needs the Vertex AI
 API turned on. Without the role, every model call fails with
 `Permission 'aiplatform.endpoints.predict' denied`.
-[Deploy on Google Cloud Run](../../../deploy/cloud-run/#use-gemini) sets this up.
+[Deploy on Google Cloud Run](../../../deploy/self-hosted/cloud-run/#use-gemini) sets this up.
 
 ## Next
 
 - [Choose the model an agent uses](../../agents/choose-a-model/)
-- [Deploy on Google Cloud Run](../../../deploy/cloud-run/#use-gemini)
+- [Deploy on Google Cloud Run](../../../deploy/self-hosted/cloud-run/#use-gemini)
 - [Models](../)

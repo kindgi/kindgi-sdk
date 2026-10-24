@@ -63,7 +63,7 @@ export function defineAgent(spec: DefineAgentSpec): Result<Agent, InvalidAgentEr
     ...validateMemoryPolicy(spec),
     ...validatePromptParameters(spec.parameters),
     ...validateBudget(spec.budget),
-    ...validateConversationPolicy(spec.conversationPolicy),
+    ...validateConversationPolicy(spec.conversationPolicy, toolIdsOf(spec.tools)),
     ...validateToolErrors(spec.toolErrors),
   ];
   const output = resolveOutput(spec.output);
@@ -610,7 +610,22 @@ function validateToolErrors(toolErrors: DefineAgentSpec['toolErrors']): Issue[] 
     : checked.issues.map((i) => ({ path: `/toolErrors${i.path}`, message: i.message }));
 }
 
-function validateConversationPolicy(policy?: ConversationPolicy): Issue[] {
+/** The agent's tool ids, when its `tools` is a list of refs (else nothing to check keys against). */
+function toolIdsOf(tools: unknown): ReadonlySet<string> | undefined {
+  if (!Array.isArray(tools)) return undefined;
+  return new Set(
+    tools
+      .map((ref) =>
+        ref !== null && typeof ref === 'object' ? (ref as { id?: unknown }).id : undefined,
+      )
+      .filter((id): id is string => typeof id === 'string'),
+  );
+}
+
+function validateConversationPolicy(
+  policy?: ConversationPolicy,
+  toolIds?: ReadonlySet<string>,
+): Issue[] {
   if (policy === undefined) return [];
   const out: Issue[] = [];
   if (
@@ -622,16 +637,7 @@ function validateConversationPolicy(policy?: ConversationPolicy): Issue[] {
       message: 'historyLimit must be a positive integer',
     });
   }
-  if (
-    policy.autoCloseAfterInactiveSeconds !== undefined &&
-    (!Number.isInteger(policy.autoCloseAfterInactiveSeconds) ||
-      policy.autoCloseAfterInactiveSeconds <= 0)
-  ) {
-    out.push({
-      path: '/conversationPolicy/autoCloseAfterInactiveSeconds',
-      message: 'autoCloseAfterInactiveSeconds must be a positive integer',
-    });
-  }
+  out.push(...validateAutoClose(policy));
   if (
     policy.hitlAfterTurns !== undefined &&
     (!Number.isInteger(policy.hitlAfterTurns) || policy.hitlAfterTurns <= 0)
@@ -667,6 +673,7 @@ function validateConversationPolicy(policy?: ConversationPolicy): Issue[] {
         message: 'hitl.defaultReviewerRole must be one of: standard, senior, admin',
       });
     }
+    out.push(...validateSeparateApprover(h.separateApprover, toolIds));
     const MODES: ReadonlySet<string> = new Set(['never_ask', 'ask_on_first_use', 'always_ask']);
     if (h.tools?.default !== undefined && !MODES.has(h.tools.default)) {
       out.push({
@@ -700,6 +707,76 @@ function validateConversationPolicy(policy?: ConversationPolicy): Issue[] {
 }
 
 /**
+ * `hitl.separateApprover`: a boolean, or `{ default?: boolean, overrides?:
+ * { [toolId]: boolean } }`. An override names one of the agent's tools: a
+ * mistyped id would leave the real tool without four eyes, silently.
+ */
+function validateSeparateApprover(value: unknown, toolIds?: ReadonlySet<string>): Issue[] {
+  if (value === undefined || typeof value === 'boolean') return [];
+  const at = '/conversationPolicy/hitl/separateApprover';
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return [
+      { path: at, message: 'hitl.separateApprover must be true, false, or { default, overrides }' },
+    ];
+  }
+  const out: Issue[] = [];
+  const { default: all, overrides, ...rest } = value as Record<string, unknown>;
+  for (const key of Object.keys(rest)) {
+    out.push({
+      path: `${at}/${key}`,
+      message: 'hitl.separateApprover takes only default and overrides',
+    });
+  }
+  if (all !== undefined && typeof all !== 'boolean') {
+    out.push({
+      path: `${at}/default`,
+      message: 'hitl.separateApprover.default must be true or false',
+    });
+  }
+  if (overrides !== undefined) {
+    if (overrides === null || typeof overrides !== 'object' || Array.isArray(overrides)) {
+      out.push({
+        path: `${at}/overrides`,
+        message: 'hitl.separateApprover.overrides maps tool ids to true or false',
+      });
+    } else {
+      for (const [toolId, four] of Object.entries(overrides)) {
+        if (toolIds !== undefined && !toolIds.has(toolId)) {
+          out.push({
+            path: `${at}/overrides/${toolId}`,
+            message: `hitl.separateApprover names ${toolId}, which isn't one of this agent's tools`,
+          });
+        }
+        if (typeof four !== 'boolean') {
+          out.push({
+            path: `${at}/overrides/${toolId}`,
+            message: 'a separateApprover override must be true or false',
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * `autoCloseAfterInactiveSeconds`: refused, whatever its value. It was
+ * accepted and never acted on: a conversation closes only when someone
+ * closes it.
+ */
+function validateAutoClose(policy: ConversationPolicy): Issue[] {
+  const { autoCloseAfterInactiveSeconds } = policy as { autoCloseAfterInactiveSeconds?: unknown };
+  if (autoCloseAfterInactiveSeconds === undefined) return [];
+  return [
+    {
+      path: '/conversationPolicy/autoCloseAfterInactiveSeconds',
+      message:
+        "autoCloseAfterInactiveSeconds isn't supported: a conversation never closes by itself. It closes when someone closes it: Close in the console, kindgi conversations close, or POST /v1/conversations/{id}/close. Leave it out.",
+    },
+  ];
+}
+
+/**
  * `hitl.onTimeout`: only `'escalate'`, what the runtime does when an
  * approval's time runs out. `'auto-approve'` / `'auto-reject'` aren't
  * implemented, so they're refused instead of accepted and ignored.
@@ -723,9 +800,8 @@ type OutputOutcome =
   | { readonly kind: 'ok'; readonly value: AgentOutputSpec }
   | { readonly kind: 'err'; readonly issues: readonly Issue[] };
 
-/** The output spec in its wire form: JSON Schema that compiles, and a valid repair count. */
-function resolveOutput(output: DefineAgentSpec['output']): OutputOutcome {
-  if (output === undefined) return { kind: 'none' };
+/** An output spec's `maxRepairs` and `name`, when it sets them. */
+function outputFieldIssues(output: NonNullable<DefineAgentSpec['output']>): Issue[] {
   const issues: Issue[] = [];
   if (
     output.maxRepairs !== undefined &&
@@ -739,6 +815,22 @@ function resolveOutput(output: DefineAgentSpec['output']): OutputOutcome {
   if (output.name !== undefined && (typeof output.name !== 'string' || output.name.length === 0)) {
     issues.push({ path: '/output/name', message: 'name must be a non-empty string' });
   }
+  return issues;
+}
+
+/** The output spec in its wire form: JSON Schema that compiles, and a valid repair count. */
+function resolveOutput(output: DefineAgentSpec['output']): OutputOutcome {
+  if (output === undefined) return { kind: 'none' };
+  // A spec off the wire (`POST /v1/agents`) can carry anything here.
+  if (typeof output !== 'object' || output === null || Array.isArray(output)) {
+    return {
+      kind: 'err',
+      issues: [
+        { path: '/output', message: 'output must be an object { schema, name?, maxRepairs? }' },
+      ],
+    };
+  }
+  const issues = outputFieldIssues(output);
   let schema: Readonly<Record<string, unknown>>;
   if (isZodSchema(output.schema)) {
     // The output side: downstream steps read every field, defaulted ones included.

@@ -8,7 +8,7 @@ import { describe, expect, test } from 'vitest';
 import { SELF_HOSTED_BOUNDS, currentTenant } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import type { ToolManifest } from '@kindgi/tools';
-import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
+import type { Cursor, ProjectId, Semver, TenantId, ToolId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -257,8 +257,7 @@ function toolPostBody(
   };
 }
 
-function makeApp() {
-  const binding = makeInMemoryBinding();
+function makeApp(binding: ToolRegistryBinding = makeInMemoryBinding()) {
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -427,6 +426,116 @@ describe('API — tools get', () => {
 });
 
 describe('API — tools register', () => {
+  /** A registry whose tool `acme.search` is MCP endpoint `acme`'s (with `endpointId`), or one published here (without). */
+  function holdingAcmeSearch(endpointId?: string) {
+    const base = makeInMemoryBinding();
+    const refused = (toolId: ToolId, version: Semver) => ({
+      kind: 'kind-mismatch' as const,
+      toolId,
+      version,
+      ...(endpointId !== undefined && { endpointId }),
+    });
+    const binding: ToolRegistryBinding = {
+      ...base,
+      publish: async (input) =>
+        (input.tool.id as unknown as string) === 'acme.search'
+          ? refused(input.tool.id, input.tool.version as unknown as Semver)
+          : base.publish(input),
+      reinstateVersion: async (input) =>
+        (input.toolId as unknown as string) === 'acme.search'
+          ? refused(input.toolId, input.version)
+          : base.reinstateVersion(input),
+    };
+    return { base, binding };
+  }
+
+  test("a version of another kind than the tool's active ones (an MCP endpoint's tool) → 409 tool-kind-mismatch, naming the endpoint, nothing written", async () => {
+    const { base, binding } = holdingAcmeSearch('acme');
+    const { app } = makeApp(binding);
+    const res = await app.request('/v1/tools', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(toolPostBody({ id: 'acme.search' })),
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details?: Record<string, unknown> };
+    };
+    expect(body.error).toMatchObject({
+      code: 'tool-kind-mismatch',
+      message:
+        'Tool "acme.search" is MCP endpoint "acme"\'s tool, and version "1.0.0" isn\'t, so it can\'t be published under that id; publish this one under another id, or unregister the endpoint first',
+    });
+    expect(body.error.details).toEqual({
+      toolId: 'acme.search',
+      version: '1.0.0',
+      endpointId: 'acme',
+    });
+    expect(await base.get({ tenantId, toolId: 'acme.search' as ToolId })).toBeNull();
+  });
+
+  test("a version of another kind than the tool's active ones (published here) → 409 tool-kind-mismatch, no endpoint", async () => {
+    const { binding } = holdingAcmeSearch();
+    const { app } = makeApp(binding);
+    const res = await app.request('/v1/tools', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(toolPostBody({ id: 'acme.search' })),
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details?: Record<string, unknown> };
+    };
+    expect(body.error).toMatchObject({
+      code: 'tool-kind-mismatch',
+      message:
+        'Tool "acme.search" is a tool published here, and version "1.0.0" is an MCP endpoint\'s, so it can\'t be published under that id; unregister its published versions first',
+    });
+    expect(body.error.details).toEqual({ toolId: 'acme.search', version: '1.0.0' });
+  });
+
+  test("a reinstate of an endpoint's version while the tool's active versions are published here → 409 tool-kind-mismatch, no endpoint", async () => {
+    const { binding } = holdingAcmeSearch();
+    const { app } = makeApp(binding);
+    const res = await app.request('/v1/tools/acme.search/versions/1.0.0/reinstate', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details?: Record<string, unknown> };
+    };
+    expect(body.error).toMatchObject({
+      code: 'tool-kind-mismatch',
+      message:
+        'Tool "acme.search" is a tool published here, and version "1.0.0" is an MCP endpoint\'s, so it can\'t be reinstated under that id; unregister its published versions first',
+    });
+    expect(body.error.details).toEqual({ toolId: 'acme.search', version: '1.0.0' });
+  });
+
+  test("a reinstate of another kind than the tool's active versions → 409 tool-kind-mismatch, naming the endpoint", async () => {
+    const { binding } = holdingAcmeSearch('acme');
+    const { app } = makeApp(binding);
+    const res = await app.request('/v1/tools/acme.search/versions/1.0.0/reinstate', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details?: Record<string, unknown> };
+    };
+    expect(body.error).toMatchObject({
+      code: 'tool-kind-mismatch',
+      message:
+        'Tool "acme.search" is MCP endpoint "acme"\'s tool, and version "1.0.0" isn\'t, so it can\'t be reinstated under that id; unregister the endpoint first',
+    });
+    expect(body.error.details).toEqual({
+      toolId: 'acme.search',
+      version: '1.0.0',
+      endpointId: 'acme',
+    });
+  });
+
   test('validation failure → 400 validation-failed', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/tools', {
@@ -899,6 +1008,14 @@ describe('API — tools versions', () => {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(404);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details?: Record<string, unknown> };
+    };
+    expect(body.error).toMatchObject({
+      code: 'tool-not-found',
+      message: 'No tool "nope.missing" at version "1.0.0" to reinstate',
+    });
+    expect(body.error.details).toEqual({ toolId: 'nope.missing', version: '1.0.0' });
   });
 });
 

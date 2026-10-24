@@ -27,6 +27,7 @@ import type {
   UnregisterEvalSuiteResult,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
+import type { GetLatestOptions } from '../types.js';
 
 export type Suite = EvalSuite;
 export type SuitePage = EvalSuiteCollectionPage;
@@ -96,8 +97,8 @@ export interface EvalSuitesClient {
   publish(input: PublishSuiteInput, options: PublishSuiteOptions): Promise<PublishSuiteResult>;
   /** @wire GET /v1/eval-suites */
   list(filter?: ListSuitesFilter): Promise<SuitePage>;
-  /** @wire GET /v1/eval-suites/:suiteId */
-  get(suiteId: string): Promise<Suite>;
+  /** @wire GET /v1/eval-suites/:suiteId — latest active version (`GetLatestOptions`) */
+  get(suiteId: string, options?: GetLatestOptions): Promise<Suite>;
   /**
    * Publish a `judged` suite version whose cases are copies of judged runs
    * of an agent or flow, with each item's judgments summed up. Needs
@@ -165,10 +166,11 @@ export function makeEvalSuitesClient(transport: Transport): EvalSuitesClient {
         },
       });
     },
-    async get(suiteId) {
+    async get(suiteId, options) {
       return transport.request<Suite>({
         method: 'GET',
         path: `/v1/eval-suites/${seg(suiteId)}`,
+        query: { ...(options?.projectId !== undefined && { projectId: options.projectId }) },
       });
     },
     async buildFromJudgments(suiteId, input, options) {

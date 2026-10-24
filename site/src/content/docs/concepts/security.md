@@ -36,6 +36,12 @@ Tokens are compared in constant time. A wrong or missing token gets `401`:
 {"error":{"code":"auth-missing","message":"Bearer token is not recognized","requestId":"req-88fd4597-bed6-4936-9906-83fafe44712d"}}
 ```
 
+The `curl` examples in these docs pass the header as
+`-H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")`. In bash or
+zsh it reaches curl through a pipe, so the token stays out of the process
+list (`ps`), where `-H "Authorization: Bearer $KINDGI_API_TOKEN"` would show
+it.
+
 To rotate the token, restart the runtime with a new value.
 
 A request's body is at most 10 MiB. A bigger one is refused with
@@ -55,6 +61,16 @@ agent's turn with `model-invocation-failed`:
 `Prompt render failed: Template render failed: the render went over its memory limit of 16777216`.
 No setting changes it.
 
+The template can render in a worker process instead of the server's own
+(it needs runtime 0.1.9 or later): with `KINDGI_TEMPLATE_RENDER_WORKERS`
+at 1 or more, the default on a runtime serving many tenants
+(`KINDGI_TENANCY=multi`).
+The worker's heap has a cap of its own
+(`KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB`, 128 MiB by default): a render
+that runs it out fails the turn with the message above, and the server
+keeps running. A worker takes only the server's timezone and locale from
+its environment, never its database URLs, keys or tokens.
+
 With [authorization](../../deploy/authorization/) on, people and service
 accounts have API keys of their own, `kgi_ak_…`. Each key acts with its
 holder's grants and no more. A revoked key is refused from its next request.
@@ -65,7 +81,7 @@ how keys are made and revoked.
 
 People sign in to the console with their email first. The sign-in page then
 offers the ways in the deployment has, which
-[Turn on sign-in](../../deploy/sign-in/) sets up:
+[Turn on sign-in](../../deploy/self-hosted/sign-in/) sets up:
 
 - **Only people already added to a workspace get in,** by an email their
   provider has proved. Nobody is created by signing in, and roles stay
@@ -104,7 +120,7 @@ A public run token is:
 With it, a browser can follow the run. The same request with `curl`:
 
 ```sh
-curl -H "Authorization: Bearer $PUBLIC_TOKEN" "$KINDGI_API_URL/v1/runs/$RUN_ID/progress"
+curl -H @<(printf 'Authorization: Bearer %s\n' "$PUBLIC_TOKEN") "$KINDGI_API_URL/v1/runs/$RUN_ID/progress"
 ```
 
 - `$PUBLIC_TOKEN` is the public run token, such as the run's
@@ -175,17 +191,17 @@ Error [invalid-request]: Provider "bedrock" doesn't fit adapter @kindgi/adapter-
 
 A provider registered before the runtime moved to `isolated`, and that signs
 in as the runtime, isn't used there. Here, a `bedrock` preset registration:
-a turn that needs it fails with `422 capability-routing-failed`:
+a turn that needs it fails with `422 capability-routing-failed`, and the
+error's message names the setting the adapter refuses:
 
 ```json
-{"error":{"code":"capability-routing-failed","message":"No registered provider satisfies the capability declaration","details":{"runId":"7023ea0b-ddf3-4795-9b62-f68cdfe4b808"},"requestId":"req-82f50c49-8e4f-4cce-b221-f0a33d051dd0"}}
+{"error":{"code":"capability-routing-failed","message":"No registered provider satisfies the capability declaration. Provider \"bedrock\" can't be set up on this runtime: adapter @kindgi/adapter-model-bedrock refuses its /adapter_config/auth (GET /v1/providers/bedrock/check says why).","details":{"runId":"a6b708ca-d4cc-4cc7-a365-be066858d59f"},"requestId":"req-8b1ef821-9ec2-4f01-9c92-18eeedf4a9b0"}}
 ```
 
-The runtime's log says why:
-
-```text
-16:50:24.757 WARN  [providers] factory throw traceId=… tenantId=… projectId=… runId=7023ea0b-ddf3-4795-9b62-f68cdfe4b808 agentId=acme.helper agentVersion=1.0.0 conversationId=… providerId=bedrock adapterId=@kindgi/adapter-model-bedrock err="Error: @kindgi/adapter-model-bedrock: provider \"bedrock\": adapter_config.auth = aws-identity (the default) signs in as the runtime's own AWS identity, which this deployment doesn't let tenant configuration use (KINDGI_TENANT_HOST_ACCESS). Set auth = api-key, with secret_ref naming a Bedrock API key."
-```
+[`GET /v1/providers/bedrock/check`](../../guides/models/#check-a-registration)
+gives the adapter's own words, the same as the refusal above, at
+`/adapter_config/auth`. The runtime's log has them too, in its
+`factory throw` line.
 
 Unregister such a provider, and register it again with a key of its own:
 for Bedrock, [an API key](../../guides/models/#with-a-bedrock-api-key); for
@@ -244,7 +260,7 @@ The runtime's database user needs `CREATEROLE` and must own the runtime's
 database: the runtime uses it to set up the restricted role that requests run
 as. It needn't be a superuser, so managed Postgres services such as Cloud SQL,
 Amazon RDS and AlloyDB work. Create the `vector` extension once, as
-[Self-host](../../deploy/self-host/) shows.
+[Self-host](../../deploy/self-hosted/self-host/) shows.
 :::
 
 - **Development mode is for development.** `KINDGI_DEV=true` turns on

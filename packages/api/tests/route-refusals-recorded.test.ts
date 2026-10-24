@@ -58,6 +58,7 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'system-key-on-tenant-route',
   'system-principal-required',
   'system-scope-missing',
+  'system-key-scope-not-served',
 ]);
 
 /**
@@ -86,6 +87,8 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'POST /v1/approvals/reviewers',
     // The roster names people: only tenant admins and reviewers read it.
     'GET /v1/approvals/reviewers',
+    // Approvals are read by reviewers, and by a person who is the tenant's admin.
+    'GET /v1/approvals',
     // A narrowed key opens no console session.
     'POST /v1/auth/token-sign-in token-sign-in-not-allowed',
     // The license is the deployment's: only its own token reads it here.
@@ -98,12 +101,13 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'POST /v1/system/keys/{keyId}/revoke system-principal-required',
     'PUT /v1/system/tenants/{tenantId}/production-allowed system-principal-required',
     'PUT /v1/system/tenants/{tenantId}/limits system-principal-required',
+    'GET /v1/system/usage system-principal-required',
   ],
   // An admin key without the capability a write needs; a caller who isn't a reviewer.
   [NO_CAPS_KEY]: [
     'PUT /v1/env/{name}',
     'POST /v1/secrets',
-    'GET /v1/approvals',
+    'POST /v1/approvals/{approvalId}/complete',
     'GET /v1/license license-operator-only',
     'GET /v1/license/usage license-operator-only',
     'POST /v1/system/keys system-principal-required',
@@ -111,7 +115,10 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'POST /v1/system/keys/{keyId}/revoke system-principal-required',
     'PUT /v1/system/tenants/{tenantId}/production-allowed system-principal-required',
     'PUT /v1/system/tenants/{tenantId}/limits system-principal-required',
+    'GET /v1/system/usage system-principal-required',
   ],
+  // A key limited to a project is never the tenant's admin: it reads no approvals.
+  [PROJECT_KEY]: ['GET /v1/approvals'],
 };
 
 /**
@@ -341,14 +348,14 @@ describe('refusals deeper in a route, which an empty body never reaches, are rec
   test('a stdio MCP endpoint where the deployment runs no commands (host-access-denied)', async () => {
     const r = await refusal(NO_CAPS_KEY, 'POST', '/v1/mcp/endpoints', {
       scopeKind: 'tenant',
-      endpointId: 'acme.docs',
+      endpointId: 'acme-docs',
       name: 'Docs',
       transport: 'stdio',
       config: { transport: 'stdio', command: '/usr/local/bin/docs-mcp', args: ['--stdio'] },
     });
     expect([r.status, r.error.code]).toEqual([403, 'host-access-denied']);
     expect(r.recorded.map((x) => [x.action, x.resource, x.decision.failing])).toEqual([
-      ['admin', 'mcp_endpoint:acme.docs', 'scope'],
+      ['admin', 'mcp_endpoint:acme-docs', 'scope'],
     ]);
   });
 

@@ -16,17 +16,20 @@ turn completes, and your code reads the fields.
 
 ## Before you start
 
-- **A pack on a runtime such as `kindgi dev`,** with Kindgi 0.1's CLI.
+- **A pack on a runtime such as `kindgi dev`,** with Kindgi 0.2's CLI.
 - **A registered model,** as [Models](../../models/) shows. `dev-echo`
   only repeats the message, so it can't triage a ticket.
 - **For the app's half:** Node 22.12 or later, Python 3.11 or later, or Java
-  17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
   `KINDGI_API_TOKEN` set.
 
 ## Declare the answer
 
-An `output` schema says what the answer must be. This agent triages support
-tickets:
+An `output` schema says what the answer must be. Ask your coding agent: "I
+want an agent that triages support tickets and answers with JSON my code can
+read." Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+agent looks like this. This guide calls it `acme.ticket-triage`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -193,7 +196,10 @@ give the schema yourself with `.set("output", Map("schema" -> …, "name" ->
 </TabItem>
 </Tabs>
 
-- **`schema`** is what the answer must match.
+- **`schema`** is what the answer must match. One that doesn't compile
+  (strict JSON Schema, draft 2020-12) is refused where the agent arrives:
+  by `defineAgent`, when it's registered, or by a deploy
+  (`400 deployment-validation-failed`, at `/output/schema`), not at each turn.
 - **`name`** names the answer in what the model is told when it gets it wrong,
   and in errors. It's `output` by default.
 - **`maxRepairs`** is how many times a wrong answer goes back to the model, 1
@@ -203,36 +209,64 @@ give the schema yourself with `.set("output", Map("schema" -> …, "name" ->
   agent calls no tools.
 
 The model is sent the schema from its first call. The system message ends
-with it, in the words a repair repeats, and tells the model to call the tools
-it needs first. So its first answer can already fit. Describing the JSON in
-the instructions, as this agent does, still helps the model fill the fields
-well.
+with it, in the words a repair repeats, and a last line: give your final
+answer as that JSON alone. When the model is offered tools, the agent's own or
+memory's `remember`, that line first says to call the ones it needs. So its
+first answer can already fit. Describing the JSON in the instructions, as this
+agent does, still helps the model fill the fields well.
+
+The schema goes with every model call, its descriptions included, so every
+call's prompt tokens count it. Keep it, and its descriptions, to what the
+answer needs.
 
 From a local model, Qwen 2.5 7B through Ollama, with instructions that don't
 describe the JSON, the first call's system message ends:
 
 ```text
 …"properties":{"summary":{"type":"string","description":"One sentence, for the queue"},"category":{"enum":["billing","shipping","returns","other"],"type":"string","description":"What the message is about"},"priority":{"enum":["low","normal","urgent"],"type":"string","description":"How soon it needs a person"}},"additionalProperties":false}
-Call the tools you need first; then give your final answer as that JSON alone.
+Give your final answer as that JSON alone.
 ```
 
 and its first answer fits, in one model call:
 
 ```json
-{
-  "summary": "Request for refund of duplicate charge for order A-1001 urgently needed today",
-  "category": "billing",
-  "priority": "urgent"
-}
+{"category":"billing","priority":"urgent","summary":"Request for refund of overcharged amount for order A-1001 by today."}
 ```
 
 ## Run it
 
 A run of the agent returns the parsed answer beside the model's text:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme.ticket-triage --input='{"userMessage":"I was charged twice for order A-1001 and I need the money back today."}'
+pnpm exec kindgi runs start --agent=acme.ticket-triage --input='{"userMessage":"I was charged twice for order A-1001 and I need the money back today."}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme.ticket-triage --input='{"userMessage":"I was charged twice for order A-1001 and I need the money back today."}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme.ticket-triage --input='{"userMessage":"I was charged twice for order A-1001 and I need the money back today."}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme.ticket-triage --input='{"userMessage":"I was charged twice for order A-1001 and I need the money back today."}'
+```
+
+</TabItem>
+</Tabs>
 
 `--agent` is the agent to run, and `--input` the turn's input, with the
 ticket as `userMessage`. It prints the run:
@@ -268,7 +302,9 @@ here, is accepted.
 
 ## Read it in your app
 
-Your app parses the fields with the same schema:
+Ask your coding agent: "I want my app to triage a ticket and read its
+category and priority." For reference, the code looks like this. Your app
+parses the fields with the same schema:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -404,7 +440,9 @@ the pydantic model doesn't.
 
 ## In a flow
 
-A flow reads a typed answer at `nodeOutputs.<step>.output.<field>`:
+A flow reads a typed answer at `nodeOutputs.<step>.output.<field>`. Ask your
+coding agent: "I want a flow that triages a ticket and returns its category
+and priority." For reference, the flow looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -540,9 +578,36 @@ object TriageTicket {
 
 Run the flow:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.triage-ticket --input='{"ticket":"I was charged twice for order A-1001 and I need the money back today."}'
+pnpm exec kindgi runs start --flow=acme.triage-ticket --input='{"ticket":"I was charged twice for order A-1001 and I need the money back today."}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.triage-ticket --input='{"ticket":"I was charged twice for order A-1001 and I need the money back today."}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.triage-ticket --input='{"ticket":"I was charged twice for order A-1001 and I need the money back today."}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.triage-ticket --input='{"ticket":"I was charged twice for order A-1001 and I need the money back today."}'
+```
+
+</TabItem>
+</Tabs>
 
 `--flow` is the flow, and `--input` its input, with the ticket. The run's
 output holds the two fields the flow mapped:

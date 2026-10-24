@@ -197,7 +197,8 @@ export interface RunsClient {
 
   /**
    * Read the durable journal for a run. Journal entries are the
-   * source-of-truth history for replay + audit.
+   * source-of-truth history for replay + audit, in sequence order.
+   * Paging is opt-in: pass `limit` for pages, else the whole journal.
    *
    * @wire `GET /v1/runs/:runId/journal`
    */
@@ -234,9 +235,14 @@ export interface RunFailuresQuery {
 }
 
 export interface RunJournalFilter {
+  /**
+   * The most entries in a page (1 to 100), with `nextCursor` while more
+   * remain. Without it, the whole journal in one answer.
+   */
   readonly limit?: number;
+  /** Where the previous page ended: its `nextCursor`, as it came. */
   readonly cursor?: string;
-  /** Only entries with sequence >= this value. */
+  /** Only entries with a sequence greater than this value. */
   readonly since?: number;
 }
 

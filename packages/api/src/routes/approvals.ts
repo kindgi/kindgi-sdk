@@ -36,6 +36,7 @@ import type {
   ReviewDecisionRecord,
 } from '../hitl-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import {
@@ -120,7 +121,13 @@ export interface ApprovalsRouterOptions {
  * (`TokenResolution.reviewerRole`), or its user's in the reviewer roster
  * (`ReviewerBinding.resolveReviewerRole`). A caller with neither gets
  * `403 permission-denied` on every approvals route — this surface is
- * reviewer-only.
+ * reviewer-only — with one exception: with an authorizer, a person who
+ * is the tenant's admin reads (the list and one approval) at every tier.
+ * With no roster entry, they read as an `admin` reviewer. A reviewer below
+ * `admin` who is one reads their own tier, and any tier they ask for
+ * (`requiredRole`, or one approval). It's the set that may register itself
+ * as an `admin` reviewer (`reviewersRouter`). Deciding stays the roster's,
+ * and an API key with no user reads nothing it couldn't before.
  *
  * Visibility filter: a caller with role `R` sees approvals whose
  * `requiredRole` rank ≤ their rank (standard < senior < admin). The
@@ -161,12 +168,31 @@ export function approvalsRouter(
   const mayRead = async (c: Context<AppEnv>, approval: Approval): Promise<boolean> =>
     authorizer === undefined ||
     authorizer.can(c, 'read', await approvalRef(c.get('tenantId') as TenantId, approval));
+  /**
+   * Whether the caller reads at every tier as the tenant's admin: a person
+   * (a key with no user never) who is one. Asked only where it changes what
+   * the roster gives, since the authorizer records each check it makes: a
+   * reviewer reading their own tier makes none.
+   */
+  const readsAsTenantAdmin = async (c: Context<AppEnv>): Promise<boolean> =>
+    authorizer !== undefined &&
+    c.get('userId') !== undefined &&
+    authorizer.can(c, 'admin', ref('tenant', c.get('tenantId') as unknown as string));
 
   // ---------- role gate for the whole resource ----------
   // A reviewer: a token that carries a role, or whose user the roster
-  // names (a session or API key of a registered reviewer).
+  // names (a session or API key of a registered reviewer). A read (the
+  // only GETs here are the list and one approval) by someone the roster
+  // doesn't name, who is a person and the tenant's admin, goes on as an
+  // `admin` reviewer: the tier checks then pass, and the project filter
+  // still applies. The roster shows no entry; the authorizer records the
+  // check, as it records every one.
   r.use('*', async (c, next) => {
-    const role = await callerReviewerRole(c, reviewerBinding);
+    let role = await callerReviewerRole(c, reviewerBinding);
+    if (role === undefined && c.req.method === 'GET' && (await readsAsTenantAdmin(c))) {
+      role = 'admin';
+      c.set('reviewerRole', role);
+    }
     if (role === undefined) {
       return refused(c, authorizer, {
         action: c.req.method === 'GET' ? 'read' : 'admin',
@@ -184,7 +210,7 @@ export function approvalsRouter(
   r.get('/', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
-    const role = c.get('reviewerRole') as ReviewerRole;
+    let role = c.get('reviewerRole') as ReviewerRole;
     const limit = clampLimit(c.req.query('limit'));
 
     const scopeParsed = parseListScope(c.req.query(), { tenantId });
@@ -213,6 +239,21 @@ export function approvalsRouter(
         ),
       );
     }
+
+    // `?decidedBy=me`: the approvals the caller's own reviewer row decided.
+    const decidedByRaw = c.req.query('decidedBy');
+    if (decidedByRaw !== undefined && decidedByRaw !== 'me') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: '`decidedBy` takes `me` (the approvals you decided)' },
+          requestId,
+        ),
+      );
+    }
+    // Every page of the list says it holds only the caller's decisions, an
+    // empty one too, so a client can tell a runtime that ignores the filter.
+    const filtered = decidedByRaw === 'me' ? { decidedBy: 'me' as const } : {};
 
     const orderRaw = c.req.query('order');
     if (orderRaw !== undefined && orderRaw !== 'asc' && orderRaw !== 'desc') {
@@ -246,14 +287,19 @@ export function approvalsRouter(
       requiredRoleFilter = requiredRoleRaw as ReviewerRole;
       // Refuse a filter that asks for a tier the caller cannot decide —
       // preserves the "reviewer never sees above their tier" guardrail
-      // regardless of what the caller passes.
+      // regardless of what the caller passes — unless the caller reads at
+      // every tier as the tenant's admin.
       if (REVIEWER_ROLE_RANK[requiredRoleFilter] > REVIEWER_ROLE_RANK[role]) {
-        return refused(c, authorizer, {
-          action: 'read',
-          resource: ref('tenant', c.get('tenantId') as unknown as string),
-          message: `Role ${role} cannot query approvals scoped to ${requiredRoleFilter}.`,
-          failing: 'actor',
-        });
+        if (!(await readsAsTenantAdmin(c))) {
+          return refused(c, authorizer, {
+            action: 'read',
+            resource: ref('tenant', c.get('tenantId') as unknown as string),
+            message: `Role ${role} cannot query approvals scoped to ${requiredRoleFilter}.`,
+            failing: 'actor',
+          });
+        }
+        role = 'admin';
+        c.set('reviewerRole', role);
       }
     }
 
@@ -361,8 +407,19 @@ export function approvalsRouter(
         userId === undefined
           ? null
           : await reviewerBinding.resolveReviewer({ tenantId, userId: userId as UserId });
-      if (found === null) return c.json({ data: [], hasMore: false, order });
+      if (found === null) return c.json({ data: [], hasMore: false, order, ...filtered });
       assignee = found as ReviewerId;
+    }
+    // Decided by the caller: the same reviewer row. A caller with none decided nothing.
+    let decider: ReviewerId | undefined;
+    if (decidedByRaw === 'me') {
+      const userId = c.get('userId');
+      const found =
+        userId === undefined
+          ? null
+          : await reviewerBinding.resolveReviewer({ tenantId, userId: userId as UserId });
+      if (found === null) return c.json({ data: [], hasMore: false, order, ...filtered });
+      decider = found as ReviewerId;
     }
 
     // Over-fetch up to 4× the page size (capped at 500) so a page still
@@ -377,6 +434,7 @@ export function approvalsRouter(
       ...(statuses?.length === 1 && { status: statuses[0] }),
       ...(statuses !== undefined && { statuses }),
       ...(assignee !== undefined && { assignedTo: assignee }),
+      ...(decider !== undefined && { decidedBy: decider }),
       ...(order === 'asc' && { order }),
       ...(requiredRoleFilter !== undefined && { requiredRole: requiredRoleFilter }),
       ...(createdAfterIso !== undefined && { since: createdAfterIso as unknown as Timestamp }),
@@ -387,6 +445,8 @@ export function approvalsRouter(
     };
     const listed = await hitlBinding.listApprovals(listInput);
     if (listed.kind === 'err') {
+      const busy = databaseBusyAnswer(listed.error, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(listed.error.code) as never);
       return c.json(toWireError(listed.error as never, requestId));
     }
@@ -396,7 +456,8 @@ export function approvalsRouter(
       (a) =>
         REVIEWER_ROLE_RANK[a.requiredRole] <= roleRank &&
         (statuses === undefined || statuses.includes(a.status)) &&
-        (assignee === undefined || a.assignedTo === assignee),
+        (assignee === undefined || a.assignedTo === assignee) &&
+        (decider === undefined || a.decision?.reviewerId === decider),
     );
     let visible = inTier;
     if (authorizer !== undefined) {
@@ -439,6 +500,7 @@ export function approvalsRouter(
       hasMore: hasMore && (nextCursor !== undefined || listedOrder === 'desc'),
       ...(nextCursor !== undefined && { nextCursor }),
       order: listedOrder,
+      ...filtered,
     });
   });
 
@@ -451,16 +513,20 @@ export function approvalsRouter(
 
     const got = await hitlBinding.getApproval(tenantId, approvalId);
     if (got.kind === 'err') {
+      const busy = databaseBusyAnswer(got.error, c);
+      if (busy !== undefined) return busy;
       c.status(statusFor(got.error.code) as never);
       return c.json(toWireError(got.error as never, requestId));
     }
     const approval = got.value;
     // Out-of-scope reads are 404 (per API-ROUTE-CONVENTIONS.md §2.4 —
-    // avoid leaking existence across role tiers).
-    if (
-      REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role] ||
-      !(await mayRead(c, approval))
-    ) {
+    // avoid leaking existence across role tiers). One above the caller's
+    // tier is in scope for a caller who reads at every tier as the
+    // tenant's admin.
+    const aboveTier =
+      REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role] &&
+      !(await readsAsTenantAdmin(c));
+    if (aboveTier || !(await mayRead(c, approval))) {
       c.status(statusFor('approval-not-found') as never);
       return c.json(
         toWireError(
@@ -561,12 +627,16 @@ export function approvalsRouter(
       });
     }
 
+    // The session's provider, kept with the decision: who vouched for the
+    // reviewer (a site's sign-in, an identity provider). None for a key.
+    const sessionProvider = c.get('sessionId') !== undefined ? c.get('providerId') : undefined;
     const submitted = await hitlBinding.submitReview({
       tenantId,
       approvalId,
       reviewerId: reviewerId as ReviewerId,
       decision: parsed.value.decision,
       ...(parsed.value.rationale !== undefined && { rationale: parsed.value.rationale }),
+      ...(sessionProvider !== undefined && { sessionProvider }),
     });
     if (submitted.kind === 'err') {
       c.status(statusFor(submitted.error.code) as never);
@@ -858,6 +928,8 @@ function serializeApprovalDecision(d: ReviewDecisionRecord): Record<string, unkn
     reviewerRoleAtDecision: d.reviewerRoleAtDecision,
     decidedAt: d.decidedAt,
     ...(d.rationale !== undefined && { rationale: d.rationale }),
+    ...(d.sessionProvider !== undefined && { sessionProvider: d.sessionProvider }),
+    ...(d.deciderName !== undefined && { deciderName: d.deciderName }),
   };
 }
 

@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { turnFailureMessage } from '@kindgi/agents';
+import { KindgiApiError, fromWire } from '@kindgi/client';
 import type { KindgiClient } from '@kindgi/client';
 
 import { runCli } from '../src/main.js';
@@ -630,6 +631,42 @@ describe('kindgi runs start', () => {
       expect(out.stderr).toContain(message);
       expect(started).toEqual([]);
     }
+  });
+  test('a turn into a closed conversation prints the refusal, and no run, with --no-wait too', async () => {
+    const id = '0c9b03fb-be50-4076-be4f-7c019c3bc634';
+    const out = await runCli(
+      baseInputs({
+        argv: [
+          'runs',
+          'start',
+          '--agent=pack.agent',
+          `--input={"userMessage":"One more thing","conversationId":"${id}"}`,
+          '--no-wait',
+          '--url=https://x',
+          '--token=t',
+        ],
+        clientFactory: () =>
+          ({
+            runs: {
+              start: async () => {
+                throw new KindgiApiError(
+                  fromWire(
+                    {
+                      code: 'conversation-closed',
+                      message: `Conversation "${id}" is closed`,
+                      details: { conversationId: id },
+                    },
+                    409,
+                  ),
+                );
+              },
+            },
+          }) as never,
+      }),
+    );
+    expect(out.exitCode).toBe(1);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toContain(`Error [conversation-closed]: Conversation "${id}" is closed`);
   });
 });
 

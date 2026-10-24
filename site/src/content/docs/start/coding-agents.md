@@ -45,7 +45,7 @@ agent that uses it, a flow around both) loads each one in turn.
 | `kindgi-authoring-guardrails`, `kindgi-python-authoring-guardrails`, `kindgi-java-authoring-guardrails`, `kindgi-scala-authoring-guardrails` | Writing a guardrail check |
 | `kindgi-authoring-providers` | Connecting a model: Anthropic, Gemini, OpenAI-compatible endpoints |
 | `kindgi-authoring-mcp-servers` | Giving the coding agent an MCP server |
-| `kindgi-framework-feedback` | Reporting a problem in Kindgi itself |
+| `kindgi-framework-feedback` | Reporting a problem in Kindgi itself, and sending it to us once you've said yes |
 | `kindgi-using` | Guiding you in using what was built: the CLI's answer and the console page beside it |
 
 Your coding agent also guides you in using what it built. Ask it to show
@@ -101,6 +101,8 @@ works the way you would: write, run, look, fix.
 | `kindgi mcp add` | Gives itself access to a database or another service |
 | `kindgi skills sync` | Refreshes its skills after an upgrade |
 | `kindgi feedback write` | Records a bug it found in Kindgi itself |
+| `kindgi feedback submit` | Shows you that record as it would be sent, and sends it only after you say yes |
+| `kindgi feedback status` | Tells you what became of what you sent: known, fixed, or won't be fixed |
 | `kindgi build` | Builds the pack's image for deployment |
 
 It runs the CLI the project pins: `pnpm exec kindgi` in a TypeScript
@@ -233,10 +235,11 @@ Tested with Claude Code 2.1.288:
 
 Codex has no ignore file, and nothing `kindgi init` writes binds it. Its
 sandbox can refuse to read a path, with a permission profile in the
-project's `.codex/config.toml`, which Codex loads only once you trust the
-project. This is Codex's documented setting
-([configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference));
-we haven't tested it:
+project's `.codex/config.toml`
+([configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)).
+With it, neither Codex's shell commands nor a program they run (`node -e …`,
+a copy, a link) can read the files the profile names. Tested with Codex
+0.162.1:
 
 ```toml
 default_permissions = "kindgi"
@@ -245,6 +248,10 @@ default_permissions = "kindgi"
 extends = ":workspace"
 
 [permissions.kindgi.filesystem.":workspace_roots"]
+".git" = "read"
+".codex" = "read"
+".agents" = "read"
+".aws" = "read"
 "**/.env*" = "deny"
 ".kindgi/secrets.env" = "deny"
 ".kindgi/dev/runtime.env" = "deny"
@@ -252,9 +259,35 @@ extends = ":workspace"
 "pack.env" = "deny"
 ```
 
+The four `"read"` lines keep read-only the folders that Codex's default
+sandbox protects. Without them, Codex could edit `.codex/config.toml` and
+drop these rules for its next session, or add a Git hook, which runs outside
+its sandbox.
+
+Codex loads the profile only once you trust the project, in your own Codex
+config (`~/.codex/config.toml`):
+
+```toml
+[projects."/path/to/your/project"]
+trust_level = "trusted"
+```
+
+A `-c` trust override on the command line doesn't count. `codex exec`
+doesn't ask: in a project you haven't trusted, it runs without the profile,
+and can read the files. In CI, give it the profile on the command line
+instead, which holds whether the project is trusted or not:
+
+```sh
+codex exec \
+  -c 'default_permissions="kindgi"' \
+  -c 'permissions.kindgi={extends=":workspace",filesystem={":workspace_roots"={".git"="read",".codex"="read",".agents"="read",".aws"="read","**/.env*"="deny",".kindgi/secrets.env"="deny",".kindgi/dev/runtime.env"="deny","kindgi.env"="deny","pack.env"="deny"}}}' \
+  "<your prompt>"
+```
+
 The reference says not to combine `default_permissions` with
 `sandbox_mode`, so for this project the profile takes the place of the
-sandbox mode you'd otherwise set.
+sandbox mode you'd otherwise set. Like Codex's default sandbox, the profile
+turns the network off.
 
 ### Gemini CLI
 
@@ -325,7 +358,8 @@ in a sandbox may be blocked from others: starting `kindgi dev`
 (`spawn EPERM`), reaching Docker's socket, or connecting to `localhost`. Codex's
 default sandbox, for one, turns the network off and keeps `.agents/`
 read-only ([its docs](https://learn.chatgpt.com/docs/agent-approvals-security)),
-so `kindgi skills sync` is yours to run there.
+so `kindgi skills sync` is yours to run there. The
+[profile above](#codex) keeps `.agents/` read-only too.
 
 The skills and a new pack's `AGENTS.md` tell the agent not to work around a
 block: no turning its sandbox off, no starting the command in the
@@ -341,7 +375,7 @@ The skills are copies, made when you ran `kindgi init`: one in
 both:
 
 ```sh
-kindgi skills sync
+pnpm exec kindgi skills sync
 ```
 
 It keeps skills you edited, in either folder. `--force` replaces those too.
@@ -397,9 +431,9 @@ Give the coding agent access to a database or another service through an
 MCP server, without writing its secret into the project:
 
 ```sh
-kindgi mcp presets
-kindgi secrets set MY_DB_URL --env=local --scope=tenant
-kindgi mcp add postgres --secret=MY_DB_URL
+pnpm exec kindgi mcp presets
+pnpm exec kindgi secrets set MY_DB_URL --env=local --scope=tenant
+pnpm exec kindgi mcp add postgres --secret=MY_DB_URL
 ```
 
 - `mcp presets` lists the servers Kindgi has a preset for.
@@ -434,7 +468,12 @@ for Kindgi's runtime.
 
 If your agent diagnoses a bug in Kindgi rather than in your code, the
 `kindgi-framework-feedback` skill has it write a structured note to
-`FEEDBACK.md` with `kindgi feedback write`, ready to send to us.
+`FEEDBACK.md` with `kindgi feedback write`. When you want it sent to us,
+it previews the report with `kindgi feedback submit --preview` and shows it
+to you: exactly what's sent, after keys, env values and paths are redacted.
+It sends the report only after you say yes. Later, it tells you what became
+of it. [Send us feedback](../send-feedback/) says what's sent, what we keep
+and for how long, and how to take a report back.
 
 ## Next
 

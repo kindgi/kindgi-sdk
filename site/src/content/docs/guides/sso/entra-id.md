@@ -15,6 +15,9 @@ that directory only.
   with the `kindgi` CLI set up as [Set up SSO](../#before-you-start) says.
 - **Someone who can register apps in your Entra ID directory,** and assign
   people to them.
+- **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
+  pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## 1. Get the redirect URI
 
@@ -22,7 +25,7 @@ that directory only.
 send whoever runs your directory:
 
 ```sh
-kindgi sso providers start acme-entra --idp=entra
+npx --yes @kindgi/cli@0.2 sso providers start acme-entra --idp=entra
 ```
 
 - `acme-entra` is the provider's id in your workspace.
@@ -87,7 +90,7 @@ Store the secret's **Value** in Kindgi's secret store, by name, so it never
 travels by email or chat:
 
 ```sh
-kindgi secrets set ACME_ENTRA_SECRET --env=production --scope=tenant
+npx --yes @kindgi/cli@0.2 secrets set ACME_ENTRA_SECRET --env=production --scope=tenant
 ```
 
 - `ACME_ENTRA_SECRET` is the secret's name. The registration keeps only
@@ -118,7 +121,7 @@ Before the secret expires, add a new client secret in Entra ID, and store it
 under the same name as a new version:
 
 ```sh
-kindgi secrets set ACME_ENTRA_SECRET --env=production --scope=tenant --write-mode=add-version
+npx --yes @kindgi/cli@0.2 secrets set ACME_ENTRA_SECRET --env=production --scope=tenant --write-mode=add-version
 ```
 
 `--write-mode=add-version` adds a version to a secret that exists. It
@@ -140,7 +143,7 @@ only after that.
 `finish` registers the app, and offers it to people at your domains:
 
 ```sh
-kindgi sso providers finish acme-entra --kind=oidc \
+npx --yes @kindgi/cli@0.2 sso providers finish acme-entra --kind=oidc \
   --issuer=https://login.microsoftonline.com/<directory tenant id>/v2.0 \
   --client-id=<application client id> --client-secret-ref=ACME_ENTRA_SECRET --domains=<your domain>
 ```
@@ -168,7 +171,7 @@ This is your workspace's own identity provider: a single-directory app, and
 only your directory's people. **Continue with Microsoft**, which accounts
 from any directory can use, is a different app. It's registered for any
 organizational directory, and whoever runs the runtime sets it up for the
-whole deployment ([Turn on sign-in](../../../deploy/sign-in/#microsoft)).
+whole deployment ([Turn on sign-in](../../../deploy/self-hosted/sign-in/#microsoft)).
 
 ## Next
 

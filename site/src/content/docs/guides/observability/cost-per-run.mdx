@@ -17,7 +17,7 @@ the vendors' published prices. Your provider's invoice is what you pay.
 
 ## Before you start
 
-- **A runtime,** such as `kindgi dev`, with Kindgi 0.1's client: Node 22.12
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.2's client: Node 22.12
   or later, Python 3.11 or later, or Java 17 or later.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set, or a running
   `kindgi dev`, which the client finds.
@@ -25,8 +25,9 @@ the vendors' published prices. Your provider's invoice is what you pay.
 
 ## A run's calls
 
-Read the records of one run. Each script takes the run's id as its first
-argument:
+Read the records of one run. Ask your coding agent: "I want to see what each
+model call in a run cost." For reference, the code looks like this. Each
+script takes the run's id as its first argument:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -186,7 +187,9 @@ or `include="rawUsage"` in Python. Each record then has `rawUsage`:
 
 Each agent step of a flow runs as a run of its own, under the flow's run. The
 flow's run makes no model calls itself, so ask for its whole tree with
-`rootRunId`. `flowRunId` is the flow run's id:
+`rootRunId`. Ask your coding agent: "I want the cost of a flow's whole run."
+For reference, the call looks like this, where `flowRunId` is the flow run's
+id:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -228,7 +231,9 @@ flow's run.
 Give each of your customers an org, and run their work in a project of that
 org, as
 [Organize work by org and project](../../projects/organize-by-org-and-project/)
-shows. One call then sums a customer's spend, here by month and model:
+shows. One call then sums a customer's spend, here by month and model. Ask
+your coding agent: "I want to see what one customer spent this month, by
+model." For reference, the script looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -445,6 +450,11 @@ The sum covers only that customer's runs:
   `projectId`, `agentId`, `flowId`, `runId`, `rootRunId`, `conversationId`,
   `providerId`, `servedModel`, `category` and `tenant`. With no `groupBy`,
   you get the totals only.
+- **Filters** narrow what's summed, as they narrow `cost.usage.query`.
+  `flowId` keeps one flow's spend: every record of the run trees whose root
+  is a run of that flow, whatever its version. With `groupBy` `day`, that's
+  the flow's spend by day. In Python, it's `flow_id`. It needs runtime
+  0.1.9 or later: an earlier one ignores it and sums every flow.
 
 A tool can check that a run belongs to the right customer, as
 [Check the run's org](../../tools/write-a-tool/#check-the-runs-org) shows.
@@ -524,8 +534,10 @@ cost over a range, against the range before. The range is **7 days**,
   **Show as a table** gives the numbers. Over 12 months it's by month.
 - **Where it went:** **By agent**, **By model**, **By flow** or **By kind**,
   the costliest against the range before ("33% more (was $11.28)", "new").
-  An agent's or a model's row filters the page to it. The table sorts by
-  a column's header, and **Columns** chooses which columns it shows.
+  An agent's or a model's row filters the page to it. So does a flow's,
+  and a flow's page opens this page filtered to that flow with **Cost**
+  (both runtime 0.1.9 or later). The table sorts by a column's header, and
+  **Columns** chooses which columns it shows.
 - **Biggest changes:** against the range before, by dollars ("Research
   agent new: $8.57", "Legacy summarizer −$1.81 (none now)").
 - **Per-turn caps:** each agent with a budget for one turn, and how close its
@@ -534,8 +546,8 @@ cost over a range, against the range before. The range is **7 days**,
 - **Details:** the token split, and the exact
   [`GET /v1/cost/aggregate`](#one-customers-month) queries the page made.
 
-The range and the breakdown are in the page's address, so a link opens the
-same view.
+The range, the filters and the breakdown are in the page's address, so a
+link opens the same view.
 
 ### A run's cost
 

@@ -303,6 +303,34 @@ describe('API — orgs delete', () => {
     });
     expect(res.status).toBe(204);
   });
+
+  test('DELETE an org that holds an environment order → 409 org-has-environment-order; the org stays', async () => {
+    // A binding whose org is the parent of an environment order: its `delete`
+    // refuses and names the order, as the durable binding does under its lock.
+    const orgBinding = makeInMemoryOrgBinding({
+      environmentOrderOf: (_tenantId, orgId) => `org:${orgId as unknown as string}`,
+    });
+    const app = createApp({ ...createStubAppBindings(), resolveToken, runHandler, orgBinding });
+    const create = await app.request('/v1/orgs', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN_A}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Has Order', slug: 'has-order' }),
+    });
+    const { id } = (await create.json()) as { id: string };
+    const del = await app.request(`/v1/orgs/${id}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${TOKEN_A}` },
+    });
+    expect(del.status).toBe(409);
+    const body = (await del.json()) as { error: { code: string; details?: { orderId?: string } } };
+    expect(body.error.code).toBe('org-has-environment-order');
+    expect(body.error.details?.orderId).toBe(`org:${id}`);
+    // Nothing was deleted: the org is still there.
+    const get = await app.request(`/v1/orgs/${id}`, {
+      headers: { authorization: `Bearer ${TOKEN_A}` },
+    });
+    expect(get.status).toBe(200);
+  });
 });
 
 describe('API — orgs cross-tenant isolation', () => {

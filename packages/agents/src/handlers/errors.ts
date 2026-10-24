@@ -111,7 +111,8 @@ export interface RunSnapshotError {
 /**
  * A tenant policy the turn must apply couldn't be: its spec doesn't
  * validate, or the policy registry failed. The turn doesn't run without
- * it — skipping a tenant's `hitl` policy would skip its approvals.
+ * it: skipping a tenant's `hitl` policy would skip its approvals, and its
+ * `model-routing` or `tool-errors` policy, its limits.
  */
 export interface TenantPolicyUnavailableError {
   readonly code: 'tenant-policy-unavailable';

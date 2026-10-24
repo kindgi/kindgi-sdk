@@ -39,6 +39,19 @@ describe('{{PACK_ID}}.store-agent', () => {
     expect(line).toMatch(/look it up again before you say what it has been refunded/);
   });
 
+  test('each tool that waits for a person needs a reviewer other than the person who asked', () => {
+    const tools = storeAgent.conversationPolicy?.hitl?.tools;
+    const free = new Set(
+      Object.entries(tools?.overrides ?? {})
+        .filter(([, mode]) => mode === 'never_ask')
+        .map(([id]) => id),
+    );
+    const waiting = storeAgent.tools.map((t) => t.id).filter((id) => !free.has(id));
+    const fourEyes = storeAgent.conversationPolicy?.hitl?.separateApprover;
+    if (typeof fourEyes !== 'object') throw new Error('separateApprover is set per tool');
+    for (const id of waiting) expect(fourEyes.overrides?.[id], id).toBe(true);
+  });
+
   test("its instructions don't tell it to say a call waits: it never answers while one does", () => {
     const { instructions } = storeAgent;
     if (typeof instructions !== 'string') throw new Error('The instructions are a prompt reference now: check the prompt.');

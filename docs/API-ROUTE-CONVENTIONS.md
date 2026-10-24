@@ -164,9 +164,14 @@ The SDK's `fromWire(json)` (`sdks/typescript/src/errors.ts`) matches on `code`.
 | `auth-missing`, `auth-expired`, `auth-revoked`   | 401         |
 | `permission-denied`                              | 403         |
 | `rate-limit-exceeded`                            | 429         |
+| `database-busy` (a `GET` or `HEAD` only)         | 503         |
 | Anything else server-caused                      | 500         |
 
 A `429 rate-limit-exceeded` carries `Retry-After`, in whole seconds, when the limit is over a time window, as `schema-compile-time`, `template-render-time` and the request rate limits are; a limit that counts what's waiting, not time, carries none. When a tenant's limit refused the request, `details.limit` names it. `schema-compile-time` is the time the tenant's schemas spent compiling in the last 60 seconds, against `details.budgetMs`. It counts every compile in a request that publishes schemas, and a schema compiled again in any other request. A publish it refuses stores nothing. `template-render-time` is the time the tenant's instructions templates spent rendering in the last 60 seconds, against `details.budgetMs`. An agent turn whose work either budget refuses fails with `rate-limit-exceeded` and the same `details`: `POST /v1/runs` answers it as this 429, with `Retry-After` and `details.runId`, and the run reads as failed with that code.
+
+A `503 database-busy` answers a `GET` or `HEAD` that the database was too busy to answer in time: a lock or statement timeout ended its query, or no pooled connection came free within the wait. It carries `Retry-After` (5 seconds). A request with any other method that the database was too busy for answers a 500 (`internal-server-error`, or the code of the binding error that stopped it, such as `persistence-error`): a write can have saved part of its work before the timeout, and clients retry a 503 as an answer that nothing ran.
+
+The storage failure is marked `code: 'database-busy'`, on the error or down its `cause` chain. A thrown error reaches `mapThrownError`, which checks for the mark. A route that answers a binding's Result error at its code's status asks `databaseBusyAnswer(error, c)` (`middleware/error-mapper.ts`) first and returns its answer when it gives one. A binding that re-codes a storage failure under its own code keeps the failure as the error's `cause`, so the read answers the same whether the binding threw the failure or returned it.
 
 ---
 
