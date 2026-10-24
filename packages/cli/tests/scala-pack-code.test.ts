@@ -227,15 +227,37 @@ describe('the Scala pack builder', () => {
   /**
    * A fake `sbt` that logs each `--client` command and prints a classpath,
    * and a fake `java` that writes a launcher: the builder's conversation
-   * with the server, without one.
+   * with the server, without one. `exports` answers the commands that
+   * export the classpath, in turn: `drop` succeeds without the classpath
+   * line (as the thin client sometimes does), `fail` fails; after the list,
+   * each prints the classpath.
    */
-  async function fakes(): Promise<{ code: ScalaPackCode; log: string }> {
+  async function fakes(
+    exports: readonly ('drop' | 'fail')[] = [],
+  ): Promise<{ code: ScalaPackCode; log: string }> {
     const log = join(packDir, 'sbt.log');
     const sbt = join(packDir, 'fake-sbt');
+    const answers = join(packDir, 'export-answers');
+    const count = join(packDir, 'export-count');
+    await writeFile(answers, exports.map((a) => `${a}\n`).join(''));
     await writeFile(
       sbt,
-      // A shutdown stops the stand-in server (its marker file, `server`).
-      `#!/bin/sh\nshift\nprintf '%s\\n' "$1" >> '${log}'\n[ "$1" = shutdown ] && rm -f '${join(packDir, 'server')}'\nprintf '%s\\n' '${join(packDir, 'classes')}:${join(packDir, 'kindgi-pack.jar')}'\n`,
+      [
+        '#!/bin/sh',
+        'shift',
+        `printf '%s\\n' "$1" >> '${log}'`,
+        // A shutdown stops the stand-in server (its marker file, `server`).
+        `[ "$1" = shutdown ] && rm -f '${join(packDir, 'server')}'`,
+        'case "$1" in *export*)',
+        `  n=$(( $(cat '${count}' 2>/dev/null || echo 0) + 1 )); echo "$n" > '${count}'`,
+        `  case "$(sed -n "$n"p '${answers}')" in`,
+        `    drop) printf '[success] Total time: %s s\\n' "$n"; exit 0 ;;`,
+        `    fail) printf '[error] (Compile / compileIncremental) Compilation failed\\n'; exit 1 ;;`,
+        '  esac ;;',
+        'esac',
+        `printf '%s\\n' '${join(packDir, 'classes')}:${join(packDir, 'kindgi-pack.jar')}'`,
+        '',
+      ].join('\n'),
     );
     const java = join(packDir, 'fake-java');
     await writeFile(java, "#!/bin/sh\nprintf '#!/bin/sh\\n'\n");
@@ -295,6 +317,83 @@ describe('the Scala pack builder', () => {
       expect((await readFile(log, 'utf8')).trim().split('\n')).toEqual([
         'reload; compile; export Runtime/fullClasspath',
         'compile; export Runtime/fullClasspath',
+      ]);
+    },
+  );
+
+  /** A builder for a server that was already running, over `fakes(exports)`. */
+  async function builderAnswering(exports: readonly ('drop' | 'fail')[]) {
+    const { code, log } = await fakes(exports);
+    const builder = createScalaPackBuilder({
+      packDir,
+      code,
+      env: async () => ({ PATH: process.env.PATH ?? '' }),
+      serverRunning: async () => true,
+    });
+    onTestFinished(() => builder.dispose());
+    return {
+      code,
+      builder,
+      commands: async () => (await readFile(log, 'utf8')).trim().split('\n'),
+    };
+  }
+
+  test.skipIf(process.platform === 'win32')(
+    'a classpath line the thin client dropped: the export runs again, alone',
+    async () => {
+      const { code, builder, commands } = await builderAnswering(['drop']);
+      expect(await builder.build()).toEqual({ kind: 'ok', bundleMap: {} });
+      expect(await commands()).toEqual([
+        'reload; compile; export Runtime/fullClasspath',
+        'export Runtime/fullClasspath',
+      ]);
+      expect(await readFile(join(code.workDir, 'java.args'), 'utf8')).toBe(
+        `-cp "${join(packDir, 'classes')}:${join(packDir, 'kindgi-pack.jar')}"\n`,
+      );
+    },
+  );
+
+  test.skipIf(process.platform === 'win32')(
+    'no classpath line in three exports: the error, with the last answer',
+    async () => {
+      const { builder, commands } = await builderAnswering(['drop', 'drop', 'drop', 'drop']);
+      expect(await builder.build()).toEqual({
+        kind: 'err',
+        errors: [
+          'sbt printed no classpath (`export Runtime/fullClasspath`):',
+          '[success] Total time: 3 s',
+        ],
+      });
+      expect(await commands()).toEqual([
+        'reload; compile; export Runtime/fullClasspath',
+        'export Runtime/fullClasspath',
+        'export Runtime/fullClasspath',
+      ]);
+    },
+  );
+
+  const failedBuild = {
+    kind: 'err',
+    errors: [
+      "the pack's sbt build failed (exit 1):",
+      '    [error] (Compile / compileIncremental) Compilation failed',
+    ],
+  };
+
+  test.skipIf(process.platform === 'win32')('a failed build runs no export again', async () => {
+    const { builder, commands } = await builderAnswering(['fail']);
+    expect(await builder.build()).toEqual(failedBuild);
+    expect(await commands()).toEqual(['reload; compile; export Runtime/fullClasspath']);
+  });
+
+  test.skipIf(process.platform === 'win32')(
+    'an export run again that fails answers as a failed build',
+    async () => {
+      const { builder, commands } = await builderAnswering(['drop', 'fail']);
+      expect(await builder.build()).toEqual(failedBuild);
+      expect(await commands()).toEqual([
+        'reload; compile; export Runtime/fullClasspath',
+        'export Runtime/fullClasspath',
       ]);
     },
   );
@@ -402,7 +501,7 @@ describe.skipIf(!jdkOk || !sbtOnPath || !published || process.platform === 'win3
       await writeFile(join(packDir, 'project', 'build.properties'), 'sbt.version=1.12.15\n');
       await writeFile(
         join(packDir, 'build.sbt'),
-        `scalaVersion := "3.3.8"\nresolvers += Resolver.mavenLocal\nlibraryDependencies += "com.kindgi" %% "kindgi-pack-scala" % "${layerVersion}"\n`,
+        `scalaVersion := "3.3.8"\nexternalResolvers := Resolver.mavenLocal +: externalResolvers.value\nlibraryDependencies += "com.kindgi" %% "kindgi-pack-scala" % "${layerVersion}"\n`,
       );
       await writeFile(
         join(packDir, 'kindgi.config.json'),

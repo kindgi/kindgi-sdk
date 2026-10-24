@@ -736,6 +736,7 @@ class SystemKey(BaseModel):
             "system:suspend",
             "system:deployments",
             "system:pack-env",
+            "system:usage:read",
             "system:license",
             "kindgi:system",
         ]
@@ -767,6 +768,7 @@ class MintSystemKeyBody(BaseModel):
                 "system:suspend",
                 "system:deployments",
                 "system:pack-env",
+                "system:usage:read",
                 "system:license",
                 "kindgi:system",
             ]
@@ -813,6 +815,7 @@ class MintSystemKeyResult(BaseModel):
                 "system:suspend",
                 "system:deployments",
                 "system:pack-env",
+                "system:usage:read",
                 "system:license",
                 "kindgi:system",
             ]
@@ -863,6 +866,7 @@ class Datum2(BaseModel):
                 "system:suspend",
                 "system:deployments",
                 "system:pack-env",
+                "system:usage:read",
                 "system:license",
                 "kindgi:system",
             ]
@@ -917,6 +921,7 @@ class RevokeSystemKeyResult(BaseModel):
                 "system:suspend",
                 "system:deployments",
                 "system:pack-env",
+                "system:usage:read",
                 "system:license",
                 "kindgi:system",
             ]
@@ -954,7 +959,7 @@ class SystemDeploymentEntry(BaseModel):
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    The project the deploy was scoped to. Absent for a tenant-wide deploy.
+    The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project.
     """
     image_ref: Annotated[str, Field(alias="imageRef")]
     """
@@ -1417,6 +1422,74 @@ class TenantAdminContacts(BaseModel):
     data: Annotated[list[Datum3], Field(max_length=100)]
 
 
+class PurgeTenantBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    confirm: Annotated[str, Field(min_length=1)]
+    """
+    The tenant's slug, a second check on the id.
+    """
+
+
+class TenantTableRows(BaseModel):
+    """
+    A tenant's rows in one table: the table's name and a count.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    table: str
+    rows: Annotated[int, Field(ge=1)]
+
+
+class SystemTenantPurge(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    complete: bool
+    """
+    `true`: nothing of the tenant is left, its purge record is written, and it's marked purged. `false`: `left` and `objectsLeft` say what is; run it again.
+    """
+    already_purged: Annotated[bool, Field(alias="alreadyPurged")]
+    """
+    It was marked purged before this run: what this run deleted was written after its mark. Its mark and its record stay as they were.
+    """
+    purged_at: Annotated[AwareDatetime | None, Field(alias="purgedAt")] = None
+    """
+    When it was marked purged. Absent while something of it from before the mark is left.
+    """
+    deleted: list[TenantTableRows]
+    """
+    Rows this run deleted, per table with any: table names and counts, never the rows' content.
+    """
+    objects_deleted: Annotated[int, Field(alias="objectsDeleted", ge=0)]
+    """
+    Objects this run deleted from the artifacts' store.
+    """
+    authz_store_deleted: Annotated[bool, Field(alias="authzStoreDeleted")]
+    """
+    Whether this run deleted its authorization store.
+    """
+    left: list[TenantTableRows]
+    """
+    Rows of it still there afterwards, per table; empty when none are. A table the purge doesn't delete from is named too: report it.
+    """
+    objects_left: Annotated[int, Field(alias="objectsLeft", ge=0)]
+    """
+    Objects still under its prefix in the artifacts' store.
+    """
+    left_because: Annotated[str | None, Field(alias="leftBecause")] = None
+    """
+    Why what's left wasn't deleted, when it's a setting the runtime lacks.
+    """
+
+
 class SystemWhoami(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -1849,6 +1922,71 @@ class ExportSigningKeyList(BaseModel):
     data: list[ExportSigningKey]
     """
     Active first. Empty when the deployment doesn't sign exports.
+    """
+
+
+class UsageGroup(BaseModel):
+    """
+    One group: the dimensions it's grouped by (only those), then its count, the sum of its quantities, and its first and last times.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID | None, Field(alias="tenantId")] = None
+    """
+    The tenant, on the operator's read across tenants.
+    """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    Absent for a record with no project; a tenant admin's read includes those, and the CLI shows them as `(none)`.
+    """
+    agent_id: Annotated[str | None, Field(alias="agentId")] = None
+    """
+    Absent for a record with no agent; the CLI shows those as `(none)`.
+    """
+    kind: str | None = None
+    """
+    What was counted: `run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`. A runtime may count more kinds later: show one you don't know as it is.
+    """
+    class_: Annotated[str | None, Field(alias="class")] = None
+    """
+    The class of the run a record counts or belongs to, fixed when the run was created: `production`, `staging`, `dry-run`, `replay`, `eval`, `child`. A record with no counted run has none. A runtime may add classes later: show one you don't know as it is.
+    """
+    state: str | None = None
+    """
+    The record's state, by kind: `on`, `off` (`project.production`); `completed`, `failed`, `cancelled` (`run.ended`); `escalation` (`approval.requested`, an escalation's next tier); `approved`, `rejected`, `withdrawn`, `escalated`, `expired` (`approval.decided`). Other kinds have none.
+    """
+    day: Annotated[str | None, Field(pattern="^\\d{4}-\\d{2}-\\d{2}$")] = None
+    """
+    The UTC date, `YYYY-MM-DD`.
+    """
+    count: Annotated[int, Field(ge=0)]
+    """
+    Records in the group.
+    """
+    quantity: float
+    """
+    The sum of their quantities: milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count.
+    """
+    first_at: Annotated[AwareDatetime, Field(alias="firstAt")]
+    last_at: Annotated[AwareDatetime, Field(alias="lastAt")]
+
+
+class UsagePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[UsageGroup]
+    watermark: AwareDatetime
+    """
+    Every record at or before this time is in the answer; a later one may not be yet. Re-read a window until its watermark is past the window's end. Every page of one read carries the same watermark.
+    """
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    More groups: pass it as `cursor`. Absent on the last page.
     """
 
 
@@ -2496,9 +2634,6 @@ class ConversationPolicy(BaseModel):
         populate_by_name=True,
     )
     history_limit: Annotated[int | None, Field(alias="historyLimit", ge=1)] = None
-    auto_close_after_inactive_seconds: Annotated[
-        int | None, Field(alias="autoCloseAfterInactiveSeconds", ge=1)
-    ] = None
     hitl_after_turns: Annotated[int | None, Field(alias="hitlAfterTurns", ge=1)] = None
 
 
@@ -3527,7 +3662,7 @@ class ConversationCollectionPage(BaseModel):
         Annotated[Literal["me"] | str, _open.OPEN] | None, Field(alias="openedBy")
     ] = None
     """
-    `me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.
+    `me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.9, which ignores `openedBy` and lists everyone's.
     """
 
 
@@ -4880,6 +5015,14 @@ class BlobMeta(BaseModel):
     Who uploaded it: `user:<id>` or `service_account:<id>`.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    bucket: str | None = None
+    """
+    The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.
+    """
+    key: str | None = None
+    """
+    The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one.
+    """
 
 
 class Datum5(BaseModel):
@@ -4925,6 +5068,14 @@ class Datum5(BaseModel):
     Who uploaded it: `user:<id>` or `service_account:<id>`.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    bucket: str | None = None
+    """
+    The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.
+    """
+    key: str | None = None
+    """
+    The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one.
+    """
 
 
 class ArtifactCollectionPage(BaseModel):
@@ -7165,6 +7316,25 @@ class Methods(BaseModel):
     """
 
 
+class Legal(BaseModel):
+    """
+    The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    terms_url: Annotated[AnyUrl | None, Field(alias="termsUrl")] = None
+    """
+    Its terms.
+    """
+    privacy_url: Annotated[AnyUrl | None, Field(alias="privacyUrl")] = None
+    """
+    Its privacy policy.
+    """
+
+
 class SignInOptions(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -7174,6 +7344,10 @@ class SignInOptions(BaseModel):
     methods: Methods | None = None
     """
     The ways in this deployment allows, for a sign-in page to show. Absent from older servers.
+    """
+    legal: Legal | None = None
+    """
+    The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.
     """
 
 
@@ -7435,11 +7609,11 @@ class UserCreated(BaseModel):
     """
     invite: UserInvite | None = None
     """
-    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).
+    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.9).
     """
     first_signed_in_at: Annotated[AwareDatetime | None, Field(alias="firstSignedInAt")] = None
     """
-    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).
+    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).
     """
     metadata: dict[str, Any] | None = None
     invite_email: Annotated[InviteEmail | None, Field(alias="inviteEmail")] = None
@@ -8259,7 +8433,7 @@ class PackEnvProblem(BaseModel):
 
 class DeploymentEndpoint(BaseModel):
     """
-    Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); it carries `waiting` or `retired` to say whether it comes back. Carries no URL and no token.
+    Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise, and for a deployment that ships nothing a pack service serves (no tool, and no guardrail check but built-in ones: a pack of agents and flows only), which needs none. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); it carries `waiting` or `retired` to say whether it comes back. Carries no URL and no token.
     """
 
     model_config = ConfigDict(
@@ -8350,6 +8524,10 @@ class DeploymentPromotionBody(BaseModel):
     """
     Why, kept in the `deployment-promoted` audit record.
     """
+    make_live: Annotated[bool | None, Field(alias="makeLive")] = None
+    """
+    Make every agent version the promotion carries live in the target project, each through its scope's gate. The answer's `live` reports each. An error answered after some carried agents were already pinned lists those in `error.details.live`, in `live`'s shape.
+    """
 
 
 class DeploymentPromotionCheckBody(BaseModel):
@@ -8391,6 +8569,42 @@ class LeftBehindVersion(BaseModel):
     """
     The version its chain of edits starts from.
     """
+
+
+class DeploymentLivePinGate(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    status: Annotated[
+        Literal["promoted", "pending-approval", "refused", "superseded", "rejected", "expired"]
+        | str,
+        _open.OPEN,
+    ]
+    promotion_id: Annotated[UUID, Field(alias="promotionId")]
+    policy: GatePolicyRef | None = None
+    """
+    The gate policy that applied; null when none did.
+    """
+    approval_id: Annotated[str | None, Field(alias="approvalId")] = None
+    """
+    The approval a `pending-approval` pin waits on.
+    """
+    checks: list[GateCheck] | None = None
+
+
+class DeploymentLivePin(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str
+    pinned: bool
+    """
+    Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).
+    """
+    gate: DeploymentLivePinGate | None = None
 
 
 class PromotionNextEnvironment(BaseModel):
@@ -8547,6 +8761,7 @@ class EvidenceKind(RootModel[str]):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "trigger-tools-allowed-unattended-set",
                 "environment-order-set",
                 "deployment-promoted",
             ],
@@ -8713,6 +8928,7 @@ class ComplianceEvidence(BaseModel):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "trigger-tools-allowed-unattended-set",
                 "environment-order-set",
                 "deployment-promoted",
             ],
@@ -8807,6 +9023,7 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "trigger-tools-allowed-unattended-set",
                 "environment-order-set",
                 "deployment-promoted",
             ],
@@ -8878,6 +9095,7 @@ class Filter(BaseModel):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "trigger-tools-allowed-unattended-set",
                 "environment-order-set",
                 "deployment-promoted",
             ],
@@ -9407,6 +9625,22 @@ class AddProjectMembershipResult(BaseModel):
     """
 
 
+class TenantPatch(BaseModel):
+    """
+    A new name, a new slug, or both; a field left out stays as it is. The id stays, so whatever names the tenant by its id keeps working.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: Annotated[str | None, Field(max_length=100, min_length=1)] = None
+    slug: Annotated[str | None, Field(max_length=63, pattern="^[a-z0-9](?:-?[a-z0-9])*$")] = None
+    """
+    Lowercase letters, digits and single hyphens, unique across tenants. The console's addresses carry it, so links with the old one stop opening the tenant; nothing else is keyed by it.
+    """
+
+
 class TenantLimits(BaseModel):
     """
     The tenant's limits that are set. A limit that isn't set is absent, and isn't enforced.
@@ -9606,6 +9840,10 @@ class SecretRevokeOutcome(BaseModel):
     )
     revoked: bool
     hard: bool
+    recoverable_until: Annotated[AwareDatetime | None, Field(alias="recoverableUntil")] = None
+    """
+    A hard revoke left a copy your secret manager can still recover (for example Azure Key Vault's soft delete, when the vault doesn't allow a purge or the runtime isn't permitted to purge): when the secret manager purges it on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. Absent on a soft revoke, and when a hard revoke left nothing recoverable.
+    """
 
 
 class EnvDeleteResult(BaseModel):
@@ -9661,6 +9899,14 @@ class SecretRevokeResult(BaseModel):
     )
     revoked: bool
     hard: bool
+    recoverable_until: Annotated[AwareDatetime | None, Field(alias="recoverableUntil")] = None
+    """
+    A hard revoke left a copy your secret manager can still recover (for example Azure Key Vault's soft delete, when the vault doesn't allow a purge or the runtime isn't permitted to purge): when the secret manager purges it on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. Absent on a soft revoke, and when a hard revoke left nothing recoverable.
+    """
+
+
+class ToolsAllowedUnattendedItem(RootModel[str]):
+    root: Annotated[str, Field(max_length=200, min_length=1)]
 
 
 class TriggerOwner(BaseModel):
@@ -9880,7 +10126,7 @@ class Config8(BaseModel):
 
 class TakeTriggerOwnerBody(BaseModel):
     """
-    Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner.
+    Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner. A take-over keeps the trigger's `toolsAllowedUnattended`: change that with PATCH.
     """
 
     model_config = ConfigDict(
@@ -10655,7 +10901,7 @@ class CodeArtifactRefFilesystem(BaseModel):
 
 class RecordedSecretScopeTenant(BaseModel):
     """
-    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
     """
 
     model_config = ConfigDict(
@@ -10667,7 +10913,7 @@ class RecordedSecretScopeTenant(BaseModel):
 
 class RecordedSecretScopeOrg(BaseModel):
     """
-    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
     """
 
     model_config = ConfigDict(
@@ -10680,7 +10926,7 @@ class RecordedSecretScopeOrg(BaseModel):
 
 class RecordedSecretScopeProject(BaseModel):
     """
-    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
+    Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
     """
 
     model_config = ConfigDict(
@@ -11857,7 +12103,7 @@ class SystemPackEnvEntry(BaseModel):
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    The project the deploy was scoped to. Absent for a tenant-wide deploy.
+    The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project.
     """
     image_ref: Annotated[str, Field(alias="imageRef")]
     """
@@ -12192,7 +12438,7 @@ class ApprovalCollectionPage(BaseModel):
         Annotated[Literal["me"] | str, _open.OPEN] | None, Field(alias="decidedBy")
     ] = None
     """
-    `me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.
+    `me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.9, which ignores `decidedBy` and lists them all.
     """
 
 
@@ -12672,7 +12918,7 @@ class RegisterToolBody(BaseModel):
         bool | None, Field(alias="needsApprovalWhenUnattended")
     ] = None
     """
-    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`.
     """
     sandbox: Annotated[Literal["none", "context-isolated", "strict"] | str, _open.OPEN] | None = (
         None
@@ -13636,6 +13882,10 @@ class DeploymentPromotion(BaseModel):
     """
     Edits of the build's agents and flows that stay behind; absent when none.
     """
+    live: list[DeploymentLivePin] | None = None
+    """
+    Each carried agent pinned live in the target; present only when `makeLive` was asked.
+    """
 
 
 class DeploymentPromotionCheck(BaseModel):
@@ -13669,11 +13919,11 @@ class DeploymentCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `projectId` and lists them all.
+    The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `projectId` and lists them all.
     """
     pack_id: Annotated[str | None, Field(alias="packId")] = None
     """
-    The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.8.1, which ignores `packId` and lists them all.
+    The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `packId` and lists them all.
     """
 
 
@@ -14183,6 +14433,13 @@ class WebhookTriggerRecord(BaseModel):
     """
     Refusals and skipped deliveries this minute past the 20 recorded in its history, which only counted.
     """
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
     last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
@@ -14249,6 +14506,13 @@ class RegisterWebhookTriggerBody(BaseModel):
     """
     A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Absent: the caller owns it.
     """
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this trigger's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the trigger's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
 
 
 class PatchWebhookTriggerBody(BaseModel):
@@ -14289,6 +14553,13 @@ class PatchWebhookTriggerBody(BaseModel):
     ] = None
     """
     `null`: the default.
+    """
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    Replaces the trigger's list; `[]` clears it, and absent keeps it (a new `flowVersion` too). Naming it takes `admin` on the trigger's project, and it's checked against the flow at the version the trigger will run. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -14515,6 +14786,12 @@ class Run(BaseModel):
     """
     How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
     """
+    tools_allowed_unattended: Annotated[list[str] | None, Field(alias="toolsAllowedUnattended")] = (
+        None
+    )
+    """
+    The tools, by id, whose calls in this run don't wait for a person's yes though no person started it: the list of the webhook or schedule that fired it, as it was when the run started, and never changed after. A child run has its parent's. Absent: none.
+    """
     replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
     """
     Set on a replay run (an eval run re-running a past run): the run it replays.
@@ -14600,6 +14877,12 @@ class Datum(BaseModel):
     """
     How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
     """
+    tools_allowed_unattended: Annotated[list[str] | None, Field(alias="toolsAllowedUnattended")] = (
+        None
+    )
+    """
+    The tools, by id, whose calls in this run don't wait for a person's yes though no person started it: the list of the webhook or schedule that fired it, as it was when the run started, and never changed after. A child run has its parent's. Absent: none.
+    """
     replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
     """
     Set on a replay run (an eval run re-running a past run): the run it replays.
@@ -14678,7 +14961,7 @@ class Tool(BaseModel):
         bool | None, Field(alias="needsApprovalWhenUnattended")
     ] = None
     """
-    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`.
     """
     sandbox: Annotated[Literal["none", "context-isolated", "strict"] | str, _open.OPEN] | None = (
         None
@@ -14783,7 +15066,7 @@ class ToolVersionRow(BaseModel):
         bool | None, Field(alias="needsApprovalWhenUnattended")
     ] = None
     """
-    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`.
     """
     sandbox: Annotated[Literal["none", "context-isolated", "strict"] | str, _open.OPEN] | None = (
         None
@@ -15033,6 +15316,13 @@ class ScheduleRecord(BaseModel):
     """
     Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count.
     """
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
     next_fire_at: Annotated[AwareDatetime | None, Field(alias="nextFireAt")]
     """
     Wall-clock time of the next scheduled fire. `null` on paused rows if the cron scheduler never re-armed.
@@ -15105,6 +15395,13 @@ class RegisterScheduleBody(BaseModel):
     Default 600.
     """
     label: str | None = None
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this schedule's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the schedule's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
 
 
 class PatchScheduleBody(BaseModel):
@@ -15148,6 +15445,13 @@ class PatchScheduleBody(BaseModel):
     label: str | None = None
     """
     `null` clears the label; omit to leave unchanged.
+    """
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    Replaces the schedule's list; `[]` clears it, and absent keeps it. Naming it takes `admin` on the schedule's project. A change of what it runs (another flow or agent) while the list isn't empty must name it again, as it is or `[]`; a new version alone keeps it. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -15353,11 +15657,11 @@ class UserRecord(BaseModel):
     """
     invite: UserInvite | None = None
     """
-    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).
+    Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.9).
     """
     first_signed_in_at: Annotated[AwareDatetime | None, Field(alias="firstSignedInAt")] = None
     """
-    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).
+    Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).
     """
     metadata: dict[str, Any] | None = None
     grants: PersonGrants | None = None
@@ -15402,6 +15706,18 @@ class UserCollectionPage(BaseModel):
     data: list[UserRecord]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class SitePersonRestoreResult(BaseModel):
+    """
+    A site's person let back in after a removal made in Kindgi (`POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user: UserRecord
 
 
 class WhoamiResult(BaseModel):

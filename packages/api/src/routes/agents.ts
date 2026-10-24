@@ -54,6 +54,7 @@ import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import {
   type AgentReleaseGateDeps,
+  isLiveSet,
   isPromotionCheck,
   isPromotionWrite,
   mountAgentReleaseRoutes,
@@ -173,6 +174,7 @@ export function agentsRouter(
         rights: itemRights,
         agentId: c.req.param('agentId') ?? '',
         scope: await bodyScope(c),
+        setsLive: isLiveSet(c.req.method, c.req.path),
       });
       return refused ?? next();
     });
@@ -1024,6 +1026,20 @@ function semanticWarnings(agent: Agent): { readonly code: string; readonly messa
   });
 }
 
+/**
+ * A conversation policy as an answer carries it: without
+ * `autoCloseAfterInactiveSeconds`, which an agent stored before the setting
+ * was taken out may still have. The stored agent is left as it is.
+ */
+function answeredPolicy(
+  policy: NonNullable<AgentVersionRecord['conversationPolicy']>,
+): NonNullable<AgentVersionRecord['conversationPolicy']> {
+  const { autoCloseAfterInactiveSeconds: _gone, ...rest } = policy as typeof policy & {
+    readonly autoCloseAfterInactiveSeconds?: unknown;
+  };
+  return rest;
+}
+
 function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
   return {
     id: a.id as unknown as string,
@@ -1040,9 +1056,13 @@ function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
     retrieval: a.retrieval,
     ...(a.memory !== undefined && { memory: a.memory }),
     guardrails: a.guardrails,
-    ...(a.conversationPolicy !== undefined && { conversationPolicy: a.conversationPolicy }),
+    ...(a.conversationPolicy !== undefined && {
+      conversationPolicy: answeredPolicy(a.conversationPolicy),
+    }),
     ...(a.budget !== undefined && { budget: a.budget }),
     ...(a.tags !== undefined && { tags: a.tags }),
+    ...(a.output !== undefined && { output: a.output }),
+    ...(a.toolErrors !== undefined && { toolErrors: a.toolErrors }),
     ...(a.preferredProvider !== undefined && { preferredProvider: a.preferredProvider }),
     ...(a.preferredModel !== undefined && { preferredModel: a.preferredModel }),
     ...(a.pins !== undefined && { pins: a.pins }),

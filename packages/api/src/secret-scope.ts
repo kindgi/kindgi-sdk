@@ -13,10 +13,14 @@
  * needs). The first that has it is recorded. If none has it yet (an item
  * registered before its secret is set), the broadest scope they administer
  * is: the tenant for a tenant admin, the project for a project admin. A
- * caller who administers none of them records none, and the item reads no
- * secret until an admin records it again: a tool by publishing a new
- * version, an MCP endpoint by unregistering it and registering it again, a
- * webhook trigger by naming its secret again (an update).
+ * deployment's tools, deployed or promoted, record the scope that
+ * deployment's secrets sync writes instead (`deploymentSecretScope`), when
+ * the caller administers it: a call then reads what the sync stores. A
+ * caller who administers none of them records none, and the
+ * item reads no secret until an admin records it again: a tool by
+ * publishing a new version, an MCP endpoint by unregistering it and
+ * registering it again, a webhook trigger by naming its secret again (an
+ * update).
  *
  * Nothing here refuses: what's recorded doesn't say whether the name
  * exists at a scope the caller can't read. A secret set later at another
@@ -29,7 +33,14 @@ import { emitResolveEvent } from '@kindgi/compliance';
 import type { Logger } from '@kindgi/log';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
 import type { ToolManifest } from '@kindgi/tools';
-import type { EnvName, OrgId, RecordedSecretScope, Result, TenantId } from '@kindgi/types';
+import type {
+  EnvName,
+  OrgId,
+  ProjectId,
+  RecordedSecretScope,
+  Result,
+  TenantId,
+} from '@kindgi/types';
 import type { Context } from 'hono';
 
 import type { Authorizer } from './middleware/authorize.js';
@@ -68,6 +79,32 @@ export interface NamedSecretScopeInput {
    */
   readonly envName: EnvName | undefined;
   readonly name: string;
+  /**
+   * The scope to record when none of the chain has the name, in place of
+   * the broadest the caller administers: where a deployment's secrets sync
+   * writes. Used only when it's in `chain` and the caller administers it;
+   * otherwise the broadest administered scope is recorded, as without it.
+   */
+  readonly fallback?: Scope;
+}
+
+/**
+ * Where a deployment's secrets sync writes (`POST
+ * /v1/deployments/{deploymentId}/secrets`), from the deployment record's
+ * `projectId`. The sync never accepts a caller-supplied scope override on
+ * the wire (CRITICAL — scope MUST be inferred server-side to prevent
+ * tenant/project confusion attacks).
+ *
+ * A deployment stored in a named project syncs its secrets into that
+ * project. One stored with no `projectId` syncs them tenant-wide, though
+ * its tools are in the Default project: a deploy that named no project, or
+ * a promotion into the Default project. A deploy and a promotion record
+ * this scope for a secret their tools name that's set nowhere yet, so a
+ * call reads what the sync stores.
+ */
+export function deploymentSecretScope(tenantId: TenantId, projectId: ProjectId | undefined): Scope {
+  if (projectId !== undefined) return { kind: 'project', tenantId, projectId };
+  return { kind: 'tenant', tenantId };
 }
 
 /** The scope to record for one named secret; `null` when the caller administers none of the chain. */
@@ -78,21 +115,24 @@ export async function namedSecretScope(input: NamedSecretScopeInput): Promise<Sc
 /**
  * The scope `namedSecretScope` records, and the secret there when it was
  * found: what a run will read. Absent `found`: the secret isn't there (the
- * broadest administered scope is recorded), or nothing was looked up (no
- * `envName`). `null` when the caller administers none of the chain.
+ * fallback, else the broadest administered scope, is recorded), or nothing
+ * was looked up (no `envName`). `null` when the caller administers none of the chain.
  */
 export async function findNamedSecretScope(
   input: NamedSecretScopeInput,
 ): Promise<{ readonly scope: Scope; readonly found?: SecretRecord } | null> {
   let ceiling: Scope | null = null;
+  let fallback: Scope | null = null;
   for (const scope of input.chain) {
     if (input.administers !== undefined && !(await input.administers(scope))) continue;
     ceiling = scope;
+    if (input.fallback !== undefined && sameScope(scope, input.fallback)) fallback = scope;
     if (input.envName === undefined) continue;
     const found = await input.secrets.get({ scope, envName: input.envName, name: input.name });
     if (found !== null) return { scope, found };
   }
-  return ceiling === null ? null : { scope: ceiling };
+  const recorded = fallback ?? ceiling;
+  return recorded === null ? null : { scope: recorded };
 }
 
 export type { RecordedSecretScope };
@@ -200,13 +240,15 @@ export function callerAdministers(
 /**
  * The scopes to record for the secrets an item at `item` names, by name,
  * as the request's caller registers it; `undefined` without a secrets store
- * (nothing is recorded, as before).
+ * (nothing is recorded, as before). `fallback`: what a name set nowhere is
+ * recorded at, as `NamedSecretScopeInput.fallback`.
  */
 export async function secretScopesFor(
   c: Context<AppEnv>,
   deps: SecretScopeDeps,
   item: Scope,
   names: readonly NamedSecret[],
+  fallback?: Scope,
 ): Promise<Readonly<Record<string, RecordedSecretScope | null>> | undefined> {
   if (deps.secrets === undefined || names.length === 0) return undefined;
   const orgId =
@@ -218,6 +260,7 @@ export async function secretScopesFor(
     secrets: deps.secrets,
     chain: secretScopeChain(item, orgId),
     ...(administers !== undefined && { administers }),
+    ...(fallback !== undefined && { fallback }),
     names,
   });
 }

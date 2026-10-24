@@ -27,32 +27,43 @@ import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/a
 import { generateEd25519KeyPair, signEd25519 } from '@kindgi/crypto';
 import type {
   Cursor,
+  EnvName,
+  LiveScope,
   ProjectId,
+  RecordedSecretScope,
   SigningKeyId,
   TenantId,
+  Timestamp,
   UserId,
   VersionDerivation,
 } from '@kindgi/types';
 
 import { canonicalizeEnvelope } from '../src/deployment-envelope.js';
-import { createApp } from '../src/index.js';
+import { createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
 import type {
+  AgentReleaseBindings,
   CarriedVersion,
   Deployment,
   DeploymentBinding,
   DeploymentContents,
   DeploymentEndpoint,
+  GatePolicy,
+  PromoteInput,
   PromotedToolSecretScopes,
+  Promotion,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 import { environmentOrders } from './support/environment-orders.js';
+import { type ItemRow, itemProjects } from './support/order-items.js';
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'promotions-token';
 /** A key minted for S1 alone. */
 const LIMITED = 'promotions-key-s1';
+/** A token that may sync a deployment's secrets (`secrets:write`). */
+const SECRETS = 'promotions-token-secrets';
 
 const S1 = randomUUID() as ProjectId;
 const S2 = randomUUID() as ProjectId;
@@ -65,6 +76,9 @@ const resolveToken: TokenResolver = async (token) => {
   if (token === TOKEN) return { tenantId, userId: 'user-1' as UserId };
   if (token === LIMITED) {
     return { tenantId, userId: 'user-1' as UserId, tokenProjectId: S1 as unknown as string };
+  }
+  if (token === SECRETS) {
+    return { tenantId, userId: 'user-1' as UserId, capabilities: ['secrets:write'] };
   }
   return null;
 };
@@ -243,6 +257,82 @@ const notUsed = async (): Promise<never> => {
   throw new Error('not asked in these tests');
 };
 
+/**
+ * A live-release binding that records every pin a make-live asks for and
+ * answers it live at once, with no gate. `pinned` is each `promote` input,
+ * in order, so a test can read the scope the pin was set at.
+ */
+function livePins(
+  opts: {
+    readonly gated?: readonly string[] | undefined;
+    /** Carried agents whose pin write fails (the error only the write can give). */
+    readonly errorOn?: readonly string[] | undefined;
+  } = {},
+): {
+  readonly releases: AgentReleaseBindings;
+  readonly pinned: PromoteInput[];
+} {
+  const pinned: PromoteInput[] = [];
+  const errorOn = new Set(opts.errorOn ?? []);
+  const promotions = {
+    promote: async (input: PromoteInput) => {
+      if (errorOn.has(input.agentId)) {
+        return {
+          kind: 'err' as const,
+          error: { code: 'database-busy', message: 'The pin write failed.' },
+        };
+      }
+      pinned.push(input);
+      return {
+        kind: 'ok' as const,
+        value: {
+          id: `pin-${pinned.length}`,
+          agentId: input.agentId,
+          scope: input.scope,
+          action: 'promote',
+          fromVersion: null,
+          toVersion: input.version,
+          requestedBy: input.requestedBy,
+          createdAt: '2026-10-01T10:00:00.000Z' as Timestamp,
+          ...(input.reason !== undefined && { reason: input.reason }),
+        } satisfies Promotion,
+      };
+    },
+    rollback: notUsed,
+    unpin: notUsed,
+    list: async () => ({ data: [] }),
+    get: async () => null,
+  };
+  // A gate policy on a carried agent's scope, so `makeLive` sees a gate it
+  // can't record (this binding has no `promotions.request`): `promotion-
+  // gate-unsupported`, decided before any pin.
+  const gated = new Set(opts.gated ?? []);
+  const gatePolicies = {
+    resolve: async ({ agentId, scope }: { agentId: string; scope: LiveScope }) =>
+      gated.has(agentId)
+        ? ({
+            id: `gate-${agentId}`,
+            version: '1',
+            tenantId,
+            agentId,
+            scope,
+            spec: {},
+            createdAt: '2026-10-01T00:00:00.000Z' as Timestamp,
+          } satisfies GatePolicy)
+        : null,
+  };
+  return {
+    pinned,
+    releases: {
+      live: { resolve: async () => null, list: async () => [] },
+      promotions: promotions as unknown as AgentReleaseBindings['promotions'],
+      ...(gated.size > 0 && {
+        gatePolicies: gatePolicies as unknown as NonNullable<AgentReleaseBindings['gatePolicies']>,
+      }),
+    },
+  };
+}
+
 function harness(
   opts: {
     readonly rows?: readonly Deployment[];
@@ -257,6 +347,16 @@ function harness(
     readonly suspended?: readonly ProjectId[];
     /** The env the runtime serves; `null`: none named. */
     readonly envName?: string | null;
+    /** The tool's schema for `ACME_TOKEN`; absent: a required string. */
+    readonly secretSchema?: object;
+    /** Wire a live-release binding (`livePins`), so `makeLive` can pin. */
+    readonly live?: boolean;
+    /** Carried agents whose scope has a gate policy this binding can't record. */
+    readonly gated?: readonly string[];
+    /** Carried agents whose pin write fails (the error only the write can give). */
+    readonly errorOn?: readonly string[];
+    /** Items an order carries, so an agent spans more than one project. */
+    readonly itemRows?: readonly ItemRow[];
   } = {},
 ) {
   const deployments = ledger(opts.rows ?? [built({ id: 'dep-s1', projectId: S1 })], {
@@ -277,7 +377,45 @@ function harness(
   const secrets = opts.secrets ?? ['tenant::ACME_TOKEN'];
   const keyOf = (scope: { kind: string; projectId?: unknown }, name: string) =>
     `${scope.kind}:${(scope.projectId as string | undefined) ?? ''}:${name}`;
+  /** What a secrets sync wrote, by `keyOf`; a call reads it at that scope only (`exact`). */
+  const synced = new Map<string, string>();
+  const secretsBinding = {
+    get: async ({ scope, name }: { scope: { kind: string }; name: string }) =>
+      secrets.includes(keyOf(scope, name)) || synced.has(keyOf(scope, name))
+        ? { scope, envName: 'prod', name, currentVersion: 1 }
+        : null,
+    set: async (input: {
+      scope: { kind: string };
+      envName: string;
+      name: string;
+      value: string;
+    }) => {
+      synced.set(keyOf(input.scope, input.name), input.value);
+      const at = '2026-10-18T00:00:00.000Z';
+      return {
+        kind: 'ok',
+        record: {
+          scope: input.scope,
+          envName: input.envName,
+          name: input.name,
+          currentVersion: 1,
+          createdAt: at,
+          updatedAt: at,
+        },
+        versionId: 1,
+      };
+    },
+    resolve: async ({ scope, name }: { scope: { kind: string }; name: string }) => {
+      const value = synced.get(keyOf(scope, name));
+      return value === undefined
+        ? { kind: 'err', error: { code: 'secret-not-found', message: 'not set', name } }
+        : { kind: 'ok', value: { name, versionId: 1, value, scope } };
+    },
+  };
   const grants = opts.grants;
+  const live =
+    opts.live === true ? livePins({ gated: opts.gated, errorOn: opts.errorOn }) : undefined;
+  const items = opts.itemRows !== undefined ? itemProjects([...opts.itemRows]) : undefined;
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -299,20 +437,20 @@ function harness(
       get: async () => null,
       getVersion: async ({ toolId, version }: { toolId: string; version: string }) =>
         toolId === TOOL.id && version === TOOL.version
-          ? { ...TOOL, needsSpec: { secrets: { ACME_TOKEN: { type: 'string' } } } }
+          ? {
+              ...TOOL,
+              needsSpec: { secrets: { ACME_TOKEN: opts.secretSchema ?? { type: 'string' } } },
+            }
           : null,
     } as never,
     agentRegistry: {
       getVersion: async () => null,
       listVersions: async () => ({ data: versions.rows }),
     } as never,
-    secretsBinding: {
-      get: async ({ scope, name }: { scope: { kind: string }; name: string }) =>
-        secrets.includes(keyOf(scope, name))
-          ? { scope, envName: 'prod', name, currentVersion: 1 }
-          : null,
-    } as never,
+    secretsBinding: secretsBinding as never,
     environmentOrders: environmentOrders(opts.orders ?? [ORDER]),
+    ...(live !== undefined && { agentReleases: live.releases }),
+    ...(items !== undefined && { itemProjects: items }),
     ...(opts.suspended !== undefined && {
       projectSuspended: async (_t: TenantId, p: ProjectId) => opts.suspended?.includes(p) === true,
     }),
@@ -341,13 +479,32 @@ function harness(
     trusted,
     appended,
     versions,
+    /** The pins the make-live asked for, in order (empty without `live`). */
+    pinned: live?.pinned ?? [],
     promote: (id: string, toProjectId: ProjectId, reason?: string) =>
       call(`/v1/deployments/${id}/promotions`, {
         toProjectId,
         ...(reason !== undefined && { reason }),
       }),
+    makeLive: (id: string, toProjectId: ProjectId, token = TOKEN) =>
+      call(`/v1/deployments/${id}/promotions`, { toProjectId, makeLive: true }, token),
     check: (id: string, toProjectId: ProjectId) =>
       call(`/v1/deployments/${id}/promotions/check`, { toProjectId }),
+    // What `kindgi deploy --sync-secrets` asks of a deployment once it lands.
+    sync: (id: string, value: string) =>
+      call(
+        `/v1/deployments/${id}/secrets`,
+        { envName: 'prod', secrets: [{ name: 'ACME_TOKEN', value }] },
+        SECRETS,
+      ),
+    // As a call reads a tool's secret: at the scope recorded for it, and there only.
+    read: (recorded: RecordedSecretScope) =>
+      resolveAtScope(secretsBinding as never, {
+        scope: scopeOfRecorded(tenantId, recorded),
+        envName: 'prod' as EnvName,
+        name: 'ACME_TOKEN',
+        resolveContext: { caller: 'dispatch' },
+      }),
     call,
   };
 }
@@ -409,6 +566,62 @@ describe('a promotion moves the exact build, one environment at a time', () => {
         secretScopes: { ACME_TOKEN: { kind: 'project', projectId: S2 } },
       },
     ]);
+  });
+
+  test("an optional secret set nowhere is recorded at the target project, where the promoted deployment's sync writes", async () => {
+    const optional = { type: ['string', 'null'] };
+    // Without authorization (every scope counts), and as the tenant's admin.
+    for (const grants of [
+      undefined,
+      [`read project:${S1}`, `admin project:${S2}`, `admin tenant:${tenantId}`],
+    ]) {
+      const h = harness({ secrets: [], secretSchema: optional, ...(grants && { grants }) });
+      const res = await h.promote('dep-s1', S2);
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      expect(h.deployments.secretScopes.get(res.body.deployment.deploymentId)).toEqual([
+        {
+          toolId: TOOL.id,
+          version: TOOL.version,
+          secretScopes: { ACME_TOKEN: { kind: 'project', projectId: S2 } },
+        },
+      ]);
+    }
+  });
+
+  test("an optional secret set nowhere, promoted into the Default project: recorded at the tenant, where the promoted deployment's sync writes", async () => {
+    const optional = { type: ['string', 'null'] };
+    // Without authorization (every scope counts), and as the tenant's admin.
+    for (const grants of [
+      undefined,
+      // Reading the Default too: its sync reads the deployment first.
+      [
+        `read project:${S2}`,
+        `read project:${PROD}`,
+        `admin project:${PROD}`,
+        `admin tenant:${tenantId}`,
+      ],
+    ]) {
+      const h = harness({
+        rows: [built({ id: 'dep-s2', projectId: S2 })],
+        secrets: [],
+        secretSchema: optional,
+        ...(grants && { grants }),
+      });
+      const res = await h.promote('dep-s2', PROD);
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      const promoted = res.body.deployment.deploymentId as string;
+      // The Default is stored with no project, so its sync writes the tenant.
+      expect(res.body.deployment.projectId).toBeUndefined();
+      const [tool] = h.deployments.secretScopes.get(promoted) ?? [];
+      expect(tool?.secretScopes).toEqual({ ACME_TOKEN: { kind: 'tenant' } });
+      const synced = await h.sync(promoted, 'acme-token-value');
+      expect(synced.status, JSON.stringify(synced.body)).toBe(200);
+      const read = await h.read(tool?.secretScopes.ACME_TOKEN as RecordedSecretScope);
+      expect(read, JSON.stringify(read)).toMatchObject({
+        kind: 'ok',
+        value: { value: 'acme-token-value' },
+      });
+    }
   });
 
   test('twice, or twice at once: one deployment in the target, answered 200 after the first', async () => {
@@ -818,5 +1031,191 @@ describe('the record, and what a promotion takes', () => {
       [400, 'bad-input'],
     ]);
     expect(h.deployments.rows).toHaveLength(1);
+  });
+});
+
+describe('making the carried agents live in the target (makeLive)', () => {
+  const AGENT = 'acme.matcher';
+
+  test('pins each carried agent in the target and reports it live; an agent one project serves is asked the promote right it has today', async () => {
+    const h = harness({
+      live: true,
+      grants: [`read project:${S1}`, `admin project:${S2}`, `promote agent:${AGENT}`],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status).toBe(201);
+    expect(res.body.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    // Pinned in the target, at the target's own project scope — never the tenant's.
+    expect(h.pinned).toHaveLength(1);
+    expect(h.pinned[0]).toMatchObject({
+      agentId: AGENT,
+      version: '1.0.0',
+      scope: { kind: 'project', projectId: S2 },
+    });
+  });
+
+  test("refused when the caller can't promote an agent one project serves: 403, though the build has already moved", async () => {
+    const h = harness({
+      live: true,
+      grants: [`read project:${S1}`, `admin project:${S2}`],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status).toBe(403);
+    expect(res.body.error.details).toMatchObject({ action: 'promote', resource: `agent:${AGENT}` });
+    // The promotion committed (the move isn't undone); nothing was pinned.
+    expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
+    expect(h.pinned).toEqual([]);
+  });
+
+  test('an agent an order carries is asked admin on the target project, not its home: a target admin who runs neither the source nor the home pins it', async () => {
+    const h = harness({
+      live: true,
+      // `acme.matcher` runs in S1 (its home) and S2 (the target).
+      itemRows: [{ kind: 'agent', id: AGENT, projects: [S1, S2] }],
+      // Admin on the target S2 and read on the source S1 — but no admin on the home S1.
+      grants: [`read project:${S1}`, `admin project:${S2}`],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status).toBe(201);
+    expect(res.body.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    expect(h.pinned[0]).toMatchObject({ scope: { kind: 'project', projectId: S2 } });
+  });
+
+  test('admin on the source alone, not the target: the promotion is refused before anything is made live', async () => {
+    const h = harness({
+      live: true,
+      grants: [`read project:${S1}`, `admin project:${S1}`],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status).toBe(403);
+    expect(res.body.error.details).toMatchObject({ action: 'admin', resource: `project:${S2}` });
+    expect(h.pinned).toEqual([]);
+    expect(h.deployments.rows.filter((d) => d.projectId === S2)).toHaveLength(0);
+  });
+
+  test('making it live again is safe: the move is idempotent and a pin in place passes, with the same answer', async () => {
+    const h = harness({
+      live: true,
+      grants: [`read project:${S1}`, `admin project:${S2}`, `promote agent:${AGENT}`],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const first = await h.makeLive('dep-s1', S2);
+    const again = await h.makeLive('dep-s1', S2);
+    expect(first.status).toBe(201);
+    expect(first.body.created).toBe(true);
+    // The target already has the build, so the repeat answers 200 — and makes
+    // it live again all the same, with the same answer.
+    expect(again.status).toBe(200);
+    expect(again.body.created).toBe(false);
+    expect(again.body.live).toEqual(first.body.live);
+    // One deployment in the target; the pin was asked both times (in place, a no-op the binding absorbs).
+    expect(h.deployments.rows.filter((d) => d.projectId === S2)).toHaveLength(1);
+    expect(h.pinned).toHaveLength(2);
+  });
+
+  test('made live in the Default project: the pin names that project, so a Default run resolves it over an older tenant-wide pin', async () => {
+    const h = harness({
+      live: true,
+      rows: [built({ id: 'dep-s2', projectId: S2 })],
+    });
+    const res = await h.makeLive('dep-s2', PROD);
+    expect(res.status).toBe(201);
+    expect(res.body.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    // A project-kind pin on the Default — never tenant- or org-wide — so it
+    // takes precedence over an older tenant pin when the Default resolves live.
+    expect(h.pinned).toHaveLength(1);
+    expect(h.pinned[0]?.scope).toEqual({ kind: 'project', projectId: PROD });
+  });
+
+  test("a composition without a live-release binding can't make a promotion live: 501, the move still done", async () => {
+    const h = harness();
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status).toBe(501);
+    expect(res.body.error.code).toBe('promotions-unsupported');
+    // The build moved; only making it live is unsupported.
+    expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
+  });
+
+  // S2: everything decidable before a pin is decided for every agent first,
+  // so a later agent's gate the deployment can't record never leaves an
+  // earlier agent half-live.
+  test('a later carried agent whose scope is gated, in a deployment that can’t record a gated promotion: refused before any pin, nothing made live', async () => {
+    const GATED_AGENT = 'acme.ranker';
+    const h = harness({
+      live: true,
+      gated: [GATED_AGENT],
+      rows: [
+        built({
+          id: 'dep-s1',
+          projectId: S1,
+          contents: {
+            ...SHIPS,
+            agents: [
+              { id: AGENT, version: '1.0.0' },
+              { id: GATED_AGENT, version: '1.0.0' },
+            ],
+          },
+        }),
+      ],
+      grants: [
+        `read project:${S1}`,
+        `admin project:${S2}`,
+        `promote agent:${AGENT}`,
+        `promote agent:${GATED_AGENT}`,
+      ],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status).toBe(501);
+    expect(res.body.error.code).toBe('promotion-gate-unsupported');
+    // The first agent is not left live: the gate is decided before any pin.
+    expect(h.pinned).toEqual([]);
+    // Nothing was pinned, so the refusal carries no `live` (N3: assert the
+    // error body, not a top-level field that an error answer never has).
+    expect(res.body.error.details?.live).toBeUndefined();
+    // The build still moved — only making the carried agents live is refused.
+    expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
+  });
+
+  // S3: an error only the pin write can give, after an earlier agent is
+  // already live, answers with the pins made so far in `error.details.live`.
+  test('a later carried agent’s pin write fails after an earlier one is live: the error carries the pins already made', async () => {
+    const FAILS = 'acme.ranker';
+    const h = harness({
+      live: true,
+      errorOn: [FAILS],
+      rows: [
+        built({
+          id: 'dep-s1',
+          projectId: S1,
+          contents: {
+            ...SHIPS,
+            agents: [
+              { id: AGENT, version: '1.0.0' },
+              { id: FAILS, version: '1.0.0' },
+            ],
+          },
+        }),
+      ],
+      grants: [
+        `read project:${S1}`,
+        `admin project:${S2}`,
+        `promote agent:${AGENT}`,
+        `promote agent:${FAILS}`,
+      ],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status).toBe(503);
+    expect(res.body.error.code).toBe('database-busy');
+    // The write failed on the second agent, but the first is already live, so
+    // the answer names it (its `live` shape) rather than hiding it.
+    expect(res.body.error.details?.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    expect(h.pinned).toHaveLength(1);
+    expect(h.pinned[0]).toMatchObject({ agentId: AGENT });
   });
 });

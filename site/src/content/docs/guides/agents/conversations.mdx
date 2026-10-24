@@ -22,7 +22,7 @@ the agent's model sees what was said before.
 - **A registered model** for answers worth reading. Without one, `dev-echo`
   answers.
 - **Node 22.18 or later, which runs a TypeScript file directly, Python
-  3.11 or later, or Java 17 or later,** with Kindgi 0.1's client.
+  3.11 or later, or Java 17 or later,** with Kindgi 0.2's client.
   The scripts read the API's URL and token from `KINDGI_API_URL` and
   `KINDGI_API_TOKEN`. With `kindgi dev`, they're the URL and token it prints,
   also in the pack's `.kindgirc.json`.
@@ -430,7 +430,21 @@ one project's or org's.
   `404 conversation-not-found` before it starts, with `wait: false` too. If
   you can't read the conversation's project, you get that same `404` in place
   of the `409 conversation-project-mismatch` (below) or the
-  `403 permission-denied`.
+  `403 permission-denied`, and in place of the `403 participant-not-allowed`
+  for its participant (runtime 0.2.0 or later).
+- **With [authorization](../../../deploy/authorization/) on,** reading a
+  conversation or its messages takes `read` on its project. Closing one
+  takes `execute` on its agent, or, for an agent more than one project
+  serves, `call` on the conversation's project; reading it isn't needed. A
+  conversation you can't read answers `404 conversation-not-found`, as if it
+  weren't there, when you read it or its messages, or are refused closing
+  it, unregistering it or adding a turn (runtime 0.2.0 or later). If you can
+  read it, a refusal is a `403`.
+- A turn into a closed conversation is refused with
+  `409 conversation-closed`: start a new conversation instead. It's
+  refused before a run is made, with `wait: false` too (runtime 0.1.10
+  or later), and after the rules on who may add a turn, so a caller they
+  refuse gets their answer instead.
 - **Who opened it:** `openedBy` (`user:<id>` or `service_account:<id>`) is
   the caller who opened it, or, for one a turn opened, whoever the run acts
   for. It's set by the server, never from the body.
@@ -446,7 +460,9 @@ one project's or org's.
 - `close` is safe to repeat: closing a closed conversation returns it as it is.
 - `list` filters by agent and by `status` (`open` or `closed`), newest first;
   `get` fetches one conversation. From the CLI:
-  `kindgi conversations list --status=closed`.
+  `kindgi conversations list --status=closed`. In the console, a project's
+  **Conversations** page lists them: **All**, **Open** or **Closed** filters
+  by status, and **Load more** brings older ones.
 - **A [comparison](../../evals/compare-an-agent-version/)'s replays** have
   conversations too, and lists leave them out unless you ask: `replays:
   'include'` or `'only'` (`--replays=include` or `--replays=only` in the CLI).
@@ -579,7 +595,9 @@ and it takes no more turns.
 
 - **With [authorization](../../../deploy/authorization/) on,** unregistering
   takes `write` on the conversation's project, an editor or above. Anyone
-  else is refused with `403 permission-denied`, and the conversation stays.
+  else who can read it is refused with `403 permission-denied`, and the
+  conversation stays. If you can't read it, it answers `404`, as if it
+  weren't there (runtime 0.2.0 or later).
 - **An id that doesn't exist,** or a conversation already unregistered,
   answers `404`.
 - **Its messages stay in the database** until a retention policy on

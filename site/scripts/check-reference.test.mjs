@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { referenceGaps } from './reference/completeness.mjs';
+import { extraLinks } from './reference/errors.mjs';
 import { commandOf, headingId, linkTo } from './reference/mentions.mjs';
 import { operationSlug } from './reference/openapi.mjs';
 import { markFragments } from './reference/packages.mjs';
@@ -124,6 +125,45 @@ test('linkTo is relative to the page as it is served', () => {
     '../api/operations/runsget/',
   );
   assert.equal(linkTo('reference/env-vars', 'guides/runs/index'), '../../guides/runs/');
+});
+
+test('an error entry\'s own "see also" links each item, or stops naming the one it cannot', () => {
+  const context = {
+    pagesBySlug: new Map([['guides/runs/start-a-run', { title: 'Start a run' }]]),
+    spec: { paths: { '/v1/runs': { get: { operationId: 'runs.list' } } } },
+  };
+  assert.deepEqual(
+    extraLinks(
+      [
+        'GET /v1/runs',
+        '#run-not-found',
+        '#build-job-gone',
+        'reference/cli/runs',
+        'reference/env-vars',
+        'guides/runs/start-a-run',
+      ],
+      context,
+      'database-busy',
+    ),
+    [
+      '[`GET /v1/runs`](../api/operations/runslist/)',
+      '[`run-not-found`](#run-not-found)',
+      '[`build-job-gone`](#build-job-gone)',
+      '[`kindgi runs`](../cli/runs/)',
+      '[Environment variables](../env-vars/)',
+      '[Start a run](../../guides/runs/start-a-run/)',
+    ],
+  );
+  assert.throws(() => extraLinks(['GET /v1/runs', 'guides/gone'], context, 'database-busy'), {
+    message:
+      'database-busy: "see also" names guides/gone, which is no route in the spec, no code on this page and no page',
+  });
+  assert.throws(() => extraLinks(['#run-gone'], context, 'database-busy'), {
+    message: /^database-busy: "see also" names #run-gone,/,
+  });
+  assert.throws(() => extraLinks(['DELETE /v1/runs'], context, 'access.kindgi.com unavailable'), {
+    message: /^access\.kindgi\.com unavailable: "see also" names DELETE \/v1\/runs,/,
+  });
 });
 
 test('headingId and operationSlug follow Starlight and starlight-openapi', () => {

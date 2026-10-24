@@ -1,5 +1,83 @@
 # @kindgi/platform
 
+## 0.1.10
+
+### Patch Changes
+
+- 25a7309: **A tenant can be renamed: its name, its slug, or both.** Its id stays, so whatever names it by its id keeps working.
+  - **`PATCH /v1/tenant`** renames your own tenant. It's for tenant admins. **`PATCH /v1/system/tenants/{tenantId}`** renames any tenant, for an operator's key with `system:tenants`, whose scope now reads "Create, list, read, rename and close tenants." Both take a `TenantPatch` body (`name`, `slug`, each optional; a field left out stays as it is) and an optional `Idempotency-Key`, and answer `204` with no body. The same values again also answer `204` and change nothing.
+  - **A slug follows the rule creating a tenant has:** lowercase letters, digits and single hyphens, at most 63 characters, unique across tenants. A name is non-empty, at most 100 characters.
+  - **Refusals:** `409 tenant-slug-taken` (another tenant has the slug; a purged tenant keeps its own), `409 tenant-closing`, and two new codes. `409 tenant-slug-in-config`: the server's `KINDGI_AUTH_VERIFIED_DOMAINS` names this tenant by its slug, or names the slug asked for. The server's operator names the tenant there by its id and restarts; then rename it. `409 tenant-setup-pending`: the tenant's creation hasn't finished; sending the request that created it again finishes it.
+  - **The clients:** `tenant.update(input)` and `systemTenants.update(tenantId, input)` in TypeScript, both `Promise<void>` (`RenameTenantInput` is the body); `tenant.update` and `system_tenants.update` in Python, sync and async, returning `None`. Read the tenant back with `get()`.
+  - **For a runtime:** `TenantHierarchyBinding.renameTenant` is optional, and the two routes mount only when it's there. A runtime without it answers `404` on both, as before.
+- @kindgi/types@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/types@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- 25a7309: **A tenant can be renamed: its name, its slug, or both.** Its id stays, so whatever names it by its id keeps working.
+  - **`PATCH /v1/tenant`** renames your own tenant. It's for tenant admins. **`PATCH /v1/system/tenants/{tenantId}`** renames any tenant, for an operator's key with `system:tenants`, whose scope now reads "Create, list, read, rename and close tenants." Both take a `TenantPatch` body (`name`, `slug`, each optional; a field left out stays as it is) and an optional `Idempotency-Key`, and answer `204` with no body. The same values again also answer `204` and change nothing.
+  - **A slug follows the rule creating a tenant has:** lowercase letters, digits and single hyphens, at most 63 characters, unique across tenants. A name is non-empty, at most 100 characters.
+  - **Refusals:** `409 tenant-slug-taken` (another tenant has the slug; a purged tenant keeps its own), `409 tenant-closing`, and two new codes. `409 tenant-slug-in-config`: the server's `KINDGI_AUTH_VERIFIED_DOMAINS` names this tenant by its slug, or names the slug asked for. The server's operator names the tenant there by its id and restarts; then rename it. `409 tenant-setup-pending`: the tenant's creation hasn't finished; sending the request that created it again finishes it.
+  - **The clients:** `tenant.update(input)` and `systemTenants.update(tenantId, input)` in TypeScript, both `Promise<void>` (`RenameTenantInput` is the body); `tenant.update` and `system_tenants.update` in Python, sync and async, returning `None`. Read the tenant back with `get()`.
+  - **For a runtime:** `TenantHierarchyBinding.renameTenant` is optional, and the two routes mount only when it's there. A runtime without it answers `404` on both, as before.
+- @kindgi/types@0.1.10-rc.0
+
+## 0.1.9
+
+### Patch Changes
+
+- d563887: **A project that's a member of an environment order can't be deleted or moved to another parent until it's cleared from the order.** This keeps an order's members from vanishing, or splitting across parents, under the admin who set it.
+  
+  - `ProjectBinding.delete` now resolves to a `ProjectDeleteOutcome` (`ok`, or `project-in-environment-order` naming the order) rather than `void`; deleting an id that names no project is still `ok` (idempotent). `ProjectUpdateOutcome` gains `project-in-environment-order`, returned only when a patch would change the project's `orgId` — its parent; a rename, slug or description change is never refused on that ground. A host that implements `ProjectBinding` returns the new outcomes; the in-memory reference adapter consults an injected `environmentOrderOf` hook (compose it to the environment-order binding wherever both share a store).
+  - `DELETE /v1/projects/{projectId}` and `PATCH /v1/projects/{projectId}` answer `409 project-in-environment-order` — with the order's id — in those cases. Every other response is unchanged.
+  - **An org that's the parent of an environment order can't be deleted until a tenant admin clears the order** — otherwise the order would be left pointing at an org that's gone. `OrgBinding.delete` now resolves to an `OrgDeleteOutcome` (`ok`, `org-has-environment-order` naming the order, or the existing `slug-conflict`) rather than `void`, and `DELETE /v1/orgs/{orgId}` answers `409 org-has-environment-order` with the order's id. The in-memory reference adapter consults an injected `environmentOrderOf` hook, as the project guard does.
+  
+  **Breaking for custom platform bindings.** Both `ProjectBinding.delete` and `OrgBinding.delete` now resolve to an explicit outcome — `ProjectDeleteOutcome` and `OrgDeleteOutcome` — and never `void`: a success is `{ kind: 'ok' }`. The former `OrgDeleteConflict` type is gone, folded into `OrgDeleteOutcome` (`ok` | `slug-conflict` | `org-has-environment-order`); `ProjectDeleteOutcome` is `ok` | `project-in-environment-order`. A host that implements either binding must return `{ kind: 'ok' }` where it used to return nothing — so a binding that never checks environment orders can no longer silently delete a project or org that an order names. The conformance suites (`runProjectBindingConformance`, `runOrgBindingConformance`) assert the `ok` outcome on a plain delete, and both reference adapters are updated.
+- 409b9bf: A person a site signs in holds only the grants their site's sign-in writes. A deployment's bindings refuse any other grant naming such a person with `site-person-grants-managed`, and the API answers it as `403` on these routes:
+  - adding a project or team member, or changing their role (`AddProjectMemberError`, `AddTeamMemberError` and `MembershipWriteError` gain the code);
+  - granting tenant admin (`PersonGrantErrorCode`);
+  - registering a reviewer (`ReviewerRegisterOutcome` gains a `refused` outcome);
+  - removing such a person's project or team membership, or unregistering them as a reviewer (`ReviewerUnregisterOutcome` gains an optional `refused`). Their site would give it back at their next sign-in, so the answer points at the real levers: remove the person, change their role on the site, or pause the site.
+  - minting an API key for such a person (`TokenMintRefusal` gains the code). Their access is only the sessions their site's sign-in gives, which end when the site is paused or unregistered; a key would outlive both.
+  
+  `@kindgi/env-schema` gains `KINDGI_SITE_SIGN_IN`: `true` lets sites sign their people in. The runtime needs authorization enforced and `KINDGI_PUBLIC_URL` for it; it's off by default.
+- @kindgi/types@0.1.9
+
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/types@0.1.9-rc.1
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- d563887: **A project that's a member of an environment order can't be deleted or moved to another parent until it's cleared from the order.** This keeps an order's members from vanishing, or splitting across parents, under the admin who set it.
+  
+  - `ProjectBinding.delete` now resolves to a `ProjectDeleteOutcome` (`ok`, or `project-in-environment-order` naming the order) rather than `void`; deleting an id that names no project is still `ok` (idempotent). `ProjectUpdateOutcome` gains `project-in-environment-order`, returned only when a patch would change the project's `orgId` — its parent; a rename, slug or description change is never refused on that ground. A host that implements `ProjectBinding` returns the new outcomes; the in-memory reference adapter consults an injected `environmentOrderOf` hook (compose it to the environment-order binding wherever both share a store).
+  - `DELETE /v1/projects/{projectId}` and `PATCH /v1/projects/{projectId}` answer `409 project-in-environment-order` — with the order's id — in those cases. Every other response is unchanged.
+  - **An org that's the parent of an environment order can't be deleted until a tenant admin clears the order** — otherwise the order would be left pointing at an org that's gone. `OrgBinding.delete` now resolves to an `OrgDeleteOutcome` (`ok`, `org-has-environment-order` naming the order, or the existing `slug-conflict`) rather than `void`, and `DELETE /v1/orgs/{orgId}` answers `409 org-has-environment-order` with the order's id. The in-memory reference adapter consults an injected `environmentOrderOf` hook, as the project guard does.
+  
+  **Breaking for custom platform bindings.** Both `ProjectBinding.delete` and `OrgBinding.delete` now resolve to an explicit outcome — `ProjectDeleteOutcome` and `OrgDeleteOutcome` — and never `void`: a success is `{ kind: 'ok' }`. The former `OrgDeleteConflict` type is gone, folded into `OrgDeleteOutcome` (`ok` | `slug-conflict` | `org-has-environment-order`); `ProjectDeleteOutcome` is `ok` | `project-in-environment-order`. A host that implements either binding must return `{ kind: 'ok' }` where it used to return nothing — so a binding that never checks environment orders can no longer silently delete a project or org that an order names. The conformance suites (`runProjectBindingConformance`, `runOrgBindingConformance`) assert the `ok` outcome on a plain delete, and both reference adapters are updated.
+- 409b9bf: A person a site signs in holds only the grants their site's sign-in writes. A deployment's bindings refuse any other grant naming such a person with `site-person-grants-managed`, and the API answers it as `403` on these routes:
+  - adding a project or team member, or changing their role (`AddProjectMemberError`, `AddTeamMemberError` and `MembershipWriteError` gain the code);
+  - granting tenant admin (`PersonGrantErrorCode`);
+  - registering a reviewer (`ReviewerRegisterOutcome` gains a `refused` outcome);
+  - removing such a person's project or team membership, or unregistering them as a reviewer (`ReviewerUnregisterOutcome` gains an optional `refused`). Their site would give it back at their next sign-in, so the answer points at the real levers: remove the person, change their role on the site, or pause the site.
+  - minting an API key for such a person (`TokenMintRefusal` gains the code). Their access is only the sessions their site's sign-in gives, which end when the site is paused or unregistered; a key would outlive both.
+  
+  `@kindgi/env-schema` gains `KINDGI_SITE_SIGN_IN`: `true` lets sites sign their people in. The runtime needs authorization enforced and `KINDGI_PUBLIC_URL` for it; it's off by default.
+- @kindgi/types@0.1.9-rc.0
+
 ## 0.1.8
 
 ### Patch Changes

@@ -13,13 +13,21 @@ import { type Flow, type FlowPins, flowPinsDigest } from '@kindgi/flow';
 import type { Guardrail } from '@kindgi/guardrails';
 import type { Project, ProjectBinding } from '@kindgi/platform';
 import { latestVersion } from '@kindgi/tools';
-import type { Cursor, EnvName, ProjectId, Semver, SigningKeyId, TenantId } from '@kindgi/types';
+import type {
+  Cursor,
+  EnvName,
+  OrgId,
+  ProjectId,
+  Semver,
+  SigningKeyId,
+  TenantId,
+} from '@kindgi/types';
 
 import type { Scope } from '@kindgi/platform';
 import { makeEnvName } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { createApp } from '../src/index.js';
+import { createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
 import type {
   AgentRegistryBinding,
   AgentReleaseBindings,
@@ -1670,20 +1678,6 @@ describe('POST /v1/deployments — image verification', () => {
         message: 'Extract /app/index.json failed: unpacks past 4 GiB',
         details: { imageRef: fixture.imageRef, cause: 'image-limit-exceeded', limit: 'unpack' },
       },
-      {
-        step: 'extractFile',
-        error: {
-          code: 'image-limit-exceeded',
-          message: 'try again in 12 min',
-          limit: 'tenant-unpack-hour',
-        },
-        message: 'Extract /app/index.json failed: try again in 12 min',
-        details: {
-          imageRef: fixture.imageRef,
-          cause: 'image-limit-exceeded',
-          limit: 'tenant-unpack-hour',
-        },
-      },
       // A binding's own `cause` (an Error here) never reaches the wire.
       {
         step: 'extractFile',
@@ -1720,6 +1714,80 @@ describe('POST /v1/deployments — image verification', () => {
       expect(body.error.details).toEqual(details);
       expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(0);
     }
+  });
+
+  test("the tenant's hour of image reads passes: 429 rate-limit-exceeded with details.limit and Retry-After, the binding's wait rounded up, else the hour", async () => {
+    const fixture = buildSignedDeploy();
+    const served = makeMockImageRegistry([
+      { imageRef: fixture.imageRef, digest: fixture.digest, indexBytes: fixture.indexBytes },
+    ]);
+    const cases: readonly { readonly retryAfterMs?: number; readonly retryAfter: string }[] = [
+      { retryAfterMs: 12 * 60_000 + 1, retryAfter: '721' },
+      { retryAfterMs: 0, retryAfter: '1' },
+      { retryAfter: '3600' },
+      { retryAfterMs: Number.NaN, retryAfter: '3600' },
+    ];
+    for (const { retryAfterMs, retryAfter } of cases) {
+      const error: ImageRegistryError = {
+        code: 'image-limit-exceeded',
+        message: 'try again in 13 min',
+        limit: 'tenant-unpack-hour',
+        ...(retryAfterMs !== undefined && { retryAfterMs }),
+      };
+      const imageRegistry: ImageRegistryBinding = {
+        ...served,
+        extractFile: async () => ({ kind: 'err' as const, error }),
+      };
+      const { app, deploymentRegistry } = makeApp({ fixture, imageRegistry });
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(fixture.wire),
+      });
+      expect(res.status).toBe(429);
+      expect(res.headers.get('retry-after')).toBe(retryAfter);
+      const body = (await res.json()) as {
+        error: { code: string; message: string; details?: Record<string, unknown> };
+      };
+      expect(body.error).toEqual({
+        code: 'rate-limit-exceeded',
+        message: 'Extract /app/index.json failed: try again in 13 min',
+        details: { limit: 'tenant-unpack-hour' },
+        requestId: expect.any(String),
+      });
+      expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(0);
+    }
+  });
+
+  test("an image's own bound with a wait is still the image's: 400 image-unverifiable, no Retry-After", async () => {
+    const fixture = buildSignedDeploy();
+    const served = makeMockImageRegistry([
+      { imageRef: fixture.imageRef, digest: fixture.digest, indexBytes: fixture.indexBytes },
+    ]);
+    const error: ImageRegistryError = {
+      code: 'image-limit-exceeded',
+      message: 'unpacks past 4 GiB',
+      limit: 'unpack',
+      retryAfterMs: 60_000,
+    };
+    const { app } = makeApp({
+      fixture,
+      imageRegistry: { ...served, extractFile: async () => ({ kind: 'err' as const, error }) },
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(400);
+    expect(res.headers.get('retry-after')).toBeNull();
+    const body = (await res.json()) as { error: { code: string; details?: unknown } };
+    expect(body.error.code).toBe('image-unverifiable');
+    expect(body.error.details).toEqual({
+      imageRef: fixture.imageRef,
+      cause: 'image-limit-exceeded',
+      limit: 'unpack',
+    });
   });
 
   test('a check after a read that succeeded names no cause', async () => {
@@ -1981,6 +2049,37 @@ describe('POST /v1/deployments — manifest validation', () => {
     const body = (await res.json()) as { contents: { agents: unknown[] } };
     expect(body.contents.agents).toEqual([{ id: 'acme.summary', version: '1.0.0' }]);
     expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(1);
+  });
+
+  test('a pack built before autoCloseAfterInactiveSeconds was taken out still deploys, and its agent answers without it', async () => {
+    const policy = { historyLimit: 5, autoCloseAfterInactiveSeconds: 600 };
+    const index = indexWith(undefined);
+    const fixture = buildSignedDeploy({
+      index: { ...index, agents: index.agents.map((a) => ({ ...a, conversationPolicy: policy })) },
+    });
+    const agents = makeInMemoryAgentRegistry();
+    const written: Agent[] = [];
+    const { app } = makeApp({
+      fixture,
+      agentRegistry: {
+        ...agents,
+        publish: async (input) => {
+          written.push(input.agent);
+          return agents.publish(input);
+        },
+        get: async () => written[0] ?? null,
+      },
+    });
+    const res = await post(app, fixture.wire);
+    expect(res.status, await res.clone().text()).toBe(201);
+    expect(written.map((a) => a.conversationPolicy)).toEqual([policy]);
+    const answered = await app.request('/v1/agents/acme.summary', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(answered.status, await answered.clone().text()).toBe(200);
+    expect(
+      ((await answered.json()) as { conversationPolicy?: unknown }).conversationPolicy,
+    ).toEqual({ historyLimit: 5 });
   });
 
   test("its agents' and flows' schema compiles count against the tenant's budget: refused, nothing is deployed", async () => {
@@ -5742,3 +5841,255 @@ describe('POST /v1/deployments/:deploymentId/secrets on a runtime that refuses o
     expect(reads).toBe(1);
   });
 });
+
+// ------------------------------------------------------------------
+// A deploy into a project, then its secrets sync: where a call reads them
+// ------------------------------------------------------------------
+
+describe('POST /v1/deployments into a project, then its secrets sync: a call reads what the sync stored', () => {
+  /** A pack whose one tool, `acme.lookup@1.0.0`, declares `ACME_LOOKUP_KEY`. */
+  const lookupPack = (artifactVersion: string) =>
+    buildSignedDeploy({
+      artifactVersion,
+      index: {
+        v: 1,
+        packId: 'acme.aperture',
+        packVersion: '1.0.0',
+        artifactVersion,
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [
+          {
+            id: 'acme.lookup',
+            description: 'Looks things up with its own key.',
+            version: '1.0.0',
+            input: { type: 'object' },
+            output: { type: 'object' },
+            modulePath: './tools/lookup.js',
+            needsSpec: { secrets: { ACME_LOOKUP_KEY: { type: 'string' } } },
+          },
+        ],
+        guardrails: [],
+      },
+    });
+
+  /** CLIENT_A's org, so a tool there looks at the project, the org, then the tenant. */
+  const ORG = 'o-acme-clients' as OrgId;
+  /** The scopes each role administers, as the authorizer is asked them (no inheritance here). */
+  const ROLES = {
+    'tenant-admin': [`admin tenant:${tenantId}`, `admin org:${ORG}`, `admin project:${CLIENT_A}`],
+    'org-admin': [`admin org:${ORG}`, `admin project:${CLIENT_A}`],
+    'project-admin': [`admin project:${CLIENT_A}`],
+  } as const;
+  type Role = keyof typeof ROLES;
+  const roleToken = (role: Role) => `deployments-role-${role}`;
+
+  /** An authorizer that grants `role` its scopes, with CLIENT_A in ORG. */
+  function authorizedAs(role: Role): Partial<Parameters<typeof createApp>[0]> {
+    const grants: readonly string[] = [...ROLES[role], `read tenant:${tenantId}`];
+    const decide = (_p: unknown, action: string, resource: { type: string; id: string }) => {
+      const allowed = grants.includes(`${action} ${resource.type}:${resource.id}`);
+      return {
+        allowed,
+        reason: allowed ? 'test: granted' : 'test: not granted',
+        evidence: {
+          action,
+          relation: '',
+          resource: `${resource.type}:${resource.id}`,
+          actorSubject: '',
+        },
+      };
+    };
+    const projects = makeMockProjectBinding();
+    return {
+      resolveToken: async (token) =>
+        token === roleToken(role)
+          ? { tenantId, userId: role as never }
+          : resolveTokenWithCaps(token),
+      authz: {
+        fgaApiUrl: 'http://fga.invalid',
+        authzCheckBinding: {
+          check: async (p, a, r) => decide(p, a, r) as never,
+          checkBatch: async (p, a, rs) => rs.map((r) => decide(p, a, r)) as never,
+        },
+      },
+      projectBinding: {
+        ...projects,
+        get: async (t, id) => {
+          const project = await projects.get(t, id);
+          return project !== undefined && id === CLIENT_A ? { ...project, orgId: ORG } : project;
+        },
+      },
+    };
+  }
+
+  /**
+   * No authorizer unless `as` names a role (without one every scope counts,
+   * as a tenant admin's would), no secret set anywhere yet unless `seed`
+   * sets one, and stores that act as the runtime's do: the secrets store
+   * reads only at the scope it's asked (`exact`), and the tool registry
+   * keeps a version's first record, so publishing it again records nothing.
+   */
+  function setup(
+    packs: readonly SignedDeploy[],
+    opts: { readonly as?: Role; readonly seed?: readonly Scope[] } = {},
+  ) {
+    const secrets = makeFixtureSecretBinding(
+      (opts.seed ?? []).map((scope) => ({
+        scope,
+        envName: 'prod',
+        name: 'ACME_LOOKUP_KEY',
+        currentVersion: 1,
+      })),
+    );
+    const secretsBinding: SecretBinding = {
+      ...secrets.binding,
+      async resolve(input) {
+        const set = secrets.recordedSets.findLast(
+          (s) =>
+            scopeKey(s.scope) === scopeKey(input.scope) &&
+            s.envName === (input.envName as unknown as string) &&
+            s.name === input.name,
+        );
+        if (set === undefined) {
+          return {
+            kind: 'err',
+            error: { code: 'secret-not-found', message: 'not set', name: input.name },
+          };
+        }
+        return {
+          kind: 'ok',
+          value: { name: input.name, versionId: 1, value: set.value, scope: set.scope },
+        };
+      },
+    };
+    const tools = makeVersionedToolRegistry();
+    const recorded = new Map<string, ToolPublishScopes>();
+    const toolRegistry = {
+      ...tools,
+      publish: async (input: Parameters<ToolRegistryBinding['publish']>[0]) => {
+        const key = `${input.tool.id as unknown as string}@${input.tool.version}`;
+        if (!recorded.has(key)) recorded.set(key, input.secretScopes);
+        return tools.publish(input);
+      },
+    } as ToolRegistryBinding;
+    const { app } = makeApp({
+      toolRegistry,
+      extraTrust: packs.map((f) => ({
+        keyId: KEY_ID,
+        tenantId,
+        publicKey: Buffer.from(f.publicKeyRaw).toString('base64'),
+      })),
+      extraImages: packs.map((f) => ({
+        imageRef: f.imageRef,
+        digest: f.digest,
+        indexBytes: f.indexBytes,
+      })),
+      ...(opts.as !== undefined && { omitProjectBinding: true }),
+      extra: {
+        secretsBinding,
+        envName: 'prod' as never,
+        resolveToken: resolveTokenWithCaps,
+        ...(opts.as !== undefined && authorizedAs(opts.as)),
+      },
+    });
+    const token = opts.as !== undefined ? roleToken(opts.as) : TOKEN;
+    const deploy = async (f: SignedDeploy, projectId?: ProjectId) => {
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ ...f.wire, ...(projectId !== undefined && { projectId }) }),
+      });
+      expect(res.status, await res.clone().text()).toBe(201);
+      return ((await res.json()) as { deploymentId: string }).deploymentId;
+    };
+    // What `kindgi deploy --sync-secrets` does once the deploy lands.
+    const sync = async (deploymentId: string) => {
+      const res = await app.request(`/v1/deployments/${deploymentId}/secrets`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${SECRETS_TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          envName: 'prod',
+          secrets: [{ name: 'ACME_LOOKUP_KEY', value: 'acme-lookup-key-value' }],
+        }),
+      });
+      expect(res.status, await res.clone().text()).toBe(200);
+    };
+    // The scope recorded for the version's secret.
+    const recordedAt = () => recorded.get('acme.lookup@1.0.0')?.ACME_LOOKUP_KEY;
+    // As a call reads it: at the scope recorded for the version, and there only.
+    const read = async () => {
+      const at = recordedAt();
+      if (at === undefined || at === null) throw new Error(`nothing recorded: ${String(at)}`);
+      const resolved = await resolveAtScope(secretsBinding, {
+        scope: scopeOfRecorded(tenantId, at),
+        envName: 'prod' as EnvName,
+        name: 'ACME_LOOKUP_KEY',
+        resolveContext: { caller: 'dispatch' },
+      });
+      return { at, resolved };
+    };
+    return { deploy, sync, read, recordedAt, synced: secrets.recordedSets };
+  }
+
+  test('a first deploy into a named project, with the secret set nowhere yet', async () => {
+    const pack = lookupPack('20260920.1');
+    const { deploy, sync, read, synced } = setup([pack]);
+    await sync(await deploy(pack, CLIENT_A));
+    expect(synced.map((s) => s.scope)).toEqual([
+      { kind: 'project', tenantId, projectId: CLIENT_A },
+    ]);
+    const { at, resolved } = await read();
+    expect(resolved, JSON.stringify(resolved)).toMatchObject({
+      kind: 'ok',
+      value: { value: 'acme-lookup-key-value' },
+    });
+    expect(at).toEqual({ kind: 'project', projectId: CLIENT_A });
+  });
+
+  test('a later deploy of the same tool version, after that first one', async () => {
+    const first = lookupPack('20260920.1');
+    const second = lookupPack('20260920.2');
+    const { deploy, sync, read } = setup([first, second]);
+    await sync(await deploy(first, CLIENT_A));
+    await sync(await deploy(second, CLIENT_A));
+    const { resolved } = await read();
+    expect(resolved, JSON.stringify(resolved)).toMatchObject({
+      kind: 'ok',
+      value: { value: 'acme-lookup-key-value' },
+    });
+  });
+
+  test('a deploy with no project: its tools go to the Default project, and it syncs the tenant', async () => {
+    const pack = lookupPack('20260920.1');
+    const { deploy, sync, read, synced } = setup([pack]);
+    await sync(await deploy(pack));
+    expect(synced.map((s) => s.scope)).toEqual([{ kind: 'tenant', tenantId }]);
+    const { at, resolved } = await read();
+    expect(resolved, JSON.stringify(resolved)).toMatchObject({
+      kind: 'ok',
+      value: { value: 'acme-lookup-key-value' },
+    });
+    expect(at).toEqual({ kind: 'tenant' });
+  });
+
+  test("with an authorizer, a first deploy into a named project records it for the tenant's admin, an org's admin and the project's", async () => {
+    for (const role of ['tenant-admin', 'org-admin', 'project-admin'] as const) {
+      const pack = lookupPack('20260920.1');
+      const { deploy, recordedAt } = setup([pack], { as: role });
+      await deploy(pack, CLIENT_A);
+      expect(recordedAt(), role).toEqual({ kind: 'project', projectId: CLIENT_A });
+    }
+  });
+
+  test('a name already set at a broader scope the deployer administers is still recorded there', async () => {
+    const pack = lookupPack('20260920.1');
+    const atOrg = setup([pack], { as: 'org-admin', seed: [{ kind: 'org', tenantId, orgId: ORG }] });
+    await atOrg.deploy(pack, CLIENT_A);
+    expect(atOrg.recordedAt()).toEqual({ kind: 'org', orgId: ORG });
+    const atTenant = setup([pack], { as: 'tenant-admin', seed: [{ kind: 'tenant', tenantId }] });
+    await atTenant.deploy(pack, CLIENT_A);
+    expect(atTenant.recordedAt()).toEqual({ kind: 'tenant' });
+  });
+});
+
+type ToolPublishScopes = Parameters<ToolRegistryBinding['publish']>[0]['secretScopes'];
