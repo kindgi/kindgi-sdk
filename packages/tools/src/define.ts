@@ -529,7 +529,8 @@ function toDefinitionError(err: {
  * it loads the tool (`compileInlineSchema`), and an env value's `default` is a string. A runtime
  * that couldn't compile one would leave the whole tool out, so it's refused here, where the
  * tool is defined, registered (`POST /v1/tools`) or deployed, naming the tool, the slot and the
- * name.
+ * name. An HTTP spec's `connection` authorization names a connection `needsSpec.connections`
+ * declares.
  */
 function needsSpecProblem(manifest: ToolManifest): InvalidToolDefinitionError | undefined {
   const tool = manifest.id as unknown as string;
@@ -556,6 +557,22 @@ function needsSpecProblem(manifest: ToolManifest): InvalidToolDefinitionError | 
         };
       }
     }
+  }
+  const auth = manifest.spec?.authorization;
+  if (
+    auth?.kind === 'connection' &&
+    manifest.needsSpec?.connections?.[auth.connection] === undefined
+  ) {
+    return {
+      code: 'invalid-tool-definition',
+      message: `Tool "${tool}": spec.authorization sends the connection "${auth.connection}", which needsSpec.connections doesn't declare.`,
+      issues: [
+        {
+          path: '/spec/authorization/connection',
+          message: 'must name a connection needsSpec.connections declares',
+        },
+      ],
+    };
   }
   return undefined;
 }

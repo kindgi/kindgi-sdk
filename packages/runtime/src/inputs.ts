@@ -121,19 +121,49 @@ export function runIsAttended(startedBy: RunStartedBy | undefined): boolean {
 export type RunActsFor = `user:${string}` | `service_account:${string}`;
 
 /**
+ * What the rule for runs no person started reads of a tool: its flags,
+ * and its `needsSpec.connections` (`@kindgi/tools`' `ConnectionNeed`s,
+ * each `as: 'person' | 'company'`).
+ */
+export interface UnattendedRuleTool {
+  readonly id: string;
+  readonly needsApprovalWhenUnattended?: boolean;
+  readonly mutating?: boolean;
+  readonly needsSpec?: object;
+}
+
+/**
+ * Whether a call of `tool` needs a person's yes in a run no person
+ * started: it declares `needsApprovalWhenUnattended`, or it acts with a
+ * person's connection (a `needsSpec.connections` entry `as: 'person'`)
+ * and isn't read-only (`mutating` isn't `false`). So a tool that sends as
+ * someone never runs unasked under a trigger because its author left the
+ * flag off; `needsApprovalWhenUnattended: false` doesn't lift it.
+ */
+export function toolNeedsPersonsYesUnattended(tool: UnattendedRuleTool): boolean {
+  if (tool.needsApprovalWhenUnattended === true) return true;
+  if (tool.mutating === false) return false;
+  const { connections } = (tool.needsSpec ?? {}) as {
+    readonly connections?: Readonly<Record<string, { readonly as?: unknown }>>;
+  };
+  return connections !== undefined && Object.values(connections).some((c) => c.as === 'person');
+}
+
+/**
  * Whether a call of `tool` waits for a person's yes because no person is
- * watching its run: the tool declares `needsApprovalWhenUnattended`, the
- * run isn't attended (`runIsAttended`), and it isn't a run a webhook or a
- * schedule started whose `toolsAllowedUnattended` lists the tool. Only
- * those runs have a list: on any other, one lifts nothing. The one rule an
- * agent's tool gate and a flow's tool step both apply.
+ * watching its run: the tool needs one then (`needsApprovalWhenUnattended`,
+ * declared, or a change made with a person's connection), the run isn't
+ * attended (`runIsAttended`), and it isn't a run a webhook or a schedule
+ * started whose `toolsAllowedUnattended` lists the tool. Only those runs
+ * have a list: on any other, one lifts nothing. The one rule an agent's
+ * tool gate and a flow's tool step both apply.
  */
 export function needsPersonsYesUnattended(
-  tool: { readonly id: string; readonly needsApprovalWhenUnattended?: boolean },
+  tool: UnattendedRuleTool,
   startedBy: RunStartedBy | undefined,
   toolsAllowedUnattended: readonly string[] | undefined,
 ): boolean {
-  if (tool.needsApprovalWhenUnattended !== true || runIsAttended(startedBy)) return false;
+  if (!toolNeedsPersonsYesUnattended(tool) || runIsAttended(startedBy)) return false;
   const listed =
     (startedBy === 'webhook' || startedBy === 'schedule') &&
     toolsAllowedUnattended?.includes(tool.id) === true;

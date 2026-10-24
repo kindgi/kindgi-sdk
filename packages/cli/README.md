@@ -64,7 +64,7 @@ pnpm exec kindgi runs start --flow=my-pack.echo-flow --input='{"name":"Ada"}' --
 ## `kindgi init`
 
 ```sh
-kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|python] [--path=<dir>]
+kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|follow-up|python|java|scala] [--path=<dir>]
             [--force] [--link-local] [--new-repo] [--pack-id=<id>]
 ```
 
@@ -110,12 +110,13 @@ Three modes:
 
 A Node project gets `@kindgi/sdk` (a dependency) and `@kindgi/cli` (a
 devDependency) at the running CLI's own version, or linked from a checkout
-(`--link-local`); never `latest`.
+(`--link-local`); never `latest`. The `follow-up` template's
+`@kindgi/connections` comes the same way.
 
 | Flag | Purpose |
 |---|---|
 | `<pack-name>` | The pack id: lowercase kebab-case, optionally dot-namespaced (`my-pack`, `acme.legal-basics`). |
-| `--template=<name>` | `minimal` (the default: the folders, no examples), `sample` (three tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store: typed store tools, approvals for large refunds and store changes, and a review of each new order), `drupal` (agents for a Drupal site through its MCP Server: house-style fixes as drafts, each change approved, and a review of each saved article), or `python` (the sample as a Python pack). |
+| `--template=<name>` | `minimal` (the default: the folders, no examples), `sample` (three tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store: typed store tools, approvals for large refunds and store changes, and a review of each new order), `drupal` (agents for a Drupal site through its MCP Server: house-style fixes as drafts, each change approved, and a review of each saved article), `follow-up` (an agent that writes a follow-up mail from your notes and sends it from your Gmail once you approve it; its send tool comes from `@kindgi/connections`, under the pack's id), `python` (the sample as a Python pack), `java` (a Java pack, built with Maven; preview) or `scala` (a Scala pack, built with sbt; preview). |
 | `--path=<dir>` | Where to scaffold. Default: `<pack-name>` under the current directory (for a dot-namespaced id, its last segment). |
 | `--force` | Write into a non-empty directory. Default: refuse. |
 | `--link-local` | Link `@kindgi/*` from the checkout the CLI runs from. |
@@ -901,6 +902,8 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 | `tokens` | API keys for you, a person (`--for=user:<id>`) or a service account (`--for=sa:<id>`): `create` (its secret shown once; `--role`, `--project`, `--expires`), `list`, `get`, `revoke` |
 | `service-accounts` | `create <name>` (with `--tenant-admin`, `--project=<id>:<role>`), `list`, `get`, `grant`, `ungrant`, `unregister` |
 | `people` | `add --name [--email]` (tenant admins), `list`, `get`, `grants <id>`, `grant`/`ungrant <id> --tenant-admin` (tenant admins) |
+| `connections` | Accounts at other apps that tools act with: `list` (`--project`, `--app`, `--mine`, `--include-removed`), `get`, `connect <app>` (prints the link; at a terminal, waits and says whose account; `--for-company` for tenant admins), `disconnect <id>` (asks first, or `--yes`) |
+| `connection-apps` | The tenant's registrations at other apps (tenant admins): `list` (`--include-removed`), `get`, `add google` / `add microsoft` (`--tenant`) / `add github` (secrets by reference, `<env>/<name>`), `remove <id>` (`--with-connections`; asks first, or `--yes`) |
 | `runs` | `list`, `get`, `cancel`, `journal`, `stream` (one JSON event per line), `start`, `resume` |
 | `agents` | `list`, `get <agent-id> [<version>]`, `publish`, `derive`, `unregister <agent-id> <version>`, `versions`; which version runs where: `live`, `live-versions`, `promote`, `rollback`, `unpin`, `promotions` |
 | `tools` | `list`, `get`, `publish`, `unregister`, `versions`, `get-version`, `reinstate` |
@@ -1016,7 +1019,7 @@ to a mirror instead and checks for the same image there.
 | `--json` | Pretty JSON on stdout (the default), for `jq`. |
 | `--raw` | One-line JSON. |
 | `--table` | A table for list responses (`runs list`, `tools list`, `providers list`; JSON where a list has no columns). |
-| `--quiet` | Nothing on stdout, and errors and warnings only on stderr, the CLI pin's warning and a rate limit's wait among them: the exit code reports the result. |
+| `--quiet` | Nothing on stdout, and errors and warnings only on stderr, the CLI pin's warning and a rate limit's wait among them: the exit code reports the result. `kindgi connections connect` still prints its link, which is what you open. |
 | `--url=<url>`, `--token=<token>` | The API and its token (see above). |
 | `--hosted` | Go to the CLI's own address, never a `kindgi dev` runtime's `.kindgirc.json` (see above). `kindgi build` and `kindgi deploy` then use the hosted build service. `kindgi dev` refuses it. |
 | `--verbose`, `-v` | Full errors: stack traces and the API's error bodies. |

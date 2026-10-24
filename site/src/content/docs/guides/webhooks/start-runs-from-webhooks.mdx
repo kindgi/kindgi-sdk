@@ -14,9 +14,9 @@ A **webhook trigger** turns a signed request from outside, such as "an order
 was created" from WooCommerce, into a run of one of your flows. The sender
 posts to the trigger's **receive URL**. Kindgi checks the request's signature
 with a secret only the two of you know, and starts the flow, with the request
-body as its event. The run acts as the trigger's **owner**, whoever
-registered it or a service account named for it, checked again at every
-delivery, in the trigger's project.
+body as its event. The run acts as the trigger's **owner**, checked again
+at every delivery, in the trigger's project. That's whoever registered it
+or last changed what it runs, or a service account named for it.
 
 This guide is about Kindgi **receiving** webhooks. For Kindgi sending your
 app a request when a run ends, see
@@ -529,6 +529,15 @@ A run an event trigger starts reads the same, with `startedBy: "event"`.
   rotate when the store is quiet. The runtime keeps a trigger's signing key
   for up to 10 seconds: the old secret stops verifying at once on the
   instance that took the rotation, and within 10 seconds on the others.
+
+  When you aren't its owner, a new flow version, input, secret or list of
+  tools allowed unattended makes you its owner (runtime 0.2.0 or later),
+  and its runs act as you from the next delivery. So your own access only
+  serves what you set it to run. The label, scheme, delivery-id header and
+  limits leave its owner as it is. A trigger a service account owns keeps
+  its owner, whoever changes it, and a service account that changes a
+  person's trigger becomes its owner. Each change that moves the owner is
+  recorded as evidence, `trigger-owner-set`.
 - **`kindgi webhooks take-ownership <trigger-id>`:** for a trigger whose owner
   left. Once they're removed from the tenant, or the service account it runs
   as is unregistered, its deliveries are refused (runtime 0.1.9 or later).

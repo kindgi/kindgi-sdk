@@ -13,6 +13,10 @@
  * (`tool: { id, version, callId }`). Everything else stays behind the
  * approvals routes' reviewer gate.
  *
+ * A connect the run waits for (a tool that needs a person's account) is
+ * the request's own, made for the run: what it asks for, in plain words,
+ * and where to connect.
+ *
  * A wait for another system's answer (a pausing tool's call) is in
  * `tokens`, as the runtime's wait token binding lists it: what it waits
  * for, the tool, and when it times out. Never the token's link.
@@ -20,9 +24,17 @@
 
 import { TOOL_CALL_GATE_SUBJECT } from '@kindgi/agents';
 import type { JournalEntry, RunBinding } from '@kindgi/runtime';
+import type { WaitingForConnection } from '@kindgi/tools';
 import type { RunId, TenantId } from '@kindgi/types';
 
-import type { Approval, ApprovalStatus, HitlBinding } from './hitl-binding.js';
+import type { ConnectRequestRecord, ConnectionBinding } from './connection-binding.js';
+import type {
+  Approval,
+  ApprovalApprover,
+  ApprovalConnection,
+  ApprovalStatus,
+  HitlBinding,
+} from './hitl-binding.js';
 import type { WaitTokenBinding, WaitingToken } from './wait-token-binding.js';
 
 /** An approval the run waits for, as a run reader may see it. */
@@ -36,6 +48,10 @@ export interface WaitingForApproval {
   readonly subjectKind: string;
   /** For a tool-call subject: which call waits. Never its arguments. */
   readonly tool?: { readonly id: string; readonly version: string; readonly callId: string };
+  /** The one member who may decide it. */
+  readonly approver?: ApprovalApprover;
+  /** The person's account the call would use. */
+  readonly connection?: ApprovalConnection;
 }
 
 /** A wait that isn't an open approval: the run's own facts. */
@@ -57,6 +73,8 @@ export type WaitingForOther =
 export interface RunWaitingFor {
   readonly approvals: readonly WaitingForApproval[];
   readonly other: readonly WaitingForOther[];
+  /** The connects the run waits for; left out when there are none. */
+  readonly connections?: readonly WaitingForConnection[];
   /**
    * Its waits for another system's answer. Absent on a runtime that pauses
    * no run, or when they can't be read (the waits are then `unattributed`).
@@ -75,13 +93,15 @@ const OPEN_APPROVAL: ReadonlySet<string> = new Set([
 /**
  * What `run` (suspended) waits for, or `undefined` when it isn't suspended
  * or its journal can't be read (the field is then left out; a caller
- * falls back to its own reading). Approvals that can't be read leave their
- * waits `unattributed`, as do waits for an answer that can't be read.
+ * falls back to its own reading). Approvals and connect requests that
+ * can't be read leave their waits `unattributed`, as do waits for an
+ * answer that can't be read.
  */
 export async function runWaitingFor(
   deps: {
     readonly runBinding: RunBinding;
     readonly hitl?: HitlBinding;
+    readonly connections?: ConnectionBinding;
     readonly waitTokens?: WaitTokenBinding;
   },
   tenantId: TenantId,
@@ -103,14 +123,19 @@ export async function runWaitingFor(
   );
   if (tokens.length === 0) return { approvals: [], other: childWaits, ...withTokens };
 
-  const linked = await linkedApprovals(
-    deps.hitl,
-    tenantId,
-    tokens.map((w) => w.tokenId),
-  );
+  const tokenIds = tokens.map((w) => w.tokenId);
+  const [linked, connects] = await Promise.all([
+    linkedApprovals(deps.hitl, tenantId, tokenIds),
+    connectWaits(deps.connections, tenantId, run.id, tokenIds),
+  ]);
+  const attributed = new Set<string>([
+    ...linked.map((a) => a.waitTokenId as string),
+    ...connects.map((w) => w.waitToken),
+  ]);
   return {
     approvals: linked.filter((a) => OPEN_APPROVAL.has(a.status)).map(onTheRun),
-    other: [...childWaits, ...decided(linked), ...unattributed(tokens, linked)],
+    other: [...childWaits, ...decided(linked), ...unattributed(tokens, attributed)],
+    ...(connects.length > 0 && { connections: connects }),
     ...withTokens,
   };
 }
@@ -165,10 +190,13 @@ function decided(linked: readonly Approval[]): WaitingForOther[] {
     }));
 }
 
-/** Waits no approval is linked to. */
-function unattributed(tokens: readonly OpenWait[], linked: readonly Approval[]): WaitingForOther[] {
+/** Waits no approval or connect request is linked to. */
+function unattributed(
+  tokens: readonly OpenWait[],
+  attributed: ReadonlySet<string>,
+): WaitingForOther[] {
   return tokens
-    .filter((w) => !linked.some((a) => a.waitTokenId === w.tokenId))
+    .filter((w) => !attributed.has(w.tokenId))
     .map((w) => ({
       what: 'unattributed',
       tokenId: w.tokenId,
@@ -193,6 +221,40 @@ async function linkedApprovals(
   );
 }
 
+/**
+ * The run's pending connect requests that one of these waits is for; none
+ * when they can't be read.
+ */
+async function connectWaits(
+  connections: ConnectionBinding | undefined,
+  tenantId: TenantId,
+  runId: RunId,
+  tokenIds: readonly string[],
+): Promise<readonly WaitingForConnection[]> {
+  if (connections === undefined) return [];
+  const requests = await connections
+    .requestsForRun({ tenantId, runId: runId as unknown as string })
+    .catch(() => undefined);
+  if (requests === undefined) return [];
+  const names = new Map(connections.entries().map((entry) => [entry.id, entry.name]));
+  return requests
+    .filter(
+      (r): r is ConnectRequestRecord & { readonly waitToken: string } =>
+        r.state === 'pending' && r.waitToken !== undefined && tokenIds.includes(r.waitToken),
+    )
+    .map((r) => ({
+      name: r.name ?? r.app,
+      requestId: r.requestId,
+      waitToken: r.waitToken,
+      app: r.app,
+      appName: names.get(r.app) ?? r.app,
+      says: [...r.says],
+      connectUrl: r.connectUrl,
+      expiresAt: r.expiresAt,
+      ...(r.reconnects !== undefined && { reconnects: true }),
+    }));
+}
+
 /** An approval as a run reader sees it: built field by field, never spread. */
 function onTheRun(approval: Approval): WaitingForApproval {
   const tool = toolOf(approval);
@@ -205,6 +267,16 @@ function onTheRun(approval: Approval): WaitingForApproval {
     ...(approval.expiresAt !== undefined && { expiresAt: approval.expiresAt as unknown as string }),
     subjectKind: approval.subjectKind,
     ...(tool !== undefined && { tool }),
+    ...(approval.approver !== undefined && {
+      approver: { kind: approval.approver.kind, userId: approval.approver.userId },
+    }),
+    ...(approval.connection !== undefined && {
+      connection: {
+        app: approval.connection.app,
+        appName: approval.connection.appName,
+        account: approval.connection.account,
+      },
+    }),
   };
 }
 

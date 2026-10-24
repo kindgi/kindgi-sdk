@@ -88,6 +88,7 @@ export const FIXTURE_TOOL_IDS = [
   'conformance.http',
   'conformance.noisy',
   'conformance.process-env',
+  'conformance.rejects',
   'conformance.sleep',
   'conformance.throws',
 ] as const;
@@ -595,6 +596,14 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
           successStatus: { min: 200, max: 299 },
         });
       });
+
+      test("a tool's connections index the same in every SDK", () => {
+        // The runtime resolves a call's connections from the indexed `needsSpec.connections`.
+        const rejects = index.tools.find((t) => t.id === 'conformance.rejects');
+        expect(rejects?.needsSpec).toEqual({
+          connections: { mail: { app: 'google', permissions: ['gmail.send'], as: 'person' } },
+        });
+      });
     });
 
     describe('process', () => {
@@ -1100,6 +1109,44 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         expect(String((answer.cause as { message?: unknown }).message)).toContain('boom');
       });
 
+      test("an app's refusal of a connection, or an error caused by one: connection-rejected, naming it", async () => {
+        // Pack protocol 2.9.0: the runtime renews that connection's token and calls once more.
+        const accessToken = 'refused-mail-token';
+        const ctx = {
+          ...CTX,
+          connections: {
+            mail: {
+              connectionId: 'c-mail',
+              app: 'google',
+              appName: 'Google',
+              accessToken,
+              account: { id: 'g-ana', label: 'ana@acme.example' },
+            },
+          },
+        };
+        for (const input of [{}, { wrapped: true }]) {
+          const answer = response(
+            await invoke(service, toolCall('conformance.rejects', input, { ctx })),
+          );
+          expect(answer).toEqual({
+            v: 2,
+            kind: 'error',
+            code: 'connection-rejected',
+            message: 'Tool "conformance.rejects": refused',
+            toolId: 'conformance.rejects',
+            connection: 'mail',
+          });
+        }
+        await waitFor(
+          () =>
+            service.events.filter((e) => e.kind === 'call' && e.id === 'conformance.rejects')
+              .length >= 2 || undefined,
+          3_000,
+          'the call lines',
+        );
+        expect([...service.stdout, ...service.stderr].join('\n')).not.toContain(accessToken);
+      });
+
       test("the handler receives its input with the schema's defaults filled in", async () => {
         const filled = response(
           await invoke(service, toolCall('conformance.defaults', { name: 'Ada' })),
@@ -1126,6 +1173,24 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
           secrets: { API_KEY: 's3cret' },
           config: { mode: 'fast' },
           settings: { 'acme.weights': { recency: 0.7 } },
+          // Pack protocol 2.9.0: the connections the tool declares, each with a short-lived token.
+          connections: {
+            mail: {
+              connectionId: 'c-mail',
+              app: 'google',
+              appName: 'Google',
+              accessToken: 'mail-token',
+              account: { id: 'g-ana', label: 'ana@acme.example' },
+              expiresAt: '2026-10-23T01:00:00.000Z',
+            },
+            repo: {
+              connectionId: 'c-repo',
+              app: 'github',
+              appName: 'GitHub',
+              accessToken: 'repo-token',
+              account: { id: '1', label: 'acme' },
+            },
+          },
         };
         const answer = response(
           await invoke(service, toolCall('conformance.context', {}, { ctx })),
@@ -1412,10 +1477,23 @@ export function describeCallContextCompatibility(target: PackServiceTarget): voi
       if (workDir !== '') await rm(workDir, { recursive: true, force: true });
     });
 
-    test('a tool call whose context has the project, the org and an idempotency key: answered', async () => {
+    test('a tool call whose context has the project, the org, an idempotency key and connections: answered', async () => {
       if (service === undefined) throw new Error('the service did not start');
-      // The idempotency key is pack protocol 2.6.0: an older service ignores it.
-      const ctx = { ...newer, idempotencyKey: '0d6f4c1a-9a43-5b1e-8f1d-2b7e6c3d9a10' };
+      // The idempotency key is pack protocol 2.6.0 and the connections 2.9.0: an older
+      // service ignores both.
+      const ctx = {
+        ...newer,
+        idempotencyKey: '0d6f4c1a-9a43-5b1e-8f1d-2b7e6c3d9a10',
+        connections: {
+          mail: {
+            connectionId: 'c-mail',
+            app: 'google',
+            appName: 'Google',
+            accessToken: 'mail-token',
+            account: { id: 'g-ana', label: 'ana@acme.example' },
+          },
+        },
+      };
       const answer = await invoke(
         service,
         toolCall('conformance.echo', { message: 'hi' }, { ctx }),

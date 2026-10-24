@@ -338,6 +338,28 @@ export type {
   UpdateScheduleInput,
 } from './resources/schedules.js';
 export type {
+  ConnectFinish,
+  ConnectInput,
+  ConnectRequest,
+  Connection,
+  ConnectionApp,
+  ConnectionAppPage,
+  ConnectionAppsClient,
+  ConnectionEntriesClient,
+  ConnectionEntry,
+  ConnectionPage,
+  ConnectionStartResult,
+  ConnectionsClient,
+  CreateConnectionAppInput,
+  FinishConnectInput,
+  ListConnectionAppsFilter,
+  ListConnectionsFilter,
+  RemoveConnectionAppOptions,
+  RemoveConnectionAppResult,
+  StartConnectInput,
+  UpdateConnectionAppInput,
+} from './resources/connections.js';
+export type {
   ApprovalRequestedEvent,
   CreateWebhookEndpointInput,
   FinishedRun,
