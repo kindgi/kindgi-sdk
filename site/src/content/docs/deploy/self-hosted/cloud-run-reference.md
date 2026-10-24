@@ -132,6 +132,9 @@ store's key and that secret come first, before the services change:
      -target=google_secret_manager_secret_iam_member.server_reads
    ```
 
+   Terraform warns that resource targeting is in effect and the applied
+   changes may be incomplete. Both are expected: step 4 completes them.
+
 3. Add the secret's first version, as in [The secrets](../cloud-run/#3-the-secrets):
 
    ```sh
