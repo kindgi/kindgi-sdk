@@ -32,7 +32,8 @@ import type { ConnectWaitResult } from './tool-hitl.js';
  * 2. **Every time the tool runs:** a fresh resolve, never recorded, gives
  *    the tokens (`ctx.connections`). The app refusing one (an HTTP 401,
  *    `ConnectionRejectedError`) renews that token and runs the call once
- *    more.
+ *    more. A pausing call's answer from outside runs nothing, and asks for
+ *    none.
  *
  * A call the connections stop runs nothing: it fails with a
  * `connection-*` code, the model reads why as its result, and the turn

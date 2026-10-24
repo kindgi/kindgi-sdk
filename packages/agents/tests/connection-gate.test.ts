@@ -26,6 +26,7 @@ import {
   type ResolveConnectionsOutcome,
   type ToolContext,
   defineTool,
+  pauseOutcome,
 } from '@kindgi/tools';
 import type { AnyTool } from '@kindgi/tools';
 import type { RunId, TenantId, ToolId } from '@kindgi/types';
@@ -104,6 +105,8 @@ function waitFor(name: string): ResolveConnectionsOutcome {
 interface TurnOptions {
   readonly needs?: Readonly<Record<string, ConnectionNeed>>;
   readonly mutating?: boolean;
+  /** The tool pauses (`Tool.pauses`): its run may answer a pause. */
+  readonly pauses?: true;
   /** The tool's run, after it records what it was given. */
   readonly run?: (ctx: ToolContext, attempt: number) => Promise<unknown>;
   /** The resolver's answers, in order; the last one repeats. Absent: every need ready. */
@@ -159,7 +162,9 @@ async function turn(o: TurnOptions = {}) {
     },
   });
   if (defined.kind === 'err') throw new Error(defined.error.message);
-  const tool = defined.value as unknown as AnyTool;
+  const tool = (o.pauses === true
+    ? { ...defined.value, pauses: true }
+    : defined.value) as unknown as AnyTool;
   const a = agent(o.policy, o.toolErrors);
   const answers = o.answers ?? [];
   const ctx = {
@@ -405,6 +410,60 @@ describe('a call its connections stop runs nothing, and the turn goes on', () =>
     });
     expect(t.ran).toEqual([]);
     expect(t.failed[0]?.error.code).toBe('connection-missing');
+    expect(t.events.filter((e) => e.kind === 'tool.started')).toHaveLength(1);
+  });
+});
+
+describe('a call that pauses asks for its tokens only when its tool runs', () => {
+  const PAUSE = { tokenId: 'pause:k:1', timeoutMs: 7_200_000, name: "Acme's answer" };
+  const lapsed: ResolveConnectionsOutcome = {
+    kind: 'refused',
+    code: 'connection-missing',
+    name: 'mail',
+    app: 'acme',
+    message: 'It needs reconnecting.',
+  };
+
+  test('the connection lapsed while it waited for the answer: the answer is its result, and nothing is asked', async () => {
+    const records = new Map<string, unknown>();
+    const parked = new Error('parked');
+    const first = await turn({
+      pauses: true,
+      run: async () => pauseOutcome(PAUSE),
+      records,
+      waitForToken: async () => {
+        throw parked;
+      },
+    });
+    expect(first.thrown).toBe(parked);
+    expect(first.ran).toHaveLength(1);
+    expect(first.ran[0]?.connections?.mail?.accessToken).toBe('secret-token-mail-2');
+
+    // The person disconnects Acme before the answer comes; the answer resumes the step.
+    const resumed = await turn({
+      pauses: true,
+      records,
+      answers: [lapsed],
+      waitForToken: async () => ({ ok: true }),
+    });
+    expect(resumed.waits.map((w) => w.token)).toEqual([PAUSE.tokenId]);
+    expect(resumed.ran).toEqual([]);
+    expect(resumed.asked).toEqual([]);
+    expect(resumed.failed).toEqual([]);
+    expect(resumed.results).toEqual([{ ok: true }]);
+  });
+
+  test('the connection lapsed before it ran: it runs nothing, and no pause is recorded', async () => {
+    const t = await turn({
+      pauses: true,
+      run: async () => pauseOutcome(PAUSE),
+      answers: [readyFor({ needs: { mail } } as never, 1), lapsed],
+    });
+    expect(t.ran).toEqual([]);
+    expect(t.waits).toEqual([]);
+    expect(t.failed[0]?.error.code).toBe('connection-missing');
+    expect(t.events.filter((e) => e.kind === 'tool.started')).toHaveLength(1);
+    expect([...t.records.keys()]).toEqual([`connection-gate:${CALL}`]);
   });
 });
 

@@ -488,22 +488,6 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
         }
       }
 
-      // The call's tokens, asked fresh right before it runs and never
-      // recorded: a connection that lapsed while it waited fails it.
-      let tokens: Readonly<Record<string, ToolConnection>> | undefined;
-      if (toolRejectionPayload === null && connected.kind === 'ready') {
-        const fresh = await freshConnections(ctx, kctx, call, tool);
-        if (fresh.kind === 'failed') {
-          nextMessages = await appendConnectionFailure(ctx, partial.step, call, binding, {
-            failure: fresh.failure,
-            started: false,
-            target: { toolId: tool.id as unknown as string, nextMessages, iterationAppended },
-          });
-          continue;
-        }
-        tokens = fresh.connections;
-      }
-
       const toolStarted = Date.now();
       await emitTurnEvent(ctx.bindings.onEvent, {
         kind: 'tool.started',
@@ -547,14 +531,27 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
 
       // A replay's live call reads the env the past run's call saw.
       const replayEnv = replayed?.kind === 'live' ? replayed.env : undefined;
-      let dispatched = await dispatchOne(ctx, tool, call, kctx, replayEnv, tokens);
+      // The call's tokens, asked fresh right before it runs and never
+      // recorded: a connection that lapsed while it waited fails it.
+      const connect: Connect | undefined =
+        connected.kind === 'ready' ? () => freshConnections(ctx, kctx, call, tool) : undefined;
+      const first = await dispatchOne(ctx, tool, call, kctx, replayEnv, connect);
+      if (first.kind === 'not-connected') {
+        nextMessages = await appendConnectionFailure(ctx, partial.step, call, binding, {
+          failure: first.failure,
+          started: true,
+          target: { toolId: tool.id as unknown as string, nextMessages, iterationAppended },
+        });
+        continue;
+      }
       // The app refused a connection's token: renewed, the call runs once more.
-      const rejected =
-        dispatched.kind === 'err' ? rejectedConnectionOf(dispatched.error, tool) : undefined;
-      let renewedTokens: Readonly<Record<string, ToolConnection>> | undefined;
+      const rejected = first.kind === 'err' ? rejectedConnectionOf(first.error, tool) : undefined;
+      let dispatched = first;
       if (rejected !== undefined) {
-        const renewed = await freshConnections(ctx, kctx, call, tool, [rejected]);
-        if (renewed.kind === 'failed') {
+        const renewed = await dispatchOne(ctx, tool, call, kctx, replayEnv, () =>
+          freshConnections(ctx, kctx, call, tool, [rejected]),
+        );
+        if (renewed.kind === 'not-connected') {
           nextMessages = await appendConnectionFailure(ctx, partial.step, call, binding, {
             failure: renewed.failure,
             started: true,
@@ -562,13 +559,15 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
           });
           continue;
         }
-        renewedTokens = renewed.connections;
-        dispatched = await dispatchOne(ctx, tool, call, kctx, replayEnv, renewed.connections);
+        dispatched = renewed;
       }
       if (dispatched.kind === 'err') {
         // A token the tool echoed in what it threw goes no further: not to
         // the run's events, its record or the model.
-        const error = withoutConnectionTokens(dispatched.error, [tokens, renewedTokens]);
+        const error = withoutConnectionTokens(dispatched.error, [
+          first.kind === 'err' ? first.connections : undefined,
+          dispatched.connections,
+        ]);
         await emitTurnEvent(ctx.bindings.onEvent, {
           kind: 'tool.failed',
           step: partial.step,
@@ -881,7 +880,7 @@ async function dispatchOne(
   call: ModelToolCall,
   kctx: NodeContext,
   replayEnv: Readonly<Record<string, string>> | undefined,
-  connections: Readonly<Record<string, ToolConnection>> | undefined,
+  connect: Connect | undefined,
 ): Promise<
   | {
       readonly kind: 'ok';
@@ -900,10 +899,15 @@ async function dispatchOne(
         readonly validationIssues?: readonly Readonly<Record<string, unknown>>[];
         readonly receivedInput?: unknown;
       };
+      /** The tokens it ran with, kept out of what it threw. */
+      readonly connections?: Readonly<Record<string, ToolConnection>>;
     }
+  | { readonly kind: 'not-connected'; readonly failure: ConnectionCallFailure }
 > {
-  const toolCtx = toolContextFor(ctx, tool, call, kctx, replayEnv, connections);
-  const { result, fromOutside } = await callOrWait(tool, call, toolCtx, kctx);
+  const toolCtx = toolContextFor(ctx, tool, call, kctx, replayEnv);
+  const called = await callOrWait(tool, call, toolCtx, kctx, connect);
+  if (called.kind === 'not-connected') return called;
+  const { result, fromOutside, connections } = called;
   if (result.kind === 'err') {
     // Hoist AJV validation detail from the inner error so it survives
     // `toWireError` (which filters `cause` to avoid Error-instance /
@@ -937,6 +941,7 @@ async function dispatchOne(
           receivedInput: truncateForWire(call.arguments),
         }),
       },
+      ...(connections !== undefined && { connections }),
     };
   }
   const persist = await ctx.bindings.conversationBinding.appendMessage({
@@ -981,7 +986,6 @@ function toolContextFor(
   call: ModelToolCall,
   kctx: NodeContext,
   replayEnv: Readonly<Record<string, string>> | undefined,
-  connections: Readonly<Record<string, ToolConnection>> | undefined,
 ): ToolContext {
   const runId = kctx.runId as unknown as string;
   const toolId = tool.id as unknown as string;
@@ -1017,9 +1021,32 @@ function toolContextFor(
       kctx.record(toolCallRecordKey({ toolId, key, callId: call.id }), decide),
     // A replay's live call: the past run's env values for the tool.
     ...(replayEnv !== undefined && { env: replayEnv }),
-    // The connections it declares, asked fresh for this run of it.
-    ...(connections !== undefined && { connections }),
   };
+}
+
+/** The call's tokens, asked fresh right before its tool runs (`freshConnections`). */
+type Connect = () => ReturnType<typeof freshConnections>;
+
+/**
+ * The context the call's tool runs with: with the connections it declares,
+ * asked fresh for this run of it (`connect`).
+ */
+async function connectedContext(
+  toolCtx: ToolContext,
+  connect: Connect | undefined,
+): Promise<
+  | {
+      readonly kind: 'ready';
+      readonly toolCtx: ToolContext;
+      readonly connections?: Readonly<Record<string, ToolConnection>>;
+    }
+  | { readonly kind: 'failed'; readonly failure: ConnectionCallFailure }
+> {
+  if (connect === undefined) return { kind: 'ready', toolCtx };
+  const fresh = await connect();
+  if (fresh.kind === 'failed') return fresh;
+  const { connections } = fresh;
+  return { kind: 'ready', toolCtx: { ...toolCtx, connections }, connections };
 }
 
 /** The record key prefix of a pausing call's pause (`callOrWait`). */
@@ -1039,34 +1066,85 @@ const TOOL_PAUSE_RECORD_PREFIX = 'tool-pause:';
  * and a retried step's call waits on a new token. A result isn't recorded
  * (a `decide` that returns `undefined` isn't journaled): the conversation
  * keeps it already.
+ *
+ * The call's tokens are asked (`connect`) only when the tool runs: the
+ * step the answer resumes reads the pause back and runs nothing, so a
+ * connection that lapsed while it waited doesn't lose the answer. A call
+ * its connections stop runs nothing (`not-connected`).
  */
 async function callOrWait(
   tool: Tool,
   call: ModelToolCall,
   toolCtx: ToolContext,
   kctx: NodeContext,
-): Promise<{ readonly result: Result<unknown, ToolError>; readonly fromOutside: boolean }> {
+  connect: Connect | undefined,
+): Promise<
+  | {
+      readonly kind: 'called';
+      readonly result: Result<unknown, ToolError>;
+      readonly fromOutside: boolean;
+      /** The tokens it ran with: none for an answer from outside. */
+      readonly connections?: Readonly<Record<string, ToolConnection>>;
+    }
+  | { readonly kind: 'not-connected'; readonly failure: ConnectionCallFailure }
+> {
   if (tool.pauses !== true) {
-    return { result: await invokeTool(tool, call.arguments, toolCtx), fromOutside: false };
+    const ready = await connectedContext(toolCtx, connect);
+    if (ready.kind === 'failed') return { kind: 'not-connected', failure: ready.failure };
+    const result = await invokeTool(tool, call.arguments, ready.toolCtx);
+    return {
+      kind: 'called',
+      result,
+      fromOutside: false,
+      ...(ready.connections !== undefined && { connections: ready.connections }),
+    };
   }
   const toolId = tool.id as unknown as string;
-  const answered: { result?: Result<unknown, ToolError> } = {};
+  const answered: {
+    result?: Result<unknown, ToolError>;
+    connections?: Readonly<Record<string, ToolConnection>>;
+    failure?: ConnectionCallFailure;
+  } = {};
   const pause = await kctx.record(
     `${TOOL_PAUSE_RECORD_PREFIX}${toolId}:${call.id}:${kctx.attempt ?? 1}`,
     async (): Promise<ToolPause | undefined> => {
-      const outcome = await invokeToolOrPause(tool, call.arguments, toolCtx);
+      const ready = await connectedContext(toolCtx, connect);
+      if (ready.kind === 'failed') {
+        answered.failure = ready.failure;
+        return undefined;
+      }
+      if (ready.connections !== undefined) answered.connections = ready.connections;
+      const outcome = await invokeToolOrPause(tool, call.arguments, ready.toolCtx);
       if (outcome.kind === 'pause') return outcome.pause;
       answered.result = outcome;
       return undefined;
     },
   );
   if (pause === undefined) {
+    if (answered.failure !== undefined) return { kind: 'not-connected', failure: answered.failure };
     if (answered.result === undefined) {
       // Only a host whose `record` keeps an `undefined` gets here.
       throw new Error(`The call ${call.id} to ${toolId} recorded no pause and kept no result`);
     }
-    return { result: answered.result, fromOutside: false };
+    return {
+      kind: 'called',
+      result: answered.result,
+      fromOutside: false,
+      ...(answered.connections !== undefined && { connections: answered.connections }),
+    };
   }
+  return { kind: 'called', ...(await answerOf(tool, pause, kctx)) };
+}
+
+/**
+ * A recorded pause's answer, from outside the run; or its time passing
+ * (`wait-token-timed-out`), a failed call.
+ */
+async function answerOf(
+  tool: Tool,
+  pause: ToolPause,
+  kctx: NodeContext,
+): Promise<{ readonly result: Result<unknown, ToolError>; readonly fromOutside: boolean }> {
   try {
     const answer = await kctx.waitForToken<unknown>(pause.tokenId, {
       timeoutMs: pause.timeoutMs,
@@ -1078,7 +1156,7 @@ async function callOrWait(
     }
     const timedOut: WaitTokenTimedOutError = {
       code: 'wait-token-timed-out',
-      message: `Tool "${toolId}" waited ${pause.timeoutMs} ms for ${pause.name ?? "another system's answer"}, and no answer came`,
+      message: `Tool "${tool.id as unknown as string}" waited ${pause.timeoutMs} ms for ${pause.name ?? "another system's answer"}, and no answer came`,
       toolId: tool.id,
       tokenId: pause.tokenId,
       timeoutMs: pause.timeoutMs,
