@@ -3,12 +3,16 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any, Literal
 
+import pytest
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from kindgi._schema import (
     SchemaValidator,
+    compile_problem,
     issues_from_pydantic,
     strict_schema_problem,
     wire_schema,
@@ -292,6 +296,7 @@ def test_strict_skips_an_unevaluated_keyword_once_every_property_or_item_is_eval
     for schema in [
         {"type": "object", "additionalProperties": False, "unevaluatedProperties": typo},
         {"type": "array", "items": {}, "unevaluatedItems": typo},
+        {"type": "array", "contains": {"type": "string"}, "unevaluatedItems": typo},
         {"type": "object", "allOf": [{"additionalProperties": {}}], "unevaluatedProperties": typo},
         {"type": "array", "allOf": [{"unevaluatedItems": {}}], "unevaluatedItems": typo},
         {
@@ -305,8 +310,10 @@ def test_strict_skips_an_unevaluated_keyword_once_every_property_or_item_is_eval
         },
     ]:
         assert strict_schema_problem(schema) is None, schema
-    # Not by anyOf, properties or prefixItems, nor by a ref to a schema still compiling.
+    # Not by anyOf, properties, prefixItems or a `contains` any item passes, nor by a ref to a schema
+    # still compiling.
     for schema in [
+        {"type": "array", "contains": True, "unevaluatedItems": typo},
         {"type": "object", "anyOf": [{"additionalProperties": {}}], "unevaluatedProperties": typo},
         {"type": "object", "properties": {"a": {}}, "unevaluatedProperties": typo},
         {
@@ -363,7 +370,7 @@ def test_strict_names_the_problem_the_runtime_names_first() -> None:
     def bad(name: str) -> dict[str, Any]:
         return {"type": "string", "format": name}
 
-    # A node's unknown keywords come first, then `id`.
+    # A node's unknown keywords come first, then its type rules, then `id`.
     assert strict_schema_problem({"type": "string", "format": "hostnmae", "fromat": "x"}) == (
         'strict mode: unknown keyword: "fromat"'
     )
@@ -467,3 +474,31 @@ def test_strict_leaves_a_ref_alone_in_a_schema_with_a_base() -> None:
             "$ref": "https://x.example/c",
         }
         assert strict_schema_problem(in_content) is None
+
+
+# The strict corpus: scripts/strict-oracle.mjs records each schema's answer from the runtime's own
+# compileInlineSchema (and CI fails when the record is stale). Python's answer to a "parity" case
+# is the runtime's, word for word; an "unchecked" case is a refusal the check doesn't model (see
+# strict_schema_problem), which the runtime makes and Python leaves.
+_STRICT = Path(__file__).parent / "strict"
+_CORPUS: dict[str, dict[str, Any]] = json.loads((_STRICT / "corpus.json").read_text("utf-8"))
+_ANSWERS: dict[str, dict[str, str | None]] = json.loads(
+    (_STRICT / "answers.json").read_text("utf-8")
+)
+
+
+def test_the_strict_corpus_has_an_answer_for_each_case() -> None:
+    assert {group: list(cases) for group, cases in _CORPUS.items()} == {
+        group: list(answers) for group, answers in _ANSWERS.items()
+    }
+
+
+@pytest.mark.parametrize("name", list(_CORPUS["parity"]))
+def test_strict_answers_as_the_runtime_does(name: str) -> None:
+    assert compile_problem(_CORPUS["parity"][name]) == _ANSWERS["parity"][name]
+
+
+@pytest.mark.parametrize("name", list(_CORPUS["unchecked"]))
+def test_strict_leaves_a_refusal_it_does_not_model(name: str) -> None:
+    assert _ANSWERS["unchecked"][name] is not None
+    assert compile_problem(_CORPUS["unchecked"][name]) is None

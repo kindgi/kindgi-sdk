@@ -80,6 +80,24 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   schemas get. Before, such a schema reached the pack index as written and
   failed on the tool's first call. Matches the TypeScript `@kindgi/tools`
   definition check.
+- `kindgi`: **the definition check refuses what the runtime's strict
+  compile refuses besides unknown names**, word for word as the runtime
+  says it:
+  - a keyword with no `type` it applies to (`minLength` with no
+    `"type": "string"`, say), or a `type` its context can't be;
+  - a `required` property nothing defines;
+  - a `prefixItems` tuple without matching `minItems` and `maxItems`
+    (or `items: false`);
+  - `nullable` without a `type`;
+  - `then`/`else` without `if`, and `minContains`/`maxContains` without
+    `contains`;
+  - an empty `enum`;
+  - a format bound without a `format` it can compare;
+  - a `patternProperties` pattern that matches a property `properties`
+    also names.
+
+  A corpus of schemas, with the runtime's answer to each, keeps the two in
+  step.
 
 ## 0.1.10
 
