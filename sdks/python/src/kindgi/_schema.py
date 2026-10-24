@@ -160,7 +160,8 @@ def _without_discriminators(schema: JsonObject) -> JsonObject:
 
 def _require_tag(member: Any, tag: str) -> None:
     """Put `tag` first in a tagged union member's `required`: an object's own, or each member's
-    when the member is a tagged union itself. A recursive type's member is a `$ref`: the tag is
+    when the member is a union itself (a tagged union's `oneOf`, or the `anyOf` of a union a
+    callable picks). A recursive type's member is a `$ref`: the tag is
     asked for beside it, with the `type` and the property the strict compile wants beside a
     `required`. Its definition stays as it is: the type can sit outside the union, where its tag
     isn't asked for."""
@@ -173,11 +174,12 @@ def _require_tag(member: Any, tag: str) -> None:
         if tag not in required:
             here["required"] = [tag, *required]
         return
-    members = here.get("oneOf")
-    if isinstance(members, list):
-        for inner in cast("list[Any]", members):
-            _require_tag(inner, tag)
-        return
+    for keyword in ("oneOf", "anyOf"):
+        members = here.get(keyword)
+        if isinstance(members, list):
+            for inner in cast("list[Any]", members):
+                _require_tag(inner, tag)
+            return
     if isinstance(here.get("$ref"), str) and "properties" not in here:
         here.setdefault("type", "object")
         here["properties"] = {tag: True}

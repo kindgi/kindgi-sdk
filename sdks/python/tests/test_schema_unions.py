@@ -320,6 +320,60 @@ def test_a_one_of_refused_a_value_that_fits_both_members() -> None:
         assert SchemaValidator(schema).issues(value) == []
 
 
+class Tabby(BaseModel):
+    kind: Literal["cat"] = "cat"
+    stripes: int
+
+
+class Calico(BaseModel):
+    kind: Literal["cat"] = "cat"
+    patches: int = 3
+
+
+class Hound(BaseModel):
+    kind: Literal["dog"] = "dog"
+
+
+def _which_cat(value: Any) -> str:
+    if isinstance(value, Tabby):
+        return "tabby"
+    return "tabby" if isinstance(value, dict) and "stripes" in value else "calico"
+
+
+class Cattery(BaseModel):
+    """A union a callable picks, as a member of a tagged union whose tags have defaults."""
+
+    pet: Annotated[
+        Annotated[
+            Annotated[Tabby, Tag("tabby")] | Annotated[Calico, Tag("calico")],
+            Discriminator(_which_cat),
+        ]
+        | Hound,
+        Field(discriminator="kind"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"pet": {"stripes": 2}},
+        {"pet": {}},
+        {"pet": {"kind": "cat", "stripes": 2}},
+        {"pet": {"kind": "cat"}},
+        {"pet": {"kind": "dog"}},
+    ],
+)
+def test_a_union_a_callable_picks_in_a_tagged_union_answers_as_pydantic(value: Any) -> None:
+    schema = wire_schema(Cattery)
+    assert strict_schema_problem(schema) is None
+    assert (SchemaValidator(schema).issues(value) == []) == accepts(Cattery, value)
+
+
+def test_a_union_a_callable_picks_in_a_tagged_union_asks_for_the_tag() -> None:
+    cats = wire_schema(Cattery)["properties"]["pet"]["oneOf"][0]["anyOf"]
+    assert [m["required"] for m in cats] == [["kind", "stripes"], ["kind"]]
+
+
 def test_a_property_named_discriminator_stays() -> None:
     class Rule(BaseModel):
         discriminator: str
