@@ -101,7 +101,7 @@ class IndexerTest {
     // carries its spec, and the index still satisfies the pack-index schema every SDK produces.
     Map<String, Object> report = value(index("http"));
     assertThat(report.get("fileErrors")).isEqualTo(List.of());
-    assertThat(report.get("counts")).isEqualTo(Map.of("tools", 1, "guardrails", 0, "agents", 0, "flows", 0));
+    assertThat(report.get("counts")).isEqualTo(Map.of("tools", 1, "guardrails", 0, "agents", 0, "flows", 0, "blocks", 0));
 
     String text = Files.readString(out.resolve("http.json"), StandardCharsets.UTF_8);
     Map<String, Object> index = (Map<String, Object>) Json.parse(text.getBytes(StandardCharsets.UTF_8));

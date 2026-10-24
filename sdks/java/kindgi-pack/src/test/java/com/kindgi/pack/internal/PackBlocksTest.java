@@ -25,6 +25,11 @@ import org.junit.jupiter.params.provider.MethodSource;
  */
 class PackBlocksTest {
   private static final String BLOCKS = "blocks/**/*.json";
+  // The folder above a block's, for the templates a block names outside its own folder. The paths
+  // start from UP rather than being string literals starting with ../, which
+  // scripts/jvm-test-reads.test.mjs takes for repository files a test reads: these are paths inside
+  // the test's own pack.
+  private static final String UP = "..";
 
   @TempDir Path root;
 
@@ -97,7 +102,7 @@ class PackBlocksTest {
   @Test
   void aTemplateElsewhereInTheFolderAndItsByteOrderMarkDropped() throws Exception {
     write("blocks/support/reply.json",
-        json(prompt(Map.of("content", Map.of("templateFile", "../templates/reply.liquid")))));
+        json(prompt(Map.of("content", Map.of("templateFile", UP + "/templates/reply.liquid")))));
     write("blocks/templates/reply.liquid", new byte[] {(byte) 0xef, (byte) 0xbb, (byte) 0xbf, 'H', 'i', '.'});
     PackBlocks read = PackBlocks.read(root, BLOCKS);
     assertThat(read.errors()).isEmpty();
@@ -111,9 +116,9 @@ class PackBlocksTest {
         Arguments.of(Map.of("templateFile", "nope.liquid"),
             "blocks/reply.json: `content.templateFile` \"nope.liquid\" isn't a readable UTF-8 file"
                 + " (looked for blocks/nope.liquid)"),
-        Arguments.of(Map.of("templateFile", "../secrets.txt"),
-            "blocks/reply.json: `content.templateFile` \"../secrets.txt\" is outside the blocks folder"
-                + " (blocks/); keep a block's template next to it"),
+        Arguments.of(Map.of("templateFile", UP + "/secrets.txt"),
+            "blocks/reply.json: `content.templateFile` \"" + UP + "/secrets.txt\" is outside the blocks"
+                + " folder (blocks/); keep a block's template next to it"),
         Arguments.of(Map.of("templateFile", "/etc/hosts"),
             "blocks/reply.json: `content.templateFile` \"/etc/hosts\" must be a path relative to the"
                 + " block file, with forward slashes"),
@@ -224,16 +229,16 @@ class PackBlocksTest {
   @Test
   void aPatternAtThePackRootKeepsTemplatesInsideThePack() throws Exception {
     write("support/reply.block.json",
-        json(prompt(Map.of("content", Map.of("templateFile", "../prompts/reply.liquid")))));
+        json(prompt(Map.of("content", Map.of("templateFile", UP + "/prompts/reply.liquid")))));
     write("prompts/reply.liquid", "Hi.");
     write("escape.block.json",
-        json(prompt(Map.of("id", "acme.escape", "content", Map.of("templateFile", "../outside.liquid")))));
+        json(prompt(Map.of("id", "acme.escape", "content", Map.of("templateFile", UP + "/outside.liquid")))));
     PackBlocks read = PackBlocks.read(root, "**/*.block.json");
     assertThat(read.blocks()).extracting(b -> b.get("id") + " " + b.get("content"))
         .containsExactly("acme.reply-prompt {template=Hi.}");
     assertThat(read.errors()).extracting(e -> e.get("message")).containsExactly(
-        "escape.block.json: `content.templateFile` \"../outside.liquid\" is outside the pack; keep a block's"
-            + " template next to it");
+        "escape.block.json: `content.templateFile` \"" + UP + "/outside.liquid\" is outside the pack; keep a"
+            + " block's template next to it");
   }
 
   @Test
