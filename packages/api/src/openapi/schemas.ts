@@ -6393,7 +6393,7 @@ export const ImprovementPassEstimateSchema: JsonSchema = {
     estimatedCostUsd: {
       type: 'string',
       description:
-        'The estimate (US dollars): the smaller of `maxCostUsd` and `basis.replays` times `basis.meanRunCostUsd`. Absent when the version has no cost history.',
+        "The estimate (US dollars): `basis.replays` times `basis.meanRunCostUsd`, or `maxCostUsd` when that's smaller. Absent when the version has no cost history.",
     },
     maxCostUsd: {
       type: 'string',

@@ -4667,7 +4667,7 @@ class ImprovementPassEstimate(BaseModel):
     )
     estimated_cost_usd: Annotated[str | None, Field(alias="estimatedCostUsd")] = None
     """
-    The estimate (US dollars): the smaller of `maxCostUsd` and `basis.replays` times `basis.meanRunCostUsd`. Absent when the version has no cost history.
+    The estimate (US dollars): `basis.replays` times `basis.meanRunCostUsd`, or `maxCostUsd` when that's smaller. Absent when the version has no cost history.
     """
     max_cost_usd: Annotated[str, Field(alias="maxCostUsd")]
     """
