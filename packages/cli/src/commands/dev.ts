@@ -992,7 +992,7 @@ async function runDevForPack(
     if (byHand.length > 0) emitProblem(`⚠ ${vertexCredentialsHint(byHand, ctx.env)}`);
   }
   // A preview runtime near the end of its life (90 days after its
-  // release, until 1.0): from 30 days before, the way to a newer one.
+  // release): from 30 days before, the way to a newer one.
   const previewWarning = previewExpiryWarning(
     await readLicenseStatus(client),
     devRuntimeSource(args),

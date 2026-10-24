@@ -792,9 +792,9 @@ A new grant can take a minute or two to apply.
 
 ## Operate it
 
-- **Upgrade at least every 90 days while Kindgi is in preview.** Until
-  Kindgi 1.0, a release stops starting 90 days after it was released. Cloud
-  Run starts new instances on its own, and after that day none comes up. The
+- **Upgrade at least every 90 days.** A preview release stops starting 90
+  days after it was released. Cloud Run starts new instances on its own,
+  and after that day none comes up. The
   runtime warns from 30 days before, at startup and once a day, in a log
   record with `jsonPayload.event = "kindgi.preview_expiry"`: set a log-based
   alert on it
