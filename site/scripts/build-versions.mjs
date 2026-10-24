@@ -17,6 +17,8 @@
  *                when there is one.
  *   /versions.json   the list the version menu and the banner read: each build
  *                    with the exact release it's from (`0.1.3`, `0.1.4-rc.3`)
+ *   /robots.txt  nothing disallowed, and the sitemap of `/` named: the
+ *                newest release's `sitemap-index.xml`
  *   /tutorials/  a tutorial pinned to the release it was tested with
  *                (`tested: 0.1.6`) is taken from `main` once that release is
  *                out, whatever the newest release's own copy says; the
@@ -39,7 +41,15 @@
  * Needs git, pnpm and uv, and this checkout's workspace built (`pnpm run build`).
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import {
@@ -49,7 +59,7 @@ import {
   pinnedTutorials,
   tutorialRedirects,
 } from './tutorials-overlay.mjs';
-import { LOCKFILE, docsSource, headers, menu, plan, redirects } from './versions-plan.mjs';
+import { LOCKFILE, docsSource, headers, menu, plan, redirects, robots } from './versions-plan.mjs';
 
 const args = process.argv.slice(2);
 const option = (name) => {
@@ -230,4 +240,9 @@ writeFileSync(
   redirects(planned) + tutorialRedirects(planned, overlay.pages),
 );
 writeFileSync(join(out, '_headers'), headers());
+const sitemapIndex = join(out, 'sitemap-index.xml');
+writeFileSync(
+  join(out, 'robots.txt'),
+  robots(existsSync(sitemapIndex) ? readFileSync(sitemapIndex, 'utf8') : undefined),
+);
 console.log(`build-versions: ${out}`);

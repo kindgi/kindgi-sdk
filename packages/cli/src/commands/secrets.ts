@@ -708,14 +708,14 @@ const revokeCmd: LeafCommand = {
   kind: 'leaf',
   name: 'revoke',
   description:
-    'Revoke a secret. Default: soft (keeps audit tombstone). --hard: cryptographic erasure.',
+    'Revoke a secret. Default: soft (its values are kept, unreadable). --hard: erases them too.',
   usage: 'kindgi secrets revoke <NAME> --env=<name> --scope=<kind>[:id] [--hard] [--reason=<r>]',
   optionSpec: {
     ...SCOPE_OPTION_SPEC,
     hard: {
       type: 'boolean' as const,
       description:
-        'Erase the value for good instead of keeping an audit tombstone. Cannot be undone.',
+        "Erase the values too. Cannot be undone. Backups, and your secret manager's own retention, may keep copies for a time.",
     },
     reason: {
       type: 'string' as const,

@@ -19,6 +19,10 @@ same version, and the CLI's own changes are in
   calls in a webhook's or a schedule's runs needn't wait for a person's yes.
   Naming it takes `admin` on the trigger's project, and each id must be a tool
   the trigger's flow or agent calls. A take-over keeps it.
+- `kindgi`: **`secrets.revoke`'s docstrings say what a hard revoke does**: it
+  erases the value at Kindgi and hard-deletes it in a secret manager, and
+  can't be undone; backups, and a secret manager's own retention, may keep
+  copies for a time. They no longer call it cryptographic erasure.
 
 ## 0.1.10
 
