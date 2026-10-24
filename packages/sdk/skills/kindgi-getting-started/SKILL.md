@@ -14,7 +14,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.14"
+version: "0.3.15"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -203,7 +203,9 @@ Most of the setup is automatable, but two require your knowledge:
 - **Real LLM provider credentials** — the built-in dev-echo provider
   returns canned responses (great for the loop test, useless for real
   agents). It is a fallback, so it steps aside once a real provider is
-  registered. Declare it in `kindgi.config.ts`
+  registered. Anthropic is the example below; `kindgi providers presets`
+  lists OpenAI, Gemini, Groq and OpenRouter too.
+  Declare one in `kindgi.config.ts`
   (`providers: [{ preset: 'anthropic' }]`, the key stored by the person with
   `kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant`) and `kindgi dev`
   registers it on every boot, in every worktree and after `--reset`. Commit
