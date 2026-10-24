@@ -59,6 +59,13 @@ export interface RunCliInputs {
    */
   readonly stopSignal?: AbortSignal;
   /**
+   * Where a command says how it's going while it runs (`kindgi build`'s
+   * lines, `CommandContext.progress`): the `cli.js` bin writes it to
+   * stderr as it comes. Without it (tests), those lines come in the
+   * outcome's stderr.
+   */
+  readonly progress?: (text: string) => void;
+  /**
    * Injectable seams used exclusively by `kindgi build` — the local
    * indexer, esbuild bundler, Containerfile writer, tar producer, POST
    * /v1/build client, SSE log reader, docker-pull-and-extract, and
@@ -275,6 +282,9 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
   const hint = devRuntimeHint(label, scope.config);
   let hinted = false;
   const lead = (): string => (hinted && hint !== undefined ? hint : '');
+  // A command's progress lines go out as they come, the first after what
+  // main says first: the dev runtime's line and the pin's.
+  const stream = progressAfterHead(inputs.progress, lead, () => before);
   const ctx = buildContext({
     globals: parsed.globals,
     positionals: parsed.positionals,
@@ -298,6 +308,7 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     ...(inputs.env !== undefined ? { env: inputs.env } : {}),
     ...(devRunners !== undefined ? { devRunners } : {}),
     ...(inputs.stopSignal !== undefined ? { stopSignal: inputs.stopSignal } : {}),
+    progress: stream.progress,
     ...(buildRunners !== undefined ? { buildRunners } : {}),
     ...(inputs.buildConfigLoader !== undefined
       ? { buildConfigLoader: inputs.buildConfigLoader }
@@ -330,14 +341,22 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     if (result.kind === 'ok') {
       return {
         stdout: result.rendered.stdout,
-        stderr: `${lead()}${before}${result.rendered.stderr}`,
+        stderr: `${stream.unsaid(before)}${result.rendered.stderr}`,
         exitCode: result.exitCode ?? 0,
       };
     }
-    return { stdout: '', stderr: `${lead()}${before}${result.stderr}`, exitCode: result.exitCode };
+    return {
+      stdout: '',
+      stderr: `${stream.unsaid(before)}${result.stderr}`,
+      exitCode: result.exitCode,
+    };
   } catch (err) {
     const formatted = formatThrown(err, { commandLabel: label, verbose: parsed.globals.verbose });
-    return { stdout: '', stderr: `${lead()}${formatted.stderr}`, exitCode: formatted.exitCode };
+    return {
+      stdout: '',
+      stderr: `${stream.unsaid('')}${formatted.stderr}`,
+      exitCode: formatted.exitCode,
+    };
   }
 }
 
@@ -397,6 +416,39 @@ function givenString(value: unknown): string | undefined {
 
 /** Commands that never warn about the pin: they make it, move it, or don't run against a pack. */
 const PIN_EXEMPT: ReadonlySet<string> = new Set(['init', 'upgrade', 'version']);
+
+/**
+ * `ctx.progress` when the CLI streams it (`write`): the first line goes
+ * after what main says first, the dev runtime's line (`hint`, said once a
+ * command reads its key) and the pin's. `unsaid` is what's left of those
+ * for the outcome, before `later` (the pin's line, when the outcome says
+ * it): all of it when nothing was streamed, else the hint when it came
+ * after the first line.
+ */
+function progressAfterHead(
+  write: ((text: string) => void) | undefined,
+  hint: () => string,
+  pin: () => string,
+): {
+  readonly progress: ((text: string) => void) | undefined;
+  readonly unsaid: (later: string) => string;
+} {
+  let opened: { readonly hint: string } | undefined;
+  const unsaid = (later: string): string => {
+    if (opened === undefined) return `${hint()}${later}`;
+    return opened.hint === '' ? hint() : '';
+  };
+  if (write === undefined) return { progress: undefined, unsaid };
+  const progress = (text: string): void => {
+    if (opened !== undefined) {
+      write(text);
+      return;
+    }
+    opened = { hint: hint() };
+    write(`${opened.hint}${pin()}${text}`);
+  };
+  return { progress, unsaid };
+}
 
 async function pinWarningFor(cwd: string, pathOption: unknown): Promise<string | undefined> {
   const dir = typeof pathOption === 'string' && pathOption !== '' ? resolve(cwd, pathOption) : cwd;

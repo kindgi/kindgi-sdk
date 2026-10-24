@@ -244,8 +244,31 @@ export const buildCommand: LeafCommand = {
     },
     path: { type: 'string', description: 'The pack root. Default: the current directory.' },
   },
-  run: async (ctx): Promise<CommandResult> => runBuild(ctx),
+  run: async (ctx): Promise<CommandResult> =>
+    runBuild(ctx, buildLines(ctx.progress, ctx.globals.format === 'quiet')),
 };
+
+/**
+ * Where a build's lines go: each to `progress` as it comes when the CLI
+ * streams them, else kept for the result's stderr (`kept`). `--quiet`
+ * leaves them out; an error is said either way.
+ */
+interface BuildLines {
+  readonly line: (s: string) => void;
+  readonly kept: () => string;
+}
+
+function buildLines(progress: ((text: string) => void) | undefined, quiet: boolean): BuildLines {
+  const kept: string[] = [];
+  return {
+    line: (s) => {
+      if (quiet) return;
+      if (progress === undefined) kept.push(s);
+      else progress(`${s}\n`);
+    },
+    kept: () => (kept.length === 0 ? '' : `${kept.join('\n')}\n`),
+  };
+}
 
 interface ResolvedBuildArgs {
   readonly packDir: string;
@@ -291,7 +314,14 @@ interface ResolvedBuildArgs {
   readonly config: PackConfig;
 }
 
-export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
+/**
+ * `kindgi build`. `out` is where its lines go; by default they're kept for
+ * the result (`kindgi deploy`'s inline build).
+ */
+export async function runBuild(
+  ctx: CommandContext,
+  out: BuildLines = buildLines(undefined, false),
+): Promise<CommandResult> {
   const runners = ctx.buildRunners;
   if (runners === undefined) {
     return {
@@ -305,12 +335,9 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
   const parsed = await resolveBuildArgs(ctx);
   if (parsed.kind === 'error') return parsed;
   const args = parsed.args;
-  if (args.local) return runLocalBuild(ctx, runners, args);
+  if (args.local) return runLocalBuild(ctx, runners, args, out);
 
-  const banner: string[] = [];
-  const lines = (s: string): void => {
-    banner.push(s);
-  };
+  const lines = out.line;
   lines('');
   lines(`  Environment: ${args.envName}`);
   lines(`  Build:       ${args.hosted ? `hosted (${args.endpoint})` : args.endpoint}`);
@@ -324,14 +351,14 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
   const expectedIndexPath = join(args.outDir, 'expected-index.json');
   await mkdir(args.outDir, { recursive: true });
   const prepared = await prepareTarball(ctx, runners, args, expectedIndexPath, lines);
-  if (prepared.kind === 'error') return prepared;
+  if (prepared.kind === 'error') return withBanner(prepared, out);
   const { tarball, tarballHash, counts } = prepared;
   lines('');
 
   // ---- 6. POST /v1/build + SSE stream ---------------------------------
   if (args.hosted) {
     const tooLarge = hostedUploadTooLarge(tarball.bytes.length);
-    if (tooLarge !== undefined) return failure(tooLarge);
+    if (tooLarge !== undefined) return withBanner(failure(tooLarge), out);
   }
   const packId = (args.config.pack as { readonly id?: unknown } | undefined)?.id;
   lines('  Uploading to build service');
@@ -370,7 +397,7 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
   );
   if ('thrown' in sent) {
     if (sent.thrown instanceof BuildServiceRefusal) {
-      return failure(describeBuildRefusal(sent.thrown));
+      return withBanner(failure(describeBuildRefusal(sent.thrown)), out);
     }
     throw sent.thrown;
   }
@@ -401,15 +428,18 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
       });
     } catch (err) {
       if (err instanceof BuildServiceRefusal) {
-        return failure(describeBuildRefusal(err));
+        return withBanner(failure(describeBuildRefusal(err)), out);
       }
-      return failure(`${(err as Error).message}\n`);
+      return withBanner(failure(`${(err as Error).message}\n`), out);
     }
   }
 
   if (terminal.status === 'failed') {
-    return failure(
-      `Build failed: [${terminal.error?.code ?? 'unknown'}] ${terminal.error?.message ?? 'no message'}\n`,
+    return withBanner(
+      failure(
+        `Build failed: [${terminal.error?.code ?? 'unknown'}] ${terminal.error?.message ?? 'no message'}\n`,
+      ),
+      out,
     );
   }
   if (
@@ -418,8 +448,11 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
     terminal.indexJson === undefined ||
     terminal.indexHash === undefined
   ) {
-    return failure(
-      'Build terminal payload missing required fields (imageRef / imageDigest / indexJson / indexHash).\n',
+    return withBanner(
+      failure(
+        'Build terminal payload missing required fields (imageRef / imageDigest / indexJson / indexHash).\n',
+      ),
+      out,
     );
   }
   lines(`    ✓ Build complete (${terminal.imageRef})`);
@@ -461,8 +494,11 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
       ...(serverBytes !== undefined && { serverBytes }),
     });
     if (!check.ok) {
-      return failure(
-        `Integrity gate FAILED — refusing to sign.\n\n${check.reason ?? 'unknown reason'}\n`,
+      return withBanner(
+        failure(
+          `Integrity gate FAILED — refusing to sign.\n\n${check.reason ?? 'unknown reason'}\n`,
+        ),
+        out,
       );
     }
     lines(`    ✓ indexHash matches local indexer output (${terminal.indexHash.slice(0, 14)}…)`);
@@ -480,7 +516,7 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
     indexHash: terminal.indexHash,
     ...(terminal.buildLogsUrl !== undefined && { buildLogsUrl: terminal.buildLogsUrl }),
   });
-  if (written.kind === 'error') return written;
+  if (written.kind === 'error') return withBanner(written, out);
   const { envelopePath, signature } = written;
 
   const summary = {
@@ -501,10 +537,7 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
     imagePullSkipped: args.skipImagePull || runners.pullImageIndex === undefined,
   };
   const rendered = renderJson(summary, ctx.globals.format);
-  return {
-    kind: 'ok',
-    rendered: { stdout: rendered.stdout, stderr: `${banner.join('\n')}\n` },
-  };
+  return { kind: 'ok', rendered: { stdout: rendered.stdout, stderr: out.kept() } };
 }
 
 // ---------------------------------------------------------------------
@@ -525,14 +558,12 @@ async function runLocalBuild(
   ctx: CommandContext,
   runners: BuildRunners,
   args: ResolvedBuildArgs,
+  out: BuildLines,
 ): Promise<CommandResult> {
   if (runners.dockerBuild === undefined || runners.pullImageIndex === undefined) {
     return failure('kindgi build --local needs Docker runners; rebuild the CLI.\n');
   }
-  const banner: string[] = [];
-  const lines = (s: string): void => {
-    banner.push(s);
-  };
+  const lines = out.line;
   const pushTo = args.pushRepository;
   lines('');
   lines(
@@ -546,7 +577,7 @@ async function runLocalBuild(
   const expectedIndexPath = join(args.outDir, 'expected-index.json');
   await mkdir(args.outDir, { recursive: true });
   const context = await preparePackContext(ctx, runners, args, expectedIndexPath, lines);
-  if (context.kind === 'error') return withBanner(context, banner);
+  if (context.kind === 'error') return withBanner(context, out);
   const expectedBytes = new Uint8Array(await readFile(expectedIndexPath));
   const packId = (JSON.parse(new TextDecoder().decode(expectedBytes)) as { packId?: unknown })
     .packId;
@@ -568,10 +599,10 @@ async function runLocalBuild(
     },
   });
   if (built.kind === 'err')
-    return withBanner(failure(`Image build failed: ${built.message}\n`), banner);
+    return withBanner(failure(`Image build failed: ${built.message}\n`), out);
   for (const line of closureSummary(buildLog)) lines(line);
   if (pushTo !== undefined && built.digest === undefined) {
-    return withBanner(failure(`The push of ${tag} reported no digest.\n`), banner);
+    return withBanner(failure(`The push of ${tag} reported no digest.\n`), out);
   }
   // Pushed: the image is the registry's, by digest; loaded: the local tag.
   const imageRef = pushTo !== undefined ? `${pushTo}@${built.digest}` : tag;
@@ -602,7 +633,7 @@ async function runLocalBuild(
       failure(
         `Integrity gate FAILED: the image's index isn't the local one.\n\n${check.reason ?? ''}\n`,
       ),
-      banner,
+      out,
     );
   }
   lines('    ✓ /app/index.json in the image matches the local index byte for byte');
@@ -615,7 +646,7 @@ async function runLocalBuild(
       index: JSON.parse(new TextDecoder().decode(expectedBytes)) as Record<string, unknown>,
       indexHash: expectedHash,
     });
-    if (written.kind === 'error') return withBanner(written, banner);
+    if (written.kind === 'error') return withBanner(written, out);
     const rendered = renderJson(
       {
         envName: args.envName,
@@ -633,7 +664,7 @@ async function runLocalBuild(
       },
       ctx.globals.format,
     );
-    return { kind: 'ok', rendered: { stdout: rendered.stdout, stderr: `${banner.join('\n')}\n` } };
+    return { kind: 'ok', rendered: { stdout: rendered.stdout, stderr: out.kept() } };
   }
 
   lines('  Run it:');
@@ -663,7 +694,7 @@ async function runLocalBuild(
     },
     ctx.globals.format,
   );
-  return { kind: 'ok', rendered: { stdout: rendered.stdout, stderr: `${banner.join('\n')}\n` } };
+  return { kind: 'ok', rendered: { stdout: rendered.stdout, stderr: out.kept() } };
 }
 
 /** The built image, as the envelope names it. */
@@ -743,12 +774,12 @@ async function signAndWriteEnvelope(
   return { kind: 'ok', envelopePath, signature };
 }
 
-/** A failure that still shows what the build did up to it. */
+/** A failure that still shows what the build did up to it (the lines kept, when not streamed). */
 function withBanner(
   result: CommandResult & { readonly kind: 'error' },
-  banner: readonly string[],
+  out: BuildLines,
 ): CommandResult & { readonly kind: 'error' } {
-  return { ...result, stderr: `${banner.join('\n')}\n${result.stderr}` };
+  return { ...result, stderr: `${out.kept()}${result.stderr}` };
 }
 
 // ---------------------------------------------------------------------

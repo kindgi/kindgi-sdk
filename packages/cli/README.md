@@ -493,6 +493,12 @@ Builds a signed pack image with a Kindgi build server, and writes
 7. **Sign and write:** signs the image digest and index hash with your
    Ed25519 key and writes `.kindgi/build/deploy-envelope.json`.
 
+**What it prints:** each step's lines go to stderr as the step runs, the
+build server's log among them, so a long build shows where it is. A build
+that fails keeps those lines, with the error after them. The summary goes
+to stdout at the end, as JSON, so `kindgi build > build.json` keeps it
+apart. With `--quiet`, only an error is printed.
+
 **The image (a TypeScript pack):**
 - **Base:** `node:22` or `node:24-bookworm-slim`, pinned by digest: the
   first whose Node satisfies the app's `engines.node`.
