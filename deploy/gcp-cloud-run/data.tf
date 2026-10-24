@@ -24,7 +24,7 @@
 locals {
   database_private = var.database_private_network != ""
   # Private-IP mode: the CAs the server's certificate must chain to.
-  database_server_ca = (local.database_private
+  database_server_ca = (length(data.google_sql_ca_certs.kindgi) > 0
     ? join("\n", [for ca in data.google_sql_ca_certs.kindgi[0].certs : trimspace(ca.cert)])
   : "")
 }
@@ -67,14 +67,15 @@ resource "google_sql_database_instance" "kindgi" {
   }
 }
 
-# The instance the server serves from when it isn't the module's own
-# (database_instance): read, never managed here.
 # Private-IP mode: every CA the instance trusts (the one in use, one added
 # for a rotation, one rotated out), read at each plan, so a CA added before
-# a rotation reaches the server at the next apply.
+# a rotation reaches the server at the next apply. Private-IP mode serves
+# from the module's own instance alone: database_instance and
+# database_host_instance are reached through /cloudsql (services.tf's
+# checks), so with either set there's no instance here to read.
 data "google_sql_ca_certs" "kindgi" {
-  count    = local.database_private ? 1 : 0
-  instance = google_sql_database_instance.kindgi.name
+  count    = local.database_private ? length(google_sql_database_instance.kindgi) : 0
+  instance = google_sql_database_instance.kindgi[count.index].name
 
   lifecycle {
     postcondition {
@@ -84,6 +85,8 @@ data "google_sql_ca_certs" "kindgi" {
   }
 }
 
+# The instance the server serves from when it isn't the module's own
+# (database_instance): read, never managed here.
 data "google_sql_database_instance" "served" {
   count = var.database_instance == null ? 0 : 1
   name  = var.database_instance.name

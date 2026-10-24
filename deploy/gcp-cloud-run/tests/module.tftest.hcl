@@ -889,10 +889,13 @@ run "the_cloudsql_socket_has_no_server_ca" {
 }
 
 run "private_ip_mode_checks_the_database_against_every_instance_ca" {
-  # Apply (mocked): the CAs are read once the instance exists.
+  # Apply (mocked): the CAs are read once the instance exists. Without KMS:
+  # the key's prevent_destroy would stop a later run's apply and the teardown.
   command = apply
   variables {
     database_private_network = "projects/acme-app-dev/global/networks/acme"
+    secrets_backend          = "none"
+    secrets_aad_key_version  = null
   }
 
   assert {
@@ -911,9 +914,13 @@ run "private_ip_mode_checks_the_database_against_every_instance_ca" {
 }
 
 run "private_ip_mode_refuses_an_instance_without_a_ca" {
+  # The run above's settings, so the plan changes nothing it reads and the
+  # CAs are read at plan time (with a change pending, the read waits).
   command = plan
   variables {
     database_private_network = "projects/acme-app-dev/global/networks/acme"
+    secrets_backend          = "none"
+    secrets_aad_key_version  = null
   }
   override_data {
     target = data.google_sql_ca_certs.kindgi
