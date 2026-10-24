@@ -1,5 +1,19 @@
 # @kindgi/sdk
 
+## 0.1.11-rc.0
+
+### Patch Changes
+
+- @kindgi/agents@0.1.11-rc.0
+  - @kindgi/crypto@0.1.11-rc.0
+  - @kindgi/flow@0.1.11-rc.0
+  - @kindgi/guardrails@0.1.11-rc.0
+  - @kindgi/handler-runtime@0.1.11-rc.0
+  - @kindgi/schema@0.1.11-rc.0
+  - @kindgi/tools@0.1.11-rc.0
+  - @kindgi/types@0.1.11-rc.0
+  - @kindgi/client@0.1.11-rc.0
+
 ## 0.1.10
 
 ### Patch Changes

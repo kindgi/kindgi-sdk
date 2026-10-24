@@ -1,5 +1,12 @@
 # @kindgi/memory
 
+## 0.1.11-rc.0
+
+### Patch Changes
+
+- @kindgi/embedding@0.1.11-rc.0
+  - @kindgi/types@0.1.11-rc.0
+
 ## 0.1.10
 
 ### Patch Changes

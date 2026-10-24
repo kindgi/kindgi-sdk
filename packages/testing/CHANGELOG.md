@@ -1,5 +1,11 @@
 # @kindgi/testing
 
+## 0.1.11-rc.0
+
+### Patch Changes
+
+- @kindgi/api@0.1.11-rc.0
+
 ## 0.1.10
 
 ### Patch Changes
