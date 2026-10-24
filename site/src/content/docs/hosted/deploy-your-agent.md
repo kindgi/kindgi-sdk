@@ -139,8 +139,10 @@ pnpm exec kindgi deploy --hosted --env=prod
 - With no `--project`, the pack goes into the Default project.
   `--project=<id-or-slug>` names another.
 
-The deploy prints what it registered, with each agent's version. It ends
-with `Deploy complete.`, then `Waiting for the pack service` and `✓ ready`.
+The deploy prints what it registered, with each agent's version, then
+`Deploy complete.` and the image that runs started from now use. Then it
+waits: `Waiting for the pack service`, a `… <state>` line each time its
+state changes, and `✓ ready`.
 A pack with no tools and no guardrail checks of its own, such as one of
 agents and flows whose guardrails use only built-in checks, has no pack
 service. Its deploy doesn't wait for one, and prints no `Waiting for the pack
