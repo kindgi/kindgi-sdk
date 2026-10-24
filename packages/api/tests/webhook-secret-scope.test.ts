@@ -702,8 +702,8 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
     const endpoint = (endpointId: string) => ({
       endpointId,
       name: 'Docs',
-      transport: 'stdio',
-      config: { transport: 'stdio', command: '/usr/local/bin/docs-mcp', args: [] },
+      transport: 'streamable-http',
+      config: { transport: 'streamable-http', url: 'https://mcp.acme.test/docs' },
       scopeKind: 'project',
       scopeId: P,
     });
