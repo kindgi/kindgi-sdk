@@ -61,6 +61,11 @@ const KEYS: Record<string, { readonly who: TokenResolution; readonly grants: rea
       who: { tenantId, userId: randomUUID() as UserId },
       grants: [...RUN, `write project:${P2}`],
     },
+    // A person who may run the agent and read P1, and not act in it.
+    viewer: {
+      who: { tenantId, userId: randomUUID() as UserId },
+      grants: [...RUN, `read project:${P1}`],
+    },
   };
 
 function decision(grants: readonly string[], action: Action, resource: ResourceRef): Decision {
@@ -107,6 +112,11 @@ function makeApp(withAuthz = true, referenceScope?: ReferenceScopeBinding) {
     agentRegistry: {
       ...(stub as unknown as { agentRegistry?: object }).agentRegistry,
       get: async ({ agentId }: { agentId: string }) => ({
+        agentId,
+        version: '1.0.0',
+        ...(agentId === 'acme.desk' && { projectId: P1 }),
+      }),
+      getVersion: async ({ agentId }: { agentId: string }) => ({
         agentId,
         version: '1.0.0',
         ...(agentId === 'acme.desk' && { projectId: P1 }),
@@ -207,11 +217,11 @@ function makeApp(withAuthz = true, referenceScope?: ReferenceScopeBinding) {
           projectId,
           input: { userMessage: 'hello', ...input },
         }),
+      /** Opens one in the agent's own project, P1. */
       open: (participantId?: string) =>
         post('/v1/conversations', {
           agentId: 'acme.desk',
           agentVersion: '1.0.0',
-          projectId: P1,
           ...(participantId !== undefined && { participantId }),
         }),
     };
@@ -231,20 +241,22 @@ describe('a person who may only run the agent', () => {
     expect(r.message).toContain(`write on project ${P1}`);
   });
 
-  test("posting into someone else's conversation is refused, even naming themselves", async () => {
+  test("posting into someone else's conversation is refused, even naming themselves: they can't read it, so it answers as if it didn't exist", async () => {
     const { as } = makeApp();
-    expect(
-      refusedForParticipant(await as('caller').run({ conversationId: BOBS_CONVERSATION })),
-    ).toBe(true);
-    expect(
-      refusedForParticipant(
-        await as('caller').run({ conversationId: BOBS_CONVERSATION, participantId: ALICE }),
-      ),
-    ).toBe(true);
+    for (const input of [
+      { conversationId: BOBS_CONVERSATION },
+      { conversationId: BOBS_CONVERSATION, participantId: ALICE },
+    ]) {
+      const r = await as('caller').run(input);
+      expect([r.status, r.code]).toEqual([404, 'conversation-not-found']);
+      expect(r.message).toBe(`No conversation with id "${BOBS_CONVERSATION}"`);
+      expect(r.raw).not.toContain('cus_bob');
+      expect(r.raw).not.toContain(P1);
+    }
   });
 
-  test('the refusal names only the conversation they sent, never its participant or project', async () => {
-    const r = await makeApp().as('caller').run({ conversationId: BOBS_CONVERSATION });
+  test('one who can read it is refused, naming only the conversation they sent, never its participant or project', async () => {
+    const r = await makeApp().as('viewer').run({ conversationId: BOBS_CONVERSATION });
     expect(refusedForParticipant(r)).toBe(true);
     expect(r.resource).toBe(`conversation:${BOBS_CONVERSATION}`);
     expect(r.message).toContain('this conversation');
@@ -363,9 +375,16 @@ describe("a project that doesn't reach the agent, and a participant the caller m
     const { as, opened } = makeApp(true, reachable);
     expect(refusedForParticipant(await as('caller').open('cus_bob'))).toBe(true);
     expect(opened()).toBe(0);
-    expect(
-      refusedForParticipant(await as('p2Writer').runIn(P2, { conversationId: BOBS_CONVERSATION })),
-    ).toBe(true);
+  });
+
+  test("a run naming P2 into a conversation in P1 is refused as P1's conversation, not by the participant rule", async () => {
+    // A conversation belongs to one project (`conversation-turn-rights.test.ts`).
+    const reachable: ReferenceScopeBinding = { reachable: async () => true };
+    const r = await makeApp(true, reachable)
+      .as('p2Writer')
+      .runIn(P2, { conversationId: BOBS_CONVERSATION });
+    expect(r.status).toBe(404);
+    expect(r.code).toBe('conversation-not-found');
   });
 });
 

@@ -17,6 +17,11 @@ import type {
   IdentitySessionCollectionPage,
   MyPermissions,
   RevokeSessionsResult,
+  SecondFactorKey,
+  SecondFactorProof,
+  SecondFactorRecoveryCodes,
+  SecondFactorRemoved,
+  SecondFactorStatus,
   UserCollectionPage,
   UserRecord,
   WhoamiResult,
@@ -28,6 +33,13 @@ export type IdentityUserPage = UserCollectionPage;
 export type IdentitySessionPage = IdentitySessionCollectionPage;
 export type WhoamiInfo = WhoamiResult;
 export type { MyPermissions };
+export type {
+  SecondFactorKey,
+  SecondFactorProof,
+  SecondFactorRecoveryCodes,
+  SecondFactorRemoved,
+  SecondFactorStatus,
+};
 export type RevokeSessionsOutcome = RevokeSessionsResult;
 
 export interface ListIdentityUsersFilter {
@@ -60,6 +72,45 @@ export interface IdentityMeClient {
    * @wire GET /v1/identity/me/permissions
    */
   permissions(): Promise<MyPermissions>;
+  /** Your own second factor: from a session only (`auth-not-session-token` with an API key). */
+  readonly secondFactor: IdentityMeSecondFactorClient;
+}
+
+/**
+ * Your second factor (an authenticator app, and its recovery codes). From
+ * a session only. Mounted where the deployment keeps second factors. A
+ * wrong code is an `auth` error whose `serverCode` is
+ * `second-factor-invalid`; too many is `rate-limited`
+ * (`second-factor-locked`), with `retryAfterSeconds`.
+ */
+export interface IdentityMeSecondFactorClient {
+  /** @wire GET /v1/identity/me/second-factor */
+  get(): Promise<SecondFactorStatus>;
+  /**
+   * A new key, shown this once; nothing changes until `confirm`. With one
+   * set up already, `proof` from it is needed, and the new key replaces it.
+   *
+   * @wire POST /v1/identity/me/second-factor
+   */
+  start(proof?: SecondFactorProof): Promise<SecondFactorKey>;
+  /**
+   * A code from the new key: set up, and the 10 recovery codes, this once.
+   *
+   * @wire POST /v1/identity/me/second-factor/confirm
+   */
+  confirm(code: string): Promise<SecondFactorRecoveryCodes>;
+  /**
+   * 10 new recovery codes; the old ones stop working.
+   *
+   * @wire POST /v1/identity/me/second-factor/recovery-codes
+   */
+  newRecoveryCodes(proof: SecondFactorProof): Promise<SecondFactorRecoveryCodes>;
+  /**
+   * Off. Refused while the workspace requires one (`second-factor-required`).
+   *
+   * @wire POST /v1/identity/me/second-factor/remove
+   */
+  remove(proof: SecondFactorProof): Promise<SecondFactorRemoved>;
 }
 
 export interface IdentityUsersClient {
@@ -91,6 +142,42 @@ export function makeIdentityClient(transport: Transport): IdentityClient {
           method: 'GET',
           path: '/v1/identity/me/permissions',
         });
+      },
+      secondFactor: {
+        async get() {
+          return transport.request<SecondFactorStatus>({
+            method: 'GET',
+            path: '/v1/identity/me/second-factor',
+          });
+        },
+        async start(proof) {
+          return transport.request<SecondFactorKey>({
+            method: 'POST',
+            path: '/v1/identity/me/second-factor',
+            body: proof ?? {},
+          });
+        },
+        async confirm(code) {
+          return transport.request<SecondFactorRecoveryCodes>({
+            method: 'POST',
+            path: '/v1/identity/me/second-factor/confirm',
+            body: { code },
+          });
+        },
+        async newRecoveryCodes(proof) {
+          return transport.request<SecondFactorRecoveryCodes>({
+            method: 'POST',
+            path: '/v1/identity/me/second-factor/recovery-codes',
+            body: proof,
+          });
+        },
+        async remove(proof) {
+          return transport.request<SecondFactorRemoved>({
+            method: 'POST',
+            path: '/v1/identity/me/second-factor/remove',
+            body: proof,
+          });
+        },
       },
     },
     users: {

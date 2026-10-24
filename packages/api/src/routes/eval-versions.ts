@@ -14,6 +14,7 @@ import type { FlowId, Semver, TenantId, ToolId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
+import type { ItemReference } from '../reference-scope.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 
 /** Where the check reads the flow version and the agents' and tools' versions. */
@@ -30,6 +31,30 @@ export interface VersionsIssue {
 
 /** A JSON Pointer token: `~` and `/` escaped. */
 const token = (id: string): string => id.replaceAll('~', '~0').replaceAll('/', '~1');
+
+/**
+ * A flow candidate's `versions` as references its run's project must
+ * reach, each at its own path: an agent at the version named, since each
+ * case runs that version in the run's project; a tool by its id, as
+ * reach reads no tool versions (`ItemReference.version`).
+ */
+export function versionsReferences(
+  versions: FlowVersionOverrides | undefined,
+): (ItemReference & { readonly path: string })[] {
+  return [
+    ...Object.entries(versions?.agents ?? {}).map(([id, version]) => ({
+      path: `/versions/agents/${token(id)}`,
+      kind: 'agent' as const,
+      id,
+      version,
+    })),
+    ...Object.keys(versions?.tools ?? {}).map((id) => ({
+      path: `/versions/tools/${token(id)}`,
+      kind: 'tool' as const,
+      id,
+    })),
+  ];
+}
 
 async function agentIssues(
   check: FlowVersionsCheck,

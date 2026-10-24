@@ -66,6 +66,7 @@ import { LICENSE_GRACE_DAYS, renewAdvice, standingOf } from '../license/expiry.j
 import { checkLicenseKey } from '../license/license-key.js';
 import { KINDGI_ACCESS_ORIGIN } from '../license/protocol.js';
 import { secretStoreFor } from '../license/stores.js';
+import { MIN_NODE, MIN_NODE_MAJOR, atLeast } from '../node-version.js';
 import { renderJson } from '../output.js';
 import {
   type PackageManager,
@@ -91,8 +92,6 @@ import type { CommandResult, LeafCommand } from './types.js';
  */
 const DEV_ECHO_PROVIDER_ID = 'dev-echo';
 
-/** The Node the CLI needs (`engines.node` in its package.json). */
-export const MIN_NODE = '22.12.0';
 /** The Python a Python project needs (`requires-python` in its pyproject.toml). */
 export const MIN_PYTHON = '3.11.0';
 /** The JDK a Java or Scala project needs (kindgi-pack's baseline). */
@@ -491,7 +490,7 @@ function nodeCheck(version: string, pypi: boolean): DoctorCheck {
     : fail(
         'node',
         `Node ${version}; Kindgi needs ${MIN_NODE} or later.`,
-        `Install Node ${MIN_NODE} or later from https://nodejs.org (or: nvm install 22).`,
+        `Install Node ${MIN_NODE} or later from https://nodejs.org (or: nvm install ${MIN_NODE_MAJOR}).`,
       );
 }
 
@@ -1617,22 +1616,6 @@ function runTool(command: string, args: readonly string[]): Promise<ToolOutcome>
       done({ code: code ?? 1, stdout, stderr });
     });
   });
-}
-
-/** `a` ≥ `b`, comparing `major.minor.patch`. */
-export function atLeast(a: string, b: string): boolean {
-  const parse = (v: string) =>
-    v
-      .replace(/^v/, '')
-      .split(/[.-]/)
-      .slice(0, 3)
-      .map((n) => Number.parseInt(n, 10) || 0);
-  const [x, y] = [parse(a), parse(b)];
-  for (let i = 0; i < 3; i += 1) {
-    const d = (x[i] ?? 0) - (y[i] ?? 0);
-    if (d !== 0) return d > 0;
-  }
-  return true;
 }
 
 async function isDirectory(path: string): Promise<boolean> {

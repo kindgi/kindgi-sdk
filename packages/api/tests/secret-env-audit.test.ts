@@ -67,6 +67,10 @@ function harness(
   logLines?: string[],
 ) {
   const secretsBinding = {
+    // The POST route reads for an `add-version` to decide whether the name is
+    // being created (and so held to the grammar); `stripe-key` is in-grammar,
+    // so a null read lets the configured `set` answer stand.
+    get: async () => null,
     set: async () => answers.set ?? { kind: 'ok', record: RECORD, versionId: 1 },
     rotate: async () =>
       answers.rotate ?? { kind: 'ok', value: { kind: 'ok', newVersionId: 3, oldVersionId: 2 } },
@@ -240,6 +244,17 @@ describe('secret writes are recorded at the route', () => {
     expect(docOf(soft)).toMatchObject({ name: 'stripe-key', reason: 'leaked' });
     const hard = events.find((e) => e.kind === 'secret-hard-revoked');
     expect(docOf(hard)).toMatchObject({ hard: true });
+  });
+
+  test('a hard revoke that left a recoverable copy records until when (recoverableUntil)', async () => {
+    const until = '2026-11-22T21:00:00.000Z';
+    const { call, recorded } = harness({
+      revoke: { kind: 'ok', value: { revoked: true, hard: true, recoverableUntil: until } },
+    });
+    expect(await call('DELETE', `/v1/secrets/stripe-key?${queryScope}&hard=true`)).toBe(200);
+    const [event] = await recorded();
+    expect(event).toMatchObject({ kind: 'secret-hard-revoked', outcome: 'succeeded' });
+    expect(docOf(event)).toMatchObject({ hard: true, recoverableUntil: until });
   });
 
   test('a revoke that changed nothing is not recorded', async () => {

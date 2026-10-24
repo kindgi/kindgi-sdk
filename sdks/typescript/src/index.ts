@@ -161,7 +161,7 @@ export type {
   MemoryErasuresClient,
 } from './resources/memory.js';
 export type { ProvenanceClient, ProvenanceExportInput } from './resources/provenance.js';
-export type { TenantClient, TenantConfigClient } from './resources/tenant.js';
+export type { RenameTenantInput, TenantClient, TenantConfigClient } from './resources/tenant.js';
 export type {
   BudgetsClient,
   CostClient,
@@ -264,6 +264,7 @@ export type {
   SiteCollectionPage,
   SiteEnrollmentCode,
   SiteKey,
+  SitePersonRestoreResult,
   SiteRoleGrant,
   SiteSignInBody,
   SiteSignInResult,
@@ -393,12 +394,16 @@ export type {
 export type {
   DeploymentEndpointProblemSpec,
   PackEndpointSpec,
+  PackEnvRecordSpec,
   PackSuspension,
   PackSuspensionSpec,
   SystemDeploymentEntry,
   SystemDeploymentPage,
   SystemDeploymentsClient,
   SystemDeploymentsWanted,
+  SystemPackEnv,
+  SystemPackEnvEntry,
+  SystemPackEnvPage,
 } from './resources/system-deployments.js';
 export type {
   CreatedSystemTenant,
@@ -407,7 +412,17 @@ export type {
   SystemTenantsClient,
   TenantAdminContact,
   TenantLimitsShape,
+  TenantPurge,
 } from './resources/system-tenants.js';
+export type {
+  SystemUsageClient,
+  SystemUsageQuery,
+  TenantUsageClient,
+  UsageGroup,
+  UsageGroupKey,
+  UsagePage,
+  UsageQuery,
+} from './resources/usage.js';
 export { SIGNED_EXPORT_ALGORITHMS, verifySignedExport } from './verify-export.js';
 export { docsUrl } from './docs-links.js';
 export type {
@@ -425,10 +440,19 @@ export type {
   ListEvidenceFilter,
 } from './resources/compliance.js';
 export type {
+  CheckDeploymentPromotionInput,
   Deployment,
   DeploymentPage,
+  DeploymentPromotion,
+  DeploymentPromotionCheck,
   DeploymentsClient,
+  DeploymentValue,
+  DeploymentValues,
+  DeploymentValuesClient,
   ListDeploymentsFilter,
+  PackEnvNameStatus,
+  PackEnvNames,
+  PromoteDeploymentInput,
   RegisterDeploymentInput,
   SyncSecretsInput,
   SyncSecretsResult,
@@ -499,14 +523,23 @@ export type {
   IdentityUser,
   IdentityUserPage,
   IdentityUsersClient,
+  IdentityMeSecondFactorClient,
   ListIdentityUsersFilter,
   MyPermissions,
   RevokeSessionsOutcome,
+  SecondFactorKey,
+  SecondFactorProof,
+  SecondFactorRecoveryCodes,
+  SecondFactorRemoved,
+  SecondFactorStatus,
   WhoamiInfo,
 } from './resources/identity.js';
 export type {
   AuthClient,
   AuthProvidersClient,
+  AuthSettings,
+  AuthSettingsClient,
+  AuthSettingsPatch,
   IdentityProviderPage,
   IdentityProviderRegisterInput,
   IdentityProviderRegisterOutcome,
@@ -770,6 +803,7 @@ export type {
   SupersedeFactInput,
   UpdateJudgeClassInput,
   Verdict,
+  GetLatestOptions,
 } from './types.js';
 
 export type {

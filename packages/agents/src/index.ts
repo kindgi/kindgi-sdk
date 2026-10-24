@@ -125,6 +125,7 @@ export type {
 } from './streaming.js';
 export { AUTO_INJECTED_VARS, renderInstructions } from './prompt.js';
 export { TemplateRenderBudgetError } from './render-budget.js';
+export { EVENT_DATA_RULE, formatEventForPrompt, messageIsEvent } from './event-data.js';
 export { TemplateRenderError } from './template-renderer.js';
 export type {
   TemplateRenderErrorInit,

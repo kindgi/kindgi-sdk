@@ -115,7 +115,7 @@ export interface ConversationFilter extends Omit<Filter<ConversationStatus>, 'st
   /**
    * `me`: only the conversations the caller opened. Conversations an older
    * runtime opened record no opener and aren't listed by it. A runtime
-   * before Kindgi 0.1.8.1 ignores the filter and lists everyone's; its page
+   * before Kindgi 0.1.9 ignores the filter and lists everyone's; its page
    * has no `openedBy`.
    */
   readonly openedBy?: 'me';
@@ -132,7 +132,7 @@ export interface ConversationPage extends ListPage<Conversation> {
   /**
    * `'me'` on every page of a list asked for with `openedBy: 'me'`: it
    * holds only the conversations the caller opened. Absent from a runtime
-   * before Kindgi 0.1.8.1, which ignores the filter and lists everyone's.
+   * before Kindgi 0.1.9, which ignores the filter and lists everyone's.
    */
   readonly openedBy?: 'me';
 }

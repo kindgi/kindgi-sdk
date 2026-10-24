@@ -15,6 +15,12 @@ export const ENV_DEFAULTS = {
   KINDGI_PUBLIC_URL:
     'none: the address the server binds (shown as `http://localhost:<port>` when it binds all interfaces)',
   KINDGI_DATABASE_URL: '`postgres://localhost:5432/kindgi`',
+  KINDGI_DB_STATEMENT_TIMEOUT_MS:
+    '`60000` (60 seconds); `0` turns it off; longer than the lock timeout when both are on',
+  KINDGI_DB_LOCK_TIMEOUT_MS:
+    '`30000` (30 seconds); `0` turns it off; shorter than the statement timeout when both are on',
+  KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: '`30000` (30 seconds); `0` turns it off',
+  KINDGI_DB_POOL_WAIT_TIMEOUT_MS: '`10000` (10 seconds); `0` turns it off',
   KINDGI_OPENFGA_API_URL: 'none: authorization is not enforced',
   KINDGI_OPENFGA_PRESHARED_KEY: 'none: calls to OpenFGA carry no key',
   KINDGI_OPENFGA_AUTH: '`none`',
@@ -38,6 +44,7 @@ export const ENV_DEFAULTS = {
   KINDGI_LICENSE_RENEWER_REF: 'none: expiry warnings print a placeholder in the renew command',
   KINDGI_ENV:
     'none: `local` in development mode, else no env (a tool that declares secrets or env values fails its calls)',
+  KINDGI_REFUSE_OTHER_ENVS: '`false`: a value or a registration under any env is taken',
   KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH:
     'none: in development mode a key generated at start; otherwise public run tokens are off',
   KINDGI_PUBLIC_TOKEN_SIGNING_KEY:
@@ -46,6 +53,8 @@ export const ENV_DEFAULTS = {
     'none (with `KINDGI_AUTH_SECRET` unset): sign-in with identity providers is off',
   KINDGI_AUTH_SECRET:
     'none (with `KINDGI_AUTH_SECRET_PATH` unset): sign-in with identity providers is off',
+  KINDGI_AUTH_PREVIOUS_SECRET_PATH: 'none: no previous secret',
+  KINDGI_AUTH_PREVIOUS_SECRET: 'none: no previous secret',
   KINDGI_AUTH_PRIVATE_IDP_ORIGINS: 'none: none; only public HTTPS identity providers are allowed',
   KINDGI_AUTH_VERIFIED_DOMAINS:
     "none: none; a runtime serving one tenant routes that tenant's domains without it, one serving several routes no domain",
@@ -75,6 +84,8 @@ export const ENV_DEFAULTS = {
     'none (with `KINDGI_AUTH_TURNSTILE_SECRET_PATH` unset): no Turnstile check on emailed-link requests',
   KINDGI_AUTH_TURNSTILE_SECRET_PATH: 'none: no Turnstile secret file',
   KINDGI_AUTH_TURNSTILE_SITE_KEY: 'none: no Turnstile widget',
+  KINDGI_AUTH_TERMS_URL: 'none: the sign-in page links no terms',
+  KINDGI_AUTH_PRIVACY_URL: 'none: the sign-in page links no privacy policy',
   KINDGI_TRUSTED_PROXIES:
     "none: no trusted proxies; the connection's peer is the client address and `X-Forwarded-For` is ignored",
   KINDGI_SESSION_TTL_MS: '`43200000` (12 hours); at least `60000`',
@@ -110,6 +121,8 @@ export const ENV_DEFAULTS = {
   KINDGI_ERASURE_LEDGER_KEY: 'none: same as `KINDGI_ERASURE_LEDGER_KEY_PATH`',
   KINDGI_ERASURE_LEDGER_EXPORT: 'none: the ledger stays in the database only',
   KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS: '`3600000` (an hour); at least `60000`',
+  KINDGI_TENANT_PURGE_RECORD:
+    'none: `POST /v1/system/tenants/{tenantId}/purge` refuses every purge (`purge-record-unset`)',
   KINDGI_PASSIVE: '`off`',
   KINDGI_PAGINATION_KEY_PATH:
     'none (with `KINDGI_PAGINATION_KEY` unset): a random key made at start and kept nowhere',
@@ -128,7 +141,8 @@ export const ENV_DEFAULTS = {
   KINDGI_LOG_LEVELS: 'none: no per-subsystem levels; `KINDGI_LOG_LEVEL` applies everywhere',
   KINDGI_LOG_FORMAT:
     '`auto`: `pretty` when stdout is a terminal or `KINDGI_DEV` is on, else `json`',
-  KINDGI_SECRETS_BACKEND: '`none` (the secrets routes are not served)',
+  KINDGI_SECRETS_BACKEND:
+    "`none` (the secrets routes are not served, and a workspace's own identity providers can't be added or changed)",
   KINDGI_SECRETS_DOTENV_FILES: '`.env,.env.local`',
   KINDGI_SECRETS_AAD_KEY_PATH:
     'none (with `KINDGI_SECRETS_AAD_KEY` unset): no key; the postgres backend refuses to start without one of the two',
@@ -198,6 +212,10 @@ export const ENV_EXAMPLES = {
   KINDGI_AUTH_SECRET: {
     value: '<32 random bytes, base64>',
     make: 'openssl rand -base64 32',
+  },
+  // The secret it held before the rotation, not a new one.
+  KINDGI_AUTH_PREVIOUS_SECRET: {
+    value: '<the KINDGI_AUTH_SECRET value before the rotation>',
   },
   KINDGI_AUTH_GOOGLE_CLIENT_ID: {
     value: '<client id of your Google OAuth app>',
@@ -271,15 +289,15 @@ export const ENV_EXAMPLES = {
 
 /** "See also" for each group's variables that no guide names: page slugs. */
 export const ENV_GROUP_SEE_ALSO = {
-  core: ['deploy/self-host', 'deploy/operate'],
-  logging: ['deploy/logs'],
-  secrets: ['deploy/secret-manager', 'guides/secrets/index'],
-  gcp: ['deploy/cloud-run', 'deploy/secret-manager'],
-  aws: ['deploy/secret-manager'],
-  azure: ['deploy/azure-container-apps', 'deploy/secret-manager'],
-  vault: ['deploy/secret-manager'],
-  'local-key': ['deploy/self-host'],
-  'pack-service': ['deploy/self-host', 'concepts/architecture'],
-  'image-registry': ['deploy/self-host', 'concepts/security'],
-  dev: ['guides/secrets/dev-sandbox', 'deploy/self-host'],
+  core: ['deploy/self-hosted/self-host', 'deploy/self-hosted/operate'],
+  logging: ['deploy/self-hosted/logs'],
+  secrets: ['deploy/self-hosted/secret-manager', 'guides/secrets/index'],
+  gcp: ['deploy/self-hosted/cloud-run', 'deploy/self-hosted/secret-manager'],
+  aws: ['deploy/self-hosted/secret-manager'],
+  azure: ['deploy/self-hosted/azure-container-apps', 'deploy/self-hosted/secret-manager'],
+  vault: ['deploy/self-hosted/secret-manager'],
+  'local-key': ['deploy/self-hosted/self-host'],
+  'pack-service': ['deploy/self-hosted/self-host', 'concepts/architecture'],
+  'image-registry': ['deploy/self-hosted/self-host', 'concepts/security'],
+  dev: ['guides/secrets/dev-sandbox', 'deploy/self-hosted/self-host'],
 };

@@ -37,10 +37,7 @@ describe('releaseNotes', () => {
       notes,
       /\*\*Plugins → Add Plugin → Upload Plugin\*\* \(\*\*Add New Plugin\*\* before WordPress 6\.8\)/,
     );
-    assert.match(
-      notes,
-      /https:\/\/docs\.kindgi\.com\/v0\.1\/guides\/approvals\/ask-and-approve-in-wordpress\//,
-    );
+    assert.match(notes, /https:\/\/docs\.kindgi\.com\/v0\.1\/sites\/wordpress\//);
   });
 });
 

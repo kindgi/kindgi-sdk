@@ -20,7 +20,7 @@ Scaffolded by `kindgi init --template=woocommerce`.
 ├── lib/fake-store.ts                           # a store in memory, for the tools' tests
 ├── tools/
 │   ├── find-orders/index.ts                    # look orders up (read-only)
-│   ├── refund/index.ts                         # refund up to 100, no approval
+│   ├── refund/index.ts                         # refund up to 100, no approval when a person asks
 │   ├── refund/index.test.ts                    # the limit, and each refund once, tested
 │   ├── refund-large/index.ts                   # refund any amount, approved first
 │   ├── refund-large/index.test.ts              # each refund once, tested
@@ -60,6 +60,14 @@ The store agent's three that wait need a second person
 (`conversationPolicy.hitl.separateApprover`). Whoever's turn asked for a
 large refund, a price change or a publish isn't offered **Approve** for it:
 another reviewer decides.
+
+The table is for a person's turn. The four tools that refund or change the
+store also declare `needsApprovalWhenUnattended`: in a run no person
+started (a webhook, a schedule or a service account's key started it),
+every call of one waits for a person, whatever the agent's policy says
+(only a project admin can lift that, for one trigger's runs, with
+`--allow-unattended`).
+So `{{PACK_ID}}.woo.refund` runs on its own only when a person asks for it.
 
 A call that waits shows in the console's approvals inbox, and in
 `{{KINDGI}} approvals list`. The tool runs only once a reviewer approves it

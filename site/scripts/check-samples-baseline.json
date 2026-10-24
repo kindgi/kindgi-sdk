@@ -1,8 +1,8 @@
 {
   "contributing/api-route-conventions": 2,
   "contributing/repository": 1,
-  "deploy/operate": 3,
-  "deploy/self-host": 1,
+  "deploy/self-hosted/operate": 3,
+  "deploy/self-hosted/self-host": 1,
   "guides/agents/budgets": 2,
   "guides/agents/choose-a-model": 8,
   "guides/agents/conversations": 2,

@@ -77,6 +77,11 @@ import {
   SYSTEM_DEPLOYMENT_RETIRE_REASONS,
 } from '../deployment-binding.js';
 import { ERROR_CODE_TO_STATUS } from '../errors.js';
+import {
+  PACK_ENV_HELD_CODES,
+  PACK_ENV_PLATFORM_HOLDS,
+  PACK_ENV_PROBLEM_CODES,
+} from '../pack-env.js';
 import { PACK_ENDPOINT_AUTHS } from '../routes/system-deployments.js';
 import { FULL_SYSTEM_CAPABILITY, SYSTEM_SCOPES } from '../system.js';
 
@@ -857,6 +862,18 @@ export const RunSchema: JsonSchema = {
     agent: { $ref: '#/components/schemas/RunAgent' },
     waitingFor: { $ref: '#/components/schemas/RunWaitingFor' },
     trigger: { $ref: '#/components/schemas/RunTrigger' },
+    startedBy: {
+      type: 'string',
+      enum: ['person', 'key', 'schedule', 'webhook', 'event'],
+      description:
+        "How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.",
+    },
+    toolsAllowedUnattended: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        "The tools, by id, whose calls in this run don't wait for a person's yes though no person started it: the list of the webhook or schedule that fired it, as it was when the run started, and never changed after. A child run has its parent's. Absent: none.",
+    },
     replayOf: {
       type: 'string',
       format: 'uuid',
@@ -1469,6 +1486,94 @@ export const TenantAdminContactsSchema: JsonSchema = {
   },
 };
 
+export const PurgeTenantBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['confirm'],
+  properties: {
+    confirm: {
+      type: 'string',
+      minLength: 1,
+      description: "The tenant's slug, a second check on the id.",
+    },
+  },
+};
+
+export const TenantTableRowsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A tenant's rows in one table: the table's name and a count.",
+  required: ['table', 'rows'],
+  properties: {
+    table: { type: 'string' },
+    rows: { type: 'integer', minimum: 1 },
+  },
+};
+
+export const SystemTenantPurgeSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'tenantId',
+    'complete',
+    'alreadyPurged',
+    'deleted',
+    'objectsDeleted',
+    'authzStoreDeleted',
+    'left',
+    'objectsLeft',
+  ],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    complete: {
+      type: 'boolean',
+      description:
+        "`true`: nothing of the tenant is left, its purge record is written, and it's marked purged. `false`: `left` and `objectsLeft` say what is; run it again.",
+    },
+    alreadyPurged: {
+      type: 'boolean',
+      description:
+        'It was marked purged before this run: what this run deleted was written after its mark. Its mark and its record stay as they were.',
+    },
+    purgedAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When it was marked purged. Absent while something of it from before the mark is left.',
+    },
+    deleted: {
+      type: 'array',
+      items: ref('TenantTableRows'),
+      description:
+        "Rows this run deleted, per table with any: table names and counts, never the rows' content.",
+    },
+    objectsDeleted: {
+      type: 'integer',
+      minimum: 0,
+      description: "Objects this run deleted from the artifacts' store.",
+    },
+    authzStoreDeleted: {
+      type: 'boolean',
+      description: 'Whether this run deleted its authorization store.',
+    },
+    left: {
+      type: 'array',
+      items: ref('TenantTableRows'),
+      description:
+        "Rows of it still there afterwards, per table; empty when none are. A table the purge doesn't delete from is named too: report it.",
+    },
+    objectsLeft: {
+      type: 'integer',
+      minimum: 0,
+      description: "Objects still under its prefix in the artifacts' store.",
+    },
+    leftBecause: {
+      type: 'string',
+      description: "Why what's left wasn't deleted, when it's a setting the runtime lacks.",
+    },
+  },
+};
+
 export const SystemWhoamiSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -1523,7 +1628,8 @@ const SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES: Record<string, JsonSchema> = {
   },
   projectId: {
     type: 'string',
-    description: 'The project the deploy was scoped to. Absent for a tenant-wide deploy.',
+    description:
+      "The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project.",
   },
   imageRef: {
     type: 'string',
@@ -1596,6 +1702,235 @@ export const SetPackEndpointBodySchema: JsonSchema = {
       description:
         "The pack service's token (`KINDGI_PACK_SERVICE_TOKEN`), printable ASCII without spaces. Stored wrapped; never returned, logged or recorded.",
     },
+    packEnvRevision: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 128,
+      description:
+        'The `revision` from `GET …/pack-env` whose values the service was made with, when its pack declares an environment. Kept as the one it runs, so `GET /v1/system/pack-env` lists it once they change.',
+    },
+  },
+};
+
+/** A pack's declared process environment, as the image's `index.json` carries it. */
+export const PackEnvDeclarationSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['required', 'optional'],
+  description:
+    "The names the pack service reads from its process environment, as the image's `index.json` declares them (`env`), each list in name order. Names only, never a value. On a deployment: absent when it declares none, and from older servers.",
+  properties: {
+    required: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Names the pack service needs, set and non-empty, to be ready.',
+    },
+    optional: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Names the pack reads when present.',
+    },
+  },
+};
+
+export const PackEnvScopeSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description: "Where a value is set: the deployment's project, the project's org, or the tenant.",
+  properties: {
+    kind: { type: 'string', enum: ['project', 'org', 'tenant'] },
+    id: {
+      type: 'string',
+      description: "The project's or the org's id. Absent for the tenant.",
+    },
+  },
+};
+
+export const PackEnvNameStatusSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'required', 'kind', 'scope', 'missing'],
+  description:
+    "One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (`secretScope`, for `ambiguous` only, names the secret's scope). Each name is looked for at the deployment's project, then its org, then the tenant (most specific wins); a tenant-wide deployment's, at the tenant's Default project. Never a value.",
+  properties: {
+    name: { type: 'string' },
+    required: { type: 'boolean' },
+    kind: {
+      oneOf: [{ type: 'string', enum: ['env', 'secret'] }, { type: 'null' }],
+      description:
+        'What it is set as: a plain value (`env`) or a secret. `null` when it is set nowhere.',
+    },
+    scope: {
+      oneOf: [{ $ref: '#/components/schemas/PackEnvScope' }, { type: 'null' }],
+      description:
+        "Where it is set: the plain value's scope when `ambiguous`. `null` when it is set nowhere.",
+    },
+    missing: {
+      type: 'boolean',
+      description: 'Set nowhere, as a plain value or a secret (optional names too).',
+    },
+    problem: {
+      type: 'string',
+      enum: ['ambiguous', 'secret-not-yet', 'missing', 'unreadable'],
+      description:
+        "Why it can't be given to the pack service. `ambiguous`: set both as a secret and as a plain value (`secretScope` names the secret's scope). `secret-not-yet`: set only as a secret, and the orchestrator didn't ask for secret values (`secrets=values`); a tool reads it per call (`ctx.secrets`). `missing`: a required name set nowhere. `unreadable`: set as a secret, and it can't be read for a reason the platform fixes, not the owner. Absent when it can be given, and for an optional name set nowhere. The owner's check (`GET /v1/deployments/{deploymentId}/pack-env`) lists a name set only as a secret as `kind: 'secret'`, with no problem.",
+    },
+    secretScope: { $ref: '#/components/schemas/PackEnvScope' },
+  },
+};
+
+export const PackEnvProblemCodeSchema: JsonSchema = {
+  type: 'string',
+  enum: [...PACK_ENV_PROBLEM_CODES],
+  description:
+    "Why a deployment's pack service can't be given its declared environment, the first in this order: `pack-env-ambiguous` (a name is set both as a secret and as a plain value), `pack-env-secret-not-yet` (a name is set only as a secret, and its value wasn't asked for), `pack-env-missing` (a required name is set nowhere), `pack-env-secret-unreadable` (a name's secret is set, but it can't be read for a reason the platform fixes, not the owner; only a read with `secrets=values` finds it, and only when there's no other problem). A later runtime may add codes, so treat an unknown one as a reason not yet named.",
+};
+
+export const PackEnvHeldCodeSchema: JsonSchema = {
+  type: 'string',
+  enum: [...PACK_ENV_HELD_CODES],
+  description:
+    "Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it; `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. The orchestrator couldn't give it its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out, so it gives none; the platform fixes it), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-secret-redeploy` (a name is now set only as a secret, and this pack service was made where no secret can be given to it; a new deployment's can be, from a new build of the pack). A service held as `pack-env-secret-unreadable` or `pack-env-secrets-unaudited` is listed by `GET /v1/system/pack-env` every time, with its `held`, as the revision doesn't move when the platform fixes it. A later runtime may add codes, so treat an unknown one as a reason not yet named.",
+};
+
+export const SystemPackEnvSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['revision', 'names'],
+  description:
+    "What the deployment's pack service is to be given: where each declared name is set, and the values when nothing stands in the way, plain ones in `env` and, when asked for (`secrets=values`), secrets in `secrets`. Each value given out is on the audit record: `env-resolved` as the deployment's system read, and `secret-resolved` (caller `pack-env`, with the request id as its `correlationId` and the system key's id), written before the answer.",
+  properties: {
+    revision: {
+      type: 'string',
+      description:
+        'Changes whenever what would be given changes: a value written or removed, a secret set or revoked. Made from scopes, row ids, revisions and update times, never from a value. Send it back with the endpoint (`packEnvRevision`) or `PUT …/pack-env`.',
+    },
+    names: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/PackEnvNameStatus' },
+      description: 'Every declared name, required ones first, each list in name order.',
+    },
+    problem: { $ref: '#/components/schemas/PackEnvProblemCode' },
+    env: {
+      type: 'object',
+      additionalProperties: { type: 'string' },
+      description:
+        'Each declared name that is set, by name, as plain values. Absent while there is a `problem`: then nothing is given, and the service keeps what it runs.',
+    },
+    secrets: {
+      type: 'object',
+      additionalProperties: { $ref: '#/components/schemas/PackEnvSecretValue' },
+      description:
+        "With `secrets=values` only: each declared name that is set only as a secret, by name (`{}` when there's none). Never put one into a plain env. Absent while there is a `problem`, and when it wasn't asked for.",
+    },
+  },
+};
+
+export const PackEnvSecretValueSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['value', 'revision'],
+  description:
+    "A secret given to the deployment's pack service: its value, read at the version `revision` names, and audited before the answer.",
+  properties: {
+    value: { type: 'string' },
+    revision: {
+      type: 'string',
+      description:
+        "`ps1-…`: the same for the same value under the same name, and changes whenever what's given for the name does (a new version, another scope, a revoke or a delete). Made from the name's part of the deployment's `revision`, never from the value.",
+    },
+  },
+};
+
+export const SystemPackEnvEntrySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'A deployment whose pack service runs on declared env values that changed since: ids, the image, and the revision it runs. Never a value. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`).',
+  required: [
+    'tenantId',
+    'deploymentId',
+    'packId',
+    'imageRef',
+    'imageDigest',
+    'artifactVersion',
+    'activatedAt',
+  ],
+  properties: {
+    ...SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES,
+    appliedRevision: {
+      type: 'string',
+      description:
+        'The revision its service runs: given with its endpoint, or recorded since. Absent: none was. Send it back as `appliedRevision` with `PUT …/pack-env`.',
+    },
+    held: { $ref: '#/components/schemas/SystemPackEnvHold' },
+  },
+};
+
+export const SystemPackEnvHoldSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['code', 'since'],
+  description:
+    "Only when it's held at its current revision for a cause the platform fixes, not the owner: it's listed every time, as the revision doesn't move when that's fixed. Read its values again when your back-off says. Absent otherwise.",
+  properties: {
+    code: { type: 'string', enum: [...PACK_ENV_PLATFORM_HOLDS] },
+    since: { type: 'string', format: 'date-time', description: 'When it was first held.' },
+  },
+};
+
+export const SystemPackEnvPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/SystemPackEnvEntry' } },
+    nextCursor: {
+      type: 'string',
+      description: 'Opaque cursor for the next page. Absent when `hasMore: false`.',
+    },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const RecordPackEnvBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['revision'],
+  properties: {
+    revision: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 128,
+      description:
+        "The `revision` from `GET …/pack-env`. Without `held`: the service now runs its values. With `held`: they weren't given, and the service keeps what it runs.",
+    },
+    held: { $ref: '#/components/schemas/PackEnvHeldCode' },
+    appliedRevision: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 128,
+      description:
+        'The revision the service was found running, as `GET /v1/system/pack-env` listed it. Absent: none was recorded. Another revision recorded since is a conflict (`pack-env-conflict`).',
+    },
+  },
+};
+
+export const PackEnvNamesSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['envName', 'data'],
+  description:
+    "Where each name the deployment's pack declares is set, at the env the server serves. Never a value.",
+  properties: {
+    envName: { type: 'string', description: 'The env the values are read at (`KINDGI_ENV`).' },
+    data: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/PackEnvNameStatus' },
+      description: 'Every declared name, required ones first, each list in name order.',
+    },
+    problem: { $ref: '#/components/schemas/PackEnvProblemCode' },
   },
 };
 
@@ -1945,7 +2280,7 @@ export const ApprovalCollectionPageSchema: JsonSchema = {
       type: 'string',
       enum: ['me'],
       description:
-        '`me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.8.1, which ignores `decidedBy` and lists them all.',
+        '`me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.9, which ignores `decidedBy` and lists them all.',
     },
   },
 };
@@ -2197,6 +2532,17 @@ export const SiteEnrollmentCodeSchema: JsonSchema = {
   properties: {
     code: { type: 'string' },
     expiresAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const SitePersonRestoreResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['user'],
+  description:
+    "A site's person let back in after a removal made in Kindgi (`POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`).",
+  properties: {
+    user: { $ref: '#/components/schemas/UserRecord' },
   },
 };
 
@@ -2670,7 +3016,6 @@ export const ConversationPolicySchema: JsonSchema = {
   additionalProperties: false,
   properties: {
     historyLimit: { type: 'integer', minimum: 1 },
-    autoCloseAfterInactiveSeconds: { type: 'integer', minimum: 1 },
     hitlAfterTurns: { type: 'integer', minimum: 1 },
   },
 };
@@ -3458,7 +3803,7 @@ export const ToolSpecSchema: JsonSchema = {
 
 export const RecordedSecretScopeSchema: JsonSchema = {
   description:
-    "Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.",
+    "Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.",
   oneOf: [
     {
       type: 'object',
@@ -3531,6 +3876,11 @@ export const ToolSchema: JsonSchema = {
       type: 'boolean',
       description:
         'Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.',
+    },
+    needsApprovalWhenUnattended: {
+      type: 'boolean',
+      description:
+        "`true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`.",
     },
     sandbox: { $ref: '#/components/schemas/SandboxMode' },
     limits: { $ref: '#/components/schemas/RuntimeLimits' },
@@ -3664,18 +4014,26 @@ export const GuardrailActionSchema: JsonSchema = {
       minLength: 1,
       examples: ['halt', 'retry', 'escalate', 'log-only', 'compensate'],
       description:
-        'What happens when the guardrail fires. Open string: the built-in actions are listed in `examples`; any other name needs an action handler registered under it where the guardrail is evaluated.',
+        'What a failed check does to the agent turn. Open string: the built-in actions are listed in `examples`, and any other non-empty name is accepted. In 0.1 the runtime acts only on `halt`: the turn fails with `guardrail-violation` and its response is not stored. Any other value is recorded as a violation, as `log-only` is, and the turn completes: nothing runs the turn again, escalates or calls a compensating tool.',
     },
     retry: {
       type: 'object',
       additionalProperties: false,
       required: ['maxAttempts'],
+      description:
+        "The attempts a `retry` asks for. In 0.1 nothing acts on it: there's no second attempt.",
       properties: {
         maxAttempts: { type: 'integer', minimum: 1, maximum: 10 },
       },
     },
-    escalateTo: { type: 'string' },
-    compensateWith: { type: 'string' },
+    escalateTo: {
+      type: 'string',
+      description: 'Where an `escalate` goes. In 0.1 nothing escalates.',
+    },
+    compensateWith: {
+      type: 'string',
+      description: "The tool id a `compensate` names. In 0.1 that tool isn't called.",
+    },
   },
 };
 
@@ -3985,7 +4343,7 @@ export const ConversationCollectionPageSchema: JsonSchema = {
       type: 'string',
       enum: ['me'],
       description:
-        "`me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.8.1, which ignores `openedBy` and lists everyone's.",
+        "`me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.9, which ignores `openedBy` and lists everyone's.",
     },
   },
 };
@@ -6113,6 +6471,16 @@ export const BlobMetaSchema: JsonSchema = {
       description: 'Who uploaded it: `user:<id>` or `service_account:<id>`.',
     },
     createdAt: { type: 'string', format: 'date-time' },
+    bucket: {
+      type: 'string',
+      description:
+        "The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.",
+    },
+    key: {
+      type: 'string',
+      description:
+        "The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one.",
+    },
   },
 };
 
@@ -8861,6 +9229,16 @@ export const SignInOptionsSchema: JsonSchema = {
         },
       },
     },
+    legal: {
+      type: 'object',
+      additionalProperties: false,
+      description:
+        "The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.",
+      properties: {
+        termsUrl: { type: 'string', format: 'uri', description: 'Its terms.' },
+        privacyUrl: { type: 'string', format: 'uri', description: 'Its privacy policy.' },
+      },
+    },
   },
 };
 
@@ -8883,9 +9261,12 @@ export const SignInEventSchema: JsonSchema = {
         'sign-in-link-capped',
         'sessions-revoked',
         'sessions-ended',
+        'second-factor-set-up',
+        'second-factor-removed',
+        'recovery-codes-replaced',
       ],
       description:
-        '`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token).',
+        '`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token, or a session made without a second factor in a workspace that requires one: `reason` says which); `second-factor-set-up`, `second-factor-removed` (`byUserId` is the admin who removed it, if not the person) and `recovery-codes-replaced`. Never a key or a code.',
     },
     outcome: { type: 'string', description: '`succeeded` or `denied`.' },
     userId: {
@@ -9095,6 +9476,20 @@ export const WhoamiResultSchema: JsonSchema = {
       description:
         'Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.',
     },
+    servedEnv: {
+      type: 'object',
+      description:
+        "The env this runtime serves (`KINDGI_ENV`): where the values its tools read are kept. With `refusesOtherEnvs`, it's the only one: a secret, env value or secret reference under another env is refused (`409 env-not-served`), so a client defaults to `envName`. Absent when the runtime serves no env, and from older servers.",
+      required: ['envName', 'refusesOtherEnvs'],
+      properties: {
+        envName: { type: 'string', description: 'The env name.' },
+        refusesOtherEnvs: {
+          type: 'boolean',
+          description: 'Whether values under any other env are refused.',
+        },
+      },
+      additionalProperties: false,
+    },
   },
 };
 
@@ -9115,13 +9510,13 @@ const USER_PROPERTIES: Record<string, JsonSchema> = {
   invite: {
     $ref: '#/components/schemas/UserInvite',
     description:
-      "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.8.1).",
+      "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.9).",
   },
   firstSignedInAt: {
     type: 'string',
     format: 'date-time',
     description:
-      'Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.8.1).',
+      'Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).',
   },
   metadata: { type: 'object', additionalProperties: true },
 };
@@ -9194,6 +9589,127 @@ export const InviteRenewedSchema: JsonSchema = {
   properties: {
     user: { $ref: '#/components/schemas/UserRecord' },
     inviteEmail: { $ref: '#/components/schemas/InviteEmail' },
+  },
+};
+
+const ProofText: JsonSchema = { type: 'string', minLength: 1, maxLength: 64 };
+
+export const SecondFactorProofSchema: JsonSchema = {
+  description:
+    'Exactly one: a code from the authenticator app, or one of the recovery codes (used up by this).',
+  type: 'object',
+  additionalProperties: false,
+  properties: { code: ProofText, recoveryCode: ProofText },
+};
+
+export const SecondFactorConfirmBodySchema: JsonSchema = {
+  description: 'A code from the new key, as the authenticator app shows it.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['code'],
+  properties: { code: ProofText },
+};
+
+export const SecondFactorStatusSchema: JsonSchema = {
+  description:
+    "A person's second factor, and whether their workspace requires one. With `setUp`, `since`, `recoveryCodesLeft` and `usable` are given; without it, `started`. Never a key or a code.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['setUp', 'required'],
+  properties: {
+    setUp: { type: 'boolean' },
+    started: {
+      type: 'boolean',
+      description: "A key was given to set one up, and isn't confirmed yet.",
+    },
+    since: { type: 'string', format: 'date-time' },
+    recoveryCodesLeft: { type: 'integer', minimum: 0 },
+    usable: {
+      type: 'boolean',
+      description:
+        "`false`: its key can't be opened any more (the sign-in secret changed past it). A recovery code still works, as does setting it up again, or an admin removing it.",
+    },
+    required: {
+      type: 'boolean',
+      description: 'The workspace requires a second factor at sign-in.',
+    },
+  },
+};
+
+export const SecondFactorKeySchema: JsonSchema = {
+  description:
+    'A new key to set up, shown this once: `uri` for an authenticator app (as a QR code), `key` to type in. Nothing changes until it is confirmed.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['key', 'uri'],
+  properties: {
+    key: { type: 'string', description: 'The key, in base32.' },
+    uri: { type: 'string', description: 'The `otpauth://totp/` URI.' },
+  },
+};
+
+export const SecondFactorRecoveryCodesSchema: JsonSchema = {
+  description:
+    'The 10 recovery codes, shown this once. Each signs in once in place of a code from the app; any earlier ones stop working.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['recoveryCodes'],
+  properties: { recoveryCodes: { type: 'array', items: { type: 'string' } } },
+};
+
+export const SecondFactorRemovedSchema: JsonSchema = {
+  description: '`false` when there was none to remove.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['removed'],
+  properties: { removed: { type: 'boolean' } },
+};
+
+export const AuthSettingsSchema: JsonSchema = {
+  description: "The workspace's sign-in settings.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['secondFactor'],
+  properties: {
+    secondFactor: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['required', 'onPreviousSecret', 'unusable'],
+      properties: {
+        required: {
+          type: 'boolean',
+          description:
+            "Signing in by the deployment's own ways in takes a second factor. Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. API keys aren't covered.",
+        },
+        onPreviousSecret: {
+          type: 'integer',
+          minimum: 0,
+          description:
+            "People whose key is still kept under the deployment's previous sign-in secret: each moves to the current one at their next code. Keep the previous secret configured until this is 0.",
+        },
+        unusable: {
+          type: 'integer',
+          minimum: 0,
+          description:
+            'People whose key opens under neither secret: they need a recovery code, or an admin to remove it.',
+        },
+      },
+    },
+  },
+};
+
+export const AuthSettingsPatchSchema: JsonSchema = {
+  description: 'Require a second factor at sign-in, or stop requiring one.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['secondFactor'],
+  properties: {
+    secondFactor: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['required'],
+      properties: { required: { type: 'boolean' } },
+    },
   },
 };
 
@@ -10095,9 +10611,280 @@ export const DeploymentRecordSchema: JsonSchema = {
       description:
         "The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's Default project).",
     },
+    packEnv: { $ref: '#/components/schemas/PackEnvDeclaration' },
+    promotedFromDeploymentId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        'When this deployment was made by promoting another into the next environment of its order: the deployment it was promoted from. Absent for one deployed directly.',
+    },
+    packId: {
+      type: 'string',
+      description:
+        "The pack's id, from the image's index. Absent from a runtime that doesn't keep it.",
+    },
     endpoint: { $ref: '#/components/schemas/DeploymentEndpoint' },
     primitives: { $ref: '#/components/schemas/DeploymentPrimitiveCounts' },
     contents: { $ref: '#/components/schemas/DeploymentContents' },
+  },
+};
+
+/** What needs a deployment's value: a tool version, an agent version, a model provider, or the pack's service. */
+export const DeploymentValueNeededBySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['type', 'id'],
+  properties: {
+    type: {
+      type: 'string',
+      description:
+        '`tool`, `agent`, `provider` or `pack`; a later runtime may add kinds, so treat an unknown one as a need not yet named.',
+    },
+    id: { type: 'string' },
+    version: { type: 'string' },
+  },
+};
+
+/**
+ * One value a deployment needs set in a project before it serves there:
+ * a tool's secret or env value, a model provider's key, or the pack
+ * service's own env. Never the value itself: whether it's set, and where.
+ */
+export const DeploymentValueSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'kind', 'neededBy'],
+  properties: {
+    name: {
+      type: 'string',
+      description:
+        "The secret's or env value's name; for a model key, the key's secret name, or `any provider` when none is registered.",
+    },
+    kind: {
+      type: 'string',
+      description:
+        '`secret`, `env`, `model-key` or `pack-env`; a later runtime may add kinds, so treat an unknown one as a value not yet named.',
+    },
+    neededBy: { $ref: '#/components/schemas/DeploymentValueNeededBy' },
+    foundAt: {
+      type: 'string',
+      enum: ['project', 'org', 'tenant'],
+      description:
+        'Where a run finds it, when it is set: the project, else its org, else the tenant.',
+    },
+    problem: {
+      type: 'string',
+      description:
+        "Why it isn't ready; absent when it is. One of a fixed list; a later runtime may add problems, so treat an unknown one as a reason not yet named. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set both as a secret and as a plain value. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one). `no-provider`: an agent that runs on any provider (it names none, or names one that isn't registered), with no provider registered in the tenant, so a run has none to call.",
+    },
+  },
+};
+
+/** `POST /v1/deployments/{deploymentId}/promotions`: where to, and why. */
+export const DeploymentPromotionBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['toProjectId'],
+  properties: {
+    toProjectId: {
+      type: 'string',
+      minLength: 1,
+      description: "The next environment of the deployment's order.",
+    },
+    reason: {
+      type: 'string',
+      maxLength: 1000,
+      description: 'Why, kept in the `deployment-promoted` audit record.',
+    },
+    makeLive: {
+      type: 'boolean',
+      description:
+        "Make every agent version the promotion carries live in the target project, each through its scope's gate. The answer's `live` reports each. An error answered after some carried agents were already pinned lists those in `error.details.live`, in `live`'s shape.",
+    },
+  },
+};
+
+/** `POST /v1/deployments/{deploymentId}/promotions/check`: where to. */
+export const DeploymentPromotionCheckBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['toProjectId'],
+  properties: {
+    toProjectId: {
+      type: 'string',
+      minLength: 1,
+      description: "The next environment of the deployment's order.",
+    },
+  },
+};
+
+/** An agent or flow version a promotion moves: one the build ships, or one carried with it. */
+export const PromotionMovedVersionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id'],
+  properties: {
+    id: { type: 'string' },
+    version: { type: 'string' },
+    carried: {
+      type: 'boolean',
+      const: true,
+      description:
+        'Carried with the build: an edit of a version it ships. Absent for one it ships.',
+    },
+  },
+};
+
+/** What a promotion moves into the next environment: the build, and the edits carried with it. */
+export const PromotionMovesSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['imageDigest', 'agents', 'flows', 'tools', 'guardrails'],
+  properties: {
+    packId: { type: 'string' },
+    imageDigest: { type: 'string', pattern: '^sha256:[0-9a-f]{64}$' },
+    agents: { type: 'array', items: { $ref: '#/components/schemas/PromotionMovedVersion' } },
+    flows: { type: 'array', items: { $ref: '#/components/schemas/PromotionMovedVersion' } },
+    tools: { type: 'array', items: DeployedPrimitiveSchema },
+    guardrails: { type: 'array', items: DeployedPrimitiveSchema },
+  },
+};
+
+/** An edit of an agent or flow a build ships, made from a version it doesn't ship: it stays. */
+export const LeftBehindVersionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id', 'version', 'from'],
+  properties: {
+    kind: {
+      type: 'string',
+      description:
+        '`agent` or `flow`; a later runtime may add kinds, so treat an unknown one as an item not yet named.',
+    },
+    id: { type: 'string' },
+    version: { type: 'string' },
+    from: { type: 'string', description: 'The version its chain of edits starts from.' },
+  },
+};
+
+/** The gate's say on a carried version's pin, there when it isn't live yet or ran checks. */
+export const DeploymentLivePinGateSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['status', 'promotionId'],
+  properties: {
+    status: {
+      type: 'string',
+      enum: ['promoted', 'pending-approval', 'refused', 'superseded', 'rejected', 'expired'],
+    },
+    promotionId: { type: 'string', format: 'uuid' },
+    policy: {
+      oneOf: [{ $ref: '#/components/schemas/GatePolicyRef' }, { type: 'null' }],
+      description: 'The gate policy that applied; null when none did.',
+    },
+    approvalId: { type: 'string', description: 'The approval a `pending-approval` pin waits on.' },
+    checks: { type: 'array', items: { $ref: '#/components/schemas/GateCheck' } },
+  },
+};
+
+/** A carried agent version a make-live pinned, or tried to, in the target project. */
+export const DeploymentLivePinSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'version', 'pinned'],
+  properties: {
+    id: { type: 'string' },
+    version: { type: 'string' },
+    pinned: {
+      type: 'boolean',
+      description:
+        'Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).',
+    },
+    gate: { $ref: '#/components/schemas/DeploymentLivePinGate' },
+  },
+};
+
+/** A promotion's answer. */
+export const DeploymentPromotionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['deployment', 'created', 'moved'],
+  properties: {
+    deployment: { $ref: '#/components/schemas/DeploymentRecord' },
+    created: {
+      type: 'boolean',
+      description:
+        '`true`: the promotion made this deployment (`201`). `false`: the target had this build already (`200`), and only the versions it lacked were carried.',
+    },
+    moved: { $ref: '#/components/schemas/PromotionMoves' },
+    leftBehind: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/LeftBehindVersion' },
+      description: "Edits of the build's agents and flows that stay behind; absent when none.",
+    },
+    live: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/DeploymentLivePin' },
+      description:
+        'Each carried agent pinned live in the target; present only when `makeLive` was asked.',
+    },
+  },
+};
+
+/** The environment a deployment is promoted into: the next one in its order. */
+export const PromotionNextEnvironmentSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'position'],
+  properties: {
+    projectId: { type: 'string' },
+    position: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Its place in the order, from 0 (the first, which takes builds).',
+    },
+  },
+};
+
+/** A promotion check's answer: what would move, and the values not ready in the target. */
+export const DeploymentPromotionCheckSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['moves', 'values', 'nextEnvironment'],
+  properties: {
+    moves: { $ref: '#/components/schemas/PromotionMoves' },
+    values: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/DeploymentValue' },
+      description: 'Each value with a problem in the target; empty when every one is ready.',
+    },
+    nextEnvironment: { $ref: '#/components/schemas/PromotionNextEnvironment' },
+    envName: {
+      type: 'string',
+      description:
+        'The env this runtime serves, which a run in the target reads its values under: a value is set there (`--env=<envName>` with `--scope=project:<id>`). Absent when the runtime names none, and each value is then listed unread.',
+    },
+    leftBehind: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/LeftBehindVersion' },
+      description:
+        "Edits of the build's agents and flows that would stay behind; absent when none.",
+    },
+  },
+};
+
+/** Wire response for `GET /v1/deployments/:deploymentId/values`. */
+export const DeploymentValueListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      description:
+        "Every value the deployment needs in the project: each tool's secrets and env values (in the deployment's order), then each model key by provider, then the pack service's env.",
+      items: { $ref: '#/components/schemas/DeploymentValue' },
+    },
   },
 };
 
@@ -10110,7 +10897,7 @@ export const DeploymentEndpointSchema: JsonSchema = {
   additionalProperties: false,
   required: ['status', 'since'],
   description:
-    "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); it carries `waiting` or `retired` to say whether it comes back. Carries no URL and no token.",
+    "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise, and for a deployment that ships nothing a pack service serves (no tool, and no guardrail check but built-in ones: a pack of agents and flows only), which needs none. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); it carries `waiting` or `retired` to say whether it comes back. Carries no URL and no token.",
   properties: {
     status: { type: 'string', enum: ['pending', 'ready', 'cleared'] },
     since: {
@@ -10130,6 +10917,17 @@ export const DeploymentEndpointSchema: JsonSchema = {
       description:
         '`cleared` only: why no pack service is wanted for it now. `superseded` is for good: newer deployments ship every tool version and check it does, so no new call reaches it; a tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.',
     },
+    packEnvProblem: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['code', 'since'],
+      description:
+        "`ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say, or a secret can't be given), or didn't start (`pack-env-update-failed`). Gone once they can, or do. For a name that can't be given, `GET /v1/deployments/{deploymentId}/pack-env` names it. Absent from older servers.",
+      properties: {
+        code: { $ref: '#/components/schemas/PackEnvHeldCode' },
+        since: { type: 'string', format: 'date-time', description: 'When it was recorded.' },
+      },
+    },
   },
 };
 
@@ -10144,7 +10942,7 @@ export const DeploymentEndpointProblemSchema: JsonSchema = {
     code: {
       type: 'string',
       description:
-        "One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start).",
+        "One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start). It can't be given its declared environment (`GET /v1/deployments/{deploymentId}/pack-env` names the names): `pack-env-ambiguous`, `pack-env-secret-not-yet`, `pack-env-missing`, `pack-env-secret-unreadable` (a name's secret can't be read for a reason the platform fixes, not the owner; it's tried again). It can't be given its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out; the platform fixes it, and it's tried again), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-secret-capacity` (a name is set only as a secret, and there's no room just now for a pack service that can be given one, apart from other projects'; it's tried again).",
     },
     since: {
       type: 'string',
@@ -10226,6 +11024,16 @@ export const DeploymentCollectionPageSchema: JsonSchema = {
     },
     nextCursor: { type: 'string' },
     hasMore: { type: 'boolean' },
+    projectId: {
+      type: 'string',
+      description:
+        "The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `projectId` and lists them all.",
+    },
+    packId: {
+      type: 'string',
+      description:
+        "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `packId` and lists them all.",
+    },
   },
 };
 
@@ -11014,6 +11822,23 @@ export const TenantSchema: JsonSchema = {
   },
 };
 
+export const TenantPatchSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'A new name, a new slug, or both; a field left out stays as it is. The id stays, so whatever names the tenant by its id keeps working.',
+  properties: {
+    name: { type: 'string', minLength: 1, maxLength: 100 },
+    slug: {
+      type: 'string',
+      maxLength: 63,
+      pattern: '^[a-z0-9](?:-?[a-z0-9])*$',
+      description:
+        "Lowercase letters, digits and single hyphens, unique across tenants. The console's addresses carry it, so links with the old one stop opening the tenant; nothing else is keyed by it.",
+    },
+  },
+};
+
 /**
  * `EgressAddresses` — where a deployment's calls to other sites come
  * from. `GET /v1/tenant`'s `egress`, the deployment's, not the tenant's.
@@ -11299,6 +12124,74 @@ export const EnvironmentPageSchema: JsonSchema = {
   },
 };
 
+/** The tenant itself, or one of its orgs, as an environment order's parent. */
+export const EnvironmentOrderParentSchema: JsonSchema = {
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind'],
+      properties: { kind: { type: 'string', enum: ['tenant'] } },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'orgId'],
+      properties: {
+        kind: { type: 'string', enum: ['org'] },
+        orgId: { type: 'string' },
+      },
+    },
+  ],
+};
+
+/** One project in an environment order. `projectId` is absent when the caller can't read it. */
+export const EnvironmentOrderEntrySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['position'],
+  properties: {
+    position: { type: 'integer', minimum: 0 },
+    projectId: { type: 'string' },
+  },
+};
+
+/** The projects a tenant (or one of its orgs) runs through to live, in order. */
+export const EnvironmentOrderSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['parent', 'entries'],
+  properties: {
+    parent: { $ref: '#/components/schemas/EnvironmentOrderParent' },
+    entries: { type: 'array', items: { $ref: '#/components/schemas/EnvironmentOrderEntry' } },
+  },
+};
+
+export const EnvironmentOrderPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/EnvironmentOrder' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+/**
+ * Set an environment order: the projects, in order. `[]` clears it; one
+ * project is refused (an order needs two or more); a project in another
+ * order is refused (`project-in-another-order`).
+ */
+export const EnvironmentOrderSetRequestSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectIds'],
+  properties: {
+    projectIds: { type: 'array', items: { type: 'string' } },
+  },
+};
+
 export const EnvSetInputSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -11506,6 +12399,12 @@ export const SecretRevokeOutcomeSchema: JsonSchema = {
   properties: {
     revoked: { type: 'boolean' },
     hard: { type: 'boolean' },
+    recoverableUntil: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "A hard revoke left a copy your secret manager can still recover (for example Azure Key Vault's soft delete, when the vault doesn't allow a purge or the runtime isn't permitted to purge): when the secret manager purges it on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. Absent on a soft revoke, and when a hard revoke left nothing recoverable.",
+    },
   },
 };
 
@@ -11611,7 +12510,15 @@ export const SecretSetRequestSchema: JsonSchema = {
   properties: {
     scope: { $ref: '#/components/schemas/Scope' },
     envName: { $ref: '#/components/schemas/EnvName' },
-    name: { type: 'string', minLength: 1 },
+    name: {
+      type: 'string',
+      minLength: 1,
+      // Documented, not enforced on the wire: the create-name grammar is the
+      // server's (SECRET_NAME_ALLOWED), so the request stays additive — a client
+      // can still add a version to a name stored before this release.
+      description:
+        'A new secret name: 1 to 255 ASCII letters, digits, `.`, `-` and `_`, starting with a letter, digit or `_`, with any `.` between two non-`.` characters. The server holds a newly-created name to this shape (`create-new`, or an `add-version` of a name not yet stored); a name already stored outside this shape still reads, rotates and takes new versions.',
+    },
     value: { type: 'string' },
     writeMode: { type: 'string', enum: ['create-new', 'add-version'] },
     tags: { type: 'object', additionalProperties: { type: 'string' } },
@@ -11694,6 +12601,12 @@ export const SecretRevokeResultSchema: JsonSchema = {
   properties: {
     revoked: { type: 'boolean' },
     hard: { type: 'boolean' },
+    recoverableUntil: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "A hard revoke left a copy your secret manager can still recover (for example Azure Key Vault's soft delete, when the vault doesn't allow a purge or the runtime isn't permitted to purge): when the secret manager purges it on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. Absent on a soft revoke, and when a hard revoke left nothing recoverable.",
+    },
   },
 };
 
@@ -11709,6 +12622,20 @@ export const TriggerStatusSchema: JsonSchema = {
 };
 
 // ---------- schedules (cron kind) ----------
+
+/**
+ * A webhook's or a schedule's `toolsAllowedUnattended`, as each body and
+ * record names it (`routes/trigger-tools.ts` holds the rules).
+ */
+function toolsAllowedUnattendedProperty(lead: string): JsonSchema {
+  return {
+    type: 'array',
+    maxItems: 100,
+    uniqueItems: true,
+    items: { type: 'string', minLength: 1, maxLength: 200 },
+    description: `${lead} Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.`,
+  };
+}
 
 export const ScheduleRecordSchema: JsonSchema = {
   type: 'object',
@@ -11799,6 +12726,9 @@ export const ScheduleRecordSchema: JsonSchema = {
       description:
         'Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count.',
     },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none.",
+    ),
     nextFireAt: {
       type: ['string', 'null'],
       format: 'date-time',
@@ -12017,6 +12947,9 @@ export const RegisterScheduleBodySchema: JsonSchema = {
       description: 'Default 600.',
     },
     label: { type: 'string' },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this schedule's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the schedule's project.",
+    ),
   },
 };
 
@@ -12063,6 +12996,9 @@ export const PatchScheduleBodySchema: JsonSchema = {
       type: ['string', 'null'],
       description: '`null` clears the label; omit to leave unchanged.',
     },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "Replaces the schedule's list; `[]` clears it, and absent keeps it. Naming it takes `admin` on the schedule's project. A change of what it runs (another flow or agent) while the list isn't empty must name it again, as it is or `[]`; a new version alone keeps it.",
+    ),
   },
 };
 
@@ -12298,6 +13234,9 @@ export const WebhookTriggerRecordSchema: JsonSchema = {
         count: { type: 'integer', minimum: 1 },
       },
     },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this trigger's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none.",
+    ),
     lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
@@ -12436,6 +13375,9 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
       description:
         "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Absent: the caller owns it.",
     },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this trigger's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the trigger's project.",
+    ),
   },
 };
 
@@ -12471,6 +13413,9 @@ export const PatchWebhookTriggerBodySchema: JsonSchema = {
       maximum: 6000,
       description: '`null`: the default.',
     },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "Replaces the trigger's list; `[]` clears it, and absent keeps it (a new `flowVersion` too). Naming it takes `admin` on the trigger's project, and it's checked against the flow at the version the trigger will run.",
+    ),
   },
 };
 
@@ -12478,7 +13423,7 @@ export const TakeTriggerOwnerBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner.",
+    "Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner. A take-over keeps the trigger's `toolsAllowedUnattended`: change that with PATCH.",
   properties: {
     runAsServiceAccountId: {
       type: 'string',
@@ -12944,6 +13889,77 @@ export const MintPublicRunTokenResultSchema: JsonSchema = {
   },
 };
 
+export const UsageGroupSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['count', 'quantity', 'firstAt', 'lastAt'],
+  description:
+    "One group: the dimensions it's grouped by (only those), then its count, the sum of its quantities, and its first and last times.",
+  properties: {
+    tenantId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The tenant, on the operator's read across tenants.",
+    },
+    projectId: {
+      type: 'string',
+      description:
+        "Absent for a record with no project; a tenant admin's read includes those, and the CLI shows them as `(none)`.",
+    },
+    agentId: {
+      type: 'string',
+      description: 'Absent for a record with no agent; the CLI shows those as `(none)`.',
+    },
+    kind: {
+      type: 'string',
+      description:
+        "What was counted: `run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`. A runtime may count more kinds later: show one you don't know as it is.",
+    },
+    class: {
+      type: 'string',
+      description:
+        "The class of the run a record counts or belongs to, fixed when the run was created: `production`, `staging`, `dry-run`, `replay`, `eval`, `child`. A record with no counted run has none. A runtime may add classes later: show one you don't know as it is.",
+    },
+    state: {
+      type: 'string',
+      description:
+        "The record's state, by kind: `on`, `off` (`project.production`); `completed`, `failed`, `cancelled` (`run.ended`); `escalation` (`approval.requested`, an escalation's next tier); `approved`, `rejected`, `withdrawn`, `escalated`, `expired` (`approval.decided`). Other kinds have none.",
+    },
+    day: {
+      type: 'string',
+      pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+      description: 'The UTC date, `YYYY-MM-DD`.',
+    },
+    count: { type: 'integer', minimum: 0, description: 'Records in the group.' },
+    quantity: {
+      type: 'number',
+      description:
+        'The sum of their quantities: milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count.',
+    },
+    firstAt: { type: 'string', format: 'date-time' },
+    lastAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const UsagePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'watermark'],
+  properties: {
+    data: { type: 'array', items: ref('UsageGroup') },
+    watermark: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "Every record at or before this time is in the answer; a later one may not be yet. Re-read a window until its watermark is past the window's end. Every page of one read carries the same watermark.",
+    },
+    nextCursor: {
+      type: 'string',
+      description: 'More groups: pass it as `cursor`. Absent on the last page.',
+    },
+  },
+};
+
 export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WireError', WireErrorSchema],
   ['HealthResult', HealthResultSchema],
@@ -13000,6 +14016,18 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SystemDeploymentEntry', SystemDeploymentEntrySchema],
   ['SystemDeploymentPage', SystemDeploymentPageSchema],
   ['SetPackEndpointBody', SetPackEndpointBodySchema],
+  ['PackEnvDeclaration', PackEnvDeclarationSchema],
+  ['PackEnvScope', PackEnvScopeSchema],
+  ['PackEnvNameStatus', PackEnvNameStatusSchema],
+  ['PackEnvProblemCode', PackEnvProblemCodeSchema],
+  ['PackEnvHeldCode', PackEnvHeldCodeSchema],
+  ['SystemPackEnv', SystemPackEnvSchema],
+  ['PackEnvSecretValue', PackEnvSecretValueSchema],
+  ['SystemPackEnvEntry', SystemPackEnvEntrySchema],
+  ['SystemPackEnvHold', SystemPackEnvHoldSchema],
+  ['SystemPackEnvPage', SystemPackEnvPageSchema],
+  ['RecordPackEnvBody', RecordPackEnvBodySchema],
+  ['PackEnvNames', PackEnvNamesSchema],
   ['RecordDeploymentProblemBody', RecordDeploymentProblemBodySchema],
   ['SetPackSuspendedBody', SetPackSuspendedBodySchema],
   ['PackSuspension', PackSuspensionSchema],
@@ -13011,6 +14039,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SetTenantImagePrefixBody', SetTenantImagePrefixBodySchema],
   ['ProjectSuspension', ProjectSuspensionSchema],
   ['TenantAdminContacts', TenantAdminContactsSchema],
+  ['PurgeTenantBody', PurgeTenantBodySchema],
+  ['TenantTableRows', TenantTableRowsSchema],
+  ['SystemTenantPurge', SystemTenantPurgeSchema],
   ['SystemWhoami', SystemWhoamiSchema],
   ['ApiToken', ApiTokenSchema],
   ['ApiTokenPage', ApiTokenPageSchema],
@@ -13050,6 +14081,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ExportSigningKey', ExportSigningKeySchema],
   ['ExportSigningKeyList', ExportSigningKeyListSchema],
   ['LicenseStatus', LicenseStatusSchema],
+  ['UsageGroup', UsageGroupSchema],
+  ['UsagePage', UsagePageSchema],
   ['LicenseUsage', LicenseUsageSchema],
   ['ExportAuditBundleBody', ExportAuditBundleBodySchema],
   ['ExportAuditBundleResult', ExportAuditBundleResultSchema],
@@ -13340,6 +14373,14 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['InviteEmail', InviteEmailSchema],
   ['UserCreated', UserCreatedSchema],
   ['InviteRenewed', InviteRenewedSchema],
+  ['SecondFactorProof', SecondFactorProofSchema],
+  ['SecondFactorConfirmBody', SecondFactorConfirmBodySchema],
+  ['SecondFactorStatus', SecondFactorStatusSchema],
+  ['SecondFactorKey', SecondFactorKeySchema],
+  ['SecondFactorRecoveryCodes', SecondFactorRecoveryCodesSchema],
+  ['SecondFactorRemoved', SecondFactorRemovedSchema],
+  ['AuthSettings', AuthSettingsSchema],
+  ['AuthSettingsPatch', AuthSettingsPatchSchema],
   ['UnregisterUserResult', UnregisterUserResultSchema],
   ['CreateUserBody', CreateUserBodySchema],
   ['PersonGrants', PersonGrantsSchema],
@@ -13390,6 +14431,19 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['DeploymentEndpointProblem', DeploymentEndpointProblemSchema],
   ['DeploymentEndpoint', DeploymentEndpointSchema],
   ['DeploymentRecord', DeploymentRecordSchema],
+  ['DeploymentValueNeededBy', DeploymentValueNeededBySchema],
+  ['DeploymentValue', DeploymentValueSchema],
+  ['DeploymentValueList', DeploymentValueListSchema],
+  ['DeploymentPromotionBody', DeploymentPromotionBodySchema],
+  ['DeploymentPromotionCheckBody', DeploymentPromotionCheckBodySchema],
+  ['PromotionMovedVersion', PromotionMovedVersionSchema],
+  ['PromotionMoves', PromotionMovesSchema],
+  ['LeftBehindVersion', LeftBehindVersionSchema],
+  ['DeploymentLivePinGate', DeploymentLivePinGateSchema],
+  ['DeploymentLivePin', DeploymentLivePinSchema],
+  ['DeploymentPromotion', DeploymentPromotionSchema],
+  ['PromotionNextEnvironment', PromotionNextEnvironmentSchema],
+  ['DeploymentPromotionCheck', DeploymentPromotionCheckSchema],
   ['DeploymentRegistrationBody', DeploymentRegistrationBodySchema],
   ['DeploymentCollectionPage', DeploymentCollectionPageSchema],
   ['DeploymentValidationDetails', DeploymentValidationDetailsSchema],
@@ -13449,6 +14503,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateProjectMembershipBody', UpdateProjectMembershipBodySchema],
   ['AddProjectMembershipResult', AddProjectMembershipResultSchema],
   ['Tenant', TenantSchema],
+  ['TenantPatch', TenantPatchSchema],
   ['TenantLimits', TenantLimitsSchema],
   ['EgressAddresses', EgressAddressesSchema],
   ['ProductionAllowedBody', ProductionAllowedBodySchema],
@@ -13468,6 +14523,11 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['EnvListPage', EnvListPageSchema],
   ['Environment', EnvironmentSchema],
   ['EnvironmentPage', EnvironmentPageSchema],
+  ['EnvironmentOrderParent', EnvironmentOrderParentSchema],
+  ['EnvironmentOrderEntry', EnvironmentOrderEntrySchema],
+  ['EnvironmentOrder', EnvironmentOrderSchema],
+  ['EnvironmentOrderPage', EnvironmentOrderPageSchema],
+  ['EnvironmentOrderSetRequest', EnvironmentOrderSetRequestSchema],
   ['EnvSetInput', EnvSetInputSchema],
   ['EnvSetOutcome', EnvSetOutcomeSchema],
   ['SecretRecord', SecretRecordSchema],
@@ -13549,6 +14609,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateSiteBody', UpdateSiteBodySchema],
   ['SiteEnrollmentCode', SiteEnrollmentCodeSchema],
   ['RegisterSiteResult', RegisterSiteResultSchema],
+  ['SitePersonRestoreResult', SitePersonRestoreResultSchema],
   ['EnrollSiteBody', EnrollSiteBodySchema],
   ['EnrollSiteResult', EnrollSiteResultSchema],
   ['SiteSignInBody', SiteSignInBodySchema],
