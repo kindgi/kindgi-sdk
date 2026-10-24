@@ -466,6 +466,7 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
       guardrails: Record<string, unknown>[];
       agents: Record<string, unknown>[];
       flows: Record<string, unknown>[];
+      blocks?: Record<string, unknown>[];
     };
     let service: RunningService;
 
@@ -512,6 +513,40 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         expect(index.agents[0]?.tools).toEqual([{ id: 'conformance.echo', version: '1.0.0' }]);
         expect(index.flows.map((f) => f.id)).toEqual(['conformance.echo-flow']);
         expect(index.flows[0]?.kernelPayloadVersion).toBe(1);
+      });
+
+      test("lists the pack's data blocks, a prompt's template file read into it", () => {
+        expect(index.blocks).toEqual([
+          {
+            id: 'conformance.greeting',
+            version: '1.0.0',
+            kind: 'prompt',
+            description: 'Greets the person by name',
+            content: {
+              template: 'Say hello to {{ name }}.\n',
+              parameters: [{ name: 'name', type: 'string' }],
+            },
+            modulePath: 'blocks/greeting.json',
+          },
+          {
+            id: 'conformance.limits',
+            version: '1.0.0',
+            kind: 'settings',
+            content: {
+              values: { maxSentences: 3, temperature: 1, minScore: 1e-7 },
+              schema: {
+                type: 'object',
+                properties: {
+                  maxSentences: { type: 'integer', minimum: 1 },
+                  temperature: { type: 'number', minimum: 0 },
+                  minScore: { type: 'number', minimum: 0 },
+                },
+                required: ['maxSentences'],
+              },
+            },
+            modulePath: 'blocks/limits.json',
+          },
+        ]);
       });
 
       test('is canonical: keys sorted, two-space indent, trailing newline', () => {

@@ -361,6 +361,7 @@ export async function lookupTool(input: { id: string }): Promise<string> {
           keepIfInstalled: [],
         },
         hasIncludes: false,
+        hasBlocks: false,
       });
       const contextDir = join(workDir, 'context');
       await writeContextReal({
@@ -371,6 +372,7 @@ export async function lookupTool(input: { id: string }): Promise<string> {
         containerfilePath,
         includes: [],
         extensionFiles: [],
+        blockFiles: [],
       });
       const tarPath = join(workDir, 'pack.tgz');
       await tarPackReal({ contextDir, outputPath: tarPath });

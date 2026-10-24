@@ -43,7 +43,7 @@ class IndexerTest {
     Map<String, Object> report = value(index("good"));
     assertThat(report.get("fileErrors")).isEqualTo(List.of());
     assertThat(report.get("warnings")).isEqualTo(List.of());
-    assertThat(report.get("counts")).isEqualTo(Map.of("tools", 3, "guardrails", 1, "agents", 1, "flows", 1));
+    assertThat(report.get("counts")).isEqualTo(Map.of("tools", 3, "guardrails", 1, "agents", 1, "flows", 1, "blocks", 0));
     String text = Files.readString(out.resolve("good.json"), StandardCharsets.UTF_8);
     Map<String, Object> index = (Map<String, Object>) Json.parse(text.getBytes(StandardCharsets.UTF_8));
     assertThat(text).isEqualTo(CanonicalJson.stable(index) + "\n");
@@ -127,7 +127,7 @@ class IndexerTest {
   void aCheckIdWithoutThePacksPrefixIsAWarningAndStillIndexes() throws Exception {
     Map<String, Object> report = value(index("warn"));
     assertThat(report.get("fileErrors")).isEqualTo(List.of());
-    assertThat(report.get("counts")).isEqualTo(Map.of("tools", 0, "guardrails", 4, "agents", 0, "flows", 0));
+    assertThat(report.get("counts")).isEqualTo(Map.of("tools", 0, "guardrails", 4, "agents", 0, "flows", 0, "blocks", 0));
     String rel = "src/main/java/com/kindgi/pack/testpacks/warn/guardrails/Checks.java";
     List<Map<String, Object>> warnings = (List<Map<String, Object>>) report.get("warnings");
     assertThat(warnings).extracting(w -> w.get("code")).containsOnly("check-id-unprefixed");
@@ -169,7 +169,7 @@ class IndexerTest {
         + "agent 'acme.lingers' is invalid at "
         + "/conversationPolicy/autoCloseAfterInactiveSeconds: must NOT be valid");
     assertThat(errors).doesNotContainKey("Dup.java");
-    assertThat(report.get("counts")).isEqualTo(Map.of("tools", 1, "guardrails", 0, "agents", 0, "flows", 0));
+    assertThat(report.get("counts")).isEqualTo(Map.of("tools", 1, "guardrails", 0, "agents", 0, "flows", 0, "blocks", 0));
     Map<String, Object> boom = ((List<Map<String, Object>>) report.get("fileErrors")).stream()
         .filter(e -> String.valueOf(e.get("filePath")).endsWith("Boom.java")).findFirst().orElseThrow();
     assertThat((Map<String, Object>) boom.get("cause")).containsEntry("name", "java.lang.IllegalStateException")
@@ -221,6 +221,29 @@ class IndexerTest {
     Map<String, Object> empty = Indexer.run(dir, null, null, null, null, getClass().getClassLoader());
     assertThat((Map<String, Object>) empty.get("error")).containsEntry("code", "discovery-empty");
     assertThat(String.valueOf(((Map<String, Object>) empty.get("error")).get("message"))).contains("kindgi.config.json");
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void aPackOfBlocksAloneIndexesAndARefusedBlockIsAFileError(@TempDir Path dir) throws Exception {
+    Files.writeString(dir.resolve("kindgi.config.json"), "{\"language\": \"java\", \"pack\": {\"id\": \"acme\", \"version\": \"1.0.0\"}}");
+    Files.createDirectories(dir.resolve("blocks"));
+    Files.writeString(dir.resolve("blocks/reply.json"), "{\"id\": \"acme.reply-prompt\", \"version\": \"1.0.0\", \"kind\": \"prompt\","
+        + " \"content\": {\"templateFile\": \"reply.liquid\"}}");
+    Files.writeString(dir.resolve("blocks/reply.liquid"), "Reply to {{ customer_name }}.");
+    Files.writeString(dir.resolve("blocks/broken.json"), "{\"id\": \"acme.broken\"}");
+    Map<String, Object> report = value(Indexer.run(dir, null, out.resolve("blocks.json"), "20261001.7",
+        "2026-10-01T12:00:00.000Z", getClass().getClassLoader()));
+    assertThat(report.get("counts")).isEqualTo(Map.of("tools", 0, "guardrails", 0, "agents", 0, "flows", 0, "blocks", 1));
+    assertThat((List<Map<String, Object>>) report.get("fileErrors")).singleElement().satisfies(e -> {
+      assertThat(e).containsEntry("code", "manifest-validation-failed").containsEntry("filePath", "blocks/broken.json");
+      assertThat((String) e.get("message")).startsWith("blocks/broken.json: `version` must be major.minor.patch");
+    });
+    Map<String, Object> index = (Map<String, Object>) Json.parse(Files.readAllBytes(out.resolve("blocks.json")));
+    assertThat(index.get("blocks")).isEqualTo(List.of(Map.of("id", "acme.reply-prompt", "version", "1.0.0", "kind", "prompt",
+        "content", Map.of("template", "Reply to {{ customer_name }}."), "modulePath", "blocks/reply.json")));
+    assertThat(value(index("good")).get("outputPath")).satisfies(p -> assertThat(
+        (Map<String, Object>) Json.parse(Files.readAllBytes(Path.of((String) p)))).doesNotContainKey("blocks"));
   }
 
   @Test

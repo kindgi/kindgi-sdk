@@ -140,6 +140,62 @@ Each prints the block's id and version. The second prints:
 `kindgi blocks list`, `show` and `versions` read them. `unregister` and
 `reinstate` retire a version and bring it back.
 
+### Keep them in the pack
+
+A pack can bring its blocks instead: one JSON file per block in its `blocks/`
+folder, in the same shape as `reply-prompt.json`. `kindgi deploy` publishes
+them into the project it deploys to, before the agents that use them, so a
+block and its agent ship together. Ask your coding agent: "Keep my agent's
+blocks in the pack."
+
+```text
+blocks/
+  reply-prompt.json
+  reply-prompt.liquid
+  reply-style.json
+```
+
+- **A settings block's file** holds its `values`, and its `schema` when it has
+  one, under `content`.
+- **A long template can have its own file,** named by `templateFile` in
+  place of `template`: `"templateFile": "reply-prompt.liquid"`. The path is
+  from the block's file, and stays inside the blocks folder. The build reads
+  the file into the block.
+- **`kindgi build` checks each block,** its template and its values against
+  its schema, and refuses a pack whose blocks don't hold up, naming each file.
+  `kindgi dev` shows the same problems as you edit; its runtime reads the
+  blocks published to it, as above. When a Python, Java or Scala pack's
+  `kindgi` package or `com.kindgi:kindgi-pack` is from before blocks in a
+  pack, and so reads none, `kindgi build` refuses the pack and `kindgi dev`
+  says so, each naming the release to upgrade to.
+- **The folder** is the `discovery.blocks` pattern in `kindgi.config.ts`
+  (`kindgi.config.json` in a Java or Scala pack; `blocks` under
+  `[tool.kindgi.discovery]` in a Python pack's `pyproject.toml`),
+  `blocks/**/*.json` unless you change it.
+
+A version never changes. When a deploy brings a version the runtime already
+holds:
+
+- **With the same content,** it keeps it, so a deploy whose blocks didn't
+  change publishes none.
+- **With other content,** the deploy is refused: give the block a new version
+  in its file.
+- **Unregistered,** by `kindgi blocks unregister` or by a deploy that failed
+  after publishing it, the deploy is refused, naming the command that
+  reinstates each such block:
+
+  ```text
+  kindgi blocks reinstate acme.reply-prompt --block-version=1.0.0
+  ```
+
+An agent pins the pack's own version of each block the pack brings, as the
+pack's files are the agent: a newer version published on the runtime since
+isn't picked, even one in the agent's range. If the agent's range doesn't take
+the pack's version, the deploy is refused, naming both. A block the pack
+doesn't bring pins the newest published version in the agent's range, as
+before. A runtime from an earlier release doesn't publish a pack's blocks:
+`kindgi deploy` checks first, and refuses, naming the release it needs.
+
 ## Use them in an agent
 
 The agent names its prompt block and its settings blocks by range, as it names

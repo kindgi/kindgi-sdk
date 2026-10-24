@@ -49,6 +49,7 @@ import type {
 } from '../src/deploy/runners.js';
 import type { PackEnvNameRecord } from '../src/env/pack-env-hint.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
+import { CLI_VERSION } from '../src/version-info.js';
 import { fakeRateLimitWaits } from './rate-limit-waits.js';
 
 let cwd: string;
@@ -2525,4 +2526,107 @@ describe("kindgi deploy: the stored API key goes only to the address it's for", 
       expect(fixtures.state.postCalls).toBe(0);
     },
   );
+});
+
+describe('kindgi deploy — a pack with blocks goes only to a runtime that publishes them', () => {
+  const BLOCKS = [
+    { id: 'my-pack.reply', version: '1.0.0', kind: 'prompt', content: { template: 'Hi.' } },
+    { id: 'my-pack.style', version: '1.0.0', kind: 'settings', content: { values: {} } },
+  ];
+
+  /** A runtime whose `/v1/openapi.json` lists `capabilities` (none: no entry), and the URLs asked. */
+  function runtime(capabilities?: readonly string[], status = 200) {
+    const asked: string[] = [];
+    const fetchImpl = (async (url: unknown) => {
+      asked.push(String(url));
+      const info = {
+        title: 'Kindgi Platform API',
+        version: '0.1.0',
+        ...(capabilities !== undefined && { 'x-kindgi-capabilities': capabilities }),
+      };
+      return new Response(JSON.stringify({ openapi: '3.1.0', info }), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+    return { fetchImpl, asked };
+  }
+
+  async function deployWith(
+    fetchImpl: typeof fetch,
+    opts: { blocks?: boolean; argv?: string[] } = {},
+  ) {
+    const index = { ...(makeEnvelope().index as Record<string, unknown>) };
+    if (opts.blocks !== false) index.blocks = BLOCKS;
+    await writeAutoEnvelope({ index });
+    const fixtures = makeFixtures({ envelope: makeEnvelope({ index }) });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, ...(opts.argv ?? [])],
+      fetchImpl,
+    });
+    return { out, fixtures };
+  }
+
+  test('a runtime that lists deploy-publishes-pack-blocks takes it; names it does not know are ignored', async () => {
+    const { fetchImpl, asked } = runtime(['some-later-capability', 'deploy-publishes-pack-blocks']);
+    const { out, fixtures } = await deployWith(fetchImpl);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(asked).toEqual(['https://api.staging.example.com/v1/openapi.json']);
+    expect(fixtures.state.postCalls).toBe(1);
+  });
+
+  test("a runtime that doesn't is refused before anything is sent, naming this CLI's release", async () => {
+    for (const capabilities of [undefined, ['some-later-capability']]) {
+      const { fetchImpl } = runtime(capabilities);
+      const { out, fixtures } = await deployWith(fetchImpl);
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `The runtime at https://api.staging.example.com doesn't publish a pack's blocks (2 blocks in its index); deploy to a runtime with Kindgi ${CLI_VERSION} or later, or remove them.`,
+      );
+      expect(fixtures.state.postCalls).toBe(0);
+    }
+  });
+
+  test('a pack without blocks never asks', async () => {
+    const { fetchImpl, asked } = runtime();
+    const { out, fixtures } = await deployWith(fetchImpl, { blocks: false });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(asked).toEqual([]);
+    expect(fixtures.state.postCalls).toBe(1);
+  });
+
+  test("an answer that isn't the document is refused too: the deploy can't tell", async () => {
+    const { fetchImpl } = runtime(undefined, 404);
+    const { out, fixtures } = await deployWith(fetchImpl);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "Couldn't read what the runtime at https://api.staging.example.com does (GET /v1/openapi.json: HTTP 404), which a pack with blocks (2 blocks in its index) needs before it deploys.",
+    );
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('--dry-run sends nothing, so asks nothing', async () => {
+    const { fetchImpl, asked } = runtime();
+    const { out } = await deployWith(fetchImpl, { argv: ['--dry-run'] });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(asked).toEqual([]);
+  });
+
+  test("with no envelope yet, the pack's block files are checked before the build", async () => {
+    await mkdir(join(packDir, 'blocks'), { recursive: true });
+    await writeFile(join(packDir, 'blocks', 'reply.json'), JSON.stringify(BLOCKS[0]), 'utf8');
+    await writeFile(join(packDir, 'blocks', 'style.json'), JSON.stringify(BLOCKS[1]), 'utf8');
+    const { fetchImpl } = runtime();
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+      fetchImpl,
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain("doesn't publish a pack's blocks (blocks/: 2 files)");
+    expect(fixtures.state.buildCalls).toBe(0);
+    expect(fixtures.state.postCalls).toBe(0);
+  });
 });

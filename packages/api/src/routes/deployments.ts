@@ -5,7 +5,14 @@ import { createHash } from 'node:crypto';
 
 import { type Context, Hono } from 'hono';
 
-import { type Agent, type AgentId, type AgentPins, templateProblem } from '@kindgi/agents';
+import {
+  type Agent,
+  type AgentId,
+  type AgentPins,
+  type BlockDefinition,
+  templateProblem,
+  validateBlock,
+} from '@kindgi/agents';
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import { ref, tuplesForCreate } from '@kindgi/authz';
 import { runOutsideTenant } from '@kindgi/bounds';
@@ -36,7 +43,13 @@ import type {
 import type { AgentRegistryBinding } from '../agent-binding.js';
 import { type UnpinnableRef, publishDeployedAgent, resolveAgentPins } from '../agent-pins.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
-import { type BlockPins, resolveBlockPins } from '../block-pins.js';
+import { type BlockPins, type BlockVersionReads, resolveBlockPins } from '../block-pins.js';
+import {
+  type PlannedBlock,
+  planPackBlocks,
+  publishPackBlocks,
+  withPackVersions,
+} from '../deploy-blocks.js';
 import type { DeployedVersionOutcome } from '../deploy-versions.js';
 import {
   type DeployedAgent,
@@ -848,6 +861,21 @@ export function deploymentsRouter(
     }
     if (keyIssues.length > 0) return validationFailed(c, keyIssues);
 
+    // The pack's data blocks are published into the runtime's block
+    // registry: a runtime without one takes none.
+    if (validated.blocks.length > 0 && bindings.blockRegistry === undefined) {
+      return validationFailed(
+        c,
+        validated.blocks.map((block, index) => ({
+          primitive: 'block' as const,
+          index,
+          id: block.id,
+          path: '',
+          message: 'this runtime serves no data blocks',
+        })),
+      );
+    }
+
     if (bindings.requirePrefixedPackChecks === true) {
       const checkIssues = unprefixedPackChecks(validated.guardrails, imageIndex.packId);
       if (checkIssues.length > 0) return validationFailed(c, checkIssues);
@@ -860,15 +888,16 @@ export function deploymentsRouter(
 
     // ---- Registry upserts (with rollback tracking) ----
     //
-    // Agent-registry, flow-registry, tool-registry, and
-    // guardrail-registry writes are all project-scoped. All four loops write
+    // Agent-registry, flow-registry, tool-registry, guardrail-registry and
+    // block-registry writes are all project-scoped. All five loops write
     // into the deploy's project: the body's `projectId`, else the tenant's
     // Default project via `projectBinding.getDefault(tenantId)`, resolved
     // once per request and threaded into
     // `AgentRegistryBinding.publish(...)` /
     // `FlowRegistryBinding.publish(...)` /
     // `ToolRegistryBinding.register(...)` /
-    // `GuardrailRegistryBinding.register(...)`.
+    // `GuardrailRegistryBinding.register(...)` /
+    // `BlockRegistryBinding.publish(...)` (`publishPackBlocks`).
     //
     // Fail-fast: if a deployment brings any of those primitives but
     // no `projectBinding` was wired, we surface `500 internal-server-
@@ -878,7 +907,8 @@ export function deploymentsRouter(
       validated.agents.length > 0 ||
       validated.flows.length > 0 ||
       validated.tools.length > 0 ||
-      validated.guardrails.length > 0;
+      validated.guardrails.length > 0 ||
+      validated.blocks.length > 0;
     if (needsProjectBinding && bindings.projectBinding === undefined) {
       c.status(statusFor('internal-server-error') as never);
       return c.json(
@@ -886,7 +916,7 @@ export function deploymentsRouter(
           {
             code: 'internal-server-error',
             message:
-              'agent/flow/tool/guardrail publish requires projectBinding; deployment blocked. Wire projectBinding into DeploymentsRouterBindings at app-creation time.',
+              'agent/flow/tool/guardrail/block publish requires projectBinding; deployment blocked. Wire projectBinding into DeploymentsRouterBindings at app-creation time.',
           },
           requestId,
         ),
@@ -961,6 +991,8 @@ export function deploymentsRouter(
         ...validated.agents.map((a) => `agent:${a.id as unknown as string}`),
         ...validated.flows.map((f) => `flow:${f.id as unknown as string}`),
         ...validated.guardrails.map((g) => `guardrail:${g.id as unknown as string}`),
+        // Published into this project, or refused as another project's.
+        ...validated.blocks.map((b) => `block:${b.id}`),
       ]);
       const named = [
         ...validated.agents.flatMap((agent, i) =>
@@ -981,14 +1013,50 @@ export function deploymentsRouter(
 
     // Every schema a deploy compiles is compiled before its first write,
     // so a compile its tenant's budget refuses leaves nothing stored. The
-    // agents' data blocks pin here (checking model settings compiles
-    // one); a deploy writes no blocks, so they pin as they would later.
+    // pack's data blocks are checked against the registry here (a settings
+    // version's values against the schema it keeps), and the agents'
+    // blocks pin here (checking model settings compiles one), over the
+    // registry's versions and the pack's new ones (`deploy-blocks.ts`).
+    let packBlocks: readonly PlannedBlock[] = [];
+    let blockReads: BlockVersionReads | undefined = bindings.blockRegistry;
+    if (
+      validated.blocks.length > 0 &&
+      bindings.blockRegistry !== undefined &&
+      targetProjectId !== undefined
+    ) {
+      const plan = await planPackBlocks(bindings.blockRegistry, tenantId, validated.blocks);
+      if (plan.kind === 'invalid') {
+        return validationFailed(
+          c,
+          plan.issues.map((issue) => ({ primitive: 'block' as const, ...issue })),
+        );
+      }
+      if (plan.kind === 'refused') return publishRefusedResponse(c, requestId, plan.refusal);
+      packBlocks = plan.planned;
+      blockReads = withPackVersions(bindings.blockRegistry, targetProjectId, packBlocks);
+    }
     const blockPinsOf =
       bindings.agentRegistry !== undefined &&
       bindings.toolRegistry !== undefined &&
       targetProjectId !== undefined
-        ? await pinBlocks(bindings.blockRegistry, tenantId, validated.agents)
+        ? await pinBlocks(
+            blockReads,
+            tenantId,
+            validated.agents,
+            new Map(packBlocks.map(({ block }) => [block.id, block.version])),
+          )
         : undefined;
+    // The pack's blocks are written first, and a failed deploy's rollback
+    // leaves their new versions unregistered, which refuses the pack's next
+    // deploy until they're reinstated. So with the pack's blocks, a block
+    // range the agents can't pin is refused here, before anything is
+    // written; a tool range is named at the write, as before.
+    if (packBlocks.length > 0 && blockPinsOf !== undefined) {
+      const unpinnable = blockPinsOf.flatMap((pins, i) =>
+        atAgent(i, validated.agents[i] as Agent, pins.issues),
+      );
+      if (unpinnable.length > 0) return unpinnableResponse(c, requestId, unpinnable);
+    }
 
     const rolled: RollbackAction[] = [];
     // The version each agent is registered under: its definition's, or
@@ -1001,6 +1069,16 @@ export function deploymentsRouter(
       // it runs outside the counting, so the budget can't refuse a deploy
       // half-written.
       await runOutsideTenant(async () => {
+        // The pack's blocks first: what follows pins them.
+        if (bindings.blockRegistry !== undefined && targetProjectId !== undefined) {
+          await publishPackBlocks({
+            blocks: bindings.blockRegistry,
+            tenantId,
+            projectId: targetProjectId,
+            planned: packBlocks,
+            rolled,
+          });
+        }
         if (bindings.toolRegistry !== undefined && targetProjectId !== undefined) {
           for (const tool of validated.tools) {
             const projectIdForTool = targetProjectId;
@@ -1132,41 +1210,8 @@ export function deploymentsRouter(
       // A primitive refused with a typed outcome is the caller's to fix:
       // that outcome's own status and code. Anything else propagates to the
       // central error handler (a 500 for this write).
-      if (cause instanceof PublishRefused) {
-        if (cause.projectId !== undefined) {
-          c.get('log').info(`${cause.message}: deploy refused`, {
-            primitive: cause.primitive,
-            id: cause.id,
-            ownerProjectId: cause.projectId as unknown as string,
-          });
-        }
-        c.status(statusFor(cause.code) as never);
-        return c.json(
-          toWireError(
-            {
-              code: cause.code,
-              message: `${cause.message}; nothing was deployed`,
-              primitive: cause.primitive,
-              id: cause.id,
-              ...(cause.endpointId !== undefined && { endpointId: cause.endpointId }),
-            },
-            requestId,
-          ),
-        );
-      }
-      if (cause instanceof UnpinnableDeploy) {
-        c.status(statusFor('invalid-agent') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'validation-failed',
-              message: `The deployment's agents or flows use tool or agent versions that aren't published (${cause.issues.length} issue${cause.issues.length === 1 ? '' : 's'}); nothing was deployed`,
-              issues: cause.issues as unknown as Record<string, unknown>[],
-            },
-            requestId,
-          ),
-        );
-      }
+      if (cause instanceof PublishRefused) return publishRefusedResponse(c, requestId, cause);
+      if (cause instanceof UnpinnableDeploy) return unpinnableResponse(c, requestId, cause.issues);
       // Not a mapped outcome: to the central error handler (a 500 for this
       // write — the rollback above already ran; the whole error is logged).
       throw cause;
@@ -1632,6 +1677,34 @@ function parseWireBody(body: unknown): ParseResult {
 }
 
 /** `400 deployment-validation-failed`, naming each issue. */
+/**
+ * A primitive the deploy refused to publish (`PublishRefused`), with that
+ * outcome's own status and code. A project mismatch logs the project the
+ * primitive belongs to, which the answer never names.
+ */
+function publishRefusedResponse(c: Context<AppEnv>, requestId: string, cause: PublishRefused) {
+  if (cause.projectId !== undefined) {
+    c.get('log').info(`${cause.message}: deploy refused`, {
+      primitive: cause.primitive,
+      id: cause.id,
+      ownerProjectId: cause.projectId as unknown as string,
+    });
+  }
+  c.status(statusFor(cause.code) as never);
+  return c.json(
+    toWireError(
+      {
+        code: cause.code,
+        message: `${cause.message}; nothing was deployed`,
+        primitive: cause.primitive,
+        id: cause.id,
+        ...(cause.endpointId !== undefined && { endpointId: cause.endpointId }),
+      },
+      requestId,
+    ),
+  );
+}
+
 function validationFailed(c: Context<AppEnv>, issues: readonly ValidationDetail[]) {
   c.status(statusFor('deployment-validation-failed') as never);
   return c.json(
@@ -1736,7 +1809,7 @@ function extractImageDigest(imageRef: string): string | null {
 // ------------------------------------------------------------
 
 interface ValidationDetail {
-  readonly primitive: 'tool' | 'guardrail' | 'agent' | 'flow';
+  readonly primitive: 'tool' | 'guardrail' | 'agent' | 'flow' | 'block';
   readonly index: number;
   readonly id?: string;
   readonly path: string;
@@ -1748,6 +1821,8 @@ interface ValidatedPrimitives {
   readonly guardrails: readonly Guardrail[];
   readonly agents: readonly import('@kindgi/agents').Agent[];
   readonly flows: readonly import('@kindgi/flow').Flow[];
+  /** The pack's data blocks (`blocks/`), each a valid block. */
+  readonly blocks: readonly BlockDefinition[];
 }
 
 type ValidateResult =
@@ -2017,6 +2092,7 @@ function validatePrimitives(
   const guardrails = readArray(index.guardrails);
   const agents = readArray(index.agents);
   const flows = readArray(index.flows);
+  const blocks = readArray(index.blocks);
 
   const validatedTools: import('@kindgi/tools').ToolManifest[] = [];
   tools.forEach((raw, i) => {
@@ -2173,6 +2249,34 @@ function validatePrimitives(
     validatedGraphs.push(spec as unknown as import('@kindgi/flow').Flow);
   });
 
+  const validatedBlocks: BlockDefinition[] = [];
+  blocks.forEach((raw, i) => {
+    if (raw === null || typeof raw !== 'object') {
+      details.push({ primitive: 'block', index: i, path: '', message: 'must be an object' });
+      return;
+    }
+    // Its file in the pack (`modulePath`) is where the pack keeps it, not part of the block.
+    const { modulePath: _mp, ...definition } = raw as Record<string, unknown>;
+    const r = validateBlock(definition);
+    if (r.kind === 'err') {
+      const idBase: Partial<ValidationDetail> =
+        typeof definition.id === 'string' ? { id: definition.id } : {};
+      const issues =
+        r.error.issues.length > 0 ? r.error.issues : [{ path: '', message: r.error.message }];
+      for (const issue of issues) {
+        details.push({
+          primitive: 'block',
+          index: i,
+          ...idBase,
+          path: issue.path,
+          message: issue.message,
+        });
+      }
+      return;
+    }
+    validatedBlocks.push(r.value);
+  });
+
   if (details.length > 0) {
     return { kind: 'err', error: { details } };
   }
@@ -2183,6 +2287,7 @@ function validatePrimitives(
       guardrails: validatedGuardrails,
       agents: validatedAgents,
       flows: validatedGraphs,
+      blocks: validatedBlocks,
     },
   };
 }
@@ -2294,6 +2399,25 @@ function validateFlowIndexShape(
 // ------------------------------------------------------------
 
 type RollbackAction = () => Promise<void>;
+
+/** The refusal of a deploy whose agents or flows use versions nothing published takes. */
+function unpinnableResponse(
+  c: Context<AppEnv>,
+  requestId: string,
+  issues: readonly UnpinnableRef[],
+) {
+  c.status(statusFor('invalid-agent') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'validation-failed',
+        message: `The deployment's agents or flows use tool, agent or block versions that aren't published (${issues.length} issue${issues.length === 1 ? '' : 's'}); nothing was deployed`,
+        issues: issues as unknown as Record<string, unknown>[],
+      },
+      requestId,
+    ),
+  );
+}
 
 /** A deploy whose agents or flows use a tool or agent with no published version in range. */
 class UnpinnableDeploy extends Error {
@@ -2487,14 +2611,18 @@ async function pinFlows(
   return pins;
 }
 
-/** Each agent's data-block pins, in order (`resolveBlockPins`); `pinAgents` reports their issues. */
+/**
+ * Each agent's data-block pins, in order (`resolveBlockPins`), a block
+ * the pack brings at the pack's version; `pinAgents` reports their issues.
+ */
 async function pinBlocks(
-  blocks: BlockRegistryBinding | undefined,
+  blocks: BlockVersionReads | undefined,
   tenantId: TenantId,
   defined: readonly Agent[],
+  pack: ReadonlyMap<string, string>,
 ): Promise<BlockPins[]> {
   const pins: BlockPins[] = [];
-  for (const agent of defined) pins.push(await resolveBlockPins(blocks, tenantId, agent));
+  for (const agent of defined) pins.push(await resolveBlockPins(blocks, tenantId, agent, pack));
   return pins;
 }
 
@@ -2519,15 +2647,18 @@ async function pinAgents(
       pins.push(resolved.pins);
       continue;
     }
-    for (const issue of resolved.issues) {
-      unpinnable.push({
-        path: `/agents/${i}${issue.path}`,
-        message: `agent "${agent.id as unknown as string}": ${issue.message}`,
-      });
-    }
+    unpinnable.push(...atAgent(i, agent, resolved.issues));
   }
   if (unpinnable.length > 0) throw new UnpinnableDeploy(unpinnable);
   return pins;
+}
+
+/** An agent's pin issues at its place in the deployment, naming it. */
+function atAgent(i: number, agent: Agent, issues: readonly UnpinnableRef[]): UnpinnableRef[] {
+  return issues.map((issue) => ({
+    path: `/agents/${i}${issue.path}`,
+    message: `agent "${agent.id as unknown as string}": ${issue.message}`,
+  }));
 }
 
 async function rollback(actions: readonly RollbackAction[]): Promise<void> {

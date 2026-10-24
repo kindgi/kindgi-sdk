@@ -10,6 +10,8 @@
  * how to expose it (route handler, static file, both).
  */
 
+import { DEPLOY_PUBLISHES_PACK_BLOCKS } from '@kindgi/handler-runtime';
+
 import {
   OPERATIONS,
   type OperationSpec,
@@ -39,8 +41,18 @@ const DEFAULT_INFO: Required<OpenApiInfo> = {
   title: 'Kindgi Platform API',
   version: '0.1.0',
   description:
-    'REST + SSE API for Kindgi: runs, agents, flows, human-in-the-loop approvals and the admin control plane. Generated from the route and schema registrations in `@kindgi/api` and drift-checked against the mounted routes.',
+    'REST + SSE API for Kindgi: runs, agents, flows, human-in-the-loop approvals and the admin control plane. Generated from the route and schema registrations in `@kindgi/api` and drift-checked against the mounted routes. `info["x-kindgi-capabilities"]` names what this API does that an earlier one didn\'t: an open list of strings, which a client checks before a request an earlier runtime would take differently, and whose names it doesn\'t know it ignores.',
 };
+
+/**
+ * What this API does that an earlier one didn't, by name
+ * (`info["x-kindgi-capabilities"]`). An open list: names are added, never
+ * renamed or removed, and a reader ignores the ones it doesn't know.
+ */
+export const API_CAPABILITIES: readonly string[] = [
+  // A deploy publishes the data blocks its pack brings (`deploy-blocks.ts`).
+  DEPLOY_PUBLISHES_PACK_BLOCKS,
+];
 
 const DEFAULT_SERVERS: readonly OpenApiServer[] = [
   { url: '/', description: 'Same-origin — path relative to the deployment root.' },
@@ -168,7 +180,7 @@ export function generateOpenApiDocument(opts: GenerateOptions = {}): Record<stri
 
   return {
     openapi: '3.1.0',
-    info,
+    info: { ...info, 'x-kindgi-capabilities': [...API_CAPABILITIES] },
     servers,
     tags,
     components,

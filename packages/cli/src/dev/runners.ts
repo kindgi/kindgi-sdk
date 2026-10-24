@@ -209,6 +209,11 @@ export interface IndexedCounts {
   readonly guardrails: number;
   readonly agents: number;
   readonly flows: number;
+  /**
+   * The pack's data blocks (`blocks/`). Absent from an indexer from before
+   * blocks in a pack: a Python or JVM pack's own `kindgi` package.
+   */
+  readonly blocks?: number;
 }
 
 /**

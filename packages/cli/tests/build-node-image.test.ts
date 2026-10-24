@@ -66,7 +66,12 @@ function render(over: Partial<HostInstall> = {}, hasIncludes = false, image = NO
   return renderHost(install(over), hasIncludes, image);
 }
 
-function renderHost(host: HostInstall, hasIncludes = false, image = NO_IMAGE): string {
+function renderHost(
+  host: HostInstall,
+  hasIncludes = false,
+  image = NO_IMAGE,
+  hasBlocks = false,
+): string {
   return renderContainerfile({
     baseImageRef: NODE_24?.ref ?? '',
     artifactVersion: '20261002.1',
@@ -76,6 +81,7 @@ function renderHost(host: HostInstall, hasIncludes = false, image = NO_IMAGE): s
     commands: installCommands(host, image.steps),
     image,
     hasIncludes,
+    hasBlocks,
   });
 }
 
@@ -303,6 +309,23 @@ describe('the Containerfile', () => {
     expect(render({}, true)).toContain('COPY --chown=node:node include/ ./');
     expect(render({}, false)).not.toContain('include/');
   });
+
+  test("the pack's blocks go to the indexer stage only, before it indexes", () => {
+    const text = renderHost(install({ packRel: 'apps/support' }), false, NO_IMAGE, true);
+    const indexer = text.slice(
+      text.indexOf('# --- stage: indexer ---'),
+      text.indexOf('# --- stage: final ---'),
+    );
+    const copy = 'COPY --chown=node:node blocks/ ./';
+    expect(indexer).toContain(
+      `WORKDIR /app/apps/support\n# The pack's data blocks, read into the index: this stage's only.\n${copy}`,
+    );
+    expect(indexer.indexOf(copy)).toBeLessThan(
+      indexer.indexOf('RUN node --enable-source-maps ./dist/kindgi-index.mjs'),
+    );
+    expect(text.split(copy)).toHaveLength(2);
+    expect(render()).not.toContain('blocks/');
+  });
 });
 
 describe('the Containerfile with image extensions', () => {
@@ -354,6 +377,7 @@ describe('the Containerfile with image extensions', () => {
           install: install(),
           image,
           hasIncludes: false,
+          hasBlocks: false,
         });
         return readFile(outputPath, 'utf8');
       };

@@ -33,10 +33,11 @@ import type {
   PackServiceSupervisorEvent,
 } from '@kindgi/handler-runtime/pack-service';
 
+import { blockProblems, blocksOf } from '../build/pack-blocks.js';
 import { type DevLogView, type DevOutput, parseRecord, showRecord } from './log-view.js';
 import type { PackCode } from './pack-code.js';
 import { devIndexPath, devStagedIndexPath, devStagedPackIndexPath } from './paths.js';
-import type { DevRunners, IndexResult, PackBuild, PackBuilder } from './runners.js';
+import type { DevRunners, IndexOutcome, IndexResult, PackBuild, PackBuilder } from './runners.js';
 import type { ActiveDevSandbox } from './sandbox/index.js';
 
 export interface PackRefresherDeps {
@@ -127,7 +128,7 @@ export function createPackRefresher(deps: PackRefresherDeps): PackRefresher {
       };
     }
     await deps.dev.publishIndex(staged, devIndexPath(deps.packDir));
-    return indexed;
+    return withBlockProblems(indexed);
   }
 
   /**
@@ -145,7 +146,7 @@ export function createPackRefresher(deps: PackRefresherDeps): PackRefresher {
     } catch {
       return;
     }
-    const kinds = ['tools', 'guardrails', 'agents', 'flows'] as const;
+    const kinds = ['tools', 'guardrails', 'agents', 'flows', 'blocks'] as const;
     const listed = (kind: (typeof kinds)[number]): boolean => {
       const entries = previous[kind];
       return Array.isArray(entries) && entries.length > 0;
@@ -156,7 +157,7 @@ export function createPackRefresher(deps: PackRefresherDeps): PackRefresher {
     await writeFile(
       staged,
       JSON.stringify({
-        ...previous,
+        ...withoutBlocks(previous),
         publishedAt: new Date().toISOString(),
         tools: [],
         guardrails: [],
@@ -166,6 +167,12 @@ export function createPackRefresher(deps: PackRefresherDeps): PackRefresher {
       'utf8',
     );
     await deps.dev.publishIndex(staged, published);
+  }
+
+  /** An index with no blocks has no `blocks` key (`pack-index.schema.json`). */
+  function withoutBlocks(index: Record<string, unknown>): Record<string, unknown> {
+    const { blocks: _blocks, ...rest } = index;
+    return rest;
   }
 
   async function guarded(build: PackBuild | undefined): Promise<IndexResult> {
@@ -199,6 +206,23 @@ export function createPackRefresher(deps: PackRefresherDeps): PackRefresher {
     async idle() {
       await tail;
     },
+  };
+}
+
+/**
+ * The index's blocks `validateBlock` refuses, as file errors beside the
+ * indexer's: `kindgi dev` shows them at boot and on each reload, as
+ * `kindgi build` refuses them.
+ */
+function withBlockProblems(indexed: IndexOutcome): IndexOutcome {
+  const problems = blockProblems(blocksOf(indexed.index));
+  if (problems.length === 0) return indexed;
+  return {
+    ...indexed,
+    fileErrors: [
+      ...indexed.fileErrors,
+      ...problems.map((p) => ({ code: 'invalid-block', message: p.message, filePath: p.filePath })),
+    ],
   };
 }
 
