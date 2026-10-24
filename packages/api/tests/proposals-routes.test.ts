@@ -775,6 +775,10 @@ describe('POST /v1/proposals', () => {
     ],
     ['an unknown tier', { tier: 'prompt' }],
     ['an evidence field it does not know', { evidence: { finding: 'x' } }],
+    [
+      'a judgment count, which only answers carry',
+      { evidence: { judgmentIds: ['j-1'], judgmentCount: 5 } },
+    ],
   ])('refuses %s (400 bad-input)', async (_name, patch) => {
     const { call } = await harness();
     const res = await call('POST', '/v1/proposals', { ...DRAFT, ...patch });
@@ -1413,6 +1417,33 @@ describe('authorization on the agent', () => {
 });
 
 describe('a proposal a drafter wrote (not a person)', () => {
+  test('it answers with the judgments it names and how many it rests on in all', async () => {
+    const h = await harness();
+    const service = createProposalService({
+      store: h.proposals,
+      agents: h.agents,
+      blocks: h.blocks,
+      evalRuns: h.evalRuns.binding,
+      releases: h.releases.releases,
+    });
+    const drafted = await service.draft({
+      tenantId,
+      agentId: AGENT,
+      fromVersion: '1.0.0',
+      scope: SEGMENT,
+      tier: 'settings-block',
+      blockId: WEIGHTS,
+      content: { values: { recency: 0.6, fit: 0.4 } },
+      hypothesis: 'The search found these weights',
+      evidence: { judgmentIds: ['j-1', 'j-2'], judgmentCount: 140 },
+      drafter: { kind: 'settings-optimizer', version: '1' },
+    });
+    if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
+    const res = await h.call('GET', `/v1/proposals/${drafted.value.proposal.id}`);
+    expect(res.status).toBe(200);
+    expect(res.body.evidence).toEqual({ judgmentIds: ['j-1', 'j-2'], judgmentCount: 140 });
+  });
+
   test('its request waits for a reviewer even where no gate policy asks for one (K2)', async () => {
     const h = await harness();
     h.releases.pin({ kind: 'tenant' }, '1.0.0');

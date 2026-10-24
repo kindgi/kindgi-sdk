@@ -15,6 +15,11 @@ same version, and the CLI's own changes are in
   calls in a webhook's or a schedule's runs needn't wait for a person's yes.
   Naming it takes `admin` on the trigger's project, and each id must be a tool
   the trigger's flow or agent calls. A take-over keeps it.
+- `kindgi`: **a test set's cases name their judgments, and a proposal says
+  how many it rests on.** A judged case's items gain `judgment_ids`, and their
+  `restricted` gains `judgment_ids` too. A proposal's `evidence` is now the
+  `ProposalEvidence` model, with `judgment_count` beside `judgment_ids`. The
+  create body's `Evidence1` is unchanged.
 
 ## 0.1.10
 

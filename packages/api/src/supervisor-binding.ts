@@ -113,6 +113,12 @@ export type ProposalDrafter =
 export interface ProposalEvidence {
   /** The judgments that motivated it. */
   readonly judgmentIds?: readonly string[];
+  /**
+   * How many judgments it rests on, when `judgmentIds` names only the first
+   * of them: an improvement pass names at most 100. Absent when
+   * `judgmentIds` names them all.
+   */
+  readonly judgmentCount?: number;
 }
 
 /** The versions evaluating a proposal published: inert until a promotion makes them live. */

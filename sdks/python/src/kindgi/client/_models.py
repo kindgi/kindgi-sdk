@@ -2382,6 +2382,10 @@ class Restricted(BaseModel):
     )
     yes_weight: Annotated[float, Field(alias="yesWeight")]
     total_weight: Annotated[float, Field(alias="totalWeight")]
+    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
+    """
+    The judgments behind these two. Absent from a test set built before judgment ids.
+    """
 
 
 class Reason(BaseModel):
@@ -2432,6 +2436,10 @@ class JudgedItemSummary(BaseModel):
     restricted: Restricted | None = None
     """
     The same weights, counting only judgments recorded while their class was restricted (`Judgment.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.
+    """
+    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
+    """
+    The judgments summed into the item, by id: what a comparison on this case counts. Absent from a test set built before judgment ids.
     """
     reasons: list[Reason]
     """
@@ -4379,6 +4387,25 @@ class ProposalDrafter(BaseModel):
     """
 
 
+class ProposalEvidence(BaseModel):
+    """
+    What a proposal rests on.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
+    """
+    The judgments that motivated it. An improvement pass's proposal names the judgments it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items judged wrong, then the rest.
+    """
+    judgment_count: Annotated[int | None, Field(alias="judgmentCount", ge=0)] = None
+    """
+    How many judgments it rests on, when `judgmentIds` names only the first of them. Absent when `judgmentIds` names them all.
+    """
+
+
 class ProposalCandidate(BaseModel):
     """
     The versions evaluating the proposal published. They serve no scope until a promotion makes the agent version live.
@@ -4459,14 +4486,6 @@ class ProposalPromotion(BaseModel):
     """
     For a promoted proposal: whether its version still serves the scope.
     """
-
-
-class Evidence1(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
 
 
 class RolledBack(BaseModel):
@@ -4686,6 +4705,14 @@ class Change(BaseModel):
     """
     `{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.
     """
+
+
+class Evidence1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
 
 
 class ProposalReasonBody(BaseModel):
@@ -13305,7 +13332,7 @@ class FixProposal(BaseModel):
     """
     What the change should improve, and why.
     """
-    evidence: Evidence1 | None = None
+    evidence: ProposalEvidence | None = None
     drafter: ProposalDrafter
     status: Annotated[
         Literal[

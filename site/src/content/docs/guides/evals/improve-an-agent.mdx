@@ -245,6 +245,19 @@ or in a different project, doesn't count. Set it with the `--class-weights`
 flag, or `classWeights` in the API or the clients, to choose either,
 whatever classes exist.
 
+The proposal a pass writes names the judgments it learned from on the
+search part, never the hold-out: the ones its comparisons counted and, for
+a prompt pass, the ones its drafter was shown. Its `evidence.judgmentIds`
+lists up to 100 of them: first the ones the drafter was shown, then the
+ones behind items judged wrong, then the rest. When there are more,
+`evidence.judgmentCount` gives how many. A correction's calls (what the
+agent should have done) aren't among what its drafter learns from: it's
+shown a correction's verdict and reason, not its calls. Its comparisons
+grade those calls on each replay and show the result, and that result
+decides only whether a change to the model settings is kept
+([the decisions must stay right](#let-it-try-a-cheaper-model-or-another-temperature)).
+A pass on a test set built before judgment ids names none.
+
 ## Draft a prompt instead
 
 A pass can also draft prompt templates. The agent version must take its
@@ -365,9 +378,10 @@ shows.
 
 The same loop runs in the console. On an agent's proposals page, **Improve**
 starts a pass, and the pass's page follows it. The proposal it writes shows
-its verdict and the comparison figures, and a **Request promotion** button to
-send it for a decision. A schedule that starts passes is made with the CLI,
-the API or the clients, as
+its verdict and the comparison figures, under **Evidence** the judgments it
+learned from, each with its verdict and reason and a link to its run, and a
+**Request promotion** button to send it for a decision. A schedule that
+starts passes is made with the CLI, the API or the clients, as
 [Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule)
 shows: the console lists schedules and can pause, resume, run or remove them, but
 doesn't make them.

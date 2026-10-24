@@ -467,7 +467,15 @@ export interface FixProposal {
   };
   /** What the change should improve, and why. */
   readonly hypothesis: string;
-  readonly evidence?: { readonly judgmentIds?: readonly string[] };
+  /**
+   * What it rests on. `judgmentCount` is how many judgments, when
+   * `judgmentIds` names only the first of them (an improvement pass names at
+   * most 100).
+   */
+  readonly evidence?: {
+    readonly judgmentIds?: readonly string[];
+    readonly judgmentCount?: number;
+  };
   readonly drafter:
     | { readonly kind: 'person'; readonly by: string }
     | {

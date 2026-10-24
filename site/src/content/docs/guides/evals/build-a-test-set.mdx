@@ -347,7 +347,8 @@ One of them:
       "no": 0,
       "yesWeight": 1,
       "totalWeight": 1,
-      "restricted": { "yesWeight": 0, "totalWeight": 0 },
+      "restricted": { "yesWeight": 0, "totalWeight": 0, "judgmentIds": [] },
+      "judgmentIds": ["8f2c4e1a-6b0d-4c3e-9a57-2d1f0b7e4c93"],
       "reasons": [{ "verdict": "yes", "reason": "Resets the password" }]
     },
     …
@@ -364,6 +365,9 @@ One of them:
   `restricted` has the weights of the
   [restricted](../judge-a-runs-output/#restrict-who-may-judge-as-a-class)
   judgments alone, such as `{ "yesWeight": 3, "totalWeight": 3 }`.
+  `judgmentIds` (runtime 0.2.0 or later) names every judgment counted in
+  the item, and `restricted.judgmentIds` the restricted ones. A test set
+  built before judgment ids has neither.
 - **`corrections`** (runtime 0.1.11 or later) has the run's corrections
   that say [what it should have done](../judge-a-runs-output/#say-what-it-should-have-done),
   whatever their verdict: each one's `calls` and `notCalled`, its
