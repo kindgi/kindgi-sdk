@@ -6143,7 +6143,9 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     });
   }
 
-  function setup(opts: { withBlocks?: boolean; agentFails?: boolean } = {}) {
+  function setup(
+    opts: { withBlocks?: boolean; agentFails?: boolean; blocksReadOnly?: string } = {},
+  ) {
     const blocks = inMemoryBlocks();
     const agents = makeInMemoryAgentRegistry();
     const failing = { agent: opts.agentFails === true };
@@ -6166,6 +6168,9 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
           ...(opts.withBlocks !== false && {
             blockRegistry: {
               ...blocks,
+              ...(opts.blocksReadOnly !== undefined && {
+                readOnly: { reason: opts.blocksReadOnly },
+              }),
               publish: async (input) => {
                 const outcome = await blocks.publish(input);
                 written.push(`block ${input.block.id}@${input.block.version} ${outcome.kind}`);
@@ -6192,6 +6197,17 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
       blocks.getVersion({ tenantId, blockId, version });
     return { blocks, deploy, held, pinned, written, asked, failing };
   }
+
+  test('a read-only block registry refuses the deploy before anything is written', async () => {
+    const reason =
+      "Under kindgi dev, the pack is the source of data blocks: change the block in the pack's files.";
+    const { deploy, held, written } = setup({ blocksReadOnly: reason });
+    const res = await deploy(pack([REPLY, STYLE]));
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({ code: 'registry-read-only', message: reason });
+    expect(written).toEqual([]);
+    expect(await held('acme.reply', '1.0.0')).toBeNull();
+  });
 
   test("its new blocks are published into the deploy's project first, and its agent pins them", async () => {
     const { deploy, held, pinned, written, asked } = setup();
