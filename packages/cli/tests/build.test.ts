@@ -56,8 +56,12 @@ import {
   DEFAULT_SCALA_BUILD_IMAGE_REF,
   SCALA_PACK_SERVICE_COMMAND,
 } from '../src/build/scala-image.js';
+import { cliPinWarning } from '../src/cli-pin.js';
 import { buildTimeDefaults } from '../src/commands/build.js';
+import { loadEnvelopeReal } from '../src/deploy/envelope-loader.js';
+import type { DeployRunners } from '../src/deploy/runners.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
+import { CLI_VERSION } from '../src/version-info.js';
 import { fakeRateLimitWaits } from './rate-limit-waits.js';
 
 let cwd: string;
@@ -1239,6 +1243,224 @@ describe('kindgi build — output shape', () => {
     expect(out.stderr).toContain('Signing key:');
     expect(out.stderr).toContain('Deploy envelope written to');
   });
+
+  const fixed = ['--artifact-version=20260921.1', '--published-at=1970-01-01T00:00:00.000Z'];
+
+  test('streamed, each line goes out as it comes, as the same text, and the outcome leaves them out', async () => {
+    const argv = ['build', '--env=staging', `--path=${packDir}`, ...fixed];
+    const kept = await runCli({ ...baseInputs(makeFixtures()), argv });
+    expect(kept.exitCode, kept.stderr).toBe(0);
+
+    const streamed: string[] = [];
+    const fixtures = makeFixtures();
+    const { streamBuildLogs } = fixtures.runners;
+    let beforeLogs = '';
+    fixtures.runners = {
+      ...fixtures.runners,
+      streamBuildLogs: async (o) => {
+        beforeLogs = streamed.join('');
+        return streamBuildLogs(o);
+      },
+    };
+    const out = await runCli({
+      ...baseInputs(fixtures, { progress: (text) => streamed.push(text) }),
+      argv,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(beforeLogs).toContain('  Environment: staging\n');
+    expect(beforeLogs).toContain('    → Streaming build logs\n');
+    expect(beforeLogs).not.toContain('docker buildx running');
+    expect(streamed.every((text) => text.endsWith('\n') && !text.slice(0, -1).includes('\n'))).toBe(
+      true,
+    );
+    expect(streamed.join('')).toBe(kept.stderr);
+    expect(out.stderr).toBe('');
+    expect(JSON.parse(out.stdout)).toEqual(JSON.parse(kept.stdout));
+  });
+
+  test.each([
+    {
+      failure: 'the build fails',
+      opts: {},
+      logs: async (o: { readonly onLog: (line: string) => void }): Promise<TerminalPayload> => {
+        o.onLog('step 3/7: npm ci exited 1');
+        return {
+          status: 'failed',
+          error: { code: 'docker-build-failed', message: 'buildx returned non-zero' },
+        };
+      },
+      said: /Environment: staging\n[\s\S]* {8}step 3\/7: npm ci exited 1\nBuild failed: \[docker-build-failed\]/,
+    },
+    {
+      failure: 'the log stream breaks',
+      opts: { streamThrows: new Error('the stream closed') },
+      said: /Environment: staging\n[\s\S]* {4}→ Streaming build logs\nthe stream closed\n$/,
+    },
+    {
+      failure: "the image's index isn't the local one",
+      opts: { serverIndexBytes: new TextEncoder().encode('{"v":1,"packId":"other"}') },
+      said: /Environment: staging\n[\s\S]* {2}Verifying build output\nIntegrity gate FAILED/,
+    },
+  ])('when $failure, the error comes after what the build did up to it', async (c) => {
+    const fixtures = makeFixtures(c.opts);
+    if (c.logs !== undefined) fixtures.runners = { ...fixtures.runners, streamBuildLogs: c.logs };
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toMatch(c.said);
+    expect(fixtures.state.signCalls).toBe(0);
+  });
+
+  test('--quiet: no progress, streamed or kept; an error still shows', async () => {
+    const streamed: string[] = [];
+    const progress = (text: string): void => {
+      streamed.push(text);
+    };
+    const argv = ['build', '--env=staging', `--path=${packDir}`, '--quiet'];
+    const ok = await runCli({ ...baseInputs(makeFixtures(), { progress }), argv });
+    expect(ok.exitCode, ok.stderr).toBe(0);
+    expect(ok.stderr).toBe('');
+    const failed = makeFixtures({ streamThrows: new Error('the stream closed') });
+    for (const inputs of [baseInputs(failed, { progress }), baseInputs(failed)]) {
+      const out = await runCli({ ...inputs, argv });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toBe('the stream closed\n');
+    }
+    expect(streamed).toEqual([]);
+  });
+
+  test('--json: the summary alone on stdout, the progress on stderr as it comes', async () => {
+    const streamed: string[] = [];
+    const out = await runCli({
+      ...baseInputs(makeFixtures(), { progress: (text) => streamed.push(text) }),
+      argv: ['build', '--env=staging', `--path=${packDir}`, '--json'],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(JSON.parse(out.stdout)).toMatchObject({ buildJobId: 'bld-xxx', signed: true });
+    expect(streamed.join('')).toContain('  Deploy envelope written to');
+    expect(out.stderr).toBe('');
+  });
+});
+
+describe("kindgi deploy's inline build, as it goes", () => {
+  const fixed = ['--artifact-version=20260921.1', '--published-at=1970-01-01T00:00:00.000Z'];
+  const missing = '  Envelope missing — running `kindgi build --env=staging` inline...\n';
+
+  /** A deploy with no envelope yet: it reads the one its build writes, and the server takes it. */
+  async function deploy(
+    fixtures: Fixtures,
+    flags: readonly string[] = [],
+    progress?: (text: string) => void,
+  ) {
+    await rm(join(packDir, '.kindgi', 'build', 'deploy-envelope.json'), { force: true });
+    let posts = 0;
+    const deployRunners: DeployRunners = {
+      loadEnvelope: loadEnvelopeReal,
+      postDeployment: async () => {
+        posts += 1;
+        return {
+          kind: 'created',
+          status: 201,
+          record: {
+            deploymentId: 'dep-01H8XM',
+            tenantId: 'tenant-acme-staging',
+            imageRef: `ghcr.io/acme/my-pack@${PUSHED_DIGEST}`,
+            imageDigest: PUSHED_DIGEST,
+            artifactVersion: '20260921.1',
+            indexHash: `sha256:${SAMPLE_INDEX_HASH_HEX}`,
+            signerKeyId: 'staging',
+            signerPublicKey: 'base64publickey',
+            signature: 'base64signature',
+            publishedAt: '1970-01-01T00:00:00.000Z',
+            activatedAt: '2026-09-21T14:32:07.104Z',
+            primitives: { tools: 1, guardrails: 0, agents: 0, flows: 0 },
+          },
+        };
+      },
+    };
+    const out = await runCli({
+      ...baseInputs(fixtures, {
+        env: { KINDGI_TENANT_ID: 'env-tenant', KINDGI_API_TOKEN: 'test-bearer-token' },
+        deployRunners,
+        ...(progress !== undefined && { progress }),
+      }),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, ...fixed, ...flags],
+    });
+    return { out, posts };
+  }
+
+  test("streamed, the build's lines go out as they come, between deploy's, as the same text", async () => {
+    const kept = await deploy(makeFixtures());
+    expect(kept.out.exitCode, kept.out.stderr).toBe(0);
+    expect(kept.posts).toBe(1);
+    expect(kept.out.stderr).toContain(`${missing}\n  Environment: staging\n`);
+
+    const streamed: string[] = [];
+    const fixtures = makeFixtures();
+    const { streamBuildLogs } = fixtures.runners;
+    let beforeLogs = '';
+    fixtures.runners = {
+      ...fixtures.runners,
+      streamBuildLogs: async (o) => {
+        beforeLogs = streamed.join('');
+        return streamBuildLogs(o);
+      },
+    };
+    const run = await deploy(fixtures, [], (text) => streamed.push(text));
+    expect(run.out.exitCode, run.out.stderr).toBe(0);
+    expect(beforeLogs).toContain(missing);
+    expect(beforeLogs).toContain('  Uploading to build service\n');
+    expect(beforeLogs).toContain('    → Streaming build logs\n');
+    expect(beforeLogs).not.toContain('201 Created');
+    expect(streamed.join('')).toBe(kept.out.stderr);
+    expect(run.out.stderr).toBe('');
+    expect(JSON.parse(run.out.stdout)).toEqual(JSON.parse(kept.out.stdout));
+  });
+
+  test("--quiet leaves the build's lines out, streamed or kept; deploy's own still show", async () => {
+    const streamed: string[] = [];
+    for (const progress of [undefined, (text: string) => streamed.push(text)]) {
+      const run = await deploy(makeFixtures(), ['--quiet'], progress);
+      expect(run.out.exitCode, run.out.stderr).toBe(0);
+      const said = `${streamed.join('')}${run.out.stderr}`;
+      expect(said).toContain(missing);
+      expect(said).toContain('201 Created');
+      expect(said).not.toContain('Uploading to build service');
+      expect(said).not.toContain('Streaming build logs');
+    }
+    expect(streamed.length).toBeGreaterThan(0);
+  });
+
+  test("an inline build that fails: its error comes after deploy's lines and the build's, streamed or kept", async () => {
+    const failing = (): Fixtures => {
+      const fixtures = makeFixtures();
+      fixtures.runners = {
+        ...fixtures.runners,
+        streamBuildLogs: async (o): Promise<TerminalPayload> => {
+          o.onLog('step 3/7: npm ci exited 1');
+          return {
+            status: 'failed',
+            error: { code: 'docker-build-failed', message: 'buildx returned non-zero' },
+          };
+        },
+      };
+      return fixtures;
+    };
+    const kept = await deploy(failing());
+    expect(kept.out.exitCode).toBe(1);
+    expect(kept.posts).toBe(0);
+    expect(kept.out.stderr).toMatch(
+      /^\n {2}Environment: staging\n[\s\S]*Envelope missing[^\n]*\n\n {2}Environment: staging\n[\s\S]* {8}step 3\/7: npm ci exited 1\nInline `kindgi build` failed \(exit 1\):\n\nBuild failed: \[docker-build-failed\]/,
+    );
+
+    const streamed: string[] = [];
+    const run = await deploy(failing(), [], (text) => streamed.push(text));
+    expect(run.out.exitCode).toBe(1);
+    expect(run.out.stderr.startsWith('Inline `kindgi build` failed (exit 1):')).toBe(true);
+    expect(`${streamed.join('')}${run.out.stderr}`).toBe(kept.out.stderr);
+  });
 });
 
 describe('kindgi build — a Python pack', () => {
@@ -1529,6 +1751,27 @@ describe('kindgi build — a Java pack', () => {
     expect(fixtures.state.signCalls).toBe(1);
   });
 
+  test('streamed, a pin to another CLI is said before the first line, and not again', async () => {
+    await javaPack();
+    await writeFile(
+      join(packDir, 'kindgi.config.json'),
+      JSON.stringify({ language: 'java', cli: '0.0.1', pack: { id: 'my-pack', version: '0.1.0' } }),
+      'utf8',
+    );
+    const fixtures = makeFixtures();
+    withJava(fixtures);
+    const streamed: string[] = [];
+    const out = await runCli({
+      ...baseInputs(fixtures, { progress: (text) => streamed.push(text) }, JAVA_CONFIG),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(streamed[0]).toBe(`${cliPinWarning('0.0.1', CLI_VERSION)}\n`);
+    expect(streamed[1]).toBe('  Environment: staging\n');
+    expect(streamed.join('').split('pins the Kindgi CLI')).toHaveLength(2);
+    expect(out.stderr).toBe('');
+  });
+
   test('--out outside the pack root is accepted (the JVM indexer compiles into <out>/java with an explicit classpath)', async () => {
     await javaPack();
     const fixtures = makeFixtures();
@@ -1715,6 +1958,33 @@ describe('kindgi build --local', () => {
     });
     expect(out.stderr).toContain('matches the local index byte for byte');
     expect(out.stderr).toContain('docker run --rm -p 8080:8080');
+  });
+
+  test("streamed, Docker's build log goes out as it comes", async () => {
+    const streamed: string[] = [];
+    const fixtures = makeFixtures();
+    const { dockerBuild } = fixtures.runners;
+    let beforeBuild = '';
+    fixtures.runners = {
+      ...fixtures.runners,
+      dockerBuild: async (o: DockerBuildOptions) => {
+        beforeBuild = streamed.join('');
+        return dockerBuild?.(o) ?? { kind: 'err', message: 'no docker' };
+      },
+    };
+    const out = await runCli({
+      ...baseInputs(
+        fixtures,
+        { env: {}, progress: (text) => streamed.push(text) },
+        { environments: {} },
+      ),
+      argv: ['build', '--local', '--artifact-version=20261002.1', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(beforeBuild).toContain('  Building kindgi-pack/my-pack:20261002.1\n');
+    expect(streamed).toContain('        #1 [system] FROM node\n');
+    expect(streamed.join('')).toContain('docker run --rm -p 8080:8080');
+    expect(out.stderr).toBe('');
   });
 
   test('a pack import its project lists only in devDependencies is refused before the image is built', async () => {

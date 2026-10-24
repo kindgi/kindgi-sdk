@@ -117,6 +117,15 @@ export interface ToolContext {
    */
   readonly idempotencyKey?: string;
   /**
+   * Which run of this call it is: `1` the first time, one more for each
+   * retry of its step after a failure. A resume after a wait, or a re-run
+   * after a crash, keeps the number. Not for deduping a side effect: use
+   * `idempotencyKey`, which every attempt shares. A pausing tool's wait
+   * token is per attempt, so a retry waits afresh. Absent outside a run,
+   * and from a runtime that doesn't count attempts.
+   */
+  readonly attempt?: number;
+  /**
    * Signal that fires when the caller wants the tool to abort — kernel
    * cancel/failure teardown, MCP client disconnect, HTTP request cancel.
    * Cooperative handlers should observe this and exit early.
@@ -455,6 +464,18 @@ export interface ToolManifest {
    * one asked.
    */
   readonly needsApprovalWhenUnattended?: boolean;
+  /**
+   * `true` when the tool may make its run wait for another system's
+   * answer. Each call's handler gets `ctx.waitToken`: it hands the token's
+   * link to that system and returns `ctx.pause()`. The run waits until the
+   * system posts its answer, valid against `output`, which becomes the
+   * call's result; or until the pause's time passes (24 hours by default,
+   * at most 24 days), which fails the call with `wait-token-timed-out`.
+   *
+   * Only a pack tool with a handler can pause: not one with a declarative
+   * `spec`, nor an MCP tool. Absent = `false`.
+   */
+  readonly pauses?: boolean;
   /** Isolation posture — see `SandboxMode`. */
   readonly sandbox?: SandboxMode;
   /** Memory + CPU caps enforced by the sandbox at dispatch. */

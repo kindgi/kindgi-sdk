@@ -124,6 +124,30 @@ export function headers() {
   ].join('\n');
 }
 
+/**
+ * `/robots.txt`: nothing is disallowed, and it names the sitemap of `/`, the
+ * newest release and the only build search engines list. The other builds
+ * (`/vX.Y.Z/`, `/next/`) say `noindex` in their pages, which a crawler reads
+ * only when it may fetch them: a `Disallow` for them would leave their
+ * addresses listable instead.
+ *
+ * The sitemap is the one `/`'s own `sitemap-index.xml` (Starlight's, from
+ * `site`) is on, so robots.txt can't name one the build didn't make. When
+ * the zone has Cloudflare's managed robots.txt on, Cloudflare puts its own
+ * lines before these.
+ *
+ * @param {string | undefined} sitemapIndex `/sitemap-index.xml`, as built
+ */
+export function robots(sitemapIndex) {
+  const loc = /<loc>\s*([^<\s]+)\s*<\/loc>/.exec(sitemapIndex ?? '')?.[1];
+  if (loc === undefined) {
+    throw new Error(
+      'robots: / has no sitemap-index.xml naming a sitemap (Starlight makes one when astro.config.mjs sets `site`)',
+    );
+  }
+  return `User-agent: *\nAllow: /\n\nSitemap: ${new URL('/sitemap-index.xml', loc).href}\n`;
+}
+
 /** The workspace's lockfile: a release's docs branch may change what only the site installs. */
 export const LOCKFILE = 'pnpm-lock.yaml';
 const SITE_IMPORTER = 'site';

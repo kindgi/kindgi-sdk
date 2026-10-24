@@ -34,6 +34,17 @@ class ConnectionsTest {
   }
 
   @Test
+  void theTestBuilderTakesConnectionsAndKeepsTheRest() {
+    ToolContext ctx = ToolContext.forTest(new ToolContext.Builder()
+        .withProjectId("p-orders")
+        .withConnections(Map.of("mail", mail)));
+    assertThat(ctx.connections()).containsOnlyKeys("mail");
+    assertThat(ctx.connections().get("mail").accessToken()).isEqualTo(TOKEN);
+    assertThat(ctx.projectId()).isEqualTo("p-orders");
+    assertThat(ToolContext.forTest(new ToolContext.Builder()).connections()).isEmpty();
+  }
+
+  @Test
   void aConnectionSentMalformedIsLeftOut() {
     ToolContext ctx = Requests.context(Map.of("tenantId", "t1", "runId", "r1", "connections", Map.of(
         "mail", Map.of("connectionId", "c-1", "app", "google", "appName", "Google", "accessToken", TOKEN,

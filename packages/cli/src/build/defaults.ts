@@ -21,6 +21,7 @@ import { parsePrivateKeyPem, serializePublicKeyPem, signEd25519 } from '@kindgi/
 import { readSse } from '@kindgi/sdk/client';
 
 import { runJavaIndexer, runPythonIndexer } from '../dev/defaults.js';
+import type { IndexedCounts } from '../dev/runners.js';
 import { createJavaPackBuilder } from '../dev/java-builder.js';
 import { createScalaPackBuilder } from '../dev/scala-builder.js';
 import {
@@ -109,7 +110,7 @@ export async function runLocalIndexerReal(
   let report: {
     readonly packId: string;
     readonly packVersion: string;
-    readonly counts: { tools: number; guardrails: number; agents: number; flows: number };
+    readonly counts: IndexedCounts;
     readonly fileErrors: readonly { code: string; message: string; filePath?: string }[];
     readonly warnings?: readonly { code: string; message: string; filePath?: string }[];
   };
@@ -274,6 +275,7 @@ export async function writeContainerfileReal(opts: WriteContainerfileOptions): P
     commands: installCommands(opts.install, opts.image.steps),
     image: opts.image,
     hasIncludes: opts.hasIncludes,
+    hasBlocks: opts.hasBlocks,
   });
   await mkdir(join(opts.outputPath, '..'), { recursive: true });
   await writeFile(opts.outputPath, text, 'utf8');
@@ -290,6 +292,8 @@ export async function writeContainerfileReal(opts: WriteContainerfileOptions): P
  *   ext/           the files the build extensions read, at their paths under the install root
  *   dist/          the bundles
  *   include/       `bundle.include` files, at their pack-relative paths
+ *   blocks/        the pack's data blocks and their templates, at their
+ *                  pack-relative paths: the indexer stage's only
  *   Containerfile
  * Nothing else of the app: never its source, never its `.env` or
  * registry credentials.
@@ -321,6 +325,11 @@ export async function writeContextReal(opts: WriteContextOptions): Promise<void>
   await cp(opts.bundleDir, join(opts.contextDir, 'dist'), { recursive: true });
   for (const rel of opts.includes) {
     const dest = join(opts.contextDir, 'include', rel);
+    await mkdir(dirname(dest), { recursive: true });
+    await cp(join(opts.packDir, rel), dest);
+  }
+  for (const rel of opts.blockFiles) {
+    const dest = join(opts.contextDir, 'blocks', rel);
     await mkdir(dirname(dest), { recursive: true });
     await cp(join(opts.packDir, rel), dest);
   }

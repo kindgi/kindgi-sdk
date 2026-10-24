@@ -29,11 +29,14 @@
 import { stat } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 
+import { type DiscoveryConfig, readPackBlocks, resolveDiscovery } from '@kindgi/handler-runtime';
 import { LOCAL_ENV_NAME, type PackEnv, packValues, readPackEnv } from '@kindgi/secrets-dotenv';
 
 import { deployApiAddress, hostedApiAddress } from '../api-address.js';
+import { describeFiles } from '../build/pack-blocks.js';
 import type { CommandContext } from '../context.js';
 import { isEnvelopeSigned } from '../deploy/envelope-loader.js';
+import { packBlocksRefusal } from '../deploy/pack-blocks-gate.js';
 import { packServiceProblemText, packServiceRetiredText } from '../deploy/pack-service-text.js';
 import {
   buildPostBody,
@@ -66,10 +69,12 @@ import {
 import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import type { OptionValue } from '../parse.js';
+import { progressLines } from '../progress-lines.js';
 import { PROJECT_ID_RE } from '../project-ref.js';
 import { type RateLimitRefusal, isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
 import { SLUG } from '../slug.js';
 import { type PackEnvironments, environmentsOf, resolveValueTarget } from '../value-target.js';
+import { CLI_VERSION } from '../version-info.js';
 import { runBuild } from './build.js';
 import type { EnvironmentConfig, PackConfig } from './build.js';
 import type { CommandResult, LeafCommand } from './types.js';
@@ -236,6 +241,8 @@ interface ResolvedDeployArgs {
   /** The pack service's process env in this environment (`env` + `environments.<env>.env`). */
   readonly packEnv: PackEnvPlan;
   readonly allowMissingEnv: boolean;
+  /** The pack's blocks discovery pattern (`discovery.blocks`, the same default in every language). */
+  readonly blocksPattern: string;
 }
 
 // ---------------------------------------------------------------------
@@ -255,10 +262,22 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   if (parsed.kind === 'error') return parsed;
   const args = parsed.args;
 
-  const banner: string[] = [];
-  const line = (s: string): void => {
-    banner.push(s);
-  };
+  // Deploy's lines, its inline build's among them: each to stderr as it
+  // comes when the CLI streams them, else kept for the result. A failure's
+  // error comes after them either way. `--quiet` leaves out the build's
+  // lines only: a refused deployment's error is among deploy's own.
+  const out = progressLines(ctx.progress, false);
+  const result = await deployWith(ctx, runners, args, out.line);
+  if (result.kind === 'error') return { ...result, stderr: `${out.kept()}${result.stderr}` };
+  return { ...result, rendered: { ...result.rendered, stderr: out.kept() } };
+}
+
+async function deployWith(
+  ctx: CommandContext,
+  runners: DeployRunners,
+  args: ResolvedDeployArgs,
+  line: (s: string) => void,
+): Promise<CommandResult> {
   line('');
   line(`  Environment: ${args.envName}`);
   line(`  API:         ${args.endpoint}`);
@@ -319,6 +338,31 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   const hostedEnvRefusal = refuseHostedConfigEnv(args, project.id);
   if (hostedEnvRefusal !== undefined) return hostedEnvRefusal;
 
+  // A pack with blocks deploys only to a runtime that publishes them
+  // (`deploy/pack-blocks-gate.ts`): read before a build or an upload, from
+  // the pack's block files when the envelope is still to be built, and
+  // from the envelope's index (step 3) otherwise. Not on --dry-run, which
+  // sends nothing.
+  let blocksChecked = false;
+  const refuseBlocks = async (brought: string): Promise<string | undefined> => {
+    if (args.dryRun || blocksChecked) return undefined;
+    blocksChecked = true;
+    return packBlocksRefusal({
+      endpoint: args.endpoint,
+      fetchImpl: ctx.fetch,
+      ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+      brought,
+      release: CLI_VERSION,
+    });
+  };
+  if (!args.explicitEnvelope && !(await pathExists(args.envelopePath))) {
+    const read = await readPackBlocks(args.packDir, args.blocksPattern);
+    const found = new Set([...read.files, ...read.errors.map((e) => e.filePath)]).size;
+    const refused =
+      found > 0 ? await refuseBlocks(describeFiles(args.blocksPattern, found)) : undefined;
+    if (refused !== undefined) return failure(refused);
+  }
+
   // ---- 2. Ensure envelope on disk -------------------------------------
   const envelopeReady = await ensureEnvelopeExists(ctx, args, runners, line, project.id);
   if (envelopeReady.kind === 'error') return envelopeReady;
@@ -333,6 +377,13 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
     );
   }
   const envelope = loaded.envelope;
+  const indexBlocks = Array.isArray(envelope.index.blocks) ? envelope.index.blocks.length : 0;
+  if (indexBlocks > 0) {
+    const refused = await refuseBlocks(
+      `${indexBlocks} ${indexBlocks === 1 ? 'block' : 'blocks'} in its index`,
+    );
+    if (refused !== undefined) return failure(refused);
+  }
 
   // ---- 4. Signed-envelope gate ----------------------------------------
   if (!isEnvelopeSigned(envelope)) {
@@ -421,7 +472,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
     const rendered = renderJson(summary, ctx.globals.format);
     return {
       kind: 'ok',
-      rendered: { stdout: rendered.stdout, stderr: `${banner.join('\n')}\n` },
+      rendered: { stdout: rendered.stdout, stderr: '' },
     };
   }
 
@@ -463,7 +514,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   if (rendered.exitCode !== 0) {
     return {
       kind: 'error',
-      stderr: `${banner.join('\n')}\n`,
+      stderr: '',
       exitCode: rendered.exitCode,
     };
   }
@@ -500,7 +551,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   if (args.hosted && deployedRecord !== null && deployedRecord.endpoint !== undefined) {
     const waited = await waitForPackService(ctx, args, runners, deployedRecord, line, project.id);
     if (waited.kind === 'error') {
-      return { kind: 'error', stderr: `${banner.join('\n')}\n${waited.message}`, exitCode: 1 };
+      return { kind: 'error', stderr: waited.message, exitCode: 1 };
     }
     packService = waited.endpoint;
   }
@@ -515,7 +566,7 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
   );
   return {
     kind: 'ok',
-    rendered: { stdout: jsonOut.stdout, stderr: `${banner.join('\n')}\n` },
+    rendered: { stdout: jsonOut.stdout, stderr: '' },
   };
 }
 
@@ -710,8 +761,8 @@ async function ensureEnvelopeExists(
 
   // Auto-detect path is missing → run build inline.
   line(`  Envelope missing — running \`kindgi build --env=${args.envName}\` inline...`);
-  line('');
   if (runners.runBuild !== undefined) {
+    line('');
     const buildArgv = buildInlineArgv(ctx, args, projectId);
     const outcome: RunBuildResult = await runners.runBuild({
       buildArgv,
@@ -746,12 +797,8 @@ async function ensureEnvelopeExists(
   // No inline runner available — invoke the same-package `runBuild`
   // directly. This is the production path when
   // `deployRunners.runBuild` is omitted (see `deploy/defaults.ts`).
-  const built = await runInlineBuild(ctx, args, projectId);
+  const built = await runInlineBuild(ctx, args, projectId, line);
   if (built.kind === 'error') return built;
-  if (built.banner.length > 0) {
-    line(built.banner);
-    line('');
-  }
   return { kind: 'ok' };
 }
 
@@ -760,21 +807,31 @@ async function ensureEnvelopeExists(
  * `CommandContext` (buildRunners, buildConfigLoader, env, cwd, etc.)
  * but with an argument set derived from the deploy invocation. We
  * clone the context with `options` replaced so the build command sees
- * only build-relevant flags.
+ * only build-relevant flags. Its lines go out with deploy's (`line`), in
+ * order.
  */
 async function runInlineBuild(
   ctx: CommandContext,
   args: ResolvedDeployArgs,
   projectId: string | undefined,
+  line: (s: string) => void,
 ): Promise<
-  | { readonly kind: 'ok'; readonly banner: string }
+  | { readonly kind: 'ok' }
   | { readonly kind: 'error'; readonly stderr: string; readonly exitCode: number }
 > {
   const buildOptions = buildInlineOptions(ctx, args, projectId);
   // A hosted build runs at the API this deploy goes to: the build resolves
   // the same address, with the same key, from the same config.
   const buildCtx: CommandContext = { ...ctx, options: buildOptions };
-  const result = await runBuild(buildCtx);
+  // `--quiet` leaves them out, as for `kindgi build`. None are kept here:
+  // deploy's own `line` streams or keeps them.
+  const quiet = ctx.globals.format === 'quiet';
+  const result = await runBuild(buildCtx, {
+    line: (s) => {
+      if (!quiet) line(s);
+    },
+    kept: () => '',
+  });
   if (result.kind === 'error') {
     return {
       kind: 'error',
@@ -791,10 +848,7 @@ async function runInlineBuild(
       exitCode: 1,
     };
   }
-  return {
-    kind: 'ok',
-    banner: result.rendered.stderr.trim(),
-  };
+  return { kind: 'ok' };
 }
 
 function buildInlineOptions(
@@ -1290,6 +1344,7 @@ async function resolveDeployArgs(ctx: CommandContext): Promise<ArgsOutcome> {
       environments: environmentsOf(cfg),
       packEnv: packEnv.plan,
       allowMissingEnv: ctx.options['allow-missing-env'] === true,
+      blocksPattern: resolveDiscovery(cfg.discovery as DiscoveryConfig | undefined).blocks,
     },
   };
 }

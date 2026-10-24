@@ -42,10 +42,15 @@ import { createInterface } from 'node:readline';
 import {
   type DiscoveryConfig,
   type KindgiConfig,
+  type PackBlockWrite,
   type PackLanguage,
+  blocksFolder,
+  codePatterns,
+  createGlobMatcher,
   discoveryRoots,
   findKindgiConfig,
   packLanguage,
+  readPackBlocks,
   resolveDiscovery,
 } from '@kindgi/handler-runtime';
 import {
@@ -67,6 +72,7 @@ import {
   parseCorsOrigins,
 } from '@kindgi/env-schema';
 
+import { indexerPredatesBlocks, packIndexerName } from '../build/pack-blocks.js';
 import type { CommandContext } from '../context.js';
 import { ALREADY_RUNNING_EXIT_CODE, alreadyRunning } from '../dev/already-running.js';
 import {
@@ -107,7 +113,7 @@ import {
 } from '../dev/log-view.js';
 import { type PackCode, isJvmPackCode, resolvePackCode } from '../dev/pack-code.js';
 import { devPackEnv, devPackEnvFiles } from '../dev/pack-env.js';
-import { createPackRefresher, showPackEvent } from '../dev/pack-service.js';
+import { createPackRefresher, showBlockWritten, showPackEvent } from '../dev/pack-service.js';
 import { PORT_SEARCH_SPAN, firstFreePort } from '../dev/port.js';
 import {
   devRuntimeSource,
@@ -132,6 +138,8 @@ import { type RegistrationReport, registerFromIndex } from '../dev/register.js';
 import type {
   DevRunners,
   IndexResult,
+  IndexedCounts,
+  PackBlockWritten,
   PackBuild,
   PackBuilder,
   RunningApiServer,
@@ -158,7 +166,7 @@ import { loadProviderPresets } from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
 import { consoleUrlOf, couldNotOpen } from './console.js';
 import { defaultSdkSkillsRoot } from './init.js';
-import { describeSkillDrift, detectSkillDrift } from './skills.js';
+import { describeDevSkillsRefresh, refreshSkillsForDev } from './skills.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 export const devCommand: LeafCommand = {
@@ -758,6 +766,11 @@ async function runDevForPack(
     onEvent: (event: Parameters<typeof showPackEvent>[0]) => {
       for (const output of showPackEvent(event, logView)) emitOutput(output);
     },
+    blocks: {
+      pattern: projectEnv.blocksPattern,
+      onWritten: (write: PackBlockWrite, written: PackBlockWritten) =>
+        emitProgress(`  ${showBlockWritten(write, written)}`),
+    },
   };
   // The front listens for the whole session; children come and go behind
   // it. It keeps the previous session's port, so a runtime started with
@@ -902,6 +915,16 @@ async function runDevForPack(
         })
       : emptyReport();
   emitBootIndex(bootIndex, bootReport, discoveryRoots(projectEnv.discoveryPatterns));
+  if (bootIndex.kind === 'ok') {
+    const predates = await indexerPredatesBlocks({
+      packDir: args.packDir,
+      pattern: projectEnv.blocksPattern,
+      blocksCounted: bootIndex.counts.blocks !== undefined,
+      indexer: packIndexerName(code.value.language),
+      release: CLI_VERSION,
+    });
+    if (predates !== undefined) emitProblem(`  ⚠ ${predates}`);
+  }
 
   // Hints run the project's own kindgi through its package manager — or,
   // for a Python pack (no npm project), the kindgi on PATH.
@@ -1079,7 +1102,10 @@ async function runDevForPack(
     `    echo "…" | ${kindgi('feedback', 'write', '--kind=bug', '--title="…"', '--body-stdin')}  (appends to FEEDBACK.md)`,
   );
   emitProgress('');
-  await emitSkillDriftHint(args.packDir, code.value.language, kindgi('skills', 'sync'));
+  await emitSkillsRefresh(args.packDir, code.value.language, {
+    sync: kindgi('skills', 'sync'),
+    force: kindgi('skills', 'sync', '--force'),
+  });
   if (args.watch) {
     emitProgress(`  Watching ${args.packDir}`);
     emitProgress('  Ctrl+C to stop.');
@@ -1171,6 +1197,18 @@ async function runDevForPack(
         {
           debounceMs: DEFAULT_WATCH_DEBOUNCE_MS,
           patterns: projectEnv.discoveryPatterns,
+          onWatchFailed,
+        },
+      ),
+    );
+    // The pack's blocks: their files and their templates, read into the index again.
+    watchHandles.push(
+      await dev.watchPack(
+        args.packDir,
+        untilStopped(ctx.stopSignal, () => onRefresh()),
+        {
+          debounceMs: DEFAULT_WATCH_DEBOUNCE_MS,
+          ...(await blocksWatch(args.packDir, projectEnv.blocksPattern)),
           onWatchFailed,
         },
       ),
@@ -1298,8 +1336,13 @@ type ProjectEnvOutcome =
       readonly localEnvFiles: readonly string[] | undefined;
       /** `KINDGI_*` names from the env files. */
       readonly runtime: Readonly<Record<string, string>>;
-      /** The pack's discovery patterns (defaults filled in) — what the watcher follows. */
+      /**
+       * The pack's code discovery patterns (defaults filled in) — what the
+       * builder bundles and the entry watcher follows.
+       */
       readonly discoveryPatterns: readonly string[];
+      /** The blocks discovery pattern (defaults filled in): the blocks watcher's. */
+      readonly blocksPattern: string;
       /** The language of the pack's code. */
       readonly language: PackLanguage;
       /** The loaded config (`undefined` in tests that inject none). */
@@ -1353,18 +1396,18 @@ async function loadDevProjectEnv(ctx: CommandContext, packDir: string): Promise<
   const discovery = settings.config?.discovery;
   const language =
     settings.config !== undefined ? packLanguage(settings.config as KindgiConfig) : 'node';
+  const resolved = resolveDiscovery(
+    typeof discovery === 'object' && discovery !== null
+      ? (discovery as DiscoveryConfig)
+      : undefined,
+    language,
+  );
   return {
     kind: 'ok',
     localEnvFiles: settings.localEnvFiles,
     runtime: runtimeValues(env.values),
-    discoveryPatterns: Object.values(
-      resolveDiscovery(
-        typeof discovery === 'object' && discovery !== null
-          ? (discovery as DiscoveryConfig)
-          : undefined,
-        language,
-      ),
-    ),
+    discoveryPatterns: codePatterns(resolved),
+    blocksPattern: resolved.blocks,
     language,
     config: settings.config,
     secretNames: new Set(Object.keys(packValues(env.values))),
@@ -1701,7 +1744,7 @@ function emitBootIndex(
   }
   const c = bootIndex.counts;
   emitProgress(
-    `✓ loaded: ${c.tools} tools, ${c.guardrails} guardrails, ${c.agents} agents, ${c.flows} flows`,
+    `✓ loaded: ${c.tools} tools, ${c.guardrails} guardrails, ${c.agents} agents, ${c.flows} flows${blocksTotal(c)}`,
   );
   for (const e of bootIndex.fileErrors) {
     emitProblem(`  ⚠ indexer: ${e.filePath ?? '?'} [${e.code}] ${e.message}`);
@@ -1824,12 +1867,7 @@ async function runEach(
  */
 function emitWatchTick(input: {
   readonly elapsedMs: number;
-  readonly counts: {
-    readonly tools: number;
-    readonly guardrails: number;
-    readonly agents: number;
-    readonly flows: number;
-  };
+  readonly counts: IndexedCounts;
   readonly fileErrors: readonly {
     readonly code: string;
     readonly message: string;
@@ -1845,7 +1883,7 @@ function emitWatchTick(input: {
   }[];
 }): void {
   const { counts, fileErrors, failed, elapsedMs, registered, warnings } = input;
-  const totals = `${counts.tools} tools, ${counts.guardrails} guardrails, ${counts.agents} agents, ${counts.flows} flows`;
+  const totals = `${counts.tools} tools, ${counts.guardrails} guardrails, ${counts.agents} agents, ${counts.flows} flows${blocksTotal(counts)}`;
   if (fileErrors.length === 0 && failed.length === 0) {
     emitProgress(`  ✓ loaded ${registered} primitives (${totals}) in ${elapsedMs}ms`);
     emitWarningsSince(warnings);
@@ -1861,6 +1899,28 @@ function emitWatchTick(input: {
     emitProblem(`    ✗ ${f.kind}: ${f.id} — ${f.message ?? 'unknown reason'}`);
   }
   emitWarningsSince(warnings);
+}
+
+/** `, 2 blocks` after the other counts, when the pack has any. */
+function blocksTotal(counts: IndexedCounts): string {
+  return counts.blocks !== undefined && counts.blocks > 0 ? `, ${counts.blocks} blocks` : '';
+}
+
+/**
+ * What the blocks watcher follows: the blocks folder, templates and all.
+ * A pattern at the pack root has no folder of its own, so it follows the
+ * block files and, by name, the templates they name now.
+ */
+async function blocksWatch(
+  packDir: string,
+  pattern: string,
+): Promise<{ readonly patterns: readonly string[]; readonly files?: readonly string[] }> {
+  const folder = blocksFolder(pattern);
+  if (folder !== '') return { patterns: [`${folder}/**`] };
+  const matches = createGlobMatcher([pattern]);
+  const read = await readPackBlocks(packDir, pattern);
+  const templates = read.files.filter((rel) => !matches(rel)).map((rel) => join(packDir, rel));
+  return { patterns: [pattern], ...(templates.length > 0 && { files: templates }) };
 }
 
 /** A load's warnings, by message (an indexer that reports none, or a failed load, has none). */
@@ -1887,30 +1947,32 @@ function emitWarningsSince({ fresh, standing }: WarningsSince): void {
 }
 
 /**
- * Compare the pack's installed framework skills against the bundled
- * SDK versions; print a one-liner if drift is detected. Silent when
- * everything is up to date. Never fails boot — a drift-check crash
- * (missing skills root, unreadable manifest) is swallowed because
- * the drift check is advisory, not load-bearing.
+ * Bring the pack's framework skills up to this CLI's (`refreshSkillsForDev`),
+ * and say what changed and what's still behind. Silent when nothing is. A
+ * refresh that fails is said, never fails boot: the skills help the coding
+ * agent, not the pack.
  */
-async function emitSkillDriftHint(
+async function emitSkillsRefresh(
   packDir: string,
   language: PackLanguage,
-  syncCommand: string,
+  commands: { readonly sync: string; readonly force: string },
 ): Promise<void> {
   const skillsRoot = defaultSdkSkillsRoot();
   if (skillsRoot === undefined) return;
+  let lines: string[];
   try {
-    const drift = describeSkillDrift(
-      await detectSkillDrift({ skillsRoot, targetDir: packDir, language }),
-    );
-    if (drift === undefined) return;
-    emitProgress(`  ⚠ Framework skills: ${drift}.`);
-    emitProgress(`    Run \`${syncCommand}\` to pull the latest.`);
-    emitProgress('');
-  } catch {
-    // Advisory; never block boot on a drift-check failure.
+    const refresh = await refreshSkillsForDev({ skillsRoot, targetDir: packDir, language });
+    lines = describeDevSkillsRefresh(refresh, commands);
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    lines = [
+      `  ⚠ Framework skills: couldn't refresh them: ${why}`,
+      `    Run \`${commands.sync}\` to pull the latest.`,
+    ];
   }
+  if (lines.length === 0) return;
+  for (const line of lines) emitProgress(line);
+  emitProgress('');
 }
 
 /**
@@ -2182,7 +2244,7 @@ function renderIndexSection(
     const c = index.counts;
     const lines = [
       `  Discovering pack (${index.packId}@${index.packVersion})`,
-      `    ✓ ${c.tools} tools    ✓ ${c.guardrails} guardrails    ✓ ${c.agents} agents    ✓ ${c.flows} flows`,
+      `    ✓ ${c.tools} tools    ✓ ${c.guardrails} guardrails    ✓ ${c.agents} agents    ✓ ${c.flows} flows${c.blocks !== undefined && c.blocks > 0 ? `    ✓ ${c.blocks} blocks` : ''}`,
     ];
     if (inputs.bootReport.failed.length > 0) {
       lines.push('', '  Registration failures:');

@@ -30,12 +30,13 @@ import {
   createInMemoryRateLimitStore,
   nearestForwardedClient,
 } from '../rate-limit-store.js';
+import { readCapped } from '../read-capped.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import { WEBHOOK_BODY_LIMITS } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
 import { refused } from './denied.js';
-import { WEBHOOK_REFUSALS_PER_CLIENT_PER_MINUTE, readCapped } from './hooks.js';
+import { WEBHOOK_REFUSALS_PER_CLIENT_PER_MINUTE } from './hooks.js';
 import { clampLimit } from './pagination.js';
 import { parseSecretRef } from './secret-ref.js';
 import { tenantAdminAccess } from './tenant-access.js';
