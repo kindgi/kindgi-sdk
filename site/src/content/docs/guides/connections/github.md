@@ -93,10 +93,24 @@ In the console, open your workspace's **App registrations** page, choose
 - **Which projects' runs may use it:** leave it empty for all of them.
 
 Then choose **Register**. Kindgi shows what to give GitHub: the
-**Callback URL** you entered in step 1, and a **Webhook URL**. Back on GitHub, in the app's **General** settings, tick
-**Webhook → Active**, enter that address as the **Webhook URL** and the
-webhook secret from step 2 as the **Secret**, and save. GitHub then sends Kindgi a signed notice when the app
-is uninstalled or suspended
+**Callback URL** you entered in step 1, and a **Webhook URL**.
+
+Or register it from the command line:
+
+```sh
+npx --yes @kindgi/cli@0.2 connection-apps add github --github-app-id=<github-app-id> --slug=<slug> --client-id=<client-id> --client-secret-ref=production/ACME_GITHUB_CLIENT_SECRET --private-key-ref=production/ACME_GITHUB_PRIVATE_KEY --webhook-secret-ref=production/ACME_GITHUB_WEBHOOK_SECRET
+```
+
+`<github-app-id>` is the **App ID** on the app's page on GitHub, a number.
+The command prints the registration as JSON: its `redirectUrl` is the
+Callback URL, and its `noticesUrl` the Webhook URL.
+`--projects=<project-id>,…` lets only those projects' runs use it.
+
+Back on GitHub, in the app's **General** settings, tick
+**Webhook → Active**, enter the address Kindgi gave you as the
+**Webhook URL** and the webhook secret from step 2 as the **Secret**, and
+save. GitHub then sends Kindgi a signed notice when the app is uninstalled
+or suspended
 ([Notices from the app](../reference/#notices-from-the-app)).
 
 ## 4. Install it for the company
