@@ -219,7 +219,7 @@ once deployed. `KINDGI_*` names are Kindgi's own: a pack can't declare one.
 
 ### Connections to other apps
 
-A tool that acts in another app as a person or as the company (sending mail, opening an issue) declares a **connection**, never a secret holding someone's token, and reads the call's short-lived token from `ctx.connections()` (runtime 0.1.12 or later):
+A tool that acts in another app as a person or as the company (sending mail, opening an issue) declares a **connection**, never a secret holding someone's token, and reads the call's short-lived token from `ctx.connections()` (runtime 0.2.0 or later):
 
 ```java
 public static final Tool<Input, Output> TOOL = Tool.define("my-pack.send-mail")
