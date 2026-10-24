@@ -97,7 +97,7 @@ These commands reach Postgres over the `kindgi` network, which doesn't
 leave the machine, so the URI turns TLS off (`sslmode=disable`). When
 OpenFGA reaches its database over another network, have it check the
 server's certificate
-([OpenFGA's connection to the database](../database-tls/#openfgas-connection-to-the-database)).
+([OpenFGA's connection to the database](../self-hosted/database-tls/#openfgas-connection-to-the-database)).
 
 Keep OpenFGA on the private network, with no published port: the runtime
 calls it without credentials unless OpenFGA requires a key

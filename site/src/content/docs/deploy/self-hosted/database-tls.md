@@ -160,7 +160,7 @@ the new CA, it refuses the server's new certificate.
 
 ## OpenFGA's connection to the database
 
-With [authorization](../authorization/) on, OpenFGA keeps its data in
+With [authorization](../../authorization/) on, OpenFGA keeps its data in
 Postgres too, over a connection of its own: the runtime's settings on this
 page don't reach it. OpenFGA's datastore URI (`--datastore-uri`, or
 `OPENFGA_DATASTORE_URI`) has its own `sslmode`, and takes the server's CA as
