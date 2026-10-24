@@ -97,6 +97,16 @@ In the console, open your workspace's **App registrations** page, choose
 Then choose **Register**. Kindgi shows the **Redirect URI** you entered in
 step 1.
 
+Or register it from the command line:
+
+```sh
+npx --yes @kindgi/cli@0.2 connection-apps add linkedin --client-id=<client-id> --client-secret-ref=production/ACME_LINKEDIN_CONNECT_SECRET
+```
+
+The command prints the registration as JSON: its `redirectUrl` is the
+Redirect URI. `--projects=<project-id>,…` lets only those projects' runs
+use it.
+
 ## 4. Connect
 
 Each person connects their own profile. In a project, open
