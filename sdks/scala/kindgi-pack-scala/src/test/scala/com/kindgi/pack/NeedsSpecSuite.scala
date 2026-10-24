@@ -9,7 +9,7 @@ import scala.jdk.CollectionConverters._
 /**
  * The {@code needsSpec} test-context helpers reach Scala through kindgi-pack's own types
  * ({@code ToolContext} is Scala's own, being an alias): a Scala-built tool's declared env fills and
- * checks the same way, and the builder overrides the same fields.
+ * checks the same way, and the builder overrides the same fields, a tool's env included.
  */
 class NeedsSpecSuite extends munit.FunSuite {
   private def envTool(env: Map[String, Any]): Tool[Map[String, Any], Any] =
@@ -26,13 +26,13 @@ class NeedsSpecSuite extends munit.FunSuite {
 
   test("forTest fails naming a missing env value, from Scala") {
     val tool = envTool(Map("ACCOUNT_ID" -> Map("type" -> "string")))
-    val thrown = intercept[IllegalStateException](ToolContext.forTest(tool, noEnv, noSecrets))
+    val thrown = intercept[IllegalArgumentException](ToolContext.forTest(tool, noEnv, noSecrets))
     assert(thrown.getMessage.contains("needs env value \"ACCOUNT_ID\""))
   }
 
   test("forTest fails when a value doesn't match its schema, from Scala") {
     val tool = envTool(Map("BASE_URL" -> Map("type" -> "string", "pattern" -> "^https://")))
-    val thrown = intercept[IllegalStateException](
+    val thrown = intercept[IllegalArgumentException](
       ToolContext.forTest(tool, Map("BASE_URL" -> "http://x").asJava, noSecrets))
     assert(thrown.getMessage.contains("doesn't match the schema"))
   }
@@ -51,5 +51,15 @@ class NeedsSpecSuite extends munit.FunSuite {
     assertEquals(ctx.tenantId(), "acme")
     assertEquals(ctx.env().get("X"), "1")
     assertEquals(ctx.secrets().get("KEY"), "k")
+  }
+
+  test("forTest(Builder) with a tool decides its env and keeps the rest, from Scala") {
+    val tool = envTool(Map("REGION" -> Map("type" -> "string", "default" -> "eu")))
+    val ctx = ToolContext.forTest(new ToolContext.Builder()
+      .withTool(tool)
+      .withProjectId("p-orders")
+      .withEnv(Map("UNDECLARED" -> "x").asJava))
+    assertEquals(ctx.env().asScala.toMap, Map[String, AnyRef]("REGION" -> "eu"))
+    assertEquals(ctx.projectId(), "p-orders")
   }
 }

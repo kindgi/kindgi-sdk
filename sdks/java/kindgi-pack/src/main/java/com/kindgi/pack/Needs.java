@@ -86,8 +86,8 @@ final class Needs {
    * @param needsSpec the tool's {@code needsSpec} value
    * @param given the env a test offers, by name; {@code null} for none
    * @return the resolved env, by declared name
-   * @throws IllegalStateException when a declared value is missing, doesn't match its schema, or is
-   *     declared with a schema that doesn't compile
+   * @throws IllegalArgumentException when a declared value is missing, doesn't match its schema, or
+   *     is declared with a schema that doesn't compile
    */
   static Map<String, Object> resolveEnv(
       String toolId, @Nullable Object needsSpec, @Nullable Map<String, String> given) {
@@ -106,7 +106,7 @@ final class Needs {
       }
     }
     if (!missing.isEmpty()) {
-      throw new IllegalStateException(missingMessage(toolId, missing));
+      throw new IllegalArgumentException(missingMessage(toolId, missing));
     }
     for (Map.Entry<String, Object> entry : resolved.entrySet()) {
       String name = entry.getKey();
@@ -119,12 +119,12 @@ final class Needs {
       try {
         validator = new SchemaValidator(schema);
       } catch (SchemaValidator.SchemaException compile) {
-        throw new IllegalStateException("tool \"" + toolId + "\" declares env value \"" + name
+        throw new IllegalArgumentException("tool \"" + toolId + "\" declares env value \"" + name
             + "\" with a schema that doesn't compile: " + compile.getMessage());
       }
       List<Map<String, Object>> issues = validator.issues(entry.getValue());
       if (!issues.isEmpty()) {
-        throw new IllegalStateException("env value \"" + name + "\" is \"" + entry.getValue()
+        throw new IllegalArgumentException("env value \"" + name + "\" is \"" + entry.getValue()
             + "\", which doesn't match the schema tool \"" + toolId + "\" declares for it: "
             + constraintsBroken(issues));
       }

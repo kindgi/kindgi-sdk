@@ -6,6 +6,9 @@ package com.kindgi.pack;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.kindgi.log.Logger;
+import com.kindgi.pack.internal.Json;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -51,6 +54,23 @@ class NeedsSpecTest {
     assertThat(Needs.check("acme.sign", needsSpec))
         .isEqualTo("tool 'acme.sign' is invalid at /needsSpec/env/RETRIES/default: "
             + "the default must be a string: env values are strings");
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void aNullEnvDefaultIsNoDefault() {
+    Map<String, Object> region = new HashMap<>();
+    region.put("type", "string");
+    region.put("default", null);
+    Tool<?, ?> tool = toolWithEnv(Map.of("REGION", region));
+    // What the indexer checks and writes: needsSpec as a plain value, which drops the null default.
+    Map<String, Object> needsSpec = (Map<String, Object>) Json.plain(tool.extra().get("needsSpec"));
+    assertThat(((Map<String, Map<String, Object>>) needsSpec.get("env")).get("REGION")).isEqualTo(Map.of("type", "string"));
+    assertThat(Needs.check("acme.env", needsSpec)).isNull();
+    // So the name has no default: a test must set it, as a run must.
+    assertThatThrownBy(() -> ToolContext.forTest(tool, Map.of(), null))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("needs env value \"REGION\"");
   }
 
   @Test
@@ -113,7 +133,7 @@ class NeedsSpecTest {
   void failsNamingAMissingValue() {
     Tool<?, ?> tool = toolWithEnv(Map.of("ACCOUNT_ID", Map.of("type", "string")));
     assertThatThrownBy(() -> ToolContext.forTest(tool, Map.of(), null))
-        .isInstanceOf(IllegalStateException.class)
+        .isInstanceOf(IllegalArgumentException.class)
         .hasMessage("tool \"acme.env\" needs env value \"ACCOUNT_ID\": the context's `env` doesn't set it, "
             + "and its schema has no default");
   }
@@ -125,7 +145,7 @@ class NeedsSpecTest {
     env.put("B", Map.of("type", "string"));
     Tool<?, ?> tool = toolWithEnv(env);
     assertThatThrownBy(() -> ToolContext.forTest(tool, Map.of(), null))
-        .isInstanceOf(IllegalStateException.class)
+        .isInstanceOf(IllegalArgumentException.class)
         .hasMessage("tool \"acme.env\" needs env values \"A\", \"B\": the context's `env` doesn't set them, "
             + "and their schemas have no default");
   }
@@ -134,7 +154,7 @@ class NeedsSpecTest {
   void failsWhenAValueDoesNotMatchItsSchema() {
     Tool<?, ?> tool = toolWithEnv(Map.of("BASE_URL", Map.of("type", "string", "pattern", "^https://")));
     assertThatThrownBy(() -> ToolContext.forTest(tool, Map.of("BASE_URL", "http://orders.example.com"), null))
-        .isInstanceOf(IllegalStateException.class)
+        .isInstanceOf(IllegalArgumentException.class)
         .hasMessage("env value \"BASE_URL\" is \"http://orders.example.com\", which doesn't match the schema "
             + "tool \"acme.env\" declares for it: must match pattern \"^https://\"");
   }
@@ -153,7 +173,7 @@ class NeedsSpecTest {
   void failsWhenADeclaredSchemaDoesNotCompile() {
     Tool<?, ?> tool = toolWithEnv(Map.of("REGION", Map.of("type", "strng")));
     assertThatThrownBy(() -> ToolContext.forTest(tool, Map.of("REGION", "eu"), null))
-        .isInstanceOf(IllegalStateException.class)
+        .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("declares env value \"REGION\" with a schema that doesn't compile:");
   }
 
@@ -173,6 +193,33 @@ class NeedsSpecTest {
     assertThat(ctx.runId()).isEqualTo("run-test");
     assertThat(ctx.env()).isEmpty();
     assertThat(ctx.secrets()).isEmpty();
+  }
+
+  @Test
+  void theBuilderWithAToolDecidesItsEnvAndKeepsTheRest() {
+    Tool<?, ?> tool = toolWithEnv(Map.of("REGION", Map.of("type", "string", "default", "eu")));
+    Logger log = Logger.noop();
+    ToolContext ctx = ToolContext.forTest(new ToolContext.Builder()
+        .withTool(tool)
+        .withProjectId("p-orders")
+        .withConfig(Map.of("pageSize", 50))
+        .withLog(log)
+        .withEnv(Map.of("UNDECLARED", "x"))
+        .withSecrets(Map.of("API_TOKEN", "t")));
+    assertThat(ctx.env()).isEqualTo(Map.of("REGION", "eu"));
+    assertThat(ctx.projectId()).isEqualTo("p-orders");
+    assertThat(ctx.config()).isEqualTo(Map.of("pageSize", 50));
+    assertThat(ctx.log()).isSameAs(log);
+    assertThat(ctx.secrets()).containsEntry("API_TOKEN", "t");
+  }
+
+  @Test
+  void theBuilderWithAToolFailsAsForTestDoes() {
+    Tool<?, ?> tool = toolWithEnv(Map.of("ACCOUNT_ID", Map.of("type", "string")));
+    assertThatThrownBy(() -> ToolContext.forTest(new ToolContext.Builder().withTool(tool).withProjectId("p-orders")))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("tool \"acme.env\" needs env value \"ACCOUNT_ID\": the context's `env` doesn't set it, "
+            + "and its schema has no default");
   }
 
   @Test

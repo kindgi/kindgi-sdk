@@ -5,9 +5,10 @@
 
 Two checks the SDK makes, matching the TypeScript ``@kindgi/tools`` and Java kindgi-pack:
 :func:`needs_spec_problem` is the definition-time check (each ``env`` / ``secrets`` schema must
-compile; an ``env`` default must be a string), and :func:`resolve_env` is the test-context fill
-that :meth:`kindgi.pack.ToolContext.for_test` runs. Only ``env`` and ``secrets`` carry schemas to
-check; ``config``, ``capabilities`` and ``bindings`` are carried, not validated here.
+compile as the runtime compiles it; an ``env`` default must be a string), and :func:`resolve_env`
+is the test-context fill that :meth:`kindgi.pack.ToolContext.for_test` runs. Only ``env`` and
+``secrets`` carry schemas to check; ``config``, ``capabilities`` and ``bindings`` are carried, not
+validated here.
 """
 
 from __future__ import annotations
@@ -17,14 +18,15 @@ from typing import Any, cast
 
 from jsonschema import SchemaError
 
-from .._schema import SchemaValidator
+from .._schema import SchemaValidator, strict_schema_problem
 
 
 def needs_spec_problem(needs_spec: Mapping[str, Any]) -> str | None:
     """The problem with a tool's ``needsSpec`` at definition time, or ``None``.
 
     A schema under ``secrets`` or ``env`` that doesn't compile, or an ``env`` default that isn't a
-    string. The slots are checked ``secrets`` then ``env``, their entries in order, first wins.
+    string (``None`` included: the index would carry it as ``null``). The slots are checked
+    ``secrets`` then ``env``, their entries in order, first wins.
     """
     for slot in ("secrets", "env"):
         declared = needs_spec.get(slot)
@@ -34,17 +36,11 @@ def needs_spec_problem(needs_spec: Mapping[str, Any]) -> str | None:
             if not isinstance(entry, Mapping):
                 continue
             schema = cast("Mapping[str, Any]", entry)
-            try:
-                SchemaValidator(schema)
-            except SchemaError as exc:
-                why = getattr(exc, "message", None) or str(exc)
+            why = _compile_problem(schema)
+            if why is not None:
                 return f"the schema for needsSpec.{slot}.{name} doesn't compile: {why}"
-            if slot == "env":
-                fallback = schema.get("default")
-                if fallback is not None and not isinstance(fallback, str):
-                    return (
-                        f"needsSpec.env.{name}'s default must be a string: env values are strings."
-                    )
+            if slot == "env" and "default" in schema and not isinstance(schema["default"], str):
+                return f"needsSpec.env.{name}'s default must be a string: env values are strings."
     return None
 
 
@@ -81,15 +77,13 @@ def resolve_env(
         if not isinstance(entry, Mapping):
             continue
         schema = cast("Mapping[str, Any]", entry)
-        try:
-            validator = SchemaValidator(schema)
-        except SchemaError as exc:
-            why = getattr(exc, "message", None) or str(exc)
+        why = _compile_problem(schema)
+        if why is not None:
             raise ValueError(
                 f'tool "{tool_id}" declares env value "{name}" '
                 f"with a schema that doesn't compile: {why}"
-            ) from exc
-        issues = validator.issues(value)
+            )
+        issues = SchemaValidator(schema).issues(value)
         if issues:
             raise ValueError(
                 f'env value "{name}" is "{value}", '
@@ -97,6 +91,16 @@ def resolve_env(
                 f"declares for it: {_constraints_broken(issues)}"
             )
     return resolved
+
+
+def _compile_problem(schema: Mapping[str, Any]) -> str | None:
+    """Why the runtime's compile refuses ``schema``: not valid Draft 2020-12, or a keyword or a
+    format it doesn't know. ``None`` when it compiles."""
+    try:
+        SchemaValidator(schema)
+    except SchemaError as exc:
+        return getattr(exc, "message", None) or str(exc)
+    return strict_schema_problem(schema)
 
 
 def _missing_message(tool_id: str, missing: list[str]) -> str:

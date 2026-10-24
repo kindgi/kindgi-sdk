@@ -119,17 +119,25 @@ public record ToolContext(
   }
 
   /**
-   * A context for a unit test, from a {@link Builder}: its tenant, run, env, secrets, config and
-   * logger as the builder set them, each unset one a test default ({@code "t-test"}, {@code
-   * "run-test"}, nothing, a logger that writes nothing).
+   * A context for a unit test, from a {@link Builder}: its fields as the builder set them, each
+   * unset one a test default ({@code "t-test"}, {@code "run-test"}, nothing, a logger that writes
+   * nothing). With {@link Builder#withTool a tool}, its env is what the tool declares under
+   * {@code needsSpec.env}, decided as {@link #forTest(Tool, Map, Map)} decides it; without one,
+   * it's the builder's env as given.
    *
    * @param builder the builder
    * @return the context
+   * @throws IllegalArgumentException when the builder has a tool and a declared env value is
+   *     missing (no given value and no string default), doesn't match its schema, or is declared
+   *     with a schema that doesn't compile
    */
   public static ToolContext forTest(Builder builder) {
+    Map<String, Object> env = builder.tool != null
+        ? Needs.resolveEnv(builder.tool.id(), builder.tool.extra().get("needsSpec"), builder.env)
+        : new LinkedHashMap<>(builder.env);
     return new ToolContext(builder.tenantId, builder.runId, builder.requestId, builder.projectId,
-        builder.orgId, builder.env, builder.secrets, builder.config, builder.settings,
-        builder.cancellation, builder.log, builder.idempotencyKey);
+        builder.orgId, env, builder.secrets, builder.config, builder.settings, new Cancellation(),
+        builder.log, builder.idempotencyKey);
   }
 
   /**
@@ -137,21 +145,22 @@ public record ToolContext(
    * name the tool declares, taken from {@code env} or the schema's string default and checked
    * against its schema, so a test exercises the same env resolution the runtime does. A name the
    * tool doesn't declare is dropped. Secrets are passed through as given — the SDK doesn't check
-   * them (the runtime does).
+   * them (the runtime does). The rest are test defaults; to set them too, use
+   * {@link #forTest(Builder)} with {@link Builder#withTool}.
    *
    * @param tool the tool whose {@code needsSpec} to read
    * @param env the env a test offers, by name; {@code null} for none
    * @param secrets the secrets to pass through, by name; {@code null} for none
    * @return the context
-   * @throws IllegalStateException when a declared env value is missing (no given value and no
+   * @throws IllegalArgumentException when a declared env value is missing (no given value and no
    *     string default), doesn't match its schema, or is declared with a schema that doesn't
    *     compile
    */
   public static ToolContext forTest(
       Tool<?, ?> tool, @Nullable Map<String, String> env, @Nullable Map<String, Object> secrets) {
-    Map<String, Object> resolved = Needs.resolveEnv(tool.id(), tool.extra().get("needsSpec"), env);
-    return new ToolContext("t-test", "run-test", null, null, null, resolved,
-        secrets != null ? secrets : Map.of(), Map.of(), Map.of(), new Cancellation(), Logger.noop());
+    return forTest(new Builder().withTool(tool)
+        .withEnv(env != null ? env : Map.of())
+        .withSecrets(secrets != null ? secrets : Map.of()));
   }
 
   /**
@@ -164,11 +173,11 @@ public record ToolContext(
     private @Nullable String requestId;
     private @Nullable String projectId;
     private @Nullable String orgId;
-    private Map<String, Object> env = Map.of();
+    private @Nullable Tool<?, ?> tool;
+    private Map<String, String> env = Map.of();
     private Map<String, Object> secrets = Map.of();
     private Map<String, Object> config = Map.of();
     private Map<String, Map<String, Object>> settings = Map.of();
-    private Cancellation cancellation = new Cancellation();
     private Logger log = Logger.noop();
     private @Nullable String idempotencyKey;
 
@@ -218,7 +227,19 @@ public record ToolContext(
     }
 
     /**
-     * @param env resolved environment values for the call, by name
+     * @param tool the tool whose {@code needsSpec.env} decides the context's env: each name it
+     *     declares, from {@link #withEnv} or its schema's string default, checked against its
+     *     schema; a name it doesn't declare is dropped
+     * @return this
+     */
+    public Builder withTool(Tool<?, ?> tool) {
+      this.tool = tool;
+      return this;
+    }
+
+    /**
+     * @param env environment values for the call, by name: as given, or with {@link #withTool}
+     *     the values the test offers the tool
      * @return this
      */
     public Builder withEnv(Map<String, String> env) {

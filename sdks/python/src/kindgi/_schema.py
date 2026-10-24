@@ -22,6 +22,7 @@ import re
 from collections.abc import Callable, Iterable, Mapping
 from datetime import date, time
 from typing import Any, cast
+from urllib.parse import unquote
 
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import ValidationError as SchemaError
@@ -35,6 +36,7 @@ __all__ = [
     "apply_defaults",
     "check_schema",
     "issues_from_pydantic",
+    "strict_schema_problem",
     "wire_schema",
 ]
 
@@ -202,6 +204,107 @@ _FORMAT_CHECKER = _formats()
 def check_schema(schema: Mapping[str, Any]) -> None:
     """Raise `jsonschema.SchemaError` when `schema` is not a valid Draft 2020-12 schema."""
     Draft202012Validator.check_schema(schema)
+
+
+# The keywords the runtime's compile of an inline schema knows (Ajv's Draft 2020-12 ones, with
+# ajv-formats' format bounds), and the annotation Kindgi reads (`x-kindgi-tunable`). Its strict
+# mode refuses any other keyword, and any format but ajv-formats' (`_STRICT_FORMATS`).
+_STRICT_KEYWORDS = frozenset(
+    {
+        "$async", "$comment", "$defs", "$dynamicAnchor", "$dynamicRef", "$id", "$recursiveAnchor",
+        "$recursiveRef", "$ref", "$schema", "$vocabulary", "additionalProperties", "allOf",
+        "anyOf", "const", "contains", "contentEncoding", "contentMediaType", "contentSchema",
+        "default", "definitions", "dependencies", "dependentRequired", "dependentSchemas",
+        "deprecated", "description", "else", "enum", "examples", "exclusiveMaximum",
+        "exclusiveMinimum", "format", "formatExclusiveMaximum", "formatExclusiveMinimum",
+        "formatMaximum", "formatMinimum", "if", "items", "maxContains", "maxItems", "maxLength",
+        "maxProperties", "maximum", "minContains", "minItems", "minLength", "minProperties",
+        "minimum", "multipleOf", "not", "nullable", "oneOf", "pattern", "patternProperties",
+        "prefixItems", "properties", "propertyNames", "readOnly", "required", "then", "title",
+        "type", "unevaluatedItems", "unevaluatedProperties", "uniqueItems", "writeOnly",
+        "x-kindgi-tunable",
+    }
+)  # fmt: skip
+_STRICT_FORMATS = frozenset(
+    {
+        "binary", "byte", "date", "date-time", "double", "duration", "email", "float", "hostname",
+        "int32", "int64", "ipv4", "ipv6", "iso-date-time", "iso-time", "json-pointer",
+        "json-pointer-uri-fragment", "password", "regex", "relative-json-pointer", "time", "uri",
+        "uri-reference", "uri-template", "url", "uuid",
+    }
+)  # fmt: skip
+# The keywords whose value the runtime compiles as a subschema: one schema, a list, or a map of
+# them. `$defs` and `contentSchema` aren't among them: a definition is compiled where a `$ref`
+# reaches it, and `contentSchema` is an annotation.
+_ONE_SUBSCHEMA = (
+    "additionalProperties", "contains", "else", "if", "items", "not", "propertyNames", "then",
+    "unevaluatedItems", "unevaluatedProperties",
+)  # fmt: skip
+_SUBSCHEMA_LISTS = ("allOf", "anyOf", "oneOf", "prefixItems")
+_SUBSCHEMA_MAPS = ("dependencies", "dependentSchemas", "patternProperties", "properties")
+
+
+def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
+    """What the runtime's strict compile refuses in a valid Draft 2020-12 `schema`: an unknown
+    keyword or an unknown format, in the schema or a subschema it compiles (one a `#/...` `$ref`
+    reaches included). Worded as the runtime words it; `None` when there's neither.
+
+    Ajv's strict rules about types (`strictTypes`, `strictTuples`, `strictRequired`) aren't
+    checked here.
+    """
+    seen: set[int] = set()
+
+    def walk(node: Any, path: str) -> str | None:
+        if not isinstance(node, Mapping):
+            return None
+        here = cast("Mapping[str, Any]", node)
+        if id(here) in seen:
+            return None
+        seen.add(id(here))
+        for keyword in here:
+            if keyword not in _STRICT_KEYWORDS:
+                return f'strict mode: unknown keyword: "{keyword}"'
+        fmt = here.get("format")
+        if isinstance(fmt, str) and fmt not in _STRICT_FORMATS:
+            return f'unknown format "{fmt}" ignored in schema at path "{path}"'
+        for keyword, value in here.items():
+            found: str | None = None
+            if keyword in _ONE_SUBSCHEMA:
+                found = walk(value, f"{path}/{keyword}")
+            elif keyword in _SUBSCHEMA_LISTS and isinstance(value, list):
+                for i, item in enumerate(cast("list[Any]", value)):
+                    found = found or walk(item, f"{path}/{keyword}/{i}")
+            elif keyword in _SUBSCHEMA_MAPS and isinstance(value, Mapping):
+                for name, item in cast("Mapping[str, Any]", value).items():
+                    found = found or walk(item, f"{path}/{keyword}/{_escape(name)}")
+            elif keyword == "$ref" and isinstance(value, str):
+                # The runtime compiles the schema a ref reaches on its own, so its path is `#`.
+                found = walk(_local_ref(schema, value), "#")
+            if found is not None:
+                return found
+        return None
+
+    return walk(schema, "#")
+
+
+def _escape(name: str) -> str:
+    return name.replace("~", "~0").replace("/", "~1")
+
+
+def _local_ref(root: Mapping[str, Any], ref: str) -> Any:
+    """The part of `root` a `#/...` ref names; `None` for another ref, or one naming nothing."""
+    if ref != "#" and not ref.startswith("#/"):
+        return None
+    node: Any = root
+    for raw in ref[2:].split("/") if ref != "#" else []:
+        part = unquote(raw).replace("~1", "/").replace("~0", "~")
+        if isinstance(node, Mapping) and part in node:
+            node = cast("Mapping[str, Any]", node)[part]
+        elif isinstance(node, list) and part.isdigit() and int(part) < len(cast("list[Any]", node)):
+            node = cast("list[Any]", node)[int(part)]
+        else:
+            return None
+    return node
 
 
 class SchemaValidator:

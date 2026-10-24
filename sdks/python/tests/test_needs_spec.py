@@ -75,6 +75,67 @@ def test_rejects_an_env_default_that_is_not_a_string() -> None:
             return input
 
 
+def test_rejects_an_env_default_of_none() -> None:
+    # The index would carry it as `"default": null`, which the runtime refuses.
+    with pytest.raises(
+        DefinitionError,
+        match=r"needsSpec\.env\.REGION's default must be a string: env values are strings\.",
+    ):
+
+        @tool(id="acme.sign", needs_spec={"env": {"REGION": {"type": "string", "default": None}}})
+        def sign(input: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+            "Signs."
+            return input
+
+
+@pytest.mark.parametrize(
+    ("slot", "schema", "why"),
+    [
+        ("env", {"type": "string", "fromat": "uri"}, 'strict mode: unknown keyword: "fromat"'),
+        ("secrets", {"type": "string", "patern": "^sk_"}, 'strict mode: unknown keyword: "patern"'),
+        (
+            "env",
+            {"type": "string", "format": "hostnmae"},
+            'unknown format "hostnmae" ignored in schema at path "#"',
+        ),
+        (
+            "env",
+            {"anyOf": [{"type": "string", "format": "uri"}, {"type": "string", "maxLenght": 3}]},
+            'strict mode: unknown keyword: "maxLenght"',
+        ),
+    ],
+)
+def test_rejects_a_keyword_or_format_the_runtime_does_not_know(
+    slot: str, schema: dict[str, Any], why: str
+) -> None:
+    # A schema that is valid Draft 2020-12 but that the runtime's strict compile refuses.
+    with pytest.raises(DefinitionError) as raised:
+
+        @tool(id="acme.sign", needs_spec={slot: {"KEY": schema}})
+        def sign(input: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+            "Signs."
+            return input
+
+    assert str(raised.value).endswith(f"the schema for needsSpec.{slot}.KEY doesn't compile: {why}")
+
+
+def test_accepts_the_keywords_and_formats_the_runtime_knows() -> None:
+    @tool(
+        id="acme.sign",
+        needs_spec={
+            "env": {
+                "BASE_URL": {"type": "string", "format": "uri", "x-kindgi-tunable": True},
+                "TIMEOUT": {"type": "string", "format": "duration", "$comment": "ISO 8601"},
+            }
+        },
+    )
+    def sign(input: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        "Signs."
+        return input
+
+    assert sign.needs_spec is not None
+
+
 def test_checks_secrets_before_env() -> None:
     with pytest.raises(DefinitionError, match=r"needsSpec\.secrets\.KEY"):
 
@@ -181,6 +242,17 @@ def test_resolve_env_rejects_a_declared_schema_that_does_not_compile() -> None:
         ValueError, match=r'declares env value "REGION" with a schema that doesn\'t compile'
     ):
         resolve_env("acme.env", {"env": {"REGION": {"type": "strng"}}}, {"REGION": "eu"})
+
+
+def test_resolve_env_rejects_a_keyword_the_runtime_does_not_know() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r'declares env value "REGION" with a schema that doesn\'t compile: '
+        r'strict mode: unknown keyword: "enmu"',
+    ):
+        resolve_env(
+            "acme.env", {"env": {"REGION": {"type": "string", "enmu": ["eu"]}}}, {"REGION": "eu"}
+        )
 
 
 # --- for_test without a tool still flows env/secrets straight through (backward compatible) --

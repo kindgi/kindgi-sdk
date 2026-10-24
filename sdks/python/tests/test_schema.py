@@ -7,7 +7,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from kindgi._schema import SchemaValidator, issues_from_pydantic, wire_schema
+from kindgi._schema import (
+    SchemaValidator,
+    issues_from_pydantic,
+    strict_schema_problem,
+    wire_schema,
+)
 from kindgi.pack.index import _spec
 
 
@@ -241,3 +246,66 @@ def test_explain_names_the_allowed_values_when_no_alternative_matches() -> None:
 
 def test_explain_is_none_for_a_valid_value() -> None:
     assert _explain_node({"id": "n", "kind": "agent", "ref": "acme.a"}) is None
+
+
+# --- strict_schema_problem: what the runtime's strict compile refuses beyond Draft 2020-12 ----
+
+
+def test_strict_finds_an_unknown_keyword_in_each_subschema_the_runtime_compiles() -> None:
+    typo: dict[str, Any] = {"patern": "x"}
+    for schema in [
+        {"type": "object", "properties": {"a": typo}},
+        {"type": "object", "patternProperties": {"^a": typo}},
+        {"type": "object", "additionalProperties": typo},
+        {"type": "object", "dependentSchemas": {"a": typo}},
+        {"type": "object", "dependencies": {"a": typo}},
+        {"type": "array", "items": typo},
+        {"type": "array", "prefixItems": [typo], "minItems": 1, "maxItems": 1},
+        {"anyOf": [{"type": "string"}, typo]},
+        {"type": "string", "if": typo, "then": {"type": "string"}},
+        {"type": "string", "not": typo},
+        {"$defs": {"a": typo}, "$ref": "#/$defs/a"},
+        {"$defs": {"a/b": typo}, "$ref": "#/$defs/a~1b"},
+    ]:
+        assert strict_schema_problem(schema) == 'strict mode: unknown keyword: "patern"', schema
+
+
+def test_strict_leaves_what_the_runtime_does_not_compile() -> None:
+    # A definition nothing refers to, `contentSchema` (an annotation), and values (enum, const).
+    assert strict_schema_problem({"type": "string", "$defs": {"a": {"patern": "x"}}}) is None
+    assert strict_schema_problem({"type": "string", "contentSchema": {"patern": "x"}}) is None
+    assert strict_schema_problem({"enum": [{"patern": "x"}], "const": {"fromat": 1}}) is None
+    assert strict_schema_problem({"type": "object", "properties": {"a": True}}) is None
+
+
+def test_strict_names_where_an_unknown_format_is() -> None:
+    nested = {"type": "object", "properties": {"a~b": {"type": "string", "format": "hostnmae"}}}
+    assert strict_schema_problem(nested) == (
+        'unknown format "hostnmae" ignored in schema at path "#/properties/a~0b"'
+    )
+    # The runtime compiles the schema a ref reaches on its own, so its path is `#`.
+    via_ref = {"$defs": {"a": {"type": "string", "format": "hostnmae"}}, "$ref": "#/$defs/a"}
+    assert (
+        strict_schema_problem(via_ref) == 'unknown format "hostnmae" ignored in schema at path "#"'
+    )
+
+
+def test_strict_finds_a_keyword_before_a_format_and_a_node_before_its_subschemas() -> None:
+    assert strict_schema_problem({"type": "string", "format": "hostnmae", "fromat": "x"}) == (
+        'strict mode: unknown keyword: "fromat"'
+    )
+    assert (
+        strict_schema_problem(
+            {
+                "type": "object",
+                "properties": {"a": {"type": "string", "format": "hostnmae"}},
+                "zzz": 1,
+            }
+        )
+        == 'strict mode: unknown keyword: "zzz"'
+    )
+
+
+def test_strict_follows_a_ref_to_the_root_once() -> None:
+    tree = {"type": "object", "properties": {"child": {"$ref": "#"}}}
+    assert strict_schema_problem(tree) is None
