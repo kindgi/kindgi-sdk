@@ -239,7 +239,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_OPENFGA_API_URL',
     description:
-      'OpenFGA HTTP API URL. Set → per-tenant FGA stores are bootstrapped and authorization is enforced; unset → routes mount without enforcement (dev only; production MUST set it).',
+      'OpenFGA HTTP API URL. Set → per-tenant FGA stores are bootstrapped and authorization is enforced: roles decide who may read, write or administer each project. Unset → no roles are checked: every key and every sign-in works in every project, and only the tenant admin (the API token or an `admin` key) changes tenant settings. Suits one tenant whose people trust each other; `KINDGI_TENANCY=multi` refuses to start without it.',
     example: 'http://openfga.internal:8080',
     required: false,
     appliesTo: appliesToServer,
