@@ -167,6 +167,7 @@ import { CLI_VERSION } from '../version-info.js';
 import { consoleUrlOf, couldNotOpen } from './console.js';
 import { defaultSdkSkillsRoot } from './init.js';
 import { describeDevSkillsRefresh, refreshSkillsForDev } from './skills.js';
+import type { DevSkillsLine } from './skills.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 export const devCommand: LeafCommand = {
@@ -1961,7 +1962,8 @@ function emitWarningsSince({ fresh, standing }: WarningsSince): void {
  * Bring the pack's framework skills up to this CLI's (`refreshSkillsForDev`),
  * and say what changed and what's still behind. Silent when nothing is. A
  * refresh that fails is said, never fails boot: the skills help the coding
- * agent, not the pack.
+ * agent, not the pack. What's behind, and a refresh that fails, are
+ * warnings: shown under `--quiet` too.
  */
 async function emitSkillsRefresh(
   packDir: string,
@@ -1970,20 +1972,20 @@ async function emitSkillsRefresh(
 ): Promise<void> {
   const skillsRoot = defaultSdkSkillsRoot();
   if (skillsRoot === undefined) return;
-  let lines: string[];
+  let lines: readonly DevSkillsLine[];
   try {
     const refresh = await refreshSkillsForDev({ skillsRoot, targetDir: packDir, language });
     lines = describeDevSkillsRefresh(refresh, commands);
   } catch (error) {
     const why = error instanceof Error ? error.message : String(error);
     lines = [
-      `  ⚠ Framework skills: couldn't refresh them: ${why}`,
-      `    Run \`${commands.sync}\` to pull the latest.`,
+      { text: `  ⚠ Framework skills: couldn't refresh them: ${why}`, problem: true },
+      { text: `    Run \`${commands.sync}\` to pull the latest.`, problem: true },
     ];
   }
   if (lines.length === 0) return;
-  for (const line of lines) emitProgress(line);
-  emitProgress('');
+  for (const line of lines) (line.problem ? emitProblem : emitProgress)(line.text);
+  (lines.some((line) => line.problem) ? emitProblem : emitProgress)('');
 }
 
 /**

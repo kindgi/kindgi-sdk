@@ -33,6 +33,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createLogger } from '@kindgi/log';
 
 import { defaultSdkSkillsRoot } from '../src/commands/init.js';
+import { syncSkills } from '../src/commands/skills.js';
 import { LocalPortsRefused } from '../src/dev/blocked.js';
 import { type DevLockProcesses, devLockPath } from '../src/dev/dev-lock.js';
 import type { EnsureOutcome, ProjectDatabases } from '../src/dev/project-database.js';
@@ -494,6 +495,16 @@ function captureStderr(): { readonly writes: string[]; restore(): void } {
     return true;
   });
   return { writes, restore: () => spy.mockRestore() };
+}
+
+/** The pack's skills manifest, as `kindgi skills sync` writes it. */
+interface SkillsManifest {
+  readonly skills: Record<string, Record<string, unknown>>;
+  readonly agentsSkills: Record<string, Record<string, unknown>>;
+}
+
+function skillsManifestPath(): string {
+  return join(packDir, '.claude', 'skills', '.kindgi-manifest.json');
 }
 
 /** Boot `kindgi dev --no-watch` once with these flags: all it said, live and at the end. */
@@ -3355,6 +3366,85 @@ describe('kindgi dev — what --quiet keeps (warnings)', () => {
       expect(said).toMatch(/ {2}⚠ Framework skills: \d+ not yet installed\.\n/);
       expect(said).toMatch(/ {4}Run `.*kindgi skills sync` to pull the latest\.\n/);
       expect(said.includes('Hit a framework rough edge?')).toBe(flags.length === 0);
+    }
+  });
+
+  /** The pack synced, as `kindgi skills sync` leaves it: its manifest, and the first skill in it. */
+  async function syncedSkills(): Promise<{
+    readonly manifest: SkillsManifest;
+    readonly name: string;
+  }> {
+    const skillsRoot = defaultSdkSkillsRoot();
+    if (skillsRoot === undefined) throw new Error('no bundled skills to sync');
+    await syncSkills({
+      skillsRoot,
+      targetDir: packDir,
+      language: 'node',
+      force: false,
+      dryRun: false,
+    });
+    const manifest = JSON.parse(await readFile(skillsManifestPath(), 'utf8')) as SkillsManifest;
+    const [name] = Object.keys(manifest.skills);
+    if (name === undefined) throw new Error('the sync installed no skills');
+    return { manifest, name };
+  }
+
+  /** The manifest without `name`, as if it was never installed: the refresh adds it. */
+  async function forget(manifest: SkillsManifest, name: string): Promise<void> {
+    const without = (entries: Record<string, unknown>) =>
+      Object.fromEntries(Object.entries(entries).filter(([key]) => key !== name));
+    await writeFile(
+      skillsManifestPath(),
+      JSON.stringify({
+        ...manifest,
+        skills: without(manifest.skills),
+        agentsSkills: without(manifest.agentsSkills),
+      }),
+    );
+  }
+
+  test('a skill the refresh writes is progress: not said under --quiet', async () => {
+    for (const flags of LOUD_AND_QUIET) {
+      const { manifest, name } = await syncedSkills();
+      await forget(manifest, name);
+      for (const folder of ['.claude', '.agents']) {
+        await rm(join(packDir, folder, 'skills', name), { recursive: true, force: true });
+      }
+      const said = await bootSaid(makeFixtures(), flags);
+      expect(said.includes('  ✓ Framework skills: 1 added.\n')).toBe(flags.length === 0);
+      expect(said).not.toContain('⚠ Framework skills');
+    }
+  });
+
+  test('a skill the refresh leaves behind is said under --quiet too, with its heading', async () => {
+    for (const flags of LOUD_AND_QUIET) {
+      const { manifest, name } = await syncedSkills();
+      // An older version, deleted by hand: it stays deleted, and it's behind.
+      const older = { ...manifest.skills[name], installedVersion: '0.0.0' };
+      await writeFile(
+        skillsManifestPath(),
+        JSON.stringify({ ...manifest, skills: { ...manifest.skills, [name]: older } }),
+      );
+      await rm(join(packDir, '.claude', 'skills', name), { recursive: true, force: true });
+      const said = await bootSaid(makeFixtures(), flags);
+      expect(said).toContain('  ⚠ Framework skills: 1 out of date.\n');
+      expect(said).toMatch(/ {4}· 1 you deleted: `.*kindgi skills sync` brings it back\.\n/);
+      expect(said.includes('Hit a framework rough edge?')).toBe(flags.length === 0);
+    }
+  });
+
+  test('a refresh that fails is said under --quiet too, and boot goes on', async () => {
+    for (const flags of LOUD_AND_QUIET) {
+      const { manifest, name } = await syncedSkills();
+      await forget(manifest, name);
+      // A file where the skill's folder goes: the refresh can't write it.
+      await rm(join(packDir, '.claude', 'skills', name), { recursive: true, force: true });
+      await writeFile(join(packDir, '.claude', 'skills', name), 'not a folder\n');
+      const said = await bootSaid(makeFixtures(), flags);
+      expect(said).toMatch(/ {2}⚠ Framework skills: couldn't refresh them: .+\n/);
+      expect(said).toMatch(/ {4}Run `.*kindgi skills sync` to pull the latest\.\n/);
+      expect(said.includes('Hit a framework rough edge?')).toBe(flags.length === 0);
+      await rm(join(packDir, '.claude', 'skills', name), { force: true });
     }
   });
 
