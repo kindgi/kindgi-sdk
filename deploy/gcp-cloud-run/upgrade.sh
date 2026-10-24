@@ -563,7 +563,7 @@ info "exporting to $EXPORT_URI"
 # waited out, for up to GRANT_WAIT_SECONDS; any other failure stops at once.
 waited=0
 until gcloud sql export sql "$DB_INSTANCE" "$EXPORT_URI" \
-    --project="$PROJECT" --database="$DATABASE_NAME" 2>"$WORK/export.err"; do
+    --project="$PROJECT" --database="$DATABASE_NAME" --quiet 2>"$WORK/export.err"; do
   if ! grep -q 'HTTPError 412' "$WORK/export.err" || ! grep -q 'permissions for the bucket' "$WORK/export.err"; then
     cat "$WORK/export.err" >&2
     die "the export failed (above). Nothing has changed. Fix the cause and run again."
