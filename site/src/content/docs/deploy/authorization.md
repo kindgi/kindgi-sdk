@@ -9,10 +9,12 @@ When you finish this page, your runtime checks every request against who
 may read, write or administer each project, with OpenFGA running next to
 it.
 
-A self-hosted runtime checks one thing on each request by default: the API
-token. Whoever holds it can do anything in its tenant. **Authorization** adds a
-second check, per resource, kept in [OpenFGA](https://openfga.dev): who may
-read, write or administer each project and what's in it.
+By default, a self-hosted runtime lets in whoever holds a key or a sign-in,
+and each may work in every project. Tenant settings are the tenant admin's
+([Without authorization](../people-and-keys/#without-authorization)).
+**Authorization** adds a check per resource, kept in
+[OpenFGA](https://openfga.dev): who may read, write or administer each
+project and what's in it.
 
 :::note[On Kindgi Cloud]
 Authorization is always on, and Kindgi runs OpenFGA. Skip
@@ -23,13 +25,16 @@ runtime's `KINDGI_*` settings: they're Kindgi's.
 
 ## What it gives, and what it doesn't
 
-Authorization is for several people and teams sharing one deployment:
+Authorization is for people and teams who share one deployment but need
+different access:
 
-- **People and service accounts, each with their own keys.** A tenant admin
-  adds people, who [sign in to the console](../self-hosted/sign-in/) and make their own
-  API keys, and service accounts for pipelines and apps
-  ([People, API keys and service accounts](../people-and-keys/)). The
-  runtime's seed user (`KINDGI_SEED_USER_ID`) is the first tenant admin.
+- **Roles for people and service accounts.** People
+  [sign in to the console](../self-hosted/sign-in/) and make their own API
+  keys either way, and service accounts act for pipelines and apps
+  ([People, API keys and service accounts](../people-and-keys/)). With
+  authorization, a tenant admin gives each a role, and can make others
+  tenant admins. The runtime's seed user (`KINDGI_SEED_USER_ID`) is the
+  first.
 - **Every request is checked** against what its caller may do: tenant admin,
   tenant member, a role on a project, or a reviewer role. Lists hold only
   what the caller may read.
@@ -42,9 +47,11 @@ Authorization is for several people and teams sharing one deployment:
 - **A team can have a role on a project** through the API
   ([Team grants](#team-grants)). The console doesn't offer it.
 
-**Turn it on** when more than one person or system uses a deployment.
-**Leave it off** if one operator is all you need: you'd run OpenFGA for
-little else. `kindgi dev` runs without it.
+**Turn it on** when people need different access, such as a viewer or a
+project of their own, or when more than one person needs to be a tenant
+admin. A runtime serving many tenants needs it. **Leave it off** when
+everyone who signs in may work in every project, such as one operator or a
+small team that trusts each other. `kindgi dev` runs without it.
 
 ## Before you start
 
