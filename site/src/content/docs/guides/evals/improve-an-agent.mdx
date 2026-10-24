@@ -262,8 +262,8 @@ whatever classes exist.
 
 The proposal a pass writes names the judgments it learned from on the
 search part, never the hold-out: the ones its comparisons counted and, for
-a prompt pass, the ones its drafter was shown, the corrections that drafter
-saw among them. Its `evidence.judgmentIds` lists up to 100 of them: first
+a prompt pass, the ones its drafter was shown, corrections included. Its
+`evidence.judgmentIds` lists up to 100 of them: first
 the ones the drafter was shown, case by case, each case's corrections right
 after its items judged wrong; then the ones behind items judged wrong, then
 the rest. When there are more, `evidence.judgmentCount` gives how many. Its
@@ -304,7 +304,7 @@ curl -X POST "$KINDGI_API_URL/v1/proposals/improve" \
 It answers at once (`202`) with the pass, as the CLI does without `--wait`.
 
 The drafter sees the cases judged wrong, their reasons, and
-[what an expert corrected on them](../fix-what-experts-corrected/): the
+[the corrections on them](../fix-what-experts-corrected/): the
 calls the agent should have made and the tools it shouldn't have called,
 as an example for that case, not a rule. It's shown only the corrections
 the pass [counts](#whose-judgments-it-learns-from). A template it writes is
