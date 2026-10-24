@@ -13,6 +13,15 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a tool can pause its run until another system answers.**
+  `@tool(pauses=True)`: the handler hands `ctx.wait_token.url` to that system
+  and returns `ctx.pause(timeout_ms=..., name=...)`, 24 hours by default and
+  at most 24 days. Annotate it `-> Answer | PauseAnswer`: the output schema is
+  `Answer`'s. A call from a runtime that sends no wait token fails with
+  `pause-not-available`: reading `ctx.wait_token` raises `PauseNotAvailable`
+  first, so the tool hands nothing on. `ToolContext.for_test(wait_token=...)`
+  tests one. New: `PauseAnswer`, `PauseNotAvailable` and `WaitToken`. The
+  client's `Tool` model carries `pauses`.
 - `kindgi`: **`SecretRevokeOutcome` and `SecretRevokeResult` gain an optional
   `recoverable_until`**: when a hard revoke left a copy your secret manager can
   still recover, until when it keeps it. It's `None` on a soft revoke, and

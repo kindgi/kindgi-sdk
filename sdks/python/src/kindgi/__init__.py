@@ -17,7 +17,14 @@ Kindgi runtime (`kindgi dev` does both for you).
 from __future__ import annotations
 
 from ._version import __version__
-from .pack.context import CallCancelled, Cancellation, ToolContext
+from .pack.context import (
+    CallCancelled,
+    Cancellation,
+    PauseAnswer,
+    PauseNotAvailable,
+    ToolContext,
+    WaitToken,
+)
 from .pack.define import (
     Agent,
     DefinitionError,
@@ -39,11 +46,14 @@ __all__ = [
     "Flow",
     "Guardrail",
     "ModelCallRecord",
+    "PauseAnswer",
+    "PauseNotAvailable",
     "RunTrace",
     "Tool",
     "ToolCallRecord",
     "ToolContext",
     "ToolResultRecord",
+    "WaitToken",
     "__version__",
     "guardrail",
     "http_tool",

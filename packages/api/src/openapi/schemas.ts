@@ -3883,6 +3883,11 @@ export const ToolSchema: JsonSchema = {
       description:
         "`true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`.",
     },
+    pauses: {
+      type: 'boolean',
+      description:
+        "`true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.",
+    },
     sandbox: { $ref: '#/components/schemas/SandboxMode' },
     limits: { $ref: '#/components/schemas/RuntimeLimits' },
     network: { $ref: '#/components/schemas/NetworkPolicy' },
