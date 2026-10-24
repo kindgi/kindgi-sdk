@@ -1391,6 +1391,22 @@ describe("kindgi deploy's inline build, as it goes", () => {
     return { out, posts };
   }
 
+  /** Fixtures whose build server fails the build. */
+  const failing = (): Fixtures => {
+    const fixtures = makeFixtures();
+    fixtures.runners = {
+      ...fixtures.runners,
+      streamBuildLogs: async (o): Promise<TerminalPayload> => {
+        o.onLog('step 3/7: npm ci exited 1');
+        return {
+          status: 'failed',
+          error: { code: 'docker-build-failed', message: 'buildx returned non-zero' },
+        };
+      },
+    };
+    return fixtures;
+  };
+
   test("streamed, the build's lines go out as they come, between deploy's, as the same text", async () => {
     const kept = await deploy(makeFixtures());
     expect(kept.out.exitCode, kept.out.stderr).toBe(0);
@@ -1419,35 +1435,33 @@ describe("kindgi deploy's inline build, as it goes", () => {
     expect(JSON.parse(run.out.stdout)).toEqual(JSON.parse(kept.out.stdout));
   });
 
-  test("--quiet leaves the build's lines out, streamed or kept; deploy's own still show", async () => {
+  test('--quiet: nothing from the build or from deploy, streamed or kept, and it still deploys', async () => {
     const streamed: string[] = [];
     for (const progress of [undefined, (text: string) => streamed.push(text)]) {
       const run = await deploy(makeFixtures(), ['--quiet'], progress);
       expect(run.out.exitCode, run.out.stderr).toBe(0);
-      const said = `${streamed.join('')}${run.out.stderr}`;
-      expect(said).toContain(missing);
-      expect(said).toContain('201 Created');
-      expect(said).not.toContain('Uploading to build service');
-      expect(said).not.toContain('Streaming build logs');
+      expect(run.posts).toBe(1);
+      expect(run.out.stdout).toBe('');
+      expect(run.out.stderr).toBe('');
     }
-    expect(streamed.length).toBeGreaterThan(0);
+    expect(streamed).toEqual([]);
+  });
+
+  test('--quiet: an inline build that fails says its error alone, streamed or kept', async () => {
+    const streamed: string[] = [];
+    for (const progress of [undefined, (text: string) => streamed.push(text)]) {
+      const run = await deploy(failing(), ['--quiet'], progress);
+      expect(run.out.exitCode).toBe(1);
+      expect(run.posts).toBe(0);
+      expect(run.out.stderr).toMatch(
+        /^Inline `kindgi build` failed \(exit 1\):\n\nBuild failed: \[docker-build-failed\]/,
+      );
+      expect(run.out.stderr).not.toContain('step 3/7');
+    }
+    expect(streamed).toEqual([]);
   });
 
   test("an inline build that fails: its error comes after deploy's lines and the build's, streamed or kept", async () => {
-    const failing = (): Fixtures => {
-      const fixtures = makeFixtures();
-      fixtures.runners = {
-        ...fixtures.runners,
-        streamBuildLogs: async (o): Promise<TerminalPayload> => {
-          o.onLog('step 3/7: npm ci exited 1');
-          return {
-            status: 'failed',
-            error: { code: 'docker-build-failed', message: 'buildx returned non-zero' },
-          };
-        },
-      };
-      return fixtures;
-    };
     const kept = await deploy(failing());
     expect(kept.out.exitCode).toBe(1);
     expect(kept.posts).toBe(0);

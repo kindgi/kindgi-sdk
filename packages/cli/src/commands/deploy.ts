@@ -69,7 +69,7 @@ import {
 import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import type { OptionValue } from '../parse.js';
-import { progressLines } from '../progress-lines.js';
+import { type ProgressLines, progressLines } from '../progress-lines.js';
 import { PROJECT_ID_RE } from '../project-ref.js';
 import { type RateLimitRefusal, isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
 import { SLUG } from '../slug.js';
@@ -264,10 +264,10 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
 
   // Deploy's lines, its inline build's among them: each to stderr as it
   // comes when the CLI streams them, else kept for the result. A failure's
-  // error comes after them either way. `--quiet` leaves out the build's
-  // lines only: a refused deployment's error is among deploy's own.
-  const out = progressLines(ctx.progress, false);
-  const result = await deployWith(ctx, runners, args, out.line);
+  // error comes after them either way. `--quiet` keeps errors only, as
+  // `kindgi dev` does: a refusal, and a secret sync that failed.
+  const out = progressLines(ctx.progress, ctx.globals.format === 'quiet');
+  const result = await deployWith(ctx, runners, args, out);
   if (result.kind === 'error') return { ...result, stderr: `${out.kept()}${result.stderr}` };
   return { ...result, rendered: { ...result.rendered, stderr: out.kept() } };
 }
@@ -276,8 +276,9 @@ async function deployWith(
   ctx: CommandContext,
   runners: DeployRunners,
   args: ResolvedDeployArgs,
-  line: (s: string) => void,
+  out: ProgressLines,
 ): Promise<CommandResult> {
+  const { line } = out;
   line('');
   line(`  Environment: ${args.envName}`);
   line(`  API:         ${args.endpoint}`);
@@ -294,7 +295,7 @@ async function deployWith(
   // Every name the pack declares in env.required needs a value or a
   // Secret Manager reference for this environment; a secret given in
   // the clear is refused. Checked before anything is built or sent.
-  const envRefusal = checkPackEnv(args, line);
+  const envRefusal = checkPackEnv(args, out);
   if (envRefusal !== undefined) return envRefusal;
 
   // On a runtime that keeps its values under one env, a pack environment
@@ -364,7 +365,7 @@ async function deployWith(
   }
 
   // ---- 2. Ensure envelope on disk -------------------------------------
-  const envelopeReady = await ensureEnvelopeExists(ctx, args, runners, line, project.id);
+  const envelopeReady = await ensureEnvelopeExists(ctx, args, runners, out, project.id);
   if (envelopeReady.kind === 'error') return envelopeReady;
 
   // ---- 3. Load + validate envelope ------------------------------------
@@ -509,15 +510,15 @@ async function deployWith(
     idempotencyKey,
     promotionPath,
   });
-  for (const l of rendered.banner) line(l);
-
+  // A refused deployment's banner is its error: said under `--quiet` too.
   if (rendered.exitCode !== 0) {
     return {
       kind: 'error',
-      stderr: '',
+      stderr: rendered.banner.map((l) => `${l}\n`).join(''),
       exitCode: rendered.exitCode,
     };
   }
+  for (const l of rendered.banner) line(l);
 
   // ---- 11. Post-deploy secrets sync ----------------------------------
   //
@@ -538,7 +539,7 @@ async function deployWith(
       syncEnvName,
       runners,
       deployedRecord.deploymentId,
-      line,
+      out,
     );
     Object.assign(syncSummary, syncOutcome);
   }
@@ -608,8 +609,9 @@ async function runSecretsSync(
   envName: string,
   runners: DeployRunners,
   deploymentId: string,
-  line: (s: string) => void,
+  out: ProgressLines,
 ): Promise<Record<string, unknown>> {
+  const { line, problem } = out;
   const file = await detectSecretsFile(args, '');
   if (file === null || file.entries.length === 0) {
     line('  --sync-secrets set, but no `.env.<envName>` entries to sync. Skipping.');
@@ -667,15 +669,21 @@ async function runSecretsSync(
     };
   }
   if (result.kind === 'wire-error') {
-    line(`    ✗ ${result.status} ${result.error.code}: ${result.error.message}`);
-    line('      The deployment landed OK; only the secret sync failed. Retry with');
-    line('      `kindgi deploy --sync-secrets` (idempotent).');
-    line('');
+    // Errors: said under `--quiet` too, though the exit code stays 0.
+    problem(`    ✗ ${result.status} ${result.error.code}: ${result.error.message}`);
+    syncFailedHint(problem);
     return { performed: false, error: { code: result.error.code, message: result.error.message } };
   }
-  line(`    ✗ transport error: ${result.message}`);
-  line('');
+  problem(`    ✗ transport error: ${result.message}`);
+  syncFailedHint(problem);
   return { performed: false, error: { code: 'transport-error', message: result.message } };
+}
+
+/** After a secret sync that failed: the deployment is in place; how to sync again. */
+function syncFailedHint(problem: (s: string) => void): void {
+  problem('      The deployment landed OK; only the secret sync failed. Retry with');
+  problem('      `kindgi deploy --sync-secrets` (idempotent).');
+  problem('');
 }
 
 /**
@@ -683,10 +691,7 @@ async function runSecretsSync(
  * when the pack declares any, and the refusal when a required name has no
  * value (unless `--allow-missing-env`) or a secret is given in the clear.
  */
-function checkPackEnv(
-  args: ResolvedDeployArgs,
-  line: (s: string) => void,
-): CommandResult | undefined {
+function checkPackEnv(args: ResolvedDeployArgs, out: ProgressLines): CommandResult | undefined {
   // A hosted pack service gets the values set in the workspace, not these:
   // `refuseHostedConfigEnv`, once the project is known.
   if (args.hosted) return undefined;
@@ -694,21 +699,26 @@ function checkPackEnv(
   if (plan.entries.length === 0 && plan.problems.length === 0 && plan.warnings.length === 0) {
     return undefined;
   }
-  for (const l of describePackEnvPlan(plan)) line(l);
-  line('');
+  const refusal = packEnvRefusal(args, plan);
+  // A refusal's reason is the plan: said under `--quiet` too.
+  const say = refusal === undefined ? out.line : out.problem;
+  for (const l of describePackEnvPlan(plan)) say(l);
+  say('');
+  if (refusal !== undefined) return failure(refusal);
+  if (plan.missing.length > 0) {
+    out.line(`  ⚠ --allow-missing-env: deploying without ${plan.missing.join(', ')}`);
+    out.line('');
+  }
+  return undefined;
+}
+
+/** Why the pack service's env refuses the deploy (`checkPackEnv`), when it does. */
+function packEnvRefusal(args: ResolvedDeployArgs, plan: PackEnvPlan): string | undefined {
   if (plan.problems.length > 0) {
-    return failure(
-      `kindgi deploy: the pack service's env for ${args.envName} gives a secret in the clear or is malformed (above). Fix environments.${args.envName}.env in kindgi.config and deploy again.\n`,
-    );
+    return `kindgi deploy: the pack service's env for ${args.envName} gives a secret in the clear or is malformed (above). Fix environments.${args.envName}.env in kindgi.config and deploy again.\n`;
   }
   if (plan.missing.length > 0 && !args.allowMissingEnv) {
-    return failure(
-      `kindgi deploy: ${plan.missing.join(', ')} ${plan.missing.length === 1 ? 'is' : 'are'} required by the pack and ${plan.missing.length === 1 ? 'has' : 'have'} no value in environments.${args.envName}.env, so the pack service wouldn't be ready. Add ${plan.missing.length === 1 ? 'it' : 'them'}, or deploy anyway with --allow-missing-env.\n`,
-    );
-  }
-  if (plan.missing.length > 0) {
-    line(`  ⚠ --allow-missing-env: deploying without ${plan.missing.join(', ')}`);
-    line('');
+    return `kindgi deploy: ${plan.missing.join(', ')} ${plan.missing.length === 1 ? 'is' : 'are'} required by the pack and ${plan.missing.length === 1 ? 'has' : 'have'} no value in environments.${args.envName}.env, so the pack service wouldn't be ready. Add ${plan.missing.length === 1 ? 'it' : 'them'}, or deploy anyway with --allow-missing-env.\n`;
   }
   return undefined;
 }
@@ -747,9 +757,10 @@ async function ensureEnvelopeExists(
   ctx: CommandContext,
   args: ResolvedDeployArgs,
   runners: DeployRunners,
-  line: (s: string) => void,
+  out: ProgressLines,
   projectId: string | undefined,
 ): Promise<{ readonly kind: 'ok' } | (CommandResult & { readonly kind: 'error' })> {
+  const { line } = out;
   const exists = await pathExists(args.envelopePath);
   if (exists) return { kind: 'ok' };
 
@@ -797,7 +808,7 @@ async function ensureEnvelopeExists(
   // No inline runner available — invoke the same-package `runBuild`
   // directly. This is the production path when
   // `deployRunners.runBuild` is omitted (see `deploy/defaults.ts`).
-  const built = await runInlineBuild(ctx, args, projectId, line);
+  const built = await runInlineBuild(ctx, args, projectId, out);
   if (built.kind === 'error') return built;
   return { kind: 'ok' };
 }
@@ -807,14 +818,14 @@ async function ensureEnvelopeExists(
  * `CommandContext` (buildRunners, buildConfigLoader, env, cwd, etc.)
  * but with an argument set derived from the deploy invocation. We
  * clone the context with `options` replaced so the build command sees
- * only build-relevant flags. Its lines go out with deploy's (`line`), in
+ * only build-relevant flags. Its lines go out with deploy's (`out`), in
  * order.
  */
 async function runInlineBuild(
   ctx: CommandContext,
   args: ResolvedDeployArgs,
   projectId: string | undefined,
-  line: (s: string) => void,
+  out: ProgressLines,
 ): Promise<
   | { readonly kind: 'ok' }
   | { readonly kind: 'error'; readonly stderr: string; readonly exitCode: number }
@@ -823,15 +834,9 @@ async function runInlineBuild(
   // A hosted build runs at the API this deploy goes to: the build resolves
   // the same address, with the same key, from the same config.
   const buildCtx: CommandContext = { ...ctx, options: buildOptions };
-  // `--quiet` leaves them out, as for `kindgi build`. None are kept here:
-  // deploy's own `line` streams or keeps them.
-  const quiet = ctx.globals.format === 'quiet';
-  const result = await runBuild(buildCtx, {
-    line: (s) => {
-      if (!quiet) line(s);
-    },
-    kept: () => '',
-  });
+  // Through deploy's own `out`, `--quiet` and all. None are kept here:
+  // deploy's `out` streams or keeps them.
+  const result = await runBuild(buildCtx, { ...out, kept: () => '' });
   if (result.kind === 'error') {
     return {
       kind: 'error',
