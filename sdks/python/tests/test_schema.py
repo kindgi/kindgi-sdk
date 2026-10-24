@@ -476,11 +476,10 @@ def test_strict_leaves_a_ref_alone_in_a_schema_with_a_base() -> None:
         assert strict_schema_problem(in_content) is None
 
 
-# The strict corpus: scripts/strict-oracle.mjs records each schema's answer from the runtime's own
-# compileInlineSchema (and CI fails when the record is stale). Python's answer to a "parity" case
-# is the runtime's, word for word; an "unchecked" case is a refusal the check doesn't model (see
-# strict_schema_problem), which the runtime makes and Python leaves.
-_STRICT = Path(__file__).parent / "strict"
+# The strict-schema test vectors (packages/specs/test-vectors/README.md): Python's answer to a
+# "parity" case is the runtime's, word for word; an "unchecked" case is a refusal the check doesn't
+# model (see strict_schema_problem), which the runtime makes and Python leaves.
+_STRICT = Path(__file__).resolve().parents[3] / "packages/specs/test-vectors/strict-schemas"
 _CORPUS: dict[str, dict[str, Any]] = json.loads((_STRICT / "corpus.json").read_text("utf-8"))
 _ANSWERS: dict[str, dict[str, str | None]] = json.loads(
     (_STRICT / "answers.json").read_text("utf-8")

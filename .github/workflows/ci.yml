@@ -156,12 +156,12 @@ jobs:
         run: ./mvnw -B -ntp -pl kindgi-pack -am install -DskipTests
       - name: Build (prod-dependency topological order)
         run: pnpm run build
-      # The Python SDK's strict-mode check answers as the runtime's compile does:
-      # sdks/python/tests/strict/answers.json holds what the built @kindgi/schema's
-      # compileInlineSchema says to each schema of the corpus, and the Python tests
-      # require the same.
-      - name: Python SDK — the strict-mode answers are current
-        run: node sdks/python/scripts/strict-oracle.mjs --check
+      # The SDKs' definition-time schema checks answer as the runtime's compile
+      # does: packages/specs/test-vectors/strict-schemas/answers.json holds what the
+      # built @kindgi/schema's compileInlineSchema says to each schema of the
+      # corpus, and the Python and Java tests replay it.
+      - name: Strict-schema test vectors are current
+        run: node scripts/strict-schemas-oracle.mjs --check
       - name: Typecheck
         run: pnpm run typecheck:all
       # kindgi dev's sandbox on Linux (packages/cli/tests/dev-sandbox-live.test.ts,
