@@ -149,14 +149,28 @@ A pass counts only judgments recorded under a
 [restricted judge class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class)
 by default, `classWeights: "restricted-only"`. So who may steer it is a
 choice you make. `"as-recorded"` counts every judgment, by its class's
-weight: set it in the API or the clients.
+weight: set it with `--class-weights=as-recorded`, or `classWeights` in the
+API and the clients.
 
 ## Draft a prompt instead
 
 A pass can also draft prompt templates. The agent version must take its
 instructions from a [prompt block](../change-a-prompt-or-setting/) it pins.
-The CLI starts settings passes, so start a prompt pass from the API or the
-clients:
+Start a prompt pass with `--tier=prompt`:
+
+```sh
+kindgi proposals improve --agent=acme-ops.reply-drafter --tenant \
+  --test-set=acme.reply-cases --tier=prompt \
+  --provider=anthropic --model=claude-sonnet-5-5 --drafts=3
+```
+
+- `--tier=prompt` drafts prompt templates.
+- `--provider` and `--model` are the provider and model of yours that draft
+  them, given together.
+- `--drafts` is how many templates it drafts: 1 to 5, 3 by default.
+
+In the API and the clients, they're `tiers: ["prompt"]`, `model` and
+`candidates`:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/proposals/improve" \
@@ -164,11 +178,7 @@ curl -X POST "$KINDGI_API_URL/v1/proposals/improve" \
   -d '{"agentId":"acme-ops.reply-drafter","scope":{"kind":"tenant"},"suiteId":"acme.reply-cases","tiers":["prompt"],"model":{"providerId":"anthropic","model":"claude-sonnet-5-5"},"candidates":3}'
 ```
 
-- `$KINDGI_API_URL` and `$KINDGI_API_TOKEN` are your runtime's URL and API
-  token.
-- `tiers: ["prompt"]` drafts prompt templates.
-- `model` is the provider and model of yours that drafts them.
-- `candidates` is how many templates it drafts: 1 to 5, 3 by default.
+- `$KINDGI_API_URL` and `$KINDGI_API_TOKEN` are your runtime's URL and API token.
 
 It answers at once (`202`) with the pass, as the CLI does without `--wait`.
 
