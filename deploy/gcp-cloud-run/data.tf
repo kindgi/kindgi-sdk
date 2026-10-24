@@ -33,6 +33,11 @@ resource "google_sql_database_instance" "kindgi" {
     tier              = var.database_tier
     availability_type = "ZONAL"
 
+    # Google's own deletion protection, which refuses a delete from the
+    # console, gcloud or the API as well: deletion_protection above stops only
+    # Terraform's. The one variable sets both.
+    deletion_protection_enabled = var.database_deletion_protection
+
     ip_configuration {
       ipv4_enabled    = !local.database_private
       private_network = local.database_private ? var.database_private_network : null

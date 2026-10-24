@@ -1048,6 +1048,36 @@ run "host_puts_kindgis_database_on_the_app_instance" {
   }
 }
 
+run "the_instance_is_protected_from_deletion_by_default" {
+  command = plan
+
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].deletion_protection == true
+    error_message = "Terraform's deletion protection should be on by default."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].deletion_protection_enabled == true
+    error_message = "Google's deletion protection should be on by default, beside Terraform's."
+  }
+}
+
+run "protection_off_turns_both_flags_off" {
+  command = plan
+
+  variables {
+    database_deletion_protection = false
+  }
+
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].deletion_protection == false
+    error_message = "false should turn Terraform's deletion protection off."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].deletion_protection_enabled == false
+    error_message = "false should turn Google's deletion protection off too, so a destroy can delete the instance."
+  }
+}
+
 run "host_deletes_the_database_when_protection_is_off" {
   command = plan
   variables {

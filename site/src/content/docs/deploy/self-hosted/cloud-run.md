@@ -760,7 +760,11 @@ A new grant can take a minute or two to apply.
   than `secrets_aad_key_version`, add it to `prod.tfvars` first, set to the
   version your server reads, normally `1`
   (`gcloud secrets versions list $N-secrets-aad-key` lists them). Without
-  it, `terraform plan` stops and asks for it.
+  it, `terraform plan` stops and asks for it. From a module copy that set
+  only Terraform's deletion protection, the next apply also turns on
+  Google's in the instance, in place, while `database_deletion_protection`
+  is on (the default). If the plan says the instance `must be replaced`,
+  stop: a replace deletes the database.
 - **Restore Cloud SQL:** a point-in-time recovery always makes a new
   instance, and a backup can go into one too (restored into the serving
   instance, it overwrites everything on it). `database_instance` moves the
@@ -768,6 +772,8 @@ A new grant can take a minute or two to apply.
   holding the server's URL to it. The module's own instance stays as it is.
   The module's README has the steps, under
   [Serving from a restored instance](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#serving-from-a-restored-instance):
+  - the new instance's deletion protection, which the module doesn't manage
+    there: turn it on before it serves;
   - the new instance's URL, and the server's read access to it;
   - the erasure replay before it serves
     ([Erasures and backups](../back-up-and-restore/#erasures-and-backups));
@@ -831,8 +837,10 @@ A new grant can take a minute or two to apply.
 
 ## Tear it down
 
-Terraform won't delete Cloud SQL while `database_deletion_protection` is
-on (the default). Set it to `false` and apply first. The KMS key ring and
+Cloud SQL can't be deleted while `database_deletion_protection` is on (the
+default). It turns on Terraform's deletion protection and Google's, which
+refuses a delete from the console, gcloud or the Cloud SQL API as well. Set
+it to `false` and apply first: the apply turns both off. The KMS key ring and
 key outlive `terraform destroy`: Google Cloud never deletes them. Take them
 out of Terraform's state, destroy the rest, then schedule the key's versions
 for destruction:

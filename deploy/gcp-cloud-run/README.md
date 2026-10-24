@@ -314,6 +314,7 @@ server_secret_env = {
 - **To runtime 0.1.5: add `KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"` to `server_env` first, or nobody can sign in to the console.** Up to 0.1.4 the console's sign-in page took the API token on its own. From 0.1.5 that's off by default outside `kindgi dev`. The API keeps taking tokens either way, and "7. Turn on sign-in" has the other ways in.
 - **The module turns Cloud Resource Manager on** (`cloudresourcemanager.googleapis.com`). Its own calls to it are billed to the caller's project, but another root on the same project that reads the project with its calls billed there (the provider's `user_project_override`) needs it on, and couldn't turn it on before that read. A deployment made with an earlier copy of the module gets it at its next apply: one `google_project_service` to add.
 - **The instance gets a backstop for sessions left idle in a transaction** (`database_idle_in_transaction_timeout_ms`, 10 minutes by default; 0 turns it off). A deployment made with an earlier copy of the module gets it at its next apply: one flag added to the instance, changed in place. Cloud SQL lists `idle_in_transaction_session_timeout` as a flag that needs no restart ([Cloud SQL: configure database flags](https://docs.cloud.google.com/sql/docs/postgres/flags)).
+- **The instance gets Google's deletion protection** (`settings.deletion_protection_enabled`) from `database_deletion_protection`, true by default, beside Terraform's own. Until now the variable set only Terraform's, which a delete from the console, gcloud or the Cloud SQL API ignores. A deployment made with an earlier copy of the module gets it at its next apply. Its plan shows the instance updated in place. Google lists the setting as changeable after creation and names no restart for it ([Cloud SQL: instance settings](https://docs.cloud.google.com/sql/docs/postgres/instance-settings)). If the plan says the instance `must be replaced`, stop: a replace deletes the database. With `database_deletion_protection = false`, Google's protection stays off.
 - **Upgrades roll forward:** migrations only go forward, so an older runtime can break on a database a newer one migrated. Deploy a new runtime revision at 100% traffic, keep a database backup from before, and roll back by restoring it.
 
 ## Operating it
@@ -340,7 +341,11 @@ With `database_host_instance` set there is no instance of the module's own, so a
    gcloud sql instances clone $S $R --point-in-time='<yyyy-mm-ddThh:mm:ss.000Z>'
    ```
 
-   It needs a public IP, as the module's own has. The plan refuses an instance without one.
+   It needs a public IP, as the module's own has. The plan refuses an instance without one. The module doesn't manage this instance, so its deletion protection is yours to turn on, as the module does for its own. Do it before the instance serves:
+
+   ```sh
+   gcloud sql instances patch $R --deletion-protection
+   ```
 2. **Its URL, in a secret of its own,** with a new password for the database user. The restored user has the old one. The password goes through the Cloud SQL Admin API (`users.update`), as in "3. Secret values": the body on stdin and the token in a header from a pipe, never in a command's arguments. Each step runs only if the one before it worked.
 
    ```sh
@@ -402,5 +407,5 @@ terraform destroy -var-file=dev.tfvars
 gcloud kms keys versions destroy 1 --key=$N-secrets --keyring=$N --location=<region>   # scheduled, 30 days
 ```
 
-- Set `database_deletion_protection = false` first, for the instance to go.
+- Set `database_deletion_protection = false` and apply first, for the instance to go. The apply turns off Google's deletion protection, which would refuse the delete, and writes Terraform's own to its state.
 - In the `direct` shape the subnet can't be deleted until Cloud Run releases its `serverless-ipv4-cloudrun-*` addresses, some time after the services are gone (about 3 hours in our run). Run `terraform destroy` again later.
