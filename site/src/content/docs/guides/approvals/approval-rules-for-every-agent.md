@@ -15,7 +15,7 @@ stricter, never looser.
 
 ## Before you start
 
-- **A runtime,** such as `kindgi dev`, with Kindgi 0.1's CLI.
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.2's CLI.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set in your shell. Policies
   are published through the HTTP API. With `kindgi dev`, the URL and token
   are the ones it prints. They're also in the pack's `.kindgirc.json`.

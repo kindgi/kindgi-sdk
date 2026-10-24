@@ -174,7 +174,7 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   tenant's audit log, by `system`, which the tenant's admins can read:
   making them admin and what that gives them carry your `--reason`.
 - **A tenant created without `firstAdmin` whose admin key is lost** (runtime
-  0.1.11 or later): `kindgi-runtime tenants admin-key` mints it again. The
+  0.2.0 or later): `kindgi-runtime tenants admin-key` mints it again. The
   live keys of the tenant's "First admin" service account are revoked, and
   the console sessions they opened end. Then one key is minted for it,
   carrying what the first one did: tenant admin, and the tenant's root
@@ -250,6 +250,17 @@ service is, and checks it. It never creates or deletes one.
    named, else the tenant's Default), and its image: the digest-pinned
    `imageRef`, its digest, the artifact version and when it went live. It
    has nothing else of the tenant.
+
+   A deployment that ships no tools and no guardrail checks of its own, such
+   as one of agents and flows whose guardrails use only built-in checks, has
+   nothing to route. It gets no endpoint, so it's never listed, and the routes
+   on its endpoint (`PUT` and `DELETE …/endpoint`, `PUT …/endpoint/problem`
+   and `PUT …/suspended`) answer `404`. Its agents and flows reach its
+   project's runs without a pack service. One registered by an earlier
+   runtime may still hold a `pending` endpoint from then. It's never listed
+   or shown, though those routes still find it. Leave it: clearing it retires
+   the deployment, and a version that reaches the project's runs only through
+   it, as a promoted one does, stops reaching them.
 2. **Run the image as a service** whose host begins with the deployment's own
    service name, `packServiceName(tenantId, deploymentId)` from `@kindgi/api`
    (`kp-` and 20 characters), then `-` or `.`. Give it a token of its own,

@@ -19,8 +19,8 @@ through Okta has been checked.
   with the `kindgi` CLI set up as [Set up SSO](../#before-you-start) says.
 - **Someone who can create app integrations in your Okta organization,** and
   assign groups to them.
-- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## 1. Get the redirect URI
@@ -29,7 +29,7 @@ through Okta has been checked.
 whoever runs your Okta organization:
 
 ```sh
-npx --yes @kindgi/cli@0.1 sso providers start acme-okta --idp=okta
+npx --yes @kindgi/cli@0.2 sso providers start acme-okta --idp=okta
 ```
 
 - `acme-okta` is the provider's id in your workspace.
@@ -77,7 +77,7 @@ Store the secret in Kindgi's secret store, by name, so it never travels by
 email or chat:
 
 ```sh
-npx --yes @kindgi/cli@0.1 secrets set ACME_OKTA_SECRET --env=production --scope=tenant
+npx --yes @kindgi/cli@0.2 secrets set ACME_OKTA_SECRET --env=production --scope=tenant
 ```
 
 - `ACME_OKTA_SECRET` is the secret's name. The registration keeps only this
@@ -109,7 +109,7 @@ Re-enter to confirm:
 `finish` registers the app, and offers it to people at your domains:
 
 ```sh
-npx --yes @kindgi/cli@0.1 sso providers finish acme-okta --kind=oidc --issuer=https://<your-org>.okta.com \
+npx --yes @kindgi/cli@0.2 sso providers finish acme-okta --kind=oidc --issuer=https://<your-org>.okta.com \
   --client-id=<client id> --client-secret-ref=ACME_OKTA_SECRET --domains=<your domain>
 ```
 
