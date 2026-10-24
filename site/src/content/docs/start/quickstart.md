@@ -10,8 +10,10 @@ coding agent does the rest.
 
 **You need** Node 22.12 or later, Docker running, and a coding agent such as
 Claude Code. Kindgi's runtime image needs access too: sign in at
-[access.kindgi.com](https://access.kindgi.com) with GitHub, and run the
-`kindgi auth registry` command it shows. [Install](../install/) has the
+[access.kindgi.com](https://access.kindgi.com) with GitHub or your email
+address for a license key, and log in once with
+`docker login registry.kindgi.com --username kindgi`, with the key as the
+password ([Pull the runtime image](../../deploy/self-hosted/pull-the-runtime-image/)). [Install](../install/) has the
 details.
 
 ## 1. Make the project
