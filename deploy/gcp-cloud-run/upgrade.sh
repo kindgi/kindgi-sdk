@@ -17,6 +17,10 @@
 # that deploys the module (it reads the running service and the module's state,
 # backs up the database, mirrors the new image, and plans/applies the module).
 #
+# Log in to registry.kindgi.com first, where the runtime image comes from:
+#   docker login registry.kindgi.com --username kindgi
+# and paste your license key when it asks for the password.
+#
 # What it changes besides the deployment itself:
 #   - It grants the Cloud SQL instance's service account roles/storage.objectAdmin
 #     on the backup bucket (Cloud SQL writes the export as that account). The
@@ -30,7 +34,7 @@
 #   ./upgrade.sh --var-file dev.tfvars \
 #                --runtime-digest sha256:<64 hex> \
 #                --backup-bucket gs://<bucket>[/<prefix>] \
-#                [--to 0.1.10] [--from 0.1.8|0.1.9] \
+#                [--to 0.1.11] [--from 0.1.8|0.1.9|0.1.10] \
 #                [--pack-dir <path to the pack project>] \
 #                [--check-tenant <uuid>]
 #
@@ -44,8 +48,10 @@
 #   --backup-bucket    A GCS bucket (optionally a prefix) the database export
 #                      is written to. The export is one database, never an
 #                      instance backup.
-#   --to               The target runtime version (default 0.1.10; an rc such
-#                      as 0.1.10-rc.1 works too).
+#   --to               The target runtime version, 0.1.11 or later (default
+#                      0.1.11; an rc such as 0.1.11-rc.0 works too). Earlier
+#                      releases aren't on registry.kindgi.com: for those, use
+#                      this script as of the @kindgi/sdk@0.1.10 tag.
 #   --from             Assert the current version when it can't be read from the
 #                      deployment (no version tag on the running image).
 #   --pack-dir         Rebuild and push the pack from here with `kindgi build`
@@ -63,11 +69,12 @@ export CLOUDSDK_CORE_DISABLE_FILE_LOGGING=true
 # instances, service accounts and bucket paths — keep it to this user.
 umask 077
 
-readonly RUNTIME_REPO="quay.io/kindgi/runtime"
+readonly RUNTIME_REPO="registry.kindgi.com/kindgi/runtime"
 readonly VERSION_FLOOR="0.1.8"         # upgrades from before this are refused
-readonly DEFAULT_TARGET="0.1.10"
+readonly TARGET_FLOOR="0.1.11"         # the first release on registry.kindgi.com
+readonly DEFAULT_TARGET="0.1.11"
 # Releases this script knows the upgrade steps for, oldest first.
-readonly KNOWN_RELEASES=("0.1.9" "0.1.10")
+readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.1.11")
 
 # How long to wait for the new revision to become ready (step 6).
 readonly POLL_INTERVAL=10
@@ -212,7 +219,9 @@ done
 [[ $RUNTIME_DIGEST =~ ^sha256:[0-9a-f]{64}$ ]] || die "--runtime-digest must look like sha256:<64 hex>."
 [[ -n $BACKUP_BUCKET ]] || die "--backup-bucket is required (see --help)."
 [[ $BACKUP_BUCKET =~ ^gs://[a-z0-9][-a-z0-9._]*(/.*)?$ ]] || die "--backup-bucket must look like gs://<bucket>[/<prefix>]."
-is_semver "$TARGET" || die "--to \"$TARGET\" isn't a version like 0.1.10."
+is_semver "$TARGET" || die "--to \"$TARGET\" isn't a version like 0.1.11."
+[[ "$(ver_num "${TARGET%%-*}")" -ge "$(ver_num "$TARGET_FLOOR")" ]] \
+  || die "--to $TARGET: this script copies the runtime from registry.kindgi.com, which has $TARGET_FLOOR and later. For an earlier release, use this script as of the @kindgi/sdk@0.1.10 tag."
 if [[ -n $FROM_OVERRIDE ]]; then is_semver "$FROM_OVERRIDE" || die "--from \"$FROM_OVERRIDE\" isn't a version like 0.1.8."; fi
 if [[ -n $PACK_DIR ]]; then [[ -d $PACK_DIR ]] || die "--pack-dir \"$PACK_DIR\" isn't a directory."; fi
 
@@ -356,7 +365,7 @@ else
   if [[ -n $CURRENT ]]; then
     info "read $CURRENT from the mirrored image's tag"
   else
-    die "couldn't read the version from the running image (no version tag on its digest). Re-run with --from <0.1.8|0.1.9>."
+    die "couldn't read the version from the running image (no version tag on its digest). Re-run with --from <0.1.8|0.1.9|0.1.10>."
   fi
 fi
 
@@ -423,11 +432,11 @@ fi
 
 # The release's own tag must be the digest given, or the mirror below would put
 # the version tag (which a later run's step 1 reads) on the wrong image.
-quay_digest="$(docker buildx imagetools inspect "${RUNTIME_REPO}:${TARGET}" --format '{{json .Manifest}}' 2>"$WORK/inspect.err" | jq -r '.digest // empty' 2>/dev/null || true)"
-if [[ -z $quay_digest ]]; then
-  fail_check "couldn't read ${RUNTIME_REPO}:${TARGET}. $(cat "$WORK/inspect.err")"
-elif [[ $quay_digest != "$RUNTIME_DIGEST" ]]; then
-  fail_check "${RUNTIME_REPO}:${TARGET} is $quay_digest, not the --runtime-digest $RUNTIME_DIGEST. Check the pair against the release notes."
+release_digest="$(docker buildx imagetools inspect "${RUNTIME_REPO}:${TARGET}" --format '{{json .Manifest}}' 2>"$WORK/inspect.err" | jq -r '.digest // empty' 2>/dev/null || true)"
+if [[ -z $release_digest ]]; then
+  fail_check "couldn't read ${RUNTIME_REPO}:${TARGET}. Are you logged in? docker login registry.kindgi.com --username kindgi, with your license key as the password. $(cat "$WORK/inspect.err")"
+elif [[ $release_digest != "$RUNTIME_DIGEST" ]]; then
+  fail_check "${RUNTIME_REPO}:${TARGET} is $release_digest, not the --runtime-digest $RUNTIME_DIGEST. Check the pair against the release notes."
 fi
 
 # Stop on a failed precondition before spending anything: no image is mirrored
@@ -438,13 +447,13 @@ fi
 
 # 2b. Mirror the new runtime image into the deployment's Artifact Registry, so
 # the read-only check job (and step 5) can pull it (Cloud Run can't pull from
-# quay). The mirror keeps the release digest. This adds an image; it serves
-# nothing until step 5.
+# a registry that takes a password, like registry.kindgi.com). The mirror keeps
+# the release digest. This adds an image; it serves nothing until step 5.
 step "Mirroring runtime ${TARGET} into Artifact Registry"
 gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet >/dev/null 2>&1 || true
 docker buildx imagetools create --tag "${IMAGE_REPOSITORY}/runtime:${TARGET}" \
   "${RUNTIME_REPO}:${TARGET}@${RUNTIME_DIGEST}" \
-  || die "couldn't mirror ${RUNTIME_REPO}:${TARGET}@${RUNTIME_DIGEST} into ${IMAGE_REPOSITORY}. Is 'kindgi auth registry' done and do you have push access?"
+  || die "couldn't mirror ${RUNTIME_REPO}:${TARGET}@${RUNTIME_DIGEST} into ${IMAGE_REPOSITORY}. Are you logged in to registry.kindgi.com (docker login registry.kindgi.com --username kindgi), and can you push to Artifact Registry?"
 info "mirrored to $NEW_SERVER_IMAGE"
 
 # 2c. The runtime's own read-only checks, run with the NEW image against the
@@ -518,6 +527,14 @@ EOT
        grep -rn "autoCloseAfterInactiveSeconds" src/
    - Before re-registering a tool or MCP endpoint, drop "secretScopes" from any
      definition you read back from the server.
+EOT
+      ;;
+    0.1.11)
+      cat <<'EOT'
+  0.1.11:
+   - Nothing to do by hand. The runtime image now comes from
+     registry.kindgi.com, with your license key as the password; this run
+     copied it from there.
 EOT
       ;;
   esac
