@@ -24,8 +24,9 @@ lists:
 - **a judged test set;**
 - **a live version of the agent for the whole tenant.** Without one, the
   pass is refused with `proposal-needs-pin`;
-- **a deployed runtime,** with Kindgi 0.2's CLI. Under `kindgi dev`, it's
-  refused with `registry-read-only`;
+- **a runtime: `kindgi dev`, or a deployed one,** with Kindgi 0.2's CLI.
+  Under `kindgi dev`, making a proposal live writes it into the pack's files,
+  as [Under `kindgi dev`](../propose-a-change/#under-kindgi-dev) shows;
 - **`publish` on the agent,** to start one.
 
 ## Mark what a pass may tune

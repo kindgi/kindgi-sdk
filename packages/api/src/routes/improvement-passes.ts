@@ -32,6 +32,7 @@ import {
   outOfScopeResponse,
   referencesOutOfScope,
 } from '../reference-scope.js';
+import { refusesCandidates, refusesScope } from '../registry-read-only.js';
 import type { ProposalObjective } from '../supervisor-binding.js';
 import type { AppEnv } from '../types.js';
 import { actorOf, coordinatesOf } from './agent-releases.js';
@@ -184,11 +185,16 @@ export function mountImproveRoute(
     const denied = await deny(c, authorizer, 'publish', parsed.agentId, itemRights);
     if (denied !== undefined) return denied;
     if (deps.passes === undefined) return unsupported(c);
-    if (deps.agents.readOnly !== undefined) {
+    // A read-only registry takes a pass only when it takes its candidates.
+    if (deps.agents.readOnly !== undefined && refusesCandidates(deps.agents.readOnly)) {
       return fail(c, 'registry-read-only', {
         code: 'registry-read-only',
         message: deps.agents.readOnly.reason,
       });
+    }
+    const narrower = refusesScope(deps.agents.readOnly, parsed.scope);
+    if (narrower !== undefined) {
+      return fail(c, 'registry-read-only', { code: 'registry-read-only', message: narrower });
     }
     const resolved = await resolveImproveTarget(c, deps, tenantId, parsed);
     if (resolved instanceof Response) return resolved;

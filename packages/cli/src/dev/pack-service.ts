@@ -28,6 +28,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
+import type { PackBlockWrite } from '@kindgi/handler-runtime';
 import type {
   PackServiceSupervisor,
   PackServiceSupervisorEvent,
@@ -37,7 +38,14 @@ import { blockProblems, blocksOf } from '../build/pack-blocks.js';
 import { type DevLogView, type DevOutput, parseRecord, showRecord } from './log-view.js';
 import type { PackCode } from './pack-code.js';
 import { devIndexPath, devStagedIndexPath, devStagedPackIndexPath } from './paths.js';
-import type { DevRunners, IndexOutcome, IndexResult, PackBuild, PackBuilder } from './runners.js';
+import type {
+  DevRunners,
+  IndexOutcome,
+  IndexResult,
+  PackBlockWritten,
+  PackBuild,
+  PackBuilder,
+} from './runners.js';
 import type { ActiveDevSandbox } from './sandbox/index.js';
 
 export interface PackRefresherDeps {
@@ -275,6 +283,18 @@ function missingEnv(names: readonly string[]): DevOutput {
   return note(
     `⚠ the pack's env.required ${one ? 'name' : 'names'} ${names.join(', ')} ${one ? 'has' : 'have'} no value: add ${one ? 'it' : 'them'} to the pack's env files (a deployment won't be ready without ${one ? 'it' : 'them'})`,
   );
+}
+
+/**
+ * The line `kindgi dev` shows when a version made live in the console is
+ * written into the pack: the block, its version, and the files it went into.
+ */
+export function showBlockWritten(write: PackBlockWrite, written: PackBlockWritten): string {
+  const files =
+    written.templateFile === undefined
+      ? written.file
+      : `${written.file} and ${written.templateFile}`;
+  return `✎ ${write.id} ${write.version} made live: written into ${files} (was ${written.replaced})`;
 }
 
 /**

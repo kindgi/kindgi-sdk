@@ -59,6 +59,7 @@ import {
   liveScopeOutOfScope,
   referencesOutOfScope,
 } from './reference-scope.js';
+import { refusesCandidates, refusesScope } from './registry-read-only.js';
 import type { ReviewerRegistryBinding } from './reviewer-binding.js';
 import { type PromotionRequestOutcome, requestPromotion } from './routes/agent-releases.js';
 import { liveScopeToWire } from './routes/live-scope-wire.js';
@@ -542,6 +543,9 @@ export function createProposalService(deps: ProposalServiceDeps) {
       input: DraftProposalInput,
     ): Promise<ProposalOutcome<{ proposal: StoredProposal; deduped: boolean }>> {
       const { tenantId } = input;
+      // A registry that takes Improve's candidates improves the whole tenant only.
+      const narrower = refusesScope(deps.agents.readOnly, input.scope);
+      if (narrower !== undefined) return err({ code: 'registry-read-only', message: narrower });
       const from = await deps.agents.getVersion({
         tenantId,
         agentId: input.agentId as AgentId,
@@ -623,10 +627,13 @@ export function createProposalService(deps: ProposalServiceDeps) {
       const agentId = proposal.agentId as unknown as string;
       const refused = await refuseStatus('evaluate', proposal);
       if (refused !== undefined) return err(refused);
-      // Evaluating derives an agent version: not into a registry that takes no writes.
-      if (deps.agents.readOnly !== undefined) {
+      // Evaluating derives an agent version: not into a registry that takes
+      // no writes, unless it takes Improve's candidates.
+      if (deps.agents.readOnly !== undefined && refusesCandidates(deps.agents.readOnly)) {
         return err({ code: 'registry-read-only', message: deps.agents.readOnly.reason });
       }
+      const narrower = refusesScope(deps.agents.readOnly, proposal.scope);
+      if (narrower !== undefined) return err({ code: 'registry-read-only', message: narrower });
       // A version promoted nowhere is still the agent's latest, and the
       // latest serves every scope nothing is pinned for.
       if ((await deps.releases.live.resolve({ tenantId, agentId })) === null) {
@@ -801,6 +808,10 @@ export function createProposalService(deps: ProposalServiceDeps) {
       readonly reason?: string;
     }): Promise<ProposalOutcome<StoredProposal>> {
       const { tenantId, proposal } = input;
+      // Where a promotion was written in place of a pin (under `kindgi
+      // dev`, the pack's files), that's also where it's undone.
+      const undo = deps.agents.readOnly?.takesCandidates;
+      if (undo !== undefined) return err({ code: 'registry-read-only', message: undo.undoReason });
       const seen = await facts(tenantId)(proposal);
       const refused = await refuseStatus('rollback', proposal, seen);
       if (refused !== undefined) return err(refused);

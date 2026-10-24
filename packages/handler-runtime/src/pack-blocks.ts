@@ -238,6 +238,138 @@ async function readTemplate(
   }
 }
 
+/** A block's new version, as making an Improve candidate live under `kindgi dev` writes it. */
+export interface PackBlockWrite {
+  readonly id: string;
+  readonly version: string;
+  /** The whole content, a prompt's template text included. */
+  readonly content: Readonly<Record<string, unknown>>;
+}
+
+export type PackBlockWriteOutcome =
+  | {
+      readonly kind: 'ok';
+      /** The block's file, relative to the pack root. */
+      readonly file: string;
+      /** The template file written too, when the prompt keeps one. */
+      readonly templateFile?: string;
+      /** The version the file held before. */
+      readonly replaced: string;
+    }
+  | {
+      readonly kind: 'err';
+      /** `not-in-pack`: no such block; `invalid`: the write doesn't fit it; `not-newer`: its version isn't past the file's. */
+      readonly reason: 'not-in-pack' | 'invalid' | 'not-newer';
+      readonly message: string;
+    };
+
+/**
+ * Write a block's new version into the pack: its own file (found by id
+ * among the pack's blocks, so only an existing file inside the blocks
+ * folder, never a path a caller names), and a prompt's template into its
+ * template file when it keeps one. The file keeps its other fields, its
+ * order and its indentation. Each file is written whole and then renamed
+ * into place, so a reader sees the old file or the new one.
+ *
+ * Refused: a block the pack doesn't have, content that doesn't fit the
+ * block's kind, and a version that isn't past the file's (a write never
+ * takes a block back, nor over a newer edit).
+ */
+export async function writePackBlock(
+  packDir: string,
+  pattern: string,
+  write: PackBlockWrite,
+): Promise<PackBlockWriteOutcome> {
+  const refused = (reason: 'not-in-pack' | 'invalid' | 'not-newer', message: string) =>
+    ({ kind: 'err', reason, message }) as const;
+  if (!VERSION.test(write.version)) {
+    return refused('invalid', '`version` must be major.minor.patch, e.g. "1.0.1"');
+  }
+  if (!isObject(write.content)) return refused('invalid', '`content` must be an object');
+  const root = path.resolve(packDir);
+  const folder = blocksFolder(pattern);
+  const current = (await readPackBlocks(packDir, pattern)).blocks.find((b) => b.id === write.id);
+  if (current === undefined) {
+    return refused(
+      'not-in-pack',
+      `block "${write.id}" isn't in the pack's blocks folder: only a block the pack has is written`,
+    );
+  }
+  if (compareVersions(write.version, current.version) <= 0) {
+    return refused(
+      'not-newer',
+      `${current.modulePath} holds ${write.id} ${current.version} now, not older than ${write.version}: evaluate the change again from the pack's version`,
+    );
+  }
+  const allowed = CONTENT_FIELDS[current.kind] as readonly string[];
+  const extra = Object.keys(write.content).find(
+    (k) => k === 'templateFile' || !allowed.includes(k),
+  );
+  if (extra !== undefined) {
+    return refused('invalid', `"content.${extra}" doesn't fit a ${current.kind} block`);
+  }
+  if (current.kind === 'prompt' && typeof write.content.template !== 'string') {
+    return refused('invalid', 'a prompt needs `content.template`');
+  }
+  if (current.kind === 'settings' && !isObject(write.content.values)) {
+    return refused('invalid', 'settings need `content.values`, an object');
+  }
+
+  const filePath = path.join(root, current.modulePath);
+  const text = utf8(await fs.readFile(filePath));
+  const raw = JSON.parse(text) as Record<string, unknown>;
+  const rawContent = isObject(raw.content) ? raw.content : {};
+  let templateFile: string | undefined;
+  let content: Record<string, unknown> = { ...write.content };
+  if (current.kind === 'prompt' && typeof rawContent.templateFile === 'string') {
+    // The template stays in its own file, where the block's file points.
+    const template = await readTemplate(root, folder, current.modulePath, rawContent.templateFile);
+    if (template.kind === 'err') return refused('invalid', template.message);
+    templateFile = template.relPath;
+    const { template: templateText, ...rest } = write.content;
+    content = { ...rest, templateFile: rawContent.templateFile };
+    await replaceFile(path.join(root, templateFile), String(templateText));
+  }
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    next[key] = key === 'version' ? write.version : key === 'content' ? content : value;
+  }
+  await replaceFile(
+    filePath,
+    `${JSON.stringify(next, null, indentOf(text))}${text.endsWith('\n') ? '\n' : ''}`,
+  );
+  return {
+    kind: 'ok',
+    file: current.modulePath,
+    ...(templateFile !== undefined && { templateFile }),
+    replaced: current.version,
+  };
+}
+
+/** `a` before, equal to, or after `b`: major.minor.patch, compared as numbers. */
+function compareVersions(a: string, b: string): number {
+  const [x, y] = [a.split('.').map(Number), b.split('.').map(Number)];
+  for (let i = 0; i < 3; i++) {
+    const d = (x[i] ?? 0) - (y[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+
+/** The indentation a JSON file uses: its second line's leading spaces or tab, else two spaces. */
+function indentOf(text: string): string | number {
+  const second = text.split('\n')[1] ?? '';
+  const lead = /^[ \t]+/.exec(second)?.[0];
+  return lead === undefined ? 2 : lead;
+}
+
+/** Write a file whole beside it, under a dot name discovery skips, then rename it into place. */
+async function replaceFile(target: string, text: string): Promise<void> {
+  const temp = path.join(path.dirname(target), `.${path.basename(target)}.kindgi-write`);
+  await fs.writeFile(temp, text, 'utf8');
+  await fs.rename(temp, target);
+}
+
 /** Bytes as UTF-8, refusing anything else (as Python's and Java's indexers do). */
 function utf8(bytes: Uint8Array): string {
   return new TextDecoder('utf-8', { fatal: true }).decode(bytes);

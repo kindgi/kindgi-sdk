@@ -19,7 +19,7 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { runIndexer } from '../src/kindgi-index.js';
-import { readPackBlocks } from '../src/pack-blocks.js';
+import { readPackBlocks, writePackBlock } from '../src/pack-blocks.js';
 
 const addFormats = ((addFormatsModule as { default?: unknown }).default ??
   addFormatsModule) as unknown as (ajv: Ajv2020) => void;
@@ -466,5 +466,158 @@ describe('runIndexer — blocks', () => {
       blocks: { modulePath: string }[];
     };
     expect(written.blocks.map((b) => b.modulePath)).toEqual(['blocks/style.json']);
+  });
+});
+
+describe('writePackBlock', () => {
+  const read = async (rel: string) => fs.readFile(path.join(packDir, rel), 'utf8');
+  const blockNamed = async (id: string) =>
+    (await readPackBlocks(packDir, BLOCKS)).blocks.find((b) => b.id === id);
+
+  test("writes a prompt's new version and content into its own file, keeping its other fields and layout", async () => {
+    await write({ 'blocks/reply.json': json(prompt()) });
+    const out = await writePackBlock(packDir, BLOCKS, {
+      id: 'acme.reply-prompt',
+      version: '1.2.1',
+      content: { template: 'Reply to {{ customer_name }}, briefly.', parameters: [] },
+    });
+    expect(out).toEqual({ kind: 'ok', file: 'blocks/reply.json', replaced: '1.2.0' });
+    expect(await read('blocks/reply.json')).toBe(
+      json({
+        ...prompt(),
+        version: '1.2.1',
+        content: { template: 'Reply to {{ customer_name }}, briefly.', parameters: [] },
+      }),
+    );
+    expect(await blockNamed('acme.reply-prompt')).toMatchObject({
+      version: '1.2.1',
+      description: 'How the support agent replies',
+      content: { template: 'Reply to {{ customer_name }}, briefly.' },
+    });
+  });
+
+  test('a prompt that keeps its template in a file of its own gets the template written there', async () => {
+    await write({
+      'blocks/reply.json': json(prompt({ content: { templateFile: 'reply.liquid' } })),
+      'blocks/reply.liquid': 'Reply to {{ customer_name }}.',
+    });
+    const out = await writePackBlock(packDir, BLOCKS, {
+      id: 'acme.reply-prompt',
+      version: '1.3.0',
+      content: { template: 'Reply to {{ customer_name }}, warmly.' },
+    });
+    expect(out).toEqual({
+      kind: 'ok',
+      file: 'blocks/reply.json',
+      templateFile: 'blocks/reply.liquid',
+      replaced: '1.2.0',
+    });
+    expect(await read('blocks/reply.liquid')).toBe('Reply to {{ customer_name }}, warmly.');
+    expect(JSON.parse(await read('blocks/reply.json'))).toMatchObject({
+      version: '1.3.0',
+      content: { templateFile: 'reply.liquid' },
+    });
+    expect(JSON.parse(await read('blocks/reply.json')).content).not.toHaveProperty('template');
+    expect((await blockNamed('acme.reply-prompt'))?.content).toEqual({
+      template: 'Reply to {{ customer_name }}, warmly.',
+    });
+  });
+
+  test("a settings block's values are written; a tab-indented file stays tab-indented", async () => {
+    await write({ 'blocks/style.json': `${JSON.stringify(settings(), null, '\t')}\n` });
+    const content = { ...(settings().content as object), values: { tone: 'brief' } };
+    const out = await writePackBlock(packDir, BLOCKS, {
+      id: 'acme.reply-style',
+      version: '1.0.1',
+      content,
+    });
+    expect(out).toMatchObject({ kind: 'ok', file: 'blocks/style.json', replaced: '1.0.0' });
+    expect(await read('blocks/style.json')).toBe(
+      `${JSON.stringify({ ...settings(), version: '1.0.1', content }, null, '\t')}\n`,
+    );
+    expect((await blockNamed('acme.reply-style'))?.content).toMatchObject({
+      values: { tone: 'brief' },
+    });
+  });
+
+  test('leaves no file behind but the block (and its template)', async () => {
+    await write({ 'blocks/reply.json': json(prompt()) });
+    await writePackBlock(packDir, BLOCKS, {
+      id: 'acme.reply-prompt',
+      version: '1.2.1',
+      content: { template: 'Hi.' },
+    });
+    expect(await fs.readdir(path.join(packDir, 'blocks'))).toEqual(['reply.json']);
+  });
+
+  test.each([
+    ['a block the pack lacks', 'acme.other'],
+    ['an id that names a path', '../reply'],
+  ])('%s is refused, and nothing is written', async (_name, id) => {
+    await write({ 'blocks/reply.json': json(prompt()) });
+    const out = await writePackBlock(packDir, BLOCKS, {
+      id,
+      version: '9.0.0',
+      content: { template: 'Hi.' },
+    });
+    expect(out).toMatchObject({ kind: 'err', reason: 'not-in-pack' });
+    expect(await read('blocks/reply.json')).toBe(json(prompt()));
+    expect(await fs.readdir(packDir)).toEqual(['blocks']);
+  });
+
+  test('a block file the indexer refuses is not written', async () => {
+    await write({ 'blocks/reply.json': json(prompt({ extra: true })) });
+    const out = await writePackBlock(packDir, BLOCKS, {
+      id: 'acme.reply-prompt',
+      version: '1.2.1',
+      content: { template: 'Hi.' },
+    });
+    expect(out).toMatchObject({ kind: 'err', reason: 'not-in-pack' });
+    expect(await read('blocks/reply.json')).toBe(json(prompt({ extra: true })));
+  });
+
+  test.each(['1.2.0', '1.1.9', '0.9.0'])(
+    "version %s, not past the file's 1.2.0, is refused, and the file is kept",
+    async (version) => {
+      await write({ 'blocks/reply.json': json(prompt()) });
+      const out = await writePackBlock(packDir, BLOCKS, {
+        id: 'acme.reply-prompt',
+        version,
+        content: { template: 'Hi.' },
+      });
+      expect(out).toMatchObject({ kind: 'err', reason: 'not-newer' });
+      expect((out as { message: string }).message).toContain(
+        'blocks/reply.json holds acme.reply-prompt 1.2.0',
+      );
+      expect(await read('blocks/reply.json')).toBe(json(prompt()));
+    },
+  );
+
+  test.each([
+    ['a settings value on a prompt', 'acme.reply-prompt', { values: { tone: 'x' } }],
+    ['a template on settings', 'acme.reply-style', { template: 'Hi.' }],
+    ['a prompt without its template', 'acme.reply-prompt', { parameters: [] }],
+    [
+      "a templateFile (the writer keeps the file's own)",
+      'acme.reply-prompt',
+      { template: 'Hi.', templateFile: 'x.liquid' },
+    ],
+    ['settings without values', 'acme.reply-style', { schema: {} }],
+  ])('%s is refused as invalid, and nothing is written', async (_name, id, content) => {
+    await write({ 'blocks/reply.json': json(prompt()), 'blocks/style.json': json(settings()) });
+    const out = await writePackBlock(packDir, BLOCKS, { id, version: '5.0.0', content });
+    expect(out).toMatchObject({ kind: 'err', reason: 'invalid' });
+    expect(await read('blocks/reply.json')).toBe(json(prompt()));
+    expect(await read('blocks/style.json')).toBe(json(settings()));
+  });
+
+  test('a version that is not major.minor.patch is refused as invalid', async () => {
+    await write({ 'blocks/reply.json': json(prompt()) });
+    const out = await writePackBlock(packDir, BLOCKS, {
+      id: 'acme.reply-prompt',
+      version: '2',
+      content: { template: 'Hi.' },
+    });
+    expect(out).toMatchObject({ kind: 'err', reason: 'invalid' });
   });
 });
