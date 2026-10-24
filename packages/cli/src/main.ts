@@ -10,6 +10,7 @@ import { HOSTED_BUILD } from './build/hosted.js';
 import type { BuildRunners } from './build/runners.js';
 import { cliPinWarning, readCliPin } from './cli-pin.js';
 import type { RegistryAuthSeam } from './commands/auth.js';
+import type { ConnectionsSeam } from './commands/connections.js';
 import type { DoctorSeam } from './commands/doctor.js';
 import type { EnvInitInputSeam } from './commands/env.js';
 import { ROOT_COMMANDS, findCommand } from './commands/index.js';
@@ -133,6 +134,8 @@ export interface RunCliInputs {
   readonly rateLimitWaits?: RateLimitWaitSeam;
   /** `kindgi exports create`'s output, clock and pauses. */
   readonly exportsSeam?: ExportsSeam;
+  /** `kindgi connections connect`'s terminal, clock and pauses, and the removals' question. */
+  readonly connectionsSeam?: ConnectionsSeam;
 }
 
 /**
@@ -316,6 +319,7 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     ...(inputs.openUrl !== undefined ? { openUrl: inputs.openUrl } : {}),
     ...(inputs.rateLimitWaits !== undefined ? { rateLimitWaits: inputs.rateLimitWaits } : {}),
     ...(inputs.exportsSeam !== undefined ? { exportsSeam: inputs.exportsSeam } : {}),
+    ...(inputs.connectionsSeam !== undefined ? { connectionsSeam: inputs.connectionsSeam } : {}),
   });
 
   // A Java pack pins the CLI it runs with (`cli-pin.ts`): say when this isn't it.

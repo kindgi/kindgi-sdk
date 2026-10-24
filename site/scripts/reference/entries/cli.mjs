@@ -901,6 +901,30 @@ export const CLI_DEFAULTS = {
   'service-accounts ungrant': {
     project: 'none',
   },
+  'connections list': {
+    app: 'none',
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+    project: 'none',
+  },
+  'connections connect': {
+    'app-id': "none: the app's one registration",
+    permissions: "every permission the app's entry offers",
+    project: 'none',
+  },
+  'connection-apps list': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
+  'connection-apps add': {
+    'app-id': 'required for `github`',
+    'client-id': 'required',
+    'client-secret-ref': 'required',
+    'private-key-ref': 'required for `github`',
+    projects: 'none: every project',
+    slug: 'required for `github`',
+    'webhook-secret-ref': 'required for `github`',
+  },
   'people add': {
     email: 'none',
     name: 'required',
@@ -1896,6 +1920,67 @@ export const CLI_EXAMPLES = {
       line: 'kindgi service-accounts unregister <service-account-id>',
     },
   ],
+  'connections list': [
+    {
+      purpose: 'List your own connections to Google, as a table.',
+      line: 'kindgi connections list --app=google --mine --table',
+    },
+    {
+      purpose: "List the connections a project's registrations allow.",
+      line: 'kindgi connections list --project=<project-id>',
+    },
+  ],
+  'connections get': [
+    {
+      purpose: 'Show one connection: whose account, its permissions and its state.',
+      line: 'kindgi connections get <connection-id>',
+    },
+  ],
+  'connections connect': [
+    {
+      purpose: 'Connect your Google account to send email; open the link it prints.',
+      line: 'kindgi connections connect google --permissions=gmail.send',
+    },
+    {
+      purpose: "Connect the company's GitHub installation for a project (tenant admins).",
+      line: 'kindgi connections connect github --project=<project-id> --for-company',
+    },
+  ],
+  'connections disconnect': [
+    {
+      purpose: 'Disconnect a connection without being asked (for scripts).',
+      line: 'kindgi connections disconnect <connection-id> --yes',
+    },
+  ],
+  'connection-apps list': [
+    {
+      purpose: "List the tenant's registrations, as a table.",
+      line: 'kindgi connection-apps list --table',
+    },
+  ],
+  'connection-apps get': [
+    {
+      purpose: 'Show a registration, with the redirect and notices addresses to give the app.',
+      line: 'kindgi connection-apps get <app-id>',
+    },
+  ],
+  'connection-apps add': [
+    {
+      purpose:
+        "Register the company's Google client, its secret stored first with `kindgi secrets set`.",
+      line: 'kindgi connection-apps add google --client-id=<client-id> --client-secret-ref=prod/GOOGLE_CLIENT_SECRET',
+    },
+    {
+      purpose: "Register the company's GitHub App.",
+      line: 'kindgi connection-apps add github --app-id=<n> --slug=<slug> --client-id=<client-id> --client-secret-ref=prod/GH_CLIENT_SECRET --private-key-ref=prod/GH_PRIVATE_KEY --webhook-secret-ref=prod/GH_WEBHOOK_SECRET',
+    },
+  ],
+  'connection-apps remove': [
+    {
+      purpose: 'Remove a registration and disconnect every connection through it.',
+      line: 'kindgi connection-apps remove <app-id> --with-connections',
+    },
+  ],
   'people add': [
     {
       purpose: 'Add a person and email them their invitation.',
@@ -2078,6 +2163,8 @@ export const CLI_GROUP_SEE_ALSO = {
   'mcp-launch': ['guides/tools/mcp-servers'],
   deployments: ['hosted/deploy-your-agent', 'guides/secrets/pack-env'],
   projects: ['guides/projects/organize-by-org-and-project'],
+  connections: ['deploy/people-and-keys'],
+  'connection-apps': ['guides/secrets/store-a-secret', 'deploy/people-and-keys'],
   tenant: ['guides/projects/organize-by-org-and-project'],
   environments: ['guides/projects/organize-by-org-and-project'],
   promote: ['guides/projects/organize-by-org-and-project'],

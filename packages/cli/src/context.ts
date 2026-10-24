@@ -6,6 +6,7 @@ import { type KindgiClient, createClient } from '@kindgi/client';
 import { ownAddressKeyRefusal } from './api-address.js';
 import type { BuildRunners } from './build/runners.js';
 import type { RegistryAuthSeam } from './commands/auth.js';
+import type { ConnectionsSeam } from './commands/connections.js';
 import type { DoctorSeam } from './commands/doctor.js';
 import type { EnvInitInputSeam } from './commands/env.js';
 import type { SecretsValueInputSeam } from './commands/secrets.js';
@@ -194,6 +195,8 @@ export interface CommandContext {
   readonly rateLimitWaits?: RateLimitWaitSeam;
   /** `kindgi exports create`'s output, clock and pauses. Tests inject them; production leaves this undefined. */
   readonly exportsSeam?: ExportsSeam;
+  /** `kindgi connections connect`'s terminal, clock and pauses, and the removals' question. Tests inject them; production leaves this undefined. */
+  readonly connectionsSeam?: ConnectionsSeam;
 }
 
 export interface InitSeam {
@@ -238,6 +241,7 @@ export interface BuildContextInputs {
   readonly openUrl?: OpenUrl;
   readonly rateLimitWaits?: RateLimitWaitSeam;
   readonly exportsSeam?: ExportsSeam;
+  readonly connectionsSeam?: ConnectionsSeam;
 }
 
 export function buildContext(inputs: BuildContextInputs): CommandContext {
@@ -299,5 +303,6 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     openUrl: inputs.openUrl,
     ...(inputs.rateLimitWaits !== undefined && { rateLimitWaits: inputs.rateLimitWaits }),
     ...(inputs.exportsSeam !== undefined && { exportsSeam: inputs.exportsSeam }),
+    ...(inputs.connectionsSeam !== undefined && { connectionsSeam: inputs.connectionsSeam }),
   };
 }

@@ -1,0 +1,13 @@
+---
+"@kindgi/cli": patch
+---
+
+**`kindgi connections` and `kindgi connection-apps`: connect accounts at other apps from the terminal.**
+- **`kindgi connections`**: `list` (yours, or every one for a tenant admin; `--project`, `--app`, `--mine`), `get`, `connect <app>` and `disconnect <id>`.
+  - `connect` makes a connect request and prints the link to open. At a terminal it waits until the connect finishes and says whose account it connected, and what the app granted less than asked. `--permissions` narrows what it asks for (default: every permission the app's entry offers). `--for-company` connects the company's account (tenant admins).
+  - `disconnect` withdraws the access at the app where it can, destroys the token, and says what was done at the app.
+- **`kindgi connection-apps`** (tenant admins): `list`, `get`, `add google` and `add github`, and `remove <id>`.
+  - `add` takes the app's client id and names its secrets by reference, `<env>/<name>` (or `<name>` under the env the runtime serves). Store the values first with `kindgi secrets set`. It prints the registration, with the redirect and notices addresses to give the app.
+  - `remove` refuses a registration with live connections unless `--with-connections`, which disconnects them too.
+- `disconnect` and `remove` ask first at a terminal. Without one they need `--yes`.
+- `--json` prints the server's answer for `connect`, `disconnect` and `remove`, and `connect --json` doesn't wait.
