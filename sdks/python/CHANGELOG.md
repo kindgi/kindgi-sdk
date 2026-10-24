@@ -20,6 +20,13 @@ same version, and the CLI's own changes are in
   `restricted` gains `judgment_ids` too. A proposal's `evidence` is now the
   `ProposalEvidence` model, with `judgment_count` beside `judgment_ids`. The
   create body's `Evidence1` is unchanged.
+- `kindgi`: **a proposal says how it was kept, what the replays cost and
+  which decisions held.** A proposal's `evaluation` gains `rule` (`better` or
+  `cheaper`), `cost_usd` (`ProposalCost`) and `decisions`
+  (`ProposalDecisions`). A proposal kept as `cheaper` is `evaluated` with
+  `better` false. A judged comparison's summary gains `cost_usd`
+  (`JudgedComparisonCost`) and `corrections.judgments`, and each case result
+  gains `cost_usd`, one per repetition.
 
 ## 0.1.10
 
@@ -47,13 +54,6 @@ No Python changes; the version moves with the npm packages.
   signs them in. Refused (`site-person-restore-refused`) for someone who
   isn't removed, someone their site said left, and someone who also signs
   in another way. Tenant admins only.
-- `kindgi`: **a proposal says how it was kept, what the replays cost and
-  which decisions held.** A proposal's `evaluation` gains `rule` (`better` or
-  `cheaper`), `cost_usd` (`ProposalCost`) and `decisions`
-  (`ProposalDecisions`). A proposal kept as `cheaper` is `evaluated` with
-  `better` false. A judged comparison's summary gains `cost_usd`
-  (`JudgedComparisonCost`) and `corrections.judgments`, and each case result
-  gains `cost_usd`, one per repetition.
 
 ## 0.1.9
 
