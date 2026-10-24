@@ -550,6 +550,65 @@ describe("kindgi runs resume and runs get: a wait for another system's answer", 
     expect(quiet.stdout).toBe('');
     expect(quiet.stderr).toBe('');
   });
+
+  test("runs get: a run waiting for a person's connect gets a line per connect with its link, after the lines for other systems' answers; --quiet prints neither", async () => {
+    const connect = (
+      name: string,
+      appName: string,
+      says: readonly string[],
+      reconnects?: boolean,
+    ) => ({
+      name,
+      requestId: `cr-${name}`,
+      waitToken: `connect:cr-${name}`,
+      app: 'acme-mail',
+      appName,
+      says,
+      connectUrl: `https://kindgi.example/connect/cr-${name}`,
+      expiresAt: '2026-10-22T12:00:00.000Z',
+      ...(reconnects !== undefined && { reconnects }),
+    });
+    const run = {
+      id: 'run-1',
+      status: 'suspended',
+      waitingFor: {
+        approvals: [],
+        other: [],
+        tokens: [
+          {
+            tokenId: 'pause:k1:1',
+            name: 'manager sign-off',
+            tool: { id: 'acme.review', version: '1.0.0' },
+            createdAt: '2026-10-21T12:00:00.000Z',
+            timesOutAt: '2026-10-22T12:00:00.000Z',
+          },
+        ],
+        connections: [
+          connect('mail', 'Acme Mail', ['Send mail as you', 'Read your mail']),
+          connect('files', 'Acme Files', [], true),
+        ],
+      },
+    };
+    const get = (...flags: string[]) =>
+      runCli(
+        baseInputs({
+          argv: ['runs', 'get', 'run-1', ...flags, '--url=https://x', '--token=t'],
+          clientFactory: () => ({ runs: { get: async () => run } }) as never,
+        }),
+      );
+    const out = await get();
+    expect(out.exitCode).toBe(0);
+    expect(JSON.parse(out.stdout)).toEqual(run);
+    expect(out.stderr.split('\n')).toEqual([
+      'Run run-1 waits for "manager sign-off" from another system, for its call to acme.review@1.0.0. It continues once that system answers through the link the tool handed on, or: kindgi runs resume run-1 --output=<json>. It times out at 2026-10-22T12:00:00.000Z.',
+      'Run run-1 waits for the person who started it to connect Acme Mail for its "mail" connection (it asks for: Send mail as you; Read your mail). It continues once they have, from the run\'s page or this link, which works until 2026-10-22T12:00:00.000Z: https://kindgi.example/connect/cr-mail',
+      'Run run-1 waits for the person who started it to reconnect Acme Files for its "files" connection. It continues once they have, from the run\'s page or this link, which works until 2026-10-22T12:00:00.000Z: https://kindgi.example/connect/cr-files',
+      '',
+    ]);
+    const quiet = await get('--quiet');
+    expect(quiet.stdout).toBe('');
+    expect(quiet.stderr).toBe('');
+  });
 });
 
 describe('kindgi runs start', () => {
