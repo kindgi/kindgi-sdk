@@ -30,7 +30,8 @@ That includes internal systems your own employees use.
 
 `kindgi dev` runs the runtime in development mode, with `KINDGI_DEV=true`.
 Development mode needs no license key, so everything you build and test on
-your machine is free.
+your machine is free. Preview releases still stop starting after 90 days,
+in development mode too ([below](#preview-releases-stop-starting-after-90-days)).
 
 :::note[Access to the runtime image]
 Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
