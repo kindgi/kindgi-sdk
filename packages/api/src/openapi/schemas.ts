@@ -71,6 +71,7 @@ import {
   RETENTION_DOMAINS,
   TOOL_ERROR_KINDS,
 } from '@kindgi/policy-contract';
+import { CORRECTION_ITEM } from '@kindgi/types';
 
 import {
   DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
@@ -4642,7 +4643,11 @@ export const JudgedItemSchema: JsonSchema = {
   required: ['key'],
   description: "The judged item of a run's output.",
   properties: {
-    key: { type: 'string', minLength: 1, description: "The caller's stable id for the item." },
+    key: {
+      type: 'string',
+      minLength: 1,
+      description: `The caller's stable id for the item. \`${CORRECTION_ITEM.key}\` is reserved: a judgment on it is accepted only when it carries a correction at pointer \`""\`.`,
+    },
     pointer: {
       type: 'string',
       description:
@@ -4670,6 +4675,121 @@ export const JudgmentAssertedBySchema: JsonSchema = {
   },
 };
 
+/** One call an expert says the agent should have made: the tool, and the argument fields to compare. */
+export const ExpectedCallSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tool', 'args'],
+  properties: {
+    tool: { type: 'string', minLength: 1, maxLength: 200 },
+    args: {
+      type: 'object',
+      maxProperties: 100,
+      description:
+        'The partial set of top-level argument fields to compare, by value. Fields left out are not compared; an empty object asks only that the tool was called. At most 4000 characters in canonical JSON.',
+    },
+  },
+};
+
+const correctionCallsProperty = {
+  type: 'array',
+  maxItems: 50,
+  description: 'The calls the agent should have made.',
+  items: { $ref: '#/components/schemas/ExpectedCall' },
+} as const;
+
+const correctionNotCalledProperty = {
+  type: 'array',
+  maxItems: 50,
+  description: 'Tools that should not have been called at all.',
+  items: { type: 'string', minLength: 1, maxLength: 200 },
+} as const;
+
+/** A correction an expert records on a judgment. */
+export const CorrectionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['calls', 'notCalled'],
+  description:
+    "An expert's correction of a run's decisions: the tool calls the agent should have made, and the tools it should not have called at all. Graded deterministically on a replay. A tool can't be in both `calls` and `notCalled`, and one of them must be non-empty (both empty is a 400).",
+  properties: {
+    calls: correctionCallsProperty,
+    notCalled: correctionNotCalledProperty,
+  },
+};
+
+/** One way a candidate's calls differed from a correction; it can quote argument values. */
+const correctionDifference = {
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tool', 'kind', 'expected', 'actual'],
+      properties: {
+        tool: { type: 'string' },
+        kind: { type: 'string', enum: ['count'] },
+        expected: { type: 'integer', minimum: 0 },
+        actual: { type: 'integer', minimum: 0 },
+        refused: {
+          type: 'integer',
+          minimum: 1,
+          description:
+            'How many of the actual calls were refused on the replay. Absent when none were.',
+        },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tool', 'kind', 'actual'],
+      properties: {
+        tool: { type: 'string' },
+        kind: { type: 'string', enum: ['must-not-call'] },
+        actual: { type: 'integer', minimum: 1 },
+        refused: {
+          type: 'integer',
+          minimum: 1,
+          description:
+            'How many of the forbidden calls were refused on the replay. Absent when none were.',
+        },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tool', 'kind', 'field', 'expected'],
+      properties: {
+        tool: { type: 'string' },
+        kind: { type: 'string', enum: ['missing-field'] },
+        field: { type: 'string' },
+        expected: {},
+        refused: {
+          type: 'boolean',
+          description:
+            'Present and true when the call blamed for the miss was refused on the replay.',
+        },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tool', 'kind', 'field', 'expected', 'actual'],
+      properties: {
+        tool: { type: 'string' },
+        kind: { type: 'string', enum: ['field-value'] },
+        field: { type: 'string' },
+        expected: {},
+        actual: {},
+        refused: {
+          type: 'boolean',
+          description:
+            'Present and true when the call blamed for the miss was refused on the replay.',
+        },
+      },
+    },
+  ],
+} as const;
+
 export const JudgmentSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -4693,6 +4813,10 @@ export const JudgmentSchema: JsonSchema = {
     item: { $ref: '#/components/schemas/JudgedItem' },
     verdict: { type: 'string', enum: ['yes', 'no'] },
     reason: { type: 'string' },
+    correction: {
+      $ref: '#/components/schemas/Correction',
+      description: "The expert's correction of the run's decisions, when they gave one.",
+    },
     judgeClassId: {
       type: 'string',
       description:
@@ -4889,6 +5013,10 @@ export const CreateJudgmentBodySchema: JsonSchema = {
       minLength: 1,
       description: "An app's opaque id for its end user, when judging on their behalf.",
     },
+    correction: {
+      $ref: '#/components/schemas/Correction',
+      description: `Optional. The tool calls the agent should have made, graded on a replay. A correction judges the run's whole output, so it is recorded under one reserved item (\`item.key\` \`"${CORRECTION_ITEM.key}"\`, \`item.pointer\` \`""\`): a correction on any other item is a 400, and a second correction of the run by the same expert replaces the first, so it counts once.`,
+    },
   },
 };
 
@@ -4962,11 +5090,36 @@ export const JudgedEvalCaseSchema: JsonSchema = {
     context: { $ref: '#/components/schemas/JudgedRunContext' },
     output: {},
     items: { type: 'array', items: { $ref: '#/components/schemas/JudgedItemSummary' } },
+    corrections: {
+      type: 'array',
+      description:
+        "Experts' corrections carried onto this case from its judgments, each graded on the replay. Empty or absent when none. `restricted-only` keeps only the entries whose judgment was restricted.",
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['judgmentId', 'calls', 'notCalled'],
+        properties: {
+          judgmentId: {
+            type: 'string',
+            description: 'The judgment the correction was recorded on.',
+          },
+          judgeClassId: { type: 'string', description: "The judgment's class, when it had one." },
+          restricted: {
+            type: 'boolean',
+            enum: [true],
+            description:
+              'Set when the judgment was recorded while its class was restricted (`Judgment.restricted`).',
+          },
+          calls: correctionCallsProperty,
+          notCalled: correctionNotCalledProperty,
+        },
+      },
+    },
     erased: {
       type: 'boolean',
       const: true,
       description:
-        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, and eval runs leave it out (counted as `erased`).",
+        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and eval runs leave it out (counted as `erased`).",
     },
   },
 };
@@ -8660,6 +8813,21 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
         weightedPrecisionAtK: { $ref: '#/components/schemas/ComparisonMetric' },
       },
     },
+    corrections: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['checked', 'passed'],
+      description:
+        'Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.',
+      properties: {
+        checked: { type: 'integer', minimum: 0, description: 'How many corrections were graded.' },
+        passed: {
+          type: 'integer',
+          minimum: 0,
+          description: 'How many passed (every repetition passed).',
+        },
+      },
+    },
   },
 };
 
@@ -8790,6 +8958,41 @@ export const ComparisonCaseResultSchema: JsonSchema = {
               "With `source: 'live'`: the call ran again from the same arguments because the compared version pins other settings, and the tool reads from nowhere, so it didn't diverge. Absent from older servers, and otherwise.",
           },
           reason: { type: 'string' },
+        },
+      },
+    },
+    corrections: {
+      type: 'array',
+      description:
+        'Each correction graded on this case: its verdict and how many repetitions passed. Shown, not enforced. Survives an erasure — the differences, which quote values, are in `correctionDifferences`.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['judgmentId', 'pass', 'repetitionsPassed', 'repetitions'],
+        properties: {
+          judgmentId: { type: 'string' },
+          pass: { type: 'boolean', description: 'Passed only when every repetition passed.' },
+          repetitionsPassed: { type: 'integer', minimum: 0, description: 'The `k` of "k of n".' },
+          repetitions: { type: 'integer', minimum: 1, description: 'The `n` of "k of n".' },
+        },
+      },
+    },
+    correctionDifferences: {
+      type: 'array',
+      description:
+        "The ways each correction's calls differed, by judgment: the differences from the first repetition that failed it, and that repetition's number. Quotes argument values, so an erasure clears it (the verdicts and counts stay in `corrections`).",
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['judgmentId', 'repetition', 'differences'],
+        properties: {
+          judgmentId: { type: 'string' },
+          repetition: {
+            type: 'integer',
+            minimum: 1,
+            description: 'Which repetition (1-based) these differences are from.',
+          },
+          differences: { type: 'array', items: correctionDifference },
         },
       },
     },
@@ -14097,6 +14300,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UnregisterJudgeClassResult', UnregisterJudgeClassResultSchema],
   ['JudgedSubject', JudgedSubjectSchema],
   ['JudgedItem', JudgedItemSchema],
+  ['ExpectedCall', ExpectedCallSchema],
+  ['Correction', CorrectionSchema],
   ['JudgmentAssertedBy', JudgmentAssertedBySchema],
   ['Judgment', JudgmentSchema],
   ['JudgedRunContext', JudgedRunContextSchema],

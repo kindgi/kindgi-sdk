@@ -3102,6 +3102,32 @@ export interface JudgmentAssertedBy {
   readonly id: string;
 }
 
+/**
+ * One call the agent should have made: the tool and the partial set of
+ * top-level argument fields to compare. Fields left out are not compared.
+ *
+ * Matches `@kindgi/api/openapi.json#ExpectedCall`.
+ */
+export interface ExpectedCall {
+  readonly tool: string;
+  readonly args: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * An expert's correction of a run's decisions: the calls the agent should
+ * have made and the tools it should not have called at all. Graded
+ * deterministically on a replay. A tool cannot be in both `calls` and
+ * `notCalled`, and one of them must be non-empty.
+ *
+ * Matches `@kindgi/api/openapi.json#Correction`.
+ */
+export interface Correction {
+  /** The calls the agent should have made. */
+  readonly calls: readonly ExpectedCall[];
+  /** Tools that should not have been called at all. */
+  readonly notCalled: readonly string[];
+}
+
 /** Matches `@kindgi/api/openapi.json#Judgment`. */
 export interface Judgment {
   readonly id: string;
@@ -3112,6 +3138,8 @@ export interface Judgment {
   readonly item: JudgedItem;
   readonly verdict: Verdict;
   readonly reason?: string;
+  /** What the agent should have done, graded on a replay. Cleared by an erasure. */
+  readonly correction?: Correction;
   /** Absent when the judgment is unclassified (it counts with weight 1). */
   readonly judgeClassId?: string;
   /**
@@ -3167,6 +3195,8 @@ export interface CreateJudgmentInput {
   readonly item: JudgedItem;
   readonly verdict: Verdict;
   readonly reason?: string;
+  /** What the agent should have done: the calls it should have made and the tools it should not have. */
+  readonly correction?: Correction;
   /** Optional. When given it must exist and apply to the run. */
   readonly judgeClassId?: string;
   /** Your opaque id for the end user who judged, when judging on their behalf. */
