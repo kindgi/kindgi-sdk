@@ -1,11 +1,46 @@
 // {{PACK_ID}}.store-agent — what it's told about the tools that wait for a
 // person. The model never sees the approval: a call that waited comes back
 // with its result once a person decided. So the instructions say what a
-// result means, for exactly the tools the approval policy holds back.
+// result means, for exactly the tools the approval policy holds back. They
+// are the prompt block the pack brings, in `blocks/`, so the test reads them
+// there.
+
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { describe, expect, test } from 'vitest';
 
 import storeAgent from './index.js';
+
+const BLOCKS = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'blocks');
+
+/** A block's file, as far as the test reads it. */
+interface BlockFile {
+  readonly id: string;
+  readonly kind: string;
+  readonly content: { readonly template?: string; readonly templateFile?: string };
+}
+
+/**
+ * The text of the prompt block the agent's instructions name: the block the
+ * pack brings (`blocks/**\/*.json`) with that id, and its template. A block
+ * the pack doesn't bring fails here, not as empty instructions.
+ */
+function instructionsText(): string {
+  const { instructions } = storeAgent;
+  if (typeof instructions === 'string') throw new Error('The instructions are written in the agent now: check them there.');
+  const files = readdirSync(BLOCKS, { recursive: true, encoding: 'utf8' }).filter((rel) => rel.endsWith('.json'));
+  const found = files
+    .map((rel) => ({ rel, block: JSON.parse(readFileSync(join(BLOCKS, rel), 'utf8')) as BlockFile }))
+    .find(({ block }) => block.id === instructions.prompt);
+  if (found === undefined) throw new Error(`No block ${instructions.prompt} in blocks/: the pack must bring the agent's prompt.`);
+  const { rel, block } = found;
+  if (block.kind !== 'prompt') throw new Error(`${instructions.prompt} is a ${block.kind} block, not a prompt.`);
+  if (block.content.template !== undefined) return block.content.template;
+  if (block.content.templateFile === undefined) throw new Error(`${instructions.prompt} has no template.`);
+  return readFileSync(join(BLOCKS, dirname(rel), block.content.templateFile), 'utf8');
+}
 
 /** Whether `text` names `id` whole: `acme.woo.refund` isn't named by `acme.woo.refund-large`. */
 function names(text: string, id: string): boolean {
@@ -15,9 +50,7 @@ function names(text: string, id: string): boolean {
 
 describe('{{PACK_ID}}.store-agent', () => {
   test('its instructions name every tool that waits for a person, and say which results mean it was done', () => {
-    const { instructions } = storeAgent;
-    // Written in the agent, so the test reads them. Moved to a prompt, check that prompt the same way.
-    if (typeof instructions !== 'string') throw new Error('The instructions are a prompt reference now: check the prompt.');
+    const instructions = instructionsText();
     const policy = storeAgent.conversationPolicy?.hitl?.tools;
     expect(policy?.default).toBe('always_ask');
     const free = new Set(
@@ -39,9 +72,20 @@ describe('{{PACK_ID}}.store-agent', () => {
     expect(line).toMatch(/look it up again before you say what it has been refunded/);
   });
 
+  test('each tool that waits for a person needs a reviewer other than the person who asked', () => {
+    const tools = storeAgent.conversationPolicy?.hitl?.tools;
+    const free = new Set(
+      Object.entries(tools?.overrides ?? {})
+        .filter(([, mode]) => mode === 'never_ask')
+        .map(([id]) => id),
+    );
+    const waiting = storeAgent.tools.map((t) => t.id).filter((id) => !free.has(id));
+    const fourEyes = storeAgent.conversationPolicy?.hitl?.separateApprover;
+    if (typeof fourEyes !== 'object') throw new Error('separateApprover is set per tool');
+    for (const id of waiting) expect(fourEyes.overrides?.[id], id).toBe(true);
+  });
+
   test("its instructions don't tell it to say a call waits: it never answers while one does", () => {
-    const { instructions } = storeAgent;
-    if (typeof instructions !== 'string') throw new Error('The instructions are a prompt reference now: check the prompt.');
-    expect(instructions).not.toMatch(/waits? for a person/i);
+    expect(instructionsText()).not.toMatch(/waits? for a person/i);
   });
 });

@@ -208,9 +208,10 @@ export interface EvalOverrides {
 
 /**
  * Part of a test set: its cases split once into a hold-out part (about
- * `holdOutShare` of them) and a search part (the rest), stratified by
- * judgment (the cases with a "no" and the others split on their own), in
- * the order of a hash of each case id and `seed`. The same seed splits
+ * `holdOutShare` of them) and a search part (the rest), stratified (the
+ * cases that carry a correction, then of the others the cases with a
+ * "no" and the rest, each split on their own), in the order of a hash of
+ * each case id and `seed`. The same seed splits
  * the same test set the same way, so an improvement pass searches on one
  * part and proves its candidate on the other. A promotion gate refuses a
  * comparison on the search part.
@@ -234,7 +235,11 @@ export interface EvalRunStartInput {
   readonly suiteId: string;
   /**
    * The suite version to run (absent: the latest). A rescore names the
-   * version the run it rescores ran, so the cases are the same.
+   * version the run it rescores ran, so the cases are the same. In a
+   * tenant with environment orders, a run reaches the versions made in
+   * its project or an earlier environment of its order: absent, the
+   * latest of those; a named version made in a later environment reads
+   * as one the tenant doesn't have (`suite-not-found`).
    */
   readonly suiteVersion?: string;
   readonly agentRef?: AgentRef;

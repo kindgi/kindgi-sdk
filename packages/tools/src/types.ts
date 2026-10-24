@@ -5,6 +5,8 @@ import type { Logger } from '@kindgi/log';
 import type { ZodLikeSchema } from '@kindgi/schema';
 import type { OrgId, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types';
 
+import type { ConnectionNeed, ToolConnection } from './connections.js';
+
 /**
  * JSON Schema for a tool's input/output. Author-supplied, Draft 2020-12.
  * Kept as `unknown` here — the loader validates that the provided value is
@@ -115,6 +117,15 @@ export interface ToolContext {
    */
   readonly idempotencyKey?: string;
   /**
+   * Which run of this call it is: `1` the first time, one more for each
+   * retry of its step after a failure. A resume after a wait, or a re-run
+   * after a crash, keeps the number. Not for deduping a side effect: use
+   * `idempotencyKey`, which every attempt shares. A pausing tool's wait
+   * token is per attempt, so a retry waits afresh. Absent outside a run,
+   * and from a runtime that doesn't count attempts.
+   */
+  readonly attempt?: number;
+  /**
    * Signal that fires when the caller wants the tool to abort — kernel
    * cancel/failure teardown, MCP client disconnect, HTTP request cancel.
    * Cooperative handlers should observe this and exit early.
@@ -163,6 +174,16 @@ export interface ToolContext {
    * nothing resolves them — a unit test passes its own.
    */
   readonly secrets?: Readonly<Record<string, string>>;
+  /**
+   * The connections this tool declares in `needsSpec.connections`, by its
+   * name for each, resolved by the runtime for this call: the account's
+   * access token at the app, and whose account it is. Never print, log or
+   * return a token. When the app refuses one (an HTTP 401), throw
+   * `ConnectionRejectedError` with its name: the runtime renews the token
+   * once and runs the call again. Absent when the tool declares none, and
+   * wherever nothing resolves them; a unit test passes its own.
+   */
+  readonly connections?: Readonly<Record<string, ToolConnection>>;
   /**
    * The env values this tool declares in `needsSpec.env`, by name,
    * resolved by the runtime for this call: the call's project's value,
@@ -274,6 +295,12 @@ export interface TypedNeeds {
   readonly config?: Readonly<Record<string, JsonSchema>>;
   readonly capabilities?: readonly string[];
   readonly bindings?: readonly string[];
+  /**
+   * Accounts at other apps the tool acts with, by the tool's name for each
+   * (`mail`): the app, the permissions it needs, and whose connection
+   * (`as: 'person'` or `'company'`). Resolved per call (`ctx.connections`).
+   */
+  readonly connections?: Readonly<Record<string, ConnectionNeed>>;
 }
 
 /**
@@ -420,6 +447,39 @@ export interface ToolManifest {
    * through, a mutating tool asks on first use.
    */
   readonly mutating?: boolean;
+  /**
+   * `true` when a person must say yes to every call of this tool in a run
+   * no person started: one a schedule, a webhook, an event or a service
+   * account's key started (`RunStartedBy` other than `person`, or none).
+   * In such a run, an agent's call of the tool waits for a person's yes
+   * whatever the agent's `conversationPolicy.hitl.tools` says (the
+   * agent's rules can't lift it), and a flow's tool step that calls it is
+   * refused. A webhook trigger or a schedule whose
+   * `toolsAllowedUnattended` names the tool (a project admin's to set)
+   * lifts that, in its own runs only. In a run a person started, the
+   * agent's rules decide, as for any tool. Absent = `false`.
+   *
+   * A tool that acts with a person's connection (a `needsSpec.connections`
+   * entry `as: 'person'`) and isn't read-only (`mutating: false`) counts as
+   * declaring it, whatever this says: `false` doesn't lift it.
+   *
+   * Declare it on a tool that moves money or changes something people
+   * rely on, so that an agent reused under a trigger can't run it with no
+   * one asked.
+   */
+  readonly needsApprovalWhenUnattended?: boolean;
+  /**
+   * `true` when the tool may make its run wait for another system's
+   * answer. Each call's handler gets `ctx.waitToken`: it hands the token's
+   * link to that system and returns `ctx.pause()`. The run waits until the
+   * system posts its answer, valid against `output`, which becomes the
+   * call's result; or until the pause's time passes (24 hours by default,
+   * at most 24 days), which fails the call with `wait-token-timed-out`.
+   *
+   * Only a pack tool with a handler can pause: not one with a declarative
+   * `spec`, nor an MCP tool. Absent = `false`.
+   */
+  readonly pauses?: boolean;
   /** Isolation posture — see `SandboxMode`. */
   readonly sandbox?: SandboxMode;
   /** Memory + CPU caps enforced by the sandbox at dispatch. */
@@ -563,6 +623,15 @@ export type HttpAuthSpec =
       readonly kind: 'header';
       readonly headerName: string;
       readonly secretRef: ToolSecretRef;
+    }
+  /**
+   * A connection the tool declares in `needsSpec.connections`, by its
+   * name there: sent as `Authorization: Bearer <access token>`. A 401
+   * answer fails the call with `ConnectionRejectedError`.
+   */
+  | {
+      readonly kind: 'connection';
+      readonly connection: string;
     };
 
 export type HttpRequestBodySpec =

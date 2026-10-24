@@ -17,12 +17,15 @@ import type {
   SecretSetOutcome,
   SecretVersionRecord,
 } from '../secrets-binding.js';
+import { secretNameGrammarRefusal } from '../secrets-binding.js';
+import { type ServedEnvRule, refuseUnservedValue } from '../served-env.js';
 import type { AppEnv } from '../types.js';
 import { capabilityRefusal } from './denied.js';
 import { requireEnvName, requireScope, scopesEqual } from './env.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { queryScopeResourceRef, scopeResourceRef } from './scope-params.js';
+import { readingOf } from './sse.js';
 import { parseTimeInput } from './time-input.js';
 import { auditWrite } from './write-audit.js';
 
@@ -78,10 +81,16 @@ export interface SecretsRouterOptions {
    * request and the backend's answer, never a value. Absent: none.
    */
   readonly auditEvents?: AuditEventBinding;
+  /**
+   * On a runtime that refuses other envs: a set or rotation under another
+   * env answers `409 env-not-served`, unless a reference reads it there
+   * (`refuseUnservedValue`). Reads and revokes pass. Absent: any env.
+   */
+  readonly servedEnv?: ServedEnvRule;
 }
 
 export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
-  const { secretsBinding, rotationStatusStore, authorizer, auditEvents } = options;
+  const { secretsBinding, rotationStatusStore, authorizer, auditEvents, servedEnv } = options;
   const heartbeatMs = options.sseHeartbeatMs ?? 15_000;
   const r = new Hono<AppEnv>();
 
@@ -438,6 +447,43 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
     }
 
     const setScope = bodyScope.scope;
+
+    const unserved = await refuseUnservedValue(servedEnv, {
+      tenantId,
+      scope: setScope,
+      envName: envNameResult.envName,
+      name: b.name,
+      kind: 'secret',
+    });
+    if (unserved !== undefined) {
+      c.status(statusFor(unserved.code) as never);
+      return c.json(toWireError(unserved, requestId));
+    }
+
+    // A secret's name is held to the shared grammar whenever the write would
+    // CREATE it. A name that passes the grammar needs no store read. A name
+    // that fails it is refused — unless this is an `add-version` to a name the
+    // store already has (left as the store holds it, so a name stored before
+    // this release stays usable). `create-new` of such a name is always
+    // refused. A store may still refuse more of its own names when it writes
+    // (`SecretBinding.nameRefusal`).
+    const nameRefusal = secretNameGrammarRefusal(b.name);
+    if (nameRefusal !== undefined) {
+      const alreadyStored =
+        b.writeMode === 'add-version' &&
+        (await secretsBinding.get({
+          scope: setScope,
+          envName: envNameResult.envName,
+          name: b.name,
+        })) !== null;
+      if (!alreadyStored) {
+        c.status(statusFor(nameRefusal.code) as never);
+        return c.json(
+          toWireError({ code: nameRefusal.code, message: nameRefusal.message }, requestId),
+        );
+      }
+    }
+
     const outcome: SecretSetOutcome = await secretsBinding.set({
       scope: setScope,
       envName: envNameResult.envName,
@@ -579,6 +625,18 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
       );
     }
     const scope: Scope = scopeResult.scope;
+
+    const unserved = await refuseUnservedValue(servedEnv, {
+      tenantId,
+      scope,
+      envName: envNameResult.envName,
+      name,
+      kind: 'secret',
+    });
+    if (unserved !== undefined) {
+      c.status(statusFor(unserved.code) as never);
+      return c.json(toWireError(unserved, requestId));
+    }
 
     if (b.newValue !== undefined && typeof b.newValue !== 'string') {
       c.status(statusFor('bad-input') as never);
@@ -748,9 +806,32 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
       );
     }
 
+    const headers = {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      'X-Accel-Buffering': 'no',
+      Connection: 'keep-alive',
+    };
+    // Nobody will read this stream when the request is a HEAD (Hono answers a
+    // HEAD with this GET route and drops the body unread, and nothing cancels
+    // it) or when the client left during the read above (its request aborts,
+    // but the server cancels only a body it's writing). Then the route
+    // answers the stream's status and headers, before the stream exists, and
+    // starts none of its work.
+    if (c.req.method === 'HEAD' || c.req.raw.signal.aborted) {
+      return new Response(null, { status: 200, headers });
+    }
+
     const encoder = new TextEncoder();
     const initialStatus = existing;
+    // Aborted when the client goes away: the reader cancels the stream, or
+    // the request aborts. The wait below ends on it at once, and the
+    // subscription and the heartbeat with it.
+    const reading = readingOf(c.req.raw);
     const body = new ReadableStream<Uint8Array>({
+      cancel() {
+        reading.abort();
+      },
       async start(controller) {
         let closed = false;
         const close = (): void => {
@@ -806,29 +887,23 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
           if (terminal) return;
           emit('ping', {});
         }, heartbeatMs);
+        reading.signal.addEventListener('abort', wakeup, { once: true });
 
         try {
-          while (!terminal) {
+          while (!terminal && !reading.signal.aborted) {
             await new Promise<void>((resolve) => {
               notifier = resolve;
             });
           }
         } finally {
+          reading.signal.removeEventListener('abort', wakeup);
           clearInterval(timer);
           unsub();
           close();
         }
       },
     });
-    return new Response(body, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache',
-        'X-Accel-Buffering': 'no',
-        Connection: 'keep-alive',
-      },
-    });
+    return new Response(body, { status: 200, headers });
   });
 
   // ------------------------ DELETE /:name -----------------------
@@ -885,11 +960,15 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
         toWireError({ code: outcome.error.code, message: outcome.error.message, name }, requestId),
       );
     }
+    // A hard revoke that left a recoverable copy in the secret manager
+    // says until when, in the answer and on the record.
+    const { recoverableUntil } = outcome.value;
+    const recoverable = recoverableUntil === undefined ? {} : { recoverableUntil };
     // Only a revoke that changed something is recorded.
     if (outcome.value.revoked) {
-      await auditWrite(c, auditEvents, { ...revokeAudit, outcome: 'succeeded' });
+      await auditWrite(c, auditEvents, { ...revokeAudit, outcome: 'succeeded', ...recoverable });
     }
-    return c.json({ revoked: outcome.value.revoked, hard: outcome.value.hard });
+    return c.json({ revoked: outcome.value.revoked, hard: outcome.value.hard, ...recoverable });
   });
 
   return r;

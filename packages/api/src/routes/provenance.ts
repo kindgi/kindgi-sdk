@@ -14,6 +14,7 @@ import type { ConversationId, RunId, TenantId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 
 import type { Authorizer } from '../middleware/authorize.js';
+import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import type {
   CallUsageByCallId,
   ProvenanceBinding,
@@ -162,10 +163,7 @@ export function provenanceRouter(
     });
 
     if (result.kind === 'err') {
-      c.status(statusFor(result.error.code) as never);
-      return c.json(
-        toWireError({ code: result.error.code, message: result.error.message }, requestId),
-      );
+      return readFailed(c, result.error, requestId);
     }
     const { records, nextCursor } = result.value;
     const hasMore = nextCursor !== undefined;
@@ -207,18 +205,12 @@ export function provenanceRouter(
           ),
         );
       }
-      c.status(statusFor(result.error.code) as never);
-      return c.json(
-        toWireError({ code: result.error.code, message: result.error.message }, requestId),
-      );
+      return readFailed(c, result.error, requestId);
     }
     const provenance = result.value;
     const callUsage = await readCallUsage(binding, tenantId, runId);
     if (callUsage.kind === 'err') {
-      c.status(statusFor(callUsage.error.code) as never);
-      return c.json(
-        toWireError({ code: callUsage.error.code, message: callUsage.error.message }, requestId),
-      );
+      return readFailed(c, callUsage.error, requestId);
     }
     return c.json({
       id: provenance.id as unknown as string,
@@ -402,6 +394,22 @@ function parseExportBody(body: Record<string, unknown>): ParseResult<ValidatedEx
     includeMessages = im;
   }
   return { kind: 'ok', value: { signingKeyId: signingKeyId.value, includeMessages } };
+}
+
+/**
+ * A read's binding error on the wire: `503 database-busy` with
+ * `Retry-After` when the database was too busy for it (`databaseBusyAnswer`),
+ * else the code's status with the code and message.
+ */
+function readFailed(
+  c: Context<AppEnv>,
+  error: ProvenanceBindingError,
+  requestId: string,
+): Response {
+  const busy = databaseBusyAnswer(error, c);
+  if (busy !== undefined) return busy;
+  c.status(statusFor(error.code) as never);
+  return c.json(toWireError({ code: error.code, message: error.message }, requestId));
 }
 
 /** The run's call usage, when the binding has a cost ledger and the run made calls. */

@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -24,8 +25,10 @@ import org.jspecify.annotations.Nullable;
  * the Java one must answer the same. Ajv's own verdicts on a corpus of schemas and values are
  * the referee (the {@code ajv} test oracle).
  *
- * <p>Like Ajv's strict mode, it refuses a schema with a keyword or a format it doesn't know,
- * rather than ignoring it.
+ * <p>Like Ajv's strict mode as the runtime compiles a schema, it refuses a schema with a keyword
+ * or a format it doesn't know, rather than ignoring it, and what strict mode's type and
+ * {@code required} rules refuse: a keyword with no {@code type} it applies to, a {@code type} its
+ * context can't be, and a {@code required} property nothing defines.
  */
 public final class SchemaValidator {
   /** The keywords this validator checks or carries. */
@@ -38,9 +41,27 @@ public final class SchemaValidator {
           "pattern", "format", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
           "multipleOf", "oneOf", "anyOf", "allOf", "not");
   private static final Set<String> TYPES = Set.of("null", "boolean", "object", "array", "number", "integer", "string");
+  /** The keywords that apply to some types only, in the order strict mode checks them, with those types. */
+  private static final Map<String, List<String>> TYPED = typed();
+  /**
+   * The keywords that make a schema check something, as the runtime counts them ({@code $comment}
+   * among them): a schema with none passes anything, and the runtime compiles nothing in it.
+   */
+  private static final Set<String> RULES = rules();
+  /**
+   * The names every JavaScript object has: the runtime's {@code required} check finds them on any
+   * {@code properties}.
+   */
+  private static final Set<String> OBJECT_MEMBERS =
+      Set.of(
+          "__proto__", "__defineGetter__", "__defineSetter__", "__lookupGetter__", "__lookupSetter__",
+          "constructor", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "toLocaleString",
+          "toString", "valueOf");
 
   private final Map<String, Object> root;
   private final Map<String, Pattern> patterns = new HashMap<>();
+  /** The schemas compiled on their own: the root, and each reference's target. */
+  private final Set<Object> compiledAlone = Collections.newSetFromMap(new IdentityHashMap<>());
 
   /**
    * @param schema the schema
@@ -49,7 +70,8 @@ public final class SchemaValidator {
    */
   public SchemaValidator(Map<String, Object> schema) {
     this.root = Objects.requireNonNull(schema);
-    compile(schema, "#");
+    compiledAlone.add(schema);
+    compile(schema, "#", List.of(), new HashSet<>());
   }
 
   /** The schema isn't one this validator can check. */
@@ -65,8 +87,16 @@ public final class SchemaValidator {
   // Compiling: the schema is checked once, so validating never meets an unknown keyword.
   // ---------------------------------------------------------------------------------------------
 
+  /**
+   * Checks a schema as the runtime's strict compile does: its keywords, then its types against
+   * {@code context} (the types its data can have, from the schemas around it on the same data;
+   * empty when unknown), then its subschemas, in the runtime's keyword order. {@code defined} holds
+   * the property names the runtime counts as defined so far, which a {@code required} may name: a
+   * subschema on the same data shares them, and one for other data (an item, a property's value, a
+   * name) that the runtime compiles starts them afresh, here too, with what it defines.
+   */
   @SuppressWarnings("unchecked")
-  private void compile(Object node, String at) {
+  private void compile(Object node, String at, List<String> context, Set<String> defined) {
     if (node instanceof Boolean) {
       return;
     }
@@ -74,62 +104,205 @@ public final class SchemaValidator {
       throw new SchemaException(at + ": a schema must be an object or a boolean");
     }
     Map<String, Object> s = (Map<String, Object>) node;
-    for (Map.Entry<String, Object> e : s.entrySet()) {
-      String k = e.getKey();
+    for (String k : s.keySet()) {
       if (!KEYWORDS.contains(k)) {
         throw new SchemaException(at + ": unknown keyword \"" + k + "\"");
       }
-      Object v = e.getValue();
-      switch (k) {
-        case "type":
-          List<Object> types = v instanceof List ? (List<Object>) v : List.of(v);
-          for (Object t : types) {
-            if (!TYPES.contains(t)) {
-              throw new SchemaException(at + "/type: unknown type " + t);
-            }
-          }
-          // A union of types is standard JSON Schema, and every Kindgi schema compiler takes it
-          // (Ajv's allowUnionTypes, in the TypeScript packages).
-          break;
-        case "properties":
-        case "$defs":
-          for (Map.Entry<String, Object> p : map(v, at + "/" + k).entrySet()) {
-            compile(p.getValue(), at + "/" + k + "/" + escape(p.getKey()));
-          }
-          break;
-        case "additionalProperties":
-        case "propertyNames":
-        case "items":
-        case "not":
-          compile(v, at + "/" + k);
-          break;
-        case "oneOf":
-        case "anyOf":
-        case "allOf":
-          List<Object> list = list(v, at + "/" + k);
-          for (int i = 0; i < list.size(); i++) {
-            compile(list.get(i), at + "/" + k + "/" + i);
-          }
-          break;
-        case "pattern":
-          pattern((String) v, at);
-          break;
-        case "format":
-          if (!Formats.KNOWN.contains(v)) {
-            throw new SchemaException(at + "/format: unknown format \"" + v + "\"");
-          }
-          break;
-        case "$ref":
-          resolve((String) v, at);
-          break;
-        case "required":
-        case "enum":
-          list(v, at + "/" + k);
-          break;
-        default:
-          break;
+    }
+    List<String> declared = new ArrayList<>();
+    if (s.containsKey("type")) {
+      Object v = s.get("type");
+      for (Object t : v instanceof List ? (List<Object>) v : List.of(v)) {
+        if (!TYPES.contains(t)) {
+          throw new SchemaException(at + "/type: unknown type " + t);
+        }
+        declared.add((String) t);
+      }
+      // A union of types is standard JSON Schema, and every Kindgi schema compiler takes it
+      // (Ajv's allowUnionTypes, in the TypeScript packages).
+    }
+    if (s.containsKey("$ref") && s.keySet().stream().noneMatch(k -> !k.equals("$ref") && RULES.contains(k))) {
+      // A schema that only refers to another is that schema: the runtime checks no types here.
+      reach((String) s.get("$ref"), at);
+      return;
+    }
+    List<String> types = types(context, declared, at);
+    for (Map.Entry<String, List<String>> typed : TYPED.entrySet()) {
+      List<String> need = typed.getValue();
+      if (s.containsKey(typed.getKey()) && need.stream().noneMatch(n -> fits(types, n))) {
+        throw new SchemaException(at + ": missing type \"" + String.join(",", need) + "\" for keyword \"" + typed.getKey() + "\"");
       }
     }
+    if (s.containsKey("$ref")) {
+      reach((String) s.get("$ref"), at);
+    }
+    if (s.containsKey("enum") && list(s.get("enum"), at + "/enum").isEmpty()) {
+      throw new SchemaException(at + "/enum: enum must have non-empty array");
+    }
+    // The subschemas on the same data share its types and what it defines; others start afresh.
+    if (s.containsKey("not")) {
+      compile(s.get("not"), at + "/not", types, defined);
+    }
+    for (String k : List.of("anyOf", "oneOf", "allOf")) {
+      if (s.containsKey(k)) {
+        List<Object> list = list(s.get(k), at + "/" + k);
+        for (int i = 0; i < list.size(); i++) {
+          compile(list.get(i), at + "/" + k + "/" + i, types, defined);
+        }
+      }
+    }
+    if (s.containsKey("pattern")) {
+      pattern((String) s.get("pattern"), at);
+    }
+    if (s.containsKey("format") && !Formats.KNOWN.contains(s.get("format"))) {
+      throw new SchemaException(at + "/format: unknown format \"" + s.get("format") + "\"");
+    }
+    if (s.containsKey("items")) {
+      if (!passesAnything(s.get("items"))) {
+        defined = new HashSet<>();
+      }
+      compile(s.get("items"), at + "/items", List.of(), defined);
+    }
+    if (s.containsKey("required")) {
+      Object props = s.get("properties");
+      for (Object key : list(s.get("required"), at + "/required")) {
+        boolean own = props instanceof Map && (((Map<String, Object>) props).containsKey(key) || OBJECT_MEMBERS.contains(key));
+        if (!own && !defined.contains(key)) {
+          throw new SchemaException(at + "/required: required property \"" + key + "\" is not defined");
+        }
+      }
+    }
+    if (s.containsKey("propertyNames")) {
+      if (!passesAnything(s.get("propertyNames"))) {
+        defined = new HashSet<>();
+      }
+      compile(s.get("propertyNames"), at + "/propertyNames", List.of("string"), defined);
+    }
+    if (s.containsKey("additionalProperties")) {
+      // A false one is a check of its own: the runtime compiles no schema for it.
+      if (s.get("additionalProperties") instanceof Map && !passesAnything(s.get("additionalProperties"))) {
+        defined = new HashSet<>();
+      }
+      compile(s.get("additionalProperties"), at + "/additionalProperties", List.of(), defined);
+    }
+    if (s.containsKey("properties")) {
+      Map<String, Object> props = map(s.get("properties"), at + "/properties");
+      props.keySet().stream().filter(k -> !k.equals("__proto__")).forEach(defined::add);
+      // Nothing after them reads the names the runtime counts as defined.
+      for (Map.Entry<String, Object> p : props.entrySet()) {
+        compile(p.getValue(), at + "/properties/" + escape(p.getKey()), List.of(), new HashSet<>());
+      }
+    }
+    // A definition compiles where a reference reaches it, as the runtime compiles it.
+  }
+
+  /** Whether the runtime takes {@code node} for a schema any data passes, so compiles nothing in it. */
+  @SuppressWarnings("unchecked")
+  private static boolean passesAnything(Object node) {
+    if (node instanceof Boolean b) {
+      return b;
+    }
+    return node instanceof Map && ((Map<String, Object>) node).keySet().stream().noneMatch(RULES::contains);
+  }
+
+  /**
+   * Checks that {@code ref} resolves and compiles its target on its own (a fresh context, as the
+   * runtime compiles it), once. A chain of schemas that only refer onward and comes back to
+   * itself is refused: following it never ends. A {@code #} or {@code #/} reference ends it: the
+   * runtime calls the root, compiled already.
+   */
+  @SuppressWarnings("unchecked")
+  private void reach(String ref, String at) {
+    Object target = resolve(ref, at);
+    Set<Object> chain = Collections.newSetFromMap(new IdentityHashMap<>());
+    for (Object t = target; t instanceof Map && onlyRefers((Map<String, Object>) t); ) {
+      if (!chain.add(t)) {
+        throw new SchemaException(at + "/$ref: " + ref + " comes back to itself through references alone");
+      }
+      String next = (String) ((Map<String, Object>) t).get("$ref");
+      if (callsTheRoot(next)) {
+        break;
+      }
+      t = resolve(next, at);
+    }
+    if (compiledAlone.add(target)) {
+      compile(target, ref, List.of(), new HashSet<>());
+    }
+  }
+
+  private static boolean callsTheRoot(String ref) {
+    return ref.equals("#") || ref.equals("#/");
+  }
+
+  private static boolean onlyRefers(Map<String, Object> s) {
+    return s.get("$ref") instanceof String && s.keySet().stream().noneMatch(k -> !k.equals("$ref") && RULES.contains(k));
+  }
+
+  /**
+   * The types a schema's data can have: what it declares, within its context. A declared type
+   * the context can't be is refused.
+   */
+  private static List<String> types(List<String> context, List<String> declared, String at) {
+    if (declared.isEmpty() || context.isEmpty()) {
+      return declared.isEmpty() ? context : declared;
+    }
+    for (String t : declared) {
+      if (!includes(context, t)) {
+        throw new SchemaException(at + "/type: type \"" + t + "\" not allowed by context \"" + String.join(",", context) + "\"");
+      }
+    }
+    return narrowed(context, declared);
+  }
+
+  /** Whether data of these types can be of type {@code t} (an integer is a number). */
+  private static boolean includes(List<String> types, String t) {
+    return types.contains(t) || (t.equals("integer") && types.contains("number"));
+  }
+
+  /** Whether a keyword for type {@code need} applies to data of these types (a number one to an integer). */
+  private static boolean fits(List<String> types, String need) {
+    return types.contains(need) || (need.equals("number") && types.contains("integer"));
+  }
+
+  /** The context's types a schema declaring {@code declared} keeps (a number narrows to an integer). */
+  private static List<String> narrowed(List<String> context, List<String> declared) {
+    List<String> kept = new ArrayList<>();
+    for (String t : context) {
+      if (includes(declared, t)) {
+        kept.add(t);
+      } else if (declared.contains("integer") && t.equals("number")) {
+        kept.add("integer");
+      }
+    }
+    return kept;
+  }
+
+  private static Map<String, List<String>> typed() {
+    Map<String, List<String>> typed = new LinkedHashMap<>();
+    for (String k : List.of("maximum", "minimum", "exclusiveMaximum", "exclusiveMinimum", "multipleOf")) {
+      typed.put(k, List.of("number"));
+    }
+    for (String k : List.of("maxLength", "minLength", "pattern")) {
+      typed.put(k, List.of("string"));
+    }
+    for (String k : List.of("maxProperties", "minProperties", "required")) {
+      typed.put(k, List.of("object"));
+    }
+    for (String k : List.of("maxItems", "minItems", "uniqueItems")) {
+      typed.put(k, List.of("array"));
+    }
+    for (String k : List.of("propertyNames", "additionalProperties", "properties")) {
+      typed.put(k, List.of("object"));
+    }
+    typed.put("items", List.of("array"));
+    typed.put("format", List.of("number", "string"));
+    return Collections.unmodifiableMap(typed);
+  }
+
+  private static Set<String> rules() {
+    Set<String> rules = new LinkedHashSet<>(TYPED.keySet());
+    rules.addAll(List.of("$ref", "$comment", "type", "const", "enum", "not", "anyOf", "oneOf", "allOf"));
+    return Collections.unmodifiableSet(rules);
   }
 
   private Pattern pattern(String source, String at) {
@@ -151,7 +324,7 @@ public final class SchemaValidator {
       throw new SchemaException(at + "/$ref: only local references are supported, not " + ref);
     }
     Object target = root;
-    if (ref.length() > 1) {
+    if (!callsTheRoot(ref)) {
       if (!ref.startsWith("#/")) {
         throw new SchemaException(at + "/$ref: unsupported reference " + ref);
       }

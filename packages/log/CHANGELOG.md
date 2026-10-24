@@ -1,5 +1,45 @@
 # @kindgi/log
 
+## 0.1.10
+
+No changes in this release.
+
+## 0.1.10-rc.1
+
+No changes in this release.
+
+## 0.1.10-rc.0
+
+No changes in this release.
+
+## 0.1.9
+
+### Patch Changes
+
+- 3b90568: **An error whose cause is a plain object logs that cause's code and message, not `[object Object]`.** A storage error is a plain object (`{ code, message, cause }`), so a log line for an error caused by one read `caused by: [object Object]` and lost the storage code and message. A plain object in an error's place (as `err`, or as a cause) now logs its `name` when that's a non-empty string (else `Object`), its `code` and its scrubbed `message`, and nothing else: no other field, no stack, and its own `cause` isn't walked, since a storage error's is the database driver's, whose text can carry the query and the values bound to it. One with neither a code nor a message still logs as `String(err)`. Logging one never throws: a field that throws when read counts as missing, and an object that can't be made a string (no prototype, a revoked proxy) logs as its type tag or `[unreadable]`.
+
+## 0.1.9-rc.1
+
+No changes in this release.
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- 3b90568: **An error whose cause is a plain object logs that cause's code and message, not `[object Object]`.** A storage error is a plain object (`{ code, message, cause }`), so a log line for an error caused by one read `caused by: [object Object]` and lost the storage code and message. A plain object in an error's place (as `err`, or as a cause) now logs its `name` when that's a non-empty string (else `Object`), its `code` and its scrubbed `message`, and nothing else: no other field, no stack, and its own `cause` isn't walked, since a storage error's is the database driver's, whose text can carry the query and the values bound to it. One with neither a code nor a message still logs as `String(err)`. Logging one never throws: a field that throws when read counts as missing, and an object that can't be made a string (no prototype, a revoked proxy) logs as its type tag or `[unreadable]`.
+
+## 0.1.8
+
+### Patch Changes
+
+- d92706f: **Security hardening: the license renewer's key is now masked in logs.** Redaction matched a Kindgi token's kind only when it had two letters, so the license renewer's private key (`kgi_lrk_…`) and public key (`kgi_lrp_…`) were written in full when they appeared in a log line. A kind may now have two or three letters, and those keys keep only their prefix and last four characters, like every other token. The Python (`kindgi.log`) and Java (`com.kindgi.log`) loggers change the same way. Ordinary text that contains `kgi_` is still left alone.
+
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- d92706f: **Security hardening: the license renewer's key is now masked in logs.** Redaction matched a Kindgi token's kind only when it had two letters, so the license renewer's private key (`kgi_lrk_…`) and public key (`kgi_lrp_…`) were written in full when they appeared in a log line. A kind may now have two or three letters, and those keys keep only their prefix and last four characters, like every other token. The Python (`kindgi.log`) and Java (`com.kindgi.log`) loggers change the same way. Ordinary text that contains `kgi_` is still left alone.
+
 ## 0.1.7
 
 No changes in this release.

@@ -171,6 +171,10 @@ Conversely, S3 uploads via `PUT /s3/:bucket/:key` are visible in
 `GET /v1/artifacts` listings under the same `blobId` and are
 downloadable via `GET /v1/artifacts/:blobId`.
 
+A listing's entries and an upload's answer carry the pair as `bucket`
+and `key` when the storage gives the blob one, so a client can match an
+S3 object to its `blobId`.
+
 ### Errors (S3-style XML)
 
 | HTTP | S3 Code                          | When                                     |

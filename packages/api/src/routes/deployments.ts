@@ -5,7 +5,15 @@ import { createHash } from 'node:crypto';
 
 import { type Context, Hono } from 'hono';
 
-import { type Agent, type AgentId, type AgentPins, templateProblem } from '@kindgi/agents';
+import {
+  type Agent,
+  type AgentId,
+  type AgentPins,
+  type BlockDefinition,
+  templateProblem,
+  validateBlock,
+} from '@kindgi/agents';
+import type { AuditEventBinding } from '@kindgi/audit-events';
 import { ref, tuplesForCreate } from '@kindgi/authz';
 import { runOutsideTenant } from '@kindgi/bounds';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
@@ -16,7 +24,8 @@ import {
   createCheckRegistry,
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
-import type { ProjectBinding, Scope } from '@kindgi/platform';
+import { resolvePackEnv } from '@kindgi/handler-runtime/pack-env';
+import type { ProjectBinding } from '@kindgi/platform';
 import { SchemaCompileBudgetError, compileInlineSchema } from '@kindgi/schema';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
 import type {
@@ -34,27 +43,40 @@ import type {
 import type { AgentRegistryBinding } from '../agent-binding.js';
 import { type UnpinnableRef, publishDeployedAgent, resolveAgentPins } from '../agent-pins.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
-import { type BlockPins, resolveBlockPins } from '../block-pins.js';
+import { type BlockPins, type BlockVersionReads, resolveBlockPins } from '../block-pins.js';
+import { canonicalJson } from '../canonical-json.js';
+import {
+  type PlannedBlock,
+  planPackBlocks,
+  publishPackBlocks,
+  withPackVersions,
+} from '../deploy-blocks.js';
 import type { DeployedVersionOutcome } from '../deploy-versions.js';
 import {
   type DeployedAgent,
   type DeployedFlow,
   type DeployedVersion,
-  type Deployment,
   type DeploymentBinding,
   type DeploymentPrimitiveCounts,
   type DeploymentRegisterOutcome,
-  endpointToWire,
+  serializeDeployment,
 } from '../deployment-binding.js';
-import { statusFor, toWireError } from '../errors.js';
+import { canonicalizeEnvelope, normaliseSha256Hex } from '../deployment-envelope.js';
+import { type DeploymentValuesDeps, deploymentValues } from '../deployment-values.js';
+import type { EnvBinding } from '../env-binding.js';
+import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
+import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
+import { type WireErrorBody, retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
 import { type FlowPinsLive, publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
 import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
 import { imageRefWithin, parseImagePrefix, parseImageRef } from '../image-ref.js';
-import type { ImageRegistryBinding } from '../image-registry-binding.js';
-import type { LiveVersionBinding } from '../live-version-binding.js';
+import type { ImageRegistryBinding, ImageRegistryError } from '../image-registry-binding.js';
+import type { ItemRights } from '../item-rights.js';
+import type { AgentReleaseBindings, LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
+import { packEnvCheck } from '../pack-env.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { PublishRefused } from '../publish-refused.js';
 import {
@@ -67,15 +89,31 @@ import {
   reservedToolMetadataMessage,
 } from '../reference-scope.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
-import { secretScopesFor, toolSecretRefs } from '../secret-scope.js';
-import type { SecretBinding } from '../secrets-binding.js';
+import {
+  callerAdministers,
+  deploymentSecretScope,
+  secretScopesFor,
+  toolSecretRefs,
+} from '../secret-scope.js';
+import { type SecretBinding, secretNameGrammarRefusal } from '../secrets-binding.js';
+import { type ServedEnvRule, readReferencesOnce, refuseUnservedValue } from '../served-env.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
-import { capabilityRefusal } from './denied.js';
+import type { AgentReleaseGateDeps } from './agent-releases.js';
+import { capabilityRefusal, deniedBy } from './denied.js';
+import {
+  carriedFor,
+  isPromotionRoute,
+  mountDeploymentPromotions,
+  readableDeployment,
+  readableDeployments,
+  valuesDepsFor,
+} from './deployment-promotions.js';
 import { requireEnvName } from './env.js';
 import type { GuardrailWriteHook } from './guardrails.js';
 import { clampLimit } from './pagination.js';
+import { scopeResourceRef } from './scope-params.js';
 import { tenantResourceAccess } from './tenant-access.js';
 import { parseTimeInput } from './time-input.js';
 import type { ToolWriteHook } from './tools.js';
@@ -183,6 +221,13 @@ export interface DeploymentsRouterBindings {
    * its project reaches is refused, before anything is registered.
    */
   readonly referenceScope?: ReferenceScopeBinding;
+  /**
+   * The tenant's environment orders. A deploy into a later environment of
+   * one is refused (`409 environment-takes-promotions`), before anything is
+   * registered: a later environment takes builds by promotion only
+   * (`environment-entry.ts`). Absent: no project is a later environment.
+   */
+  readonly environmentOrders?: Pick<EnvironmentOrderBinding, 'orderOf'>;
   readonly deploymentRegistry: DeploymentBinding;
   readonly signingKeyRegistry: SigningKeyRegistryBinding;
   readonly imageRegistry: ImageRegistryBinding;
@@ -225,6 +270,22 @@ export interface DeploymentsRouterBindings {
   /** The env this deployment serves: where a pack tool's declared secrets are read (`secret-scope.ts`). */
   readonly envName?: EnvName;
   /**
+   * Whether the server gives each deployment's pack service the values of
+   * the env its pack declares, from the env store (`pack-env.ts`): a server
+   * that runs a pack service per deployment. Otherwise a pack service takes
+   * its env from how it's run, and `GET /:deploymentId/pack-env` answers
+   * `501 pack-env-not-served`.
+   */
+  readonly packEnvServed?: boolean;
+  /** Where a pack's declared names are looked for, with `secretsBinding` and `projectBinding`. */
+  readonly envBinding?: EnvBinding;
+  /**
+   * On a runtime that refuses other envs: a secret sync under another env
+   * answers `409 env-not-served` before any write (`refuseUnservedValue`).
+   * Absent: any env.
+   */
+  readonly servedEnv?: ServedEnvRule;
+  /**
    * Called for each tool and guardrail a new deployment registered, as
    * `POST /v1/tools` and `POST /v1/guardrails` call them, so a runtime
    * that caches the catalogs (its tool and guardrail bridges) sees the
@@ -233,7 +294,34 @@ export interface DeploymentsRouterBindings {
    */
   readonly onToolWrite?: ToolWriteHook;
   readonly onGuardrailWrite?: GuardrailWriteHook;
+  /**
+   * What the values check reads besides the bindings above
+   * (`deployment-values.ts`, `valuesDepsFor`): env values, the model
+   * providers, where a provider's key is, and the pack service's own env.
+   * Each one absent isn't checked.
+   */
+  readonly values?: Pick<DeploymentValuesDeps, 'env' | 'providers' | 'modelKeyLookup' | 'packEnv'>;
+  /** Where a promotion is recorded (`deployment-promoted`). Absent: it isn't. */
+  readonly auditEvents?: AuditEventBinding;
+  /**
+   * The agents' live versions and gated promotions, for a promotion asked
+   * to make what it carried live (`{ makeLive: true }`): each carried
+   * agent is pinned in the target through the same gate a live route uses
+   * (`requestPromotion`). Absent: `makeLive` answers `501`.
+   */
+  readonly agentReleases?: AgentReleaseBindings;
+  /** What the make-live gate reads besides the releases (`requestPromotion`): comparisons, projects, the reference scope. */
+  readonly releaseGateDeps?: AgentReleaseGateDeps;
+  /**
+   * Rights on an agent more than one project serves, for a make-live: an
+   * agent in an order is pinned by an admin of the target project, and a
+   * pin wider than one project is refused (`liveChangeRefusal`). Absent, or
+   * with no authorizer: today's `promote` check.
+   */
+  readonly itemRights?: ItemRights;
 }
+
+const SECRETS_PATH = /\/deployments\/[^/]+\/secrets\/?$/;
 
 export function deploymentsRouter(
   bindings: DeploymentsRouterBindings,
@@ -243,16 +331,23 @@ export function deploymentsRouter(
   // Every schema a publish compiles counts against its tenant's budget.
   const publishCompiles = publishCompilesMiddleware();
   // A deploy into a named project needs admin on that project, as creating
-  // an agent there does; a tenant-wide deploy, and every other route here,
-  // the tenant's. (A key limited to another project was already refused,
-  // `refuseOtherProjectForKey`.)
+  // an agent there does; a tenant-wide deploy, the tenant's. Every read
+  // here needs `read` on the tenant, and a read of one deployment `read` on
+  // the project it serves as well (`readableDeployment`). (A key limited to
+  // another project was already refused, `refuseOtherProjectForKey`.)
   const tenantAccess = tenantResourceAccess(authorizer);
   r.use('*', async (c, next) => {
-    if (
-      authorizer === undefined ||
-      c.req.method !== 'POST' ||
-      !/\/deployments\/?$/.test(c.req.path)
-    ) {
+    // Without an authorizer, nothing here is checked: deploying is project
+    // work, which a runtime without an authorization store leaves to every
+    // caller. `tenantResourceAccess` would make every change the tenant
+    // admin's, as it does for the tenant's settings.
+    if (authorizer === undefined) return next();
+    // A promotion checks rights on the projects themselves: read on the
+    // deployment's environment, admin on the target.
+    if (isPromotionRoute(c.req.method, c.req.path)) return next();
+    // A secrets sync asks admin where it writes them, as `/v1/secrets` does.
+    if (c.req.method === 'POST' && SECRETS_PATH.test(c.req.path)) return next();
+    if (c.req.method !== 'POST' || !/\/deployments\/?$/.test(c.req.path)) {
       return tenantAccess(c, next);
     }
     return authorizer.authorize('admin', async (ctx) => {
@@ -270,59 +365,70 @@ export function deploymentsRouter(
     })(c, next);
   });
 
+  // ---------- POST /:deploymentId/promotions (and /check) ----------
+  mountDeploymentPromotions(r, bindings, authorizer);
+
   // ---------- GET / (list, cursor-paginated) ----------
   r.get('/', async (c) => {
-    const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const limit = clampLimit(c.req.query('limit'));
 
     const cursorRaw = c.req.query('cursor');
     const imageRefPrefixRaw = c.req.query('imageRefPrefix');
     const signerKeyIdRaw = c.req.query('signerKeyId');
+    // One environment's deployments (the Default's include those that name
+    // no project), and one pack's.
+    const projectIdRaw = c.req.query('projectId');
+    const packIdRaw = c.req.query('packId');
+    // One project's needs `read` on it (one that isn't there is refused to
+    // everyone, so it tells no one what exists). Either way the page keeps
+    // only the rows whose project the caller reads, whatever the binding
+    // returned, so it can come back short, its cursor still the next page's.
+    const oneProject = projectIdRaw !== undefined && projectIdRaw.length > 0;
+    const refused = oneProject
+      ? await deniedBy(authorizer, c, 'read', ref('project', projectIdRaw))
+      : undefined;
+    if (refused !== undefined) return refused;
 
-    try {
-      const page = await bindings.deploymentRegistry.list({
-        tenantId,
-        limit,
-        ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
-        ...(imageRefPrefixRaw !== undefined &&
-          imageRefPrefixRaw.length > 0 && {
-            imageRefPrefix: imageRefPrefixRaw,
-          }),
-        ...(signerKeyIdRaw !== undefined &&
-          signerKeyIdRaw.length > 0 && {
-            signerKeyId: signerKeyIdRaw as SigningKeyId,
-          }),
-      });
-      return c.json({
-        data: page.data.map(serializeDeployment),
-        hasMore: page.nextCursor !== undefined,
-        ...(page.nextCursor !== undefined && {
-          nextCursor: page.nextCursor as unknown as string,
+    // A throw from list() propagates to the app's central error handler
+    // (middleware/error-mapper.ts): a busy database answers this GET with a
+    // 503 + Retry-After, anything else a 500 whose body carries no raw error
+    // text (the whole error goes to the log).
+    const page = await bindings.deploymentRegistry.list({
+      tenantId,
+      limit,
+      ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
+      ...(imageRefPrefixRaw !== undefined &&
+        imageRefPrefixRaw.length > 0 && {
+          imageRefPrefix: imageRefPrefixRaw,
         }),
-      });
-    } catch (cause) {
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Deployment list failed: ${errMessage(cause)}`,
-          },
-          requestId,
-        ),
-      );
-    }
+      ...(signerKeyIdRaw !== undefined &&
+        signerKeyIdRaw.length > 0 && {
+          signerKeyId: signerKeyIdRaw as SigningKeyId,
+        }),
+      ...(oneProject && { projectId: projectIdRaw as ProjectId }),
+      ...(packIdRaw !== undefined && packIdRaw.length > 0 && { packId: packIdRaw }),
+    });
+    const readable = await readableDeployments(c, bindings, authorizer, page.data);
+    return c.json({
+      data: readable.map(serializeDeployment),
+      hasMore: page.nextCursor !== undefined,
+      ...(page.nextCursor !== undefined && {
+        nextCursor: page.nextCursor as unknown as string,
+      }),
+      // The filters it applied, so a client can tell a runtime that ignored them.
+      ...(oneProject && { projectId: projectIdRaw }),
+      ...(packIdRaw !== undefined && packIdRaw.length > 0 && { packId: packIdRaw }),
+    });
   });
 
   // ---------- GET /:deploymentId ----------
   r.get('/:deploymentId', async (c) => {
     const requestId = c.get('requestId');
-    const tenantId = c.get('tenantId') as TenantId;
     const deploymentId = c.req.param('deploymentId');
 
-    const record = await bindings.deploymentRegistry.get({ tenantId, deploymentId });
-    if (record === null) {
+    const located = await readableDeployment(c, bindings, authorizer);
+    if (located === undefined) {
       c.status(statusFor('deployment-not-found') as never);
       return c.json(
         toWireError(
@@ -335,7 +441,144 @@ export function deploymentsRouter(
         ),
       );
     }
-    return c.json(serializeDeployment(record));
+    return c.json(serializeDeployment(located.deployment));
+  });
+
+  // ---------- GET /:deploymentId/pack-env ----------
+  // Where each name its pack declares is set, at the deployment's scopes:
+  // never a value.
+  r.get('/:deploymentId/pack-env', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const deploymentId = c.req.param('deploymentId');
+    const env = bindings.envBinding;
+    const envName = bindings.envName;
+    if (bindings.packEnvServed !== true || env === undefined || envName === undefined) {
+      c.status(statusFor('pack-env-not-served') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'pack-env-not-served',
+            message:
+              "This server doesn't give a deployment's pack service the env its pack declares: its pack services take theirs from how they're run (`kindgi env plan`).",
+          },
+          requestId,
+        ),
+      );
+    }
+    const located = await readableDeployment(c, bindings, authorizer);
+    if (located === undefined) {
+      c.status(statusFor('deployment-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'deployment-not-found',
+            message: `No deployment with id "${deploymentId}" under this tenant`,
+            deploymentId,
+          },
+          requestId,
+        ),
+      );
+    }
+    const record = located.deployment;
+    const check = await packEnvCheck(
+      {
+        env,
+        ...(bindings.secretsBinding !== undefined && { secrets: bindings.secretsBinding }),
+        ...(bindings.projectBinding !== undefined && { projects: bindings.projectBinding }),
+      },
+      {
+        tenantId,
+        ...(record.projectId !== undefined && { projectId: record.projectId }),
+        envName,
+        declaration: record.packEnv ?? { required: [], optional: [] },
+        // The orchestrator gives a secret, or records why it can't on the
+        // deployment's endpoint: here it's set, with no problem.
+        secretOnly: 'set',
+      },
+    );
+    return c.json({
+      envName,
+      data: check.names,
+      ...(check.problem !== undefined && { problem: check.problem }),
+    });
+  });
+
+  // ---------- GET /:deploymentId/values ----------
+  // What the deployment needs set in a project before it serves there,
+  // names only (`deployment-values.ts`). It asks what listing secrets in
+  // that project asks, `admin` on it, on top of the tenant `read` above and
+  // the deployment's own read, as a promotion from it does.
+  r.get('/:deploymentId/values', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const deploymentId = c.req.param('deploymentId');
+    const named = c.req.query('projectId');
+    if (named !== undefined && !UUID_RE.test(named)) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: '`projectId` must be a project id (a UUID)' },
+          requestId,
+        ),
+      );
+    }
+    const located = await readableDeployment(c, bindings, authorizer);
+    if (located === undefined) {
+      c.status(statusFor('deployment-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'deployment-not-found',
+            message: `No deployment with id "${deploymentId}" under this tenant`,
+            deploymentId,
+          },
+          requestId,
+        ),
+      );
+    }
+    const { deployment: record, projectId: own } = located;
+    const projectId = (named as ProjectId | undefined) ?? own;
+    if (projectId === undefined) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message:
+              "`projectId` is required: this runtime doesn't record the deployment's project",
+          },
+          requestId,
+        ),
+      );
+    }
+    const refused = await deniedBy(authorizer, c, 'admin', ref('project', projectId));
+    if (refused !== undefined) return refused;
+    if (named !== undefined && (await bindings.projectBinding?.get(tenantId, projectId)) === null) {
+      c.status(statusFor('project-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'project-not-found',
+            message: `\`projectId\` "${named}" names no project of this tenant`,
+          },
+          requestId,
+        ),
+      );
+    }
+    // In a project other than its own, the one a promotion would take it
+    // to, a tool's secret counts only at a scope the caller administers, as
+    // their promotion would record it, so the list says what that
+    // promotion's check would. In its own project, every scope counts: the
+    // list says where a run there finds each value.
+    const administers = projectId === own ? undefined : callerAdministers(c, authorizer, tenantId);
+    const { carried } = await carriedFor(bindings, record);
+    const data = await deploymentValues(valuesDepsFor(bindings, administers), {
+      deployment: record,
+      carried,
+      projectId,
+    });
+    return c.json({ data });
   });
 
   // ---------- POST / (register a signed deployment) ----------
@@ -412,16 +655,9 @@ export function deploymentsRouter(
       publicKey: publicKeyBase64,
     });
     if (trusted.kind === 'err') {
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Trust check failed: ${trusted.error.message}`,
-          },
-          requestId,
-        ),
-      );
+      // To the central error handler: a 500 with no raw text; the trust-check
+      // error is logged via the cause, which keeps its code.
+      throw new Error('Trust check failed', { cause: trusted.error });
     }
     if (!trusted.value) {
       c.status(statusFor('signer-not-trusted') as never);
@@ -490,18 +726,7 @@ export function deploymentsRouter(
     // ---- Image pullability + index integrity ----
     const head = await bindings.imageRegistry.head({ tenantId, imageRef: wire.imageRef });
     if (head.kind === 'err') {
-      c.status(statusFor('image-unverifiable') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'image-unverifiable',
-            message: `Image head probe failed: ${head.error.message}`,
-            imageRef: wire.imageRef,
-            cause: head.error.code,
-          },
-          requestId,
-        ),
-      );
+      return registryRefusal(c, 'Image head probe failed', head.error, wire.imageRef, requestId);
     }
     if (head.value.digest !== imageDigest) {
       c.status(statusFor('image-unverifiable') as never);
@@ -523,17 +748,12 @@ export function deploymentsRouter(
       path: '/app/index.json',
     });
     if (indexFile.kind === 'err') {
-      c.status(statusFor('image-unverifiable') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'image-unverifiable',
-            message: `Extract /app/index.json failed: ${indexFile.error.message}`,
-            imageRef: wire.imageRef,
-            cause: indexFile.error.code,
-          },
-          requestId,
-        ),
+      return registryRefusal(
+        c,
+        'Extract /app/index.json failed',
+        indexFile.error,
+        wire.imageRef,
+        requestId,
       );
     }
     const normalisedIndexHash = normaliseSha256Hex(indexFile.value.sha256);
@@ -562,6 +782,22 @@ export function deploymentsRouter(
           {
             code: 'image-unverifiable',
             message: 'Image /app/index.json is not a JSON object',
+            imageRef: wire.imageRef,
+          },
+          requestId,
+        ),
+      );
+    }
+    // The names its pack service reads from its process env, as the build
+    // validated them: a signed index that doesn't is refused, never kept.
+    const declaredEnv = resolvePackEnv(imageIndex.env);
+    if (declaredEnv.kind === 'err') {
+      c.status(statusFor('image-unverifiable') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'image-unverifiable',
+            message: `Image /app/index.json's env is malformed: ${declaredEnv.message}`,
             imageRef: wire.imageRef,
           },
           requestId,
@@ -627,6 +863,21 @@ export function deploymentsRouter(
     }
     if (keyIssues.length > 0) return validationFailed(c, keyIssues);
 
+    // The pack's data blocks are published into the runtime's block
+    // registry: a runtime without one takes none.
+    if (validated.blocks.length > 0 && bindings.blockRegistry === undefined) {
+      return validationFailed(
+        c,
+        validated.blocks.map((block, index) => ({
+          primitive: 'block' as const,
+          index,
+          id: block.id,
+          path: '',
+          message: 'this runtime serves no data blocks',
+        })),
+      );
+    }
+
     if (bindings.requirePrefixedPackChecks === true) {
       const checkIssues = unprefixedPackChecks(validated.guardrails, imageIndex.packId);
       if (checkIssues.length > 0) return validationFailed(c, checkIssues);
@@ -639,15 +890,16 @@ export function deploymentsRouter(
 
     // ---- Registry upserts (with rollback tracking) ----
     //
-    // Agent-registry, flow-registry, tool-registry, and
-    // guardrail-registry writes are all project-scoped. All four loops write
+    // Agent-registry, flow-registry, tool-registry, guardrail-registry and
+    // block-registry writes are all project-scoped. All five loops write
     // into the deploy's project: the body's `projectId`, else the tenant's
     // Default project via `projectBinding.getDefault(tenantId)`, resolved
     // once per request and threaded into
     // `AgentRegistryBinding.publish(...)` /
     // `FlowRegistryBinding.publish(...)` /
     // `ToolRegistryBinding.register(...)` /
-    // `GuardrailRegistryBinding.register(...)`.
+    // `GuardrailRegistryBinding.register(...)` /
+    // `BlockRegistryBinding.publish(...)` (`publishPackBlocks`).
     //
     // Fail-fast: if a deployment brings any of those primitives but
     // no `projectBinding` was wired, we surface `500 internal-server-
@@ -657,7 +909,8 @@ export function deploymentsRouter(
       validated.agents.length > 0 ||
       validated.flows.length > 0 ||
       validated.tools.length > 0 ||
-      validated.guardrails.length > 0;
+      validated.guardrails.length > 0 ||
+      validated.blocks.length > 0;
     if (needsProjectBinding && bindings.projectBinding === undefined) {
       c.status(statusFor('internal-server-error') as never);
       return c.json(
@@ -665,7 +918,7 @@ export function deploymentsRouter(
           {
             code: 'internal-server-error',
             message:
-              'agent/flow/tool/guardrail publish requires projectBinding; deployment blocked. Wire projectBinding into DeploymentsRouterBindings at app-creation time.',
+              'agent/flow/tool/guardrail/block publish requires projectBinding; deployment blocked. Wire projectBinding into DeploymentsRouterBindings at app-creation time.',
           },
           requestId,
         ),
@@ -711,6 +964,27 @@ export function deploymentsRouter(
       );
     }
 
+    // A later environment of an order takes builds by promotion only: the
+    // deploy goes to the order's first environment. The project is the one
+    // named, else the Default's (where a deploy naming none lands).
+    if (bindings.environmentOrders !== undefined) {
+      const entryProjectId =
+        targetProjectId ?? (await bindings.projectBinding?.getDefault(tenantId))?.id;
+      const later =
+        entryProjectId === undefined
+          ? undefined
+          : await laterEnvironment(bindings.environmentOrders, tenantId, entryProjectId);
+      if (later !== undefined) {
+        return environmentTakesPromotionsResponse(
+          c,
+          requestId,
+          authorizer,
+          { kind: 'deploy' },
+          later,
+        );
+      }
+    }
+
     // What its agents and flows name, besides what it brings itself, must be
     // its project's to reach (`reference-scope.ts`), before any write.
     if (targetProjectId !== undefined) {
@@ -719,6 +993,8 @@ export function deploymentsRouter(
         ...validated.agents.map((a) => `agent:${a.id as unknown as string}`),
         ...validated.flows.map((f) => `flow:${f.id as unknown as string}`),
         ...validated.guardrails.map((g) => `guardrail:${g.id as unknown as string}`),
+        // Published into this project, or refused as another project's.
+        ...validated.blocks.map((b) => `block:${b.id}`),
       ]);
       const named = [
         ...validated.agents.flatMap((agent, i) =>
@@ -739,14 +1015,50 @@ export function deploymentsRouter(
 
     // Every schema a deploy compiles is compiled before its first write,
     // so a compile its tenant's budget refuses leaves nothing stored. The
-    // agents' data blocks pin here (checking model settings compiles
-    // one); a deploy writes no blocks, so they pin as they would later.
+    // pack's data blocks are checked against the registry here (a settings
+    // version's values against the schema it keeps), and the agents'
+    // blocks pin here (checking model settings compiles one), over the
+    // registry's versions and the pack's new ones (`deploy-blocks.ts`).
+    let packBlocks: readonly PlannedBlock[] = [];
+    let blockReads: BlockVersionReads | undefined = bindings.blockRegistry;
+    if (
+      validated.blocks.length > 0 &&
+      bindings.blockRegistry !== undefined &&
+      targetProjectId !== undefined
+    ) {
+      const plan = await planPackBlocks(bindings.blockRegistry, tenantId, validated.blocks);
+      if (plan.kind === 'invalid') {
+        return validationFailed(
+          c,
+          plan.issues.map((issue) => ({ primitive: 'block' as const, ...issue })),
+        );
+      }
+      if (plan.kind === 'refused') return publishRefusedResponse(c, requestId, plan.refusal);
+      packBlocks = plan.planned;
+      blockReads = withPackVersions(bindings.blockRegistry, targetProjectId, packBlocks);
+    }
     const blockPinsOf =
       bindings.agentRegistry !== undefined &&
       bindings.toolRegistry !== undefined &&
       targetProjectId !== undefined
-        ? await pinBlocks(bindings.blockRegistry, tenantId, validated.agents)
+        ? await pinBlocks(
+            blockReads,
+            tenantId,
+            validated.agents,
+            new Map(packBlocks.map(({ block }) => [block.id, block.version])),
+          )
         : undefined;
+    // The pack's blocks are written first, and a failed deploy's rollback
+    // leaves their new versions unregistered, which refuses the pack's next
+    // deploy until they're reinstated. So with the pack's blocks, a block
+    // range the agents can't pin is refused here, before anything is
+    // written; a tool range is named at the write, as before.
+    if (packBlocks.length > 0 && blockPinsOf !== undefined) {
+      const unpinnable = blockPinsOf.flatMap((pins, i) =>
+        atAgent(i, validated.agents[i] as Agent, pins.issues),
+      );
+      if (unpinnable.length > 0) return unpinnableResponse(c, requestId, unpinnable);
+    }
 
     const rolled: RollbackAction[] = [];
     // The version each agent is registered under: its definition's, or
@@ -759,11 +1071,22 @@ export function deploymentsRouter(
       // it runs outside the counting, so the budget can't refuse a deploy
       // half-written.
       await runOutsideTenant(async () => {
+        // The pack's blocks first: what follows pins them.
+        if (bindings.blockRegistry !== undefined && targetProjectId !== undefined) {
+          await publishPackBlocks({
+            blocks: bindings.blockRegistry,
+            tenantId,
+            projectId: targetProjectId,
+            planned: packBlocks,
+            rolled,
+          });
+        }
         if (bindings.toolRegistry !== undefined && targetProjectId !== undefined) {
           for (const tool of validated.tools) {
             const projectIdForTool = targetProjectId;
             // Where each secret it names is read: decided now, as the deployer
             // may read them, and kept with this version (`secret-scope.ts`).
+            // One set nowhere yet is read where this deployment's sync writes.
             const secretScopes = await secretScopesFor(
               c,
               {
@@ -773,6 +1096,7 @@ export function deploymentsRouter(
               },
               { kind: 'project', tenantId, projectId: projectIdForTool },
               toolSecretRefs(tool, bindings.envName),
+              deploymentSecretScope(tenantId, wire.projectId),
             );
             const outcome = await bindings.toolRegistry.publish({
               tenantId,
@@ -823,6 +1147,7 @@ export function deploymentsRouter(
             } else if (outcome.kind === 'already-registered') {
               const kept = await keepRegisteredGuardrail(
                 bindings.guardrailRegistry,
+                bindings.environmentOrders,
                 tenantId,
                 projectIdForGuardrail,
                 guardrail,
@@ -885,51 +1210,13 @@ export function deploymentsRouter(
       // error handler answers. None runs past the first write here.
       if (cause instanceof SchemaCompileBudgetError) throw cause;
       // A primitive refused with a typed outcome is the caller's to fix:
-      // that outcome's own status and code. Anything thrown is a 500.
-      if (cause instanceof PublishRefused) {
-        if (cause.projectId !== undefined) {
-          c.get('log').info(`${cause.message}: deploy refused`, {
-            primitive: cause.primitive,
-            id: cause.id,
-            ownerProjectId: cause.projectId as unknown as string,
-          });
-        }
-        c.status(statusFor(cause.code) as never);
-        return c.json(
-          toWireError(
-            {
-              code: cause.code,
-              message: `${cause.message}; nothing was deployed`,
-              primitive: cause.primitive,
-              id: cause.id,
-            },
-            requestId,
-          ),
-        );
-      }
-      if (cause instanceof UnpinnableDeploy) {
-        c.status(statusFor('invalid-agent') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'validation-failed',
-              message: `The deployment's agents or flows use tool or agent versions that aren't published (${cause.issues.length} issue${cause.issues.length === 1 ? '' : 's'}); nothing was deployed`,
-              issues: cause.issues as unknown as Record<string, unknown>[],
-            },
-            requestId,
-          ),
-        );
-      }
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Registry upsert failed: ${errMessage(cause)}`,
-          },
-          requestId,
-        ),
-      );
+      // that outcome's own status and code. Anything else propagates to the
+      // central error handler (a 500 for this write).
+      if (cause instanceof PublishRefused) return publishRefusedResponse(c, requestId, cause);
+      if (cause instanceof UnpinnableDeploy) return unpinnableResponse(c, requestId, cause.issues);
+      // Not a mapped outcome: to the central error handler (a 500 for this
+      // write — the rollback above already ran; the whole error is logged).
+      throw cause;
     }
 
     // ---- Deployment record ----
@@ -955,6 +1242,7 @@ export function deploymentsRouter(
         primitives,
         ...(wire.projectId !== undefined && { projectId: wire.projectId }),
         ...(typeof imageIndex.packId === 'string' && { packId: imageIndex.packId }),
+        ...(declaredEnv.value !== undefined && { packEnv: declaredEnv.value }),
         packChecks: [
           ...new Set(
             validated.guardrails
@@ -975,31 +1263,15 @@ export function deploymentsRouter(
       });
     } catch (cause) {
       await rollback(rolled);
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Deployment record failed: ${errMessage(cause)}`,
-          },
-          requestId,
-        ),
-      );
+      // To the central error handler: a 500 with no raw text; the error is logged.
+      throw cause;
     }
 
     if (outcome.kind === 'error') {
       await rollback(rolled);
-      c.status(statusFor('internal-server-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'internal-server-error',
-            message: `Deployment record failed: ${outcome.message}`,
-            cause: outcome.code,
-          },
-          requestId,
-        ),
-      );
+      // To the central error handler: a 500 with no raw text; the outcome's
+      // code and message go to the log.
+      throw new Error(`Deployment record failed (${outcome.code}): ${outcome.message}`);
     }
     if (outcome.kind === 'already-registered') {
       // Digest-based idempotency: same digest already recorded. Roll back
@@ -1041,9 +1313,11 @@ export function deploymentsRouter(
   //
   // Scope is derived from the target deployment record, NOT accepted from
   // the wire (CRITICAL): the project the deploy named (`projectId`), else
-  // the tenant (`deriveScopeFromDeployment`).
+  // the tenant (`deploymentSecretScope`).
   //
-  // Capability: `secrets:write` (fail-closed).
+  // Capability: `secrets:write` (fail-closed). Rights: the deployment's
+  // read (one the caller doesn't read is a `404`), then `admin` on the
+  // scope it writes, as `/v1/secrets` asks for a write there.
   // Idempotency-Key: honoured by the middleware layer.
   r.post('/:deploymentId/secrets', async (c) => {
     const requestId = c.get('requestId');
@@ -1070,8 +1344,8 @@ export function deploymentsRouter(
 
     // Resolve the target deployment first — its `(tenantId, projectId?)`
     // is what determines the write scope.
-    const deployment = await bindings.deploymentRegistry.get({ tenantId, deploymentId });
-    if (deployment === null) {
+    const located = await readableDeployment(c, bindings, authorizer);
+    if (located === undefined) {
       c.status(statusFor('deployment-not-found') as never);
       return c.json(
         toWireError(
@@ -1084,7 +1358,10 @@ export function deploymentsRouter(
         ),
       );
     }
-    const scope = deriveScopeFromDeployment(deployment);
+    const deployment = located.deployment;
+    const scope = deploymentSecretScope(deployment.tenantId, deployment.projectId);
+    const refused = await deniedBy(authorizer, c, 'admin', scopeResourceRef(scope, tenantId));
+    if (refused !== undefined) return refused;
 
     let body: unknown;
     try {
@@ -1178,6 +1455,47 @@ export function deploymentsRouter(
       }
     }
 
+    // Every entry is checked against the env this runtime serves before any
+    // write, so a refusal leaves nothing half-written.
+    const servedEnv =
+      bindings.servedEnv !== undefined ? readReferencesOnce(bindings.servedEnv) : undefined;
+    for (const entry of parsed) {
+      const unserved = await refuseUnservedValue(servedEnv, {
+        tenantId,
+        scope,
+        envName,
+        name: entry.name,
+        kind: 'secret',
+      });
+      if (unserved !== undefined) {
+        c.status(statusFor(unserved.code) as never);
+        return c.json(toWireError(unserved, requestId));
+      }
+    }
+
+    // A new inline secret's name is held to the shared grammar before any
+    // write, so a refusal leaves nothing half-written. A name that passes
+    // needs no store read; a name that fails is refused unless it's already
+    // stored (an `add-version` to a name written before this release).
+    for (const entry of parsed) {
+      if (entry.kind !== 'value') continue;
+      const nameRefusal = secretNameGrammarRefusal(entry.name);
+      if (nameRefusal === undefined) continue;
+      const existing = await bindings.secretsBinding.get({ scope, envName, name: entry.name });
+      if (existing !== null) continue;
+      c.status(statusFor(nameRefusal.code) as never);
+      return c.json(
+        toWireError(
+          {
+            code: nameRefusal.code,
+            message: `secrets[${entry.name}]: ${nameRefusal.message}`,
+            name: entry.name,
+          },
+          requestId,
+        ),
+      );
+    }
+
     let resolvedCount = 0;
     let addedCount = 0;
     const references: Array<{ name: string; ref: string; version: number }> = [];
@@ -1246,26 +1564,6 @@ export function deploymentsRouter(
   });
 
   return r;
-}
-
-// ------------------------------------------------------------
-// Scope derivation for deployment secret sync
-// ------------------------------------------------------------
-
-/**
- * Derive the write scope for a deployment secret-sync request from
- * the deployment record itself. Never accepts a caller-supplied scope
- * override on the wire (CRITICAL — scope MUST be inferred
- * server-side to prevent tenant/project confusion attacks).
- *
- * A deploy into a named project syncs its secrets into that project; a
- * tenant-wide one (no `projectId`) syncs them tenant-wide.
- */
-function deriveScopeFromDeployment(d: Deployment): Scope {
-  if (d.projectId !== undefined) {
-    return { kind: 'project', tenantId: d.tenantId, projectId: d.projectId } as Scope;
-  }
-  return { kind: 'tenant', tenantId: d.tenantId } as Scope;
 }
 
 type ParsedSyncEntry =
@@ -1381,6 +1679,34 @@ function parseWireBody(body: unknown): ParseResult {
 }
 
 /** `400 deployment-validation-failed`, naming each issue. */
+/**
+ * A primitive the deploy refused to publish (`PublishRefused`), with that
+ * outcome's own status and code. A project mismatch logs the project the
+ * primitive belongs to, which the answer never names.
+ */
+function publishRefusedResponse(c: Context<AppEnv>, requestId: string, cause: PublishRefused) {
+  if (cause.projectId !== undefined) {
+    c.get('log').info(`${cause.message}: deploy refused`, {
+      primitive: cause.primitive,
+      id: cause.id,
+      ownerProjectId: cause.projectId as unknown as string,
+    });
+  }
+  c.status(statusFor(cause.code) as never);
+  return c.json(
+    toWireError(
+      {
+        code: cause.code,
+        message: `${cause.message}; nothing was deployed`,
+        primitive: cause.primitive,
+        id: cause.id,
+        ...(cause.endpointId !== undefined && { endpointId: cause.endpointId }),
+      },
+      requestId,
+    ),
+  );
+}
+
 function validationFailed(c: Context<AppEnv>, issues: readonly ValidationDetail[]) {
   c.status(statusFor('deployment-validation-failed') as never);
   return c.json(
@@ -1480,46 +1806,12 @@ function extractImageDigest(imageRef: string): string | null {
   return digest.toLowerCase();
 }
 
-function normaliseSha256Hex(raw: string): string {
-  const lower = raw.toLowerCase();
-  return lower.startsWith('sha256:') ? lower : `sha256:${lower}`;
-}
-
-// ------------------------------------------------------------
-// Canonical envelope
-// ------------------------------------------------------------
-
-interface EnvelopeFields {
-  readonly imageDigest: string;
-  readonly artifactVersion: string;
-  readonly indexHash: string;
-  readonly tenantId: string;
-  readonly publishedAt: string;
-}
-
-/**
- * Canonical form of the signed envelope: JSON object with sorted keys,
- * no whitespace, UTF-8. Deterministic by construction — the same field
- * values always produce byte-identical output.
- */
-function canonicalizeEnvelope(fields: EnvelopeFields): Uint8Array {
-  const ordered: Record<string, string> = {
-    artifactVersion: fields.artifactVersion,
-    imageDigest: normaliseSha256Hex(fields.imageDigest),
-    indexHash: normaliseSha256Hex(fields.indexHash),
-    publishedAt: fields.publishedAt,
-    tenantId: fields.tenantId,
-  };
-  const json = JSON.stringify(ordered);
-  return new TextEncoder().encode(json);
-}
-
 // ------------------------------------------------------------
 // Primitive validation
 // ------------------------------------------------------------
 
 interface ValidationDetail {
-  readonly primitive: 'tool' | 'guardrail' | 'agent' | 'flow';
+  readonly primitive: 'tool' | 'guardrail' | 'agent' | 'flow' | 'block';
   readonly index: number;
   readonly id?: string;
   readonly path: string;
@@ -1531,6 +1823,8 @@ interface ValidatedPrimitives {
   readonly guardrails: readonly Guardrail[];
   readonly agents: readonly import('@kindgi/agents').Agent[];
   readonly flows: readonly import('@kindgi/flow').Flow[];
+  /** The pack's data blocks (`blocks/`), each a valid block. */
+  readonly blocks: readonly BlockDefinition[];
 }
 
 type ValidateResult =
@@ -1561,6 +1855,7 @@ interface DeployedImage {
  */
 async function keepRegisteredGuardrail(
   registry: GuardrailRegistryBinding,
+  orders: Pick<EnvironmentOrderBinding, 'orderOf'> | undefined,
   tenantId: TenantId,
   projectId: ProjectId,
   guardrail: Guardrail,
@@ -1570,7 +1865,7 @@ async function keepRegisteredGuardrail(
   for (let attempt = 0; attempt < 3; attempt++) {
     const existing = await registry.get({ tenantId, guardrailId: guardrail.id });
     if (existing !== null) {
-      if (!(await guardrailInProject(registry, tenantId, projectId, guardrail.id))) {
+      if (!(await guardrailInOrder(registry, orders, tenantId, projectId, guardrail.id))) {
         throw new PublishRefused('guardrail', guardrail.id, {
           code: 'guardrail-project-mismatch',
           reason:
@@ -1669,6 +1964,26 @@ async function refreshGuardrailFields(
   });
 }
 
+/**
+ * Whether the live guardrail `id` is in `projectId`, or in another project
+ * of its environment order: an order's projects keep one guardrail, as
+ * they keep one agent (a deploy never changes a guardrail, so what each
+ * environment runs is the same definition).
+ */
+async function guardrailInOrder(
+  registry: GuardrailRegistryBinding,
+  orders: Pick<EnvironmentOrderBinding, 'orderOf'> | undefined,
+  tenantId: TenantId,
+  projectId: ProjectId,
+  id: GuardrailId,
+): Promise<boolean> {
+  const projects = (await orders?.orderOf({ tenantId, projectId }))?.projects ?? [projectId];
+  for (const project of projects) {
+    if (await guardrailInProject(registry, tenantId, project, id)) return true;
+  }
+  return false;
+}
+
 /** Whether the live guardrail `id` is in `projectId`, by that project's list. */
 async function guardrailInProject(
   registry: GuardrailRegistryBinding,
@@ -1735,15 +2050,6 @@ function definitionOf(guardrail: Guardrail): Record<string, unknown> {
   return declared;
 }
 
-/** JSON with every object's keys sorted, and absent and `undefined` alike. */
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(JSON.parse(JSON.stringify(value) ?? 'null'), (_key, v: unknown) =>
-    v !== null && typeof v === 'object' && !Array.isArray(v)
-      ? Object.fromEntries(Object.entries(v).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)))
-      : v,
-  );
-}
-
 /** The pointer to a tool's or guardrail's module inside the deployed image. */
 function ociCodeArtifactRef(image: DeployedImage, modulePath: unknown) {
   return typeof modulePath === 'string' && modulePath.length > 0
@@ -1779,6 +2085,7 @@ function validatePrimitives(
   const guardrails = readArray(index.guardrails);
   const agents = readArray(index.agents);
   const flows = readArray(index.flows);
+  const blocks = readArray(index.blocks);
 
   const validatedTools: import('@kindgi/tools').ToolManifest[] = [];
   tools.forEach((raw, i) => {
@@ -1935,6 +2242,34 @@ function validatePrimitives(
     validatedGraphs.push(spec as unknown as import('@kindgi/flow').Flow);
   });
 
+  const validatedBlocks: BlockDefinition[] = [];
+  blocks.forEach((raw, i) => {
+    if (raw === null || typeof raw !== 'object') {
+      details.push({ primitive: 'block', index: i, path: '', message: 'must be an object' });
+      return;
+    }
+    // Its file in the pack (`modulePath`) is where the pack keeps it, not part of the block.
+    const { modulePath: _mp, ...definition } = raw as Record<string, unknown>;
+    const r = validateBlock(definition);
+    if (r.kind === 'err') {
+      const idBase: Partial<ValidationDetail> =
+        typeof definition.id === 'string' ? { id: definition.id } : {};
+      const issues =
+        r.error.issues.length > 0 ? r.error.issues : [{ path: '', message: r.error.message }];
+      for (const issue of issues) {
+        details.push({
+          primitive: 'block',
+          index: i,
+          ...idBase,
+          path: issue.path,
+          message: issue.message,
+        });
+      }
+      return;
+    }
+    validatedBlocks.push(r.value);
+  });
+
   if (details.length > 0) {
     return { kind: 'err', error: { details } };
   }
@@ -1945,6 +2280,7 @@ function validatePrimitives(
       guardrails: validatedGuardrails,
       agents: validatedAgents,
       flows: validatedGraphs,
+      blocks: validatedBlocks,
     },
   };
 }
@@ -2056,6 +2392,25 @@ function validateFlowIndexShape(
 // ------------------------------------------------------------
 
 type RollbackAction = () => Promise<void>;
+
+/** The refusal of a deploy whose agents or flows use versions nothing published takes. */
+function unpinnableResponse(
+  c: Context<AppEnv>,
+  requestId: string,
+  issues: readonly UnpinnableRef[],
+) {
+  c.status(statusFor('invalid-agent') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'validation-failed',
+        message: `The deployment's agents or flows use tool, agent or block versions that aren't published (${issues.length} issue${issues.length === 1 ? '' : 's'}); nothing was deployed`,
+        issues: issues as unknown as Record<string, unknown>[],
+      },
+      requestId,
+    ),
+  );
+}
 
 /** A deploy whose agents or flows use a tool or agent with no published version in range. */
 class UnpinnableDeploy extends Error {
@@ -2249,14 +2604,18 @@ async function pinFlows(
   return pins;
 }
 
-/** Each agent's data-block pins, in order (`resolveBlockPins`); `pinAgents` reports their issues. */
+/**
+ * Each agent's data-block pins, in order (`resolveBlockPins`), a block
+ * the pack brings at the pack's version; `pinAgents` reports their issues.
+ */
 async function pinBlocks(
-  blocks: BlockRegistryBinding | undefined,
+  blocks: BlockVersionReads | undefined,
   tenantId: TenantId,
   defined: readonly Agent[],
+  pack: ReadonlyMap<string, string>,
 ): Promise<BlockPins[]> {
   const pins: BlockPins[] = [];
-  for (const agent of defined) pins.push(await resolveBlockPins(blocks, tenantId, agent));
+  for (const agent of defined) pins.push(await resolveBlockPins(blocks, tenantId, agent, pack));
   return pins;
 }
 
@@ -2281,15 +2640,18 @@ async function pinAgents(
       pins.push(resolved.pins);
       continue;
     }
-    for (const issue of resolved.issues) {
-      unpinnable.push({
-        path: `/agents/${i}${issue.path}`,
-        message: `agent "${agent.id as unknown as string}": ${issue.message}`,
-      });
-    }
+    unpinnable.push(...atAgent(i, agent, resolved.issues));
   }
   if (unpinnable.length > 0) throw new UnpinnableDeploy(unpinnable);
   return pins;
+}
+
+/** An agent's pin issues at its place in the deployment, naming it. */
+function atAgent(i: number, agent: Agent, issues: readonly UnpinnableRef[]): UnpinnableRef[] {
+  return issues.map((issue) => ({
+    path: `/agents/${i}${issue.path}`,
+    message: `agent "${agent.id as unknown as string}": ${issue.message}`,
+  }));
 }
 
 async function rollback(actions: readonly RollbackAction[]): Promise<void> {
@@ -2305,31 +2667,6 @@ async function rollback(actions: readonly RollbackAction[]): Promise<void> {
       // record a rollback-failure event so operators can reconcile.
     }
   }
-}
-
-function serializeDeployment(d: Deployment): Record<string, unknown> {
-  return {
-    deploymentId: d.deploymentId,
-    tenantId: d.tenantId as unknown as string,
-    imageRef: d.imageRef,
-    imageDigest: d.imageDigest,
-    artifactVersion: d.artifactVersion,
-    indexHash: d.indexHash,
-    signerKeyId: d.signerKeyId as unknown as string,
-    signerPublicKey: d.signerPublicKey,
-    signature: d.signature,
-    publishedAt: d.publishedAt,
-    activatedAt: d.activatedAt,
-    ...(d.projectId !== undefined && { projectId: d.projectId as unknown as string }),
-    ...(d.endpoint !== undefined && { endpoint: endpointToWire(d.endpoint) }),
-    primitives: {
-      tools: d.primitives.tools,
-      guardrails: d.primitives.guardrails,
-      agents: d.primitives.agents,
-      flows: d.primitives.flows,
-    },
-    contents: d.contents,
-  };
 }
 
 /** Tell the catalog caches about what a new deployment registered (advisory). */
@@ -2363,8 +2700,49 @@ async function notifyWrites(
   }
 }
 
-function errMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
+/** The tenant's hour, when its binding gives no wait: the most the hour can take. */
+const UNPACK_HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * A registry read that failed, as `400 image-unverifiable`: `details.cause`
+ * is the binding's code, and `details.limit` the bound that refused the
+ * image, when one did. Built here, not by `toWireError`, which keeps a
+ * domain error's `cause` off the wire. The tenant's hour
+ * (`tenant-unpack-hour`) passes, so it's answered as the rate limit it is:
+ * `429 rate-limit-exceeded` with `details.limit` and `Retry-After`, which
+ * clients wait out.
+ */
+function registryRefusal(
+  c: Context<AppEnv>,
+  step: string,
+  error: ImageRegistryError,
+  imageRef: string,
+  requestId: string,
+): Response {
+  const message = `${step}: ${error.message}`;
+  if (error.code === 'image-limit-exceeded' && error.limit === 'tenant-unpack-hour') {
+    const wait = error.retryAfterMs;
+    const waitMs = wait !== undefined && Number.isFinite(wait) ? wait : UNPACK_HOUR_MS;
+    c.header('Retry-After', String(retryAfterSeconds(waitMs)));
+    c.status(statusFor('rate-limit-exceeded') as never);
+    return c.json(
+      toWireError({ code: 'rate-limit-exceeded', message, limit: error.limit }, requestId),
+    );
+  }
+  const body: WireErrorBody = {
+    error: {
+      code: 'image-unverifiable',
+      message,
+      details: {
+        imageRef,
+        cause: error.code,
+        ...(error.code === 'image-limit-exceeded' && { limit: error.limit }),
+      },
+      requestId,
+    },
+  };
+  c.status(statusFor('image-unverifiable') as never);
+  return c.json(body);
 }
 
 // Formats a sha256 digest in the canonical `sha256:<hex>` shape. Not used
@@ -2378,6 +2756,7 @@ export function sha256HexPrefixed(bytes: Uint8Array): string {
 /** The first read-only registry a deployment would publish into, if any. */
 function readOnlyTarget(
   validated: {
+    readonly blocks: readonly unknown[];
     readonly tools: readonly unknown[];
     readonly agents: readonly unknown[];
     readonly flows: readonly unknown[];
@@ -2386,6 +2765,7 @@ function readOnlyTarget(
   bindings: DeploymentsRouterBindings,
 ): RegistryReadOnly | undefined {
   const targets = [
+    [validated.blocks, bindings.blockRegistry?.readOnly],
     [validated.tools, bindings.toolRegistry?.readOnly],
     [validated.agents, bindings.agentRegistry?.readOnly],
     [validated.flows, bindings.flowRegistry?.readOnly],

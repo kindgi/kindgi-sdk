@@ -10,6 +10,8 @@
  * how to expose it (route handler, static file, both).
  */
 
+import { DEPLOY_PUBLISHES_PACK_BLOCKS } from '@kindgi/handler-runtime';
+
 import {
   OPERATIONS,
   type OperationSpec,
@@ -39,8 +41,18 @@ const DEFAULT_INFO: Required<OpenApiInfo> = {
   title: 'Kindgi Platform API',
   version: '0.1.0',
   description:
-    'REST + SSE API for Kindgi: runs, agents, flows, human-in-the-loop approvals and the admin control plane. Generated from the route and schema registrations in `@kindgi/api` and drift-checked against the mounted routes.',
+    'REST + SSE API for Kindgi: runs, agents, flows, human-in-the-loop approvals and the admin control plane. Generated from the route and schema registrations in `@kindgi/api` and drift-checked against the mounted routes. `info["x-kindgi-capabilities"]` names what this API does that an earlier one didn\'t: an open list of strings, which a client checks before a request an earlier runtime would take differently, and whose names it doesn\'t know it ignores.',
 };
+
+/**
+ * What this API does that an earlier one didn't, by name
+ * (`info["x-kindgi-capabilities"]`). An open list: names are added, never
+ * renamed or removed, and a reader ignores the ones it doesn't know.
+ */
+export const API_CAPABILITIES: readonly string[] = [
+  // A deploy publishes the data blocks its pack brings (`deploy-blocks.ts`).
+  DEPLOY_PUBLISHES_PACK_BLOCKS,
+];
 
 const DEFAULT_SERVERS: readonly OpenApiServer[] = [
   { url: '/', description: 'Same-origin — path relative to the deployment root.' },
@@ -55,6 +67,8 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
     'The deployment trust list: the public keys whose signatures `POST /v1/deployments` accepts. Revoked keys stay readable for audit.',
   'system-tenants':
     "The operator's tenants on a runtime serving many: create, list, read, close and suspend them (a project too), and what the control plane sets on each (production, limits, the image prefix), plus the admins' contacts for service notices. System keys only, each route under its own scope.",
+  'system-usage':
+    "Usage across tenants, aggregated (counts, sums, first and last times): the control plane's pull for statements. System keys only.",
   'system-keys':
     "The operator's system keys (`kgi_sy_…`), on a runtime serving many tenants: each acts in no tenant, with the least system scope its service needs (sign-up, the orchestrator, billing, the license renewal), and only the full system capability mints them. A runtime serving one tenant has none.",
   'system-deployments':
@@ -84,6 +98,8 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
     'Capability catalog (list + get) — part of the admin control plane. Read-only over HTTP. Capabilities are framework-declared (`FEATURES` enum + `@kindgi/specs/capability.schema.json`) and deployment-extended at boot time via `CapabilityRegistryBinding`; tenants do NOT author capabilities via the API.',
   providers:
     'Model-provider catalog (list, get, register, unregister, capabilities sub-resource) — part of the admin control plane. Full CRUD. `ProviderMetadata` is the wire shape; secrets never cross the wire (they live inside `ProviderRegistryBinding`). The capability router picks a best-fit provider from this set per capability requirement at run time.',
+  usage:
+    "Your workspace's usage, aggregated: runs, approvals, model calls and projects put in production, counted and summed by project, agent, kind, class, state or day, over the projects you may read. Model-call cost is on `cost`.",
   cost: 'Cost readback (list records, get record, aggregate across a required time window) — part of the admin control plane. Read-only over HTTP; records are written by the runtime usage instrumentation (agents, tools, sandboxes). Caller-plugged via `CostBinding`. Budgets are not enforced through this surface.',
   adapters:
     'Unified adapter catalog (list, get, test) — part of the admin control plane. Covers every adapter kind the deployment wired: model providers, embedding providers, blob storage, sandbox providers, eval judges. Read-only + smoke-test-only over HTTP; adapter lifecycle (register / unregister / reconfigure) is a deployment concern — the runtime learns about adapters at `CreateAppInput` time. Caller-plugged via `AdapterRegistryBinding`. Config is REDACTED on the wire — no secrets crossing.',
@@ -103,6 +119,8 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
     'Judge classes (list, get, create, update, unregister): the deployment\'s named kinds of judge ("expert", "user", ...), each with a weight, scoped to the tenant, a project, or an agent in a project. A judgment may name a class; an unclassified judgment counts with weight 1. Caller-plugged via `JudgmentRegistryBinding`.',
   'eval-runs':
     'Eval-run data plane (start, list, get, cancel, events SSE). Dispatches an eval run against a registered suite. Dispatch is per-`EvalKind`; kinds without a registered dispatcher return `422 dispatcher-not-registered`. `result` is kind-specific opaque JSON on the wire — for `accuracy` it is `{ passCount, totalCount, meanScore, perCase[] }`. SSE events mirror run streaming: per-case progress followed by a terminal frame carrying the aggregate. Caller-plugged via `EvalRunBinding`.',
+  sites:
+    "Sites that sign their own people in to one project: a site (a WordPress admin, say) vouches for whoever is signed in there, so they ask the project's agents and decide its approvals as themselves. A site holds its own Ed25519 key; Kindgi only ever has the public half.",
   auth: 'OIDC and SAML identity providers + session lifecycle. Layers browser-based auth on top of the static bearer-token surface: bearer tokens continue to work byte-shape-identical; session tokens use the `kgi_sk_*` prefix so the same middleware routes both flavors. Providers are caller-plugged via `IdentityProviderBinding` (no baked-in list); sign-in runs in the deployment, which reads them. Sessions persist via `SessionStoreBinding`. `clientSecretRef` is a REFERENCE — the plaintext secret never crosses the wire.',
   identity:
     'Tenant-scoped identity directory (list, get, list-active-sessions, revoke-sessions, whoami) — part of the admin control plane. Caller-plugged via `IdentityDirectoryBinding` — deployments plug in their own user store (LDAP, SCIM, or bespoke). Registry-only over HTTP: the framework does NOT own user persistence. The directory is flat; groups, roles, invitations, directory sync and impersonation are not part of this surface. `primaryEmail` may be redacted per tenant policy — the routes treat it as opaque. Provider access-token / refresh-token NEVER cross the wire, even to admins.',
@@ -125,8 +143,10 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "Run an agent or a flow on a schedule: a cron expression in a timezone. Each occurrence is one fire, which starts one run as the schedule's owner (re-checked at every fire), through the same path as `POST /v1/runs`; a run a schedule started names it (`Run.trigger`). After a gap, `catchUp` runs once for the latest missed occurrence (or skips them), never once per missed one; `overlap` skips an occurrence while the previous run is still going. `GET …/fires` is the schedule's history; `run-now` fires it outside the schedule. Mounted when the deployment fires schedules.",
   'webhook-endpoints':
     'Outbound webhooks: endpoints the platform sends signed events to (`run.finished` when a top-level run completes, fails or is cancelled), their delivery log, redelivery and a test event. Signed in the Standard Webhooks format with a secret the endpoint references by name (`secretRef`); delivered at least once, so receivers deduplicate on `webhook-id`. Event bodies are under `webhooks`. Not to be confused with `/v1/webhooks`, which are inbound triggers. Caller-plugged via `WebhookEndpointBinding`.',
+  connections:
+    "Accounts at other apps (a member's Google account, the company's GitHub App) that tools act with. `connection-entries` lists the apps this server can connect to; `connection-apps` is the tenant's own registration of its client at an app (a tenant admin's, secrets by reference); `connections` are the accounts connected through them, with the connect that makes one (`requests`, `start`, `finish`). A connection is a member's own or the company's, and its token never leaves the server. `POST /v1/connection-notices/{tenantId}/{appId}` is where an app reports a removal, signed its own way. Caller-plugged via `ConnectionBinding`.",
   secrets:
-    'Sensitive per-env values (`/v1/secrets/*`). The ONLY endpoint that accepts plaintext is `POST /v1/secrets`; every other route is metadata-only (`value` NEVER returns on list / get / listVersions / getVersion — structural redaction). Rotation is discriminated: sync providers return 201 inline, async providers return 202 with a status URL + SSE events URL. Hard-revoke performs cryptographic erasure. Every mutating route is capability-gated (`secrets:write`, `secrets:rotate`, `secrets:revoke`, `secrets:revoke:hard`).',
+    "Sensitive per-env values (`/v1/secrets/*`). The ONLY endpoint that accepts plaintext is `POST /v1/secrets`; every other route is metadata-only (`value` NEVER returns on list / get / listVersions / getVersion — structural redaction). Rotation is discriminated: sync providers return 201 inline, async providers return 202 with a status URL + SSE events URL. A hard revoke erases the value, which can't be undone; backups, and a secret manager's own retention, may keep copies for a time. Every mutating route is capability-gated (`secrets:write`, `secrets:rotate`, `secrets:revoke`, `secrets:revoke:hard`).",
 };
 
 export function generateOpenApiDocument(opts: GenerateOptions = {}): Record<string, unknown> {
@@ -162,7 +182,7 @@ export function generateOpenApiDocument(opts: GenerateOptions = {}): Record<stri
 
   return {
     openapi: '3.1.0',
-    info,
+    info: { ...info, 'x-kindgi-capabilities': [...API_CAPABILITIES] },
     servers,
     tags,
     components,

@@ -35,7 +35,8 @@ const tenantId = randomUUID() as TenantId;
 const TOKEN = 'providers-check-token';
 const auth = { authorization: `Bearer ${TOKEN}` };
 
-const resolveToken: TokenResolver = async (token) => (token === TOKEN ? { tenantId } : null);
+const resolveToken: TokenResolver = async (token) =>
+  token === TOKEN ? { tenantId, scopes: ['tenant-admin'] } : null;
 const notUsed = async () => ({
   kind: 'err' as const,
   error: { code: 'bad-input', message: 'not used in this suite' },

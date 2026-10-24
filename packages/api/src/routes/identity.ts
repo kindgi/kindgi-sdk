@@ -6,19 +6,19 @@ import { Hono } from 'hono';
 
 import {
   OBJECT_ACTIONS,
-  OBJECT_TYPES,
-  type ObjectType,
+  PROJECT_SCOPED_TYPES,
   type ProjectRole,
   REVIEWER_ROLE_RANK,
   type ReviewerRole,
 } from '@kindgi/authz';
-import type { Cursor, SessionId, TenantId, UserId } from '@kindgi/types';
+import type { Cursor, EnvName, SessionId, TenantId, UserId } from '@kindgi/types';
 
 import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../caller.js';
 import type { EnvBinding } from '../env-binding.js';
-import { statusFor, toWireError } from '../errors.js';
+import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type {
   IdentityDirectoryBinding,
+  InviteEmail,
   SessionSummary,
   UserRecord,
 } from '../identity-directory-binding.js';
@@ -35,7 +35,7 @@ import { callerReviewerRole } from '../reviewer-role.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
-import { resolveTenantConfigEnvName } from './tenant.js';
+import { DEFAULT_TENANT_CONFIG_ENV_NAME } from './tenant.js';
 
 /**
  * Identity routes — the canonical caller-identity surface.
@@ -44,17 +44,18 @@ import { resolveTenantConfigEnvName } from './tenant.js';
  * `whoami` endpoint, so clients have exactly one whoami endpoint to
  * consume.
  *
- * Six routes:
+ * The routes:
  *   - `GET  /v1/identity/whoami`                        (self — always mounted)
  *   - `GET  /v1/identity/me/permissions`                (self: what the caller may do — always mounted)
  *   - `GET  /v1/identity/users`                         (cursor-paginated list; tenant admins)
- *   - `POST /v1/identity/users`                         (add a person; admin, when the directory can)
+ *   - `POST /v1/identity/users`                         (add a person, invited; admin, when the directory can)
  *   - `GET  /v1/identity/users/:userId`                 (get; a tenant admin, or your own)
  *   - `GET  /v1/identity/users/:userId/sessions`        (active sessions; a tenant admin, or your own)
  *   - `POST /v1/identity/users/:userId/revoke-sessions` (admin op)
  *   - `GET  /v1/identity/users/:userId/grants`          (admin, or your own)
  *   - `POST /v1/identity/users/:userId/grant|ungrant`   (tenant admin, tenant admins only)
  *   - `POST /v1/identity/users/:userId/unregister`      (remove a person; tenant admins, when the directory can)
+ *   - `POST /v1/identity/users/:userId/invite`          (renew an invitation; tenant admins, when the directory can)
  *
  * `directory` is optional: deployments without an `IdentityDirectoryBinding`
  * still get `whoami` (returning the minimal `{ tenantId, scopes, ... }` shape
@@ -103,6 +104,13 @@ export interface IdentityRouterOptions {
    * (`console.readOnlyNotice`).
    */
   readonly tenantConfig?: EnvBinding;
+  /**
+   * Optional. The env this runtime serves (`KINDGI_ENV`), and whether it
+   * refuses values under any other (`refuseOtherEnvs`). whoami answers it
+   * as `servedEnv`, for a client to default to it. Absent: whoami leaves
+   * the field out.
+   */
+  readonly servedEnv?: { readonly envName: EnvName; readonly refusesOtherEnvs: boolean };
 }
 
 export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv> {
@@ -114,6 +122,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     personGrants,
     myAccess,
     tenantConfig,
+    servedEnv,
   } = options;
   const r = new Hono<AppEnv>();
 
@@ -164,6 +173,12 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
       const session = await sessionStore.get({ tenantId, sessionId });
       if (session !== null) body.expiresAt = session.expiresAt;
     }
+    if (servedEnv !== undefined) {
+      body.servedEnv = {
+        envName: servedEnv.envName,
+        refusesOtherEnvs: servedEnv.refusesOtherEnvs,
+      };
+    }
     return c.json(body);
   });
 
@@ -188,6 +203,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     const cursorRaw = c.req.query('cursor');
     const queryRaw = c.req.query('query');
     const includeUnregistered = c.req.query('includeUnregistered') === 'true';
+    const pending = c.req.query('pending') === 'true';
     const include = parseUsersInclude(c.req.query('include'));
     if (typeof include === 'string') {
       c.status(statusFor('bad-input') as never);
@@ -200,18 +216,21 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
       ...(queryRaw !== undefined && queryRaw.length > 0 && { query: queryRaw }),
       ...(includeUnregistered && { includeUnregistered: true }),
+      ...(pending && { pending: true }),
     });
+    // A directory that doesn't filter: only the invited, all the same (the page may come short).
+    const people = pending ? page.data.filter((u) => u.invite !== undefined) : page.data;
     // Without a grants binding, the people come as an older runtime answers: no `grants`.
     const grants =
       include.grants && personGrants !== undefined
         ? await grantsOf(
             personGrants,
             tenantId,
-            page.data.map((u) => u.userId as unknown as string),
+            people.map((u) => u.userId as unknown as string),
           )
         : undefined;
     return c.json({
-      data: page.data.map((u) => {
+      data: people.map((u) => {
         const held = grants?.get(u.userId as unknown as string);
         return {
           ...serializeUser(u),
@@ -262,7 +281,12 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
         );
       }
       c.status(201);
-      return c.json(serializeUser(outcome.user));
+      return c.json({
+        ...serializeUser(outcome.user),
+        ...(outcome.inviteEmail !== undefined && {
+          inviteEmail: serializeInviteEmail(outcome.inviteEmail),
+        }),
+      });
     });
   }
 
@@ -365,6 +389,75 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
         keysRevoked: outcome.keysRevoked,
         sessionsRevoked: outcome.sessionsRevoked,
         grantsRemoved: outcome.grantsRemoved,
+      });
+    });
+  }
+
+  // ---------- POST /users/:userId/invite (renew an invitation; tenant admins) ----------
+  const resendInvite = directory.resendInvite?.bind(directory);
+  if (resendInvite !== undefined) {
+    r.post('/users/:userId/invite', async (c) => {
+      const requestId = c.get('requestId');
+      const userId = c.req.param('userId') as UserId;
+      if (!(await isTenantAdmin(c, authorizer))) {
+        c.status(statusFor('permission-denied') as never);
+        return c.json(
+          toWireError(
+            { code: 'permission-denied', message: 'Only a tenant admin sends invitations' },
+            requestId,
+          ),
+        );
+      }
+      const sentBy = callerRef(c);
+      const outcome = await resendInvite({
+        tenantId: c.get('tenantId') as TenantId,
+        userId,
+        ...(sentBy !== undefined && { sentBy }),
+      });
+      if (outcome.kind === 'not-found') {
+        c.status(statusFor('identity-user-not-found') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'identity-user-not-found',
+              message: `No user with id "${userId as unknown as string}" under this tenant`,
+              userId: userId as unknown as string,
+            },
+            requestId,
+          ),
+        );
+      }
+      if (outcome.kind === 'not-invited') {
+        c.status(statusFor('identity-user-not-invited') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'identity-user-not-invited',
+              message:
+                'They have no invitation to renew: they have joined, or they have no email to send one to',
+              userId: userId as unknown as string,
+            },
+            requestId,
+          ),
+        );
+      }
+      if (outcome.kind === 'capped') {
+        c.header('Retry-After', String(retryAfterSeconds(outcome.retryAfterMs)));
+        c.status(statusFor('invite-capped') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'invite-capped',
+              message: 'Too many invitations sent: try again later',
+              userId: userId as unknown as string,
+            },
+            requestId,
+          ),
+        );
+      }
+      return c.json({
+        user: serializeUser(outcome.user),
+        inviteEmail: serializeInviteEmail(outcome.inviteEmail),
       });
     });
   }
@@ -479,11 +572,6 @@ function mountPersonGrants(
 
 /** Project roles from the highest: `capabilities` is answered in this order. */
 const PROJECT_ROLES_BY_RANK: readonly ProjectRole[] = ['owner', 'admin', 'editor', 'viewer'];
-
-/** What a project role reaches: the project and the objects in it, in `OBJECT_TYPES` order. */
-const PROJECT_SCOPED_TYPES: readonly ObjectType[] = OBJECT_TYPES.filter(
-  (t) => t !== 'tenant' && t !== 'org' && t !== 'team' && t !== 'user',
-);
 
 /** Reviewer roles from the lowest rank. */
 const REVIEWER_ROLES_BY_RANK: readonly ReviewerRole[] = (
@@ -619,7 +707,8 @@ async function consoleReadOnlyNotice(
   try {
     const entry = await tenantConfig.get({
       scope: { kind: 'tenant', tenantId: c.get('tenantId') as TenantId },
-      envName: resolveTenantConfigEnvName(),
+      // A tenant setting: under `default`, whatever env the runtime serves.
+      envName: DEFAULT_TENANT_CONFIG_ENV_NAME,
       name: READ_ONLY_NOTICE_KEY,
     });
     const text = entry?.value.replace(/\s+/g, ' ').trim() ?? '';
@@ -784,7 +873,8 @@ function serializePersonGrants(g: PersonGrants): Record<string, unknown> {
   };
 }
 
-function serializeUser(u: UserRecord): Record<string, unknown> {
+/** A person on the wire (`UserRecord`): also a site's person a restore lets back in (sites.ts). */
+export function serializeUser(u: UserRecord): Record<string, unknown> {
   return {
     userId: u.userId as unknown as string,
     tenantId: u.tenantId as unknown as string,
@@ -795,8 +885,22 @@ function serializeUser(u: UserRecord): Record<string, unknown> {
     ...(u.unregisteredAt !== undefined && {
       unregisteredAt: u.unregisteredAt as unknown as string,
     }),
+    ...(u.invite !== undefined && {
+      invite: {
+        state: u.invite.state,
+        expiresAt: u.invite.expiresAt as unknown as string,
+        ...(u.invite.sentAt !== undefined && { sentAt: u.invite.sentAt as unknown as string }),
+      },
+    }),
+    ...(u.firstSignedInAt !== undefined && {
+      firstSignedInAt: u.firstSignedInAt as unknown as string,
+    }),
     ...(u.metadata !== undefined && { metadata: u.metadata }),
   };
+}
+
+function serializeInviteEmail(e: InviteEmail): Record<string, unknown> {
+  return { sent: e.sent, ...(e.reason !== undefined && { reason: e.reason }) };
 }
 
 function serializeSession(s: SessionSummary): Record<string, unknown> {
@@ -830,12 +934,18 @@ function keyFacts(c: Context<AppEnv>): Record<string, unknown> {
 
 const MAX_NAME_LENGTH = 200;
 
-/** `{displayName, primaryEmail?}`, or why not. */
-function parseCreateUser(raw: unknown): { displayName: string; primaryEmail?: string } | string {
+/** `{displayName, primaryEmail?, sendInvite?}`, or why not. */
+function parseCreateUser(
+  raw: unknown,
+): { displayName: string; primaryEmail?: string; sendInvite?: boolean } | string {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     return 'Request body must be a JSON object';
   }
-  const b = raw as { displayName?: unknown; primaryEmail?: unknown };
+  const b = raw as { displayName?: unknown; primaryEmail?: unknown; sendInvite?: unknown };
+  if (b.sendInvite !== undefined && typeof b.sendInvite !== 'boolean') {
+    return '`sendInvite` must be true or false';
+  }
+  const send = b.sendInvite === undefined ? {} : { sendInvite: b.sendInvite };
   if (
     typeof b.displayName !== 'string' ||
     b.displayName.trim() === '' ||
@@ -843,9 +953,9 @@ function parseCreateUser(raw: unknown): { displayName: string; primaryEmail?: st
   ) {
     return `\`displayName\` must be a non-empty string of at most ${MAX_NAME_LENGTH} characters`;
   }
-  if (b.primaryEmail === undefined) return { displayName: b.displayName.trim() };
+  if (b.primaryEmail === undefined) return { displayName: b.displayName.trim(), ...send };
   if (typeof b.primaryEmail !== 'string' || !/^[^@\s]+@[^@\s]+$/.test(b.primaryEmail)) {
     return '`primaryEmail` must be an email address';
   }
-  return { displayName: b.displayName.trim(), primaryEmail: b.primaryEmail };
+  return { displayName: b.displayName.trim(), primaryEmail: b.primaryEmail, ...send };
 }

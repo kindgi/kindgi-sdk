@@ -3,7 +3,7 @@
   "$id": "https://kindgi.com/schemas/v1/guardrail.schema.json",
   "$comment": "schema-version: 1.1.0",
   "title": "Guardrail",
-  "description": "An assertion about agent behavior. Enforced at runtime (halt / retry / escalate / log-only / compensate per guardrail) AND in CI (blocks builds). Same definition, two enforcement paths — no drift between what tests check and what prod enforces. Zero-LLM checks are default (fast, deterministic); LLM-judge scorers are an opt-in class with explicit cost declaration. Schema-version 1.1.0 matches the `Guardrail` type: `check` is required, a `retry` action needs `maxAttempts`, `kind` and `on-violation` accept any non-empty string (the built-ins are listed as `examples`), and `sandbox` / `limits` / `network` / `needsSpec` are allowed.",
+  "description": "An assertion about agent behavior. Checked at runtime, where in 0.1 only `halt` stops the turn and every other action is recorded, AND in CI (blocks builds). Same definition, two enforcement paths — no drift between what tests check and what prod enforces. Zero-LLM checks are default (fast, deterministic); LLM-judge scorers are an opt-in class with explicit cost declaration. Schema-version 1.1.0 matches the `Guardrail` type: `check` is required, a `retry` object, when given, needs `maxAttempts`, `kind` and `on-violation` accept any non-empty string (the built-ins are listed as `examples`), and `sandbox` / `limits` / `network` / `needsSpec` are allowed.",
   "type": "object",
   "required": ["id", "kind", "check", "action"],
   "additionalProperties": false,
@@ -209,12 +209,12 @@
           "type": "string",
           "minLength": 1,
           "examples": ["halt", "retry", "escalate", "log-only", "compensate"],
-          "description": "What happens when the guardrail fires. Open string: any non-empty name is accepted here, and an action handler registered under that name applies it; when the caller evaluates with an action-handler registry, a name with no handler fails with `unknown-action`. Built-in actions: 'halt' = fail the run. 'retry' = re-execute the step (needs `retry.maxAttempts`). 'escalate' = route to HITL review. 'log-only' = record but don't block. 'compensate' = invoke a compensation action."
+          "description": "What a failed check does to the agent turn. Open string: any non-empty name is accepted here. In 0.1 the runtime acts only on 'halt': the turn fails with `guardrail-violation` and its response is not stored. Any other name is recorded as a violation, as 'log-only' is, and the turn completes. Built-in actions: 'halt' = fail the turn. 'log-only' = record, don't block. 'retry', 'escalate' and 'compensate' are recorded like 'log-only' in 0.1: nothing runs the turn again, escalates or calls a compensating tool."
         },
         "retry": {
           "type": "object",
           "additionalProperties": false,
-          "description": "For on-violation = 'retry'.",
+          "description": "For on-violation = 'retry': the attempts it asks for. In 0.1 nothing acts on it: there's no second attempt.",
           "required": ["maxAttempts"],
           "properties": {
             "maxAttempts": {
@@ -226,11 +226,11 @@
         },
         "escalateTo": {
           "type": "string",
-          "description": "For on-violation = 'escalate': reviewer role or queue id."
+          "description": "For on-violation = 'escalate': a reviewer role or queue id. In 0.1 nothing escalates."
         },
         "compensateWith": {
           "type": "string",
-          "description": "For on-violation = 'compensate': tool id to invoke as compensation."
+          "description": "For on-violation = 'compensate': the compensating tool's id. In 0.1 that tool isn't called."
         }
       }
     },

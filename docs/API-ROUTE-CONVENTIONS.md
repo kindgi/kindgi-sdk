@@ -66,6 +66,7 @@ The only fully-public routes are:
 - `GET /health` — liveness. No auth. Returns `{ ok: true }`.
 - `GET /v1/openapi.json` — the OpenAPI document.
 - Inbound webhook receivers, when a deployment turns them on — authenticated by an HMAC signature header, not a Bearer token. There's no receiver route yet: `/v1/webhooks` only manages the webhook triggers.
+- `POST /v1/wait-tokens/:token/complete` — another system's answer to a run's wait, at the link a pausing tool handed on. The token in the path is the credential: no Bearer token, and an unknown token and a wrong one both answer `404 wait-token-not-found`. The route logs the path as `/v1/wait-tokens/:token`, never the token. On a server that pauses no run, every token answers that 404.
 
 ### 2.3 Tenant scoping
 
@@ -169,7 +170,9 @@ The SDK's `fromWire(json)` (`sdks/typescript/src/errors.ts`) matches on `code`.
 
 A `429 rate-limit-exceeded` carries `Retry-After`, in whole seconds, when the limit is over a time window, as `schema-compile-time`, `template-render-time` and the request rate limits are; a limit that counts what's waiting, not time, carries none. When a tenant's limit refused the request, `details.limit` names it. `schema-compile-time` is the time the tenant's schemas spent compiling in the last 60 seconds, against `details.budgetMs`. It counts every compile in a request that publishes schemas, and a schema compiled again in any other request. A publish it refuses stores nothing. `template-render-time` is the time the tenant's instructions templates spent rendering in the last 60 seconds, against `details.budgetMs`. An agent turn whose work either budget refuses fails with `rate-limit-exceeded` and the same `details`: `POST /v1/runs` answers it as this 429, with `Retry-After` and `details.runId`, and the run reads as failed with that code.
 
-A `503 database-busy` answers a `GET` or `HEAD` that the database was too busy to answer in time: a lock or statement timeout ended its query, or no pooled connection came free within the wait. It carries `Retry-After` (5 seconds). A request with any other method that the database was too busy for answers `500 internal-server-error`: a write can have saved part of its work before the timeout, and clients retry a 503 as an answer that nothing ran.
+A `503 database-busy` answers a `GET` or `HEAD` that the database was too busy to answer in time: a lock or statement timeout ended its query, or no pooled connection came free within the wait. It carries `Retry-After` (5 seconds). A request with any other method that the database was too busy for answers a 500 (`internal-server-error`, or the code of the binding error that stopped it, such as `persistence-error`): a write can have saved part of its work before the timeout, and clients retry a 503 as an answer that nothing ran.
+
+The storage failure is marked `code: 'database-busy'`, on the error or down its `cause` chain. A thrown error reaches `mapThrownError`, which checks for the mark. A route that answers a binding's Result error at its code's status asks `databaseBusyAnswer(error, c)` (`middleware/error-mapper.ts`) first and returns its answer when it gives one. A binding that re-codes a storage failure under its own code keeps the failure as the error's `cause`, so the read answers the same whether the binding threw the failure or returned it.
 
 ---
 
@@ -238,7 +241,7 @@ For the runs resource specifically (the largest surface):
 | `GET /v1/runs/:runId`                | Load row from `kernel_runs`                | Returns the run row, with `output` once completed and `parentRunId` / `parentNodeId` on a child run. |
 | `GET /v1/runs`                       | List with pagination                       | Filters: `parentRunId` (a run's children), `topLevel=true`. `include=output` adds each run's output. |
 | `POST /v1/runs/:runId/cancel`        | `cancelRun(...)`                           | Empty body. Returns updated `RunResult`. |
-| `POST /v1/runs/:runId/resume`        | `completeToken(...)`, then the host's `resumeRun(...)` | Body: `{ waitpointId, value? }`. Ids starting with `child:` are reserved for the runtime. |
+| `POST /v1/runs/:runId/resume`        | The wait token binding's `complete(...)`, then the host's `resumeRun(...)` | Body: `{ waitpointId, value? }`. Answers a `pause:` waitpoint (a run paused until another system answers), with write access and `execute` on the run's agent or flow; `value` is the tool's output. Every other id (`child:` and approvals' among them) is `422 run-resume-not-supported`. Returns the run as `GET /v1/runs/:runId` does. |
 | `GET /v1/runs/:runId/journal`        | `readJournal(...)`                         | Paginated: `?since=<sequence>&limit=<int>`. |
 | `GET /v1/runs/:runId/stream`         | SSE from journal + in-process bus          | See §6. |
 

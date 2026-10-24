@@ -1,5 +1,63 @@
 # @kindgi/memory
 
+## 0.1.10
+
+### Patch Changes
+
+- @kindgi/embedding@0.1.10
+  - @kindgi/types@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/embedding@0.1.10-rc.1
+  - @kindgi/types@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- @kindgi/embedding@0.1.10-rc.0
+  - @kindgi/types@0.1.10-rc.0
+
+## 0.1.9
+
+### Patch Changes
+
+- @kindgi/embedding@0.1.9
+  - @kindgi/types@0.1.9
+
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/embedding@0.1.9-rc.1
+  - @kindgi/types@0.1.9-rc.1
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- @kindgi/embedding@0.1.9-rc.0
+  - @kindgi/types@0.1.9-rc.0
+
+## 0.1.8
+
+### Patch Changes
+
+- Updated dependencies [ebf405d]
+  - @kindgi/types@0.1.8
+  - @kindgi/embedding@0.1.8
+
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- Updated dependencies [ebf405d]
+  - @kindgi/types@0.1.8-rc.0
+  - @kindgi/embedding@0.1.8-rc.0
+
 ## 0.1.7
 
 ### Patch Changes

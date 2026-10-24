@@ -40,6 +40,9 @@ import {
  *   HEAD   /:bucket/*                    — head object (headers only)
  *   DELETE /:bucket/*                    — delete object (204)
  *
+ * Hono answers a HEAD with the GET route at its path and drops the body,
+ * so each HEAD is the GET handler's, which checks `c.req.method`.
+ *
  * Multipart upload shares those paths, selected by query parameters:
  *
  *   POST   /:bucket/*?uploads            — InitiateMultipartUpload
@@ -51,15 +54,7 @@ import {
 export function s3Router(binding: BlobStorageBinding): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
-  // ---------- HEAD /:bucket (bucket existence probe) ----------
-  r.on('HEAD', '/:bucket', async () => {
-    // Middleware has already verified the caller's credential is
-    // authorized for this exact bucket, so we just 200 with empty
-    // body. AWS returns 200 + no body for existing buckets.
-    return new Response(null, { status: 200 });
-  });
-
-  // ---------- GET /:bucket (ListObjectsV2) ----------
+  // ---------- GET /:bucket (ListObjectsV2), and HEAD /:bucket ----------
   r.get('/:bucket', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const bucket = c.req.param('bucket');
@@ -67,8 +62,10 @@ export function s3Router(binding: BlobStorageBinding): Hono<AppEnv> {
 
     // HEAD /:bucket dispatches through this handler per Hono's built-in
     // HEAD→GET translation. For a bare `HEAD` (no query params), return
-    // an empty 200 body — the "bucket exists" probe. Hono strips the
-    // body from the outbound Response automatically.
+    // an empty 200 body — the "bucket exists" probe: the middleware has
+    // already verified the caller's credential is authorized for this
+    // exact bucket, and AWS answers 200 with no body for an existing
+    // bucket. Hono strips the body from the outbound Response automatically.
     if (c.req.method === 'HEAD') {
       return new Response(null, { status: 200 });
     }
@@ -339,58 +336,53 @@ export function s3Router(binding: BlobStorageBinding): Hono<AppEnv> {
       );
     }
 
-    const outcome = await binding.getByKey(tenantId, bucket, key);
-    if (outcome.kind === 'err') {
-      if (outcome.error.code === 'blob-not-found') {
-        return xml(c, errorXml('NoSuchKey', `The specified key does not exist: ${key}`), 404);
+    const noSuchKey = () =>
+      xml(c, errorXml('NoSuchKey', `The specified key does not exist: ${key}`), 404);
+    // Hono answers a HEAD (HeadObject) with this GET route and drops the
+    // body. So a HEAD answers the GET's status and headers from the metadata
+    // and never opens the object: an object opened and never read stays
+    // open (a file handle, a connection). A GET reads the object out, as
+    // the body or to slice a range from it, or cancels it.
+    let meta: BlobMeta;
+    let stream: ReadableStream<Uint8Array> | undefined;
+    if (c.req.method === 'HEAD') {
+      const found = await binding.headByKey(tenantId, bucket, key);
+      if (found === null) return noSuchKey();
+      meta = found;
+    } else {
+      const outcome = await binding.getByKey(tenantId, bucket, key);
+      if (outcome.kind === 'err') {
+        if (outcome.error.code === 'blob-not-found') return noSuchKey();
+        return xml(c, errorXml('InternalError', outcome.error.message), 500);
       }
-      return xml(c, errorXml('InternalError', outcome.error.message), 500);
+      ({ meta, stream } = outcome.value);
     }
-    const { meta, stream } = outcome.value;
 
     const rangeHeader = c.req.header('range');
     if (rangeHeader !== undefined) {
       const range = parseRange(rangeHeader, meta.size);
       if (range === null) {
+        await stream?.cancel();
         return xml(c, errorXml('InvalidRange', 'Malformed Range header'), 416);
       }
+      const partial = (body: Uint8Array | null, length: number) =>
+        new Response(body, {
+          status: 206,
+          headers: {
+            ...objectResponseHeaders(meta),
+            'Content-Length': String(length),
+            'Content-Range': `bytes ${range.start}-${range.end}/${meta.size}`,
+            'Accept-Ranges': 'bytes',
+          },
+        });
+      if (stream === undefined) return partial(null, range.end - range.start + 1);
       // Buffer the stream + slice in memory. The binding has no Range
       // parameter, so the whole object is read; multi-range GET and
       // streaming Range are not supported.
-      const buf = await drainStream(stream);
-      const sliced = buf.subarray(range.start, range.end + 1);
-      return new Response(sliced, {
-        status: 206,
-        headers: {
-          ...objectResponseHeaders(meta),
-          'Content-Length': String(sliced.byteLength),
-          'Content-Range': `bytes ${range.start}-${range.end}/${meta.size}`,
-          'Accept-Ranges': 'bytes',
-        },
-      });
+      const sliced = (await drainStream(stream)).subarray(range.start, range.end + 1);
+      return partial(sliced, sliced.byteLength);
     }
-    return new Response(stream, {
-      status: 200,
-      headers: {
-        ...objectResponseHeaders(meta),
-        'Accept-Ranges': 'bytes',
-      },
-    });
-  });
-
-  // ---------- HEAD /:bucket/* (metadata only) ----------
-  r.on('HEAD', '/:bucket/*', async (c) => {
-    const tenantId = c.get('tenantId') as TenantId;
-    const bucket = c.req.param('bucket');
-    if (bucket === undefined) return new Response(null, { status: 400 });
-    const key = extractKey(c.req.path, bucket);
-    if (key === null || key.length === 0) return new Response(null, { status: 400 });
-
-    const meta = await binding.headByKey(tenantId, bucket, key);
-    if (meta === null) {
-      return new Response(null, { status: 404 });
-    }
-    return new Response(null, {
+    return new Response(stream ?? null, {
       status: 200,
       headers: {
         ...objectResponseHeaders(meta),

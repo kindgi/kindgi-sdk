@@ -35,6 +35,7 @@ import {
   verifyEd25519,
 } from '@kindgi/crypto';
 import type { ExportSigningBinding } from '@kindgi/crypto';
+import { type Logger, createLogger } from '@kindgi/log';
 import { compileInlineSchema } from '@kindgi/schema';
 import type { TenantId, UserId } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
@@ -53,7 +54,9 @@ const runId = randomUUID();
 const approvalId = randomUUID();
 const TOKEN = 'signed-exports-token';
 const resolveToken: TokenResolver = async (token) =>
-  token === TOKEN ? { tenantId, userId: 'u-1' as UserId, reviewerRole: 'admin' } : null;
+  token === TOKEN
+    ? { tenantId, userId: 'u-1' as UserId, reviewerRole: 'admin', scopes: ['tenant-admin'] }
+    : null;
 
 const decided = {
   id: approvalId,
@@ -114,7 +117,11 @@ function signer(): ExportSigningBinding {
 }
 
 function harness(
-  options: { exportSigning?: ExportSigningBinding | false; auditEvents?: AuditEventBinding } = {},
+  options: {
+    exportSigning?: ExportSigningBinding | false;
+    auditEvents?: AuditEventBinding;
+    logger?: Logger;
+  } = {},
 ) {
   const auditEvents = options.auditEvents ?? createInMemoryAuditEventBinding();
   const exportSigning = options.exportSigning === undefined ? signer() : options.exportSigning;
@@ -129,6 +136,7 @@ function harness(
     complianceClassifier,
     complianceGenerator: { describe: () => ({ name: 'none', version: '0' }) } as never,
     ...(exportSigning !== false && { exportSigning }),
+    ...(options.logger !== undefined && { logger: options.logger }),
   });
   const post = async (path: string, body?: unknown) => {
     const res = await app.request(path, {
@@ -261,6 +269,83 @@ describe.each(EXPORTS)('the %s export', (kind, path, subjectKey, subject, versio
     expect(answer.status).toBe(500);
     expect(answer.json).not.toHaveProperty('bundle');
     expect(answer.json.error).toMatchObject({ code: 'persistence-error' });
+    // The 500 keeps the public code but routes through the central handler:
+    // the raw persistence message never reaches the client. A mutant that
+    // restores `message: error.message` is killed here.
+    expect(JSON.stringify(answer.json)).not.toContain('the audit store is down');
+  });
+
+  test('a failed record logs the persistence error but never leaks it to the client', async () => {
+    const lines: string[] = [];
+    const logger = createLogger({ write: (line) => lines.push(line) });
+    const store = createInMemoryAuditEventBinding();
+    const failing: AuditEventBinding = {
+      ...store,
+      append: async () => ({
+        kind: 'err',
+        error: {
+          code: 'persistence-error',
+          message: 'insert into audit_events failed: duplicate key',
+          cause: null,
+        },
+      }),
+    };
+    const answer = await harness({ auditEvents: failing, logger }).post(path);
+    expect(answer.status).toBe(500);
+    // The fixed message reaches the client; the raw persistence detail does not.
+    expect(JSON.stringify(answer.json)).not.toContain('insert into audit_events failed');
+    // That detail reaches the log under `err`, though not the client. A mutant
+    // that drops the persistence-branch log line is killed here.
+    expect(lines.join('\n')).toContain('insert into audit_events failed');
+  });
+
+  test('a signer failure is a 500 with the wire code and no raw detail', async () => {
+    const failingSigner: ExportSigningBinding = {
+      ...signer(),
+      sign: async () => ({
+        kind: 'err',
+        error: { code: 'export-signing-failed', message: 'kms refused: key arn:aws:kms:xyz' },
+      }),
+    };
+    const expectedCode = kind === 'compliance' ? 'compliance-export-failed' : 'export-key-error';
+    const answer = await harness({ exportSigning: failingSigner }).post(path);
+    expect(answer.status).toBe(500);
+    expect(answer.json).not.toHaveProperty('bundle');
+    expect(answer.json.error).toMatchObject({ code: expectedCode });
+    // No raw signer detail, and not even the internal cause code, reaches the
+    // client. A mutant that restores the interpolated `error.message` is killed.
+    const raw = JSON.stringify(answer.json);
+    expect(raw).not.toContain('kms refused');
+    expect(raw).not.toContain('arn:aws:kms');
+    expect(raw).not.toContain('export-signing-failed');
+  });
+
+  test('a signer failure logs the cause reason, not just the code, and never leaks it', async () => {
+    const lines: string[] = [];
+    const logger = createLogger({ write: (line) => lines.push(line) });
+    const failingSigner: ExportSigningBinding = {
+      ...signer(),
+      sign: async () => ({
+        kind: 'err',
+        // A local P-256 key fails with a terse message and the reason in `cause`.
+        error: {
+          code: 'export-signing-failed',
+          message: 'ECDSA P-256 signing failed',
+          cause: new Error('the private key PEM is malformed'),
+        },
+      }),
+    };
+    const answer = await harness({ exportSigning: failingSigner, logger }).post(path);
+    expect(answer.status).toBe(500);
+    const body = JSON.stringify(answer.json);
+    expect(body).not.toContain('ECDSA P-256 signing failed');
+    expect(body).not.toContain('the private key PEM is malformed');
+    // The cause's reason reaches the log under `err`, though not the client. A
+    // mutant that drops `{ cause: error.cause }` from the logged Error is killed:
+    // the terse message alone would not carry the reason.
+    const log = lines.join('\n');
+    expect(log).toContain('export-signing-failed');
+    expect(log).toContain('the private key PEM is malformed');
   });
 });
 

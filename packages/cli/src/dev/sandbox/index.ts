@@ -8,7 +8,7 @@
  * agent writes can't read the user's keys, other projects, or the Docker
  * socket, and can't write outside the app. It still reaches the network,
  * and reads and writes the app's own files (but Kindgi's configuration).
- * The guide: https://docs.kindgi.com/v0.1/guides/secrets/dev-sandbox/.
+ * The guide: {@link DEV_SANDBOX_DOCS}.
  *
  * At every start, {@link sandboxedCommand} works out what this start runs
  * (the runtime, the dependencies: `policy.ts`), writes the sandbox for it

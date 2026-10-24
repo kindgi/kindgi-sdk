@@ -1,6 +1,6 @@
 ---
 title: Tools
-description: Write a tool in TypeScript or Python, call an HTTP API without code, give a tool a secret or per-project values, mark it read-only, and use an MCP server's tools.
+description: Write a tool in TypeScript or Python, call an HTTP API without code, give a tool a secret or per-project values, mark it read-only, use an MCP server's tools, and wait for another system's answer.
 sidebar:
   order: 0
   label: Overview
@@ -25,6 +25,9 @@ and the output after it returns, so neither side gets malformed data.
   for dry runs and approval gates.
 - [Use an MCP server's tools](mcp-servers/): register an MCP server, and its
   tools become tools your agents and flows call.
+- [Wait for another system's answer](wait-for-another-system/): a tool hands
+  another system a link and pauses its run, until that system posts its
+  answer there.
 
 The examples use the pack from the quickstarts, `my-pack`, with `kindgi dev`
 running: see the [TypeScript](../../start/quickstart-typescript/) and
