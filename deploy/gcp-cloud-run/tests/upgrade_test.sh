@@ -11,7 +11,8 @@
 # answers only for the v1 field path, the instance read returns gcloud's JSON,
 # and the pack envelope has the fields `kindgi build` writes. Each case asserts
 # the exit code, key output, and what was (or wasn't) mirrored, exported,
-# applied and written to the var-file.
+# applied and written to the var-file. Every stubbed call is logged, so a dry
+# run can be held to reads; docker's config is a file of the case's own.
 
 set -uo pipefail
 
@@ -35,7 +36,12 @@ OLD_PACK="$REPO/pack@sha256:$(printf '%064d' 2)"
 
 cat >"$BIN/gcloud" <<'STUB'
 #!/usr/bin/env bash
+printf 'gcloud %s\n' "$*" >>"${STUB_CALLS_LOG:-/dev/null}"
 case "$*" in
+  "auth configure-docker"*)
+    # As the real one does: a credential helper for the host in docker's config.
+    if [[ -n ${DOCKER_CONFIG:-} ]]; then printf '{"credHelpers":{"%s":"gcloud"}}\n' "$3" >"$DOCKER_CONFIG/config.json"; fi
+    exit 0 ;;
   "run services describe"*)
     if [[ "$*" == *"--format=json"* ]]; then printf '%s' "${STUB_SERVICE_JSON:-}"
     elif [[ "$*" == *"--format=value(spec.template.spec.containers[0].image)"* ]]; then printf '%s\n' "${STUB_RUNNING_IMAGE:-}"
@@ -57,6 +63,7 @@ STUB
 
 cat >"$BIN/terraform" <<'STUB'
 #!/usr/bin/env bash
+printf 'terraform %s\n' "$*" >>"${STUB_CALLS_LOG:-/dev/null}"
 case "${1:-}" in
   output) printf '%s' "${STUB_TF_OUTPUTS:-}"; exit 0 ;;
   console) cat >/dev/null; printf '%s\n' "${STUB_TF_VARS_RAW:-}"; exit 0 ;;
@@ -76,6 +83,7 @@ STUB
 
 cat >"$BIN/docker" <<'STUB'
 #!/usr/bin/env bash
+printf 'docker %s\n' "$*" >>"${STUB_CALLS_LOG:-/dev/null}"
 case "$*" in
   "buildx imagetools inspect"*)
     printf '%s\n' "$*" >>"${STUB_DOCKER_LOG:-/dev/null}"
@@ -88,7 +96,7 @@ case "$*" in
 esac
 STUB
 
-printf '#!/usr/bin/env bash\nexit 0\n' >"$BIN/kindgi"
+printf '#!/usr/bin/env bash\nprintf "kindgi %%s\\n" "$*" >>"${STUB_CALLS_LOG:-/dev/null}"\nexit 0\n' >"$BIN/kindgi"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$BIN/sleep"
 chmod +x "$BIN"/*
 
@@ -153,6 +161,11 @@ reset_env() {
   export STUB_MARKER_MIRROR="$CASE_DIR/mirrored"
   export STUB_PLAN_SAW="$CASE_DIR/plan-saw"
   export STUB_JOBS_LOG="$CASE_DIR/jobs.log"
+  export STUB_CALLS_LOG="$CASE_DIR/calls.log"
+  export DOCKER_CONFIG="$CASE_DIR/docker"
+  mkdir -p "$DOCKER_CONFIG"
+  printf '{"auths":{"registry.kindgi.com":{}}}\n' >"$DOCKER_CONFIG/config.json"
+  cp "$DOCKER_CONFIG/config.json" "$CASE_DIR/original-docker-config.json"
   ARGS=(--var-file "$VAR_FILE" --runtime-digest "$NEW_DIGEST" --backup-bucket "gs://backups/dev")
 }
 
@@ -172,6 +185,17 @@ assert_file_has() { if grep -qF -- "$2" "$1" 2>/dev/null; then pass; else fail "
 assert_varfile_unchanged() {
   if cmp -s "$VAR_FILE" "$CASE_DIR/original.tfvars"; then pass; else fail "the var-file changed but shouldn't have"; fi
 }
+assert_docker_config_unchanged() {
+  if cmp -s "$DOCKER_CONFIG/config.json" "$CASE_DIR/original-docker-config.json"; then pass; else fail "docker's config changed but shouldn't have"; fi
+}
+# Every call the run made is a read: the deployment's and the registry's, the
+# module's outputs and variables, and a plan with no state lock and no plan
+# file. So nothing writes to the state backend, and nothing else changes.
+assert_reads_only() {
+  local other
+  other="$(grep -vE '^(gcloud (run services describe|artifacts docker images list|sql instances describe) |docker buildx imagetools inspect |terraform output -json$|terraform console -var-file=[^ ]+$|terraform plan -var-file=[^ ]+ -var server_image=[^ ]+ -lock=false$)' "$STUB_CALLS_LOG")"
+  if [[ -z $other ]]; then pass; else fail "made a call that isn't a read: $other"; fi
+}
 
 # 1. Happy path: 0.1.8 -> 0.1.11, own instance, no pack, confirm yes.
 case_start "happy path"
@@ -186,6 +210,7 @@ assert_file_has "$VAR_FILE" "server_image = \"$NEW_IMAGE\"  # mirrored 0.1.8" "v
 assert_file_has "$STUB_PLAN_SAW" "$NEW_IMAGE" "the plan read the new image from the var-file"
 if grep -q "plan got -var" "$STUB_PLAN_SAW"; then fail "plan was given -var"; else pass; fi
 if cmp -s "$(ls "$CASE_DIR"/dev.tfvars.pre-upgrade-*)" "$CASE_DIR/original.tfvars"; then pass; else fail "no .pre-upgrade copy of the original"; fi
+if cmp -s "$DOCKER_CONFIG/config.json" "$CASE_DIR/original-docker-config.json"; then fail "docker wasn't set up for Artifact Registry"; else pass; fi
 
 # 2. Below the floor: 0.1.7 is refused, nothing mirrored or backed up.
 case_start "below floor"
@@ -432,6 +457,66 @@ assert_rc 1 "a later rc refused"
 assert_out "knows the steps up to 0.1.11"
 assert_out "as of the @kindgi/sdk@0.2.0 tag (before it's out, that release's newest @kindgi/sdk@0.2.0-rc.N tag)"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
+
+# 27. A dry run: the reads and the read-only checks, every change a real run
+# would make with the names it would use, the steps to confirm by hand, and a
+# read-only plan for the new image. Nothing is mirrored, run, granted,
+# exported, built or applied; the var-file and docker's config are untouched;
+# no state lock is taken and no state is written.
+case_start "dry run"
+reset_env "$OLD_PACK"; export STUB_TAGS="0.1.10"; V_PACK="$OLD_PACK"
+PACK_DIR="$CASE_DIR/pack"; mkdir -p "$PACK_DIR"
+run "yes" --pack-dir "$PACK_DIR" --dry-run
+assert_rc 0 "a dry run exits 0"
+assert_out "DRY RUN. It reads only"
+assert_file_has "$STUB_CALLS_LOG" "docker buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.1.11 " "the release digest is read"
+assert_file_has "$OUT" "add the image tag $REPO/runtime:0.1.11 to Artifact Registry" "the mirror"
+assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-pk  (check provider-keys)" "the provider-keys job"
+assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-ss  (check secret-scopes)" "the secret-scopes job"
+assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-mhc  (check mcp-header-credentials)" "the mcp-header-credentials job"
+assert_file_has "$OUT" "grant serviceAccount:p-sql@demo-proj.iam.gserviceaccount.com roles/storage.objectAdmin on gs://backups " "the grant"
+assert_file_has "$OUT" "export the \"kindgi\" database to gs://backups/dev/kindgi-kindgi-0.1.10-<YYYYMMDDTHHMMSSZ>.sql.gz" "the export"
+assert_file_has "$OUT" "rebuild and push the pack from $PACK_DIR " "the pack build"
+assert_file_has "$OUT" "copy $VAR_FILE to $VAR_FILE.pre-upgrade-<YYYYMMDDTHHMMSSZ>" "the var-file copy"
+assert_file_has "$OUT" "set server_image = \"$NEW_IMAGE\" in $VAR_FILE" "the new image"
+assert_file_has "$OUT" "pack_image is unchanged in this plan" "the pack image's limit"
+assert_file_has "$OUT" "wait for the new revision of kindgi-server" "the wait"
+assert_out "Nothing to do by hand"
+assert_out "dry run done. Nothing was changed"
+if grep -q "Apply this plan" "$OUT"; then fail "a dry run asked for yes"; else pass; fi
+assert_file_has "$STUB_PLAN_SAW" "plan got -var" "the plan is given the new image"
+assert_reads_only
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_JOBS_LOG" "a check job"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+if ls "$CASE_DIR"/dev.tfvars.pre-upgrade-* >/dev/null 2>&1; then fail "a dry run left a .pre-upgrade copy"; else pass; fi
+assert_docker_config_unchanged
+
+# 28. A dry run stops where a real run would: a failed precondition exits 1,
+# says it was a dry run, and lists nothing.
+case_start "dry run, a precondition fails"
+reset_env; export STUB_TAGS="0.1.10" STUB_INSPECT_ERR="ERROR: unexpected status from HEAD request: 401 Unauthorized"
+run "yes" --dry-run
+assert_rc 1 "a failed check stops the dry run"
+assert_out "upgrade (dry run): a precondition failed"
+if grep -q "What a real run would change" "$OUT"; then fail "the changes were listed after a failed check"; else pass; fi
+assert_absent "$STUB_PLAN_SAW" "a plan"
+assert_reads_only
+assert_varfile_unchanged
+assert_docker_config_unchanged
+
+# 29. A dry run whose plan fails exits 1, and still changes nothing.
+case_start "dry run, the plan fails"
+reset_env; export STUB_TAGS="0.1.10" STUB_PLAN_RC=1
+run "yes" --dry-run
+assert_rc 1 "a failed plan fails the dry run"
+assert_out "4. nothing: no pack service"
+assert_out "upgrade (dry run): terraform plan failed"
+assert_reads_only
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_varfile_unchanged
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
