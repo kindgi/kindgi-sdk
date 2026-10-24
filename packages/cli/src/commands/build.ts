@@ -92,6 +92,7 @@ import type { IndexedCounts } from '../dev/runners.js';
 import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import { isPackageVersion } from '../package-manager.js';
+import { type ProgressLines, progressLines } from '../progress-lines.js';
 import { isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
 import { CLI_VERSION } from '../version-info.js';
 import { timeFlagValue } from './helpers.js';
@@ -248,30 +249,8 @@ export const buildCommand: LeafCommand = {
     path: { type: 'string', description: 'The pack root. Default: the current directory.' },
   },
   run: async (ctx): Promise<CommandResult> =>
-    runBuild(ctx, buildLines(ctx.progress, ctx.globals.format === 'quiet')),
+    runBuild(ctx, progressLines(ctx.progress, ctx.globals.format === 'quiet')),
 };
-
-/**
- * Where a build's lines go: each to `progress` as it comes when the CLI
- * streams them, else kept for the result's stderr (`kept`). `--quiet`
- * leaves them out; an error is said either way.
- */
-interface BuildLines {
-  readonly line: (s: string) => void;
-  readonly kept: () => string;
-}
-
-function buildLines(progress: ((text: string) => void) | undefined, quiet: boolean): BuildLines {
-  const kept: string[] = [];
-  return {
-    line: (s) => {
-      if (quiet) return;
-      if (progress === undefined) kept.push(s);
-      else progress(`${s}\n`);
-    },
-    kept: () => (kept.length === 0 ? '' : `${kept.join('\n')}\n`),
-  };
-}
 
 interface ResolvedBuildArgs {
   readonly packDir: string;
@@ -318,13 +297,10 @@ interface ResolvedBuildArgs {
 }
 
 /**
- * `kindgi build`. `out` is where its lines go; by default they're kept for
- * the result (`kindgi deploy`'s inline build).
+ * `kindgi build`. `out` is where its lines go: the command's own, or
+ * `kindgi deploy`'s, for its inline build.
  */
-export async function runBuild(
-  ctx: CommandContext,
-  out: BuildLines = buildLines(undefined, false),
-): Promise<CommandResult> {
+export async function runBuild(ctx: CommandContext, out: ProgressLines): Promise<CommandResult> {
   const runners = ctx.buildRunners;
   if (runners === undefined) {
     return {
@@ -561,7 +537,7 @@ async function runLocalBuild(
   ctx: CommandContext,
   runners: BuildRunners,
   args: ResolvedBuildArgs,
-  out: BuildLines,
+  out: ProgressLines,
 ): Promise<CommandResult> {
   if (runners.dockerBuild === undefined || runners.pullImageIndex === undefined) {
     return failure('kindgi build --local needs Docker runners; rebuild the CLI.\n');
@@ -780,7 +756,7 @@ async function signAndWriteEnvelope(
 /** A failure that still shows what the build did up to it (the lines kept, when not streamed). */
 function withBanner(
   result: CommandResult & { readonly kind: 'error' },
-  out: BuildLines,
+  out: ProgressLines,
 ): CommandResult & { readonly kind: 'error' } {
   return { ...result, stderr: `${out.kept()}${result.stderr}` };
 }

@@ -58,6 +58,8 @@ import {
 } from '../src/build/scala-image.js';
 import { cliPinWarning } from '../src/cli-pin.js';
 import { buildTimeDefaults } from '../src/commands/build.js';
+import { loadEnvelopeReal } from '../src/deploy/envelope-loader.js';
+import type { DeployRunners } from '../src/deploy/runners.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
 import { CLI_VERSION } from '../src/version-info.js';
 import { fakeRateLimitWaits } from './rate-limit-waits.js';
@@ -1339,6 +1341,125 @@ describe('kindgi build — output shape', () => {
     expect(JSON.parse(out.stdout)).toMatchObject({ buildJobId: 'bld-xxx', signed: true });
     expect(streamed.join('')).toContain('  Deploy envelope written to');
     expect(out.stderr).toBe('');
+  });
+});
+
+describe("kindgi deploy's inline build, as it goes", () => {
+  const fixed = ['--artifact-version=20260921.1', '--published-at=1970-01-01T00:00:00.000Z'];
+  const missing = '  Envelope missing — running `kindgi build --env=staging` inline...\n';
+
+  /** A deploy with no envelope yet: it reads the one its build writes, and the server takes it. */
+  async function deploy(
+    fixtures: Fixtures,
+    flags: readonly string[] = [],
+    progress?: (text: string) => void,
+  ) {
+    await rm(join(packDir, '.kindgi', 'build', 'deploy-envelope.json'), { force: true });
+    let posts = 0;
+    const deployRunners: DeployRunners = {
+      loadEnvelope: loadEnvelopeReal,
+      postDeployment: async () => {
+        posts += 1;
+        return {
+          kind: 'created',
+          status: 201,
+          record: {
+            deploymentId: 'dep-01H8XM',
+            tenantId: 'tenant-acme-staging',
+            imageRef: `ghcr.io/acme/my-pack@${PUSHED_DIGEST}`,
+            imageDigest: PUSHED_DIGEST,
+            artifactVersion: '20260921.1',
+            indexHash: `sha256:${SAMPLE_INDEX_HASH_HEX}`,
+            signerKeyId: 'staging',
+            signerPublicKey: 'base64publickey',
+            signature: 'base64signature',
+            publishedAt: '1970-01-01T00:00:00.000Z',
+            activatedAt: '2026-09-21T14:32:07.104Z',
+            primitives: { tools: 1, guardrails: 0, agents: 0, flows: 0 },
+          },
+        };
+      },
+    };
+    const out = await runCli({
+      ...baseInputs(fixtures, {
+        env: { KINDGI_TENANT_ID: 'env-tenant', KINDGI_API_TOKEN: 'test-bearer-token' },
+        deployRunners,
+        ...(progress !== undefined && { progress }),
+      }),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, ...fixed, ...flags],
+    });
+    return { out, posts };
+  }
+
+  test("streamed, the build's lines go out as they come, between deploy's, as the same text", async () => {
+    const kept = await deploy(makeFixtures());
+    expect(kept.out.exitCode, kept.out.stderr).toBe(0);
+    expect(kept.posts).toBe(1);
+    expect(kept.out.stderr).toContain(`${missing}\n  Environment: staging\n`);
+
+    const streamed: string[] = [];
+    const fixtures = makeFixtures();
+    const { streamBuildLogs } = fixtures.runners;
+    let beforeLogs = '';
+    fixtures.runners = {
+      ...fixtures.runners,
+      streamBuildLogs: async (o) => {
+        beforeLogs = streamed.join('');
+        return streamBuildLogs(o);
+      },
+    };
+    const run = await deploy(fixtures, [], (text) => streamed.push(text));
+    expect(run.out.exitCode, run.out.stderr).toBe(0);
+    expect(beforeLogs).toContain(missing);
+    expect(beforeLogs).toContain('  Uploading to build service\n');
+    expect(beforeLogs).toContain('    → Streaming build logs\n');
+    expect(beforeLogs).not.toContain('201 Created');
+    expect(streamed.join('')).toBe(kept.out.stderr);
+    expect(run.out.stderr).toBe('');
+    expect(JSON.parse(run.out.stdout)).toEqual(JSON.parse(kept.out.stdout));
+  });
+
+  test("--quiet leaves the build's lines out, streamed or kept; deploy's own still show", async () => {
+    const streamed: string[] = [];
+    for (const progress of [undefined, (text: string) => streamed.push(text)]) {
+      const run = await deploy(makeFixtures(), ['--quiet'], progress);
+      expect(run.out.exitCode, run.out.stderr).toBe(0);
+      const said = `${streamed.join('')}${run.out.stderr}`;
+      expect(said).toContain(missing);
+      expect(said).toContain('201 Created');
+      expect(said).not.toContain('Uploading to build service');
+      expect(said).not.toContain('Streaming build logs');
+    }
+    expect(streamed.length).toBeGreaterThan(0);
+  });
+
+  test("an inline build that fails: its error comes after deploy's lines and the build's, streamed or kept", async () => {
+    const failing = (): Fixtures => {
+      const fixtures = makeFixtures();
+      fixtures.runners = {
+        ...fixtures.runners,
+        streamBuildLogs: async (o): Promise<TerminalPayload> => {
+          o.onLog('step 3/7: npm ci exited 1');
+          return {
+            status: 'failed',
+            error: { code: 'docker-build-failed', message: 'buildx returned non-zero' },
+          };
+        },
+      };
+      return fixtures;
+    };
+    const kept = await deploy(failing());
+    expect(kept.out.exitCode).toBe(1);
+    expect(kept.posts).toBe(0);
+    expect(kept.out.stderr).toMatch(
+      /^\n {2}Environment: staging\n[\s\S]*Envelope missing[^\n]*\n\n {2}Environment: staging\n[\s\S]* {8}step 3\/7: npm ci exited 1\nInline `kindgi build` failed \(exit 1\):\n\nBuild failed: \[docker-build-failed\]/,
+    );
+
+    const streamed: string[] = [];
+    const run = await deploy(failing(), [], (text) => streamed.push(text));
+    expect(run.out.exitCode).toBe(1);
+    expect(run.out.stderr.startsWith('Inline `kindgi build` failed (exit 1):')).toBe(true);
+    expect(`${streamed.join('')}${run.out.stderr}`).toBe(kept.out.stderr);
   });
 });
 
