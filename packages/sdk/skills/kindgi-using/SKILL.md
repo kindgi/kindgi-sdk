@@ -180,10 +180,11 @@ say there were none.
   (`appName`, `account`). Only they decide it. Say who it is
   (`approver.userId`; `kindgi people list` gives their name). When that
   isn't the person asking, don't walk them through deciding it: a tenant
-  admin sees it, but their decision is refused
-  (`403 named-approver-required`), and it can't be escalated
-  (`409 invalid-transition`). Other reviewers don't see it at all. If its
-  person doesn't decide by its deadline, it expires.
+  admin sees it, but any decision of theirs, escalating included, is
+  refused (`403 named-approver-required`). Other reviewers don't see it
+  at all. Its person approves or rejects it, but can't escalate it
+  (`409 invalid-transition`). If they don't decide by its deadline, it
+  expires.
 - In the console: `<console>approvals/<approvalId>` opens it in the Inbox.
   Under **Your decision** they choose **Approve** or **Reject**, add a
   rationale if they like, and press the button. Then stop: the decision
