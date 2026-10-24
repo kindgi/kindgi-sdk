@@ -167,6 +167,7 @@ import { CLI_VERSION } from '../version-info.js';
 import { consoleUrlOf, couldNotOpen } from './console.js';
 import { defaultSdkSkillsRoot } from './init.js';
 import { describeDevSkillsRefresh, refreshSkillsForDev } from './skills.js';
+import type { DevSkillsLine } from './skills.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 export const devCommand: LeafCommand = {
@@ -252,11 +253,11 @@ export const devCommand: LeafCommand = {
         'Let `docker compose` recreate the bundled Postgres if its definition changed (needs compose). By default an existing container is reused.',
     },
     // The runtime's and the pack service's records: what's shown, and how.
-    // `--quiet` (a global flag) keeps errors only.
+    // `--quiet` (a global flag) keeps errors and warnings only.
     'log-level': {
       type: 'string',
       description:
-        "The lowest level of the log records shown: error, warn, info, debug or trace. Default: `KINDGI_LOG_LEVEL` (the shell's, then the env files'), else info; with `--quiet`, error.",
+        "The lowest level of the log records shown: error, warn, info, debug or trace. Default: `KINDGI_LOG_LEVEL` (the shell's, then the env files'), else info; with `--quiet`, warn.",
     },
     log: {
       type: 'string',
@@ -298,10 +299,19 @@ function emitProgress(msg: string): void {
   emitProblem(msg);
 }
 
-/** A progress line that's an error: shown under `--quiet` too. */
+/** A progress line that's an error or a warning: shown under `--quiet` too. */
 function emitProblem(msg: string): void {
   process.stderr.write(`${stoppingLineOpen ? '\n' : ''}  ${msg}\n`);
   stoppingLineOpen = false;
+}
+
+/** The dev sandbox's lines, then its warnings: those are said under `--quiet` too. */
+function emitSandboxLines(outcome: {
+  readonly lines: readonly string[];
+  readonly warnings: readonly string[];
+}): void {
+  for (const line of outcome.lines) emitProgress(line);
+  for (const line of outcome.warnings) emitProblem(line);
 }
 
 /**
@@ -535,7 +545,7 @@ async function runDevForPack(
       `✓ Google credentials: ${google.credentials.path} (${google.credentials.who}), mounted read-only for Vertex AI`,
     );
   } else if (declaredVertex.length > 0) {
-    emitProgress(`⚠ ${vertexCredentialsHint(declaredVertex, ctx.env)}`);
+    emitProblem(`⚠ ${vertexCredentialsHint(declaredVertex, ctx.env)}`);
   }
 
   // The pack service runs sandboxed where this machine can: the code a
@@ -552,7 +562,7 @@ async function runDevForPack(
   if (devSandbox.kind === 'error') {
     return { kind: 'error', stderr: `kindgi dev: ${devSandbox.message}\n`, exitCode: 1 };
   }
-  for (const line of devSandbox.lines) emitProgress(line);
+  emitSandboxLines(devSandbox);
   const sandboxNotices = new Set<string>();
 
   // The runtime's port, before anything starts. Taken without `--port`
@@ -587,7 +597,7 @@ async function runDevForPack(
       };
     }
     if (args.recreateServices) {
-      emitProgress(
+      emitProblem(
         '⚠ --recreate-services: the shared Postgres may be recreated; every kindgi dev on this machine using it reconnects',
       );
     }
@@ -617,7 +627,7 @@ async function runDevForPack(
         ? "✓ Postgres: started with docker (docker compose isn't available)"
         : '✓ Postgres: started with docker compose',
     );
-    for (const note of outcome.handle.notes ?? []) emitProgress(`⚠ ${note}`);
+    for (const note of outcome.handle.notes ?? []) emitProblem(`⚠ ${note}`);
   }
 
   const kindgircPath = join(args.packDir, '.kindgirc.json');
@@ -759,7 +769,7 @@ async function runDevForPack(
     onNotice: (line: string) => {
       if (sandboxNotices.has(line)) return;
       sandboxNotices.add(line);
-      emitProgress(`⚠ ${line}`);
+      emitProblem(`⚠ ${line}`);
     },
     onLog: (line: string, stream: 'stdout' | 'stderr') =>
       emitOutput(showText('pack', line, logView, stream)),
@@ -820,7 +830,9 @@ async function runDevForPack(
     ...(devOnly !== undefined && {
       onBuild: async (build) => {
         if (build.externals === undefined) return;
-        for (const line of await devOnly.check(build.externals)) emitProgress(`  ${line}`);
+        const checked = await devOnly.check(build.externals);
+        for (const line of checked.warnings) emitProblem(`  ${line}`);
+        for (const line of checked.lines) emitProgress(`  ${line}`);
       },
     }),
   });
@@ -944,7 +956,7 @@ async function runDevForPack(
       providersTarget.database,
       server.tenantId,
     ).catch((err: unknown) => {
-      emitProgress(
+      emitProblem(
         `  ⚠ could not update ${join('.kindgi', 'dev', 'providers.json')}: ${(err as Error).message}. Providers this pack registered before 0.1.4 may read as not its own.`,
       );
     });
@@ -977,7 +989,7 @@ async function runDevForPack(
     const byHand = (providers ?? [])
       .map((p) => p.id)
       .filter((id) => id === VERTEX_PROVIDER_ID && !declaredVertex.includes(id));
-    if (byHand.length > 0) emitProgress(`⚠ ${vertexCredentialsHint(byHand, ctx.env)}`);
+    if (byHand.length > 0) emitProblem(`⚠ ${vertexCredentialsHint(byHand, ctx.env)}`);
   }
   // A preview runtime near the end of its life (90 days after its
   // release, until 1.0): from 30 days before, the way to a newer one.
@@ -985,7 +997,7 @@ async function runDevForPack(
     await readLicenseStatus(client),
     devRuntimeSource(args),
   );
-  if (previewWarning !== undefined) emitProgress(previewWarning);
+  if (previewWarning !== undefined) emitProblem(previewWarning);
 
   const bannerLines = renderDevBanner({
     baseUrl: server.baseUrl,
@@ -1274,7 +1286,7 @@ async function runDevForPack(
   const stdout = ctx.globals.formatRequested ? renderJson(summary, ctx.globals.format).stdout : '';
   return {
     kind: 'ok',
-    // --quiet: errors only, so no summary.
+    // --quiet: errors and warnings only, so no summary.
     rendered: {
       stdout,
       stderr: args.watch || logView.quiet ? '' : `${bannerLines.join('\n')}\n`,
@@ -1392,7 +1404,7 @@ async function loadDevProjectEnv(ctx: CommandContext, packDir: string): Promise<
       ? `env files: none yet (reads ${label(env.files.read)})`
       : `✓ env files: ${label(env.present)} — ${Object.keys(packValues(env.values)).length} name(s) for the pack`,
   );
-  for (const line of describeEnvDiagnostics(packDir, env.diagnostics)) emitProgress(`  ! ${line}`);
+  for (const line of describeEnvDiagnostics(packDir, env.diagnostics)) emitProblem(`  ! ${line}`);
   const discovery = settings.config?.discovery;
   const language =
     settings.config !== undefined ? packLanguage(settings.config as KindgiConfig) : 'node';
@@ -1472,7 +1484,7 @@ async function walkRuntimePorts(
       exitCode: 1,
     };
   }
-  emitProgress(`⚠ port ${args.port} is in use (another kindgi dev?): using ${free}`);
+  emitProblem(`⚠ port ${args.port} is in use (another kindgi dev?): using ${free}`);
   return { kind: 'ok', port: free };
 }
 
@@ -1776,7 +1788,7 @@ function reportWatchFailureOnce(): (error: unknown) => void {
     if (said) return;
     said = true;
     const why = error instanceof Error ? error.message : String(error);
-    emitProgress(`  ⚠ file watch failed (${why}): changes are picked up by the once-a-second scan`);
+    emitProblem(`  ⚠ file watch failed (${why}): changes are picked up by the once-a-second scan`);
   };
 }
 
@@ -1950,7 +1962,8 @@ function emitWarningsSince({ fresh, standing }: WarningsSince): void {
  * Bring the pack's framework skills up to this CLI's (`refreshSkillsForDev`),
  * and say what changed and what's still behind. Silent when nothing is. A
  * refresh that fails is said, never fails boot: the skills help the coding
- * agent, not the pack.
+ * agent, not the pack. What's behind, and a refresh that fails, are
+ * warnings: shown under `--quiet` too.
  */
 async function emitSkillsRefresh(
   packDir: string,
@@ -1959,20 +1972,20 @@ async function emitSkillsRefresh(
 ): Promise<void> {
   const skillsRoot = defaultSdkSkillsRoot();
   if (skillsRoot === undefined) return;
-  let lines: string[];
+  let lines: readonly DevSkillsLine[];
   try {
     const refresh = await refreshSkillsForDev({ skillsRoot, targetDir: packDir, language });
     lines = describeDevSkillsRefresh(refresh, commands);
   } catch (error) {
     const why = error instanceof Error ? error.message : String(error);
     lines = [
-      `  ⚠ Framework skills: couldn't refresh them: ${why}`,
-      `    Run \`${commands.sync}\` to pull the latest.`,
+      { text: `  ⚠ Framework skills: couldn't refresh them: ${why}`, problem: true },
+      { text: `    Run \`${commands.sync}\` to pull the latest.`, problem: true },
     ];
   }
   if (lines.length === 0) return;
-  for (const line of lines) emitProgress(line);
-  emitProgress('');
+  for (const line of lines) (line.problem ? emitProblem : emitProgress)(line.text);
+  (lines.some((line) => line.problem) ? emitProblem : emitProgress)('');
 }
 
 /**
@@ -2072,7 +2085,7 @@ async function settleProviderKeys(inputs: {
   for (const h of held) {
     if (h.inKindgiFile) continue;
     const where = h.files.map((f) => displayEnvPath(inputs.packDir, f)).join(' and ');
-    emitProgress(
+    emitProblem(
       `  ⚠ ${h.name} is in ${where}, which your app loads too. To give Kindgi its own copy: ${inputs.kindgi('secrets', 'copy')} (it never edits your app's files).`,
     );
   }
@@ -2126,16 +2139,18 @@ async function applyDeclaredProviders(inputs: {
       hasSecret: (name) => inputs.secretNames.has(name),
     });
   } catch (err) {
-    emitProgress(
+    emitProblem(
       `⚠ Providers from ${inputs.file}: not applied; the runtime's providers could not be listed: ${(err as Error).message}`,
     );
     return;
   }
-  for (const line of describeReconcile(result.outcomes, inputs)) emitProgress(line);
+  for (const line of describeReconcile(result.outcomes, inputs)) {
+    (line.problem ? emitProblem : emitProgress)(line.text);
+  }
   try {
     await writeOwnedProviders(recordPath, inputs.key, result.owned);
   } catch (err) {
-    emitProgress(
+    emitProblem(
       `  ⚠ could not write ${join('.kindgi', 'dev', 'providers.json')}: ${(err as Error).message}. The next boot leaves the providers registered now as they are.`,
     );
   }

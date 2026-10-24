@@ -260,6 +260,10 @@ describe('refreshSkillsForDev — kindgi dev as it starts', () => {
   const copy = (folder: string) => readFile(join(packDir, folder, 'one', 'SKILL.md'), 'utf8');
   const manifestPath = () => join(packDir, '.claude', 'skills', '.kindgi-manifest.json');
   const ignore = () => join(packDir, '.prettierignore');
+  const said = (text: string) => ({ text, problem: false });
+  // A warning: said under `--quiet` too.
+  const warned = (text: string) => ({ text, problem: true });
+  const wrote = '  ✓ Framework skills: 1 updated, 1 added.';
 
   beforeEach(async () => {
     await bundle('one', '');
@@ -277,7 +281,7 @@ describe('refreshSkillsForDev — kindgi dev as it starts', () => {
 
   test('after an upgrade, brings each copy up to date and adds the new skill to both folders', async () => {
     await upgrade();
-    expect(await start()).toEqual(['  ✓ Framework skills: 1 updated, 1 added.']);
+    expect(await start()).toEqual([said(wrote)]);
     for (const folder of ['.claude/skills', '.agents/skills']) {
       expect(await copy(folder)).toContain('# one, again');
       expect(await installed(folder)).toEqual(['one', 'two']);
@@ -302,19 +306,19 @@ describe('refreshSkillsForDev — kindgi dev as it starts', () => {
     expect(await start()).toEqual([]);
     expect(JSON.parse(await readFile(manifestPath(), 'utf8'))).toEqual(recorded);
     await upgrade();
-    expect(await start()).toEqual(['  ✓ Framework skills: 1 updated, 1 added.']);
+    expect(await start()).toEqual([said(wrote)]);
     for (const folder of ['.claude/skills', '.agents/skills']) {
       expect(await copy(folder)).toContain('# one, again');
     }
   });
 
-  test('an edited copy is kept while its other copy moves on, and it says how to replace it', async () => {
+  test('an edited copy is kept while its other copy moves on, and it says how to replace it: a warning, and the heading with it', async () => {
     await writeFile(join(packDir, '.agents', 'skills', 'one', 'SKILL.md'), '# mine\n');
     expect(await start()).toEqual([]);
     await upgrade();
     expect(await start()).toEqual([
-      '  ✓ Framework skills: 1 updated, 1 added.',
-      '    · 1 you edited is kept: `kindgi skills sync --force` replaces it.',
+      warned(wrote),
+      warned('    · 1 you edited is kept: `kindgi skills sync --force` replaces it.'),
     ]);
     expect(await copy('.agents/skills')).toBe('# mine\n');
     expect(await copy('.claude/skills')).toContain('# one, again');
@@ -324,11 +328,11 @@ describe('refreshSkillsForDev — kindgi dev as it starts', () => {
     await rm(join(packDir, '.claude', 'skills', 'one'), { recursive: true, force: true });
     expect(await start()).toEqual([]);
     await upgrade();
-    const deleted = '    · 1 you deleted: `kindgi skills sync` brings it back.';
-    expect(await start()).toEqual(['  ✓ Framework skills: 1 updated, 1 added.', deleted]);
+    const deleted = warned('    · 1 you deleted: `kindgi skills sync` brings it back.');
+    expect(await start()).toEqual([warned(wrote), deleted]);
     expect(await installed('.claude/skills')).toEqual(['two']);
     expect(await copy('.agents/skills')).toContain('# one, again');
-    expect(await start()).toEqual(['  ⚠ Framework skills: 1 out of date.', deleted]);
+    expect(await start()).toEqual([warned('  ⚠ Framework skills: 1 out of date.'), deleted]);
     await sync();
     expect(await installed('.claude/skills')).toEqual(['one', 'two']);
   });
@@ -338,10 +342,26 @@ describe('refreshSkillsForDev — kindgi dev as it starts', () => {
     expect(await start()).toEqual([]);
     expect(await readFile(ignore(), 'utf8')).toBe('dist/\n');
     await upgrade();
-    expect((await start())[1]).toMatch(
-      /^ {4}· Added \.claude\/skills\/kindgi-\*\/ and \.agents\/skills\/kindgi-\*\/ to \S*\.prettierignore\.$/,
-    );
+    expect(await start()).toEqual([
+      said(wrote),
+      said(
+        expect.stringMatching(
+          /^ {4}· Added \.claude\/skills\/kindgi-\*\/ and \.agents\/skills\/kindgi-\*\/ to \S*\.prettierignore\.$/,
+        ),
+      ),
+    ]);
     expect(await readFile(ignore(), 'utf8')).toContain('.agents/skills/kindgi-*/');
+  });
+
+  test("a .prettierignore it can't patch is a warning, and the heading with it", async () => {
+    await mkdir(ignore());
+    await upgrade();
+    expect(await start()).toEqual([
+      warned(wrote),
+      warned(
+        expect.stringMatching(/^ {4}· Couldn't add the skills' folders to \S*\.prettierignore: /),
+      ),
+    ]);
   });
 
   test.each([
@@ -359,8 +379,8 @@ describe('refreshSkillsForDev — kindgi dev as it starts', () => {
     await c.lose();
     await upgrade();
     expect(await start()).toEqual([
-      `  ⚠ Framework skills: ${c.drift}.`,
-      '    Run `kindgi skills sync` to pull the latest.',
+      warned(`  ⚠ Framework skills: ${c.drift}.`),
+      warned('    Run `kindgi skills sync` to pull the latest.'),
     ]);
     expect(await installed('.agents/skills')).toEqual(['one']);
     expect(
@@ -378,8 +398,8 @@ describe('refreshSkillsForDev — kindgi dev as it starts', () => {
     expect(await start()).toEqual([]);
     await upgrade();
     expect(await start()).toEqual([
-      '  ✓ Framework skills: 1 updated, 1 added.',
-      '    · .agents/skills/ is gone: `kindgi skills sync` brings it back.',
+      warned(wrote),
+      warned('    · .agents/skills/ is gone: `kindgi skills sync` brings it back.'),
     ]);
     await expect(stat(join(packDir, '.agents'))).rejects.toThrow(/ENOENT/);
     expect(await installed('.claude/skills')).toEqual(['one', 'two']);

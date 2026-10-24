@@ -361,21 +361,32 @@ export async function refreshSkillsForDev(inputs: {
   return { kind: 'refreshed', report, leftOut: synced.leftOut };
 }
 
+/** A line of `kindgi dev`'s boot log, and whether it's a warning: said under `--quiet` too. */
+export interface DevSkillsLine {
+  readonly text: string;
+  readonly problem: boolean;
+}
+
+const say = (text: string): DevSkillsLine => ({ text, problem: false });
+// A warning.
+const problem = (text: string): DevSkillsLine => ({ text, problem: true });
+
 /**
  * The refresh in lines for `kindgi dev`: what it wrote, and each kind of
  * copy left behind the bundle, with the command that moves it on. None
- * when nothing was written and nothing is behind.
+ * when nothing was written and nothing is behind. A copy behind the bundle
+ * is a warning, and so is the heading over it.
  */
 export function describeDevSkillsRefresh(
   refresh: DevSkillsRefresh,
   commands: { readonly sync: string; readonly force: string },
-): string[] {
+): DevSkillsLine[] {
   if (refresh.kind === 'no-manifest') {
     return refresh.drift === undefined
       ? []
       : [
-          `  ⚠ Framework skills: ${refresh.drift}.`,
-          `    Run \`${commands.sync}\` to pull the latest.`,
+          problem(`  ⚠ Framework skills: ${refresh.drift}.`),
+          problem(`    Run \`${commands.sync}\` to pull the latest.`),
         ];
   }
   const { outcomes, prettierignore } = refresh.report;
@@ -388,9 +399,14 @@ export function describeDevSkillsRefresh(
     ...(added.length > 0 ? [`${added.length} added`] : []),
   ];
   const behind = behindLines(refresh, commands);
-  const lines = [...behind.lines, ...formatterIgnoreLines(prettierignore)];
-  if (wrote.length > 0) return [`  ✓ Framework skills: ${wrote.join(', ')}.`, ...lines];
-  return behind.count > 0 ? [`  ⚠ Framework skills: ${behind.count} out of date.`, ...lines] : [];
+  const lines = [...behind.lines.map(problem), ...formatterIgnoreLines(prettierignore)];
+  if (wrote.length > 0) {
+    const heading = `  ✓ Framework skills: ${wrote.join(', ')}.`;
+    return [{ text: heading, problem: lines.some((line) => line.problem) }, ...lines];
+  }
+  return behind.count > 0
+    ? [problem(`  ⚠ Framework skills: ${behind.count} out of date.`), ...lines]
+    : [];
 }
 
 /**
@@ -432,12 +448,14 @@ function behindLines(
 }
 
 /** What the refresh did to the pack's `.prettierignore`, when it changed it or couldn't. */
-function formatterIgnoreLines(outcome: FormatterIgnoreOutcome | undefined): string[] {
+function formatterIgnoreLines(outcome: FormatterIgnoreOutcome | undefined): DevSkillsLine[] {
   if (outcome?.status === 'patched') {
-    return [`    · Added ${outcome.appended.join(' and ')} to ${outcome.path}.`];
+    return [say(`    · Added ${outcome.appended.join(' and ')} to ${outcome.path}.`)];
   }
   if (outcome?.status === 'error') {
-    return [`    · Couldn't add the skills' folders to ${outcome.path}: ${outcome.message}`];
+    return [
+      problem(`    · Couldn't add the skills' folders to ${outcome.path}: ${outcome.message}`),
+    ];
   }
   return [];
 }

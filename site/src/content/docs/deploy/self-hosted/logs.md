@@ -240,7 +240,7 @@ terminal unless `NO_COLOR` is set. A line that isn't a record shows as it is.
 | `--log-level=<level>` | The lowest level shown. Default: `KINDGI_LOG_LEVEL` from the shell, then from the pack's env files, else `info`. |
 | `--log=<subsystem>=<level>` | A level for one subsystem; repeat it for more. |
 | `--log-format=json` | Each record as written, one per line on standard output, for `\| jq`; everything else stays on standard error. |
-| `--quiet` | Errors only, in the live output too. |
+| `--quiet` | Errors and warnings only, in the live output too. |
 
 The levels reach the sources: the runtime, the pack service and the indexer
 get them as `KINDGI_LOG_LEVEL` and `KINDGI_LOG_LEVELS`, so they write only
