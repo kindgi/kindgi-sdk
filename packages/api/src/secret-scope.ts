@@ -283,8 +283,11 @@ export function toolSecretRefs(
   envName: EnvName | undefined,
 ): NamedSecret[] {
   const refs: NamedSecret[] = [];
-  const ref = manifest.spec?.authorization?.secretRef;
-  if (ref !== undefined) refs.push({ envName: ref.envName as EnvName, name: ref.name });
+  const auth = manifest.spec?.authorization;
+  // A connection's authorization sends the connection's token, not a secret.
+  if (auth !== undefined && auth.kind !== 'connection') {
+    refs.push({ envName: auth.secretRef.envName as EnvName, name: auth.secretRef.name });
+  }
   for (const name of Object.keys(manifest.needsSpec?.secrets ?? {})) {
     if (!refs.some((r) => r.name === name)) refs.push({ envName, name });
   }

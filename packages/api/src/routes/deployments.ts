@@ -44,6 +44,7 @@ import type { AgentRegistryBinding } from '../agent-binding.js';
 import { type UnpinnableRef, publishDeployedAgent, resolveAgentPins } from '../agent-pins.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
 import { type BlockPins, type BlockVersionReads, resolveBlockPins } from '../block-pins.js';
+import { canonicalJson } from '../canonical-json.js';
 import {
   type PlannedBlock,
   planPackBlocks,
@@ -2047,15 +2048,6 @@ function definitionOf(guardrail: Guardrail): Record<string, unknown> {
   }
   declared.modulePath = guardrail.codeArtifactRef?.modulePath;
   return declared;
-}
-
-/** JSON with every object's keys sorted, and absent and `undefined` alike. */
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(JSON.parse(JSON.stringify(value) ?? 'null'), (_key, v: unknown) =>
-    v !== null && typeof v === 'object' && !Array.isArray(v)
-      ? Object.fromEntries(Object.entries(v).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)))
-      : v,
-  );
 }
 
 /** The pointer to a tool's or guardrail's module inside the deployed image. */

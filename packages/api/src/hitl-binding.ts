@@ -77,6 +77,29 @@ export interface Approval {
   readonly escalatedFrom?: ApprovalId;
   /** The approval this one was escalated to. */
   readonly escalatedTo?: ApprovalId;
+  /**
+   * The one member who may decide it, set when the call would use that
+   * member's own connection: only they approve, reject or withdraw it, and
+   * only with a reviewer seat of the required rank. The other reviewers
+   * don't see it listed. Absent: any reviewer of the rank decides.
+   */
+  readonly approver?: ApprovalApprover;
+  /** The person's connection the call would use: shown as "as <account>". */
+  readonly connection?: ApprovalConnection;
+}
+
+/** Who alone may decide an approval. */
+export interface ApprovalApprover {
+  readonly kind: 'member';
+  readonly userId: string;
+}
+
+/** The connection a gated call would use: the app, and whose account. */
+export interface ApprovalConnection {
+  readonly app: string;
+  readonly appName: string;
+  /** The account's label at the app: an email address, a login. */
+  readonly account: string;
 }
 
 /**

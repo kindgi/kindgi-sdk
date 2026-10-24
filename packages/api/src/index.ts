@@ -372,6 +372,8 @@ export type {
 } from './reviewer-binding.js';
 export type {
   Approval,
+  ApprovalApprover,
+  ApprovalConnection,
   ApprovalPosition,
   ApprovalStatus,
   HitlBinding,
@@ -872,6 +874,28 @@ export type {
   CostRecordPage,
   CostTokenTotals,
 } from './cost-binding.js';
+export type {
+  ConnectFinishInput,
+  ConnectFinishOutcome,
+  ConnectRequestCreateInput,
+  ConnectRequestInstallation,
+  ConnectRequestRecord,
+  ConnectRequestState,
+  ConnectionAppCreateInput,
+  ConnectionAppRecord,
+  ConnectionAppUpdateInput,
+  ConnectionBinding,
+  ConnectionError,
+  ConnectionErrorCode,
+  ConnectionListInput,
+  ConnectionOwner,
+  ConnectionPage,
+  ConnectionRecord,
+  ConnectionRemovedReason,
+  ConnectionState,
+  ConnectionWithdrawn,
+  SecretRefInput,
+} from './connection-binding.js';
 export {
   CURSOR_TTL_MS,
   createAeadCursorSealer,

@@ -46,7 +46,8 @@ export interface ResolveContext {
     | 'admin-cli'
     | 'boot-bridge'
     | 'webhook-receiver'
-    | 'pack-env';
+    | 'pack-env'
+    | 'connections';
 }
 
 /** Input to `emitResolveEvent`. */
