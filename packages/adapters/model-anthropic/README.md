@@ -10,6 +10,8 @@ Translate between the framework's `ModelCallInput` / `ModelCallResult` and a non
 - Tool names are encoded `.` → `__` on send and decoded on receive, because the Messages API rejects dots in tool names (`acme.orders.lookup` ↔ `acme__orders__lookup`). Tool ids must not contain a literal `__`.
 - `max_tokens` is always sent, since Anthropic requires it: `input.maxOutputTokens`, else the model's `ModelInfo.maxOutputTokens`, else `4096`. `temperature` is sent when set, and `abortSignal` is passed to the request.
 - `stop_reason` maps `end_turn` / `stop_sequence` / `pause_turn` → `stop`, `max_tokens` → `length`, `tool_use` → `tool-use`, `refusal` → `content-filter`, anything else → `stop`.
+- **Thinking goes back with the tool results.** The Messages API wants an answer's `thinking` and `redacted_thinking` blocks back, unchanged and in place, on the call that sends its tool results, and `ModelMessage` has no field for them. So an answer with thinking and tool calls keeps its content, in order, in its first tool call's `signature` (`anth1.`), and the next call to the same model sends it back while the message still has the same text and the same calls in the same order. Otherwise (another model, an edited message) the message goes back as its text and then its calls. The thinking text is kept as Anthropic's API returned it, encoded but not encrypted, so whoever can read the conversation or the turn's run can read it; only `redacted_thinking` comes encrypted.
+- When a call reaches `max_tokens` after thinking and before any answer text, the answer is empty (a tool call the cap cut short isn't run), and the result carries a `thinking-used-max-tokens` warning naming the cap.
 - Cost accounting that includes prompt caching. Anthropic reports four counters (`input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`), and `costUsd` bills each at its own rate:
   `(input × rate + cacheCreation × rate × creationMultiplier + cacheRead × rate × readMultiplier + output × outputRate) / 1000`.
   The multiplier defaults match the 5-minute cache tier (creation `1.25`, read `0.1`). Claude Opus 5.5 and Sonnet 5.5 read at `0.05`: set `promptCacheReadMultiplier: 0.05` in their `cost` (the `anthropic` preset does). `usage.promptTokens` includes cache writes and reads; `usage.cacheReadTokens` and `usage.cacheWriteTokens` report them.
@@ -32,7 +34,8 @@ Translate between the framework's `ModelCallInput` / `ModelCallResult` and a non
   - `client?` — an injected SDK client, used as-is; `apiKey`, `baseURL` and `clientOptions` are then ignored. Useful in tests.
 - **`AnthropicModelInfo`** — `ModelInfo` whose `cost` also accepts `promptCacheCreationMultiplier?` and `promptCacheReadMultiplier?`.
 - **Cost helpers** — `computeCostUsd(usage, rates)`, `toFrameworkUsage(usage)`, `CostRates`, `DEFAULT_CACHE_CREATION_MULTIPLIER_5MIN` (`1.25`), `DEFAULT_CACHE_READ_MULTIPLIER` (`0.1`).
-- **Translation helpers** — `toAnthropicMessages(messages)`, `toAnthropicTools(tools)`, `fromAnthropicResponse(response)`, `mapStopReason(reason)`.
+- **Translation helpers** — `toAnthropicMessages(messages, model?)`, `toAnthropicTools(tools)`, `fromAnthropicResponse(response, toolIdOf?, model?)`, `mapStopReason(reason)`. Given the model, they keep and send back an answer's thinking.
+- **`THINKING_USED_MAX_TOKENS`** — the warning code `thinking-used-max-tokens`.
 - **`ModelProvider`** — type re-export from `@kindgi/capabilities`.
 
 ## Example
@@ -79,7 +82,7 @@ A single-key deployment passes `apiKey: process.env.ANTHROPIC_API_KEY` (checked 
 ## Non-goals
 
 - **Streaming.** `invoke()` resolves with the complete response; streaming would need a different `ModelProvider` interface.
-- **Extended thinking.** `ModelMessage` has no thinking field; `thinking` blocks in responses are dropped.
+- **A thinking field.** `ModelMessage` has none: an answer's thinking is kept in a tool call's `signature` to be sent back, not as a field of its own.
 - **Image inputs.** `ModelMessage` content is text only.
 - **Structured output.** `structuredOutput` on `ModelCallInput` is ignored. No Kindgi caller sends it today: an agent's typed output is checked by parse and repair on every provider, so the anthropic preset's models still declare `structured-output` (they can follow a JSON schema natively).
 - **Retry logic in the adapter.** Retries and timeouts are the SDK client's (`clientOptions.maxRetries`, `clientOptions.timeout`).

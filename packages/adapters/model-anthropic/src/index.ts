@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-export { createAnthropicProvider } from './provider.js';
+export { THINKING_USED_MAX_TOKENS, createAnthropicProvider } from './provider.js';
 export {
   ANTHROPIC_ADAPTER_ID,
   anthropicAdapterEntry,
