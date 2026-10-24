@@ -14,7 +14,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.12"
+version: "0.3.15"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -76,12 +76,28 @@ never creates env files: `kindgi dev` reads the app's own `.env` /
 not `devDependencies`: the deployed pack installs production dependencies
 only (see `kindgi-authoring-tools`).
 
+In a Next.js app, a tool can't import a module that has
+`import 'server-only'`, directly or through another module. Outside Next.js
+that line stops the module from loading, so `kindgi test`, `kindgi dev` and
+`kindgi build` fail on the tool. When the app doesn't install the package
+(Next.js doesn't need it), `kindgi test` fails with `Cannot find package
+'server-only'`, and `kindgi dev` and `kindgi build` with `Could not resolve
+"server-only"`. When it does, all three fail with the package's own "This
+module cannot be imported from a Client Component module". Don't remove the
+line, and don't alias `server-only` away in the vitest config: the build
+still fails. Move the code the tool needs, as it is, to a module without
+the line (`lib/orders.ts` → `lib/orders-core.ts`). The guarded module keeps
+the line and re-exports it
+(`import 'server-only'; export * from './orders-core';`), so the app's own
+imports don't change. The tool imports the new module. Nothing guards it,
+so only the app's server code and the pack should import it.
+
 Either way, `init` adds `@kindgi/sdk` and `@kindgi/cli` to the project's
 `package.json`, so the project runs the `kindgi` it pins — never a global
 one. (`npx @kindgi/cli` is the scoped package; a bare `npx kindgi` would
 fetch an unrelated package.)
 
-Four templates:
+Five templates:
 
 - `--template=minimal` (default) — folder structure only, no example
   primitives. Right when you know what you want to build.
@@ -95,6 +111,10 @@ Four templates:
   Server signed in with OAuth: house-style fixes as drafts with every
   change approved, and a flow that checks each saved article before an
   agent sees it. Its README explains each choice.
+- `--template=follow-up` — an agent that writes a follow-up mail from
+  your notes and sends it from your own Gmail, each send approved first.
+  Its send tool comes from `@kindgi/connections`, under the pack's own
+  id. Its README explains each choice.
 
 ## Boot the dev harness
 
@@ -183,11 +203,16 @@ Most of the setup is automatable, but two require your knowledge:
 - **Real LLM provider credentials** — the built-in dev-echo provider
   returns canned responses (great for the loop test, useless for real
   agents). It is a fallback, so it steps aside once a real provider is
-  registered. Declare it in `kindgi.config.ts`
+  registered. Anthropic is the example below; `kindgi providers presets`
+  lists OpenAI, Gemini, Groq and OpenRouter too.
+  Declare one in `kindgi.config.ts`
   (`providers: [{ preset: 'anthropic' }]`, the key stored by the person with
   `kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant`) and `kindgi dev`
-  registers it on every boot, in every worktree and after `--reset`; or once,
-  by hand: `kindgi providers register --preset=anthropic`. See
+  registers it on every boot, in every worktree and after `--reset`. Commit
+  the declaration: it holds the key's name, never the key, and it's how a
+  teammate's `kindgi dev`, or another worktree's, gets the same provider.
+  Or once, by hand: `kindgi providers register --preset=anthropic`, which
+  is in this worktree's dev database only. See
   `kindgi-authoring-providers`.
 
 ## Commands for the person's own terminal

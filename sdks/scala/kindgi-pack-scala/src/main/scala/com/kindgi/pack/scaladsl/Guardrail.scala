@@ -47,7 +47,11 @@ final class GuardrailBuilder[C] private[scaladsl] (
   /** Its kind (`zero-llm`, the default, or another). */
   def kind(kind: String): GuardrailBuilder[C] = step(_.kind(kind))
 
-  /** What a violation does (`halt`, `log-only`, …). */
+  /**
+   * What a violation does (`halt`, `log-only`, …). In 0.1 the runtime acts only on `halt`: the
+   * turn fails with `guardrail-violation`. Any other action is recorded on the turn's violations
+   * and the turn completes; nothing runs it again, escalates or calls a compensating tool.
+   */
   def onViolation(action: String): GuardrailBuilder[C] = step(_.onViolation(action))
 
   /** The whole action, as a plain JSON object. */

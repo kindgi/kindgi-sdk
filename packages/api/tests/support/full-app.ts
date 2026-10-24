@@ -28,10 +28,12 @@ import type {
   BlobStorageBinding,
   BlockRegistryBinding,
   CapabilityRegistryBinding,
+  ConnectionBinding,
   CostBinding,
   CreateAppInput,
   DeploymentBinding,
   EnvBinding,
+  EnvironmentOrderBinding,
   EvalCaseStoreBinding,
   EvalRunBinding,
   EvalSuiteRegistryBinding,
@@ -53,6 +55,7 @@ import type {
   ReviewerBinding,
   ReviewerRegistryBinding,
   RunHandlerBinding,
+  SecondFactorBinding,
   SecretBinding,
   ServiceAccountBinding,
   SessionStoreBinding,
@@ -260,6 +263,29 @@ function publicRunTokensConfig(): PublicRunTokenConfig {
   };
 }
 
+const connectionNoop = {
+  kind: 'err',
+  error: { code: 'connection-store-failed', message: 'noop' },
+} as const;
+
+const noopConnections: ConnectionBinding = {
+  entries: () => [],
+  listApps: async () => ({ data: [] }),
+  getApp: async () => null,
+  createApp: async () => connectionNoop,
+  updateApp: async () => connectionNoop,
+  removeApp: async () => connectionNoop,
+  list: async () => ({ data: [] }),
+  get: async () => null,
+  disconnect: async () => connectionNoop,
+  createRequest: async () => connectionNoop,
+  getRequest: async () => null,
+  requestsForRun: async () => [],
+  startRequest: async () => connectionNoop,
+  finishRequest: async () => connectionNoop,
+  receiveNotice: async () => connectionNoop,
+};
+
 const noopWebhookEndpoints: WebhookEndpointBinding = {
   create: async () => ({ kind: 'url-refused', reason: 'noop' }),
   list: async () => ({ data: [] }),
@@ -356,6 +382,10 @@ const noopJudgingQueue: JudgingQueueBinding = {
     error: { code: 'judging-rule-not-found', message: 'noop' },
   }),
   updateRule: async () => ({
+    kind: 'err',
+    error: { code: 'judging-rule-not-found', message: 'noop' },
+  }),
+  queueRecent: async () => ({
     kind: 'err',
     error: { code: 'judging-rule-not-found', message: 'noop' },
   }),
@@ -456,6 +486,8 @@ const noopSessionStore: SessionStoreBinding = {
   revokeAllForUser: async () => ({ revokedCount: 0 }),
   // Cookie sessions need a store that resolves its own tokens.
   resolveToken: async () => null,
+  // Sites need their sessions ended with them.
+  revokeByProvider: async () => ({ revokedCount: 0 }),
 };
 
 const noopIdentityProvider: IdentityProviderBinding = {
@@ -474,6 +506,20 @@ const noopIdentityDirectory: IdentityDirectoryBinding = {
   revokeAllSessions: async ({ userId }) => ({ userId, revokedCount: 0 }),
   createUser: async () => ({ kind: 'email-taken', userId: 'noop-user' as never }),
   unregisterUser: async () => ({ kind: 'not-found' }),
+  resendInvite: async () => ({ kind: 'not-found' }),
+};
+
+const noSettings = { required: false, onPreviousSecret: 0, unusable: 0 };
+const noopSecondFactor: SecondFactorBinding = {
+  status: async () => ({ setUp: false, started: false }),
+  start: async () => ({ kind: 'proof-needed' }),
+  confirm: async () => ({ kind: 'not-started' }),
+  newRecoveryCodes: async () => ({ kind: 'not-set-up' }),
+  remove: async () => ({ kind: 'not-set-up' }),
+  removeFor: async () => false,
+  required: async () => false,
+  settings: async () => noSettings,
+  setRequired: async () => noSettings,
 };
 
 const serviceAccountNotFound = {
@@ -550,6 +596,19 @@ const noopEnvBinding: EnvBinding = {
   delete: async () => ({ deleted: false }),
 };
 
+const noopEnvironmentOrderBinding: EnvironmentOrderBinding = {
+  list: async () => ({ orders: [] }),
+  get: async ({ parent }) => ({ parent, entries: [] }),
+  set: async ({ parent }) => ({
+    kind: 'ok',
+    order: { parent, entries: [] },
+    before: [],
+    after: [],
+  }),
+  orderOf: async () => undefined,
+  hasEnvironmentOrder: async () => false,
+};
+
 const noopSecretsBinding: SecretBinding = {
   list: async () => ({ data: [] }),
   get: async () => null,
@@ -619,6 +678,7 @@ export function fullAppInput(): CreateAppInput {
     adapterRegistry: noopAdapterRegistry,
     triggerRegistry: noopTriggerRegistry,
     webhookEndpoints: noopWebhookEndpoints,
+    connections: noopConnections,
     publicRunTokens: publicRunTokensConfig(),
     policyRegistry: noopPolicyRegistry,
     retention: noopRetention,
@@ -632,6 +692,7 @@ export function fullAppInput(): CreateAppInput {
     session: { cookie: { allowedOrigins: ['https://console.example.com'] }, tokenSignIn: true },
     identityProvider: noopIdentityProvider,
     identityDirectory: noopIdentityDirectory,
+    secondFactor: noopSecondFactor,
     deploymentRegistry: noopDeploymentRegistry,
     signingKeyRegistry: noopSigningKeyRegistry,
     imageRegistry: noopImageRegistry,
@@ -647,7 +708,22 @@ export function fullAppInput(): CreateAppInput {
     teamProjectGrantBinding: projectTrio.grants,
     envBinding: noopEnvBinding,
     secretsBinding: noopSecretsBinding,
+    environmentOrders: noopEnvironmentOrderBinding,
     webhookReceiver: { envName: 'test' as EnvName },
+    // Every method answers "nothing here": the drift tests only need the routes.
+    // Sites need authorization on: everything is granted here.
+    sites: { binding: new Proxy({}, { get: () => async () => null }) as never },
+    authz: {
+      fgaApiUrl: 'http://fga.invalid',
+      authzCheckBinding: {
+        check: async (_principal, action, resource) => ({
+          allowed: true,
+          reason: 'full app: granted',
+          evidence: { action, relation: '', resource: resource.id, actorSubject: '' },
+        }),
+        checkBatch: async () => [],
+      },
+    },
     publicUrl: 'https://kindgi.acme.example',
     license: {
       status: () => ({ mode: 'development' }),
@@ -710,6 +786,15 @@ export function fullAppInput(): CreateAppInput {
       setLimits: async () => {
         throw new Error('not used: no system principal in the sweeps');
       },
+    },
+    usage: {
+      acrossTenants: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
+      ofTenant: async () => ({
+        kind: 'ok',
+        page: { data: [], watermark: '2026-10-01T00:00:00.000Z' },
+      }),
     },
   };
 }

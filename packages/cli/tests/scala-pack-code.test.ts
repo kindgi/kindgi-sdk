@@ -9,7 +9,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } from 'vitest';
 
 import { runJavaIndexer } from '../src/dev/defaults.js';
 import {
@@ -27,6 +27,12 @@ import {
   sbtErrors,
   sbtServerRunning,
 } from '../src/dev/scala-builder.js';
+import {
+  permissionDenied,
+  removedWhileRead,
+  scriptedWatch,
+  watchLimitReached,
+} from './scripted-watch.js';
 
 let packDir: string;
 
@@ -221,15 +227,37 @@ describe('the Scala pack builder', () => {
   /**
    * A fake `sbt` that logs each `--client` command and prints a classpath,
    * and a fake `java` that writes a launcher: the builder's conversation
-   * with the server, without one.
+   * with the server, without one. `exports` answers the commands that
+   * export the classpath, in turn: `drop` succeeds without the classpath
+   * line (as the thin client sometimes does), `fail` fails; after the list,
+   * each prints the classpath.
    */
-  async function fakes(): Promise<{ code: ScalaPackCode; log: string }> {
+  async function fakes(
+    exports: readonly ('drop' | 'fail')[] = [],
+  ): Promise<{ code: ScalaPackCode; log: string }> {
     const log = join(packDir, 'sbt.log');
     const sbt = join(packDir, 'fake-sbt');
+    const answers = join(packDir, 'export-answers');
+    const count = join(packDir, 'export-count');
+    await writeFile(answers, exports.map((a) => `${a}\n`).join(''));
     await writeFile(
       sbt,
-      // A shutdown stops the stand-in server (its marker file, `server`).
-      `#!/bin/sh\nshift\nprintf '%s\\n' "$1" >> '${log}'\n[ "$1" = shutdown ] && rm -f '${join(packDir, 'server')}'\nprintf '%s\\n' '${join(packDir, 'classes')}:${join(packDir, 'kindgi-pack.jar')}'\n`,
+      [
+        '#!/bin/sh',
+        'shift',
+        `printf '%s\\n' "$1" >> '${log}'`,
+        // A shutdown stops the stand-in server (its marker file, `server`).
+        `[ "$1" = shutdown ] && rm -f '${join(packDir, 'server')}'`,
+        'case "$1" in *export*)',
+        `  n=$(( $(cat '${count}' 2>/dev/null || echo 0) + 1 )); echo "$n" > '${count}'`,
+        `  case "$(sed -n "$n"p '${answers}')" in`,
+        `    drop) printf '[success] Total time: %s s\\n' "$n"; exit 0 ;;`,
+        `    fail) printf '[error] (Compile / compileIncremental) Compilation failed\\n'; exit 1 ;;`,
+        '  esac ;;',
+        'esac',
+        `printf '%s\\n' '${join(packDir, 'classes')}:${join(packDir, 'kindgi-pack.jar')}'`,
+        '',
+      ].join('\n'),
     );
     const java = join(packDir, 'fake-java');
     await writeFile(java, "#!/bin/sh\nprintf '#!/bin/sh\\n'\n");
@@ -292,6 +320,140 @@ describe('the Scala pack builder', () => {
       ]);
     },
   );
+
+  /** A builder for a server that was already running, over `fakes(exports)`. */
+  async function builderAnswering(exports: readonly ('drop' | 'fail')[]) {
+    const { code, log } = await fakes(exports);
+    const builder = createScalaPackBuilder({
+      packDir,
+      code,
+      env: async () => ({ PATH: process.env.PATH ?? '' }),
+      serverRunning: async () => true,
+    });
+    onTestFinished(() => builder.dispose());
+    return {
+      code,
+      builder,
+      commands: async () => (await readFile(log, 'utf8')).trim().split('\n'),
+    };
+  }
+
+  test.skipIf(process.platform === 'win32')(
+    'a classpath line the thin client dropped: the export runs again, alone',
+    async () => {
+      const { code, builder, commands } = await builderAnswering(['drop']);
+      expect(await builder.build()).toEqual({ kind: 'ok', bundleMap: {} });
+      expect(await commands()).toEqual([
+        'reload; compile; export Runtime/fullClasspath',
+        'export Runtime/fullClasspath',
+      ]);
+      expect(await readFile(join(code.workDir, 'java.args'), 'utf8')).toBe(
+        `-cp "${join(packDir, 'classes')}:${join(packDir, 'kindgi-pack.jar')}"\n`,
+      );
+    },
+  );
+
+  test.skipIf(process.platform === 'win32')(
+    'no classpath line in three exports: the error, with the last answer',
+    async () => {
+      const { builder, commands } = await builderAnswering(['drop', 'drop', 'drop', 'drop']);
+      expect(await builder.build()).toEqual({
+        kind: 'err',
+        errors: [
+          'sbt printed no classpath (`export Runtime/fullClasspath`):',
+          '[success] Total time: 3 s',
+        ],
+      });
+      expect(await commands()).toEqual([
+        'reload; compile; export Runtime/fullClasspath',
+        'export Runtime/fullClasspath',
+        'export Runtime/fullClasspath',
+      ]);
+    },
+  );
+
+  const failedBuild = {
+    kind: 'err',
+    errors: [
+      "the pack's sbt build failed (exit 1):",
+      '    [error] (Compile / compileIncremental) Compilation failed',
+    ],
+  };
+
+  test.skipIf(process.platform === 'win32')('a failed build runs no export again', async () => {
+    const { builder, commands } = await builderAnswering(['fail']);
+    expect(await builder.build()).toEqual(failedBuild);
+    expect(await commands()).toEqual(['reload; compile; export Runtime/fullClasspath']);
+  });
+
+  test.skipIf(process.platform === 'win32')(
+    'an export run again that fails answers as a failed build',
+    async () => {
+      const { builder, commands } = await builderAnswering(['drop', 'fail']);
+      expect(await builder.build()).toEqual(failedBuild);
+      expect(await commands()).toEqual([
+        'reload; compile; export Runtime/fullClasspath',
+        'export Runtime/fullClasspath',
+      ]);
+    },
+  );
+
+  // As the Python builder's (pack-code.test.ts): on Linux, Node's recursive
+  // watch emits an 'error' for a folder removed while it reads it, as well as
+  // when it fails.
+  test.skipIf(process.platform === 'win32')(
+    'an error for a folder removed while read, or in the build output, builds nothing; a failed watch reloads and builds',
+    async () => {
+      const { code, log } = await fakes();
+      const { watchFs, watcher } = scriptedWatch();
+      const builder = createScalaPackBuilder({
+        packDir,
+        code,
+        env: async () => ({ PATH: process.env.PATH ?? '' }),
+        debounceMs: 50,
+        watchFs,
+        share: false,
+        scanSources: async () => 'unchanged',
+        serverRunning: async () => true,
+      });
+      // A running server: the first build reloads it, and a later one
+      // reloads only when something says to.
+      expect(await builder.build()).toEqual({ kind: 'ok', bundleMap: {} });
+      vi.useFakeTimers();
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      const builds: unknown[] = [];
+      // A folder sbt makes and removes, in its own output.
+      const made = join(packDir, 'target', 'streams', 'tmp');
+      await mkdir(made, { recursive: true });
+      await builder.watch((build) => builds.push(build));
+      // One timer: the scan's interval.
+      expect(vi.getTimerCount()).toBe(1);
+      await rm(made, { recursive: true });
+      watcher.emit('error', removedWhileRead(made));
+      expect(vi.getTimerCount()).toBe(1);
+      // In sbt's output, and the meta-build's.
+      watcher.emit('error', watchLimitReached(join(packDir, 'target', 'streams', 'compile')));
+      watcher.emit('error', permissionDenied(join(packDir, 'project', 'project'), 'scandir'));
+      expect(vi.getTimerCount()).toBe(1);
+      watcher.emit('error', watchLimitReached(join(packDir, 'src')));
+      expect(vi.getTimerCount()).toBe(2);
+      expect(watcher.closed).toBe(false);
+      await vi.advanceTimersByTimeAsync(50);
+      vi.useRealTimers();
+      await vi.waitFor(() => expect(builds).toEqual([{ kind: 'ok', bundleMap: {} }]), {
+        timeout: 30_000,
+      });
+      await builder.dispose();
+      expect(watcher.closed).toBe(true);
+      // The failed watch can't say what changed: the build reloaded.
+      expect((await readFile(log, 'utf8')).trim().split('\n')).toEqual([
+        'reload; compile; export Runtime/fullClasspath',
+        'reload; compile; export Runtime/fullClasspath',
+      ]);
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -339,7 +501,7 @@ describe.skipIf(!jdkOk || !sbtOnPath || !published || process.platform === 'win3
       await writeFile(join(packDir, 'project', 'build.properties'), 'sbt.version=1.12.15\n');
       await writeFile(
         join(packDir, 'build.sbt'),
-        `scalaVersion := "3.3.8"\nresolvers += Resolver.mavenLocal\nlibraryDependencies += "com.kindgi" %% "kindgi-pack-scala" % "${layerVersion}"\n`,
+        `scalaVersion := "3.3.8"\nexternalResolvers := Resolver.mavenLocal +: externalResolvers.value\nlibraryDependencies += "com.kindgi" %% "kindgi-pack-scala" % "${layerVersion}"\n`,
       );
       await writeFile(
         join(packDir, 'kindgi.config.json'),

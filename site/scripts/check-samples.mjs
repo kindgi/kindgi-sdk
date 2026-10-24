@@ -741,7 +741,7 @@ const PYPI = /^kindgi(?:-cli)?$/;
 
 /** The arguments a launcher passes the CLI, or undefined when it doesn't run it. */
 function launched(w) {
-  if (w[0] === 'kindgi') return w.slice(1);
+  if (w[0] === 'kindgi' || w[0] === './kindgiw') return w.slice(1);
   if (w[0] === 'npx') return after(w, afterFlags(w, 1, NPX_VALUE), [PACKAGE]);
   if (w[0] === 'pnpm' && w[1] === 'dlx') return after(w, afterFlags(w, 2, NPX_VALUE), [PACKAGE]);
   if (w[0] === 'pnpm' || w[0] === 'yarn') return after(w, w[1] === 'exec' ? 2 : 1, [KINDGI]);
@@ -752,9 +752,10 @@ function launched(w) {
 
 /**
  * A command's arguments to the Kindgi CLI, or undefined when the command
- * isn't the CLI: `kindgi …`, `npx [flags] [--] @kindgi/cli[@v] …` (or
- * `kindgi`), `pnpm [exec|dlx] kindgi …`, `uv run [flags] kindgi …`,
- * `uvx [flags] kindgi …`, after any `NAME=value` words.
+ * isn't the CLI: `kindgi …`, `./kindgiw …` (a Java or Scala project's
+ * wrapper, which passes its arguments on), `npx [flags] [--]
+ * @kindgi/cli[@v] …` (or `kindgi`), `pnpm [exec|dlx] kindgi …`, `uv run
+ * [flags] kindgi …`, `uvx [flags] kindgi …`, after any `NAME=value` words.
  */
 export function kindgiArgs(words) {
   let start = 0;

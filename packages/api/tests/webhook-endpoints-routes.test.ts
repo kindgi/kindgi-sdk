@@ -40,8 +40,8 @@ const KNOWN_PROJECT = randomUUID() as ProjectId;
 const SECRET_REF = { envName: 'local', name: 'ACME_WEBHOOK_SECRET' };
 
 const resolveToken: TokenResolver = async (token) => {
-  if (token === TOKEN_A) return { tenantId: tenantA };
-  if (token === TOKEN_B) return { tenantId: tenantB };
+  if (token === TOKEN_A) return { tenantId: tenantA, scopes: ['tenant-admin'] };
+  if (token === TOKEN_B) return { tenantId: tenantB, scopes: ['tenant-admin'] };
   return null;
 };
 

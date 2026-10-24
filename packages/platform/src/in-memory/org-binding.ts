@@ -20,6 +20,7 @@ import type { OrgId, Page, TenantId, Timestamp } from '@kindgi/types';
 import type {
   OrgBinding,
   OrgCreateOutcome,
+  OrgDeleteOutcome,
   OrgListFilter,
   OrgUpdateOutcome,
 } from '../org-binding.js';
@@ -34,9 +35,24 @@ function nextOrgId(): OrgId {
 }
 
 /**
+ * - `environmentOrderOf`: the id of the environment order the org is the
+ *   parent of, or `undefined` for none. Given, `delete` refuses an org that
+ *   is the parent of an order (`org-has-environment-order`), as the durable
+ *   binding does under its per-tenant lock; absent, no org holds one. Compose
+ *   this to the environment-order binding wherever both share a store so the
+ *   guard is never silently unset.
+ */
+export interface InMemoryOrgBindingOptions {
+  readonly environmentOrderOf?: (
+    tenantId: TenantId,
+    orgId: OrgId,
+  ) => string | undefined | Promise<string | undefined>;
+}
+
+/**
  * Factory for the in-memory `OrgBinding`.
  */
-export function makeInMemoryOrgBinding(): OrgBinding {
+export function makeInMemoryOrgBinding(options: InMemoryOrgBindingOptions = {}): OrgBinding {
   const rows = new Map<OrgId, Org>();
   /** Tombstoned orgs: kept, and read as unknown. */
   const deleted = new Set<OrgId>();
@@ -114,10 +130,16 @@ export function makeInMemoryOrgBinding(): OrgBinding {
       return { kind: 'ok' };
     },
 
-    async delete(tenantId: TenantId, orgId: OrgId): Promise<void> {
+    async delete(tenantId: TenantId, orgId: OrgId): Promise<OrgDeleteOutcome> {
       // Idempotent: a no-op when absent, already deleted or in another tenant.
-      if (live(tenantId, orgId) === undefined) return;
+      if (live(tenantId, orgId) === undefined) return { kind: 'ok' };
+      // A live org that is the parent of an environment order isn't deleted;
+      // a tenant admin clears the order first. No await between the answer
+      // and the tombstone — one step, as the durable binding's lock makes it.
+      const orderId = await options.environmentOrderOf?.(tenantId, orgId);
+      if (orderId !== undefined) return { kind: 'org-has-environment-order', orderId };
       deleted.add(orgId);
+      return { kind: 'ok' };
     },
   };
 }

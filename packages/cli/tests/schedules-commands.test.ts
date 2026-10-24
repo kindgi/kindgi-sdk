@@ -48,7 +48,7 @@ const FIRE = {
   missedCount: 9,
 };
 
-async function schedules(argv: readonly string[]) {
+async function schedules(argv: readonly string[], taken: Record<string, unknown> = SCHEDULE) {
   const calls: unknown[][] = [];
   const record =
     (name: string, result: unknown) =>
@@ -73,7 +73,7 @@ async function schedules(argv: readonly string[]) {
           unregister: record('unregister', { scheduleId: ID, unregistered: true }),
           fires: record('fires', { data: [FIRE], hasMore: false }),
           runNow: record('runNow', { ...FIRE, outcome: 'pending', manual: true }),
-          takeOwnership: record('takeOwnership', SCHEDULE),
+          takeOwnership: record('takeOwnership', taken),
         },
       }) as never,
   });
@@ -261,6 +261,86 @@ describe('kindgi schedules', () => {
       expect(run.out.exitCode, `${verb}: ${run.out.stderr}`).toBe(0);
       expect(run.calls).toEqual([[method, ID]]);
     }
+  });
+
+  test('--run-as names a service account on create and take-over', async () => {
+    const BOT = '22222222-2222-4222-8222-222222222222';
+    const made = await schedules([
+      'create',
+      '--cron=0 2 * * *',
+      '--agent=acme.digest',
+      `--run-as=${BOT}`,
+    ]);
+    expect(made.out.exitCode, made.out.stderr).toBe(0);
+    expect(made.calls[0]).toMatchObject(['register', { runAsServiceAccountId: BOT }]);
+
+    const take = await schedules(['take-ownership', ID, `--run-as=${BOT}`]);
+    expect(take.calls).toEqual([['takeOwnership', ID, { runAsServiceAccountId: BOT }]]);
+  });
+
+  test('--allow-unattended: repeatable on create and update; `none` clears on update only', async () => {
+    const made = await schedules([
+      'create',
+      '--cron=0 2 * * *',
+      '--agent=acme.digest',
+      '--allow-unattended=acme.send',
+      '--allow-unattended=acme.archive',
+    ]);
+    expect(made.out.exitCode, made.out.stderr).toBe(0);
+    expect(made.calls[0]).toMatchObject([
+      'register',
+      { toolsAllowedUnattended: ['acme.send', 'acme.archive'] },
+    ]);
+    const cleared = await schedules(['update', ID, '--allow-unattended=none']);
+    expect(cleared.calls).toEqual([['update', ID, { toolsAllowedUnattended: [] }]]);
+    const retargeted = await schedules([
+      'update',
+      ID,
+      '--flow=acme.nightly',
+      '--flow-version=1.0.0',
+      '--allow-unattended=acme.refund',
+    ]);
+    expect(retargeted.calls).toEqual([
+      [
+        'update',
+        ID,
+        { flowId: 'acme.nightly', flowVersion: '1.0.0', toolsAllowedUnattended: ['acme.refund'] },
+      ],
+    ]);
+
+    const noneAtCreate = await schedules([
+      'create',
+      '--cron=0 2 * * *',
+      '--agent=acme.digest',
+      '--allow-unattended=none',
+    ]);
+    expect(noneAtCreate.out.exitCode).not.toBe(0);
+    expect(noneAtCreate.calls).toEqual([]);
+    const noneWithIds = await schedules([
+      'update',
+      ID,
+      '--allow-unattended=acme.send',
+      '--allow-unattended=none',
+    ]);
+    expect(noneWithIds.out.exitCode).not.toBe(0);
+    expect(noneWithIds.out.stderr).toContain('not with tool ids');
+    expect(noneWithIds.calls).toEqual([]);
+  });
+
+  test('take-ownership names the tools the schedule keeps allowed unattended, when it lists any', async () => {
+    const listed = await schedules(['take-ownership', ID], {
+      ...SCHEDULE,
+      toolsAllowedUnattended: ['acme.send'],
+    });
+    expect(listed.out.exitCode, listed.out.stderr).toBe(0);
+    expect(JSON.parse(listed.out.stdout)).toMatchObject({ toolsAllowedUnattended: ['acme.send'] });
+    expect(listed.out.stderr).toContain('It keeps its tools allowed unattended (acme.send)');
+    expect(listed.out.stderr).toContain(
+      "their calls in its runs still don't wait for a person's yes just because no person started them, now as the new owner.",
+    );
+    expect(listed.out.stderr).toContain(`kindgi schedules update ${ID} --allow-unattended=none`);
+    const none = await schedules(['take-ownership', ID]);
+    expect(none.out.stderr).not.toContain('allowed unattended');
   });
 
   test("update's help gives no defaults: a flag left out keeps the schedule's value", async () => {

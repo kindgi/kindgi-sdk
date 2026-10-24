@@ -46,7 +46,9 @@ describe('OpenAPI — operations registry ↔ mounted routes drift', () => {
     );
     const dangling: string[] = [];
     for (const op of OPERATIONS) {
-      const key = `${op.method.toUpperCase()} ${op.honoPath}`;
+      // Hono answers a HEAD with the GET route at its path: that route serves a `head` operation.
+      const method = op.method === 'head' ? 'GET' : op.method.toUpperCase();
+      const key = `${method} ${op.honoPath}`;
       if (!mounted.has(key)) dangling.push(key);
     }
     expect(dangling, `OPERATIONS entries with no mounted route: ${dangling.join(', ')}`).toEqual(

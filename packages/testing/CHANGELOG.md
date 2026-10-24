@@ -1,5 +1,271 @@
 # @kindgi/testing
 
+## 0.1.10
+
+### Patch Changes
+
+- Updated dependencies [2d2ee60]
+- Updated dependencies [997470e]
+- Updated dependencies [b9a68d5]
+- Updated dependencies [6c5006c]
+- Updated dependencies [43eafb2]
+- Updated dependencies [019a6fd]
+- Updated dependencies [d6f844d]
+- Updated dependencies [8111046]
+- Updated dependencies [01964ed]
+- Updated dependencies [05b762e]
+- Updated dependencies [25a7309]
+- Updated dependencies [c90dd53]
+- Updated dependencies [9b6da8a]
+  - @kindgi/api@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/api@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- Updated dependencies [2d2ee60]
+- Updated dependencies [997470e]
+- Updated dependencies [b9a68d5]
+- Updated dependencies [6c5006c]
+- Updated dependencies [43eafb2]
+- Updated dependencies [019a6fd]
+- Updated dependencies [d6f844d]
+- Updated dependencies [8111046]
+- Updated dependencies [01964ed]
+- Updated dependencies [05b762e]
+- Updated dependencies [25a7309]
+- Updated dependencies [c90dd53]
+- Updated dependencies [9b6da8a]
+  - @kindgi/api@0.1.10-rc.0
+
+## 0.1.9
+
+### Patch Changes
+
+- Updated dependencies [83ad88a]
+- Updated dependencies [6ed7bc6]
+- Updated dependencies [5d68d0d]
+- Updated dependencies [d563887]
+- Updated dependencies [499082a]
+- Updated dependencies [17bc390]
+- Updated dependencies [66e5ec7]
+- Updated dependencies [22b619b]
+- Updated dependencies [4101430]
+- Updated dependencies [d0ee5c5]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [e5b38a8]
+- Updated dependencies [c56f757]
+- Updated dependencies [1ac8e67]
+- Updated dependencies [404c4c9]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [53b09f7]
+- Updated dependencies [d563887]
+- Updated dependencies [8f52412]
+- Updated dependencies [f56c6ae]
+- Updated dependencies [c46503d]
+- Updated dependencies [7be0273]
+- Updated dependencies [e35d94f]
+- Updated dependencies [010fd72]
+- Updated dependencies [7be42d0]
+- Updated dependencies [f605c7e]
+- Updated dependencies [d563887]
+- Updated dependencies [f82bb04]
+- Updated dependencies [d563887]
+- Updated dependencies [6d3ccdd]
+- Updated dependencies [3c8afcf]
+- Updated dependencies [c8d3c1e]
+- Updated dependencies [66bb5eb]
+- Updated dependencies [d563887]
+- Updated dependencies [c1a61c7]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [5b5bd3b]
+- Updated dependencies [c44d803]
+- Updated dependencies [bd3bcd7]
+- Updated dependencies [3be3ba0]
+- Updated dependencies [ec3dbf9]
+- Updated dependencies [409b9bf]
+- Updated dependencies [10ec595]
+- Updated dependencies [16bbb17]
+- Updated dependencies [d563887]
+- Updated dependencies [2a05fac]
+- Updated dependencies [cf339d3]
+- Updated dependencies [3502389]
+- Updated dependencies [dd34dcf]
+  - @kindgi/api@0.1.9
+
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/api@0.1.9-rc.1
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- Updated dependencies [83ad88a]
+- Updated dependencies [6ed7bc6]
+- Updated dependencies [5d68d0d]
+- Updated dependencies [d563887]
+- Updated dependencies [499082a]
+- Updated dependencies [17bc390]
+- Updated dependencies [66e5ec7]
+- Updated dependencies [22b619b]
+- Updated dependencies [4101430]
+- Updated dependencies [d0ee5c5]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [e5b38a8]
+- Updated dependencies [c56f757]
+- Updated dependencies [1ac8e67]
+- Updated dependencies [404c4c9]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [53b09f7]
+- Updated dependencies [d563887]
+- Updated dependencies [8f52412]
+- Updated dependencies [f56c6ae]
+- Updated dependencies [c46503d]
+- Updated dependencies [7be0273]
+- Updated dependencies [e35d94f]
+- Updated dependencies [010fd72]
+- Updated dependencies [7be42d0]
+- Updated dependencies [f605c7e]
+- Updated dependencies [d563887]
+- Updated dependencies [f82bb04]
+- Updated dependencies [d563887]
+- Updated dependencies [6d3ccdd]
+- Updated dependencies [3c8afcf]
+- Updated dependencies [c8d3c1e]
+- Updated dependencies [66bb5eb]
+- Updated dependencies [d563887]
+- Updated dependencies [c1a61c7]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [5b5bd3b]
+- Updated dependencies [c44d803]
+- Updated dependencies [bd3bcd7]
+- Updated dependencies [3be3ba0]
+- Updated dependencies [ec3dbf9]
+- Updated dependencies [409b9bf]
+- Updated dependencies [10ec595]
+- Updated dependencies [16bbb17]
+- Updated dependencies [d563887]
+- Updated dependencies [2a05fac]
+- Updated dependencies [cf339d3]
+- Updated dependencies [3502389]
+- Updated dependencies [dd34dcf]
+  - @kindgi/api@0.1.9-rc.0
+
+## 0.1.8
+
+### Patch Changes
+
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [fddc8f7]
+- Updated dependencies [3a3f233]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ba8d9a1]
+- Updated dependencies [ebf405d]
+- Updated dependencies [059c2c2]
+- Updated dependencies [3a3f233]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [b22e616]
+- Updated dependencies [ebf405d]
+- Updated dependencies [cfe5422]
+- Updated dependencies [70b85f8]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [3a3f233]
+- Updated dependencies [1c8b391]
+- Updated dependencies [08bf3e5]
+- Updated dependencies [6329f93]
+- Updated dependencies [ebf405d]
+- Updated dependencies [9ba9e5f]
+- Updated dependencies [ebf405d]
+- Updated dependencies [14d02c5]
+- Updated dependencies [d985473]
+- Updated dependencies [718e635]
+- Updated dependencies [036605f]
+- Updated dependencies [fddc8f7]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [9f4340c]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [a2ee44b]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [f05d320]
+- Updated dependencies [1bd39aa]
+  - @kindgi/api@0.1.8
+
+## 0.1.8-rc.0
+
+### Patch Changes
+
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [fddc8f7]
+- Updated dependencies [3a3f233]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ba8d9a1]
+- Updated dependencies [ebf405d]
+- Updated dependencies [059c2c2]
+- Updated dependencies [3a3f233]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [b22e616]
+- Updated dependencies [ebf405d]
+- Updated dependencies [cfe5422]
+- Updated dependencies [70b85f8]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [3a3f233]
+- Updated dependencies [1c8b391]
+- Updated dependencies [08bf3e5]
+- Updated dependencies [6329f93]
+- Updated dependencies [ebf405d]
+- Updated dependencies [9ba9e5f]
+- Updated dependencies [ebf405d]
+- Updated dependencies [14d02c5]
+- Updated dependencies [d985473]
+- Updated dependencies [718e635]
+- Updated dependencies [036605f]
+- Updated dependencies [fddc8f7]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [9f4340c]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [a2ee44b]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [ebf405d]
+- Updated dependencies [f05d320]
+- Updated dependencies [1bd39aa]
+  - @kindgi/api@0.1.8-rc.0
+
 ## 0.1.7
 
 ### Patch Changes

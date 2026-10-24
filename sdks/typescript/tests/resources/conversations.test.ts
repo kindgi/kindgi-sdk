@@ -120,6 +120,26 @@ describe('conversations.list', () => {
     await client.conversations.list({ replays: 'only' });
     expect(new URL(stub.calls[0]?.url).searchParams.get('replays')).toBe('only');
   });
+
+  it('sends openedBy=me, and the page says it filtered; one that ignored it says nothing', async () => {
+    const filtered = jsonFetch({ data: [WIRE_CONVERSATION], hasMore: false, openedBy: 'me' });
+    const ignored = jsonFetch({ data: [WIRE_CONVERSATION], hasMore: false });
+    const [page, older] = await Promise.all(
+      [filtered, ignored].map((stub) =>
+        createClient({
+          apiUrl: 'https://api.example.com',
+          auth: AUTH,
+          fetch: stub.fetch,
+        }).conversations.list({ openedBy: 'me' }),
+      ),
+    );
+
+    expect(new URL(filtered.calls[0]?.url).searchParams.get('openedBy')).toBe('me');
+    expect(page?.openedBy).toBe('me');
+    expect(page?.items).toHaveLength(1);
+    expect(older?.openedBy).toBeUndefined();
+    expect(older).not.toHaveProperty('openedBy');
+  });
 });
 
 describe('conversations.close', () => {

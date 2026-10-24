@@ -63,7 +63,7 @@
  * per-route parsers in `routes/*.ts` validate ad hoc.
  */
 
-import { OBJECT_ACTIONS, OBJECT_TYPES } from '@kindgi/authz';
+import { OBJECT_ACTIONS, PROJECT_SCOPED_TYPES } from '@kindgi/authz';
 import { EVIDENCE_KINDS } from '@kindgi/compliance';
 import {
   MAX_TOOL_ERROR_RETRIES,
@@ -71,12 +71,18 @@ import {
   RETENTION_DOMAINS,
   TOOL_ERROR_KINDS,
 } from '@kindgi/policy-contract';
+import { CORRECTION_ITEM } from '@kindgi/types';
 
 import {
   DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
   SYSTEM_DEPLOYMENT_RETIRE_REASONS,
 } from '../deployment-binding.js';
 import { ERROR_CODE_TO_STATUS } from '../errors.js';
+import {
+  PACK_ENV_HELD_CODES,
+  PACK_ENV_PLATFORM_HOLDS,
+  PACK_ENV_PROBLEM_CODES,
+} from '../pack-env.js';
 import { PACK_ENDPOINT_AUTHS } from '../routes/system-deployments.js';
 import { FULL_SYSTEM_CAPABILITY, SYSTEM_SCOPES } from '../system.js';
 
@@ -769,6 +775,44 @@ export const RunWaitingApprovalSchema: JsonSchema = {
         callId: { type: 'string', description: "The model's id for the call." },
       },
     },
+    approver: { $ref: '#/components/schemas/ApprovalApprover' },
+    connection: { $ref: '#/components/schemas/ApprovalConnection' },
+  },
+};
+
+export const RunWaitingTokenSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tokenId', 'tool', 'createdAt', 'timesOutAt'],
+  description:
+    "A wait for another system's answer: a pack tool that declares `pauses` handed its wait token's link on. Answer it through the link, or with `POST /v1/runs/{runId}/resume` and this `tokenId`. Never the link itself.",
+  properties: {
+    tokenId: {
+      type: 'string',
+      description: 'The waitpoint id (`pause:…`), for `POST /v1/runs/{runId}/resume`.',
+    },
+    name: { type: 'string', description: 'What the run waits for, as the tool named it.' },
+    tool: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['id', 'version'],
+      description: 'The tool whose call waits.',
+      properties: {
+        id: { type: 'string', description: 'The tool id.' },
+        version: { type: 'string' },
+        callId: {
+          type: 'string',
+          description: "The model's id for the call, for an agent's call.",
+        },
+      },
+    },
+    nodeId: { type: 'string', description: "The flow step that waits, for a flow's tool step." },
+    createdAt: { type: 'string', format: 'date-time' },
+    timesOutAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the wait times out, and the call fails with `wait-token-timed-out`.',
+    },
   },
 };
 
@@ -777,9 +821,20 @@ export const RunWaitingForSchema: JsonSchema = {
   additionalProperties: false,
   required: ['approvals', 'other'],
   description:
-    "Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.",
+    "Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `connections`: the connects it waits for. `tokens`: its waits for another system's answer. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.",
   properties: {
     approvals: { type: 'array', items: { $ref: '#/components/schemas/RunWaitingApproval' } },
+    connections: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/WaitingForConnection' },
+      description: 'The connects the run waits for. Left out when there are none.',
+    },
+    tokens: {
+      type: 'array',
+      description:
+        "Its waits for another system's answer (a pausing tool's calls). Absent on a runtime that pauses no run, or when they can't be read: those waits are then `unattributed`.",
+      items: { $ref: '#/components/schemas/RunWaitingToken' },
+    },
     other: {
       type: 'array',
       items: {
@@ -857,6 +912,23 @@ export const RunSchema: JsonSchema = {
     agent: { $ref: '#/components/schemas/RunAgent' },
     waitingFor: { $ref: '#/components/schemas/RunWaitingFor' },
     trigger: { $ref: '#/components/schemas/RunTrigger' },
+    startedBy: {
+      type: 'string',
+      enum: ['person', 'key', 'schedule', 'webhook', 'event'],
+      description:
+        "How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.",
+    },
+    actsFor: {
+      type: 'string',
+      description:
+        "Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule or a webhook fired (`startedBy` `schedule` or `webhook`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.",
+    },
+    toolsAllowedUnattended: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        "The tools, by id, whose calls in this run don't wait for a person's yes though no person started it: the list of the webhook or schedule that fired it, as it was when the run started, and never changed after. A child run has its parent's. Absent: none.",
+    },
     replayOf: {
       type: 'string',
       format: 'uuid',
@@ -997,10 +1069,11 @@ export const ResumeRunBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        'Token id of the pending waitpoint to complete. Ids starting with `child:` are reserved for the runtime. Resuming without a waitpoint id returns `400 bad-input`.',
+        "Token id of the pending waitpoint to complete: a `pause:` id, from the run's `waitingFor.tokens`. Ids starting with `child:` and `pause:` are reserved for the runtime: a handler never waits on one of its own. Resuming without a waitpoint id returns `400 bad-input`.",
     },
     value: {
-      description: 'Resolved value passed back into the flow handler that suspended.',
+      description:
+        "The answer: the paused tool's output, checked against its output schema. Absent: `{}`.",
     },
   },
 };
@@ -1469,6 +1542,94 @@ export const TenantAdminContactsSchema: JsonSchema = {
   },
 };
 
+export const PurgeTenantBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['confirm'],
+  properties: {
+    confirm: {
+      type: 'string',
+      minLength: 1,
+      description: "The tenant's slug, a second check on the id.",
+    },
+  },
+};
+
+export const TenantTableRowsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A tenant's rows in one table: the table's name and a count.",
+  required: ['table', 'rows'],
+  properties: {
+    table: { type: 'string' },
+    rows: { type: 'integer', minimum: 1 },
+  },
+};
+
+export const SystemTenantPurgeSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'tenantId',
+    'complete',
+    'alreadyPurged',
+    'deleted',
+    'objectsDeleted',
+    'authzStoreDeleted',
+    'left',
+    'objectsLeft',
+  ],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    complete: {
+      type: 'boolean',
+      description:
+        "`true`: nothing of the tenant is left, its purge record is written, and it's marked purged. `false`: `left` and `objectsLeft` say what is; run it again.",
+    },
+    alreadyPurged: {
+      type: 'boolean',
+      description:
+        'It was marked purged before this run: what this run deleted was written after its mark. Its mark and its record stay as they were.',
+    },
+    purgedAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When it was marked purged. Absent while something of it from before the mark is left.',
+    },
+    deleted: {
+      type: 'array',
+      items: ref('TenantTableRows'),
+      description:
+        "Rows this run deleted, per table with any: table names and counts, never the rows' content.",
+    },
+    objectsDeleted: {
+      type: 'integer',
+      minimum: 0,
+      description: "Objects this run deleted from the artifacts' store.",
+    },
+    authzStoreDeleted: {
+      type: 'boolean',
+      description: 'Whether this run deleted its authorization store.',
+    },
+    left: {
+      type: 'array',
+      items: ref('TenantTableRows'),
+      description:
+        "Rows of it still there afterwards, per table; empty when none are. A table the purge doesn't delete from is named too: report it.",
+    },
+    objectsLeft: {
+      type: 'integer',
+      minimum: 0,
+      description: "Objects still under its prefix in the artifacts' store.",
+    },
+    leftBecause: {
+      type: 'string',
+      description: "Why what's left wasn't deleted, when it's a setting the runtime lacks.",
+    },
+  },
+};
+
 export const SystemWhoamiSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -1523,7 +1684,8 @@ const SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES: Record<string, JsonSchema> = {
   },
   projectId: {
     type: 'string',
-    description: 'The project the deploy was scoped to. Absent for a tenant-wide deploy.',
+    description:
+      "The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project.",
   },
   imageRef: {
     type: 'string',
@@ -1596,6 +1758,235 @@ export const SetPackEndpointBodySchema: JsonSchema = {
       description:
         "The pack service's token (`KINDGI_PACK_SERVICE_TOKEN`), printable ASCII without spaces. Stored wrapped; never returned, logged or recorded.",
     },
+    packEnvRevision: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 128,
+      description:
+        'The `revision` from `GET …/pack-env` whose values the service was made with, when its pack declares an environment. Kept as the one it runs, so `GET /v1/system/pack-env` lists it once they change.',
+    },
+  },
+};
+
+/** A pack's declared process environment, as the image's `index.json` carries it. */
+export const PackEnvDeclarationSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['required', 'optional'],
+  description:
+    "The names the pack service reads from its process environment, as the image's `index.json` declares them (`env`), each list in name order. Names only, never a value. On a deployment: absent when it declares none, and from older servers.",
+  properties: {
+    required: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Names the pack service needs, set and non-empty, to be ready.',
+    },
+    optional: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Names the pack reads when present.',
+    },
+  },
+};
+
+export const PackEnvScopeSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description: "Where a value is set: the deployment's project, the project's org, or the tenant.",
+  properties: {
+    kind: { type: 'string', enum: ['project', 'org', 'tenant'] },
+    id: {
+      type: 'string',
+      description: "The project's or the org's id. Absent for the tenant.",
+    },
+  },
+};
+
+export const PackEnvNameStatusSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'required', 'kind', 'scope', 'missing'],
+  description:
+    "One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (`secretScope`, for `ambiguous` only, names the secret's scope). Each name is looked for at the deployment's project, then its org, then the tenant (most specific wins); a tenant-wide deployment's, at the tenant's Default project. Never a value.",
+  properties: {
+    name: { type: 'string' },
+    required: { type: 'boolean' },
+    kind: {
+      oneOf: [{ type: 'string', enum: ['env', 'secret'] }, { type: 'null' }],
+      description:
+        'What it is set as: a plain value (`env`) or a secret. `null` when it is set nowhere.',
+    },
+    scope: {
+      oneOf: [{ $ref: '#/components/schemas/PackEnvScope' }, { type: 'null' }],
+      description:
+        "Where it is set: the plain value's scope when `ambiguous`. `null` when it is set nowhere.",
+    },
+    missing: {
+      type: 'boolean',
+      description: 'Set nowhere, as a plain value or a secret (optional names too).',
+    },
+    problem: {
+      type: 'string',
+      enum: ['ambiguous', 'secret-not-yet', 'missing', 'unreadable'],
+      description:
+        "Why it can't be given to the pack service. `ambiguous`: set both as a secret and as a plain value (`secretScope` names the secret's scope). `secret-not-yet`: set only as a secret, and the orchestrator didn't ask for secret values (`secrets=values`); a tool reads it per call (`ctx.secrets`). `missing`: a required name set nowhere. `unreadable`: set as a secret, and it can't be read for a reason the platform fixes, not the owner. Absent when it can be given, and for an optional name set nowhere. The owner's check (`GET /v1/deployments/{deploymentId}/pack-env`) lists a name set only as a secret as `kind: 'secret'`, with no problem.",
+    },
+    secretScope: { $ref: '#/components/schemas/PackEnvScope' },
+  },
+};
+
+export const PackEnvProblemCodeSchema: JsonSchema = {
+  type: 'string',
+  enum: [...PACK_ENV_PROBLEM_CODES],
+  description:
+    "Why a deployment's pack service can't be given its declared environment, the first in this order: `pack-env-ambiguous` (a name is set both as a secret and as a plain value), `pack-env-secret-not-yet` (a name is set only as a secret, and its value wasn't asked for), `pack-env-missing` (a required name is set nowhere), `pack-env-secret-unreadable` (a name's secret is set, but it can't be read for a reason the platform fixes, not the owner; only a read with `secrets=values` finds it, and only when there's no other problem). A later runtime may add codes, so treat an unknown one as a reason not yet named.",
+};
+
+export const PackEnvHeldCodeSchema: JsonSchema = {
+  type: 'string',
+  enum: [...PACK_ENV_HELD_CODES],
+  description:
+    "Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it; `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. The orchestrator couldn't give it its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out, so it gives none; the platform fixes it), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-secret-redeploy` (a name is now set only as a secret, and this pack service was made where no secret can be given to it; a new deployment's can be, from a new build of the pack). A service held as `pack-env-secret-unreadable` or `pack-env-secrets-unaudited` is listed by `GET /v1/system/pack-env` every time, with its `held`, as the revision doesn't move when the platform fixes it. A later runtime may add codes, so treat an unknown one as a reason not yet named.",
+};
+
+export const SystemPackEnvSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['revision', 'names'],
+  description:
+    "What the deployment's pack service is to be given: where each declared name is set, and the values when nothing stands in the way, plain ones in `env` and, when asked for (`secrets=values`), secrets in `secrets`. Each value given out is on the audit record: `env-resolved` as the deployment's system read, and `secret-resolved` (caller `pack-env`, with the request id as its `correlationId` and the system key's id), written before the answer.",
+  properties: {
+    revision: {
+      type: 'string',
+      description:
+        'Changes whenever what would be given changes: a value written or removed, a secret set or revoked. Made from scopes, row ids, revisions and update times, never from a value. Send it back with the endpoint (`packEnvRevision`) or `PUT …/pack-env`.',
+    },
+    names: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/PackEnvNameStatus' },
+      description: 'Every declared name, required ones first, each list in name order.',
+    },
+    problem: { $ref: '#/components/schemas/PackEnvProblemCode' },
+    env: {
+      type: 'object',
+      additionalProperties: { type: 'string' },
+      description:
+        'Each declared name that is set, by name, as plain values. Absent while there is a `problem`: then nothing is given, and the service keeps what it runs.',
+    },
+    secrets: {
+      type: 'object',
+      additionalProperties: { $ref: '#/components/schemas/PackEnvSecretValue' },
+      description:
+        "With `secrets=values` only: each declared name that is set only as a secret, by name (`{}` when there's none). Never put one into a plain env. Absent while there is a `problem`, and when it wasn't asked for.",
+    },
+  },
+};
+
+export const PackEnvSecretValueSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['value', 'revision'],
+  description:
+    "A secret given to the deployment's pack service: its value, read at the version `revision` names, and audited before the answer.",
+  properties: {
+    value: { type: 'string' },
+    revision: {
+      type: 'string',
+      description:
+        "`ps1-…`: the same for the same value under the same name, and changes whenever what's given for the name does (a new version, another scope, a revoke or a delete). Made from the name's part of the deployment's `revision`, never from the value.",
+    },
+  },
+};
+
+export const SystemPackEnvEntrySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'A deployment whose pack service runs on declared env values that changed since: ids, the image, and the revision it runs. Never a value. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`).',
+  required: [
+    'tenantId',
+    'deploymentId',
+    'packId',
+    'imageRef',
+    'imageDigest',
+    'artifactVersion',
+    'activatedAt',
+  ],
+  properties: {
+    ...SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES,
+    appliedRevision: {
+      type: 'string',
+      description:
+        'The revision its service runs: given with its endpoint, or recorded since. Absent: none was. Send it back as `appliedRevision` with `PUT …/pack-env`.',
+    },
+    held: { $ref: '#/components/schemas/SystemPackEnvHold' },
+  },
+};
+
+export const SystemPackEnvHoldSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['code', 'since'],
+  description:
+    "Only when it's held at its current revision for a cause the platform fixes, not the owner: it's listed every time, as the revision doesn't move when that's fixed. Read its values again when your back-off says. Absent otherwise.",
+  properties: {
+    code: { type: 'string', enum: [...PACK_ENV_PLATFORM_HOLDS] },
+    since: { type: 'string', format: 'date-time', description: 'When it was first held.' },
+  },
+};
+
+export const SystemPackEnvPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/SystemPackEnvEntry' } },
+    nextCursor: {
+      type: 'string',
+      description: 'Opaque cursor for the next page. Absent when `hasMore: false`.',
+    },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const RecordPackEnvBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['revision'],
+  properties: {
+    revision: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 128,
+      description:
+        "The `revision` from `GET …/pack-env`. Without `held`: the service now runs its values. With `held`: they weren't given, and the service keeps what it runs.",
+    },
+    held: { $ref: '#/components/schemas/PackEnvHeldCode' },
+    appliedRevision: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 128,
+      description:
+        'The revision the service was found running, as `GET /v1/system/pack-env` listed it. Absent: none was recorded. Another revision recorded since is a conflict (`pack-env-conflict`).',
+    },
+  },
+};
+
+export const PackEnvNamesSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['envName', 'data'],
+  description:
+    "Where each name the deployment's pack declares is set, at the env the server serves. Never a value.",
+  properties: {
+    envName: { type: 'string', description: 'The env the values are read at (`KINDGI_ENV`).' },
+    data: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/PackEnvNameStatus' },
+      description: 'Every declared name, required ones first, each list in name order.',
+    },
+    problem: { $ref: '#/components/schemas/PackEnvProblemCode' },
   },
 };
 
@@ -1877,6 +2268,8 @@ export const ApprovalSchema: JsonSchema = {
       format: 'uuid',
       description: 'The approval this one was escalated to.',
     },
+    approver: { $ref: '#/components/schemas/ApprovalApprover' },
+    connection: { $ref: '#/components/schemas/ApprovalConnection' },
   },
 };
 
@@ -1895,6 +2288,16 @@ export const ApprovalDecisionRecordSchema: JsonSchema = {
     reviewerRoleAtDecision: ReviewerRoleSchema,
     decidedAt: { type: 'string', format: 'date-time' },
     rationale: { type: 'string' },
+    sessionProvider: {
+      type: 'string',
+      description:
+        "The provider of the session the reviewer decided with: `site:<id>` for a site's sign-in, an identity provider's id for a single sign-on session. Absent for an API key, and on decisions an older runtime recorded.",
+    },
+    deciderName: {
+      type: 'string',
+      description:
+        "The reviewer's display name when they decided: a person renamed since still shows as they were. Absent on decisions an older runtime recorded.",
+    },
   },
 };
 
@@ -1930,6 +2333,12 @@ export const ApprovalCollectionPageSchema: JsonSchema = {
       enum: ['asc', 'desc'],
       description:
         'The order the page is in: `asc` (oldest first) or `desc` (newest first). Absent from a runtime before Kindgi 0.1.6, which lists newest first and ignores `order`.',
+    },
+    decidedBy: {
+      type: 'string',
+      enum: ['me'],
+      description:
+        '`me` on every page of a list asked for with `?decidedBy=me`, an empty one too: it holds only the approvals the caller decided. Absent from a runtime before Kindgi 0.1.9, which ignores `decidedBy` and lists them all.',
     },
   },
 };
@@ -1999,6 +2408,268 @@ export const UnregisterReviewerResultSchema: JsonSchema = {
   properties: {
     reviewerId: { type: 'string', format: 'uuid' },
     unregistered: { type: 'boolean', const: true },
+  },
+};
+
+// ---------------- sites ----------------
+
+const SiteRoleNameSchema: JsonSchema = {
+  type: 'string',
+  pattern: '^[a-z0-9_-]{1,64}$',
+  description: 'A role on the site, as the site names it (a WordPress role: `shop_manager`).',
+};
+
+export const SiteRoleGrantSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['ask'],
+  description:
+    "What a person with one of the site's roles gets in the site's project. Reading the project comes with every role; nothing above it ever does.",
+  properties: {
+    ask: {
+      type: 'boolean',
+      description: "Whether they may start turns with the project's agents.",
+    },
+    reviewer: {
+      type: 'string',
+      enum: ['standard', 'senior'],
+      description:
+        "The reviewer role they decide approvals with, at most the site's `reviewerCeiling`; absent: they decide none.",
+    },
+  },
+};
+
+export const SiteKeySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kid', 'thumbprint', 'addedAt'],
+  description: "One of the site's live public keys. Kindgi never has a private half.",
+  properties: {
+    kid: { type: 'string' },
+    thumbprint: {
+      type: 'string',
+      description: "The key's RFC 7638 thumbprint, to compare with the one the site shows.",
+    },
+    addedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const SiteSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'siteId',
+    'projectId',
+    'displayName',
+    'origin',
+    'approvalsUrl',
+    'allowedRoles',
+    'roleMap',
+    'reviewerCeiling',
+    'vouching',
+    'peopleCap',
+    'newPeoplePerDay',
+    'keys',
+    'createdAt',
+  ],
+  description:
+    'A site that signs its own people in to one project: it vouches for whoever is signed in there, so they ask the project\'s agents and decide its approvals as themselves. Each person it signs in is a person of the tenant, shown as "<name>, via <displayName>".',
+  properties: {
+    siteId: { type: 'string', format: 'uuid' },
+    projectId: { type: 'string', format: 'uuid' },
+    displayName: {
+      type: 'string',
+      description:
+        'Set by a tenant admin, never by the site: shown after every name the site signs in.',
+    },
+    origin: { type: 'string', description: "The site's origin (`https://acme-store.example`)." },
+    approvalsUrl: {
+      type: 'string',
+      description:
+        "Where an approval opens on the site; `{approvalId}` is replaced. A site's people get it in their reviewer email.",
+    },
+    allowedRoles: { type: 'array', items: SiteRoleNameSchema },
+    roleMap: {
+      type: 'object',
+      additionalProperties: { $ref: '#/components/schemas/SiteRoleGrant' },
+      description:
+        'Role → grant. A person with several allowed roles gets the most any of them gives.',
+    },
+    reviewerCeiling: { type: 'string', enum: ['standard', 'senior'] },
+    vouching: {
+      type: 'boolean',
+      description: "Whether the site's statements are accepted.",
+    },
+    peopleCap: {
+      type: 'integer',
+      minimum: 1,
+      description: 'At most this many live people from the site.',
+    },
+    newPeoplePerDay: {
+      type: 'integer',
+      minimum: 1,
+      description: 'At most this many new people from the site per day.',
+    },
+    keys: { type: 'array', items: { $ref: '#/components/schemas/SiteKey' } },
+    audience: {
+      type: 'string',
+      description:
+        "What the site's statements carry as `aud`: this deployment's public URL, given at enrollment.",
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    createdBy: { type: 'string' },
+    pausedAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const SiteCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/Site' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+const SiteSettingsProperties: Record<string, JsonSchema> = {
+  displayName: { type: 'string', minLength: 1, maxLength: 100 },
+  origin: {
+    type: 'string',
+    description: 'An https:// origin with no path; http:// only for localhost, 127.0.0.1 or [::1].',
+  },
+  approvalsUrl: {
+    type: 'string',
+    description: "A URL on the site's own origin with `{approvalId}` in it.",
+  },
+  allowedRoles: {
+    type: 'array',
+    items: SiteRoleNameSchema,
+    minItems: 1,
+    maxItems: 20,
+    description: 'The roles that may sign in at all. Default `["administrator", "shop_manager"]`.',
+  },
+  roleMap: {
+    type: 'object',
+    additionalProperties: { $ref: '#/components/schemas/SiteRoleGrant' },
+    description:
+      "Default: both default roles may ask, and decide as `standard` reviewers. Without a `roleMap`, the map keeps only the entries of the roles in `allowedRoles`: the default map's for a new site, the site's own for a change. An allowed role with no entry signs in to read the project only.",
+  },
+  reviewerCeiling: {
+    type: 'string',
+    enum: ['standard', 'senior'],
+    description: 'Default `standard`.',
+  },
+  vouching: { type: 'boolean', description: 'Default `true`.' },
+  peopleCap: { type: 'integer', minimum: 1, maximum: 10000, description: 'Default 50.' },
+  newPeoplePerDay: { type: 'integer', minimum: 1, maximum: 1000, description: 'Default 20.' },
+};
+
+export const RegisterSiteBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['displayName', 'origin', 'approvalsUrl'],
+  properties: SiteSettingsProperties,
+};
+
+export const UpdateSiteBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'The settings to change; the rest stay as they are.',
+  properties: SiteSettingsProperties,
+};
+
+export const SiteEnrollmentCodeSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['code', 'expiresAt'],
+  description:
+    "A one-time code the site posts with its public key (`POST /v1/auth/sites/enroll`). Shown once. Using it replaces the site's keys and ends its live sessions.",
+  properties: {
+    code: { type: 'string' },
+    expiresAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const SitePersonRestoreResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['user'],
+  description:
+    "A site's person let back in after a removal made in Kindgi (`POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`).",
+  properties: {
+    user: { $ref: '#/components/schemas/UserRecord' },
+  },
+};
+
+export const RegisterSiteResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['site', 'enrollment'],
+  properties: {
+    site: { $ref: '#/components/schemas/Site' },
+    enrollment: { $ref: '#/components/schemas/SiteEnrollmentCode' },
+  },
+};
+
+export const EnrollSiteBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['code', 'publicKey'],
+  properties: {
+    code: { type: 'string', minLength: 1, maxLength: 200 },
+    publicKey: {
+      type: 'object',
+      additionalProperties: true,
+      description:
+        "The site's Ed25519 public key, a JWK: `kty: OKP`, `crv: Ed25519`, `x` and `kid`.",
+    },
+  },
+};
+
+export const EnrollSiteResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['siteId', 'audience'],
+  properties: {
+    siteId: {
+      type: 'string',
+      format: 'uuid',
+      description: "What the site's statements carry as `iss`.",
+    },
+    audience: { type: 'string', description: "What the site's statements carry as `aud`." },
+  },
+};
+
+export const SiteSignInBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['statement'],
+  properties: {
+    statement: {
+      type: 'string',
+      description:
+        "The person's statement, signed by the site: a compact JWS, `alg: EdDSA`, `typ: kindgi-site+jwt`, with the site's `kid`. Claims: `iss` (the site id), `aud`, `sub` (the person's stable id on the site), `iat`, `exp` (at most 60 s after `iat`), `jti` (used once), `name`, `roles`, and an optional `email` for notifications.",
+    },
+  },
+};
+
+export const SiteSignInResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['token', 'expiresAt', 'userId', 'actor', 'projectId'],
+  properties: {
+    token: {
+      type: 'string',
+      description:
+        "A session token (`kgi_sk_…`) limited to the site's project. Shown once; not refreshable.",
+    },
+    expiresAt: { type: 'string', format: 'date-time' },
+    userId: { type: 'string' },
+    actor: { type: 'string', description: 'The person as approvals name them: `user:<userId>`.' },
+    projectId: { type: 'string', format: 'uuid' },
   },
 };
 
@@ -2164,7 +2835,7 @@ export const LicensePreviewSchema: JsonSchema = {
   additionalProperties: false,
   required: ['version', 'releasedAt', 'expiresAt', 'daysLeft', 'standing'],
   description:
-    "This build's own expiry, before Kindgi 1.0: a preview release stops starting 90 days after it was released, in every mode, unless a production key exempts it. Absent when nothing expires: a 1.0 or later release, a build from source, or a production key.",
+    "This build's own expiry: a preview release stops starting 90 days after it was released, in every mode, unless a production key exempts it. Absent when nothing expires: a build from source, or a production key.",
   properties: {
     version: { type: 'string', description: "This build's release, `0.1.8`." },
     releasedAt: { type: 'string', format: 'date-time' },
@@ -2403,7 +3074,6 @@ export const ConversationPolicySchema: JsonSchema = {
   additionalProperties: false,
   properties: {
     historyLimit: { type: 'integer', minimum: 1 },
-    autoCloseAfterInactiveSeconds: { type: 'integer', minimum: 1 },
     hitlAfterTurns: { type: 'integer', minimum: 1 },
   },
 };
@@ -3042,7 +3712,43 @@ export const HttpAuthSpecSchema: JsonSchema = {
         secretRef: { $ref: '#/components/schemas/ToolSecretRef' },
       },
     },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'connection'],
+      description:
+        'A connection the tool declares in `needsSpec.connections`, by its name there: sent as `Authorization: Bearer <access token>`.',
+      properties: {
+        kind: { const: 'connection' },
+        connection: { type: 'string', pattern: '^[a-z][a-zA-Z0-9_]{0,63}$' },
+      },
+    },
   ],
+};
+
+export const ConnectionNeedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['app', 'permissions', 'as'],
+  properties: {
+    app: {
+      type: 'string',
+      pattern: '^[a-z][a-z0-9-]{1,31}$',
+      description: "The app's entry id: `google`, `github`.",
+    },
+    permissions: {
+      type: 'array',
+      minItems: 1,
+      uniqueItems: true,
+      items: { type: 'string', pattern: '^[a-z][a-z0-9_.-]{0,63}$' },
+      description: "The entry's permission keys the call needs: `gmail.send`.",
+    },
+    as: {
+      enum: ['person', 'company'],
+      description:
+        "Whose connection: `person`, the run's person (the one it acts for, who started it or owns its trigger); `company`, the tenant's.",
+    },
+  },
 };
 
 export const HttpRequestBodySpecSchema: JsonSchema = {
@@ -3149,13 +3855,20 @@ export const TypedNeedsSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'Typed discriminated needs (env / secrets / config / capabilities / bindings). Optional additive field.',
+    'Typed discriminated needs (env / secrets / config / capabilities / bindings / connections). Optional additive field.',
   properties: {
     env: { type: 'object', additionalProperties: { type: 'object' } },
     secrets: { type: 'object', additionalProperties: { type: 'object' } },
     config: { type: 'object', additionalProperties: { type: 'object' } },
     capabilities: { type: 'array', items: { type: 'string', minLength: 1 } },
     bindings: { type: 'array', items: { type: 'string', minLength: 1 } },
+    connections: {
+      type: 'object',
+      description:
+        "Accounts at other apps the tool acts with, by the tool's own name for each (`mail`). The runtime resolves them per call into the context's `connections`.",
+      propertyNames: { pattern: '^[a-z][a-zA-Z0-9_]{0,63}$' },
+      additionalProperties: { $ref: '#/components/schemas/ConnectionNeed' },
+    },
   },
 };
 
@@ -3191,7 +3904,7 @@ export const ToolSpecSchema: JsonSchema = {
 
 export const RecordedSecretScopeSchema: JsonSchema = {
   description:
-    "Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers (else the broadest they administer). The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.",
+    "Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.",
   oneOf: [
     {
       type: 'object',
@@ -3264,6 +3977,16 @@ export const ToolSchema: JsonSchema = {
       type: 'boolean',
       description:
         'Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.',
+    },
+    needsApprovalWhenUnattended: {
+      type: 'boolean',
+      description:
+        "`true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`.",
+    },
+    pauses: {
+      type: 'boolean',
+      description:
+        "`true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.",
     },
     sandbox: { $ref: '#/components/schemas/SandboxMode' },
     limits: { $ref: '#/components/schemas/RuntimeLimits' },
@@ -3397,18 +4120,26 @@ export const GuardrailActionSchema: JsonSchema = {
       minLength: 1,
       examples: ['halt', 'retry', 'escalate', 'log-only', 'compensate'],
       description:
-        'What happens when the guardrail fires. Open string: the built-in actions are listed in `examples`; any other name needs an action handler registered under it where the guardrail is evaluated.',
+        'What a failed check does to the agent turn. Open string: the built-in actions are listed in `examples`, and any other non-empty name is accepted. In 0.1 the runtime acts only on `halt`: the turn fails with `guardrail-violation` and its response is not stored. Any other value is recorded as a violation, as `log-only` is, and the turn completes: nothing runs the turn again, escalates or calls a compensating tool.',
     },
     retry: {
       type: 'object',
       additionalProperties: false,
       required: ['maxAttempts'],
+      description:
+        "The attempts a `retry` asks for. In 0.1 nothing acts on it: there's no second attempt.",
       properties: {
         maxAttempts: { type: 'integer', minimum: 1, maximum: 10 },
       },
     },
-    escalateTo: { type: 'string' },
-    compensateWith: { type: 'string' },
+    escalateTo: {
+      type: 'string',
+      description: 'Where an `escalate` goes. In 0.1 nothing escalates.',
+    },
+    compensateWith: {
+      type: 'string',
+      description: "The tool id a `compensate` names. In 0.1 that tool isn't called.",
+    },
   },
 };
 
@@ -3621,6 +4352,11 @@ export const ConversationSchema: JsonSchema = {
       description:
         "The project the conversation is in: the project of the run that opened it, or `projectId` on open (when omitted, the agent's own project, or the tenant's Default project for an agent filed under none). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.",
     },
+    openedBy: {
+      type: 'string',
+      description:
+        "Who opened it: the caller's principal (`user:<id>`, `service_account:<id>`), or, for one a turn opened, whoever the run acts for. Set by the server, never from a request's body. Absent on conversations an older runtime opened, and when the caller had no principal; those aren't listed by `?openedBy=me`.",
+    },
     scope: {
       type: 'object',
       additionalProperties: true,
@@ -3709,6 +4445,12 @@ export const ConversationCollectionPageSchema: JsonSchema = {
       description: 'Opaque cursor for the next page. Absent when `hasMore: false`.',
     },
     hasMore: { type: 'boolean' },
+    openedBy: {
+      type: 'string',
+      enum: ['me'],
+      description:
+        "`me` on every page of a list asked for with `?openedBy=me`, an empty one too: it holds only the conversations the caller opened. Absent from a runtime before Kindgi 0.1.9, which ignores `openedBy` and lists everyone's.",
+    },
   },
 };
 
@@ -4006,7 +4748,11 @@ export const JudgedItemSchema: JsonSchema = {
   required: ['key'],
   description: "The judged item of a run's output.",
   properties: {
-    key: { type: 'string', minLength: 1, description: "The caller's stable id for the item." },
+    key: {
+      type: 'string',
+      minLength: 1,
+      description: `The caller's stable id for the item. \`${CORRECTION_ITEM.key}\` is reserved: a judgment on it is accepted only when it carries a correction at pointer \`""\`.`,
+    },
     pointer: {
       type: 'string',
       description:
@@ -4034,6 +4780,121 @@ export const JudgmentAssertedBySchema: JsonSchema = {
   },
 };
 
+/** One call an expert says the agent should have made: the tool, and the argument fields to compare. */
+export const ExpectedCallSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tool', 'args'],
+  properties: {
+    tool: { type: 'string', minLength: 1, maxLength: 200 },
+    args: {
+      type: 'object',
+      maxProperties: 100,
+      description:
+        'The partial set of top-level argument fields to compare, by value. Fields left out are not compared; an empty object asks only that the tool was called. At most 4000 characters in canonical JSON.',
+    },
+  },
+};
+
+const correctionCallsProperty = {
+  type: 'array',
+  maxItems: 50,
+  description: 'The calls the agent should have made.',
+  items: { $ref: '#/components/schemas/ExpectedCall' },
+} as const;
+
+const correctionNotCalledProperty = {
+  type: 'array',
+  maxItems: 50,
+  description: 'Tools that should not have been called at all.',
+  items: { type: 'string', minLength: 1, maxLength: 200 },
+} as const;
+
+/** A correction an expert records on a judgment. */
+export const CorrectionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['calls', 'notCalled'],
+  description:
+    "An expert's correction of a run's decisions: the tool calls the agent should have made, and the tools it should not have called at all. Graded deterministically on a replay. A tool can't be in both `calls` and `notCalled`, and one of them must be non-empty (both empty is a 400).",
+  properties: {
+    calls: correctionCallsProperty,
+    notCalled: correctionNotCalledProperty,
+  },
+};
+
+/** One way a candidate's calls differed from a correction; it can quote argument values. */
+const correctionDifference = {
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tool', 'kind', 'expected', 'actual'],
+      properties: {
+        tool: { type: 'string' },
+        kind: { type: 'string', enum: ['count'] },
+        expected: { type: 'integer', minimum: 0 },
+        actual: { type: 'integer', minimum: 0 },
+        refused: {
+          type: 'integer',
+          minimum: 1,
+          description:
+            'How many of the actual calls were refused on the replay. Absent when none were.',
+        },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tool', 'kind', 'actual'],
+      properties: {
+        tool: { type: 'string' },
+        kind: { type: 'string', enum: ['must-not-call'] },
+        actual: { type: 'integer', minimum: 1 },
+        refused: {
+          type: 'integer',
+          minimum: 1,
+          description:
+            'How many of the forbidden calls were refused on the replay. Absent when none were.',
+        },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tool', 'kind', 'field', 'expected'],
+      properties: {
+        tool: { type: 'string' },
+        kind: { type: 'string', enum: ['missing-field'] },
+        field: { type: 'string' },
+        expected: {},
+        refused: {
+          type: 'boolean',
+          description:
+            'Present and true when the call blamed for the miss was refused on the replay.',
+        },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tool', 'kind', 'field', 'expected', 'actual'],
+      properties: {
+        tool: { type: 'string' },
+        kind: { type: 'string', enum: ['field-value'] },
+        field: { type: 'string' },
+        expected: {},
+        actual: {},
+        refused: {
+          type: 'boolean',
+          description:
+            'Present and true when the call blamed for the miss was refused on the replay.',
+        },
+      },
+    },
+  ],
+} as const;
+
 export const JudgmentSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -4057,6 +4918,10 @@ export const JudgmentSchema: JsonSchema = {
     item: { $ref: '#/components/schemas/JudgedItem' },
     verdict: { type: 'string', enum: ['yes', 'no'] },
     reason: { type: 'string' },
+    correction: {
+      $ref: '#/components/schemas/Correction',
+      description: "The expert's correction of the run's decisions, when they gave one.",
+    },
     judgeClassId: {
       type: 'string',
       description:
@@ -4253,6 +5118,10 @@ export const CreateJudgmentBodySchema: JsonSchema = {
       minLength: 1,
       description: "An app's opaque id for its end user, when judging on their behalf.",
     },
+    correction: {
+      $ref: '#/components/schemas/Correction',
+      description: `Optional. The tool calls the agent should have made, graded on a replay. A correction judges the run's whole output, so it is recorded under one reserved item (\`item.key\` \`"${CORRECTION_ITEM.key}"\`, \`item.pointer\` \`""\`): a correction on any other item is a 400, and a second correction of the run by the same expert replaces the first, so it counts once.`,
+    },
   },
 };
 
@@ -4288,7 +5157,22 @@ export const JudgedItemSummarySchema: JsonSchema = {
       required: ['yesWeight', 'totalWeight'],
       description:
         'The same weights, counting only judgments recorded while their class was restricted (`Judgment.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.',
-      properties: { yesWeight: { type: 'number' }, totalWeight: { type: 'number' } },
+      properties: {
+        yesWeight: { type: 'number' },
+        totalWeight: { type: 'number' },
+        judgmentIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'The judgments behind these two. Absent from a test set built before judgment ids.',
+        },
+      },
+    },
+    judgmentIds: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'The judgments summed into the item, by id: what a comparison on this case counts. Absent from a test set built before judgment ids.',
     },
     reasons: {
       type: 'array',
@@ -4326,11 +5210,36 @@ export const JudgedEvalCaseSchema: JsonSchema = {
     context: { $ref: '#/components/schemas/JudgedRunContext' },
     output: {},
     items: { type: 'array', items: { $ref: '#/components/schemas/JudgedItemSummary' } },
+    corrections: {
+      type: 'array',
+      description:
+        "Experts' corrections carried onto this case from its judgments, each graded on the replay. Empty or absent when none. `restricted-only` keeps only the entries whose judgment was restricted.",
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['judgmentId', 'calls', 'notCalled'],
+        properties: {
+          judgmentId: {
+            type: 'string',
+            description: 'The judgment the correction was recorded on.',
+          },
+          judgeClassId: { type: 'string', description: "The judgment's class, when it had one." },
+          restricted: {
+            type: 'boolean',
+            enum: [true],
+            description:
+              'Set when the judgment was recorded while its class was restricted (`Judgment.restricted`).',
+          },
+          calls: correctionCallsProperty,
+          notCalled: correctionNotCalledProperty,
+        },
+      },
+    },
     erased: {
       type: 'boolean',
       const: true,
       description:
-        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, and eval runs leave it out (counted as `erased`).",
+        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and eval runs leave it out (counted as `erased`).",
     },
   },
 };
@@ -5098,7 +6007,7 @@ export const FixProposalStatusSchema: JsonSchema = {
     'withdrawn',
   ],
   description:
-    "Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.",
+    "Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.",
 };
 
 export const ProposalChangeSchema: JsonSchema = {
@@ -5144,6 +6053,26 @@ export const ProposalDrafterSchema: JsonSchema = {
       type: 'string',
       description:
         'For a drafter: the improvement pass that drafted it (`GET /v1/improvement-passes/{passId}`).',
+    },
+  },
+};
+
+export const ProposalEvidenceSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'What a proposal rests on.',
+  properties: {
+    judgmentIds: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        "The judgments that motivated it. An improvement pass's proposal names the judgments it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items judged wrong, then the rest.",
+    },
+    judgmentCount: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'How many judgments it rests on, when `judgmentIds` names only the first of them. Absent when `judgmentIds` names them all.',
     },
   },
 };
@@ -5196,6 +6125,52 @@ export const ProposalEvaluationSchema: JsonSchema = {
     },
     cases: { type: 'integer' },
     better: { type: 'boolean', description: 'Set once the comparison finished.' },
+    rule: {
+      type: 'string',
+      enum: ['better', 'cheaper'],
+      description:
+        "How the candidate is kept. `better`: it beats the recorded outputs by more than the noise. `cheaper`: it's no worse than the current version replayed on the same cases (beyond that run's spread) and costs less (beyond the cost's own spread), with no errored case; `better` may then be false while the status is `evaluated`. Absent: `better`.",
+    },
+    costUsd: { $ref: '#/components/schemas/ProposalCost' },
+    decisions: { $ref: '#/components/schemas/ProposalDecisions' },
+  },
+};
+
+export const ProposalCostSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['current', 'candidate'],
+  description:
+    "What the replays cost in model calls on the same cases, in US dollars, averaged over the repetitions: the current version's and the candidate's. Set for a change held to the current version once both comparisons finished, when both reported a cost.",
+  properties: {
+    current: { type: 'number', minimum: 0 },
+    candidate: { type: 'number', minimum: 0 },
+  },
+};
+
+export const ProposalDecisionsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['checked', 'held', 'broken', 'stillWrong'],
+  description:
+    "The corrections the current version was checked on, replayed on the same cases, against the candidate's. A model-settings change is kept only with at least one checked and none broken. Set once both comparisons finished.",
+  properties: {
+    checked: { type: 'integer', minimum: 0 },
+    held: {
+      type: 'integer',
+      minimum: 0,
+      description: 'The current version passed them, and so did the candidate.',
+    },
+    broken: {
+      type: 'integer',
+      minimum: 0,
+      description: "The current version passed them; the candidate didn't.",
+    },
+    stillWrong: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Neither passed them. The rest of `checked` the candidate fixed.',
+    },
   },
 };
 
@@ -5244,11 +6219,7 @@ export const FixProposalSchema: JsonSchema = {
     tier: { $ref: '#/components/schemas/ProposalTier' },
     change: { $ref: '#/components/schemas/ProposalChange' },
     hypothesis: { type: 'string', description: 'What the change should improve, and why.' },
-    evidence: {
-      type: 'object',
-      additionalProperties: false,
-      properties: { judgmentIds: { type: 'array', items: { type: 'string' } } },
-    },
+    evidence: { $ref: '#/components/schemas/ProposalEvidence' },
     drafter: { $ref: '#/components/schemas/ProposalDrafter' },
     status: { $ref: '#/components/schemas/FixProposalStatus' },
     candidate: { $ref: '#/components/schemas/ProposalCandidate' },
@@ -5398,7 +6369,7 @@ export const ImprovementPassSchema: JsonSchema = {
     comparisons: {
       type: 'array',
       description:
-        'Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.',
+        'Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.',
       items: {
         type: 'object',
         additionalProperties: false,
@@ -5465,6 +6436,12 @@ export const ImproveBodySchema: JsonSchema = {
       type: 'string',
       description: 'The version whose settings it tunes. Default: the one serving `scope`.',
     },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The project the pass works in: `suiteId` must be a test set it reaches, the version must reach it, and the pass's eval runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.",
+    },
     scope: { $ref: '#/components/schemas/LiveScope' },
     suiteId: {
       type: 'string',
@@ -5497,9 +6474,8 @@ export const ImproveBodySchema: JsonSchema = {
     classWeights: {
       type: 'string',
       enum: ['as-recorded', 'restricted-only'],
-      default: 'restricted-only',
       description:
-        'Which judgments the pass learns from: by default only those recorded under a restricted (trusted) judge class.',
+        "Which judgments the pass learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the pass reads its judgments from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has a restricted judge class, then only judgments recorded under one (`restricted-only`).",
     },
     objective: {
       type: 'string',
@@ -5513,6 +6489,43 @@ export const ImproveBodySchema: JsonSchema = {
       properties: {
         maxCostUsd: { type: 'number', exclusiveMinimum: 0, maximum: 100 },
         maxCandidates: { type: 'integer', minimum: 1, maximum: 200 },
+      },
+    },
+  },
+};
+
+export const ImprovementPassEstimateSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "What a pass this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.",
+  required: ['maxCostUsd', 'basis'],
+  properties: {
+    estimatedCostUsd: {
+      type: 'string',
+      description:
+        "The estimate (US dollars): `basis.replays` times `basis.meanRunCostUsd`, or `maxCostUsd` when that's smaller. Absent when the version has no cost history.",
+    },
+    maxCostUsd: {
+      type: 'string',
+      description: 'The budget cap the estimate is clamped to (`budget.maxCostUsd`, US dollars).',
+    },
+    basis: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['replays'],
+      description: 'What the estimate is built from.',
+      properties: {
+        replays: {
+          type: 'integer',
+          minimum: 0,
+          description: "How many replay runs the pass's comparisons would make.",
+        },
+        meanRunCostUsd: {
+          type: 'string',
+          description:
+            "The version's mean cost over its recent completed runs (US dollars). Absent with no cost history.",
+        },
       },
     },
   },
@@ -5835,6 +6848,16 @@ export const BlobMetaSchema: JsonSchema = {
       description: 'Who uploaded it: `user:<id>` or `service_account:<id>`.',
     },
     createdAt: { type: 'string', format: 'date-time' },
+    bucket: {
+      type: 'string',
+      description:
+        "The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.",
+    },
+    key: {
+      type: 'string',
+      description:
+        "The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one.",
+    },
   },
 };
 
@@ -7233,16 +8256,7 @@ export const RetentionPolicyConflictSchema: JsonSchema = {
 export const RetentionScheduledItemSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: [
-    'domain',
-    'id',
-    'unregisteredAt',
-    'purgeAt',
-    'pastGrace',
-    'policyId',
-    'policyVersion',
-    'graceSeconds',
-  ],
+  required: ['domain', 'id', 'unregisteredAt', 'purgeAt', 'pastGrace', 'graceSeconds'],
   properties: {
     domain: { $ref: '#/components/schemas/RetentionDomain' },
     id: { type: 'string', description: "The tombstoned row's id in its domain." },
@@ -7250,17 +8264,28 @@ export const RetentionScheduledItemSchema: JsonSchema = {
     purgeAt: {
       type: 'string',
       format: 'date-time',
-      description: "`unregisteredAt` plus the policy's grace: when a sweep purges the row.",
+      description: '`unregisteredAt` plus `graceSeconds`: when a sweep purges the row.',
     },
     pastGrace: {
       type: 'boolean',
       description: 'Whether a sweep would purge the row now.',
     },
-    policyId: { type: 'string', description: 'The retention policy that applies.' },
-    policyVersion: { type: 'string' },
+    policyId: {
+      type: 'string',
+      description:
+        "The retention policy that covers the domain. Absent when none does, and this server's limit decides (`limitApplied`); always present on a server with no limit.",
+    },
+    policyVersion: { type: 'string', description: "The policy's version. Absent with `policyId`." },
     graceSeconds: {
       type: 'integer',
-      description: "The policy's grace, in seconds (`-1`: a hold, never purged).",
+      description:
+        "How long the row is kept, in seconds (`-1`: a hold, never purged): the policy's grace, or this server's limit (`limitApplied`).",
+    },
+    limitApplied: {
+      type: 'boolean',
+      const: true,
+      description:
+        "Present when this server's retention limit for the domain set `graceSeconds`: no policy covers the domain, or its policy keeps rows longer than the limit, or holds them.",
     },
   },
 };
@@ -7293,7 +8318,8 @@ export const RetentionScheduledPageSchema: JsonSchema = {
     unpolicedDomains: {
       type: 'array',
       items: { $ref: '#/components/schemas/RetentionDomain' },
-      description: 'Domains no retention policy covers: their tombstones are kept.',
+      description:
+        'Domains no retention policy covers and this server sets no retention limit for: their tombstones are kept.',
     },
     conflicts: {
       type: 'array',
@@ -7354,6 +8380,12 @@ export const RetentionSweepResultSchema: JsonSchema = {
             description: 'Rows past grace this call left (the `maxPerDomain` cap); sweep again.',
           },
           policyId: { type: 'string', description: 'The retention policy that applied.' },
+          limitApplied: {
+            type: 'boolean',
+            const: true,
+            description:
+              "Present when this server's retention limit set the grace (see `RetentionScheduledItem.limitApplied`).",
+          },
           missingAdapter: {
             type: 'boolean',
             const: true,
@@ -7718,7 +8750,7 @@ export const EvalSampleSchema: JsonSchema = {
   additionalProperties: false,
   required: ['part', 'seed', 'holdOutShare'],
   description:
-    'Only part of the test set\'s cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified by judgment (the cases with a "no" and the others are split on their own, a stratum of two or more giving each part at least one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).',
+    'Only part of the test set\'s cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a "no" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).',
   properties: {
     part: { type: 'string', enum: ['search', 'hold-out'] },
     seed: { type: 'string', minLength: 1, maxLength: 200 },
@@ -8005,6 +9037,62 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
         weightedPrecisionAtK: { $ref: '#/components/schemas/ComparisonMetric' },
       },
     },
+    corrections: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['checked', 'passed'],
+      description:
+        'Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.',
+      properties: {
+        checked: { type: 'integer', minimum: 0, description: 'How many corrections were graded.' },
+        passed: {
+          type: 'integer',
+          minimum: 0,
+          description: 'How many passed (every repetition passed).',
+        },
+        judgments: {
+          type: 'array',
+          description:
+            'Each correction graded, by its judgment: whether it passed (every repetition did). What an improvement pass compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['judgmentId', 'pass'],
+            properties: {
+              judgmentId: { type: 'string' },
+              pass: { type: 'boolean' },
+            },
+          },
+        },
+      },
+    },
+    costUsd: { $ref: '#/components/schemas/JudgedComparisonCost' },
+  },
+};
+
+export const JudgedComparisonCostSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['candidate', 'cases'],
+  description:
+    "What the candidate's replays cost in model calls, as the runtime reported it. Absent from a summary when no case's replays reported a cost.",
+  properties: {
+    candidate: {
+      type: 'number',
+      minimum: 0,
+      description:
+        "Each repetition's total over `cases`, averaged over the repetitions, in US dollars.",
+    },
+    spread: {
+      type: 'number',
+      minimum: 0,
+      description: "With more than one repetition: the totals' max − min.",
+    },
+    cases: {
+      type: 'integer',
+      minimum: 1,
+      description: 'The cases whose every repetition reported a cost: the ones totalled.',
+    },
   },
 };
 
@@ -8137,6 +9225,47 @@ export const ComparisonCaseResultSchema: JsonSchema = {
           reason: { type: 'string' },
         },
       },
+    },
+    corrections: {
+      type: 'array',
+      description:
+        'Each correction graded on this case: its verdict and how many repetitions passed. Shown, not enforced. Survives an erasure — the differences, which quote values, are in `correctionDifferences`.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['judgmentId', 'pass', 'repetitionsPassed', 'repetitions'],
+        properties: {
+          judgmentId: { type: 'string' },
+          pass: { type: 'boolean', description: 'Passed only when every repetition passed.' },
+          repetitionsPassed: { type: 'integer', minimum: 0, description: 'The `k` of "k of n".' },
+          repetitions: { type: 'integer', minimum: 1, description: 'The `n` of "k of n".' },
+        },
+      },
+    },
+    correctionDifferences: {
+      type: 'array',
+      description:
+        "The ways each correction's calls differed, by judgment: the differences from the first repetition that failed it, and that repetition's number. Quotes argument values, so an erasure clears it (the verdicts and counts stay in `corrections`).",
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['judgmentId', 'repetition', 'differences'],
+        properties: {
+          judgmentId: { type: 'string' },
+          repetition: {
+            type: 'integer',
+            minimum: 1,
+            description: 'Which repetition (1-based) these differences are from.',
+          },
+          differences: { type: 'array', items: correctionDifference },
+        },
+      },
+    },
+    costUsd: {
+      type: 'array',
+      description:
+        "What each repetition's replay cost in model calls, as the runtime reported it, in US dollars: one per repetition. Absent when a repetition reported none.",
+      items: { type: 'number', minimum: 0 },
     },
     diverged: { type: 'boolean' },
     refusedWrites: { type: 'integer', minimum: 0 },
@@ -8536,6 +9665,21 @@ export const SignInOptionSchema: JsonSchema = {
   },
 };
 
+export const ConsoleLinkSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['label', 'url'],
+  description: "One of the deployment's own links, which the console shows on every page.",
+  properties: {
+    label: { type: 'string', minLength: 1, maxLength: 40, description: 'The text shown.' },
+    url: {
+      type: 'string',
+      format: 'uri',
+      description: 'An absolute https URL with no username or password.',
+    },
+  },
+};
+
 export const SignInOptionsSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -8574,6 +9718,23 @@ export const SignInOptionsSchema: JsonSchema = {
         },
       },
     },
+    legal: {
+      type: 'object',
+      additionalProperties: false,
+      description:
+        "The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.",
+      properties: {
+        termsUrl: { type: 'string', format: 'uri', description: 'Its terms.' },
+        privacyUrl: { type: 'string', format: 'uri', description: 'Its privacy policy.' },
+      },
+    },
+    links: {
+      type: 'array',
+      maxItems: 8,
+      description:
+        "The deployment's own links (its help desk, status page, data processing terms), which the console shows on every page, the sign-in page too, in its operator's order. Absent when there are none, and from older servers.",
+      items: { $ref: '#/components/schemas/ConsoleLink' },
+    },
   },
 };
 
@@ -8596,9 +9757,12 @@ export const SignInEventSchema: JsonSchema = {
         'sign-in-link-capped',
         'sessions-revoked',
         'sessions-ended',
+        'second-factor-set-up',
+        'second-factor-removed',
+        'recovery-codes-replaced',
       ],
       description:
-        '`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token).',
+        '`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token, or a session made without a second factor in a workspace that requires one: `reason` says which); `second-factor-set-up`, `second-factor-removed` (`byUserId` is the admin who removed it, if not the person) and `recovery-codes-replaced`. Never a key or a code.',
     },
     outcome: { type: 'string', description: '`succeeded` or `denied`.' },
     userId: {
@@ -8796,18 +9960,61 @@ export const WhoamiResultSchema: JsonSchema = {
     tokenId: { type: 'string', description: "The caller's API key, when it is one." },
     role: {
       ...ApiTokenRoleSchema,
-      description: "The caller's API key role, when the key has one.",
+      description:
+        "The caller's API key role, when the key has one, or its session's role ceiling.",
     },
     projectId: {
       type: 'string',
-      description: "The project the caller's API key is limited to, when it is.",
+      description: "The project the caller's API key or session is limited to, when it is.",
     },
     tenantAdmin: {
       type: 'boolean',
       description:
         'Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.',
     },
+    servedEnv: {
+      type: 'object',
+      description:
+        "The env this runtime serves (`KINDGI_ENV`): where the values its tools read are kept. With `refusesOtherEnvs`, it's the only one: a secret, env value or secret reference under another env is refused (`409 env-not-served`), so a client defaults to `envName`. Absent when the runtime serves no env, and from older servers.",
+      required: ['envName', 'refusesOtherEnvs'],
+      properties: {
+        envName: { type: 'string', description: 'The env name.' },
+        refusesOtherEnvs: {
+          type: 'boolean',
+          description: 'Whether values under any other env are refused.',
+        },
+      },
+      additionalProperties: false,
+    },
   },
+};
+
+/** A person's fields, as every answer about them carries them. */
+const USER_PROPERTIES: Record<string, JsonSchema> = {
+  userId: { type: 'string' },
+  tenantId: { type: 'string', format: 'uuid' },
+  primaryEmail: { type: 'string' },
+  displayName: { type: 'string' },
+  createdAt: { type: 'string', format: 'date-time' },
+  lastActiveAt: { type: 'string', format: 'date-time' },
+  unregisteredAt: {
+    type: 'string',
+    format: 'date-time',
+    description:
+      'When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.',
+  },
+  invite: {
+    $ref: '#/components/schemas/UserInvite',
+    description:
+      "Their invitation, while they haven't signed in: absent once they have, for people added without an email, and for people added before invitations (from 0.1.9).",
+  },
+  firstSignedInAt: {
+    type: 'string',
+    format: 'date-time',
+    description:
+      'Their first sign-in that made a session. Absent before it, and for people who last signed in before it was kept (from 0.1.9).',
+  },
+  metadata: { type: 'object', additionalProperties: true },
 };
 
 export const UserRecordSchema: JsonSchema = {
@@ -8817,23 +10024,187 @@ export const UserRecordSchema: JsonSchema = {
   additionalProperties: false,
   required: ['userId', 'tenantId', 'createdAt'],
   properties: {
-    userId: { type: 'string' },
-    tenantId: { type: 'string', format: 'uuid' },
-    primaryEmail: { type: 'string' },
-    displayName: { type: 'string' },
-    createdAt: { type: 'string', format: 'date-time' },
-    lastActiveAt: { type: 'string', format: 'date-time' },
-    unregisteredAt: {
-      type: 'string',
-      format: 'date-time',
-      description:
-        'When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.',
-    },
-    metadata: { type: 'object', additionalProperties: true },
+    ...USER_PROPERTIES,
     grants: {
       $ref: '#/components/schemas/PersonGrants',
       description:
         "The person's grants: only on `GET /v1/identity/users?include=grants`, and only from a runtime that reads grants.",
+    },
+  },
+};
+
+export const UserInviteSchema: JsonSchema = {
+  description:
+    'An open invitation. `pending` signs in. `expired` (past `expiresAt`, 7 days after it was made or last renewed) is refused at every way of signing in until a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`).',
+  type: 'object',
+  additionalProperties: false,
+  required: ['state', 'expiresAt'],
+  properties: {
+    state: { type: 'string', enum: ['pending', 'expired'] },
+    expiresAt: { type: 'string', format: 'date-time' },
+    sentAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When it was last emailed; absent when it never was.',
+    },
+  },
+};
+
+export const InviteEmailSchema: JsonSchema = {
+  description:
+    "Whether the invitation was emailed, and why not: `no-email` (the person has no email, so isn't invited), `not-requested` (`sendInvite: false`), `not-configured` (the deployment sends no email), `send-failed` (the mail server refused it or didn't answer), `capped` (the workspace, or the whole deployment, has sent as many invitation emails as it may in 24 hours). An invitation not emailed is still open: tell them yourself.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['sent'],
+  properties: {
+    sent: { type: 'boolean' },
+    reason: {
+      type: 'string',
+      enum: ['no-email', 'not-requested', 'not-configured', 'send-failed', 'capped'],
+    },
+  },
+};
+
+export const UserCreatedSchema: JsonSchema = {
+  description:
+    'The person just added, and whether their invitation was emailed (`inviteEmail`: absent from a runtime that sends no invitations).',
+  type: 'object',
+  additionalProperties: false,
+  required: ['userId', 'tenantId', 'createdAt'],
+  properties: {
+    ...USER_PROPERTIES,
+    inviteEmail: { $ref: '#/components/schemas/InviteEmail' },
+  },
+};
+
+export const InviteRenewedSchema: JsonSchema = {
+  description: "The person, with their invitation's new expiry, and whether it was emailed.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['user', 'inviteEmail'],
+  properties: {
+    user: { $ref: '#/components/schemas/UserRecord' },
+    inviteEmail: { $ref: '#/components/schemas/InviteEmail' },
+  },
+};
+
+const ProofText: JsonSchema = { type: 'string', minLength: 1, maxLength: 64 };
+
+export const SecondFactorProofSchema: JsonSchema = {
+  description:
+    'Exactly one: a code from the authenticator app, or one of the recovery codes (used up by this).',
+  type: 'object',
+  additionalProperties: false,
+  properties: { code: ProofText, recoveryCode: ProofText },
+};
+
+export const SecondFactorConfirmBodySchema: JsonSchema = {
+  description: 'A code from the new key, as the authenticator app shows it.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['code'],
+  properties: { code: ProofText },
+};
+
+export const SecondFactorStatusSchema: JsonSchema = {
+  description:
+    "A person's second factor, and whether their workspace requires one. With `setUp`, `since`, `recoveryCodesLeft` and `usable` are given; without it, `started`. Never a key or a code.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['setUp', 'required'],
+  properties: {
+    setUp: { type: 'boolean' },
+    started: {
+      type: 'boolean',
+      description: "A key was given to set one up, and isn't confirmed yet.",
+    },
+    since: { type: 'string', format: 'date-time' },
+    recoveryCodesLeft: { type: 'integer', minimum: 0 },
+    usable: {
+      type: 'boolean',
+      description:
+        "`false`: its key can't be opened any more (the sign-in secret changed past it). A recovery code still works, as does setting it up again, or an admin removing it.",
+    },
+    required: {
+      type: 'boolean',
+      description: 'The workspace requires a second factor at sign-in.',
+    },
+  },
+};
+
+export const SecondFactorKeySchema: JsonSchema = {
+  description:
+    'A new key to set up, shown this once: `uri` for an authenticator app (as a QR code), `key` to type in. Nothing changes until it is confirmed.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['key', 'uri'],
+  properties: {
+    key: { type: 'string', description: 'The key, in base32.' },
+    uri: { type: 'string', description: 'The `otpauth://totp/` URI.' },
+  },
+};
+
+export const SecondFactorRecoveryCodesSchema: JsonSchema = {
+  description:
+    'The 10 recovery codes, shown this once. Each signs in once in place of a code from the app; any earlier ones stop working.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['recoveryCodes'],
+  properties: { recoveryCodes: { type: 'array', items: { type: 'string' } } },
+};
+
+export const SecondFactorRemovedSchema: JsonSchema = {
+  description: '`false` when there was none to remove.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['removed'],
+  properties: { removed: { type: 'boolean' } },
+};
+
+export const AuthSettingsSchema: JsonSchema = {
+  description: "The workspace's sign-in settings.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['secondFactor'],
+  properties: {
+    secondFactor: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['required', 'onPreviousSecret', 'unusable'],
+      properties: {
+        required: {
+          type: 'boolean',
+          description:
+            "Signing in by the deployment's own ways in takes a second factor. Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. API keys aren't covered.",
+        },
+        onPreviousSecret: {
+          type: 'integer',
+          minimum: 0,
+          description:
+            "People whose key is still kept under the deployment's previous sign-in secret: each moves to the current one at their next code. Keep the previous secret configured until this is 0.",
+        },
+        unusable: {
+          type: 'integer',
+          minimum: 0,
+          description:
+            'People whose key opens under neither secret: they need a recovery code, or an admin to remove it.',
+        },
+      },
+    },
+  },
+};
+
+export const AuthSettingsPatchSchema: JsonSchema = {
+  description: 'Require a second factor at sign-in, or stop requiring one.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['secondFactor'],
+  properties: {
+    secondFactor: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['required'],
+      properties: { required: { type: 'boolean' } },
     },
   },
 };
@@ -8859,6 +10230,11 @@ export const CreateUserBodySchema: JsonSchema = {
   properties: {
     displayName: { type: 'string', minLength: 1, maxLength: 200 },
     primaryEmail: { type: 'string', description: "Unique among the tenant's people." },
+    sendInvite: {
+      type: 'boolean',
+      description:
+        "Email them the invitation (default `true`). `false` still invites them, for an admin who tells them another way. A person without an email isn't invited.",
+    },
   },
 };
 
@@ -9034,11 +10410,6 @@ export const MyReviewerAccessSchema: JsonSchema = {
     },
   },
 };
-
-/** What a project role allows, by object type, in `OBJECT_TYPES` order with each type's actions. */
-const PROJECT_SCOPED_TYPES = OBJECT_TYPES.filter(
-  (t) => t !== 'tenant' && t !== 'org' && t !== 'team' && t !== 'user',
-);
 
 export const RoleActionsSchema: JsonSchema = {
   type: 'object',
@@ -9492,6 +10863,52 @@ export const JudgingRulePreviewSchema: JsonSchema = {
   },
 };
 
+export const JudgingQueueRecentInputSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  minProperties: 1,
+  description: 'Which recent runs to catch the rule up on. Give `last`, `since`, or both.',
+  properties: {
+    last: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 1000,
+      description: "This many of the project's most recent top-level runs (newest first).",
+    },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description: 'Runs completed at or after this time.',
+    },
+  },
+};
+
+export const JudgingRecentQueuedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['queued', 'alreadyQueued', 'alreadyReviewed'],
+  properties: {
+    queued: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Matching recent runs this call newly queued for the rule: a new queue item, or the rule added to one already waiting for another rule.',
+    },
+    alreadyQueued: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Matching recent runs this rule had already queued and that are still open (deduped per `(rule, run)`).',
+    },
+    alreadyReviewed: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Matching recent runs whose run was already judged or dismissed: left as they are, not re-queued. An already-erased run is no longer a match and is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed` together are the matches.',
+    },
+  },
+};
+
 export const PersonProjectRoleSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -9736,9 +11153,280 @@ export const DeploymentRecordSchema: JsonSchema = {
       description:
         "The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's Default project).",
     },
+    packEnv: { $ref: '#/components/schemas/PackEnvDeclaration' },
+    promotedFromDeploymentId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        'When this deployment was made by promoting another into the next environment of its order: the deployment it was promoted from. Absent for one deployed directly.',
+    },
+    packId: {
+      type: 'string',
+      description:
+        "The pack's id, from the image's index. Absent from a runtime that doesn't keep it.",
+    },
     endpoint: { $ref: '#/components/schemas/DeploymentEndpoint' },
     primitives: { $ref: '#/components/schemas/DeploymentPrimitiveCounts' },
     contents: { $ref: '#/components/schemas/DeploymentContents' },
+  },
+};
+
+/** What needs a deployment's value: a tool version, an agent version, a model provider, or the pack's service. */
+export const DeploymentValueNeededBySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['type', 'id'],
+  properties: {
+    type: {
+      type: 'string',
+      description:
+        '`tool`, `agent`, `provider` or `pack`; a later runtime may add kinds, so treat an unknown one as a need not yet named.',
+    },
+    id: { type: 'string' },
+    version: { type: 'string' },
+  },
+};
+
+/**
+ * One value a deployment needs set in a project before it serves there:
+ * a tool's secret or env value, a model provider's key, or the pack
+ * service's own env. Never the value itself: whether it's set, and where.
+ */
+export const DeploymentValueSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'kind', 'neededBy'],
+  properties: {
+    name: {
+      type: 'string',
+      description:
+        "The secret's or env value's name; for a model key, the key's secret name, or `any provider` when none is registered.",
+    },
+    kind: {
+      type: 'string',
+      description:
+        '`secret`, `env`, `model-key` or `pack-env`; a later runtime may add kinds, so treat an unknown one as a value not yet named.',
+    },
+    neededBy: { $ref: '#/components/schemas/DeploymentValueNeededBy' },
+    foundAt: {
+      type: 'string',
+      enum: ['project', 'org', 'tenant'],
+      description:
+        'Where a run finds it, when it is set: the project, else its org, else the tenant.',
+    },
+    problem: {
+      type: 'string',
+      description:
+        "Why it isn't ready; absent when it is. One of a fixed list; a later runtime may add problems, so treat an unknown one as a reason not yet named. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set both as a secret and as a plain value. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one). `no-provider`: an agent that runs on any provider (it names none, or names one that isn't registered), with no provider registered in the tenant, so a run has none to call.",
+    },
+  },
+};
+
+/** `POST /v1/deployments/{deploymentId}/promotions`: where to, and why. */
+export const DeploymentPromotionBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['toProjectId'],
+  properties: {
+    toProjectId: {
+      type: 'string',
+      minLength: 1,
+      description: "The next environment of the deployment's order.",
+    },
+    reason: {
+      type: 'string',
+      maxLength: 1000,
+      description: 'Why, kept in the `deployment-promoted` audit record.',
+    },
+    makeLive: {
+      type: 'boolean',
+      description:
+        "Make every agent version the promotion carries live in the target project, each through its scope's gate. The answer's `live` reports each. An error answered after some carried agents were already pinned lists those in `error.details.live`, in `live`'s shape.",
+    },
+  },
+};
+
+/** `POST /v1/deployments/{deploymentId}/promotions/check`: where to. */
+export const DeploymentPromotionCheckBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['toProjectId'],
+  properties: {
+    toProjectId: {
+      type: 'string',
+      minLength: 1,
+      description: "The next environment of the deployment's order.",
+    },
+  },
+};
+
+/** An agent or flow version a promotion moves: one the build ships, or one carried with it. */
+export const PromotionMovedVersionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id'],
+  properties: {
+    id: { type: 'string' },
+    version: { type: 'string' },
+    carried: {
+      type: 'boolean',
+      const: true,
+      description:
+        'Carried with the build: an edit of a version it ships. Absent for one it ships.',
+    },
+  },
+};
+
+/** What a promotion moves into the next environment: the build, and the edits carried with it. */
+export const PromotionMovesSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['imageDigest', 'agents', 'flows', 'tools', 'guardrails'],
+  properties: {
+    packId: { type: 'string' },
+    imageDigest: { type: 'string', pattern: '^sha256:[0-9a-f]{64}$' },
+    agents: { type: 'array', items: { $ref: '#/components/schemas/PromotionMovedVersion' } },
+    flows: { type: 'array', items: { $ref: '#/components/schemas/PromotionMovedVersion' } },
+    tools: { type: 'array', items: DeployedPrimitiveSchema },
+    guardrails: { type: 'array', items: DeployedPrimitiveSchema },
+  },
+};
+
+/** An edit of an agent or flow a build ships, made from a version it doesn't ship: it stays. */
+export const LeftBehindVersionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id', 'version', 'from'],
+  properties: {
+    kind: {
+      type: 'string',
+      description:
+        '`agent` or `flow`; a later runtime may add kinds, so treat an unknown one as an item not yet named.',
+    },
+    id: { type: 'string' },
+    version: { type: 'string' },
+    from: { type: 'string', description: 'The version its chain of edits starts from.' },
+  },
+};
+
+/** The gate's say on a carried version's pin, there when it isn't live yet or ran checks. */
+export const DeploymentLivePinGateSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['status', 'promotionId'],
+  properties: {
+    status: {
+      type: 'string',
+      enum: ['promoted', 'pending-approval', 'refused', 'superseded', 'rejected', 'expired'],
+    },
+    promotionId: { type: 'string', format: 'uuid' },
+    policy: {
+      oneOf: [{ $ref: '#/components/schemas/GatePolicyRef' }, { type: 'null' }],
+      description: 'The gate policy that applied; null when none did.',
+    },
+    approvalId: { type: 'string', description: 'The approval a `pending-approval` pin waits on.' },
+    checks: { type: 'array', items: { $ref: '#/components/schemas/GateCheck' } },
+  },
+};
+
+/** A carried agent version a make-live pinned, or tried to, in the target project. */
+export const DeploymentLivePinSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'version', 'pinned'],
+  properties: {
+    id: { type: 'string' },
+    version: { type: 'string' },
+    pinned: {
+      type: 'boolean',
+      description:
+        'Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).',
+    },
+    gate: { $ref: '#/components/schemas/DeploymentLivePinGate' },
+  },
+};
+
+/** A promotion's answer. */
+export const DeploymentPromotionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['deployment', 'created', 'moved'],
+  properties: {
+    deployment: { $ref: '#/components/schemas/DeploymentRecord' },
+    created: {
+      type: 'boolean',
+      description:
+        '`true`: the promotion made this deployment (`201`). `false`: the target had this build already (`200`), and only the versions it lacked were carried.',
+    },
+    moved: { $ref: '#/components/schemas/PromotionMoves' },
+    leftBehind: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/LeftBehindVersion' },
+      description: "Edits of the build's agents and flows that stay behind; absent when none.",
+    },
+    live: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/DeploymentLivePin' },
+      description:
+        'Each carried agent pinned live in the target; present only when `makeLive` was asked.',
+    },
+  },
+};
+
+/** The environment a deployment is promoted into: the next one in its order. */
+export const PromotionNextEnvironmentSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'position'],
+  properties: {
+    projectId: { type: 'string' },
+    position: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Its place in the order, from 0 (the first, which takes builds).',
+    },
+  },
+};
+
+/** A promotion check's answer: what would move, and the values not ready in the target. */
+export const DeploymentPromotionCheckSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['moves', 'values', 'nextEnvironment'],
+  properties: {
+    moves: { $ref: '#/components/schemas/PromotionMoves' },
+    values: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/DeploymentValue' },
+      description: 'Each value with a problem in the target; empty when every one is ready.',
+    },
+    nextEnvironment: { $ref: '#/components/schemas/PromotionNextEnvironment' },
+    envName: {
+      type: 'string',
+      description:
+        'The env this runtime serves, which a run in the target reads its values under: a value is set there (`--env=<envName>` with `--scope=project:<id>`). Absent when the runtime names none, and each value is then listed unread.',
+    },
+    leftBehind: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/LeftBehindVersion' },
+      description:
+        "Edits of the build's agents and flows that would stay behind; absent when none.",
+    },
+  },
+};
+
+/** Wire response for `GET /v1/deployments/:deploymentId/values`. */
+export const DeploymentValueListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      description:
+        "Every value the deployment needs in the project: each tool's secrets and env values (in the deployment's order), then each model key by provider, then the pack service's env.",
+      items: { $ref: '#/components/schemas/DeploymentValue' },
+    },
   },
 };
 
@@ -9751,7 +11439,7 @@ export const DeploymentEndpointSchema: JsonSchema = {
   additionalProperties: false,
   required: ['status', 'since'],
   description:
-    "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); it carries `waiting` or `retired` to say whether it comes back. Carries no URL and no token.",
+    "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise, and for a deployment that ships nothing a pack service serves (no tool, and no guardrail check but built-in ones: a pack of agents and flows only), which needs none. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); it carries `waiting` or `retired` to say whether it comes back. Carries no URL and no token.",
   properties: {
     status: { type: 'string', enum: ['pending', 'ready', 'cleared'] },
     since: {
@@ -9771,6 +11459,17 @@ export const DeploymentEndpointSchema: JsonSchema = {
       description:
         '`cleared` only: why no pack service is wanted for it now. `superseded` is for good: newer deployments ship every tool version and check it does, so no new call reaches it; a tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.',
     },
+    packEnvProblem: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['code', 'since'],
+      description:
+        "`ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say, or a secret can't be given), or didn't start (`pack-env-update-failed`). Gone once they can, or do. For a name that can't be given, `GET /v1/deployments/{deploymentId}/pack-env` names it. Absent from older servers.",
+      properties: {
+        code: { $ref: '#/components/schemas/PackEnvHeldCode' },
+        since: { type: 'string', format: 'date-time', description: 'When it was recorded.' },
+      },
+    },
   },
 };
 
@@ -9785,7 +11484,7 @@ export const DeploymentEndpointProblemSchema: JsonSchema = {
     code: {
       type: 'string',
       description:
-        "One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start).",
+        "One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start). It can't be given its declared environment (`GET /v1/deployments/{deploymentId}/pack-env` names the names): `pack-env-ambiguous`, `pack-env-secret-not-yet`, `pack-env-missing`, `pack-env-secret-unreadable` (a name's secret can't be read for a reason the platform fixes, not the owner; it's tried again). It can't be given its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out; the platform fixes it, and it's tried again), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-secret-capacity` (a name is set only as a secret, and there's no room just now for a pack service that can be given one, apart from other projects'; it's tried again).",
     },
     since: {
       type: 'string',
@@ -9867,6 +11566,16 @@ export const DeploymentCollectionPageSchema: JsonSchema = {
     },
     nextCursor: { type: 'string' },
     hasMore: { type: 'boolean' },
+    projectId: {
+      type: 'string',
+      description:
+        "The project on every page of a list asked for with `?projectId=`, an empty one too: it holds only that environment's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `projectId` and lists them all.",
+    },
+    packId: {
+      type: 'string',
+      description:
+        "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `packId` and lists them all.",
+    },
   },
 };
 
@@ -9881,7 +11590,7 @@ export const DeploymentValidationDetailsSchema: JsonSchema = {
   additionalProperties: false,
   required: ['primitive', 'index', 'path', 'message'],
   properties: {
-    primitive: { type: 'string', enum: ['tool', 'guardrail', 'agent', 'flow'] },
+    primitive: { type: 'string', enum: ['tool', 'guardrail', 'agent', 'flow', 'block'] },
     index: { type: 'integer', minimum: 0 },
     id: { type: 'string' },
     path: { type: 'string' },
@@ -10651,6 +12360,49 @@ export const TenantSchema: JsonSchema = {
         'On a runtime serving many tenants: `closing` (readable and exportable for its window, nothing changes) or `suspended` (the same, until restored). `closing` wins. Absent: active.',
     },
     limits: ref('TenantLimits'),
+    egress: ref('EgressAddresses'),
+  },
+};
+
+export const TenantPatchSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'A new name, a new slug, or both; a field left out stays as it is. The id stays, so whatever names the tenant by its id keeps working.',
+  properties: {
+    name: { type: 'string', minLength: 1, maxLength: 100 },
+    slug: {
+      type: 'string',
+      maxLength: 63,
+      pattern: '^[a-z0-9](?:-?[a-z0-9])*$',
+      description:
+        "Lowercase letters, digits and single hyphens, unique across tenants. The console's addresses carry it, so links with the old one stop opening the tenant; nothing else is keyed by it.",
+    },
+  },
+};
+
+/**
+ * `EgressAddresses` — where a deployment's calls to other sites come
+ * from. `GET /v1/tenant`'s `egress`, the deployment's, not the tenant's.
+ */
+export const EgressAddressesSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['server', 'deployments'],
+  description:
+    "The IP addresses this deployment's calls to other sites come from, for a site that admits only known addresses. They're the same for every tenant on the deployment, so admitting them admits every tenant's calls: a site still checks its own credentials. They say where calls come from, not where they go. Absent when the deployment publishes none. An empty list: none of that kind.",
+  properties: {
+    server: {
+      type: 'array',
+      items: { type: 'string', description: 'An IPv4 or IPv6 address.' },
+      description:
+        "Where the server's own calls come from, such as its calls to MCP servers and model providers, and its webhook deliveries.",
+    },
+    deployments: {
+      type: 'array',
+      items: { type: 'string', description: 'An IPv4 or IPv6 address.' },
+      description: 'Where calls made by the code deployed to it come from.',
+    },
   },
 };
 
@@ -10914,6 +12666,74 @@ export const EnvironmentPageSchema: JsonSchema = {
   },
 };
 
+/** The tenant itself, or one of its orgs, as an environment order's parent. */
+export const EnvironmentOrderParentSchema: JsonSchema = {
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind'],
+      properties: { kind: { type: 'string', enum: ['tenant'] } },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'orgId'],
+      properties: {
+        kind: { type: 'string', enum: ['org'] },
+        orgId: { type: 'string' },
+      },
+    },
+  ],
+};
+
+/** One project in an environment order. `projectId` is absent when the caller can't read it. */
+export const EnvironmentOrderEntrySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['position'],
+  properties: {
+    position: { type: 'integer', minimum: 0 },
+    projectId: { type: 'string' },
+  },
+};
+
+/** The projects a tenant (or one of its orgs) runs through to live, in order. */
+export const EnvironmentOrderSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['parent', 'entries'],
+  properties: {
+    parent: { $ref: '#/components/schemas/EnvironmentOrderParent' },
+    entries: { type: 'array', items: { $ref: '#/components/schemas/EnvironmentOrderEntry' } },
+  },
+};
+
+export const EnvironmentOrderPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/EnvironmentOrder' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+/**
+ * Set an environment order: the projects, in order. `[]` clears it; one
+ * project is refused (an order needs two or more); a project in another
+ * order is refused (`project-in-another-order`).
+ */
+export const EnvironmentOrderSetRequestSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectIds'],
+  properties: {
+    projectIds: { type: 'array', items: { type: 'string' } },
+  },
+};
+
 export const EnvSetInputSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -11121,6 +12941,12 @@ export const SecretRevokeOutcomeSchema: JsonSchema = {
   properties: {
     revoked: { type: 'boolean' },
     hard: { type: 'boolean' },
+    recoverableUntil: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "A hard revoke left a copy your secret manager can still recover (for example Azure Key Vault's soft delete, when the vault doesn't allow a purge or the runtime isn't permitted to purge): when the secret manager purges it on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. Absent on a soft revoke, and when a hard revoke left nothing recoverable.",
+    },
   },
 };
 
@@ -11226,7 +13052,15 @@ export const SecretSetRequestSchema: JsonSchema = {
   properties: {
     scope: { $ref: '#/components/schemas/Scope' },
     envName: { $ref: '#/components/schemas/EnvName' },
-    name: { type: 'string', minLength: 1 },
+    name: {
+      type: 'string',
+      minLength: 1,
+      // Documented, not enforced on the wire: the create-name grammar is the
+      // server's (SECRET_NAME_ALLOWED), so the request stays additive — a client
+      // can still add a version to a name stored before this release.
+      description:
+        'A new secret name: 1 to 255 ASCII letters, digits, `.`, `-` and `_`, starting with a letter, digit or `_`, with any `.` between two non-`.` characters. The server holds a newly-created name to this shape (`create-new`, or an `add-version` of a name not yet stored); a name already stored outside this shape still reads, rotates and takes new versions.',
+    },
     value: { type: 'string' },
     writeMode: { type: 'string', enum: ['create-new', 'add-version'] },
     tags: { type: 'object', additionalProperties: { type: 'string' } },
@@ -11309,6 +13143,12 @@ export const SecretRevokeResultSchema: JsonSchema = {
   properties: {
     revoked: { type: 'boolean' },
     hard: { type: 'boolean' },
+    recoverableUntil: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "A hard revoke left a copy your secret manager can still recover (for example Azure Key Vault's soft delete, when the vault doesn't allow a purge or the runtime isn't permitted to purge): when the secret manager purges it on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. Absent on a soft revoke, and when a hard revoke left nothing recoverable.",
+    },
   },
 };
 
@@ -11324,6 +13164,20 @@ export const TriggerStatusSchema: JsonSchema = {
 };
 
 // ---------- schedules (cron kind) ----------
+
+/**
+ * A webhook's or a schedule's `toolsAllowedUnattended`, as each body and
+ * record names it (`routes/trigger-tools.ts` holds the rules).
+ */
+function toolsAllowedUnattendedProperty(lead: string): JsonSchema {
+  return {
+    type: 'array',
+    maxItems: 100,
+    uniqueItems: true,
+    items: { type: 'string', minLength: 1, maxLength: 200 },
+    description: `${lead} Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.`,
+  };
+}
 
 export const ScheduleRecordSchema: JsonSchema = {
   type: 'object',
@@ -11414,6 +13268,9 @@ export const ScheduleRecordSchema: JsonSchema = {
       description:
         'Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count.',
     },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none.",
+    ),
     nextFireAt: {
       type: ['string', 'null'],
       format: 'date-time',
@@ -11604,6 +13461,12 @@ export const RegisterScheduleBodySchema: JsonSchema = {
       format: 'uuid',
       description: "The schedule's project. Absent → the tenant's default project.",
     },
+    runAsServiceAccountId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. Absent: the caller owns it.",
+    },
     config: {
       type: 'object',
       additionalProperties: false,
@@ -11626,6 +13489,9 @@ export const RegisterScheduleBodySchema: JsonSchema = {
       description: 'Default 600.',
     },
     label: { type: 'string' },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this schedule's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the schedule's project.",
+    ),
   },
 };
 
@@ -11672,6 +13538,9 @@ export const PatchScheduleBodySchema: JsonSchema = {
       type: ['string', 'null'],
       description: '`null` clears the label; omit to leave unchanged.',
     },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "Replaces the schedule's list; `[]` clears it, and absent keeps it. Naming it takes `admin` on the schedule's project. A change of what it runs (another flow or agent) while the list isn't empty must name it again, as it is or `[]`; a new version alone keeps it.",
+    ),
   },
 };
 
@@ -11907,6 +13776,9 @@ export const WebhookTriggerRecordSchema: JsonSchema = {
         count: { type: 'integer', minimum: 1 },
       },
     },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this trigger's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none.",
+    ),
     lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
@@ -11954,6 +13826,15 @@ export const WebhookFirePageSchema: JsonSchema = {
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
   },
+};
+
+export const WaitTokenAcceptedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['status'],
+  description:
+    "The runtime has the answer. It says nothing about the run: who holds a wait token's link isn't a run reader.",
+  properties: { status: { type: 'string', enum: ['accepted'] } },
 };
 
 export const WebhookReceiptSchema: JsonSchema = {
@@ -12039,6 +13920,15 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
     },
     ...WebhookDeliveryProperties,
     label: { type: 'string' },
+    runAsServiceAccountId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Absent: the caller owns it.",
+    },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this trigger's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the trigger's project.",
+    ),
   },
 };
 
@@ -12073,6 +13963,24 @@ export const PatchWebhookTriggerBodySchema: JsonSchema = {
       minimum: 1,
       maximum: 6000,
       description: '`null`: the default.',
+    },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "Replaces the trigger's list; `[]` clears it, and absent keeps it (a new `flowVersion` too). Naming it takes `admin` on the trigger's project, and it's checked against the flow at the version the trigger will run.",
+    ),
+  },
+};
+
+export const TakeTriggerOwnerBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner. A take-over keeps the trigger's `toolsAllowedUnattended`: change that with PATCH.",
+  properties: {
+    runAsServiceAccountId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs.",
     },
   },
 };
@@ -12252,6 +14160,603 @@ export const WebhookEndpointUnregisterResultSchema: JsonSchema = {
       type: 'boolean',
       description:
         '`true` iff this call unregistered the endpoint; `false` when it was unknown or already unregistered.',
+    },
+  },
+};
+
+// ---------- connections ----------
+
+export const ConnectionSecretRefSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['envName', 'name'],
+  description:
+    "A secret by name in the deployment's secrets store, resolved at tenant scope. The registration keeps only this reference, never the value.",
+  properties: {
+    envName: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,62}$' },
+    name: { type: 'string', minLength: 1, maxLength: 256 },
+  },
+};
+
+export const ConnectionOwnerSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description:
+    "Who owns a connection: one member (`kind: member`, with their `userId`), or the company (`kind: company`, the tenant's own account).",
+  properties: {
+    kind: { type: 'string', enum: ['member', 'company'] },
+    userId: { type: 'string', description: 'The member. Present when `kind` is `member`.' },
+  },
+};
+
+export const ConnectionAccountSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'label'],
+  description: 'Whose account a connection is at the app.',
+  properties: {
+    id: { type: 'string', description: "The account's stable id at the app." },
+    label: { type: 'string', description: 'What people see: an email address, a login.' },
+  },
+};
+
+export const ConnectionStateSchema: JsonSchema = {
+  type: 'string',
+  enum: ['working', 'needs-reconnecting', 'removing', 'removed'],
+  description:
+    '`working`: runs can use it. `needs-reconnecting`: the app no longer accepts it; connect again. `removing`: a disconnect is under way. `removed`: gone.',
+};
+
+export const ConnectionEntryPermissionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['says', 'changes'],
+  properties: {
+    says: { type: 'string', description: 'In plain words, for the person asked.' },
+    changes: {
+      type: 'boolean',
+      description: 'Whether it changes anything at the app. `false` is read only.',
+    },
+  },
+};
+
+export const ConnectionEntrySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'name', 'owners', 'signIn', 'permissions', 'setupGuide'],
+  description: 'An app this server can connect to.',
+  properties: {
+    id: { type: 'string', description: "The entry id: `'google'`, `'github'`." },
+    name: { type: 'string', description: "The app's name as people know it." },
+    owners: {
+      type: 'array',
+      items: { type: 'string', enum: ['member', 'company'] },
+      description: 'Who may own a connection to this app.',
+    },
+    signIn: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind'],
+      description: 'How a person signs in at the app.',
+      properties: {
+        kind: { type: 'string', enum: ['oauth2', 'github-app'] },
+        tenant: {
+          type: 'object',
+          additionalProperties: false,
+          description:
+            "Present when the sign-in happens in a directory of the app's own (Microsoft's tenant, not a Kindgi tenant). A registration's `oauth2.tenant` names it; without `default`, each registration must give its own.",
+          properties: {
+            default: {
+              type: 'string',
+              description: 'The directory a registration that names none signs in at.',
+            },
+          },
+        },
+      },
+    },
+    permissions: {
+      type: 'object',
+      additionalProperties: { $ref: '#/components/schemas/ConnectionEntryPermission' },
+      description: 'What a tool may ask for, by permission key (`gmail.send`).',
+    },
+    removal: {
+      type: 'object',
+      additionalProperties: false,
+      description:
+        'How a disconnect withdraws access at the app, and how the app reports a removal made there. `{}` when the app has neither: a disconnect then withdraws nothing at the app, and a removal made there is not reported.',
+      properties: {
+        revoke: {
+          type: 'string',
+          enum: ['oauth2-revoke', 'github-installation-token'],
+          description:
+            "How a disconnect withdraws access at the app: an OAuth revoke, or revoking the GitHub App's installation tokens (the app stays installed).",
+        },
+        revokeIsGrantWide: {
+          type: 'boolean',
+          description:
+            "Whether the app's revoke withdraws everything the person granted the registration, not only this connection's permissions. Google's does.",
+        },
+        notices: {
+          type: 'string',
+          enum: ['google-risc', 'github-webhooks'],
+          description: 'How the app reports a removal made at the app.',
+        },
+      },
+    },
+    setupGuide: {
+      type: 'string',
+      description: 'The docs page an admin follows to register the app.',
+    },
+  },
+};
+
+export const ConnectionEntryListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ConnectionEntry' } },
+  },
+};
+
+export const ConnectionOAuth2AppSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['clientId', 'clientSecret'],
+  properties: {
+    clientId: { type: 'string' },
+    clientSecret: { $ref: '#/components/schemas/ConnectionSecretRef' },
+    tenant: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 253,
+      description:
+        "The directory the app signs people in at, for an app whose sign-in names one: Microsoft's tenant id or domain for a single-tenant app, `organizations`, `common` or `consumers` for a multi-tenant one. Required when the app's entry has no default, refused for an app without one (`connection-app-invalid`, `details.field` `oauth2.tenant`).",
+    },
+  },
+};
+
+export const ConnectionGitHubAppSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['appNumber', 'slug', 'clientId', 'clientSecret', 'privateKey', 'webhookSecret'],
+  properties: {
+    appNumber: { type: 'integer', minimum: 1 },
+    slug: { type: 'string', description: "The app's slug." },
+    clientId: { type: 'string' },
+    clientSecret: { $ref: '#/components/schemas/ConnectionSecretRef' },
+    privateKey: { $ref: '#/components/schemas/ConnectionSecretRef' },
+    webhookSecret: { $ref: '#/components/schemas/ConnectionSecretRef' },
+  },
+};
+
+export const ConnectionAppSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['appId', 'app', 'redirectUrl', 'noticesUrl', 'createdAt', 'updatedAt'],
+  description:
+    "A tenant's registration of its own client at an app. Secrets are references, never values.",
+  properties: {
+    appId: { type: 'string', format: 'uuid' },
+    app: { type: 'string', description: "The app's entry id." },
+    label: { type: 'string' },
+    oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
+    githubApp: { $ref: '#/components/schemas/ConnectionGitHubApp' },
+    projects: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The projects whose runs may use its connections. Absent: every project.',
+    },
+    redirectUrl: {
+      type: 'string',
+      format: 'uri',
+      description:
+        'Give this to the app as its redirect URL: a GitHub App\'s Callback URL, with "Request user authorization (OAuth) during installation" ticked.',
+    },
+    noticesUrl: {
+      type: 'string',
+      format: 'uri',
+      description: 'Give this to the app as the place it reports removals.',
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+    removedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const ConnectionAppPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ConnectionApp' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const CreateConnectionAppBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['app'],
+  description: 'Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App.',
+  properties: {
+    app: { type: 'string', pattern: '^[a-z][a-z0-9-]{1,31}$', description: "The app's entry id." },
+    label: { type: 'string', maxLength: 200 },
+    oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
+    githubApp: { $ref: '#/components/schemas/ConnectionGitHubApp' },
+    projects: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 500,
+      items: { type: 'string' },
+      description: 'The projects whose runs may use its connections. Leave out for every project.',
+    },
+  },
+};
+
+export const UpdateConnectionAppBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'Fields to change; absent fields are kept. The app itself cannot change.',
+  properties: {
+    label: { type: 'string', maxLength: 200 },
+    oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
+    githubApp: { $ref: '#/components/schemas/ConnectionGitHubApp' },
+    projects: {
+      type: ['array', 'null'],
+      minItems: 1,
+      maxItems: 500,
+      items: { type: 'string' },
+      description: '`null` allows every project.',
+    },
+  },
+};
+
+export const ConnectionAppRemovedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['connectionsRemoved'],
+  properties: {
+    connectionsRemoved: {
+      type: 'integer',
+      minimum: 0,
+      description: 'How many live connections the removal took with it.',
+    },
+  },
+};
+
+export const ConnectionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'connectionId',
+    'envName',
+    'appId',
+    'app',
+    'owner',
+    'account',
+    'permissions',
+    'state',
+    'connectedAt',
+    'createdAt',
+    'createdBy',
+    'updatedAt',
+  ],
+  description:
+    "One owner's account at an app, through a registration, in one env. Never its token.",
+  properties: {
+    connectionId: { type: 'string', format: 'uuid' },
+    envName: { type: 'string' },
+    appId: { type: 'string', format: 'uuid', description: 'The registration it goes through.' },
+    app: { type: 'string', description: "The app's entry id." },
+    owner: { $ref: '#/components/schemas/ConnectionOwner' },
+    account: { $ref: '#/components/schemas/ConnectionAccount' },
+    permissions: {
+      type: 'array',
+      items: { type: 'string' },
+      description: "The entry's permission keys the app granted.",
+    },
+    state: { $ref: '#/components/schemas/ConnectionState' },
+    stateReason: {
+      type: 'string',
+      description:
+        "Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions), `access-expired` (the app gave no refresh token, and its access token ends within a minute, or has ended). Other values may be added; `state` says what to do.",
+    },
+    installationId: { type: 'string', description: "A GitHub App's installation." },
+    accessEndsAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When its access token ends, for a connection the app gave no refresh token. From one minute before then, it needs reconnecting (`access-expired`), and reads say so too. Absent for one that renews.',
+    },
+    connectedAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When its current grant was stored: the connect, or the last reconnect.',
+    },
+    lastUsedAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When a run last used it, to the hour.',
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    createdBy: { type: 'string' },
+    updatedAt: { type: 'string', format: 'date-time' },
+    removedAt: { type: 'string', format: 'date-time' },
+    removedBy: { type: 'string' },
+    removedReason: {
+      type: 'string',
+      enum: ['disconnected', 'revoked-at-app', 'uninstalled', 'registration-removed', 'replaced'],
+    },
+    withdrawn: {
+      type: 'string',
+      enum: ['at-app', 'app-failed', 'kept-for-other-connection', 'not-supported'],
+      description:
+        'What a removal did at the app. `at-app`: access was withdrawn there. `app-failed`: the app refused the revoke; the token is gone here all the same. `kept-for-other-connection`: another live connection uses the same grant. `not-supported`: the app has no revoke that would touch only this connection.',
+    },
+  },
+};
+
+export const ConnectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/Connection' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const ConnectRequestSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'requestId',
+    'envName',
+    'appId',
+    'app',
+    'owner',
+    'permissions',
+    'says',
+    'state',
+    'connectUrl',
+    'expiresAt',
+    'createdAt',
+    'createdBy',
+  ],
+  description:
+    'A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one.',
+  properties: {
+    requestId: { type: 'string', format: 'uuid' },
+    envName: { type: 'string' },
+    appId: { type: 'string', format: 'uuid' },
+    app: { type: 'string', description: "The app's entry id." },
+    owner: { $ref: '#/components/schemas/ConnectionOwner' },
+    permissions: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The permissions asked for: the ones needed, and the ones already granted.',
+    },
+    says: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'What each asks for, in plain words.',
+    },
+    reconnects: {
+      type: 'string',
+      format: 'uuid',
+      description: 'The connection it connects again; the same account is required.',
+    },
+    runId: { type: 'string', description: 'The run that waits for it.' },
+    name: { type: 'string', description: "The tool's name for the connection, when a run waits." },
+    startedBy: {
+      type: 'string',
+      description: 'Who started it last: `<kind>:<id>`. Only they may finish it.',
+    },
+    state: {
+      type: 'string',
+      enum: ['pending', 'connected', 'declined', 'expired', 'failed'],
+    },
+    failure: {
+      type: 'string',
+      description: 'Why it failed: `account-mismatch`, `app-refused`, `store-write-failed`.',
+    },
+    missing: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The permissions the app granted less than asked.',
+    },
+    installations: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ConnectRequestInstallation' },
+      description:
+        "A GitHub App's, while it's `pending`: the app's installations the person's GitHub account reaches, when the finish found several and none was picked. They pick one and start again with `installationId`, or install the app on another account with `newInstallation`.",
+    },
+    connectionId: { type: 'string', format: 'uuid', description: 'The connection it made.' },
+    connectUrl: { type: 'string', format: 'uri', description: 'Where the owner starts.' },
+    expiresAt: { type: 'string', format: 'date-time' },
+    createdAt: { type: 'string', format: 'date-time' },
+    createdBy: { type: 'string' },
+  },
+};
+
+export const CreateConnectRequestBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['app', 'permissions'],
+  properties: {
+    app: { type: 'string', pattern: '^[a-z][a-z0-9-]{1,31}$', description: "The app's entry id." },
+    appId: {
+      type: 'string',
+      format: 'uuid',
+      description: 'Which registration, when the tenant has more than one for the app.',
+    },
+    projectId: {
+      type: 'string',
+      minLength: 1,
+      description: 'When given, the registration must allow this project.',
+    },
+    permissions: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 64,
+      items: { type: 'string' },
+      description: "The entry's permission keys to ask for.",
+    },
+    for: {
+      type: 'string',
+      enum: ['me', 'company'],
+      default: 'me',
+      description:
+        "`me`: the caller's own account (signed in as a person). `company`: the company's account; a tenant admin only.",
+    },
+  },
+};
+
+export const ConnectRequestInstallationSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['installationId', 'account'],
+  description: 'A GitHub App installation the person can reach.',
+  properties: {
+    installationId: { type: 'string' },
+    account: {
+      $ref: '#/components/schemas/ConnectionAccount',
+      description: "The account it's on: its login, or the enterprise's slug.",
+    },
+  },
+};
+
+export const StartConnectBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Optional, and a GitHub App's only: the installation to attach, or a new one. Leave it out for any other app.",
+  properties: {
+    installationId: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 64,
+      description: "The installation to attach: one of the request's `installations`.",
+    },
+    newInstallation: {
+      type: 'boolean',
+      description:
+        "`true`: go to the app's install page to install it on another account, even when it has installations. Not with `installationId`.",
+    },
+  },
+};
+
+export const FinishConnectBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['state'],
+  description:
+    'What the app sent back to the callback page, each as a string. Only whoever started the request may finish it.',
+  properties: {
+    state: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 2048,
+      description: 'The one the app sent back.',
+    },
+    code: { type: 'string', minLength: 1, maxLength: 2048 },
+    installationId: { type: 'string', minLength: 1, maxLength: 2048 },
+    setupAction: { type: 'string', minLength: 1, maxLength: 2048 },
+    error: { type: 'string', minLength: 1, maxLength: 2048 },
+    errorDescription: { type: 'string', minLength: 1, maxLength: 2048 },
+  },
+};
+
+export const ConnectFinishSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'request'],
+  properties: {
+    kind: {
+      type: 'string',
+      enum: ['connected', 'declined', 'pick-installation'],
+      description:
+        "`declined`: the person declined, or granted less than asked (`request.missing`). `pick-installation`: a GitHub App's person reaches several installations and picked none; the request stays `pending` with its `installations`.",
+    },
+    request: { $ref: '#/components/schemas/ConnectRequest' },
+    connection: {
+      $ref: '#/components/schemas/Connection',
+      description: 'Present when `kind` is `connected`.',
+    },
+    reviewerSeat: {
+      type: 'boolean',
+      description:
+        'On a server with approvals, for a member who connected: whether they have a reviewer seat, which approving a send from their own account needs.',
+    },
+  },
+};
+
+export const ConnectStartSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['authorizeUrl'],
+  properties: {
+    authorizeUrl: {
+      type: 'string',
+      format: 'uri',
+      description:
+        "The app's consent page, with a fresh sign-in state good for 10 minutes. Send the person there.",
+    },
+  },
+};
+
+export const WaitingForConnectionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'requestId', 'waitToken', 'app', 'appName', 'says', 'connectUrl', 'expiresAt'],
+  description:
+    'A connect the run waits for: the person opens `connectUrl`, consents at the app, and the run goes on.',
+  properties: {
+    name: { type: 'string', description: "The tool's name for the connection." },
+    requestId: { type: 'string', format: 'uuid' },
+    waitToken: { type: 'string' },
+    app: { type: 'string', description: "The app's entry id." },
+    appName: { type: 'string' },
+    says: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'What each permission asked for allows, in plain words.',
+    },
+    connectUrl: { type: 'string', format: 'uri' },
+    expiresAt: { type: 'string', format: 'date-time' },
+    reconnects: {
+      type: 'boolean',
+      description: 'The person connected this app before, and connects it again.',
+    },
+  },
+};
+
+export const ApprovalApproverSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'userId'],
+  description: 'The one member who may decide it.',
+  properties: {
+    kind: { type: 'string', enum: ['member'] },
+    userId: { type: 'string' },
+  },
+};
+
+export const ApprovalConnectionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['app', 'appName', 'account'],
+  description: "The person's account the call would use.",
+  properties: {
+    app: { type: 'string', description: "The app's entry id." },
+    appName: { type: 'string' },
+    account: {
+      type: 'string',
+      description: "The account's label at the app: an email address, a login.",
     },
   },
 };
@@ -12532,6 +15037,77 @@ export const MintPublicRunTokenResultSchema: JsonSchema = {
   },
 };
 
+export const UsageGroupSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['count', 'quantity', 'firstAt', 'lastAt'],
+  description:
+    "One group: the dimensions it's grouped by (only those), then its count, the sum of its quantities, and its first and last times.",
+  properties: {
+    tenantId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The tenant, on the operator's read across tenants.",
+    },
+    projectId: {
+      type: 'string',
+      description:
+        "Absent for a record with no project; a tenant admin's read includes those, and the CLI shows them as `(none)`.",
+    },
+    agentId: {
+      type: 'string',
+      description: 'Absent for a record with no agent; the CLI shows those as `(none)`.',
+    },
+    kind: {
+      type: 'string',
+      description:
+        "What was counted: `run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`. A runtime may count more kinds later: show one you don't know as it is.",
+    },
+    class: {
+      type: 'string',
+      description:
+        "The class of the run a record counts or belongs to, fixed when the run was created: `production`, `staging`, `dry-run`, `replay`, `eval`, `child`. A record with no counted run has none. A runtime may add classes later: show one you don't know as it is.",
+    },
+    state: {
+      type: 'string',
+      description:
+        "The record's state, by kind: `on`, `off` (`project.production`); `completed`, `failed`, `cancelled` (`run.ended`); `escalation` (`approval.requested`, an escalation's next tier); `approved`, `rejected`, `withdrawn`, `escalated`, `expired` (`approval.decided`). Other kinds have none.",
+    },
+    day: {
+      type: 'string',
+      pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+      description: 'The UTC date, `YYYY-MM-DD`.',
+    },
+    count: { type: 'integer', minimum: 0, description: 'Records in the group.' },
+    quantity: {
+      type: 'number',
+      description:
+        'The sum of their quantities: milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count.',
+    },
+    firstAt: { type: 'string', format: 'date-time' },
+    lastAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const UsagePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'watermark'],
+  properties: {
+    data: { type: 'array', items: ref('UsageGroup') },
+    watermark: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "Every record at or before this time is in the answer; a later one may not be yet. Re-read a window until its watermark is past the window's end. Every page of one read carries the same watermark.",
+    },
+    nextCursor: {
+      type: 'string',
+      description: 'More groups: pass it as `cursor`. Absent on the last page.',
+    },
+  },
+};
+
 export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WireError', WireErrorSchema],
   ['HealthResult', HealthResultSchema],
@@ -12539,6 +15115,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RunAgent', RunAgentSchema],
   ['RunWaitingFor', RunWaitingForSchema],
   ['RunWaitingApproval', RunWaitingApprovalSchema],
+  ['RunWaitingToken', RunWaitingTokenSchema],
   ['RunTrigger', RunTriggerSchema],
   ['ScopeSegment', ScopeSegmentSchema],
   ['LiveScopeTenant', LiveScopeTenantSchema],
@@ -12588,6 +15165,18 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SystemDeploymentEntry', SystemDeploymentEntrySchema],
   ['SystemDeploymentPage', SystemDeploymentPageSchema],
   ['SetPackEndpointBody', SetPackEndpointBodySchema],
+  ['PackEnvDeclaration', PackEnvDeclarationSchema],
+  ['PackEnvScope', PackEnvScopeSchema],
+  ['PackEnvNameStatus', PackEnvNameStatusSchema],
+  ['PackEnvProblemCode', PackEnvProblemCodeSchema],
+  ['PackEnvHeldCode', PackEnvHeldCodeSchema],
+  ['SystemPackEnv', SystemPackEnvSchema],
+  ['PackEnvSecretValue', PackEnvSecretValueSchema],
+  ['SystemPackEnvEntry', SystemPackEnvEntrySchema],
+  ['SystemPackEnvHold', SystemPackEnvHoldSchema],
+  ['SystemPackEnvPage', SystemPackEnvPageSchema],
+  ['RecordPackEnvBody', RecordPackEnvBodySchema],
+  ['PackEnvNames', PackEnvNamesSchema],
   ['RecordDeploymentProblemBody', RecordDeploymentProblemBodySchema],
   ['SetPackSuspendedBody', SetPackSuspendedBodySchema],
   ['PackSuspension', PackSuspensionSchema],
@@ -12599,6 +15188,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SetTenantImagePrefixBody', SetTenantImagePrefixBodySchema],
   ['ProjectSuspension', ProjectSuspensionSchema],
   ['TenantAdminContacts', TenantAdminContactsSchema],
+  ['PurgeTenantBody', PurgeTenantBodySchema],
+  ['TenantTableRows', TenantTableRowsSchema],
+  ['SystemTenantPurge', SystemTenantPurgeSchema],
   ['SystemWhoami', SystemWhoamiSchema],
   ['ApiToken', ApiTokenSchema],
   ['ApiTokenPage', ApiTokenPageSchema],
@@ -12638,6 +15230,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ExportSigningKey', ExportSigningKeySchema],
   ['ExportSigningKeyList', ExportSigningKeyListSchema],
   ['LicenseStatus', LicenseStatusSchema],
+  ['UsageGroup', UsageGroupSchema],
+  ['UsagePage', UsagePageSchema],
   ['LicenseUsage', LicenseUsageSchema],
   ['ExportAuditBundleBody', ExportAuditBundleBodySchema],
   ['ExportAuditBundleResult', ExportAuditBundleResultSchema],
@@ -12652,6 +15246,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UnregisterJudgeClassResult', UnregisterJudgeClassResultSchema],
   ['JudgedSubject', JudgedSubjectSchema],
   ['JudgedItem', JudgedItemSchema],
+  ['ExpectedCall', ExpectedCallSchema],
+  ['Correction', CorrectionSchema],
   ['JudgmentAssertedBy', JudgmentAssertedBySchema],
   ['Judgment', JudgmentSchema],
   ['JudgedRunContext', JudgedRunContextSchema],
@@ -12704,6 +15300,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ToolSecretRef', ToolSecretRefSchema],
   ['HttpHeaderSpec', HttpHeaderSpecSchema],
   ['HttpAuthSpec', HttpAuthSpecSchema],
+  ['ConnectionNeed', ConnectionNeedSchema],
   ['HttpRequestBodySpec', HttpRequestBodySpecSchema],
   ['HttpToolSpec', HttpToolSpecSchema],
   ['SandboxMode', SandboxModeSchema],
@@ -12772,8 +15369,11 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['FixProposalStatus', FixProposalStatusSchema],
   ['ProposalChange', ProposalChangeSchema],
   ['ProposalDrafter', ProposalDrafterSchema],
+  ['ProposalEvidence', ProposalEvidenceSchema],
   ['ProposalCandidate', ProposalCandidateSchema],
   ['ProposalEvaluation', ProposalEvaluationSchema],
+  ['ProposalCost', ProposalCostSchema],
+  ['ProposalDecisions', ProposalDecisionsSchema],
   ['ProposalPromotion', ProposalPromotionSchema],
   ['FixProposal', FixProposalSchema],
   ['FixProposalCollectionPage', FixProposalCollectionPageSchema],
@@ -12782,6 +15382,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ImprovementPass', ImprovementPassSchema],
   ['ImprovementPassCollectionPage', ImprovementPassCollectionPageSchema],
   ['ImproveBody', ImproveBodySchema],
+  ['ImprovementPassEstimate', ImprovementPassEstimateSchema],
   ['CreateProposalBody', CreateProposalBodySchema],
   ['EvaluateProposalBody', EvaluateProposalBodySchema],
   ['ProposalReasonBody', ProposalReasonBodySchema],
@@ -12894,6 +15495,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ComparisonMetric', ComparisonMetricSchema],
   ['ComparisonCandidate', ComparisonCandidateSchema],
   ['JudgedComparisonSummary', JudgedComparisonSummarySchema],
+  ['JudgedComparisonCost', JudgedComparisonCostSchema],
   ['ComparisonCaseResult', ComparisonCaseResultSchema],
   ['JudgedComparisonResult', JudgedComparisonResultSchema],
   ['EvalRun', EvalRunSchema],
@@ -12912,6 +15514,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['GetIdentityProviderResult', GetIdentityProviderResultSchema],
   ['IdentityProviderCollectionPage', IdentityProviderCollectionPageSchema],
   ['SignInOption', SignInOptionSchema],
+  ['ConsoleLink', ConsoleLinkSchema],
   ['SignInOptions', SignInOptionsSchema],
   ['TokenSignInResult', TokenSignInResultSchema],
   ['SignInEvent', SignInEventSchema],
@@ -12924,6 +15527,18 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['LogoutResult', LogoutResultSchema],
   ['WhoamiResult', WhoamiResultSchema],
   ['UserRecord', UserRecordSchema],
+  ['UserInvite', UserInviteSchema],
+  ['InviteEmail', InviteEmailSchema],
+  ['UserCreated', UserCreatedSchema],
+  ['InviteRenewed', InviteRenewedSchema],
+  ['SecondFactorProof', SecondFactorProofSchema],
+  ['SecondFactorConfirmBody', SecondFactorConfirmBodySchema],
+  ['SecondFactorStatus', SecondFactorStatusSchema],
+  ['SecondFactorKey', SecondFactorKeySchema],
+  ['SecondFactorRecoveryCodes', SecondFactorRecoveryCodesSchema],
+  ['SecondFactorRemoved', SecondFactorRemovedSchema],
+  ['AuthSettings', AuthSettingsSchema],
+  ['AuthSettingsPatch', AuthSettingsPatchSchema],
   ['UnregisterUserResult', UnregisterUserResultSchema],
   ['CreateUserBody', CreateUserBodySchema],
   ['PersonGrants', PersonGrantsSchema],
@@ -12950,6 +15565,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['JudgingResultGroup', JudgingResultGroupSchema],
   ['JudgingRuleResults', JudgingRuleResultsSchema],
   ['JudgingRulePreview', JudgingRulePreviewSchema],
+  ['JudgingQueueRecentInput', JudgingQueueRecentInputSchema],
+  ['JudgingRecentQueued', JudgingRecentQueuedSchema],
   ['AccessRole', AccessRoleSchema],
   ['AccessPathDirect', AccessPathDirectSchema],
   ['AccessPathTeam', AccessPathTeamSchema],
@@ -12974,6 +15591,19 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['DeploymentEndpointProblem', DeploymentEndpointProblemSchema],
   ['DeploymentEndpoint', DeploymentEndpointSchema],
   ['DeploymentRecord', DeploymentRecordSchema],
+  ['DeploymentValueNeededBy', DeploymentValueNeededBySchema],
+  ['DeploymentValue', DeploymentValueSchema],
+  ['DeploymentValueList', DeploymentValueListSchema],
+  ['DeploymentPromotionBody', DeploymentPromotionBodySchema],
+  ['DeploymentPromotionCheckBody', DeploymentPromotionCheckBodySchema],
+  ['PromotionMovedVersion', PromotionMovedVersionSchema],
+  ['PromotionMoves', PromotionMovesSchema],
+  ['LeftBehindVersion', LeftBehindVersionSchema],
+  ['DeploymentLivePinGate', DeploymentLivePinGateSchema],
+  ['DeploymentLivePin', DeploymentLivePinSchema],
+  ['DeploymentPromotion', DeploymentPromotionSchema],
+  ['PromotionNextEnvironment', PromotionNextEnvironmentSchema],
+  ['DeploymentPromotionCheck', DeploymentPromotionCheckSchema],
   ['DeploymentRegistrationBody', DeploymentRegistrationBodySchema],
   ['DeploymentCollectionPage', DeploymentCollectionPageSchema],
   ['DeploymentValidationDetails', DeploymentValidationDetailsSchema],
@@ -13033,7 +15663,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateProjectMembershipBody', UpdateProjectMembershipBodySchema],
   ['AddProjectMembershipResult', AddProjectMembershipResultSchema],
   ['Tenant', TenantSchema],
+  ['TenantPatch', TenantPatchSchema],
   ['TenantLimits', TenantLimitsSchema],
+  ['EgressAddresses', EgressAddressesSchema],
   ['ProductionAllowedBody', ProductionAllowedBodySchema],
   ['TenantProductionAllowed', TenantProductionAllowedSchema],
   ['TenantLimitsResult', TenantLimitsResultSchema],
@@ -13051,6 +15683,11 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['EnvListPage', EnvListPageSchema],
   ['Environment', EnvironmentSchema],
   ['EnvironmentPage', EnvironmentPageSchema],
+  ['EnvironmentOrderParent', EnvironmentOrderParentSchema],
+  ['EnvironmentOrderEntry', EnvironmentOrderEntrySchema],
+  ['EnvironmentOrder', EnvironmentOrderSchema],
+  ['EnvironmentOrderPage', EnvironmentOrderPageSchema],
+  ['EnvironmentOrderSetRequest', EnvironmentOrderSetRequestSchema],
   ['EnvSetInput', EnvSetInputSchema],
   ['EnvSetOutcome', EnvSetOutcomeSchema],
   ['SecretRecord', SecretRecordSchema],
@@ -13093,10 +15730,12 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WebhookTriggerRecord', WebhookTriggerRecordSchema],
   ['WebhookFire', WebhookFireSchema],
   ['WebhookFirePage', WebhookFirePageSchema],
+  ['WaitTokenAccepted', WaitTokenAcceptedSchema],
   ['WebhookReceipt', WebhookReceiptSchema],
   ['WebhookTriggerCollectionPage', WebhookTriggerCollectionPageSchema],
   ['RegisterWebhookTriggerBody', RegisterWebhookTriggerBodySchema],
   ['PatchWebhookTriggerBody', PatchWebhookTriggerBodySchema],
+  ['TakeTriggerOwnerBody', TakeTriggerOwnerBodySchema],
   ['WebhookTriggerUnregisterResult', WebhookTriggerUnregisterResultSchema],
   // Outbound webhook endpoints.
   ['WebhookEventType', WebhookEventTypeSchema],
@@ -13108,6 +15747,33 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CreateWebhookEndpointBody', CreateWebhookEndpointBodySchema],
   ['PatchWebhookEndpointBody', PatchWebhookEndpointBodySchema],
   ['WebhookEndpointUnregisterResult', WebhookEndpointUnregisterResultSchema],
+  // Connections.
+  ['ConnectionSecretRef', ConnectionSecretRefSchema],
+  ['ConnectionOwner', ConnectionOwnerSchema],
+  ['ConnectionAccount', ConnectionAccountSchema],
+  ['ConnectionState', ConnectionStateSchema],
+  ['ConnectionEntryPermission', ConnectionEntryPermissionSchema],
+  ['ConnectionEntry', ConnectionEntrySchema],
+  ['ConnectionEntryList', ConnectionEntryListSchema],
+  ['ConnectionOAuth2App', ConnectionOAuth2AppSchema],
+  ['ConnectionGitHubApp', ConnectionGitHubAppSchema],
+  ['ConnectionApp', ConnectionAppSchema],
+  ['ConnectionAppPage', ConnectionAppPageSchema],
+  ['CreateConnectionAppBody', CreateConnectionAppBodySchema],
+  ['UpdateConnectionAppBody', UpdateConnectionAppBodySchema],
+  ['ConnectionAppRemoved', ConnectionAppRemovedSchema],
+  ['Connection', ConnectionSchema],
+  ['ConnectionPage', ConnectionPageSchema],
+  ['ConnectRequest', ConnectRequestSchema],
+  ['CreateConnectRequestBody', CreateConnectRequestBodySchema],
+  ['ConnectRequestInstallation', ConnectRequestInstallationSchema],
+  ['StartConnectBody', StartConnectBodySchema],
+  ['FinishConnectBody', FinishConnectBodySchema],
+  ['ConnectFinish', ConnectFinishSchema],
+  ['ConnectStart', ConnectStartSchema],
+  ['WaitingForConnection', WaitingForConnectionSchema],
+  ['ApprovalApprover', ApprovalApproverSchema],
+  ['ApprovalConnection', ApprovalConnectionSchema],
   ['RunTreeUsage', RunTreeUsageSchema],
   ['FinishedRun', FinishedRunSchema],
   ['RunFinishedEvent', RunFinishedEventSchema],
@@ -13123,6 +15789,19 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WebhookDelivery', WebhookDeliverySchema],
   ['WebhookDeliveryCollectionPage', WebhookDeliveryCollectionPageSchema],
   ['LicensePreview', LicensePreviewSchema],
+  ['SiteRoleGrant', SiteRoleGrantSchema],
+  ['SiteKey', SiteKeySchema],
+  ['Site', SiteSchema],
+  ['SiteCollectionPage', SiteCollectionPageSchema],
+  ['RegisterSiteBody', RegisterSiteBodySchema],
+  ['UpdateSiteBody', UpdateSiteBodySchema],
+  ['SiteEnrollmentCode', SiteEnrollmentCodeSchema],
+  ['RegisterSiteResult', RegisterSiteResultSchema],
+  ['SitePersonRestoreResult', SitePersonRestoreResultSchema],
+  ['EnrollSiteBody', EnrollSiteBodySchema],
+  ['EnrollSiteResult', EnrollSiteResultSchema],
+  ['SiteSignInBody', SiteSignInBodySchema],
+  ['SiteSignInResult', SiteSignInResultSchema],
 ] as const;
 
 /** Convenience `$ref` builder. */

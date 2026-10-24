@@ -37,7 +37,10 @@ export interface ImageRegistryBinding {
   /**
    * Read the OCI image manifest for a digest-pinned reference. Returns
    * `image-not-found` when the registry has no manifest at the given
-   * digest; `image-registry-unreachable` on transport / auth failure.
+   * digest; `image-registry-unreachable` on transport failure,
+   * `image-registry-unauthorized` when the registry refuses the
+   * credentials, and `image-limit-exceeded` when the manifest is past a
+   * bound the binding reads within.
    *
    * The route MUST verify that `descriptor.digest` matches the digest
    * inside `input.imageRef` — the binding is not responsible for that
@@ -53,7 +56,10 @@ export interface ImageRegistryBinding {
    * be a few kilobytes to low megabytes).
    *
    * Returns `image-file-not-found` when no layer contains the path,
-   * `image-not-found` when the ref itself is unresolvable.
+   * `image-not-found` when the ref itself is unresolvable,
+   * `image-limit-exceeded` when reading it would pass a bound the binding
+   * reads within, and `image-unreadable` when a layer it looks in isn't
+   * an archive it can read.
    */
   extractFile(input: ImageExtractFileInput): Promise<Result<ImageFile, ImageRegistryError>>;
   /**
@@ -161,9 +167,33 @@ export interface ImagePushOutcome {
 // -------------------- error --------------------
 
 /**
+ * Which bound on reading an image refused it (`image-limit-exceeded`).
+ * All but `tenant-unpack-hour` are the image's own: the same image is
+ * refused again. `tenant-unpack-hour` is the tenant's, and passes.
+ *
+ * - `manifest`: the manifest is larger than the binding reads.
+ * - `file`: the file asked for is larger than the binding returns.
+ * - `layer`: a layer declares more bytes than the binding reads in one layer.
+ * - `read`: the layers read while looking would pass the bytes one read may take.
+ * - `unpack`: unpacking those layers passed the bytes one read may unpack.
+ * - `tenant-unpack-hour`: the tenant's reads unpacked as much as they may
+ *   in an hour.
+ */
+export type ImageReadLimit =
+  | 'manifest'
+  | 'file'
+  | 'layer'
+  | 'read'
+  | 'unpack'
+  | 'tenant-unpack-hour';
+
+/**
  * Discriminated error union. The deploy route reports any of these as
- * `400 image-unverifiable` ("we could not verify this image"), carrying
- * the binding's `code` as `cause`.
+ * `400 image-unverifiable` ("we could not verify this image"), with the
+ * binding's `code` as `details.cause` and, for `image-limit-exceeded`,
+ * its `limit` as `details.limit`. The tenant's hour
+ * (`tenant-unpack-hour`) passes, so it's a rate limit: `429
+ * rate-limit-exceeded` with `details.limit` and `Retry-After`.
  */
 export type ImageRegistryError =
   | {
@@ -185,6 +215,24 @@ export type ImageRegistryError =
   | {
       readonly code: 'image-registry-unauthorized';
       readonly message: string;
+    }
+  | {
+      /** The image is past a bound the binding reads within; `message` names it. */
+      readonly code: 'image-limit-exceeded';
+      readonly message: string;
+      readonly limit: ImageReadLimit;
+      /**
+       * For `tenant-unpack-hour`, how long until the tenant's hour has
+       * room again, in milliseconds: the deploy route's `Retry-After`.
+       * Without it, the route answers the whole hour.
+       */
+      readonly retryAfterMs?: number;
+    }
+  | {
+      /** A layer isn't an archive the binding can read: not a tar, or compressed twice. */
+      readonly code: 'image-unreadable';
+      readonly message: string;
+      readonly cause?: unknown;
     }
   | {
       readonly code: 'image-push-failed';

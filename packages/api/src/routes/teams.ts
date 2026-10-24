@@ -81,7 +81,10 @@ export function teamsRouter(
     role: TeamRole,
   ): Promise<
     | { readonly kind: 'done'; readonly outcome: TeamMembershipUpdateRoleOutcome }
-    | { readonly kind: 'refused'; readonly error: ReturnType<typeof membershipNotKeptInStepError> }
+    | {
+        readonly kind: 'refused';
+        readonly error: { readonly code: string; readonly message: string };
+      }
   > {
     if (authorizer === undefined) {
       return {
@@ -93,6 +96,9 @@ export function teamsRouter(
       return { kind: 'refused', error: membershipNotKeptInStepError('updateTeamMemberRole') };
     }
     const res = await tenantHierarchy.updateTeamMemberRole({ tenantId, teamId, userId, role });
+    if (res.kind === 'err' && res.error.code === 'site-person-grants-managed') {
+      return { kind: 'refused', error: { code: res.error.code, message: res.error.message } };
+    }
     if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
     return { kind: 'done', outcome: res.value };
   }
@@ -379,6 +385,10 @@ export function teamsRouter(
       c.status(statusFor('membership-exists') as never);
       return c.json(toWireError(membershipExistsError(role), requestId));
     };
+    const managed = (message: string) => {
+      c.status(statusFor('site-person-grants-managed') as never);
+      return c.json(toWireError({ code: 'site-person-grants-managed', message }, requestId));
+    };
     // Racy — the team can be deleted between the preliminary get and the add.
     const teamGone = () => {
       c.status(statusFor('team-not-found') as never);
@@ -403,6 +413,7 @@ export function teamsRouter(
       if (res.kind === 'err') {
         if (res.error.code === 'team-not-found') return teamGone();
         if (res.error.code === 'membership-exists') return exists(res.error.role);
+        if (res.error.code === 'site-person-grants-managed') return managed(res.error.message);
         throw new Error(res.error.message, { cause: res.error });
       }
     } else {
@@ -436,6 +447,12 @@ export function teamsRouter(
         return c.json(toWireError(refusal, c.get('requestId')));
       }
       const res = await tenantHierarchy.removeTeamMember({ tenantId, teamId, userId });
+      if (res.kind === 'err' && res.error.code === 'site-person-grants-managed') {
+        c.status(statusFor(res.error.code) as never);
+        return c.json(
+          toWireError({ code: res.error.code, message: res.error.message }, c.get('requestId')),
+        );
+      }
       if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
     } else {
       await membershipBinding.remove(tenantId, teamId, userId);

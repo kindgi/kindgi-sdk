@@ -106,13 +106,15 @@ export interface CreateExportInput {
   readonly now?: () => Date;
   /** One line per kind, as it ends. */
   readonly progress?: (line: string) => void;
+  /** `--quiet`: only a kind that failed says its line. */
+  readonly quiet?: boolean;
   readonly stopSignal?: AbortSignal;
 }
 
 /** Export the workspace; the manifest, as written last. */
 export async function createExport(input: CreateExportInput): Promise<Manifest> {
   const now = input.now ?? (() => new Date());
-  const progress = input.progress ?? (() => undefined);
+  const say = kindLine(input);
   const earlier = await prepareFolder(input);
   const started = now().toISOString();
   // The tenant's state as each read found it: at the start, and at the end.
@@ -171,7 +173,7 @@ export async function createExport(input: CreateExportInput): Promise<Manifest> 
     // Stopped part way: the kind is left for --resume, not marked failed.
     if (stopped() && outcome.status === 'failed') break;
     kinds[name] = outcome;
-    progress(progressLine(name, outcome));
+    say(name, outcome);
     await save();
   }
   const finished = stopped() ? undefined : now().toISOString();
@@ -263,9 +265,9 @@ const CHANGING =
 
 /**
  * How far the files agree. A closing or suspended tenant changes only by
- * deletes and erasures, so its files agree, when it was closing or
- * suspended through every run of the export: at each run's start and end
- * (an earlier run's manifest says whether it was).
+ * deletes, revocations and erasures, so its files agree, when it was
+ * closing or suspended through every run of the export: at each run's start
+ * and end (an earlier run's manifest says whether it was).
  */
 function consistencyOf(
   states: readonly (string | undefined)[],
@@ -275,9 +277,17 @@ function consistencyOf(
   const frozenBefore =
     earlier === undefined || (frozen(earlier.tenant?.state) && earlier.consistency !== CHANGING);
   if (states.every((s) => frozen(s)) && frozenBefore) {
-    return `The tenant is ${states.at(-1)}: nothing in it changes but deletes and erasures, so the files agree with each other, but for a delete or an erasure made while the export ran.`;
+    return `The tenant is ${states.at(-1)}: nothing in it changes but deletes, revocations and erasures, so the files agree with each other, but for one of those made while the export ran.`;
   }
   return CHANGING;
+}
+
+/** Each kind's line, as it ends. A kind that failed is an error: said under `--quiet` too. */
+function kindLine(input: CreateExportInput): (name: string, outcome: KindOutcome) => void {
+  const progress = input.progress ?? (() => undefined);
+  return (name, outcome) => {
+    if (input.quiet !== true || outcome.status === 'failed') progress(progressLine(name, outcome));
+  };
 }
 
 function progressLine(name: string, outcome: KindOutcome): string {

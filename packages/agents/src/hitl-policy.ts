@@ -50,6 +50,21 @@ export interface EffectiveHitlPolicy {
   /** Millisecond timeout used at enqueue time. */
   readonly timeoutMs: number;
   readonly onTimeout: 'auto-approve' | 'auto-reject' | 'escalate';
+  /**
+   * Four eyes on tool calls (`conversationPolicy.hitl.separateApprover`),
+   * normalized: a tool's entry in `overrides`, else `default`. Absent =
+   * nobody asked for it.
+   */
+  readonly separateApprover?: {
+    readonly default: boolean;
+    readonly overrides: ReadonlyMap<string, boolean>;
+  };
+}
+
+/** Whether `toolId`'s approvals need a reviewer other than the person who asked. */
+export function separateApproverFor(policy: EffectiveHitlPolicy, toolId: string): boolean {
+  const four = policy.separateApprover;
+  return four === undefined ? false : (four.overrides.get(toolId) ?? four.default);
 }
 
 /**
@@ -86,6 +101,7 @@ export function resolveEffectiveHitlPolicy(input: {
     defaultReviewerRole: 'standard' | 'senior' | 'admin';
     timeoutMs: number;
     onTimeout: 'auto-approve' | 'auto-reject' | 'escalate';
+    separateApprover?: { default: boolean; overrides: ReadonlyMap<string, boolean> };
   } = {
     defaultReviewerRole: agentHitl?.defaultReviewerRole ?? FRAMEWORK_DEFAULTS.defaultReviewerRole,
     timeoutMs: agentHitl?.timeoutMs ?? FRAMEWORK_DEFAULTS.timeoutMs,
@@ -108,6 +124,17 @@ export function resolveEffectiveHitlPolicy(input: {
       ...(agentToolsPolicy.default !== undefined && { default: agentToolsPolicy.default }),
       overrides,
     };
+  }
+
+  const four = agentHitl?.separateApprover;
+  if (four !== undefined) {
+    merged.separateApprover =
+      typeof four === 'boolean'
+        ? { default: four, overrides: new Map() }
+        : {
+            default: four.default ?? false,
+            overrides: new Map(Object.entries(four.overrides ?? {})),
+          };
   }
 
   // The tenant's policy — only stricter.

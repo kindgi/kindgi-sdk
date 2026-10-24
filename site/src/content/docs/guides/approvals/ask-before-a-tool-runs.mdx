@@ -16,7 +16,7 @@ reviewer. Approve, and the tool runs. Reject, and it doesn't.
 
 ## Before you start
 
-- **A pack** on a runtime such as `kindgi dev`, with Kindgi 0.1's CLI. This
+- **A pack** on a runtime such as `kindgi dev`, with Kindgi 0.2's CLI. This
   guide uses the pack `acme-ops`, with a read-only tool, `acme-ops.greet`.
 - **A model the agent can route to,** with `tool-use`, as
   [Models](../../models/) shows.
@@ -24,7 +24,11 @@ reviewer. Approve, and the tool runs. Reject, and it doesn't.
 ## Gate a tool
 
 `acme-ops.post-update` posts to a public status page. It changes something
-outside your app, so it doesn't say `mutating: false`:
+outside your app, so it doesn't say `mutating: false`. Ask your coding agent:
+"I want a tool that posts an update to our public status page." Kindgi's
+skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, the
+tool looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -130,7 +134,9 @@ object PostUpdate {
 </TabItem>
 </Tabs>
 
-This agent posts status updates with it, and every post waits for a person:
+This agent posts status updates with it, and every post waits for a person.
+Ask your coding agent: "I want an agent that posts status updates, and asks a
+person before every post." For reference, the agent looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -265,15 +271,251 @@ object StatusAgent {
 An agent without `hitl.tools` has no tool gates, unless your tenant has
 [approval rules](../approval-rules-for-every-agent/).
 
+### Someone other than whoever asked
+
+**A tool call's approval names who asked:** the person the turn runs for, in
+`requestedBy` (`user:<id>`, or `service_account:<id>` for an app's key). It
+stays the same when someone else's decision resumes the turn.
+
+**By default, that person may approve it too.** `hitl.separateApprover`
+makes the approval need someone else (four eyes):
+
+- **`true`** applies to every gated tool.
+- **Per tool,** set `overrides`, keyed by tool id as in `tools`. An optional
+  `default` covers the tools you don't name.
+
+```ts
+conversationPolicy: {
+  hitl: {
+    tools: { overrides: { 'acme-ops.post-update': 'always_ask' } },
+    separateApprover: { overrides: { 'acme-ops.post-update': true } },
+  },
+},
+```
+
+Every pack language sets it the same way: Python's `conversation_policy`,
+and the map Java and Scala pass to `set("conversationPolicy", …)`, take the
+same keys, `separateApprover` included.
+
+**When four eyes is on:**
+- **The person who asked isn't offered Approve.** That holds on the
+  console's approval page, in its inbox's keyboard decisions ("You asked
+  for this, so someone else approves it."), and on the Kindgi plugin for
+  WordPress's Approvals tab.
+- **The API refuses their approve:**
+
+  ```json
+  {
+    "error": {
+      "code": "separate-approver-required",
+      "message": "Approval ecaaa545-… was asked for by you: someone else must approve it",
+      "details": { "approvalId": "ecaaa545-…" },
+      "requestId": "…"
+    }
+  }
+  ```
+
+- **They may still reject their own request.**
+- **A turn that's already waiting** keeps the rule it parked with.
+- **It compares people.** A turn started with an app's key names the key's
+  service account (`service_account:<id>`), so a person holding that key
+  can still approve the call as themselves.
+- **With `ask_on_first_use`,** only a tool's first call is asked, and
+  someone other than whoever asked approves that one.
+- **The template's tools:** the store agent sets `separateApprover` per tool,
+  and `defineAgent` refuses an override naming a tool the agent doesn't
+  have, so a mistyped id never leaves the real tool without four eyes.
+
+**The `woocommerce` template's store agent turns it on** for
+`<pack>.woo.refund-large`, `<pack>.woo.set-price` and
+`<pack>.woo.publish-product` (`acme-shop.woo.refund-large` in a pack named
+`acme-shop`).
+
+## When no person started the run
+
+**A tool can ask for a person's yes on every call no person is there to
+see:** it declares `needsApprovalWhenUnattended: true`. Declare it on a tool
+that moves money or changes something people rely on. Then, in a run no
+person started:
+
+- **An agent's call of the tool waits** for a reviewer, as `always_ask`
+  does. The agent's `hitl` can't lift it, nor can your tenant's
+  [approval rules](../approval-rules-for-every-agent/): agents are reused,
+  and the tool's author knows what it does. Only the schedule or webhook
+  trigger that started the run can, by listing the tool
+  ([Tools allowed unattended](#tools-allowed-unattended)).
+- **A flow's tool step that calls it fails,** as [In a flow](#in-a-flow)
+  shows.
+
+In a run a person started, the agent's own gates decide, as for any tool.
+Absent means `false`. Here `acme-ops.post-update`, which posts in public,
+declares it:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+// in tools/post-update/index.ts
+  effects: [{ kind: 'external-side-effect', resource: 'external:status-page' }],
+  needsApprovalWhenUnattended: true,
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+# in tools/post_update.py
+@tool(
+    id="acme-ops.post-update",
+    effects=[{"kind": "external-side-effect", "resource": "external:status-page"}],
+    needs_approval_when_unattended=True,
+)
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acmeops/tools/PostUpdate.java
+      .effect("external-side-effect", "external:status-page")
+      .needsApprovalWhenUnattended(true)
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acmeops/tools/PostUpdate.scala
+    .effect("external-side-effect", "external:status-page")
+    .needsApprovalWhenUnattended(true)
+```
+
+</TabItem>
+</Tabs>
+
+**How a run started** is on the run, as `startedBy`:
+
+| `startedBy` | Who started it | Counts as a person |
+| --- | --- | --- |
+| `person` | A person: signed in (the console, the chat of the Kindgi plugin for WordPress), or with their own API key | Yes |
+| `key` | A service account's key | No |
+| `schedule`, `webhook`, `event` | A trigger | No |
+
+- **A key acts as its person.** A script on your own key starts runs as
+  you, and they count as yours. For automation, use a
+  [service account's key](../../../deploy/people-and-keys/#service-accounts): its runs count as
+  unattended.
+- **A flow's agent step, and any run a run starts,** started the way its run
+  did.
+- **A run from before your runtime recorded it** reads as its trigger's
+  kind when a trigger started it, and has no `startedBy` otherwise. Either
+  way it counts as unattended: it never reads as a person's.
+- **The `woocommerce` template declares it** on `<pack>.woo.refund`,
+  `<pack>.woo.refund-large`, `<pack>.woo.set-price` and
+  `<pack>.woo.publish-product`. A staff member's refund in the store chat
+  runs as the agent says; one an order webhook's run asks for waits for a
+  person.
+
+### Tools allowed unattended
+
+A schedule or a webhook trigger can list tools its runs call without
+waiting for a person's yes: its tools allowed unattended
+(`toolsAllowedUnattended`, runtime 0.2.0 or later). List a tool there when
+the trigger is there to run it, such as a nightly status post:
+
+```sh
+pnpm exec kindgi schedules update <schedule-id> --allow-unattended=acme-ops.post-update
+```
+
+- **It lifts only the wait for a person.** In the trigger's runs, a listed
+  tool's call goes as the agent's own `hitl` and your tenant's
+  [approval rules](../approval-rules-for-every-agent/) say, as in a run a
+  person started: a rule that asks before the tool runs still asks. The
+  run still acts as the trigger's owner, so the call is checked against
+  their access. It covers both kinds of tool that ask: one that declares
+  `needsApprovalWhenUnattended`, and one that changes things with a
+  person's connection
+  ([Use a connection in a tool](../../connections/use-a-connection/#approvals)).
+  Such a run still can't wait for anyone to connect
+  ([When the connection is missing](../../connections/use-a-connection/#when-the-connection-is-missing)).
+- **Each entry is one tool's id,** with no wildcard or pattern, at most
+  100 of them. Each must be a tool the trigger's agent or flow calls: the
+  agent's tools, or a flow's tool steps and its agent steps' tools, its
+  subflows' included. That's checked when you set it, and a tool it
+  doesn't call is
+  refused (`400 bad-input`). A schedule that starts
+  [improvement passes](../../evals/improve-an-agent/) calls no tools, so its
+  list stays empty.
+- **Only the trigger's runs have it.** A run takes the list as it is when
+  the trigger fires, and the runs that run starts, such as a flow's agent
+  steps, take the same list. A run that waits and resumes keeps the list it
+  started with, so a change reaches the next fire. Any other run has none:
+  a person's, a key's, an event trigger's. `POST /v1/runs` can't set one.
+- **Setting it takes `admin` on the trigger's project,** clearing it too.
+  A caller with only `write` is answered `403 permission-denied`.
+- **With the CLI,** it's `--allow-unattended=<tool-id>`, once for each
+  tool, on `kindgi schedules create` and `update` and on `kindgi webhooks
+  register` and `update`. On `update` it replaces the list,
+  `--allow-unattended=none` clears it, and leaving it out keeps it. From
+  your app, it's `toolsAllowedUnattended` on `schedules.register` and
+  `update` and on `webhooks.register` and `update`
+  (`tools_allowed_unattended` in Python). `kindgi schedules get` and
+  `kindgi webhooks get` show it when it isn't empty, and the trigger's page
+  in the console shows it as **Tools allowed unattended**, or "None". The
+  console doesn't change it.
+- **A new owner keeps it.** After a take-over, the trigger's runs call the
+  tools it lists as the new owner, with their access, and the CLI says so,
+  with the line that clears it. A take-over can't change the list: use
+  `update`. Changing the list makes you the owner when you aren't, as
+  [changing what it runs](../../runs/run-on-a-schedule/#who-owns-it-after-a-change)
+  does.
+- **A schedule pointed at another agent or flow** must name its list
+  again, as it is or `none` (`[]` from your app), or the change is refused
+  (`400 bad-input`). A new version of the same one keeps the list.
+  Pointed at improvement passes, it must name `none`, since a pass calls
+  no tools.
+- **Each change is recorded as evidence,**
+  `trigger-tools-allowed-unattended-set`, with the list before and after
+  and what the trigger runs. It's kept for good, on
+  [legal hold](../../../deploy/retention/#on-legal-hold). A take-over's
+  `trigger-owner-set` records the list it kept.
+
 ## Become a reviewer
 
 Approvals are decided by **reviewers**. Under `kindgi dev` you're one already,
 an `admin`. On any other runtime, register yourself once, as the user your API
 token belongs to. It covers any token of yours, a console sign-in too:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+pnpm exec kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--spec` is the reviewer: its `role` and, optionally, a `displayName`.
 It prints the registered reviewer, as JSON.
@@ -285,9 +527,36 @@ It prints the registered reviewer, as JSON.
 Start a turn that asks for the tool. `--agent` is the agent, and `--input`
 its input:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+pnpm exec kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -308,9 +577,36 @@ block until someone decides.
 
 List the pending approvals. `--status=pending` lists only the ones still `pending`:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi approvals list --status=pending
+pnpm exec kindgi approvals list --status=pending
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals list --status=pending
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals list --status=pending
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals list --status=pending
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -351,9 +647,36 @@ The approval names the tool and the exact arguments the model chose, and
 Decide it by the approval's `id`. `--decision=approve` lets the tool run,
 and `--rationale` is kept with the decision:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approve --rationale="Confirmed with the on-call engineer"
+pnpm exec kindgi approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approve --rationale="Confirmed with the on-call engineer"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approve --rationale="Confirmed with the on-call engineer"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approve --rationale="Confirmed with the on-call engineer"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals complete 416c22ba-73f9-45b7-999d-c1d5938758f7 --decision=approve --rationale="Confirmed with the on-call engineer"
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -401,9 +724,36 @@ shows it:
 
 Get the run by its id to see the tool's result:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758
+pnpm exec kindgi runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs get 0c01376f-1566-4a0d-ba6f-95f4efff4758
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -427,9 +777,36 @@ as the tool's result, with your rationale, and finishes its turn. A real
 model can tell the user why nothing was posted. `<approval-id>` is the
 approval's `id`:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi approvals complete <approval-id> --decision=reject --rationale="Not confirmed yet"
+pnpm exec kindgi approvals complete <approval-id> --decision=reject --rationale="Not confirmed yet"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi approvals complete <approval-id> --decision=reject --rationale="Not confirmed yet"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw approvals complete <approval-id> --decision=reject --rationale="Not confirmed yet"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw approvals complete <approval-id> --decision=reject --rationale="Not confirmed yet"
+```
+
+</TabItem>
+</Tabs>
 
 It prints the recorded decision, as approving does. The run's messages then
 hold the rejection as the tool's result:
@@ -454,9 +831,36 @@ When the agent is a step of a flow, the flow waits with it: the flow run is
 `suspended` too, and its journal shows the step waiting. `<flow-run-id>` is
 the flow run's id:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs journal <flow-run-id>
+pnpm exec kindgi runs journal <flow-run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs journal <flow-run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs journal <flow-run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs journal <flow-run-id>
+```
+
+</TabItem>
+</Tabs>
 
 ```json
   {
@@ -470,6 +874,29 @@ kindgi runs journal <flow-run-id>
 The approval's `provenanceRef.runId` is the agent step's own run, not the flow
 run. Once the approval is decided, the agent's turn finishes and the flow
 continues from that step.
+
+**A tool step can't wait for a person.** In a run no person started, a step
+whose tool needs a person's yes fails, and the tool never runs: one that
+declares `needsApprovalWhenUnattended`, or one that changes things with a
+person's connection
+([Use a connection in a tool](../../connections/use-a-connection/#approvals)).
+The run's `failureMessage` says why:
+
+```text
+needs-a-person: tool "acme-ops.post-update" needs a person's yes when no person started the run (needsApprovalWhenUnattended), and a flow's tool step can't wait for one. Call it from an agent step instead: there the call waits for a person to approve it.
+```
+
+For a tool that changes things with a person's connection, the reason in
+parentheses reads `it changes things with a person's connection`. Call such a
+tool from an agent step, whose call waits for a reviewer. In a schedule's
+or a webhook trigger's run, the message adds that the trigger could list
+the tool instead
+([Tools allowed unattended](#tools-allowed-unattended)). A schedule's run's
+message ends:
+
+```text
+Or a project admin can list it in the schedule's toolsAllowedUnattended, so its runs call it without one.
+```
 
 ## Next
 
