@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kindgi.com/schemas/v1/pack-index.schema.json",
-  "$comment": "schema-version: 1.5.0",
+  "$comment": "schema-version: 1.6.0",
   "title": "Pack index",
   "description": "The `index.json` a pack build emits: the pack's tools, guardrails, agents and flows as data, plus where each tool handler and guardrail check lives. A runtime registers the pack's primitives from it, and a pack service loads the modules it names and resolves every call by id. Any indexer (the TypeScript `kindgi-index`, the Python `python -m kindgi.pack index`) emits this shape. Determinism: every list is sorted by `id` (code-unit order), keys are sorted at every level, the file is UTF-8 JSON indented by two spaces with a trailing newline, and integral numbers carry no fraction, so the same source indexes to the same bytes. Consumers refuse an envelope `v` they don't recognize.",
   "type": "object",
@@ -164,7 +164,7 @@
         },
         "pauses": {
           "type": "boolean",
-          "description": "Whether the tool may answer `pause` (`tool.schema.json` `pauses`, schema-version 1.5.0+): the runtime then sends each call a `waitToken`, and the run waits for another system's answer. Absent means `false`."
+          "description": "Whether the tool may answer `pause` (`tool.schema.json` `pauses`, schema-version 1.6.0+): the runtime then sends each call a `waitToken`, and the run waits for another system's answer. Absent means `false`."
         },
         "spec": {
           "$ref": "#/$defs/openObject",
