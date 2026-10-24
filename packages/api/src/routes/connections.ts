@@ -135,10 +135,15 @@ export function connectionAppsRouter(
 
   r.get('/', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
+    const includeRemoved = parseIncludeRemoved(c);
+    if (includeRemoved.kind === 'err') {
+      return badInput(c, includeRemoved.message, includeRemoved.field);
+    }
     const cursor = c.req.query('cursor');
     const page = await binding.listApps({
       tenantId,
       limit: clampLimit(c.req.query('limit')),
+      ...(includeRemoved.value && { includeRemoved: true }),
       ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
     });
     return c.json(serializePage(page, serializeApp));
@@ -290,7 +295,7 @@ export function connectionsRouter(
     if (query.kind === 'err') return badInput(c, query.message, query.field);
     const listed = await listedOwner(c, query.value);
     if (listed === undefined) return c.json({ data: [], hasMore: false });
-    const { projectId, app, ownerKind, state } = query.value;
+    const { projectId, app, ownerKind, state, includeRemoved } = query.value;
     const cursor = c.req.query('cursor');
     const page = await binding.list({
       tenantId,
@@ -298,7 +303,8 @@ export function connectionsRouter(
       ...(app !== undefined && { app }),
       ...listed,
       ...(ownerKind !== undefined && { ownerKind }),
-      ...(state !== undefined && { state, includeRemoved: state === 'removed' }),
+      ...(state !== undefined && { state }),
+      ...((includeRemoved || state === 'removed') && { includeRemoved: true }),
       limit: clampLimit(c.req.query('limit')),
       ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
     });
@@ -816,6 +822,8 @@ interface ListQuery {
   readonly mine: boolean;
   readonly ownerKind?: 'member' | 'company';
   readonly state?: ConnectionState;
+  /** Removed ones too, with the others. */
+  readonly includeRemoved: boolean;
 }
 
 function parseListQuery(c: Context<AppEnv>): Parsed<ListQuery> {
@@ -834,6 +842,8 @@ function parseListQuery(c: Context<AppEnv>): Parsed<ListQuery> {
   if (state !== undefined && !CONNECTION_STATES.has(state)) {
     return bad(`\`state\` must be one of ${[...CONNECTION_STATES].join(', ')}`, 'state');
   }
+  const includeRemoved = parseIncludeRemoved(c);
+  if (includeRemoved.kind === 'err') return includeRemoved;
   return {
     kind: 'ok',
     value: {
@@ -842,8 +852,18 @@ function parseListQuery(c: Context<AppEnv>): Parsed<ListQuery> {
       mine: owner === 'me',
       ...(ownerKind !== undefined && { ownerKind }),
       ...(state !== undefined && { state: state as ConnectionState }),
+      includeRemoved: includeRemoved.value,
     },
   };
+}
+
+/** `includeRemoved`: `true` lists removed ones too; `false`, or left out, doesn't. */
+function parseIncludeRemoved(c: Context<AppEnv>): Parsed<boolean> {
+  const raw = c.req.query('includeRemoved');
+  if (raw !== undefined && raw !== 'true' && raw !== 'false') {
+    return bad('`includeRemoved` must be `true` or `false`', 'includeRemoved');
+  }
+  return { kind: 'ok', value: raw === 'true' };
 }
 
 function parseText(raw: unknown, field: string, max: number): Parsed<string> {

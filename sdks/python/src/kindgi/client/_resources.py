@@ -10032,18 +10032,19 @@ class ConnectionAppsResource:
         self,
         /,
         *,
+        include_removed: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.ConnectionAppPage:
         """List the tenant's app registrations. `GET /v1/connection-apps`
 
-        The tenant's own registrations of its client at an app: its client id, and its secrets by reference. Tenant admins only.
+        The tenant's own registrations of its client at an app: its client id, and its secrets by reference. Tenant admins only. Removed registrations are listed only with `includeRemoved=true`.
         """
         return self._client._request(
             _OPERATIONS["connectionApps.list"],
             path={},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeRemoved": include_removed, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.ConnectionAppPage,
             timeout=timeout,
@@ -10193,13 +10194,14 @@ class ConnectionsResource:
         owner: Literal["me"] | None = None,
         owner_kind: Literal["member", "company"] | None = None,
         state: Literal["working", "needs-reconnecting", "removing", "removed"] | None = None,
+        include_removed: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.ConnectionPage:
         """List connections. `GET /v1/connections`
 
-        A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`.
+        A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`, or with the others under `includeRemoved=true`.
         """
         return self._client._request(
             _OPERATIONS["connections.list"],
@@ -10210,6 +10212,7 @@ class ConnectionsResource:
                 "owner": owner,
                 "ownerKind": owner_kind,
                 "state": state,
+                "includeRemoved": include_removed,
                 "limit": limit,
                 "cursor": cursor,
             },
@@ -19133,18 +19136,19 @@ class AsyncConnectionAppsResource:
         self,
         /,
         *,
+        include_removed: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.ConnectionAppPage:
         """List the tenant's app registrations. `GET /v1/connection-apps`
 
-        The tenant's own registrations of its client at an app: its client id, and its secrets by reference. Tenant admins only.
+        The tenant's own registrations of its client at an app: its client id, and its secrets by reference. Tenant admins only. Removed registrations are listed only with `includeRemoved=true`.
         """
         return await self._client._request(
             _OPERATIONS["connectionApps.list"],
             path={},
-            query={"limit": limit, "cursor": cursor},
+            query={"includeRemoved": include_removed, "limit": limit, "cursor": cursor},
             headers={},
             response=_models.ConnectionAppPage,
             timeout=timeout,
@@ -19296,13 +19300,14 @@ class AsyncConnectionsResource:
         owner: Literal["me"] | None = None,
         owner_kind: Literal["member", "company"] | None = None,
         state: Literal["working", "needs-reconnecting", "removing", "removed"] | None = None,
+        include_removed: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.ConnectionPage:
         """List connections. `GET /v1/connections`
 
-        A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`.
+        A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`, or with the others under `includeRemoved=true`.
         """
         return await self._client._request(
             _OPERATIONS["connections.list"],
@@ -19313,6 +19318,7 @@ class AsyncConnectionsResource:
                 "owner": owner,
                 "ownerKind": owner_kind,
                 "state": state,
+                "includeRemoved": include_removed,
                 "limit": limit,
                 "cursor": cursor,
             },

@@ -64,8 +64,15 @@ function memoryBinding() {
   });
   const binding: ConnectionBinding = {
     entries: () => [google, github],
-    async listApps({ tenantId }) {
-      return { data: [...apps.values()].filter((a) => a.tenantId === tenantId) };
+    async listApps(input) {
+      seen('listApps', input);
+      return {
+        data: [...apps.values()].filter(
+          (a) =>
+            a.tenantId === input.tenantId &&
+            (input.includeRemoved === true || a.removedAt === undefined),
+        ),
+      };
     },
     async getApp({ tenantId, appId }) {
       const app = apps.get(appId);
@@ -435,6 +442,22 @@ describe('/v1/connection-apps', () => {
     ).toEqual([true, false]);
   });
 
+  test('a list of registrations takes includeRemoved, true or false only', async () => {
+    const { app, calls } = makeApp();
+    await call(app, 'admin', 'GET', '/v1/connection-apps');
+    await call(app, 'admin', 'GET', '/v1/connection-apps?includeRemoved=true');
+    await call(app, 'admin', 'GET', '/v1/connection-apps?includeRemoved=false');
+    expect(calls.listApps?.map((i) => (i as { includeRemoved?: boolean }).includeRemoved)).toEqual([
+      undefined,
+      true,
+      undefined,
+    ]);
+    const res = await call(app, 'admin', 'GET', '/v1/connection-apps?includeRemoved=yes');
+    expect(res.status).toBe(400);
+    expect(res.json.error.details).toEqual({ field: 'includeRemoved' });
+    expect(calls.listApps).toHaveLength(3);
+  });
+
   test('an id that is not one is a 400, before the binding', async () => {
     const { app } = makeApp();
     const res = await call(app, 'admin', 'GET', '/v1/connection-apps/not-an-id');
@@ -768,6 +791,7 @@ describe('the connections themselves', () => {
     ['ownerKind', 'team'],
     ['state', 'broken'],
     ['app', 'Google'],
+    ['includeRemoved', 'yes'],
   ])('a list refuses %s=%s', async (name, value) => {
     const { app } = makeApp();
     const res = await call(app, 'ana', 'GET', `/v1/connections?${name}=${value}`);
@@ -779,6 +803,20 @@ describe('the connections themselves', () => {
     const { app, calls } = makeApp();
     await call(app, 'admin', 'GET', '/v1/connections?state=removed');
     expect(calls.list?.[0]).toMatchObject({ state: 'removed', includeRemoved: true });
+  });
+
+  test('includeRemoved=true lists removed ones with the others, and a state still narrows it', async () => {
+    const { app, calls } = makeApp();
+    await call(app, 'admin', 'GET', '/v1/connections?includeRemoved=true');
+    await call(app, 'admin', 'GET', '/v1/connections?state=working&includeRemoved=true');
+    await call(app, 'admin', 'GET', '/v1/connections?includeRemoved=false');
+    await call(app, 'admin', 'GET', '/v1/connections?state=working');
+    expect(calls.list?.[0]).toMatchObject({ includeRemoved: true });
+    expect(calls.list?.[0]).not.toHaveProperty('state');
+    expect(calls.list?.[1]).toMatchObject({ state: 'working', includeRemoved: true });
+    expect(calls.list?.[2]).not.toHaveProperty('includeRemoved');
+    expect(calls.list?.[3]).toMatchObject({ state: 'working' });
+    expect(calls.list?.[3]).not.toHaveProperty('includeRemoved');
   });
 
   test("a connection is its owner's and a tenant admin's; anyone else gets the same 404", async () => {
