@@ -248,11 +248,13 @@ _COMPILE_ORDER = (
 )  # fmt: skip
 # The keyword that evaluates every property (or item), which makes an unevaluated one moot.
 _EVALUATES_ALL = {"unevaluatedProperties": "additionalProperties", "unevaluatedItems": "items"}
-# Where a subschema sits: under a keyword the runtime compiles, or among the definitions.
+# Where a subschema sits: under a keyword the runtime compiles, among the definitions, or under
+# `contentSchema`, which the runtime doesn't compile but whose bases it registers.
 _SUBSCHEMAS = (
     *((keyword, holds) for keyword, holds in _COMPILE_ORDER if holds in ("one", "list", "map")),
     ("$defs", "map"),
     ("definitions", "map"),
+    ("contentSchema", "one"),
 )
 # The keywords that name a base or an anchor the runtime knows, which a `$ref` can resolve against.
 _BASE_KEYWORDS = ("$id", "$dynamicAnchor")

@@ -457,3 +457,13 @@ def test_strict_leaves_a_ref_alone_in_a_schema_with_a_base() -> None:
     for defs in ["$defs", "definitions"]:
         anchored = {"$ref": "#A", defs: {"a": {"$dynamicAnchor": "A", "type": "string"}}}
         assert strict_schema_problem(anchored) is None
+    # The runtime doesn't compile a `contentSchema`, but it registers the bases in it.
+    c = {"$id": "https://x.example/c", "type": "string"}
+    for content in [c, {"type": "object", "properties": {"q": c}}]:
+        in_content = {
+            "type": ["string", "object", "array"],
+            "contentMediaType": "application/json",
+            "contentSchema": content,
+            "$ref": "https://x.example/c",
+        }
+        assert strict_schema_problem(in_content) is None
