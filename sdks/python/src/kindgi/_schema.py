@@ -339,7 +339,8 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
     a subschema it compiles (one a `$ref` reaches included). Worded as the runtime words it, and of
     two problems the one it names first; `None` when there's none. It refuses:
 
-    - a keyword it doesn't know, `id`, a format it doesn't know, and a `$ref` that names nothing;
+    - a keyword it doesn't know, `id`, a format it doesn't know, a `$ref` that names nothing, and
+      a chain of `$ref`s that only leads back to itself;
     - a keyword for a type the data can't have there, or a `type` the context rules out (Ajv's
       `strictTypes`), and `nullable` without a `type`, or `false` with a `null` one;
     - a `prefixItems` tuple whose length `minItems` with `maxItems` or `items: false` doesn't pin

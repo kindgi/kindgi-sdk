@@ -73,13 +73,13 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   are dropped and `secrets=` pass through.
   Matches the TypeScript `@kindgi/tools` definition check and test context.
 - `kindgi`: **a tool's schema given as a dict is checked when the tool is
-  defined.** `@tool(input={...}, output={...})` and `http_tool`'s raise
+  defined.** `@tool(input={...}, output={...})` and `http_tool` raise
   `DefinitionError` when the runtime would refuse the schema (it isn't valid
   JSON Schema Draft 2020-12, or it has a keyword or a `format` the runtime
   doesn't know, or a `$ref` that points nowhere), the check `needs_spec`'s
-  schemas get. Before, such a schema reached the pack index as written and
-  failed on the tool's first call. Matches the TypeScript `@kindgi/tools`
-  definition check.
+  schemas get. Before, such a schema reached the pack index as written, and
+  the deploy refused it (under `kindgi dev`, the tool's first call failed).
+  Matches the TypeScript `@kindgi/tools` definition check.
 - `kindgi`: **the definition check refuses what the runtime's strict
   compile refuses besides unknown names**, word for word as the runtime
   says it:
@@ -94,7 +94,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   - an empty `enum`;
   - a format bound without a `format` it can compare;
   - a `patternProperties` pattern that matches a property `properties`
-    also names.
+    also names;
+  - a chain of `$ref`s that only leads back to itself.
 
   A corpus of schemas, with the runtime's answer to each, keeps the two in
   step.

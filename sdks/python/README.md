@@ -79,8 +79,10 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
 
 - The input and output schemas come from the handler's annotations — a
   pydantic model, a `TypedDict`, a dataclass, anything pydantic understands —
-  or from `input=` / `output=` (a type, or a JSON Schema dict). Field aliases
-  are the names on the wire. The input is an object: a model calls a tool with
+  or from `input=` / `output=` (a type, or a JSON Schema dict). A dict is
+  checked when the tool is defined, as the runtime compiles it, strictly: one
+  the runtime would refuse raises `DefinitionError`. Field aliases are the
+  names on the wire. The input is an object: a model calls a tool with
   an object of arguments.
 - The description is the docstring (or `description=`); the version is the
   pack's (or `version=`, an exact semver).

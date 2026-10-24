@@ -691,7 +691,8 @@ def _schema(source: Any, mode: Any, where: str, what: str) -> dict[str, Any]:
         raise DefinitionError(f"{where}: cannot derive the {what} JSON Schema: {cause}") from cause
     if isinstance(source, Mapping):
         # A schema given as a dict reaches the index as written: check it the way the runtime
-        # compiles it, so a schema the runtime refuses fails here, not on the tool's first call.
+        # compiles it, so a schema the runtime refuses fails here, not at the deploy or on a dev
+        # server's first call.
         problem = compile_problem(schema)
         if problem is not None:
             raise DefinitionError(f"{where}: the {what} JSON Schema doesn't compile: {problem}")
