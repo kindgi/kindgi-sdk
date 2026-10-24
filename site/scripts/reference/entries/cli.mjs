@@ -302,6 +302,10 @@ export const CLI_DEFAULTS = {
     project: "the tenant's Default project",
     segment: 'none',
   },
+  'runs resume': {
+    output: 'none: the command only says what the run waits for',
+    waitpoint: "the run's only wait for another system's answer (only with `--output`)",
+  },
   'agents list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
