@@ -150,14 +150,20 @@ FROM ${baseImageRef} AS system
 ${system}${
    corepack
      ? `
-RUN corepack enable
-ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0`
+RUN corepack enable`
      : ''
  }
 
 # --- stage: deps (${describeManager(install)}, from the lockfile) ---
 FROM system AS deps
-WORKDIR /app
+WORKDIR /app${
+   corepack
+     ? `
+# corepack fetches the package manager without asking: set in this stage,
+# where it runs, never in the final image, whose pack service would drop it.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0`
+     : ''
+ }
 # The install runs as node, in folders it owns: /app, and its caches
 # (a cache mount would otherwise create ~/.cache as root).
 RUN chown node:node /app && mkdir -p /home/node/.cache && chown node:node /home/node/.cache${

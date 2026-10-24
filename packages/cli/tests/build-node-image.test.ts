@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import { prisma } from '@kindgi/handler-runtime/build-extensions';
+import { undeclaredPackEnv } from '@kindgi/handler-runtime/pack-env';
 import { PNPM_STORE_DIR, renderContainerfile } from '../src/build/containerfile.js';
 import { writeContainerfileReal } from '../src/build/defaults.js';
 
@@ -83,6 +84,33 @@ function imageOf(config: Record<string, unknown>): ResolvedImage {
   const read = readImageConfig(config);
   if (read.kind !== 'ok') throw new Error(read.message);
   return read.image;
+}
+
+/**
+ * The names the final image sets: the `ENV` lines of the final stage and of
+ * each stage it's built `FROM` in the file (not the base image's own).
+ */
+function finalImageEnv(text: string): string[] {
+  const from = new Map<string, string>();
+  const env = new Map<string, string[]>();
+  let stage = '';
+  for (const line of text.split('\n')) {
+    const at = /^FROM (\S+) AS (\S+)$/.exec(line);
+    if (at !== null) {
+      stage = at[2] ?? '';
+      from.set(stage, at[1] ?? '');
+      env.set(stage, []);
+      continue;
+    }
+    const set = /^ENV ([A-Za-z_][A-Za-z0-9_]*)=/.exec(line);
+    if (set !== null) env.get(stage)?.push(set[1] ?? '');
+  }
+  const names: string[] = [];
+  for (let at = from.has('final') ? 'final' : undefined; at !== undefined; at = from.get(at)) {
+    if (!env.has(at)) break;
+    names.push(...(env.get(at) ?? []));
+  }
+  return names;
 }
 
 describe('the base image', () => {
@@ -291,6 +319,44 @@ describe('the Containerfile', () => {
     expect(text).toContain('EXPOSE 8080');
     expect(text).toContain('HEALTHCHECK');
     expect(text).not.toContain('managed-run-controller');
+  });
+
+  test("the final image sets no name its pack service drops: corepack's, which only the install needs, is set in deps", () => {
+    const managers = [
+      { manager: 'npm', files: ['package.json', 'package-lock.json'] },
+      { manager: 'pnpm' },
+      { manager: 'pnpm', managerSpec: 'pnpm@11.25.0' },
+      { manager: 'yarn', yarnBerry: false, files: ['package.json', 'yarn.lock'] },
+      { manager: 'yarn', yarnBerry: true, files: ['package.json', 'yarn.lock'] },
+    ] as const;
+    const images = [
+      NO_IMAGE,
+      imageOf({
+        image: {
+          buildEnv: { ACME_BUILD_FLAG: '1' },
+          extensions: [prisma({ schema: 'prisma/schema.prisma' })],
+        },
+      }),
+      imageOf({ image: { dependencies: 'loaded', buildEnv: { ACME_BUILD_FLAG: '1' } } }),
+    ];
+    for (const over of managers) {
+      for (const image of images) {
+        const text = render(over, false, image);
+        const names = finalImageEnv(text);
+        expect(names).toEqual(expect.arrayContaining(['NODE_ENV', 'PORT']));
+        // A pack that declares nothing: every name the image sets is kept.
+        const environment = Object.fromEntries(names.map((name) => [name, '1']));
+        expect(undeclaredPackEnv(undefined, environment)).toEqual([]);
+        const deps = text.slice(text.indexOf('FROM system AS deps'), text.indexOf('USER node'));
+        if (over.manager === 'npm') {
+          expect(text).not.toContain('COREPACK_ENABLE_DOWNLOAD_PROMPT');
+        } else {
+          // Set before corepack fetches the manager, as node.
+          expect(deps).toContain('\nENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0\n');
+          expect(text.match(/COREPACK_ENABLE_DOWNLOAD_PROMPT/g)).toHaveLength(1);
+        }
+      }
+    }
   });
 
   test('a pack inside a workspace sits at its own path, so its own node_modules resolve', () => {
