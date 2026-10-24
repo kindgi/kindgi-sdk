@@ -909,7 +909,8 @@ export const CLI_DEFAULTS = {
   },
   'connections connect': {
     'app-id': "none: the app's one registration",
-    permissions: "every permission the app's entry offers",
+    permissions:
+      "none picked: at a terminal it asks about each one the app's entry offers; required without one",
     project: 'none',
   },
   'connection-apps list': {

@@ -102,8 +102,8 @@ const ENTRIES = {
       owners: ['member', 'company'],
       signIn: { kind: 'oauth2' },
       permissions: {
-        'gmail.send': { says: 'Send email as you' },
-        'gmail.read': { says: 'Read your email' },
+        'gmail.send': { says: 'Send email as you', changes: true },
+        'gmail.read': { says: 'Read your email', changes: false },
       },
       setupGuide: 'guides/connections/google',
     },
@@ -112,7 +112,7 @@ const ENTRIES = {
       name: 'GitHub',
       owners: ['company'],
       signIn: { kind: 'github-app' },
-      permissions: { 'issues.write': { says: 'Label issues' } },
+      permissions: { 'issues.write': { says: 'Label issues', changes: true } },
       setupGuide: 'guides/connections/github',
     },
   ],
@@ -214,17 +214,61 @@ describe('kindgi connections connect', () => {
     );
   });
 
-  test("without --permissions: asks for every permission the app's entry offers", async () => {
+  test('without --permissions or a terminal: refused, naming what the app offers', async () => {
     const { calls, rec } = recorder();
     const out = await run(['connections', 'connect', 'google'], {
       connectionEntries: { list: rec('entries', ENTRIES) },
       connections: { connect: rec('connect', REQUEST) },
     });
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain(
+      "Missing --permissions=<key>,…, which of Google's permissions to ask for (there's no terminal to ask on): gmail.send: Send email as you (changes things); gmail.read: Read your email",
+    );
+    expect(calls).toEqual([['entries']]);
+  });
+
+  test('without --permissions at a terminal: asks about each, none picked for the person', async () => {
+    const { calls, rec } = recorder();
+    const asked: string[] = [];
+    const out = await run(
+      ['connections', 'connect', 'google', '--json'],
+      {
+        connectionEntries: { list: rec('entries', ENTRIES) },
+        connections: { connect: rec('connect', REQUEST) },
+      },
+      waitingSeam([], {
+        confirm: async (question) => {
+          asked.push(question);
+          return question.includes('gmail.read');
+        },
+      }),
+    );
     expect(out.exitCode).toBe(0);
+    expect(asked).toEqual([
+      'Ask Google for gmail.send: Send email as you (changes things)? [y/N] ',
+      'Ask Google for gmail.read: Read your email? [y/N] ',
+    ]);
     expect(calls).toEqual([
       ['entries'],
-      ['connect', { app: 'google', permissions: ['gmail.send', 'gmail.read'] }],
+      ['connect', { app: 'google', permissions: ['gmail.read'] }],
     ]);
+  });
+
+  test('at a terminal, a person who picks no permission asks nothing of the app', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      ['connections', 'connect', 'google'],
+      {
+        connectionEntries: { list: rec('entries', ENTRIES) },
+        connections: { connect: rec('connect', REQUEST) },
+      },
+      waitingSeam([], { confirm: async () => false }),
+    );
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      'kindgi connections connect: no permission picked, so nothing was asked.\n',
+    );
+    expect(calls).toEqual([['entries']]);
   });
 
   test('an app the server has no entry for is refused, naming the ones it has', async () => {
@@ -291,16 +335,11 @@ describe('kindgi connections connect', () => {
     expect(out.stderr).toBe('');
   });
 
-  test('a company connection says so, and what the app granted less than asked', async () => {
+  test('a company connection says so', async () => {
     const { rec } = recorder();
-    const done = {
-      ...REQUEST,
-      state: 'connected',
-      connectionId: CONNECTION_ID,
-      missing: ['gmail.read'],
-    };
+    const done = { ...REQUEST, state: 'connected', connectionId: CONNECTION_ID };
     const out = await run(
-      ['connections', 'connect', 'google', '--permissions=gmail.send,gmail.read', '--for-company'],
+      ['connections', 'connect', 'google', '--permissions=gmail.send', '--for-company'],
       {
         connections: {
           connect: rec('connect', REQUEST),
@@ -311,8 +350,68 @@ describe('kindgi connections connect', () => {
       waitingSeam([]),
     );
     expect(out.exitCode).toBe(0);
-    expect(out.stdout).toContain("at google, the company's account (connection");
-    expect(out.stderr).toContain('The app granted less than asked: not gmail.read.');
+    expect(out.stdout).toBe(
+      `Connected ana@acme.example at google, the company's account (connection ${CONNECTION_ID}).\n`,
+    );
+  });
+
+  test('a partial grant ends declined, yet says whose account it stored and what is missing', async () => {
+    const { calls, rec } = recorder();
+    const partial = {
+      ...REQUEST,
+      permissions: ['gmail.send', 'gmail.read'],
+      state: 'declined',
+      connectionId: CONNECTION_ID,
+      missing: ['gmail.read'],
+    };
+    const out = await run(
+      ['connections', 'connect', 'google', '--permissions=gmail.send,gmail.read'],
+      {
+        connections: {
+          connect: rec('connect', REQUEST),
+          getRequest: rec('getRequest', partial),
+          get: rec('get', CONNECTION),
+        },
+      },
+      waitingSeam([]),
+    );
+    expect(out.exitCode).toBe(1);
+    expect(calls.map(([name]) => name)).toEqual(['connect', 'getRequest', 'get']);
+    expect(out.stdout).toBe(
+      `Connected ana@acme.example at google (connection ${CONNECTION_ID}), with less than asked.\n`,
+    );
+    expect(out.stderr).toBe(
+      'The app granted less than asked: not gmail.read. Tools that need those ask to connect again.\n',
+    );
+  });
+
+  test.each([
+    [
+      'a connect that stored nothing names what was not allowed',
+      { missing: ['gmail.send'] },
+      'Declined at google (not gmail.send): nothing connected.',
+    ],
+    [
+      'a reconnect allowed less than its connection has leaves it as it was',
+      { reconnects: CONNECTION_ID, missing: ['gmail.read'] },
+      `Declined at google (not gmail.read): connection ${CONNECTION_ID} stays as it was.`,
+    ],
+  ] as const)('declined without a connection: %s', async (_title, extra, said) => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      ['connections', 'connect', 'google', '--permissions=gmail.send'],
+      {
+        connections: {
+          connect: rec('connect', REQUEST),
+          getRequest: rec('getRequest', { ...REQUEST, state: 'declined', ...extra }),
+        },
+      },
+      waitingSeam([]),
+    );
+    expect(out.exitCode).toBe(1);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toBe(`${said}\n`);
+    expect(calls.map(([name]) => name)).toEqual(['connect', 'getRequest']);
   });
 
   test.each([

@@ -3,7 +3,7 @@
 
 import { createInterface } from 'node:readline';
 
-import type { ConnectRequest, Connection, ConnectionPage } from '@kindgi/client';
+import type { ConnectRequest, Connection, ConnectionEntry, ConnectionPage } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
@@ -169,8 +169,31 @@ const get: LeafCommand = {
     ),
 };
 
-/** `--permissions=gmail.send,gmail.read`, or every permission the app's entry offers. */
-async function permissionsFor(ctx: CommandContext, app: string): Promise<string[]> {
+/** A permission as the person is asked about it: its key, its plain words, and whether it changes things. */
+function permissionWords(key: string, p: ConnectionEntry['permissions'][string]): string {
+  return `${key}: ${p.says}${p.changes ? ' (changes things)' : ''}`;
+}
+
+async function entryFor(ctx: CommandContext, app: string): Promise<ConnectionEntry> {
+  const { data } = await ctx.client().connectionEntries.list();
+  const entry = data.find((e) => e.id === app);
+  if (entry === undefined) {
+    const known = data.map((e) => e.id).join(', ');
+    throw new UsageError(
+      `This server connects no app "${app}"${known !== '' ? `; it connects ${known}` : ''}`,
+    );
+  }
+  return entry;
+}
+
+/**
+ * `--permissions=gmail.send,gmail.read`; left out, the person at the
+ * terminal is asked about each permission the app's entry offers, none
+ * picked for them, as the console's Connect does. Nothing is asked for by
+ * default: a connect adds to what's granted, so a tool that needs more asks
+ * again then. Undefined when the person picked none.
+ */
+async function permissionsFor(ctx: CommandContext, app: string): Promise<string[] | undefined> {
   const given = stringFlag(ctx, 'permissions');
   if (given !== undefined) {
     const keys = given
@@ -180,15 +203,21 @@ async function permissionsFor(ctx: CommandContext, app: string): Promise<string[
     if (keys.length === 0) throw new UsageError('--permissions names no permission');
     return keys;
   }
-  const { data } = await ctx.client().connectionEntries.list();
-  const entry = data.find((e) => e.id === app);
-  if (entry === undefined) {
-    const known = data.map((e) => e.id).join(', ');
+  const entry = await entryFor(ctx, app);
+  const offered = Object.entries(entry.permissions);
+  const seam = ctx.connectionsSeam ?? {};
+  if (!(seam.interactive ?? isInteractive)()) {
+    const listed = offered.map(([key, p]) => permissionWords(key, p)).join('; ');
     throw new UsageError(
-      `This server connects no app "${app}"${known !== '' ? `; it connects ${known}` : ''}`,
+      `Missing --permissions=<key>,…, which of ${entry.name}'s permissions to ask for (there's no terminal to ask on): ${listed}`,
     );
   }
-  return Object.keys(entry.permissions);
+  const ask = seam.confirm ?? confirmOnTerminal;
+  const picked: string[] = [];
+  for (const [key, p] of offered) {
+    if (await ask(`Ask ${entry.name} for ${permissionWords(key, p)}? [y/N] `)) picked.push(key);
+  }
+  return picked.length > 0 ? picked : undefined;
 }
 
 type Waited =
@@ -211,7 +240,13 @@ async function waitForConnect(ctx: CommandContext, request: ConnectRequest): Pro
   }
 }
 
-/** What a finished connect says: whose account, and what the app granted less than asked. */
+/** Whose account a connection is, in words: `<label> at <app>`, and whether it's the company's. */
+function accountWords(c: Connection): string {
+  const whose = c.owner.kind === 'company' ? ", the company's account" : '';
+  return `${c.account.label} at ${c.app}${whose}`;
+}
+
+/** What a connected connect says: whose account it connected. */
 async function connected(
   ctx: CommandContext,
   request: ConnectRequest,
@@ -219,19 +254,42 @@ async function connected(
   const id = request.connectionId;
   if (id === undefined) return { stdout: `Connected ${request.app}.\n`, stderr: '' };
   const c = await ctx.client().connections.get(id);
-  const whose = c.owner.kind === 'company' ? ", the company's account" : '';
-  const missing =
+  return { stdout: `Connected ${accountWords(c)} (connection ${c.connectionId}).\n`, stderr: '' };
+}
+
+/**
+ * A connect the person allowed less on than asked: the server ends it
+ * declined, yet stores the connection with what was granted, and names it.
+ * It exits 1, since the request didn't get what it asked for.
+ */
+async function connectedWithLess(
+  ctx: CommandContext,
+  request: ConnectRequest,
+  id: string,
+): Promise<Rendered & { readonly exitCode: number }> {
+  const c = await ctx.client().connections.get(id);
+  const not =
     request.missing !== undefined && request.missing.length > 0
-      ? `The app granted less than asked: not ${request.missing.join(', ')}. Tools that need those ask to connect again.\n`
+      ? `: not ${request.missing.join(', ')}`
       : '';
   return {
-    stdout: `Connected ${c.account.label} at ${c.app}${whose} (connection ${c.connectionId}).\n`,
-    stderr: missing,
+    stdout: `Connected ${accountWords(c)} (connection ${c.connectionId}), with less than asked.\n`,
+    stderr: `The app granted less than asked${not}. Tools that need those ask to connect again.\n`,
+    exitCode: 1,
   };
 }
 
+/** A declined connect that stored nothing; a reconnect leaves its connection as it was. */
+function declinedWords(r: ConnectRequest): string {
+  const not =
+    r.missing !== undefined && r.missing.length > 0 ? ` (not ${r.missing.join(', ')})` : '';
+  return r.reconnects !== undefined
+    ? `Declined at ${r.app}${not}: connection ${r.reconnects} stays as it was.\n`
+    : `Declined at ${r.app}${not}: nothing connected.\n`;
+}
+
 const ENDED: Record<'declined' | 'expired' | 'failed', (r: ConnectRequest) => string> = {
-  declined: (r) => `Declined at ${r.app}: nothing connected.\n`,
+  declined: declinedWords,
   expired: () => 'The link expired before the connect finished: nothing connected.\n',
   failed: (r) => `The connect failed (${r.failure ?? 'no reason given'}): nothing connected.\n`,
 };
@@ -252,6 +310,9 @@ async function afterWaiting(
   if (waited.kind === 'expired') return { stdout: '', stderr: ENDED.expired(request), exitCode: 1 };
   const ended = waited.request;
   if (ended.state === 'connected') return await connected(ctx, ended);
+  if (ended.state === 'declined' && ended.connectionId !== undefined) {
+    return await connectedWithLess(ctx, ended, ended.connectionId);
+  }
   // A state this CLI doesn't know yet still ends the wait, said as the server gave it.
   const said = (ENDED as Partial<Record<string, (r: ConnectRequest) => string>>)[ended.state];
   return {
@@ -280,7 +341,7 @@ const connect: LeafCommand = {
     permissions: {
       type: 'string',
       description:
-        "The entry's permission keys to ask for, comma-separated (`gmail.send,gmail.read`). Default: every one the app's entry offers.",
+        "The entry's permission keys to ask for, comma-separated (`gmail.send,gmail.read`). Left out, it asks you at the terminal about each one the app's entry offers, none picked for you; without a terminal it's required.",
     },
     'for-company': {
       type: 'boolean',
@@ -293,6 +354,13 @@ const connect: LeafCommand = {
       const appId = stringFlag(ctx, 'app-id');
       const projectId = stringFlag(ctx, 'project');
       const permissions = await permissionsFor(ctx, app);
+      if (permissions === undefined) {
+        return {
+          stdout: '',
+          stderr: 'kindgi connections connect: no permission picked, so nothing was asked.\n',
+          exitCode: 1,
+        };
+      }
       const request = await ctx.client().connections.connect({
         app,
         permissions,
