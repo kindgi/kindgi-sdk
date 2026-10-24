@@ -617,6 +617,28 @@ describe('the app refuses a token: renewed once, the call runs once more', () =>
     ]);
   });
 
+  test('refused again for another connection the tool declares: connection-rejected names that one, renewed or not', async () => {
+    const t = await turn({
+      needs: { mail, shared },
+      run: async (_ctx, attempt) => {
+        throw new ConnectionRejectedError(attempt === 1 ? 'mail' : 'shared');
+      },
+    });
+    expect(t.ran).toHaveLength(2);
+    // Only the first refusal's connection is renewed: the call has had its one more try.
+    expect(t.asked[2]?.renew).toEqual(['mail']);
+    expect(t.results).toEqual([
+      {
+        status: 'failed',
+        error: {
+          code: 'connection-rejected',
+          message: 'the app refused the connection "shared"',
+          connection: 'shared',
+        },
+      },
+    ]);
+  });
+
   test('refused again for a connection the tool never declared: it fails as the tool did', async () => {
     const t = await turn({
       run: async (_ctx, attempt) => {
