@@ -2835,7 +2835,7 @@ export const LicensePreviewSchema: JsonSchema = {
   additionalProperties: false,
   required: ['version', 'releasedAt', 'expiresAt', 'daysLeft', 'standing'],
   description:
-    "This build's own expiry, before Kindgi 1.0: a preview release stops starting 90 days after it was released, in every mode, unless a production key exempts it. Absent when nothing expires: a 1.0 or later release, a build from source, or a production key.",
+    "This build's own expiry: a preview release stops starting 90 days after it was released, in every mode, unless a production key exempts it. Absent when nothing expires: a build from source, or a production key.",
   properties: {
     version: { type: 'string', description: "This build's release, `0.1.8`." },
     releasedAt: { type: 'string', format: 'date-time' },

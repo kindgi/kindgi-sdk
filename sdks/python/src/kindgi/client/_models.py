@@ -11202,7 +11202,7 @@ class WebhookTestEvent(BaseModel):
 
 class LicensePreview(BaseModel):
     """
-    This build's own expiry, before Kindgi 1.0: a preview release stops starting 90 days after it was released, in every mode, unless a production key exempts it. Absent when nothing expires: a 1.0 or later release, a build from source, or a production key.
+    This build's own expiry: a preview release stops starting 90 days after it was released, in every mode, unless a production key exempts it. Absent when nothing expires: a build from source, or a production key.
     """
 
     model_config = ConfigDict(

@@ -652,10 +652,9 @@ What each setting does, and the ways in: [Turn on sign-in](../sign-in/).
 
 ## Operate it
 
-- **Upgrade at least every 90 days while Kindgi is in preview.** Until
-  Kindgi 1.0, a release stops starting 90 days after it was released.
-  Container Apps starts new replicas on its own, and after that day none
-  comes up. The runtime warns from 30 days before, at startup and once a
+- **Upgrade at least every 90 days.** A preview release stops starting 90
+  days after it was released. Container Apps starts new replicas on its
+  own, and after that day none comes up. The runtime warns from 30 days before, at startup and once a
   day, in a log record with `"event": "kindgi.preview_expiry"`: alert on it
   in Log Analytics
   ([Licensing](../../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
