@@ -32,7 +32,8 @@ const TABLE: TableSpec<GatePolicyPage, GatePolicy> = {
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: "List gate policies (each one's latest active version), for an agent or a scope.",
+  description:
+    "List release gate policies (each one's latest active version), for an agent or a scope.",
   usage: `kindgi gate-policies list [--agent=<agent-id>] [${SCOPE_USAGE}] [--limit=<n>] [--cursor=<cursor>] [--table]`,
   optionSpec: {
     agent: { type: 'string', description: 'Only the policies gating this agent.' },
@@ -63,7 +64,7 @@ const list: LeafCommand = {
 const show: LeafCommand = {
   kind: 'leaf',
   name: 'show',
-  description: "Show a gate policy's latest active version, or one version.",
+  description: "Show a release gate policy's latest active version, or one version.",
   usage: 'kindgi gate-policies show <policy-id> [<version>]',
   run: (ctx) =>
     runSdk(ctx, 'gate-policies show', async () => {
@@ -78,7 +79,7 @@ const show: LeafCommand = {
 const versions: LeafCommand = {
   kind: 'leaf',
   name: 'versions',
-  description: "List a gate policy's versions, unregistered ones too.",
+  description: "List a release gate policy's versions, unregistered ones too.",
   usage: 'kindgi gate-policies versions <policy-id> [--table]',
   run: (ctx) =>
     runSdk(
@@ -94,7 +95,7 @@ const publish: LeafCommand = {
   kind: 'leaf',
   name: 'publish',
   description:
-    'Publish a gate policy, or a new version of one: what a promotion of the agent for the scope must show (the spec: comparison, evidence, metrics, replay, approvals). Needs admin on the tenant.',
+    'Publish a release gate policy, or a new version of one: what making a version of the agent live for the scope must show (the spec: a run on the test cases, evidence, metrics, replay, approvals). Needs admin on the tenant.',
   usage: `kindgi gate-policies publish <policy-id> --policy-version=<semver> --agent=<agent-id> ${SCOPE_USAGE} --spec='<json>'|@<file> [--description=<text>]`,
   optionSpec: {
     'policy-version': { type: 'string', description: 'The version to publish (semver).' },
@@ -125,7 +126,7 @@ const unregister: LeafCommand = {
   kind: 'leaf',
   name: 'unregister',
   description:
-    "Unregister a gate policy version: the policy's latest remaining active version applies, or the scope above's policy.",
+    "Unregister a release gate policy version: the policy's latest remaining active version applies, or the scope above's policy.",
   usage: 'kindgi gate-policies unregister <policy-id> <version>',
   run: (ctx) =>
     runSdk(ctx, 'gate-policies unregister', async () =>
@@ -141,7 +142,7 @@ const unregister: LeafCommand = {
 const reinstate: LeafCommand = {
   kind: 'leaf',
   name: 'reinstate',
-  description: 'Reinstate an unregistered gate policy version.',
+  description: 'Reinstate an unregistered release gate policy version.',
   usage: 'kindgi gate-policies reinstate <policy-id> <version>',
   run: (ctx) =>
     runSdk(ctx, 'gate-policies reinstate', async () =>
@@ -164,6 +165,6 @@ export const gatePoliciesCommand: Command = {
   kind: 'group',
   name: 'gate-policies',
   description:
-    'Gate policies: what a promotion of an agent must show before a version goes live for a scope (list / show / versions / publish / unregister / reinstate).',
+    'Release gate policies: what a request to make a version of an agent live must show before it goes live for a scope (list / show / versions / publish / unregister / reinstate).',
   subcommands: [list, show, versions, publish, unregister, reinstate],
 };

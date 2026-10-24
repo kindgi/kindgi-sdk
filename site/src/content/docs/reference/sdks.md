@@ -55,7 +55,7 @@ in as data, as the API names them: `set("budget", …)`, `node(Map.of(…))`,
 | [Start a run](../../guides/runs/start-a-run/), and wait for it or not | Yes | Yes | Yes | Yes |
 | [Follow a run's events](../../guides/runs/follow-a-run/), reconnecting until it ends | Yes | Yes | Yes | Yes |
 | Typed errors, and retries a call can take | Yes | Yes | Yes | Yes |
-| [Comparing an agent version](../../guides/evals/compare-an-agent-version/): a helper that reads the comparison | Yes | Yes | Yes | Yes |
+| [Trying an agent version on the test cases](../../guides/evals/compare-an-agent-version/): a helper that reads the result | Yes | Yes | Yes | Yes |
 | [Verifying a webhook](../../guides/webhooks/verify-a-webhook/), reading its event, signing a test one | Yes | Yes | Yes | Yes |
 | [Checking a signed export](../../guides/observability/export-signed-evidence/#check-an-export) | Yes | Yes | Yes | Yes |
 

@@ -170,7 +170,7 @@ Going live takes two steps, in this order.
 **1. Make the agent's version live.** Until an agent has a live version,
 each run gets its latest version, so every deploy changes what runs at
 once. Make the version you tried live in the project. Then later deploys
-change nothing until you promote again.
+change nothing until you make a version live again.
 
 Ask your coding agent: "Make the version of `acme-desk.reply-drafter` that I
 tried live in the Default project." For reference:
@@ -214,9 +214,9 @@ its version, before you make it live.
    `kindgi runs start --agent=acme-desk.reply-drafter --agent-version=<new version> --input=…`.
    This is a real run, in a project in production. It uses your
    workspace's keys and secrets, and its tools do what they do.
-3. **Compare it on a test set,** if you have one. A comparison replays the
-   test set's cases with the new version
-   ([Compare a version on a test set](../../guides/evals/compare-an-agent-version/)).
+3. **Try it on your test cases,** if you have some. A run on the test cases
+   replays them with the new version
+   ([Try a version on the test cases](../../guides/evals/compare-an-agent-version/)).
 4. **Make it live:**
    `kindgi agents promote acme-desk.reply-drafter <new version> --project=<project-id> --reason=…`.
    Runs get it from the next run, except that a conversation that's
@@ -227,12 +227,12 @@ its version, before you make it live.
    This puts back the version that was live before, at once.
 
 Several new versions can wait at once. Each deploy that changes the code
-registers a version, and you can run any of them by its number. Promoting
-makes one of them live; the others stay, and you can still run them.
+registers a version, and you can run any of them by its number. You make
+one of them live; the others stay, and you can still run them.
 
 [Release an agent version](../../guides/evals/release-an-agent-version/)
-shows each step, a release for some runs only, and a gate that needs a
-reviewer.
+shows each step, a release for some runs only, and a release gate policy
+that needs a reviewer.
 [Live versions reference](../../guides/evals/live-versions-reference/) has
 every rule and refusal.
 
@@ -243,13 +243,13 @@ model keys when it runs, from your workspace's values on `prod`. So the live
 version and every version that's waiting read the same values:
 
 - A new secret that only the new version reads can go in before you
-  promote.
+  make it live.
 - Changing a value that the live version reads changes live runs from the
-  next run, before you promote anything.
+  next run, before you make anything live.
 - `kindgi deploy --hosted --env=prod --sync-secrets` writes the pack's
   `.env.prod` values right after the deploy, into those same values. So it
-  can change what the live version reads, though you haven't promoted the
-  new version.
+  can change what the live version reads, though you haven't made the new
+  version live.
 
 ## If something goes wrong
 

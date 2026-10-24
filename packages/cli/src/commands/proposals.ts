@@ -101,10 +101,10 @@ const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description:
-    'List improvement proposals, newest first: only those of agents you can read. A scope flag keeps the proposals for exactly that scope. A status filter is applied after the page is read, so a page can hold fewer than --limit.',
+    'List suggested changes, newest first: only those of agents you can read. A scope flag keeps the suggested changes for exactly that scope. A status filter is applied after the page is read, so a page can hold fewer than --limit.',
   usage: `kindgi proposals list [--agent=<agent-id>] [${SCOPE_USAGE}] [--tier=settings-block|prompt-block] [--status=<status>] [--limit=<n>] [--cursor=<cursor>] [--table]`,
   optionSpec: {
-    agent: { type: 'string', description: "Only this agent's proposals." },
+    agent: { type: 'string', description: "Only this agent's suggested changes." },
     ...SCOPE_FLAGS,
     tier: { type: 'string', description: '`settings-block` or `prompt-block`.' },
     status: { type: 'string', description: `One of: ${STATUSES.join(', ')}.` },
@@ -139,7 +139,7 @@ const get: LeafCommand = {
   kind: 'leaf',
   name: 'get',
   description:
-    'Show a proposal: its change, status, candidate versions, the comparison it was evaluated on and its promotion.',
+    'Show a suggested change: its change, status, candidate versions, the run on the test cases it was evaluated on and its request to make it live.',
   usage: 'kindgi proposals get <proposal-id>',
   run: (ctx) =>
     runSdk(ctx, 'proposals get', async () =>
@@ -168,7 +168,7 @@ async function contentFrom(
     return { tier: 'prompt-block', content: { template: text } };
   }
   throw new UsageError(
-    'Give the new content, one of: --values=<json>|@<file> (a settings block) or --template=<text>|@<file> (a prompt block)',
+    "Give the new content, one of: --values=<json>|@<file> (a settings block) or --template=<text>|@<file> (the agent's instructions)",
   );
 }
 
@@ -176,7 +176,7 @@ const draft: LeafCommand = {
   kind: 'leaf',
   name: 'draft',
   description:
-    'Draft a proposal by hand: new content for one block the agent version pins (settings values, or a prompt template), for one scope. The same change from the same version for the same scope returns the proposal drafted before. Needs `publish` on the agent.',
+    "Draft a suggested change by hand: new content for one block the agent version pins (settings values, or the agent's instructions), for one scope. The same change from the same version for the same scope returns the suggested change drafted before. Needs `publish` on the agent.",
   usage: `kindgi proposals draft --agent=<agent-id> --from-version=<semver> ${SCOPE_USAGE} --block=<block-id> (--values=<json>|@<file> | --template=<text>|@<file>) --hypothesis=<text> [--judgment=<judgment-id>]…`,
   optionSpec: {
     agent: { type: 'string', description: 'The agent.' },
@@ -192,13 +192,13 @@ const draft: LeafCommand = {
     },
     template: {
       type: 'string',
-      description: "A prompt block's new template: text, inline or `@<file>`.",
+      description: "The agent's instructions (a prompt block), new text: inline or `@<file>`.",
     },
     hypothesis: { type: 'string', description: 'What the change should improve, and why.' },
     judgment: {
       type: 'string',
       multiple: true,
-      description: 'A judgment behind the change (repeatable): kept as evidence.',
+      description: 'A correction behind the change (repeatable): kept as evidence.',
     },
     ...IDEMPOTENCY_FLAG,
   },
@@ -228,11 +228,11 @@ const evaluate: LeafCommand = {
   kind: 'leaf',
   name: 'evaluate',
   description:
-    "Evaluate a proposal on a test set: a comparison of the candidate with the version it changes. The first evaluation publishes the block version and derives the agent version; they serve no scope until promoted, so the agent needs a live version for the whole tenant (`kindgi agents promote <agent-id> <version> --tenant`). The proposal is `evaluating`, then `evaluated` (better), `not-better` or `evaluation-failed`. With `--rescore`, after people judged the comparison's new answers on its replay runs: the latest evaluation scored again, counting those judgments, on the same replays (no other flag). Needs `publish` on the agent.",
+    "Evaluate a suggested change on the test cases: a run on the test cases that tries the candidate against the version it changes. The first evaluation publishes the block version and derives the agent version; they serve no scope until made live, so the agent needs a live version for the whole tenant (`kindgi agents promote <agent-id> <version> --tenant`). The suggested change is `evaluating`, then `evaluated` (better), `not-better` or `evaluation-failed`. With `--rescore`, after people corrected the run's new answers on its replay runs: the latest evaluation scored again, counting those corrections, on the same replays (no other flag). Needs `publish` on the agent.",
   usage:
     'kindgi proposals evaluate <proposal-id> --test-set=<suite-id> [--objective=weightedYesShare|weightedPrecisionAtK] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--class-weights=as-recorded|restricted-only] [--wait]\n       kindgi proposals evaluate <proposal-id> --rescore [--wait]',
   optionSpec: {
-    'test-set': { type: 'string', description: 'The test set: a judged eval suite, by id.' },
+    'test-set': { type: 'string', description: 'The test cases: a judged eval suite, by id.' },
     objective: {
       type: 'string',
       description:
@@ -255,17 +255,17 @@ const evaluate: LeafCommand = {
     'class-weights': {
       type: 'string',
       description:
-        '`as-recorded` (the default) or `restricted-only`: only judgments of restricted judge classes count.',
+        '`as-recorded` (the default) or `restricted-only`: only corrections in restricted judge classes count.',
     },
     rescore: {
       type: 'boolean',
       description:
-        "Score the latest evaluation's replays again, with what people judged on them since: same test set version and settings, nothing replayed.",
+        "Score the latest evaluation's replays again, with what people corrected on them since: the same version of the test cases and settings, nothing replayed.",
     },
     wait: {
       type: 'boolean',
       description:
-        'Wait until the evaluation is done (at most 30 minutes), then print the proposal.',
+        'Wait until the evaluation is done (at most 30 minutes), then print the suggested change.',
     },
     ...IDEMPOTENCY_FLAG,
   },
@@ -283,7 +283,7 @@ const evaluate: LeafCommand = {
         const set = COMPARISON_FLAGS.filter((flag) => ctx.options[flag] !== undefined);
         if (set.length > 0) {
           throw new UsageError(
-            `--rescore cannot be combined with --${set[0]}: it reruns the latest evaluation's test set version and settings`,
+            `--rescore cannot be combined with --${set[0]}: it reruns the latest evaluation's version of the test cases and settings`,
           );
         }
         const started = await proposals.rescore(id, { ...idempotency(ctx) });
@@ -322,10 +322,10 @@ const request: LeafCommand = {
   kind: 'leaf',
   name: 'request',
   description:
-    "Request a proposal's promotion: its candidate version, for its scope, through the scope's gate with its evaluation. The proposal is `promoted`, or `in-review` (a reviewer decides the promotion's approval: `kindgi approvals complete`); a gate refusal lists every check. Allowed once evaluated, also when `not-better`: the gate decides. Needs `promote` on the agent.",
+    "Ask to make a suggested change live: its candidate version, for its scope, through the scope's release gate policy with its evaluation. The suggested change is `promoted`, or `in-review` (a reviewer decides the approval to make it live: `kindgi approvals complete`); a refusal by the release gate policy lists every check. Allowed once evaluated, also when `not-better`: the release gate policy decides. Needs `promote` on the agent.",
   usage: 'kindgi proposals request <proposal-id> [--reason=<text>]',
   optionSpec: {
-    reason: { type: 'string', description: 'Why, kept on the promotion.' },
+    reason: { type: 'string', description: 'Why, kept on the request to make it live.' },
     ...IDEMPOTENCY_FLAG,
   },
   run: (ctx) =>
@@ -341,7 +341,7 @@ const rollback: LeafCommand = {
   kind: 'leaf',
   name: 'rollback',
   description:
-    'Roll back a promoted proposal: its scope goes back to the version that served it before. The proposal and its versions stay, as history. Needs `promote` on the agent.',
+    'Roll back a suggested change that was made live: its scope goes back to the version that served it before. The suggested change and its versions stay, as history. Needs `promote` on the agent.',
   usage: 'kindgi proposals rollback <proposal-id> [--reason=<text>]',
   optionSpec: {
     reason: { type: 'string', description: 'Why, kept on the record.' },
@@ -360,7 +360,7 @@ const withdraw: LeafCommand = {
   kind: 'leaf',
   name: 'withdraw',
   description:
-    'Withdraw a proposal before review, or after its promotion was refused, superseded or expired. Needs `publish` on the agent.',
+    'Withdraw a suggested change before review, or after its request to make it live was refused, superseded or expired. Needs `publish` on the agent.',
   usage: 'kindgi proposals withdraw <proposal-id> --reason=<text>',
   optionSpec: {
     reason: { type: 'string', description: 'Why, kept on the record (required).' },
@@ -448,28 +448,29 @@ const improve: LeafCommand = {
   kind: 'leaf',
   name: 'improve',
   description:
-    "Ask the runtime to look for better values for an agent version's tunable settings — or, with `--tier=prompt`, have a model draft new prompt templates — for a scope, within a budget. It searches on part of the test set and proves its best candidate on the rest; if that candidate is better, it writes a proposal, which a reviewer decides (`kindgi proposals request`). The pass works in one project: the test set must be one that project reaches, and its eval runs run there. With `--project`, it's that project; with `--tenant` or `--org`, `--pass-project`, else the agent version's. Answers at once with the pass; `--wait` waits for its outcome. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's.",
+    "Ask the runtime to look for better values for the settings an agent version marks as what Improve may change — or, with `--tier=prompt`, have a model draft new instructions — for a scope, within a budget. It searches on part of the test cases and checks its best candidate on the cases it didn't learn from; if that candidate is better, it writes a suggested change, which a reviewer decides (`kindgi proposals request`). The Improve run works in one project: the test cases must be ones that project reaches, and its eval runs run there. With `--project`, it's that project; with `--tenant` or `--org`, `--pass-project`, else the agent version's. Answers at once with the Improve run; `--wait` waits for its outcome. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's.",
   usage: `kindgi proposals improve --agent=<agent-id> ${SCOPE_USAGE} --test-set=<suite-id> [--pass-project=<project-id>] [--from-version=<semver>] [--tier=settings|prompt] [--objective=weightedYesShare|weightedPrecisionAtK] [--class-weights=as-recorded|restricted-only] [--provider=<id> --model=<model>] [--drafts=<n>] [--max-cost=<usd>] [--max-candidates=<n>] [--wait]`,
   optionSpec: {
     agent: { type: 'string', description: 'The agent.' },
     ...SCOPE_FLAGS,
     'test-set': {
       type: 'string',
-      description: 'The judged test set to search and prove on, by id.',
+      description: 'The test cases (a judged suite) to search and check on, by id.',
     },
     'pass-project': {
       type: 'string',
       description:
-        "The project the pass works in, by id, for a tenant or org scope (default: the agent version's). With `--project`, it's that project, and another is refused.",
+        "The project the Improve run works in, by id, for a tenant or org scope (default: the agent version's). With `--project`, it's that project, and another is refused.",
     },
     'from-version': {
       type: 'string',
-      description: 'The version whose settings it tunes (default: the one serving the scope).',
+      description:
+        'The version whose settings Improve may change (default: the one serving the scope).',
     },
     tier: {
       type: 'string',
       description:
-        "What to tune: `settings` (the default) — values for the version's tunable settings keys — or `prompt`, where a model drafts new prompt templates (needs `--provider` and `--model`, and a drafted proposal always waits for a reviewer).",
+        'What to improve: `settings` (the default) — values for the settings keys the version marks as what Improve may change — or `prompt`, where a model drafts new instructions (needs `--provider` and `--model`, and a drafted suggested change always waits for a reviewer).',
     },
     objective: {
       type: 'string',
@@ -478,32 +479,34 @@ const improve: LeafCommand = {
     'class-weights': {
       type: 'string',
       description:
-        "Which judgments the pass learns from: `as-recorded` (all classes) or `restricted-only` (restricted judge classes only). Omitted, it counts everyone until the test set's project, its tenant, or the agent improved there has a restricted judge class, then only those.",
+        "Which corrections the Improve run learns from: `as-recorded` (all classes) or `restricted-only` (restricted judge classes only). Omitted, it counts everyone until the test cases' project, its tenant, or the agent improved there has a restricted judge class, then only those.",
     },
     provider: {
       type: 'string',
       description:
-        'For a prompt pass: the provider whose model drafts the templates (with `--model`).',
+        'With `--tier=prompt`: the provider whose model drafts the instructions (with `--model`).',
     },
     model: {
       type: 'string',
-      description: 'For a prompt pass: the model that drafts the templates (with `--provider`).',
+      description:
+        'With `--tier=prompt`: the model that drafts the instructions (with `--provider`).',
     },
     drafts: {
       type: 'string',
-      description: 'For a prompt pass: how many templates to draft (1–5, default 3).',
+      description:
+        'With `--tier=prompt`: how many drafts of the instructions to write (1–5, default 3).',
     },
     'max-cost': {
       type: 'string',
-      description: 'The most its comparisons may cost, in US dollars (default 5).',
+      description: 'The most its runs on the test cases may cost, in US dollars (default 5).',
     },
     'max-candidates': {
       type: 'string',
-      description: 'The most candidates it compares (default 30).',
+      description: 'The most candidates it tries (default 30).',
     },
     wait: {
       type: 'boolean',
-      description: 'Wait until the pass is done (at most 30 minutes), then print it.',
+      description: 'Wait until the Improve run is done (at most 30 minutes), then print it.',
     },
     ...IDEMPOTENCY_FLAG,
   },
@@ -554,11 +557,11 @@ const improve: LeafCommand = {
 const passesList: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: 'List improvement passes, newest first: only those of agents you can read.',
+  description: 'List Improve runs, newest first: only those of agents you can read.',
   usage:
     'kindgi proposals passes list [--agent=<agent-id>] [--limit=<n>] [--cursor=<cursor>] [--table]',
   optionSpec: {
-    agent: { type: 'string', description: "Only this agent's passes." },
+    agent: { type: 'string', description: "Only this agent's Improve runs." },
     limit: { type: 'string', description: 'Page size.' },
     cursor: { type: 'string', description: 'The next page, from `nextCursor`.' },
   },
@@ -584,7 +587,7 @@ const passesGet: LeafCommand = {
   kind: 'leaf',
   name: 'get',
   description:
-    'Show an improvement pass: how many candidates it compared, what that cost, and what it found (the proposal it wrote, or why nothing).',
+    'Show an Improve run: how many candidates it tried, what that cost, and what it found (the suggested change it wrote, or why nothing).',
   usage: 'kindgi proposals passes get <pass-id>',
   run: (ctx) =>
     runSdk(ctx, 'proposals passes get', async () =>
@@ -595,7 +598,7 @@ const passesGet: LeafCommand = {
 const passesCancel: LeafCommand = {
   kind: 'leaf',
   name: 'cancel',
-  description: 'Stop a running improvement pass: it ends `cancelled` and writes no proposal.',
+  description: 'Stop a running Improve run: it ends `cancelled` and writes no suggested change.',
   usage: 'kindgi proposals passes cancel <pass-id>',
   optionSpec: { ...IDEMPOTENCY_FLAG },
   run: (ctx) =>
@@ -609,7 +612,7 @@ const passesCancel: LeafCommand = {
 const passes: Command = {
   kind: 'group',
   name: 'passes',
-  description: 'Improvement passes: the runtime looking for better settings (list / get / cancel).',
+  description: 'Improve runs: the runtime looking for better settings (list / get / cancel).',
   subcommands: [passesList, passesGet, passesCancel],
 };
 
@@ -617,6 +620,6 @@ export const proposalsCommand: Command = {
   kind: 'group',
   name: 'proposals',
   description:
-    "Improvement proposals: new content for a data block an agent pins, for one scope; evaluated on a test set, then promoted through the scope's gate (list / get / draft / evaluate / request / rollback / withdraw / improve / passes).",
+    "Suggested changes: new content for a data block an agent pins, for one scope; evaluated on the test cases, then made live through the scope's release gate policy (list / get / draft / evaluate / request / rollback / withdraw / improve / passes).",
   subcommands: [list, get, draft, evaluate, request, rollback, withdraw, improve, passes],
 };
