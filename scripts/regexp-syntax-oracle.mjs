@@ -6,7 +6,7 @@
 // packages/specs/test-vectors/regexp-syntax/corpus.json with this Node's own RegExp, with the u
 // flag and with no flags, and writes what it says to answers.json beside it: null when the
 // source compiles, else the reason without its "Invalid regular expression: /<source>/<flags>: "
-// prefix. The SDKs replay the answers (test-vectors/README.md).
+// prefix. The SDKs replay the answers (packages/specs/test-vectors/README.md).
 //
 //   node scripts/regexp-syntax-oracle.mjs           # write the answers
 //   node scripts/regexp-syntax-oracle.mjs --check   # fail when they're stale
