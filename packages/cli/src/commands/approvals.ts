@@ -87,7 +87,7 @@ const list: LeafCommand = {
         ...(cursor !== undefined && { cursor: cursor as never }),
       });
       if (decidedBy !== undefined && page.decidedBy !== 'me') {
-        throw filterIgnored('decided-by', '0.1.8.1');
+        throw filterIgnored('decided-by', '0.1.9');
       }
       return page;
     }),

@@ -186,6 +186,10 @@ public final class Guardrail<C> {
     }
 
     /**
+     * In 0.1 the runtime acts only on {@code halt}: the turn fails with
+     * {@code guardrail-violation}. Any other action is recorded on the turn's violations and the
+     * turn completes; nothing runs it again, escalates or calls a compensating tool.
+     *
      * @param action what a failing check does: {@code halt}, {@code retry}, {@code escalate},
      *     {@code log-only}, …
      * @return this

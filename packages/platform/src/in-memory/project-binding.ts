@@ -23,6 +23,7 @@ import type { Filter, OrgId, Page, ProjectId, TeamId, TenantId, UserId } from '@
 import type {
   ProjectBinding,
   ProjectCreateOutcome,
+  ProjectDeleteOutcome,
   ProjectListFilter,
   ProjectMembershipAddInput,
   ProjectMembershipAddOutcome,
@@ -67,10 +68,20 @@ function grantKey(teamId: TeamId, projectId: ProjectId): string {
  *   (`TenantLimits.projectsInProduction`), read where it's kept;
  *   `undefined` for none. Read synchronously, so `setProduction` reads,
  *   counts and changes in one step, as a database's lock makes it.
+ * - `environmentOrderOf`: the id of the environment order a project is a
+ *   member of, or `undefined` for none. Given, `delete` and an `orgId` move
+ *   refuse a project that is in an order (`project-in-environment-order`), as
+ *   the durable binding does under its per-tenant lock; absent, no project is
+ *   in an order. Compose this to the environment-order binding's `orderOf`
+ *   wherever both share a store so the guard is never silently unset.
  */
 export interface InMemoryHierarchyOptions {
   readonly orgExists?: (tenantId: TenantId, orgId: OrgId) => boolean | Promise<boolean>;
   readonly productionLimit?: (tenantId: TenantId) => number | undefined;
+  readonly environmentOrderOf?: (
+    tenantId: TenantId,
+    projectId: ProjectId,
+  ) => string | undefined | Promise<string | undefined>;
 }
 
 /**
@@ -93,6 +104,20 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
     const p = projectRows.get(projectId);
     if (p === undefined || p.tenantId !== tenantId) return undefined;
     return p;
+  }
+
+  // Cascade — a deleted project's direct memberships + team grants drop with it.
+  function cascadeProjectDelete(projectId: ProjectId): void {
+    for (const key of membershipRows.keys()) {
+      if (key.startsWith(`${projectId}::`)) membershipRows.delete(key);
+    }
+    for (let i = grantOrder.length - 1; i >= 0; i -= 1) {
+      const key = grantOrder[i];
+      if (key?.endsWith(`::${projectId}`)) {
+        grantRows.delete(key);
+        grantOrder.splice(i, 1);
+      }
+    }
   }
 
   /** `limit-reached` when the tenant's projects in production are at its limit or past it. */
@@ -207,6 +232,16 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
       if (patch.orgId !== undefined) {
         nextOrgId = patch.orgId === null ? undefined : patch.orgId;
       }
+      // A move to another parent is refused while the project is in an
+      // environment order; a rename, slug or description change is not. The
+      // parent changes exactly when `nextOrgId` differs from the current org,
+      // and the order guard takes precedence over `org-not-found`.
+      if (patch.orgId !== undefined && nextOrgId !== row.orgId) {
+        const orderId = await options.environmentOrderOf?.(tenantId, projectId);
+        if (orderId !== undefined) {
+          return { kind: 'project-in-environment-order', orderId };
+        }
+      }
       if (
         patch.orgId !== undefined &&
         patch.orgId !== null &&
@@ -258,24 +293,19 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
       return { kind: 'ok', productionSince: next.productionSince ?? null, changed: true };
     },
 
-    async delete(tenantId, projectId): Promise<void> {
+    async delete(tenantId, projectId): Promise<ProjectDeleteOutcome> {
       const row = findProjectInTenant(tenantId, projectId);
-      if (row === undefined) return;
+      // An id that names no project is `ok` — deleting is idempotent.
+      if (row === undefined) return { kind: 'ok' };
+      const orderId = await options.environmentOrderOf?.(tenantId, projectId);
+      if (orderId !== undefined) {
+        return { kind: 'project-in-environment-order', orderId };
+      }
+      // No await between the order answer and the delete — one step, as the
+      // durable binding's per-tenant lock makes it.
       projectRows.delete(projectId);
-      // Cascade — direct memberships + team grants drop with the project.
-      for (const key of membershipRows.keys()) {
-        if (key.startsWith(`${projectId}::`)) {
-          membershipRows.delete(key);
-        }
-      }
-      for (let i = grantOrder.length - 1; i >= 0; i -= 1) {
-        const key = grantOrder[i];
-        if (key === undefined) continue;
-        if (key.endsWith(`::${projectId}`)) {
-          grantRows.delete(key);
-          grantOrder.splice(i, 1);
-        }
-      }
+      cascadeProjectDelete(projectId);
+      return { kind: 'ok' };
     },
   };
 

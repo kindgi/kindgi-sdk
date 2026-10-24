@@ -20,7 +20,12 @@ import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { Cursor, RunId, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from './agent-binding.js';
-import type { EvalCaseStoreBinding, JudgedEvalCase } from './eval-case-binding.js';
+import { type CandidateCall, type CorrectionDifference, gradeCorrection } from './corrections.js';
+import type {
+  EvalCaseStoreBinding,
+  JudgedCaseCorrection,
+  JudgedEvalCase,
+} from './eval-case-binding.js';
 import type {
   AgentRef,
   EvalClassWeights,
@@ -185,6 +190,33 @@ export interface JudgedComparisonSummary {
     readonly judgedCoverage: ComparisonMetric;
     readonly weightedPrecisionAtK: ComparisonMetric;
   };
+  /**
+   * Corrections graded across the cases, shown for a promotion gate, not
+   * enforced. Absent when the test set carries no corrections.
+   */
+  readonly corrections?: {
+    readonly checked: number;
+    readonly passed: number;
+    /**
+     * Each correction graded, by its judgment: whether it passed (every
+     * repetition did). What an improvement pass compares, run to run, to
+     * keep only a model-settings change that breaks none the current
+     * version passes. Absent from a summary recorded before it.
+     */
+    readonly judgments?: readonly { readonly judgmentId: string; readonly pass: boolean }[];
+  };
+  /**
+   * What the candidate's replays cost in model calls, as the runtime
+   * reported it: each repetition's total over the cases whose every
+   * repetition reported a cost (`cases`), averaged over the repetitions;
+   * with more than one, `spread` is the totals' max − min. Absent when no
+   * case's did.
+   */
+  readonly costUsd?: {
+    readonly candidate: number;
+    readonly spread?: number;
+    readonly cases: number;
+  };
 }
 
 /** One case's result. */
@@ -199,6 +231,36 @@ export interface JudgedCaseResult {
   readonly changes?: ItemChanges;
   /** The first repetition's tool calls. */
   readonly tools?: ReplayTurnReport['tools'];
+  /**
+   * Each correction on the case, graded on the replay: its verdict and how
+   * many of the repetitions passed (it passes only when every one did).
+   * Shown, not enforced. Kept through an erasure — the differences, which
+   * quote values, are in `correctionDifferences`.
+   */
+  readonly corrections?: readonly {
+    readonly judgmentId: string;
+    readonly pass: boolean;
+    readonly repetitionsPassed: number;
+    readonly repetitions: number;
+  }[];
+  /**
+   * How each correction's calls differed, by judgment: the differences from
+   * the first repetition that failed it, and that repetition's number (the
+   * shown `tools` are the first repetition's, which may differ). Quotes
+   * argument values, so an erasure clears it.
+   */
+  readonly correctionDifferences?: readonly {
+    readonly judgmentId: string;
+    /** Which repetition (1-based) these differences are from. */
+    readonly repetition: number;
+    readonly differences: readonly CorrectionDifference[];
+  }[];
+  /**
+   * What each repetition's replay cost in model calls, as the runtime
+   * reported it, one per repetition. Absent when a repetition reported
+   * none.
+   */
+  readonly costUsd?: readonly number[];
   readonly diverged: boolean;
   readonly refusedWrites: number;
   readonly noContext: boolean;
@@ -374,6 +436,13 @@ async function allCases(
 /** Why a case couldn't start, and the eval run stops (`EvalRunSubjectInvokeOutcome.halt`). */
 type Halt = NonNullable<EvalRunSubjectInvokeOutcome['halt']>;
 
+/** A tool call's arguments as an object; anything else compares as no fields. */
+function asArgs(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 /** One case's repetitions as they come back. */
 class CaseTally {
   readonly runIds: string[] = [];
@@ -384,14 +453,33 @@ class CaseTally {
   diverged = false;
   refusedWrites = 0;
   approvalSkipped = false;
+  private readonly correctionsCase: readonly JudgedCaseCorrection[];
+  /** judgmentId -> how many repetitions this correction passed. */
+  private readonly correctionPasses = new Map<string, number>();
+  /**
+   * judgmentId -> the first repetition that failed this correction: its number
+   * (1-based) and its differences. Kept so a correction that passes the first
+   * repetition and fails a later one still shows why.
+   */
+  private readonly firstFailure = new Map<
+    string,
+    { readonly repetition: number; readonly differences: readonly CorrectionDifference[] }
+  >();
+  private correctionRepetitions = 0;
+  /** Each repetition's reported cost, in order (undefined where one reported none). */
+  private readonly costs: (number | undefined)[] = [];
 
   constructor(
     private readonly judgedCase: JudgedEvalCase,
     private readonly comparison: EvalComparison,
     private readonly agentTurn: boolean,
-  ) {}
+  ) {
+    this.correctionsCase = judgedCase.corrections ?? [];
+  }
 
   add(outcome: EvalRunSubjectInvokeOutcome): 'ran' | 'stopped' | 'error' {
+    this.gradeCorrections(outcome);
+    this.costs.push(outcome.costUsd);
     if (outcome.runId !== undefined) this.runIds.push(outcome.runId as unknown as string);
     if (outcome.stopped !== undefined) {
       this.stopped ??= outcome.stopped;
@@ -428,8 +516,61 @@ class CaseTally {
     this.first ??= { changes: itemChanges(matched, judgedCase.items), ...replayOf(outcome) };
   }
 
+  /**
+   * Grade every correction on the case against this repetition's recorded
+   * calls (refused calls included, so a refused-then-retried call still
+   * counts). Called for every repetition — one that errored has no calls, so
+   * a `calls` correction fails it. The first repetition that fails a
+   * correction keeps its differences, with its repetition number.
+   */
+  private gradeCorrections(outcome: EvalRunSubjectInvokeOutcome): void {
+    if (this.correctionsCase.length === 0) return;
+    this.correctionRepetitions += 1;
+    const repetition = this.correctionRepetitions;
+    const calls: CandidateCall[] = (outcome.replay?.tools ?? []).map((t) => ({
+      tool: t.toolId,
+      args: asArgs(t.arguments),
+      step: t.step,
+      callId: t.callId,
+      ...(t.source === 'refused' && { refused: true }),
+    }));
+    for (const c of this.correctionsCase) {
+      const graded = gradeCorrection(c, calls);
+      if (graded.pass) {
+        this.correctionPasses.set(c.judgmentId, (this.correctionPasses.get(c.judgmentId) ?? 0) + 1);
+      } else if (!this.firstFailure.has(c.judgmentId)) {
+        this.firstFailure.set(c.judgmentId, { repetition, differences: graded.differences });
+      }
+    }
+  }
+
   result(baseline: OutputScore): JudgedCaseResult {
     const none = this.candidate.length === 0;
+    const n = this.comparison.repetitions;
+    const corrections = this.correctionsCase.map((c) => {
+      const passed = this.correctionPasses.get(c.judgmentId) ?? 0;
+      return {
+        judgmentId: c.judgmentId,
+        pass: passed === n,
+        repetitionsPassed: passed,
+        repetitions: n,
+      };
+    });
+    const correctionDifferences = this.correctionsCase.flatMap((c) => {
+      const failure = this.firstFailure.get(c.judgmentId);
+      return failure === undefined
+        ? []
+        : [
+            {
+              judgmentId: c.judgmentId,
+              repetition: failure.repetition,
+              differences: failure.differences,
+            },
+          ];
+    });
+    const costs = this.costs;
+    const costUsd =
+      costs.length === n && costs.every((c): c is number => c !== undefined) ? costs : undefined;
     return {
       caseId: this.judgedCase.caseId,
       runIds: this.runIds,
@@ -437,6 +578,9 @@ class CaseTally {
       candidate: this.candidate,
       ...(this.first !== undefined && { changes: this.first.changes }),
       ...(this.first?.replay !== undefined && { tools: this.first.replay.tools }),
+      ...(corrections.length > 0 && { corrections }),
+      ...(correctionDifferences.length > 0 && { correctionDifferences }),
+      ...(costUsd !== undefined && { costUsd }),
       diverged: this.diverged,
       refusedWrites: this.refusedWrites,
       noContext: this.judgedCase.context === undefined,
@@ -771,6 +915,8 @@ function summarize(
       ? specProject
       : (ctx.projectId as unknown as string | undefined);
   const judgedWeight = (s: OutputScore) => s.totalWeight;
+  const corrections = correctionsOf(results);
+  const costUsd = costOf(results, comparison.repetitions);
   return {
     evalRunId: ctx.runId as unknown as string,
     status:
@@ -817,16 +963,59 @@ function summarize(
         { k: comparison.k },
       ),
     },
+    ...(corrections !== undefined && { corrections }),
+    ...(costUsd !== undefined && { costUsd }),
+  };
+}
+
+/** The corrections graded across the cases, and whether each one passed, by judgment; none graded, undefined. */
+function correctionsOf(
+  results: readonly JudgedCaseResult[],
+): JudgedComparisonSummary['corrections'] {
+  const judgments = results.flatMap((r) =>
+    (r.corrections ?? []).map(({ judgmentId, pass }) => ({ judgmentId, pass })),
+  );
+  if (judgments.length === 0) return undefined;
+  const passed = judgments.filter((j) => j.pass).length;
+  return { checked: judgments.length, passed, judgments };
+}
+
+/**
+ * What the candidate's replays cost: each repetition's total over the
+ * cases whose every repetition reported a cost, averaged, and with more
+ * than one repetition the totals' spread. Undefined when no case's did.
+ */
+function costOf(
+  results: readonly JudgedCaseResult[],
+  repetitions: number,
+): JudgedComparisonSummary['costUsd'] {
+  const costed = results.flatMap((r) => (r.costUsd?.length === repetitions ? [r.costUsd] : []));
+  if (costed.length === 0) return undefined;
+  const totals = Array.from({ length: repetitions }, (_, rep) =>
+    costed.reduce((a, c) => a + (c[rep] ?? 0), 0),
+  );
+  return {
+    candidate: totals.reduce((a, b) => a + b, 0) / repetitions,
+    ...(repetitions > 1 && { spread: Math.max(...totals) - Math.min(...totals) }),
+    cases: costed.length,
   };
 }
 
 /**
  * A case as a `restricted-only` comparison counts it: each item at its
  * restricted judgments' weights; an item with none is left out, so it
- * counts as unjudged.
+ * counts as unjudged. Corrections filter the same way — only the ones
+ * recorded under a restricted class are kept, so a correction from a judge
+ * outside the restriction isn't graded.
  */
 function restrictedOnly(c: JudgedEvalCase): JudgedEvalCase {
-  return { ...c, items: restrictedItems(c.items) };
+  const { corrections, ...rest } = c;
+  const kept = corrections?.filter((x) => x.restricted === true);
+  return {
+    ...rest,
+    items: restrictedItems(rest.items),
+    ...(kept !== undefined && kept.length > 0 && { corrections: kept }),
+  };
 }
 
 /** Only what judges a class was restricted to said: an item without it counts as unjudged. */

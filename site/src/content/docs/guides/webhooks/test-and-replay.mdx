@@ -17,14 +17,16 @@ went, and sends a failed one again.
 - **A receiver listening at its URL,** such as one from
   [Verify a webhook](../verify-a-webhook/).
 - **Node 22.12 or later, Python 3.11 or later, or Java 17 or later,** with
-  Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+  Kindgi 0.2's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
 
 ## Send a test event
 
 A test event checks the receiver end to end, without a run.
 
 `sendTest`, or `send_test` in Python, queues a signed `webhook.test` event
-for an endpoint. This function sends one, then reads how it was delivered:
+for an endpoint. Ask your coding agent: "I want to send my webhook endpoint a
+test event and see whether it arrived." For reference, this function sends
+one, then reads how it was delivered:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -210,7 +212,9 @@ next attempt.
 When an endpoint's URL is wrong, its deliveries stay `pending`. The first
 attempt's `lastError` is `connection-refused` when nothing listens there, and
 `nextAttemptAt` is a minute later. Fix the URL, and send the delivery again
-now. This function does both, for an endpoint and one of its deliveries:
+now. Ask your coding agent: "I want to fix my webhook endpoint's URL and send
+its delivery again now." For reference, this function does both, for an
+endpoint and one of its deliveries:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

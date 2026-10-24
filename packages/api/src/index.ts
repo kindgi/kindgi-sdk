@@ -17,7 +17,11 @@ export {
   MULTI_TENANT_LOOKUP,
 } from './middleware/auth.js';
 export type { SessionCookieOptions, TokenResolution, TokenResolver } from './middleware/auth.js';
-export type { SignInOptionsRateLimit } from './routes/sign-in-options.js';
+export type {
+  ConsoleLink,
+  SignInLegalLinks,
+  SignInOptionsRateLimit,
+} from './routes/sign-in-options.js';
 export type {
   LicensePreview,
   LicenseStatus,
@@ -27,7 +31,24 @@ export type {
 export { WRITE_AUDIT_KINDS } from './routes/write-audit.js';
 export type { ProductionGateOptions } from './routes/project-production.js';
 export type { EgressAddresses } from './routes/tenant.js';
-export { USAGE_CLASSES, USAGE_KINDS, type UsageClass, type UsageKind } from './usage.js';
+export {
+  TENANT_USAGE_GROUP_KEYS,
+  USAGE_CLASSES,
+  USAGE_GROUP_KEYS,
+  USAGE_KINDS,
+  USAGE_STATES,
+  USAGE_WINDOW_MAX_DAYS,
+  type SystemUsageQuery,
+  type UsageBinding,
+  type UsageClass,
+  type UsageGroup,
+  type UsageGroupKey,
+  type UsageKind,
+  type UsagePage,
+  type UsageQuery,
+  type UsageReadResult,
+  type UsageState,
+} from './usage.js';
 export type { WriteAuditKind } from './routes/write-audit.js';
 export {
   FULL_SYSTEM_CAPABILITY,
@@ -71,6 +92,7 @@ export { PACK_ENDPOINT_AUTHS } from './routes/system-deployments.js';
 export type {
   DeploymentRef,
   PackEndpointAuth,
+  PackEnvRecordInput,
   SetPackEndpointInput,
   SetPackEndpointOutcome,
   SystemDeploymentEntry,
@@ -78,7 +100,25 @@ export type {
   SystemDeploymentsBinding,
   SystemDeploymentsOptions,
   SystemDeploymentToRetire,
+  SystemPackEnvOptions,
+  SystemPackEnvServed,
 } from './routes/system-deployments.js';
+export {
+  PACK_ENV_HELD_CODES,
+  PACK_ENV_PROBLEM_CODES,
+  PACK_ENV_RETRY_MS,
+  packEnvCheck,
+} from './pack-env.js';
+export type {
+  PackEnvCheck,
+  PackEnvCheckInput,
+  PackEnvDeclaration,
+  PackEnvDeps,
+  PackEnvHeldCode,
+  PackEnvNameStatus,
+  PackEnvProblemCode,
+  PackEnvScopeRef,
+} from './pack-env.js';
 export { tenantStateGate } from './middleware/tenant-state.js';
 export type { TenantStateBinding } from './middleware/tenant-state.js';
 export { systemTenantsRouter, systemWhoamiRouter } from './routes/system-tenants.js';
@@ -86,6 +126,9 @@ export type {
   SystemTenant,
   SystemTenantCreateInput,
   SystemTenantCreateOutcome,
+  SystemTenantPurged,
+  SystemTenantPurgeOutcome,
+  SystemTenantTableRows,
   SystemTenantsBinding,
 } from './routes/system-tenants.js';
 export { createInMemoryRateLimitStore } from './rate-limit-store.js';
@@ -139,6 +182,9 @@ export type {
   SiteKey,
   SiteListInput,
   SitePage,
+  SitePersonRestoreInput,
+  SitePersonRestoreOutcome,
+  SitePersonRestoreRefusal,
   SiteRegisterInput,
   SiteRegisterOutcome,
   SiteRevokeKeyInput,
@@ -172,6 +218,7 @@ export type {
   SessionRevokeAllForUserOutcome,
   SessionRevokeInput,
   SessionRevokeOutcome,
+  SessionSecondFactor,
   SessionStoreBinding,
   SessionTouchInput,
   SessionTouchOutcome,
@@ -254,6 +301,7 @@ export type {
   JudgingQueueListInput,
   JudgingQueuePage,
   JudgingQueueState,
+  JudgingRecentQueued,
   JudgingRule,
   JudgingRulePage,
   JudgingRulePatch,
@@ -274,6 +322,18 @@ export type {
   PersonRef,
 } from './person-grants-binding.js';
 export type { PersonCapabilitiesBinding } from './person-capabilities-binding.js';
+export type {
+  SecondFactorBinding,
+  SecondFactorConfirmOutcome,
+  SecondFactorProof,
+  SecondFactorRecoveryCodesOutcome,
+  SecondFactorRef,
+  SecondFactorRefusal,
+  SecondFactorRemoveOutcome,
+  SecondFactorSettings,
+  SecondFactorStartOutcome,
+  SecondFactorStatus,
+} from './second-factor-binding.js';
 export type {
   AccessPrincipal,
   ProjectAccessBinding,
@@ -312,6 +372,8 @@ export type {
 } from './reviewer-binding.js';
 export type {
   Approval,
+  ApprovalApprover,
+  ApprovalConnection,
   ApprovalPosition,
   ApprovalStatus,
   HitlBinding,
@@ -373,6 +435,15 @@ export type {
 } from './public-run-token.js';
 export { runFailure } from './run-failure.js';
 export type { RunFailure } from './run-failure.js';
+export { WAIT_TOKEN_STATES } from './wait-token-binding.js';
+export type {
+  CompleteWaitTokenInput,
+  WaitTokenAccepted,
+  WaitTokenBinding,
+  WaitTokenRefusal,
+  WaitTokenState,
+  WaitingToken,
+} from './wait-token-binding.js';
 export {
   WEBHOOK_DELIVERY_STATUSES,
   WEBHOOK_EVENT_TYPES,
@@ -451,6 +522,8 @@ export type {
   AgentUnregisterOutcome,
 } from './agent-binding.js';
 export type { RegistryReadOnly } from './registry-read-only.js';
+// A pack agent's block pins where the pack's own versions are the only ones (`kindgi dev`).
+export { type BlockPins, type BlockVersionReads, resolveBlockPins } from './block-pins.js';
 export type {
   FlowGetInput,
   FlowGetVersionInput,
@@ -488,6 +561,29 @@ export type {
   ProviderUnregisterInput,
   ProviderUnregisterOutcome,
 } from './provider-binding.js';
+export { deploymentValues } from './deployment-values.js';
+export type {
+  DeploymentValue,
+  DeploymentValueProblem,
+  DeploymentValueScope,
+  DeploymentValuesDeps,
+  DeploymentValuesInput,
+  ModelKeyLocation,
+  ModelKeyLookup,
+} from './deployment-values.js';
+export { carriedVersions } from './carried-versions.js';
+export type {
+  CarriedVersion,
+  CarriedVersions,
+  CarriedVersionsDeps,
+  CarriedVersionsInput,
+  LeftBehindVersion,
+} from './carried-versions.js';
+export {
+  carriedFor,
+  servingProjectOf,
+  valuesDepsFor,
+} from './routes/deployment-promotions.js';
 export {
   isCredentialHeaderName,
   MCP_AUTH_HEADERS_MAX,
@@ -571,6 +667,7 @@ export type {
   EvalCasePage,
   EvalCasePutInput,
   EvalCaseStoreBinding,
+  JudgedCaseCorrection,
   JudgedEvalCase,
   JudgedItemSummary,
   JudgedReason,
@@ -751,6 +848,14 @@ export type {
   OutputItem,
   OutputScore,
 } from './judged-items.js';
+export { describeCorrectionDifference, gradeCorrection } from './corrections.js';
+export type {
+  CandidateCall,
+  Correction,
+  CorrectionDifference,
+  CorrectionResult,
+  ExpectedCall,
+} from './corrections.js';
 export {
   COST_AGGREGATE_DEFAULT_LIMIT,
   COST_AGGREGATE_MAX_LIMIT,
@@ -769,6 +874,28 @@ export type {
   CostRecordPage,
   CostTokenTotals,
 } from './cost-binding.js';
+export type {
+  ConnectFinishInput,
+  ConnectFinishOutcome,
+  ConnectRequestCreateInput,
+  ConnectRequestInstallation,
+  ConnectRequestRecord,
+  ConnectRequestState,
+  ConnectionAppCreateInput,
+  ConnectionAppRecord,
+  ConnectionAppUpdateInput,
+  ConnectionBinding,
+  ConnectionError,
+  ConnectionErrorCode,
+  ConnectionListInput,
+  ConnectionOwner,
+  ConnectionPage,
+  ConnectionRecord,
+  ConnectionRemovedReason,
+  ConnectionState,
+  ConnectionWithdrawn,
+  SecretRefInput,
+} from './connection-binding.js';
 export {
   CURSOR_TTL_MS,
   createAeadCursorSealer,
@@ -782,6 +909,7 @@ export { sealedCursors } from './middleware/sealed-cursors.js';
 export type {
   ToolGetInput,
   ToolGetVersionInput,
+  ToolKindMismatch,
   ToolListInput,
   ToolListVersionsInput,
   ToolPage,
@@ -860,6 +988,7 @@ export type {
   ProposalEvaluationRef,
   ProposalEvidence,
   ProposalObjective,
+  ProposalRule,
   ProposalStep,
   ProposalTier,
   ProposedChange,
@@ -873,6 +1002,7 @@ export type {
   SupervisorQueryObservationsOutcome,
 } from './supervisor-binding.js';
 export type {
+  EstimateImprovementPassInput,
   ImproveScheduleInput,
   ImproveThreshold,
   ImprovementBudget,
@@ -880,6 +1010,7 @@ export type {
   ImprovementPass,
   ImprovementPassBinding,
   ImprovementPassComparison,
+  ImprovementPassEstimateBasis,
   ImprovementPassOutcome,
   ImprovementPassStatus,
   ImprovementTier,
@@ -890,6 +1021,7 @@ export { IMPROVE_SCHEDULE_DEFAULTS } from './improvement-pass-binding.js';
 export {
   DEFAULT_BUDGET as DEFAULT_IMPROVEMENT_BUDGET,
   parseImproveScheduleInput,
+  projectHasExpertClass,
   serializePass,
 } from './routes/improvement-passes.js';
 export { sampleCases } from './eval-sample.js';
@@ -919,7 +1051,9 @@ export {
 export type {
   FixProposalStatus,
   ProposalAction,
+  ProposalDecisions,
   ProposalEvaluationOutcome,
+  ProposalNotKept,
 } from './proposal-status.js';
 export {
   PACK_SERVICE_NAME_PREFIX,
@@ -947,8 +1081,11 @@ export type {
   DeploymentEndpointProblemCode,
   DeploymentEndpointStatus,
   DeploymentPrimitiveCounts,
+  DeploymentPromoteInput,
+  DeploymentPromoteOutcome,
   DeploymentRegisterInput,
   DeploymentRegisterOutcome,
+  PromotedToolSecretScopes,
   SystemDeploymentRetireReason,
 } from './deployment-binding.js';
 export type {
@@ -961,6 +1098,7 @@ export type {
   ImagePlatform,
   ImagePushInput,
   ImagePushOutcome,
+  ImageReadLimit,
   ImageRegistryBinding,
   ImageRegistryError,
 } from './image-registry-binding.js';
@@ -996,6 +1134,34 @@ export type {
   ResolveContext,
 } from './env-binding.js';
 export type {
+  EnvironmentOrder,
+  EnvironmentOrderBinding,
+  EnvironmentOrderCursor,
+  EnvironmentOrderEntry,
+  EnvironmentOrderGetInput,
+  EnvironmentOrderKey,
+  EnvironmentOrderListInput,
+  EnvironmentOrderListPage,
+  EnvironmentOrderLocation,
+  EnvironmentOrderOfInput,
+  EnvironmentOrderParent,
+  EnvironmentOrderSetInput,
+  EnvironmentOrderSetOutcome,
+  HasEnvironmentOrderInput,
+} from './environment-orders-binding.js';
+export type {
+  ItemProjectsBinding,
+  ItemProjectsInput,
+  ItemProjectsOfManyInput,
+  ItemServedElsewhere,
+  ItemServesIn,
+  NewestVisibleOfManyInput,
+  OrderItemKind,
+  ServesInInput,
+  VersionProjectsInput,
+  VersionProjectsOfManyInput,
+} from './item-projects-binding.js';
+export type {
   SecretBinding,
   SecretError,
   SecretGetInput,
@@ -1016,7 +1182,12 @@ export type {
   SecretVersionPage,
   SecretVersionRecord,
 } from './secrets-binding.js';
-export { RESERVED_SECRET_NAME_PREFIX } from './secrets-binding.js';
+export {
+  RESERVED_SECRET_NAME_PREFIX,
+  SECRET_NAME_ALLOWED,
+  SECRET_NAME_MAX_LENGTH,
+  secretNameGrammarRefusal,
+} from './secrets-binding.js';
 export { resolveAtScope, scopeOfRecorded } from './secret-scope.js';
 // A model provider's key is used by its provider only.
 export {

@@ -137,6 +137,19 @@ export function stringFlag(ctx: CommandContext, name: string): string | undefine
   return typeof raw === 'string' && raw !== '' ? raw : undefined;
 }
 
+/**
+ * A flag's value, trimmed, or `undefined` when it isn't given. Given empty
+ * (`--org=$ORG` with `ORG` unset) is a usage error, never the same as not
+ * given: a project in no org, or a slug nobody chose, would be made.
+ */
+export function givenFlag(ctx: CommandContext, name: string): string | undefined {
+  const raw = ctx.options[name];
+  if (raw === undefined) return undefined;
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  if (value === '') throw new UsageError(`--${name} takes a value`);
+  return value;
+}
+
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
 const ZONED_TIME =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
@@ -209,6 +222,28 @@ export function listFlag(ctx: CommandContext, name: string): string[] {
   const raw: unknown = ctx.options[name];
   const values = Array.isArray(raw) ? raw : [raw];
   return values.filter((v): v is string => typeof v === 'string' && v !== '');
+}
+
+/**
+ * `--allow-unattended=<tool-id>` (repeatable) as a webhook's or a schedule's
+ * `toolsAllowedUnattended`: the tools whose calls in its runs needn't wait
+ * for a person's yes. On update, `none` clears the list; left out, the body
+ * doesn't name it, so the trigger keeps its list.
+ */
+export function allowUnattendedField(
+  ctx: CommandContext,
+  on: 'register' | 'update',
+): { toolsAllowedUnattended?: string[] } {
+  const ids = listFlag(ctx, 'allow-unattended');
+  if (ids.length === 0) return {};
+  if (!ids.includes('none')) return { toolsAllowedUnattended: ids };
+  if (on === 'register') {
+    throw new UsageError('--allow-unattended=none clears the list on update: leave it out here');
+  }
+  if (ids.length > 1) {
+    throw new UsageError('--allow-unattended=none clears the list: not with tool ids');
+  }
+  return { toolsAllowedUnattended: [] };
 }
 
 /** Extract an optional integer flag; throws on non-integer values. */

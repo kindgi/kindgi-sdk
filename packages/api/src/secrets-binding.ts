@@ -14,6 +14,48 @@ import type { Cursor, EnvName, Result, TenantId } from '@kindgi/types';
 export const RESERVED_SECRET_NAME_PREFIX = 'kindgi.';
 
 /**
+ * The shape a secret name may take at the API border: ASCII letters, digits,
+ * and `.`, `-`, `_`, starting with a letter, digit or `_`, with any `.` between
+ * two non-`.` characters (so a name neither starts nor ends with `.`).
+ * {@link secretNameGrammarRefusal} holds a *fresh* create to this shape; a name
+ * already stored outside it still reads, rotates and takes new versions.
+ */
+export const SECRET_NAME_ALLOWED = /^[A-Za-z0-9_][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*$/;
+
+/**
+ * The longest a secret name may be at create. 255 is within every supported
+ * secret store's own limit, so a name of this length or less is writable
+ * wherever secrets are kept.
+ */
+export const SECRET_NAME_MAX_LENGTH = 255;
+
+/**
+ * Why a caller may not name a *new* secret `name` at the API border, or
+ * `undefined` when the name is allowed: the shared grammar
+ * ({@link SECRET_NAME_ALLOWED}, at most {@link SECRET_NAME_MAX_LENGTH}
+ * characters) the create routes hold a caller-supplied name to before anything
+ * is stored. A store may refuse further names of its own
+ * ({@link SecretBinding.nameRefusal}); this is the floor beneath that. The
+ * caller sees `secret-name-invalid` with the message as the request's `400`.
+ */
+export function secretNameGrammarRefusal(name: string): SecretNameRefusal | undefined {
+  if (name.length > SECRET_NAME_MAX_LENGTH) {
+    return {
+      code: 'secret-name-invalid',
+      message: `A secret name is at most ${SECRET_NAME_MAX_LENGTH} characters long; this one is ${name.length}.`,
+    };
+  }
+  if (!SECRET_NAME_ALLOWED.test(name)) {
+    return {
+      code: 'secret-name-invalid',
+      message:
+        'A secret name is 1 to 255 ASCII letters, digits, `.`, `-` and `_`; it starts with a letter, digit or `_`, and any `.` sits between two non-`.` characters. Rename it to that form.',
+    };
+  }
+  return undefined;
+}
+
+/**
  * Caller-plugged secret store — the framework consumer's surface for
  * every secret-lifecycle op. Every method is scope + env-scoped, where
  * `scope` is the discriminated primitive from `@kindgi/platform`
@@ -56,8 +98,9 @@ export interface SecretBinding {
    * method from `get` — different capability gate, different audit
    * event, different rate profile. Called by the runtime (handler
    * dispatch, deploy-time sync, boot — see `ResolveContext.caller`),
-   * not by the HTTP routes. Emits a `secret-resolved` compliance-evidence
-   * event on every call.
+   * not by the HTTP routes, but for the orchestrator's pack env read.
+   * Emits a `secret-resolved` compliance-evidence event on every call,
+   * but for caller `pack-env`, whose reader writes its own.
    */
   resolve(input: SecretResolveInput): Promise<Result<SecretResolveOutcome, SecretError>>;
 
@@ -264,6 +307,14 @@ export interface SecretRecord {
   readonly revokeReason?: string;
   readonly tags?: Readonly<Record<string, string>>;
   readonly rotationDueAt?: string;
+  /**
+   * The store's own id for the record, never on the wire. A secret removed
+   * and created again is a new record with a new id, so it's told from the
+   * old one even when both are at version 1 with the same update time. A
+   * revoked one set again, soft or hard, keeps its id: its versions go on. A
+   * store with no record id leaves it unset.
+   */
+  readonly recordId?: string;
 }
 
 export interface SecretVersionRecord {
@@ -336,7 +387,22 @@ export interface ResolveContext {
   readonly runId?: string;
   readonly deploymentId?: string;
   readonly nodeId?: string;
-  readonly caller: 'dispatch' | 'deploy-sync' | 'admin-cli' | 'boot-bridge' | 'webhook-receiver';
+  /**
+   * `pack-env`: the orchestrator's read of a deployment's pack env, which
+   * writes its own row per value it gives out, so a store doesn't emit one
+   * for it.
+   *
+   * `connections`: a connection's tokens, and its app registration's
+   * client secret, read to call the app.
+   */
+  readonly caller:
+    | 'dispatch'
+    | 'deploy-sync'
+    | 'admin-cli'
+    | 'boot-bridge'
+    | 'webhook-receiver'
+    | 'pack-env'
+    | 'connections';
 }
 
 export interface SecretResolveOutcome {
@@ -472,6 +538,15 @@ export interface SecretRevokeInput {
 export interface SecretRevokeOutcome {
   readonly revoked: boolean;
   readonly hard: boolean;
+  /**
+   * A hard revoke left a copy the secret manager can still recover: when
+   * it purges that copy on its own, as an ISO 8601 time
+   * (`SecretProviderDeleteOutput.recoverableUntil`). Setting the same name
+   * again before then can keep that copy, its values disabled, until the
+   * name is hard-revoked again. Absent on a soft revoke, and when a hard
+   * revoke left nothing recoverable. Copies in backups aren't counted.
+   */
+  readonly recoverableUntil?: string;
 }
 
 export type SecretError =

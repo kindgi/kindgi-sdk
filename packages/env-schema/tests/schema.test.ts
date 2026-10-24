@@ -15,6 +15,7 @@
 
 import { describe, expect, test } from 'vitest';
 
+import * as envSchema from '../src/index.js';
 import {
   AUTH_INVITE_EMAIL_DAILY_CAP_VAR,
   type EnvTarget,
@@ -490,6 +491,22 @@ describe('validateEnvForTarget', () => {
     const server = new Map(envVarsForTarget({}).map((v) => [v.name, v]));
     expect(server.has('KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH')).toBe(true);
     expect(server.has('KINDGI_PUBLIC_TOKEN_SIGNING_KEY')).toBe(true);
+    expect(server.get('KINDGI_DATABASE_SERVER_CA_PATH')?.required).toBe(false);
+    expect(server.get('KINDGI_DATABASE_SERVER_CA')?.required).toBe(false);
+    expect(server.get('KINDGI_DATABASE_SERVER_CA')?.example).toBe('');
+  });
+
+  test("the database timeouts are the server's, none required, each example its default", () => {
+    const server = new Map(envVarsForTarget({}).map((v) => [v.name, v]));
+    for (const [name, example] of [
+      ['KINDGI_DB_STATEMENT_TIMEOUT_MS', '60000'],
+      ['KINDGI_DB_LOCK_TIMEOUT_MS', '30000'],
+      ['KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS', '30000'],
+      ['KINDGI_DB_POOL_WAIT_TIMEOUT_MS', '10000'],
+    ] as const) {
+      expect(server.get(name)?.required, name).toBe(false);
+      expect(server.get(name)?.example, name).toBe(example);
+    }
   });
 
   test('KINDGI_LICENSE_KEY is a server variable the schema leaves optional (the server requires it outside development mode)', () => {
@@ -583,6 +600,16 @@ describe('KINDGI_ENV_SCHEMA — integrity', () => {
     const names = KINDGI_ENV_SCHEMA.map((v) => v.name);
     const set = new Set(names);
     expect(set.size).toBe(names.length);
+  });
+
+  test("every exported name (`*_VAR`) is a variable in the schema, so a reader and the docs can't drift", () => {
+    const names = new Set(KINDGI_ENV_SCHEMA.map((v) => v.name));
+    const exported = Object.entries(envSchema as Record<string, unknown>).filter(
+      (entry): entry is [string, string] =>
+        entry[0].endsWith('_VAR') && typeof entry[1] === 'string',
+    );
+    expect(exported.length).toBeGreaterThan(40);
+    expect(exported.filter(([, name]) => !names.has(name))).toEqual([]);
   });
 
   test('every var has a non-empty name + description', () => {

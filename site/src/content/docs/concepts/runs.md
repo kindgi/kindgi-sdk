@@ -36,12 +36,35 @@ Your app chooses how to start a run:
   browser can read directly with a short-lived read-only token. Or Kindgi can
   send your app a signed `run.finished` webhook when the run ends.
 
+## How it started
+
+Each run says how it started, as `startedBy`:
+
+- **`person`:** a person, signed in or with their own API key.
+- **`key`:** a service account's key.
+- **`schedule`, `webhook` or `event`:** a trigger.
+
+It's set when the run starts and never changes: a person who approves a
+step doesn't make the run theirs. A run that a run starts, such as a flow's
+agent step, started the way its run did.
+
+Only a run a person started counts as attended. A tool can ask for a
+person's yes on every call in any other run, as
+[When no person started the run](../../guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run)
+shows. In a run a webhook or an event started, an agent reads its message
+as data, not instructions, as
+[What its agents read](../../guides/webhooks/start-runs-from-webhooks/#what-its-agents-read)
+shows.
+
 ## Durable
 
 A run's state is the journal, not a process's memory. A run that waits for
-a person's approval is parked at a **waitpoint**. It continues when a
-reviewer decides the approval, as
-[Decide an approval](../../guides/approvals/decide-an-approval/) shows.
+a person's approval, or for another system's answer to a tool's call, is
+parked at a **waitpoint**. It continues when a reviewer decides the
+approval, as [Decide an approval](../../guides/approvals/decide-an-approval/)
+shows, or when the answer comes, as
+[Wait for another system's answer](../../guides/tools/wait-for-another-system/)
+shows.
 
 A start repeated with the same **idempotency key** never starts a second
 run. Once the first call has answered, the repeat returns the run the first
@@ -52,7 +75,7 @@ with a conflict, `idempotency-key-in-flight`. See
 ### If the runtime stops
 
 A runtime that's shut down, by a deploy or `docker stop`, gives the runs
-it's executing a few seconds to finish. [Restart the runtime](../../deploy/restart-and-check-health/#restart-the-runtime)
+it's executing a few seconds to finish. [Restart the runtime](../../deploy/self-hosted/restart-and-check-health/#restart-the-runtime)
 has the details. A runtime can also stop without a shutdown: it's killed, it
 runs out of memory, or it crashes. It then leaves its runs mid-way.
 
@@ -67,8 +90,8 @@ out:
 Within about a lease plus a sweep:
 
 - **A run that was executing fails**, and `run.finished` tells your app.
-- **A run whose wait was resolved** (its approval decided) but that nothing
-  resumed **is resumed**. After three failed attempts it fails:
+- **A run whose wait was resolved** (its approval decided, or another
+  system's answer taken) but that nothing resumed **is resumed**. After three failed attempts it fails:
   `Interrupted: the run was ready to continue, but every attempt to resume it failed.`
 - **A flow waiting on a child run that already ended is woken**, and goes on.
 - **A run whose parent run ended is ended too:** cancelled when the parent

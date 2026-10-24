@@ -15,14 +15,18 @@ run. The retry policy goes on the **edge into the step**.
 
 ## Before you start
 
-- **A pack on a runtime such as `kindgi dev`,** with Kindgi 0.1's CLI.
+- **A pack on a runtime such as `kindgi dev`,** with Kindgi 0.2's CLI.
 - **A step that's safe to run twice,** as the caution in
   [The policy](#the-policy) explains.
 
 ## Retry a step
 
-`acme.reserve-stock` calls a warehouse that is busy for the first two calls
-per order. Write the tool, and a flow whose edge into the step retries it:
+Ask your coding agent: "I want a flow that reserves an order's stock at the
+warehouse, and tries again while the warehouse is busy." Kindgi's skills in
+your pack tell it how ([How it knows Kindgi](../../../start/coding-agents/)).
+For reference, the tool and the flow look like this. `acme.reserve-stock`
+calls a warehouse that is busy for the first two calls per order, and the
+flow's edge into the step retries it:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -255,9 +259,36 @@ object ReserveOrder {
 
 Run it:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.reserve-order --input='{"orderId":"A-200"}'
+pnpm exec kindgi runs start --flow=acme.reserve-order --input='{"orderId":"A-200"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.reserve-order --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.reserve-order --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.reserve-order --input='{"orderId":"A-200"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--flow` is the flow, and `--input` its input. It prints the run, which
 completed at the third attempt:

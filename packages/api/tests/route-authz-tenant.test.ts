@@ -5,7 +5,10 @@
  * Tenant-wide routes ask for the tenant (T243 A, finding g): providers,
  * policies, adapters, capabilities, signing keys, deployments and the
  * sign-in provider catalog (`/v1/auth/providers`) need
- * `read` on the tenant to read and `admin` to change; webhook endpoints
+ * `read` on the tenant to read and `admin` to change (a deployment's
+ * secrets sync asks `admin` where it writes them instead, and a
+ * deployment's own reads ask its project too:
+ * deployment-reads-in-project.test.ts); webhook endpoints
  * and compliance evidence need `admin` for every call. Each route, with
  * no grants, is refused 403 having asked the PDP for exactly that, and
  * every pair asked is one the authorization model defines
@@ -133,7 +136,6 @@ const ROUTES: readonly (readonly [string, string, string])[] = [
   ['GET', '/v1/deployments', READ],
   ['GET', '/v1/deployments/d', READ],
   ['POST', '/v1/deployments', ADMIN],
-  ['POST', '/v1/deployments/d/secrets', ADMIN],
   ['GET', '/v1/webhook-endpoints', ADMIN],
   ['GET', '/v1/webhook-endpoints/e', ADMIN],
   ['POST', '/v1/webhook-endpoints', ADMIN],
