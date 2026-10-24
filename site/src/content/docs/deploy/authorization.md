@@ -93,6 +93,12 @@ migration done
   runs it in the background, and `--restart unless-stopped` has Docker
   start it again after a restart.
 
+These commands reach Postgres over the `kindgi` network, which doesn't
+leave the machine, so the URI turns TLS off (`sslmode=disable`). When
+OpenFGA reaches its database over another network, have it check the
+server's certificate
+([OpenFGA's connection to the database](../self-hosted/database-tls/#openfgas-connection-to-the-database)).
+
 Keep OpenFGA on the private network, with no published port: the runtime
 calls it without credentials unless OpenFGA requires a key
 ([Require a key for OpenFGA](#require-a-key-for-openfga), which needs runtime
