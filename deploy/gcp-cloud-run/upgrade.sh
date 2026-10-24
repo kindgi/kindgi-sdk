@@ -229,7 +229,7 @@ is_semver "$TARGET" || die "--to \"$TARGET\" isn't a version like 0.1.11."
 # the newest release it knows (an rc counts as its final).
 NEWEST_KNOWN="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 [[ "$(ver_num "${TARGET%%-*}")" -le "$(ver_num "$NEWEST_KNOWN")" ]] \
-  || die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. Use this script as of the @kindgi/sdk@${TARGET%%-*} tag (before it's out, that release's newest @kindgi/sdk@${TARGET%%-*}-rc tag)."
+  || die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. Use this script as of the @kindgi/sdk@${TARGET%%-*} tag (before it's out, that release's newest @kindgi/sdk@${TARGET%%-*}-rc.N tag)."
 if [[ -n $FROM_OVERRIDE ]]; then is_semver "$FROM_OVERRIDE" || die "--from \"$FROM_OVERRIDE\" isn't a version like 0.1.8."; fi
 if [[ -n $PACK_DIR ]]; then [[ -d $PACK_DIR ]] || die "--pack-dir \"$PACK_DIR\" isn't a directory."; fi
 
