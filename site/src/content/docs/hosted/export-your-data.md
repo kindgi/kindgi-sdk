@@ -15,18 +15,21 @@ names and versions are.
 
 ## Before you start
 
-- **The Kindgi CLI, 0.1.8.1 or later** (`kindgi --version`).
+- **Kindgi 0.2's CLI,** which runs from any folder as
+  `npx --yes @kindgi/cli@0.2` ([Install](../../start/install/)).
 - **A tenant admin's API key.** Some kinds only a tenant admin reads, such as
-  the workspace's people, its API keys and its sign-ins. In the console, open
-  **API keys** and **Create a key**, and under **How far it goes**, choose
-  **Admin**.
+  the workspace's people, its API keys, its environments and its sign-ins. In
+  the console, open **API keys** and **Create a key**, and under **How far it
+  goes**, choose **Admin**. With another key, the command stops and names
+  those kinds. With `--yes`, it exports the rest and skips them, and the env
+  values and secrets with them, since those are read per environment.
 - **A reviewer's role, for the approvals' audit bundles.** A tenant admin
   reads every approval, but only a registered reviewer gets an approval's
   signed audit bundle. Register yourself as an `admin` reviewer while your
   account is open:
 
   ```sh
-  kindgi reviewers register --spec='{"role":"admin"}'
+  npx --yes @kindgi/cli@0.2 reviewers register --spec='{"role":"admin"}'
   ```
 
 - **The address and the key:**
@@ -44,23 +47,26 @@ names and versions are.
 Name a new or empty folder:
 
 ```sh
-kindgi exports create --out ./acme-export
+npx --yes @kindgi/cli@0.2 exports create --out ./acme-export
 ```
 
 It prints a line for each kind as it's written, and ends by saying how many
-kinds it wrote, skipped and failed. A large workspace takes a while: each
-run's journal, each conversation's messages and each signed record is a
-request of its own.
+kinds it wrote, skipped and failed, and which failed. A large workspace
+takes a while: each run's journal, each conversation's messages and each
+signed record is a request of its own.
 
 A kind that fails doesn't stop the others, and the command then exits with
-`1`. If it stops part way, or a kind failed, run it again with `--resume`.
-It keeps the kinds already written and reads the others again:
+`1`. If you stop it part way (Ctrl-C), it exits with `130`. Either way, run
+it again with `--resume`. It keeps the kinds already written and reads the
+others again, skipped ones included:
 
 ```sh
-kindgi exports create --out ./acme-export --resume
+npx --yes @kindgi/cli@0.2 exports create --out ./acme-export --resume
 ```
 
-([`kindgi exports`](../../reference/cli/exports/))
+`--resume` reads the folder's `manifest.json`, and refuses a folder that
+holds another workspace's export, or another server's
+([`kindgi exports`](../../reference/cli/exports/)).
 
 ## What's in the folder
 
@@ -80,7 +86,9 @@ kindgi exports create --out ./acme-export --resume
   `kindgi exports verify` checks one
   ([Check an export](../../guides/observability/export-signed-evidence/#check-an-export)).
   Each is recorded as an `export-signed` event in the workspace's audit
-  trail; `--no-signed` leaves them out.
+  trail. A bundle too large to fetch whole is fetched again without its
+  messages. `--no-signed` leaves the signed records out, and so does a
+  server that has no export signing key.
 
 While your account is open, records can change as the export reads them, so
 each kind is as it stood when it was read (its `at` in the manifest). After
@@ -103,8 +111,8 @@ with the page before's `nextCursor`.
 
 | Kind | Files | API |
 | --- | --- | --- |
-| The workspace, its orgs and projects, and the projects' members | `tenant.jsonl`, `orgs.jsonl`, `projects.jsonl`, `project-memberships.jsonl` | `GET /v1/tenant`, `/v1/orgs`, `/v1/projects`, `…/{projectId}/memberships` |
-| People, their grants and sessions | `users.jsonl`, `user-sessions.jsonl` | `GET /v1/identity/users?include=grants`, `…/{userId}/sessions` |
+| The workspace, its orgs and projects, and the projects' members and sites | `tenant.jsonl`, `orgs.jsonl`, `projects.jsonl`, `project-memberships.jsonl`, `sites.jsonl` | `GET /v1/tenant`, `/v1/orgs`, `/v1/projects`, `…/{projectId}/memberships`, `…/{projectId}/sites` |
+| People, their grants, sessions and second factors | `users.jsonl`, `user-sessions.jsonl`, `user-second-factors.jsonl` | `GET /v1/identity/users?include=grants`, `…/{userId}/sessions`, `…/{userId}/second-factor` |
 | Teams, their people and project grants | `teams.jsonl`, `team-memberships.jsonl`, `team-project-grants.jsonl` | `GET /v1/teams`, `…/{teamId}/memberships`, `…/{teamId}/project-grants` |
 | Service accounts | `service-accounts.jsonl` | `GET /v1/service-accounts` |
 | API keys (never the key itself) | `api-keys.jsonl` | `GET /v1/tokens` |
@@ -119,9 +127,9 @@ with the page before's `nextCursor`.
 | Approvals and their decisions; reviewers | `approvals.jsonl`, `reviewers.jsonl` | `GET /v1/approvals`, `/v1/approvals/reviewers` |
 | Approvals' audit bundles | `signed/approvals/` | `POST /v1/approvals/{approvalId}/audit-bundle` |
 | Artifacts, and each file | `artifacts.jsonl`, `artifacts/` | `GET /v1/artifacts`, `…/{blobId}` |
-| Environments and env values | `environments.jsonl`, `env.jsonl` | `GET /v1/environments`, `/v1/env` |
+| Environments, their order, and env values | `environments.jsonl`, `environment-orders.jsonl`, `env.jsonl` | `GET /v1/environments`, `/v1/environment-orders`, `/v1/env` |
 | Secrets: names and versions, never values | `secrets.jsonl`, `secret-versions.jsonl` | `GET /v1/secrets`, `…/{name}/versions` |
-| Workspace settings | `tenant-config.jsonl` | `GET /v1/tenant/config` |
+| Workspace settings and sign-in settings | `tenant-config.jsonl`, `sign-in-settings.jsonl` | `GET /v1/tenant/config`, `/v1/auth/settings` |
 | Schedules, and when they fired | `schedules.jsonl`, `schedule-fires.jsonl` | `GET /v1/schedules`, `…/{triggerId}/fires` |
 | Webhook triggers, and when they fired | `webhooks.jsonl`, `webhook-fires.jsonl` | `GET /v1/webhooks`, `…/{triggerId}/fires` |
 | Webhook endpoints, and their deliveries | `webhook-endpoints.jsonl`, `webhook-deliveries.jsonl` | `GET /v1/webhook-endpoints`, `…/{endpointId}/deliveries` |
