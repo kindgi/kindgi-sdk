@@ -6,7 +6,7 @@
 // packages/specs/test-vectors/strict-schemas/corpus.json with the runtime's own
 // compileInlineSchema (the built @kindgi/schema) and writes what it says to answers.json beside
 // it: null when the schema compiles, else the refusal without its "Inline schema failed to
-// compile: " prefix. The SDKs replay the answers (test-vectors/README.md).
+// compile: " prefix. The SDKs replay the answers (packages/specs/test-vectors/README.md).
 //
 //   pnpm run build && node scripts/strict-schemas-oracle.mjs           # write the answers
 //   pnpm run build && node scripts/strict-schemas-oracle.mjs --check   # fail when they're stale
