@@ -176,22 +176,22 @@ step 1.
 If doctor's `registry` check passes, this machine can already pull the
 runtime: skip this step.
 
-1. Ask the person: "Sign in at https://access.kindgi.com with GitHub. Under
-   **1. Pull the runtime image**, copy the token, and tell me when you're
-   done. Also tell me the robot name in its command, after `--username` (it
-   isn't secret)." If the page doesn't give them a token, stop here until
+1. Ask the person: "Sign in at https://access.kindgi.com with GitHub or your
+   email address, copy your license key (it starts with `kgi_lk_`), and tell
+   me when you're done." If the page doesn't give them a key, stop here until
    they have one.
-2. When they say they're done, pipe the clipboard into the login, with the
-   robot name they gave you:
+2. When they say they're done, pipe the clipboard into the login. The
+   username is `kindgi`, and the key is the password
+   ([Pull the runtime image](../../deploy/self-hosted/pull-the-runtime-image/)):
 
    ```sh
-   <read the clipboard> | npx --yes @kindgi/cli@0.1 auth registry --username <robot name> --password-stdin
+   <read the clipboard> | docker login registry.kindgi.com --username kindgi --password-stdin
    ```
 
    It ends with:
 
    ```text
-   ✓ You can pull quay.io/kindgi/runtime:…@sha256:…, the image this CLI runs.
+   Login Succeeded
    ```
 
 3. Clear the clipboard, if this OS lets you.

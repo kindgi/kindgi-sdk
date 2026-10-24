@@ -119,8 +119,11 @@ server has them:
 
 ```sh
 docker run --rm --network kindgi --env-file kindgi.env \
-  quay.io/kindgi/runtime:<version> check stored-secrets
+  registry.kindgi.com/kindgi/runtime:<version> check stored-secrets
 ```
+
+`<version>` is the version your server runs. `registry.kindgi.com` has 0.1.11
+and later; for an earlier version, use the image your server already runs.
 
 It decrypts each live version of every stored secret, and prints ids and
 counts, never a value. When each one decrypts, it exits `0`:
@@ -304,8 +307,11 @@ with Docker:
 ```sh
 docker run --rm --network kindgi --env-file kindgi.env \
   -v /var/lib/kindgi/erasure-ledger:/erasure-ledger:ro \
-  quay.io/kindgi/runtime:<version> erasures replay --from local:/erasure-ledger
+  registry.kindgi.com/kindgi/runtime:<version> erasures replay --from local:/erasure-ledger
 ```
+
+As above, `registry.kindgi.com` has 0.1.11 and later; for an earlier
+version, use the image your server already runs.
 
 - **`--from`** takes a directory (`local:<dir>`, mounted into the container
   as above), a bucket (`gcs:<bucket>[/<prefix>]`), or one file by its

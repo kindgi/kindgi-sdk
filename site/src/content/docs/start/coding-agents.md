@@ -129,8 +129,8 @@ agent uses yours (with `--json`, it gets the same as
   ([Keep your tools' code away from your keys](../../guides/secrets/dev-sandbox/)).
 
 Logging in to the runtime image's registry is yours too:
-`kindgi auth registry` asks for your token the same way
-([Install](../install/)).
+`docker login registry.kindgi.com --username kindgi` asks for your license
+key the same way ([Install](../install/)).
 
 ## Keep it out of your keys
 
@@ -353,8 +353,8 @@ see each Kindgi skill twice there; the two copies are the same.
 ### When its sandbox blocks a command
 
 Two commands are always yours to run, in your own terminal, since they ask
-for a secret: `kindgi secrets set` and `kindgi auth registry`. A coding agent
-in a sandbox may be blocked from others: starting `kindgi dev`
+for a secret: `kindgi secrets set` and `docker login registry.kindgi.com`. A
+coding agent in a sandbox may be blocked from others: starting `kindgi dev`
 (`spawn EPERM`), reaching Docker's socket, or connecting to `localhost`. Codex's
 default sandbox, for one, turns the network off and keeps `.agents/`
 read-only ([its docs](https://learn.chatgpt.com/docs/agent-approvals-security)),

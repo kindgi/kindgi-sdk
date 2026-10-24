@@ -42,16 +42,16 @@ upgrading across:** [0.1.10's](../../../releases/0.1.10/#upgrade-steps),
 notes, and earlier releases' are below.
 
 1. [Back up Postgres.](../back-up-and-restore/#back-up-postgres)
-2. Pull the new version, and [restart](../restart-and-check-health/#restart-the-runtime) with it, with the same `kindgi.env`:
+2. Pull the new version, with Docker logged in to `registry.kindgi.com` with your license key ([Pull the runtime image](../pull-the-runtime-image/)), and [restart](../restart-and-check-health/#restart-the-runtime) with it, with the same `kindgi.env`:
 
    ```sh
-   docker pull quay.io/kindgi/runtime:<version>
+   docker pull registry.kindgi.com/kindgi/runtime:<version>
    docker stop -t 30 kindgi-server
    docker rm kindgi-server
    docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
      --add-host registry.localhost:host-gateway \
      -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-     quay.io/kindgi/runtime:<version>
+     registry.kindgi.com/kindgi/runtime:<version>
    ```
 
 When it starts, the runtime brings the database up to date: it applies the migrations the database doesn't have yet, then serves. On a database that has them all, it applies nothing, so a restart on the same version changes nothing. The log doesn't list them: once the `Kindgi API server listening` lines appear, they're done. If one fails, the runtime exits with code 1, and its log says `kindgi-runtime: fatal: Error: migration failed for …` and why.
@@ -64,8 +64,11 @@ From 0.1.6, the runtime image runs read-only checks against a database. They rea
 
 ```sh
 docker run --rm --network kindgi --env-file kindgi.env \
-  quay.io/kindgi/runtime:<version> check provider-keys
+  registry.kindgi.com/kindgi/runtime:<version> check provider-keys
 ```
+
+`registry.kindgi.com` has 0.1.11 and later. For an earlier version, use the
+image your server already runs.
 
 Nothing starts and nothing is written, and they print names and ids, never a value. Each exits `0` when it finds nothing, `1` when it lists what it found, and `2` when it can't run. `--tenant <uuid>` checks one tenant; by default they check every tenant in the database.
 

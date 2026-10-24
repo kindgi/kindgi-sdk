@@ -40,21 +40,18 @@ runs for you.
 
 ### Access to the runtime image
 
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub.
-Under **1. Pull the runtime image** it shows the image's pull credentials: a
-robot name, in its command after `--username`, and a token. Log in to its
-registry once with them. The CLI asks for the token without showing
-it, hands both to `docker login` (Kindgi keeps no copy), and checks that you
-can pull the image it runs:
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your
+email address for a license key, which starts with `kgi_lk_`. The key is the
+runtime image's password. Log in to its registry once, with the username
+`kindgi`:
 
 ```sh
-npx --yes @kindgi/cli@0.1 auth registry --username <your robot name>
-# without Node: uvx --from "kindgi-cli>=0.1,<0.2" kindgi auth registry --username <your robot name>
+docker login registry.kindgi.com --username kindgi
 ```
 
-```text
-✓ You can pull quay.io/kindgi/runtime:…@sha256:…, the image this CLI runs.
-```
+It asks for the password: paste your key. It prints `Login Succeeded`.
+[Pull the runtime image](../../deploy/self-hosted/pull-the-runtime-image/) has the other ways to log in, from a
+script or CI.
 
 The first `kindgi dev` then pulls the image (about 700 MB; `amd64` and
 `arm64`). Questions or trouble: contact@kindgi.com.
@@ -85,7 +82,7 @@ kindgi doctor (CLI …)
   ✓ npm: npm 11.21.0.
 …
   ✓ Docker: Docker is running.
-  ✓ Runtime image: Docker can pull the runtime image (quay.io/kindgi/runtime:…@sha256:…).
+  ✓ Runtime image: Docker can pull the runtime image (registry.kindgi.com/kindgi/runtime:…@sha256:…).
 …
   – Project: No Kindgi project in …: no kindgi.config.ts, kindgi.config.mts, kindgi.config.mjs, kindgi.config.js, kindgi.config.cjs, no pyproject.toml with [tool.kindgi], and no kindgi.config.json.
 …
