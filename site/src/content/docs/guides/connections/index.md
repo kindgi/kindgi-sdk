@@ -1,6 +1,6 @@
 ---
 title: Connect your apps
-description: Let a tool act in Gmail or GitHub with an account someone connected, its token kept in your own secret store and handed to one call at a time.
+description: Let a tool act in Gmail, Outlook or GitHub with an account someone connected, its token kept in your own secret store and handed to one call at a time.
 sidebar:
   order: 0
   label: Overview
@@ -35,9 +35,9 @@ secret), its runs act as them from then on, with their connections
 ## How it fits together
 
 1. **An admin registers the app once,** for the company: your own Google
-   OAuth client or your own GitHub App. Its secrets stay in your secret
-   store, and Kindgi keeps only their names ([Google](google/),
-   [GitHub](github/)).
+   OAuth client, Microsoft Entra app or GitHub App. Its secrets stay in
+   your secret store, and Kindgi keeps only their names ([Google](google/),
+   [Microsoft](microsoft/), [GitHub](github/)).
 2. **People connect** on the app's own sign-in page: from the console's
    **Connections** page, or from a run that's waiting for them.
 3. **A tool says which app and which permissions it needs**
@@ -91,6 +91,8 @@ secret), its runs act as them from then on, with their connections
 ## The guides
 
 - [Google](google/): register your Google OAuth client and connect Gmail.
+- [Microsoft](microsoft/): register your Microsoft Entra app and connect
+  Outlook.
 - [GitHub](github/): create your GitHub App, register it, and install it on
   your organization.
 - [Use a connection in a tool](use-a-connection/): declare what a tool
