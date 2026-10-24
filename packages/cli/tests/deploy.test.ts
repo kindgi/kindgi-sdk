@@ -1016,7 +1016,7 @@ describe('kindgi deploy — dry-run + safety gates', () => {
     });
     expect(out.exitCode).toBe(0);
     expect(fixtures.state.postCalls).toBe(0);
-    expect(out.stderr).toContain('Dry run');
+    expect(out.stderr).toContain('  Dry run — would POST the following:\n');
     expect(out.stderr).toContain('curl -X POST');
     expect(out.stderr).toContain('/v1/deployments');
     expect(out.stderr).toContain('Idempotency-Key: sha256:');
@@ -1098,8 +1098,11 @@ describe('kindgi deploy — dry-run + safety gates', () => {
       expect(out.exitCode).toBe(0);
       expect(fixtures.state.postCalls).toBe(0);
       expect(out.stderr).not.toContain('Internal error');
+      // The whole lead line: the key is said to be missing only when none was passed.
       expect(out.stderr).toContain(
-        'plus the signerKeyId, signerPublicKey and signature a signed build adds',
+        key === undefined
+          ? '  Dry run — would POST the following, plus the signerKeyId, signerPublicKey and signature a signed build adds, and the Idempotency-Key, which hashes that body:\n'
+          : '  Dry run — would POST the following, plus the signerKeyId, signerPublicKey and signature a signed build adds:\n',
       );
       expect(out.stderr).toContain(`"imageRef": "${unsigned.imageRef as string}"`);
       expect(out.stderr).not.toContain('"signature"');
@@ -1722,6 +1725,18 @@ describe('kindgi deploy --project: one project per client', () => {
     expect(fixtures.state.postCalls).toBe(0);
     const summary = JSON.parse(out.stdout) as { wouldPost?: Record<string, unknown> };
     expect(summary.wouldPost?.projectId).toBe(ACME);
+  });
+
+  test("an unsigned envelope's --dry-run shows the project too", async () => {
+    const unsigned = { signature: undefined, signerKeyId: undefined, signerPublicKey: undefined };
+    await writeAutoEnvelope(unsigned);
+    const fixtures = makeFixtures({ projects, envelope: makeEnvelope(unsigned) });
+    const out = await deploy(fixtures, '--project=acme-shop', '--dry-run');
+    expect(out.exitCode).toBe(0);
+    expect(fixtures.state.postCalls).toBe(0);
+    const summary = JSON.parse(out.stdout) as { wouldPost?: Record<string, unknown> };
+    expect(summary.wouldPost?.projectId).toBe(ACME);
+    expect(summary.wouldPost).not.toHaveProperty('signature');
   });
 });
 

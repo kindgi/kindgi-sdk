@@ -80,14 +80,10 @@ export function buildPostBody(envelope: DeployEnvelope): PostDeploymentBody {
     );
   }
   return {
-    imageRef: envelope.imageRef,
-    artifactVersion: envelope.artifactVersion,
-    index: envelope.index,
-    indexHash: envelope.indexHash,
+    ...unsignedPostBody(envelope),
     signerKeyId: envelope.signerKeyId,
     signerPublicKey: envelope.signerPublicKey,
     signature: envelope.signature,
-    publishedAt: envelope.publishedAt,
   };
 }
 
@@ -98,9 +94,10 @@ export type UnsignedPostBody = Omit<
 >;
 
 /**
- * What `--dry-run` shows for an unsigned envelope: the body it would
- * POST, less the signature's fields, which a signed build adds. The
- * server refuses it as it is, so nothing sends it.
+ * The body less the signature's fields: what `--dry-run` shows for an
+ * unsigned envelope, and what `buildPostBody` adds the signature to, so
+ * a field the wire gains is in both. The server refuses it as it is, so
+ * nothing sends it.
  */
 export function unsignedPostBody(envelope: DeployEnvelope): UnsignedPostBody {
   return {
