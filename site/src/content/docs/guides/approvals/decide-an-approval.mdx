@@ -343,6 +343,12 @@ Its exit code says which:
 | `0` | isn't waiting: `Run … is completed: it isn't waiting, so there's nothing to resume.` |
 | `3` | waits for an approval, named in the sentence |
 | `4` | waits on the runtime: a queued start, a child run, a retry, a lease |
+| `5` | waits for another system's answer to a tool's call, which `kindgi runs resume <run-id> --output=<json>` can also give |
+| `6` | waits for the person who started it to [connect an app](../../connections/use-a-connection/#when-the-connection-is-missing), and the sentence ends with the link they connect from |
+
+A run that waits for more than one of these exits with the first that
+applies, in this order: `3`, `5`, `6`, `4`. `1` and `2` stay the CLI's
+error and usage codes.
 
 Once the approval is decided, the run goes on by itself. From your app,
 `runs.get` answers the same as the run's
