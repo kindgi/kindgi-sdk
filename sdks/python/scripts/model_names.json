@@ -770,6 +770,14 @@
   "ToolSpec": ["ToolSpec"],
   "ToolVersionCollectionPage": ["ToolVersionCollectionPage"],
   "ToolVersionRow": ["ToolVersionRow"],
+  "ToolsAllowedUnattendedItem": [
+    "PatchScheduleBody.toolsAllowedUnattended",
+    "PatchWebhookTriggerBody.toolsAllowedUnattended",
+    "RegisterScheduleBody.toolsAllowedUnattended",
+    "RegisterWebhookTriggerBody.toolsAllowedUnattended",
+    "ScheduleRecord.toolsAllowedUnattended",
+    "WebhookTriggerRecord.toolsAllowedUnattended"
+  ],
   "TopK": ["ComparisonCaseResult.baseline.topK", "ComparisonCaseResult.candidate.topK"],
   "Trigger": ["ImprovementPass.trigger"],
   "TriggerOwner": ["TriggerOwner"],

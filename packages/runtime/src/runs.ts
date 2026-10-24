@@ -82,6 +82,12 @@ export interface KernelRunRecord {
    */
   readonly actsFor?: RunActsFor;
   /**
+   * The tools it may call without a person's yes though no person started
+   * it (`RunFlowInput.toolsAllowedUnattended`), from the webhook or
+   * schedule that started it. Absent when there are none.
+   */
+  readonly toolsAllowedUnattended?: readonly string[];
+  /**
    * When an erasure cleared the run's content (its input, output, failure
    * message and journal payloads). Absent on every other run.
    */

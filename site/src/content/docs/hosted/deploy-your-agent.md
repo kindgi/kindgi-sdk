@@ -22,7 +22,7 @@ providers on `prod`, before and after you go live. So everything here uses
 - **A pack with an agent,** with its tests passing, and the Kindgi skills
   that `kindgi init` installs in it. This guide uses the pack `acme-desk`,
   with the agent `acme-desk.reply-drafter`.
-- **Kindgi 0.1's CLI,** with Node 22.12 or later. You don't need Docker:
+- **Kindgi 0.2's CLI,** with Node 22.12 or later. You don't need Docker:
   Kindgi Cloud builds the pack's image.
 - **An API key from your AI provider,** with a spending limit.
 
@@ -134,13 +134,17 @@ pnpm exec kindgi deploy --hosted --env=prod
 ```
 
 - `--hosted` builds the pack on Kindgi Cloud, deploys what it built, and
-  waits up to 5 minutes for the pack service to be ready.
+  waits up to 5 minutes for its pack service to be ready, if it has one.
 - `--env=prod` picks the `prod` environment: its signing key.
 - With no `--project`, the pack goes into the Default project.
   `--project=<id-or-slug>` names another.
 
 The deploy prints what it registered, with each agent's version. It ends
 with `Deploy complete.`, then `Waiting for the pack service` and `✓ ready`.
+A pack with no tools and no guardrail checks of its own, such as one of
+agents and flows whose guardrails use only built-in checks, has no pack
+service. Its deploy doesn't wait for one, and prints no `Waiting for the pack
+service`.
 
 ## Try it
 

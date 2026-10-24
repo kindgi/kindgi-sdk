@@ -69,6 +69,7 @@
         "person-granted",
         "person-ungranted",
         "trigger-owner-set",
+        "trigger-tools-allowed-unattended-set",
         "environment-order-set",
         "deployment-promoted"
       ]
