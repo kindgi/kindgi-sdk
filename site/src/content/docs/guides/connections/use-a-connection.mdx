@@ -17,14 +17,15 @@ approval.
 ## Before you start
 
 - **The app is registered** for your workspace ([Google](../google/),
-  [Microsoft](../microsoft/), [GitHub](../github/)).
+  [Microsoft](../microsoft/), [GitHub](../github/),
+  [LinkedIn](../linkedin/)).
 - **A pack,** on a runtime that offers connections
   ([What you need](../#what-you-need)).
 
 ## Ready-made tools
 
-For Gmail, Outlook and GitHub, `@kindgi/connections` has tools a pack can
-include instead of writing its own:
+For Gmail, Outlook, GitHub and LinkedIn, `@kindgi/connections` has tools a
+pack can include instead of writing its own:
 
 - **`gmailSend`,** from `@kindgi/connections/google/tools`, sends a
   plain-text mail from the Gmail account of the person the run acts as.
@@ -36,6 +37,10 @@ include instead of writing its own:
   from `@kindgi/connections/github/tools`, list a repository's issues and
   its labels, and add labels it already has to an issue, through your
   company's GitHub connection.
+- **`linkedinPost`,** from `@kindgi/connections/linkedin/tools`, posts text
+  on LinkedIn as the person the run acts as, to their own feed, seen by
+  anyone or by their connections only. A `#` that starts a word makes a
+  hashtag, and the text mentions no one.
 
 Each is a factory, and the pack names the tool's id. The tool's folder
 holds an `index.ts` of one line:
@@ -51,9 +56,9 @@ project that publishes it, so each pack picks one under its own name. An
 agent lists the tool by that id, as `{ id: 'acme.gmail.send', version:
 '^1.0.0' }`, and its approval settings name it the same way.
 
-Sending mail and adding labels change things, so in a run no person
-started, each of their calls waits for a person's yes. The others only
-read.
+Sending mail, adding labels and posting change things, so in a run no
+person started, each of their calls waits for a person's yes. The others
+only read.
 
 To start from a working pack, `kindgi init <pack-name> --template=follow-up`
 makes one whose agent writes a follow-up mail from your notes and sends it
