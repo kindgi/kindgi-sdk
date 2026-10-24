@@ -17,7 +17,7 @@
  */
 export const CLI_DEFAULTS = {
   'auth registry': {
-    registry: "`quay.io`, the runtime image's registry",
+    registry: "`registry.kindgi.com`, the runtime image's registry",
     username: 'required (except with `--check`)',
   },
   init: {
@@ -1009,12 +1009,12 @@ export const CLI_EXAMPLES = {
   'auth registry': [
     {
       purpose:
-        "Log Docker in to the runtime image's registry with the robot name you were given, then check the pull; the token is prompted for.",
-      line: 'kindgi auth registry --username=acme+reader',
+        "Log Docker in to the runtime image's registry, then check the pull. When it asks for the token, paste your license key from https://access.kindgi.com.",
+      line: 'kindgi auth registry --username=kindgi',
     },
     {
-      purpose: 'Log in in a script, reading the token from stdin.',
-      line: 'kindgi auth registry --username=acme+reader --password-stdin < registry-token.txt',
+      purpose: 'Log in in a script, reading the license key from stdin.',
+      line: 'kindgi auth registry --username=kindgi --password-stdin < kindgi-license-key.txt',
     },
     {
       purpose: 'Check that Docker can already pull the image, without logging in.',
