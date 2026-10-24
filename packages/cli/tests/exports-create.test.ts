@@ -784,6 +784,57 @@ describe('kindgi exports create', () => {
     ]);
   });
 
+  test('--quiet: an export that is whole says nothing; without it, each kind and the summary say what was done', async () => {
+    const answers = { '/v1/agents': [{ id: 'agent-a' }] };
+    const loud = await cli(server(answers));
+    expect(loud.exitCode, loud.stderr).toBe(0);
+    expect(loud.progress).toContain('agents: 1 record\n');
+    expect(loud.stdout).toContain(`Exported to ${out}:`);
+
+    await rm(out, { recursive: true, force: true });
+    const quiet = await cli(server(answers), ['--quiet']);
+    expect(quiet).toMatchObject({ exitCode: 0, stdout: '', stderr: '', progress: [] });
+    expect((await manifest()).kinds.agents).toMatchObject({ status: 'ok', records: 1 });
+  });
+
+  test('--quiet: a kind that fails says its line alone, then how to read it again', async () => {
+    const fake = server({
+      '/v1/flows': () =>
+        json(503, { error: { code: 'unavailable', message: 'Down for a moment' } }),
+    });
+    const res = await cli(fake, ['--quiet']);
+    expect(res.exitCode).toBe(1);
+    expect(res.progress).toEqual([
+      `flows: failed, GET ${API}/v1/flows?includeRetired=true&limit=100 answered 503 unavailable: Down for a moment\n`,
+    ]);
+    expect(res.stdout).toBe('');
+    expect(res.stderr).toBe('Run it again with --resume to read the failed kinds again.\n');
+  });
+
+  test('--quiet: an export that stops says how to finish it', async () => {
+    const stop = new AbortController();
+    const fake = server({
+      '/v1/flows': () => {
+        stop.abort();
+        throw new DOMException('The operation was aborted.', 'AbortError');
+      },
+    });
+    const res = await cli(fake, ['--quiet'], { stopSignal: stop.signal });
+    expect(res.exitCode).toBe(130);
+    expect(res.progress).toEqual([]);
+    expect(res.stdout).toBe('');
+    expect(res.stderr).toBe(
+      `Stopped. The export in ${out} is unfinished: run it again with --resume to finish it.\n`,
+    );
+  });
+
+  test('--quiet: a refusal still says why', async () => {
+    const refused = await cli(server({}, { admin: false }), ['--quiet']);
+    expect(refused.exitCode).toBe(1);
+    expect(refused.stdout).toBe('');
+    expect(refused.stderr).toContain("You aren't a tenant admin here");
+  });
+
   test('--json prints the manifest', async () => {
     const res = await cli(server({ '/v1/agents': [{ id: 'agent-a' }] }), ['--json']);
     expect(res.exitCode, res.stderr).toBe(0);

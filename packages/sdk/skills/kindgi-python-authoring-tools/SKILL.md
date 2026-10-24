@@ -207,6 +207,38 @@ the pack service drops every other variable before your code loads
 unset once deployed. `KINDGI_*` names are Kindgi's own settings: a pack
 can't declare one.
 
+### Connections to other apps
+
+A tool that acts in another app as a person or as the company (sending mail, opening an issue) declares a **connection**, never a secret holding someone's token, and reads the call's short-lived token from `ctx.connections` (runtime 0.2.0 or later):
+
+```python
+import httpx
+
+from kindgi import ConnectionRejected, ToolContext, tool
+
+
+@tool(
+    id="my-pack.send-mail",
+    needs_spec={"connections": {"mail": {"app": "google", "permissions": ["gmail.send"], "as": "person"}}},
+)
+def send_mail(message: Message, ctx: ToolContext) -> Sent:
+    """Sends a message from the person's mailbox."""
+    mail = ctx.connections["mail"]
+    res = httpx.get(url, headers={"authorization": f"Bearer {mail.access_token}"})
+    if res.status_code == 401:
+        raise ConnectionRejected("mail")
+    # …
+```
+
+- **Whose connection:** `"as": "person"` is the connection of the person the run acts as (whoever started it, or the owner of the schedule or webhook that did); `"as": "company"` is the company's. The runtime picks it from the run, never from the input or the model. A run that acts as nobody (a service account's, an event's) fails a `"person"` call with `connection-needs-a-person`.
+- **The token:** `access_token` is current for this call only. Never keep, print, log or return it; it never reaches the journal. `account.label` says whose account it is (`ana@acme.com`).
+- **A 401 from the app:** `raise ConnectionRejected("mail")`, with the connection's name (a second argument can say what the app answered, never the token), or raise your own error `from` it. The runtime renews the token once and runs the call again; refused again, the call fails with `connection-rejected`.
+- **An HTTP tool** sends the token with no code: `authorization={"kind": "connection", "connection": "mail"}`.
+- **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, unless it's marked `mutating=False` (mark read-only tools so). The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needs_approval_when_unattended` (below).
+- **In a unit test:** `ToolContext.for_test(connections={"mail": ToolConnection(connection_id="c-1", app="google", app_name="Google", access_token="test", account=ConnectionAccount(id="1", label="ana@acme.com"))})`, all from `kindgi`. `ctx.connections` is empty when the tool declares none.
+
+Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
+
 ## Errors and output
 
 - Raise an exception for a failure: the call fails with

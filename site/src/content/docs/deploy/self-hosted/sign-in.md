@@ -18,7 +18,7 @@ the runtime lets in **only people already added to a workspace**, by an
 email their provider has proved. Nobody is created by signing in, and roles
 stay Kindgi's. Without [authorization](../../authorization/), everyone signed
 in works in every project, and the tenant's settings change only with the
-API token or an `admin` key
+API token or an `admin` key made for the seed user
 ([Without authorization](../../people-and-keys/#without-authorization)).
 
 ## Before you start

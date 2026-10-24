@@ -26,6 +26,7 @@ import type {
 import { type Principal, denyPayload, ref } from '@kindgi/authz';
 import { PAUSE_TOKEN_PREFIX } from '@kindgi/tools';
 
+import type { ConnectionBinding } from '../connection-binding.js';
 import { type WireErrorBody, retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type { EventBusBinding, EventPayload, Subscription } from '../event-bus-binding.js';
 import type {
@@ -79,6 +80,12 @@ export interface RunsRouterOptions {
    * to its open waits). Absent: those waits are `unattributed`.
    */
   readonly hitl?: HitlBinding;
+  /**
+   * The connect requests, for a suspended run's `waitingFor.connections`
+   * (a tool waiting for a person to connect an app). Absent: those waits
+   * are `unattributed`.
+   */
+  readonly connections?: ConnectionBinding;
   /**
    * Runs paused until another system answers: `POST /:runId/resume` with a
    * `pause:` waitpoint id answers one, and a suspended run's `waitingFor`
@@ -956,6 +963,7 @@ async function runWithWaits(
     {
       runBinding,
       ...(options.hitl !== undefined && { hitl: options.hitl }),
+      ...(options.connections !== undefined && { connections: options.connections }),
       ...(options.waitTokens !== undefined && { waitTokens: options.waitTokens }),
     },
     tenantId,

@@ -31,8 +31,8 @@ Re-exports:
 
 | Symbol | Source | Kind |
 |---|---|---|
-| `defineTool`, `defineToolAsync`, `invokeTool`, `registerToolSpecSynthesizer` | `@kindgi/tools` | value |
-| `Tool`, `ToolManifest`, `ToolContext`, `DefineToolSpec`, `DefinedTool`, `InferInput`, `InferOutput`, `ToolSpec`, `ToolSpecSynthesizer`, `ToolSecretRef`, `HttpToolSpec`, `HttpAuthSpec`, `HttpHeaderSpec`, `HttpMethod`, `HttpRequestBodySpec` | `@kindgi/tools` | type |
+| `defineTool`, `defineToolAsync`, `invokeTool`, `invokeToolForTest`, `toolContextForTest`, `registerToolSpecSynthesizer`, `ConnectionRejectedError`, `isConnectionRejectedError` | `@kindgi/tools` | value |
+| `Tool`, `ToolManifest`, `ToolContext`, `DefineToolSpec`, `DefinedTool`, `InferInput`, `InferOutput`, `ToolSpec`, `ToolSpecSynthesizer`, `ToolSecretRef`, `HttpToolSpec`, `HttpAuthSpec`, `HttpHeaderSpec`, `HttpMethod`, `HttpRequestBodySpec`, `ToolConnection`, `ConnectionNeed`, `ConnectionAccount` | `@kindgi/tools` | type |
 | `defineCheck` | `@kindgi/guardrails` | value |
 | `DefineCheckSpec`, `DefinedCheck`, `InferCheckConfig` | `@kindgi/guardrails` | type |
 | `defineAgent` | `@kindgi/agents` | value |

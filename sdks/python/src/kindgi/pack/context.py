@@ -23,8 +23,11 @@ __all__ = [
     "CallCancelled",
     "CancelReason",
     "Cancellation",
+    "ConnectionAccount",
+    "ConnectionRejected",
     "PauseAnswer",
     "PauseNotAvailable",
+    "ToolConnection",
     "ToolContext",
     "WaitToken",
     "wait_token_from_wire",
@@ -91,6 +94,73 @@ class Cancellation:
         self._fired.set()
         if self._loop is not None and self._async_fired is not None:
             self._loop.call_soon_threadsafe(self._async_fired.set)
+
+
+class ConnectionRejected(Exception):
+    """The app refused a connection's token: an HTTP 401 from its API.
+
+    Raise it with the tool's name for the connection (its `needs_spec["connections"]` key), or
+    raise your own error `from` it. The call answers `connection-rejected`, and the runtime renews
+    that token once and runs the call again; it never removes the connection. Say what the app
+    said, never the token.
+    """
+
+    def __init__(self, connection: str, message: str | None = None) -> None:
+        super().__init__(message or f'the app refused the connection "{connection}"')
+        self.connection = connection
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectionAccount:
+    """Whose account a connection is at the app."""
+
+    id: str
+    """Its stable id at the app."""
+    label: str
+    """What people see: `ana@acme.example`."""
+
+
+@dataclass(frozen=True, slots=True)
+class ToolConnection:
+    """A connection resolved for one call: an account at another app, with a short-lived token.
+
+    What a tool reads from `ctx.connections["mail"]`. The token is never in its `repr`.
+    """
+
+    connection_id: str
+    app: str
+    """The app entry's id: `"google"`, `"github"`."""
+    app_name: str
+    """The app's name as people know it: `"Google"`."""
+    access_token: str = field(repr=False)
+    """The token to send to the app's API (`Authorization: Bearer …`). Never log or return it."""
+    account: ConnectionAccount
+    expires_at: str | None = None
+    """When the token expires (ISO 8601), when the app says."""
+
+    @classmethod
+    def from_wire(cls, value: Any) -> ToolConnection | None:
+        """The connection for one protocol v2 `ctx.connections` entry; `None` when it isn't one."""
+        if not isinstance(value, Mapping):
+            return None
+        raw = cast("Mapping[str, Any]", value)
+        account = raw.get("account")
+        texts = [raw.get(k) for k in ("connectionId", "app", "appName", "accessToken")]
+        if not all(isinstance(t, str) for t in texts) or not isinstance(account, Mapping):
+            return None
+        account_id = cast("Mapping[str, Any]", account).get("id")
+        label = cast("Mapping[str, Any]", account).get("label")
+        expires_at = raw.get("expiresAt")
+        if not isinstance(account_id, str) or not isinstance(label, str):
+            return None
+        return cls(
+            connection_id=cast(str, texts[0]),
+            app=cast(str, texts[1]),
+            app_name=cast(str, texts[2]),
+            access_token=cast(str, texts[3]),
+            account=ConnectionAccount(id=account_id, label=label),
+            expires_at=expires_at if isinstance(expires_at, str) else None,
+        )
 
 
 MAX_PAUSE_TIMEOUT_MS: Final = 24 * 24 * 60 * 60 * 1000
@@ -185,6 +255,12 @@ class ToolContext:
     it writes to (an `Idempotency-Key` header, a client reference, a unique column), or looks for
     it there first. A UUID. `None` from a runtime that can't name its steps (before protocol
     2.6.0): the call can't be deduped on it then."""
+    connections: Mapping[str, ToolConnection] = field(default_factory=_empty, repr=False)
+    """The connections the tool declares (`needs_spec["connections"]`), by the tool's name for
+    each: an account at another app and a short-lived token for it
+    (`ctx.connections["mail"].access_token`). Empty when the tool declares none, and from a
+    runtime before protocol 2.9.0. Never in the context's `repr`. When the app refuses a token
+    (a 401), raise `ConnectionRejected("mail")`."""
     _wait_token: WaitToken | None = field(default=None, repr=False)
 
     @property
@@ -274,8 +350,20 @@ class ToolContext:
             settings=mapping("settings"),
             cancellation=cancellation,
             log=log,
+            connections=_connections(ctx.get("connections")),
             _wait_token=wait_token_from_wire(ctx) if pauses else None,
         )
+
+
+def _connections(value: Any) -> Mapping[str, ToolConnection]:
+    if not isinstance(value, Mapping):
+        return _EMPTY
+    out: dict[str, ToolConnection] = {}
+    for name, raw in cast("Mapping[str, Any]", value).items():
+        connection = ToolConnection.from_wire(raw)
+        if connection is not None:
+            out[str(name)] = connection
+    return MappingProxyType(out)
 
 
 def wait_token_from_wire(ctx: Mapping[str, Any]) -> WaitToken | None:
