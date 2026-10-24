@@ -8,7 +8,8 @@ sidebar:
 
 Kindgi knows an app through its entry: data that says how people sign in to
 it, what its permissions mean in plain words, how its tokens are withdrawn,
-and how it reports an uninstall. The app's tools sit next to its entry.
+and how it reports access removed at the app. The app's tools sit next to
+its entry.
 Google, Microsoft, GitHub and LinkedIn have entries in `@kindgi/connections`.
 
 An app that signs people in with standard OAuth 2.0 (the authorization code
@@ -63,8 +64,10 @@ export const acmeCrm = defineApp({
   approvals can show it. `openid` reads the sign-in's ID token; `profile`
   asks a URL with the new token, and reads the account's id and a label
   from named fields of the answer.
-- **`removal`:** how a token is withdrawn at the app, and how the app
-  reports an uninstall, if it does.
+- **`removal`:** how a token is withdrawn at the app (`revoke`), whether
+  that withdraws everything the person allowed your registration
+  (`revokeIsGrantWide`: Google's does), and how the app reports access
+  removed at the app (`notices`), if it does.
 - **`rateLimits`:** the app's limits for each connection: how many units
   it allows in how many seconds, and in `costs`, how many units a call
   takes, by its operation's name. One not listed takes 1, and a cost of 0
