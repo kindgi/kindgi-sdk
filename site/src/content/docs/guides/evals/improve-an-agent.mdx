@@ -168,10 +168,14 @@ minutes, and prints it:
 - **`proposed`**, with the proposal it wrote, which a person decides: run
   `kindgi proposals request <proposal-id>`, then decide the approval. A pass's
   proposal always waits for a reviewer, because a pass, not a person, drafted
-  it. When the scope's [gate policy](../release-an-agent-version/#gate-a-release)
-  has no `approvals`, that reviewer can be you, if you're registered as a
-  reviewer. When it has, someone else must approve it, unless its `approvals`
-  sets `"separateApprover": false`.
+  it. Who may approve it depends on the scope's
+  [gate policy](../release-an-agent-version/#gate-a-release):
+  - **No `approvals`:** someone other than you, when there's another active
+    reviewer who can see the approval. If there isn't, you can approve it
+    yourself, as a registered reviewer.
+  - **`approvals`:** someone other than you, with its role or a higher one.
+    With `"separateApprover": false`, that holds only while there's such a
+    reviewer; if there isn't, you can approve it yourself.
 - **`nothing-found`**, with why. No candidate beat the current version by more
   than the noise on the 70%. Or the best one didn't beat the recorded outputs
   on the 30%, and the outcome's hold-out comparison gives both figures there.
