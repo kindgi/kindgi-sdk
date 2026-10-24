@@ -670,6 +670,8 @@ async function authorizeCall(
   const authorize = ctx.bindings.authorizeToolCall;
   const toolId = tool.id as unknown as string;
   if (authorize === undefined || !asksAuthorization(ctx, toolId)) return undefined;
+  // The version the call runs: the one the turn resolved for it (`resolveTurnTools`).
+  const toolVersion = ctx.tools?.byName.get(toolId)?.resolvedVersion;
   return kctx.record(
     `${TOOL_AUTHORIZE_RECORD_PREFIX}${callId}:${toolId}${when === 'approved' ? ':approved' : ''}`,
     () =>
@@ -678,6 +680,7 @@ async function authorizeCall(
         projectId: ctx.input.projectId,
         ...(ctx.input.principal !== undefined && { principal: ctx.input.principal }),
         toolId,
+        ...(toolVersion !== undefined && { toolVersion }),
       }),
   );
 }
