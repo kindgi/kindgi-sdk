@@ -1,5 +1,12 @@
 # @kindgi/flow
 
+## 0.2.0
+
+### Patch Changes
+
+- @kindgi/schema@0.2.0
+  - @kindgi/types@0.2.0
+
 ## 0.1.10
 
 ### Patch Changes

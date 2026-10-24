@@ -10,6 +10,8 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+## 0.2.0
+
 - `kindgi`: **`SecretRevokeOutcome` and `SecretRevokeResult` gain an optional
   `recoverable_until`**: when a hard revoke left a copy your secret manager can
   still recover, until when it keeps it. It's `None` on a soft revoke, and

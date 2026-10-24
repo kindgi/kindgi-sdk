@@ -1,5 +1,36 @@
 # @kindgi/sdk
 
+## 0.2.0
+
+### Minor Changes
+
+- ae09fc0: Version numbers now say what a release holds. A release with new features moves the middle number, as this one does, and a release with only fixes moves the last. Every SDK package shares one version.
+  
+  Release-decision: 0.2.0, the maintainers, 2026-10-22
+
+### Patch Changes
+
+- bf30268: **A new authoring skill, "Fix what the experts corrected", with a guide to match.** When an expert judges an agent's run wrong and says why, a coding agent can now turn those corrections into changes. `kindgi init` and `kindgi skills sync` install the `kindgi-fix-corrections` skill (every language), which pulls an agent's "no" judgments (`kindgi judgments list --verdict=no`), reads each with the run behind it (`kindgi runs get`, `kindgi runs journal`), and sorts each correction to where it belongs — a rule in a tool's code, a setting, an approval rule, or the agent's instructions — adding a pack test per correction, then publishing a new version (`kindgi agents derive` for a setting, `kindgi deploy` for code) and asking a person to make it live with `kindgi agents promote … --reason`, naming the corrections. It never raises a limit or drops a check — a correction that would loosen anything goes to the owner — and it keeps the pulled runs' customer data out of the pack. The guide "Fix what the experts corrected" walks a person through the same loop.
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [e019e64]
+- Updated dependencies [119ac78]
+  - @kindgi/handler-runtime@0.2.0
+  - @kindgi/agents@0.2.0
+  - @kindgi/client@0.2.0
+  - @kindgi/flow@0.2.0
+  - @kindgi/guardrails@0.2.0
+  - @kindgi/schema@0.2.0
+  - @kindgi/tools@0.2.0
+  - @kindgi/crypto@0.2.0
+  - @kindgi/types@0.2.0
+
 ## 0.1.10
 
 ### Patch Changes

@@ -1,5 +1,90 @@
 # @kindgi/cli
 
+## 0.2.0
+
+### Minor Changes
+
+- bf30268: `kindgi judging-rules` and `kindgi judging-queue`: manage a project's judging rules and the queue they fill from the CLI. For rules: create, list, show, update, remove, list a rule's versions and results, preview what a rule would queue, and queue its matches among recent runs to catch it up on runs that ended before it was there (`queue-recent`; `create` can do it in one step with `--queue-last`/`--queue-since`). For the queue: list the queue's runs by state, agent, rule, judge class or time, or just the ones your judgment would close; dismiss or reopen one.
+  
+  Release-decision: 0.2.0, by the maintainers, 2026-10-22.
+
+### Patch Changes
+
+- bf30268: **A pack can bring its data blocks: one JSON file per block in its `blocks/` folder, which `kindgi deploy` publishes with the pack.** Each file holds a block in the shape `kindgi blocks publish @file` takes (`id`, `version`, `kind`, `description`, `content`). A prompt block's template can have a file of its own, named by `content.templateFile` in place of `content.template`: a path from the block's file that stays inside the blocks folder, read into the block when the pack is indexed. The pack config's `discovery.blocks` pattern (`blocks/**/*.json` by default; `[tool.kindgi.discovery]` in a Python pack's `pyproject.toml`) moves the folder. The TypeScript, Python and Java/Scala indexers read the blocks alike, and the pack index gains an optional `blocks` list (pack index schema 1.5.0), absent when a pack has none. `kindgi build` checks each block (its template is Liquid, its values fit its schema) and refuses a pack whose blocks don't hold up, or whose block files look like secrets, naming each file; it refuses a pack whose own indexer is from before blocks (the `kindgi` Python package or `com.kindgi:kindgi-pack`) too, naming the release to upgrade to. `kindgi dev` shows the same problems, reads the folder again as you edit it, and counts the blocks; its runtime reads blocks from the pack's files only (see the next change). The pack conformance suite's fixture pack has two data blocks (`FIXTURE.md`), and the suite checks that an implementation's index lists them, the prompt's template read from its file.
+  
+  `POST /v1/deployments` publishes the pack's blocks into the deploy's project before anything else, as `POST /v1/blocks` publishes a version, and unregisters the ones it published when the deploy fails. A version the runtime holds with the same content is kept. One it holds with other content is refused with `409 block-already-registered`: a version never changes, so give the block a new version. One it holds unregistered is refused the same way, naming each such block with `kindgi blocks reinstate <id> --block-version=<version>`. A deploy never reinstates one itself, as the runtime doesn't record who unregistered it: a person, or a deploy that failed after publishing it. A block whose versions live in another project is refused with `409 block-project-mismatch`. A block that doesn't hold up, or a new version that doesn't follow the block's latest, is `400 deployment-validation-failed`, whose issues' `primitive` takes a new value, `block`; so does the Python client's `DeploymentValidationDetails`. A runtime with no block registry refuses a pack with blocks the same way. An agent pins the pack's own version of each block the pack brings, never a newer one published on the runtime, and the deploy is refused when the agent's range doesn't take the pack's version, naming both; a block the pack doesn't bring pins the newest published version in range, as before.
+  
+  A runtime that does this says so: its `/v1/openapi.json` lists `deploy-publishes-pack-blocks` in `info["x-kindgi-capabilities"]`, a new open list of names (`DEPLOY_PUBLISHES_PACK_BLOCKS` in `@kindgi/handler-runtime`). `kindgi deploy` reads it only for a pack with blocks, and when the runtime doesn't list it, refuses before it builds or sends the deploy, naming the CLI's release: an earlier runtime would leave the blocks out, and pin the agents' blocks to the versions it already holds.
+- 119ac78: **`--allow-unattended=<tool-id>` names a tool whose calls in a webhook trigger's or a schedule's runs needn't wait for a person's yes just because no person started them.** It works on `kindgi webhooks register` and `update`, and `kindgi schedules create` and `update`.
+  - **Repeat it** for each tool.
+  - **On update,** it replaces the list, and `--allow-unattended=none` clears it. Left out, the list is kept.
+  - **It takes `admin`** on the project.
+  - **Retargeting a schedule** that lists any tools (to another `--agent` or `--flow`) must name them again, or `none`.
+  - **`none` is refused** on register, and with tool ids, as a usage error: nothing is sent.
+  
+  `take-ownership` says which tools the trigger keeps allowed unattended, now for the new owner's runs.
+- 9ab31d3: **`kindgi build` prints each line as it happens.** Until now it printed nothing until the build was over.
+  - **The build server's log** streams as the server sends it, and so does Docker's log for `--local`.
+  - **A build that fails** keeps what it printed, the build server's log included, and the error comes after it. Until now, a build server's build that failed printed only the error.
+  - **`--quiet`** leaves the build's lines out: an error still shows, and so do the CLI pin's warning and a rate limit's wait.
+  - **The summary** still goes to stdout at the end, so `--json` output stays apart from the progress on stderr.
+- eef688f: **`kindgi deploy` prints each line as it happens.** Until now it printed nothing until it was over, through an inline `kindgi build` and the wait for a hosted pack service.
+  - **The inline build's lines** go out between deploy's, the build server's log among them, as `kindgi build` prints them.
+  - **A deploy that fails** keeps what it printed, and the error comes after it. Until now, a deploy that stopped before it was sent printed only the error.
+  - **`--quiet`** leaves the inline build's lines out, as for `kindgi build`. Deploy's own lines still show: a refused deployment's error is among them.
+  - **The summary** still goes to stdout at the end, so `--json` output stays apart from the progress on stderr.
+- bf30268: **`kindgi improve` and `kindgi eval` now point to the real command.** A command that reads naturally but isn't one — `kindgi improve`, `kindgi eval` — used to print only "Unknown command" and the root help. It now names the command that was meant: `kindgi improve` → `kindgi proposals improve`, and `kindgi eval` → `kindgi eval-runs` or `kindgi eval-suites`. Any other unknown command prints the root help as before, with the unknown word quoted. This also fixes a crash: an unknown command or subcommand that happened to name a JavaScript object-prototype member (such as `constructor`) printed a `TypeError` instead of the usual message.
+- bf30268: **`kindgi proposals improve` can start a prompt pass and tune which judgments it learns from.** The command only wired the budget, so these inputs the API already accepts couldn't be reached from the CLI.
+  - `--tier=settings|prompt` — what to tune (default `settings`). `prompt` has a model draft new prompt templates (a drafted proposal always waits for a reviewer).
+  - `--provider=<id> --model=<model>` — the provider and model that draft the templates for a prompt pass, given together.
+  - `--drafts=<n>` — how many templates to draft (`1` to `5`, `3` by default).
+  - `--class-weights=as-recorded|restricted-only` — which judgments the pass learns from; omit it and the pass counts everyone until the test set's project, its tenant, or the agent improved there has a restricted judge class, then only those. Same spelling as `eval-runs start` and `proposals evaluate`.
+  - The command refuses the combinations the pass can't use with a flag-named message: `--tier=prompt` without `--provider` and `--model`, and `--provider`, `--model` or `--drafts` on a settings pass.
+- bf30268: **A new authoring skill, "Fix what the experts corrected", with a guide to match.** When an expert judges an agent's run wrong and says why, a coding agent can now turn those corrections into changes. `kindgi init` and `kindgi skills sync` install the `kindgi-fix-corrections` skill (every language), which pulls an agent's "no" judgments (`kindgi judgments list --verdict=no`), reads each with the run behind it (`kindgi runs get`, `kindgi runs journal`), and sorts each correction to where it belongs — a rule in a tool's code, a setting, an approval rule, or the agent's instructions — adding a pack test per correction, then publishing a new version (`kindgi agents derive` for a setting, `kindgi deploy` for code) and asking a person to make it live with `kindgi agents promote … --reason`, naming the corrections. It never raises a limit or drops a check — a correction that would loosen anything goes to the owner — and it keeps the pulled runs' customer data out of the pack. The guide "Fix what the experts corrected" walks a person through the same loop.
+- bf30268: **A read-only agent registry can take Improve's candidates.** `RegistryReadOnly` gains an optional `takesCandidates` (`{ undoReason, scopeReason }`). With it, an improvement pass starts, a proposal is evaluated (the version it makes is kept for that), and a promotion request and its check go through to the releases binding. Publishing, deriving, unregistering and reinstating stay refused with the registry's reason. Rolling a scope back, unpinning it and rolling a proposal back are refused with `409 registry-read-only` and `undoReason`, and a pass, a draft or an evaluation for a scope narrower than the tenant with `scopeReason`. Under `kindgi dev`, a runtime that serves the pack's files sets it: making a proposal live writes it into the pack's files, and an undo is done there, with git. The promotion's reference says what such a runtime does: only the whole tenant is made live, and a pack whose files changed since the version was made answers `409 promotion-superseded`, naming the file. `resolveBlockPins` is exported, for such a runtime's pins at load.
+  
+  **`kindgi dev`'s pack service writes a block made live into the pack.** The pack service supervisor gains an optional `writeBlock`, behind `POST /v1/blocks` on its front, token-gated like `/v1/invoke`; without it, the route answers 404. `writePackBlock` (`@kindgi/handler-runtime`) writes a block's new version and content into its own file, found by id among the pack's blocks, and a prompt's template into its template file. It refuses a block that isn't in the pack, content that doesn't fit the block's kind, and a version not past the file's. `kindgi dev` gives the supervisor one, and its log names the file written.
+- bf30268: Judgments can now carry a **correction** — what the agent should have done on the run: the tool calls it should have made (each with the argument fields that matter) and the tools it should not have called at all. A correction is graded deterministically when a candidate version is replayed on the run, so a comparison shows how a new version measures against the expert's fix — refused calls and the first failing repetition named, shown for a promotion gate, not enforced. One correction per run per expert, recorded against the whole output, so saving again replaces it.
+  
+  Available on the API (`POST /v1/judgments`), the TypeScript and Python clients (`Correction`, `ExpectedCall`), and the CLI (`kindgi judgments add --correction`).
+- 98104be: **A hard revoke is described as what it does.** `DELETE /v1/secrets/{name}?hard=true` and `kindgi secrets revoke --hard` were called "cryptographic erasure". They erase the value at Kindgi and hard-delete it in a secret manager, and can't be undone, but backups and a secret manager's own retention may keep copies for a time.
+  - The API description of `secrets.revoke`, its `hard` parameter and the `secrets` tag say so, in the spec and in the Python client's docstrings.
+  - `kindgi secrets revoke --hard`'s help no longer says it skips the audit tombstone: a hard revoke keeps one.
+  - The docs say what each store keeps after a hard revoke (*Keep secrets in your own secret manager*, "Revoking for good").
+- e019e64: **A hard revoke says when the secret manager kept a recoverable copy, and until when.** Azure Key Vault keeps a deleted secret recoverable for the vault's retention period when it can't be purged.
+  - **`DELETE /v1/secrets/{name}?hard=true`** answers `recoverableUntil` (ISO 8601) next to `revoked` and `hard`: when the secret manager purges that copy on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. It's absent on a soft revoke, and when a hard revoke left nothing recoverable. It's optional, so a client that doesn't know it is unaffected.
+  - **The `secret-hard-revoked` record** carries `recoverableUntil` too.
+  - **The reference:** the `secrets.revoke` description and its `hard` parameter say what a hard revoke erases, and that `recoverableUntil` says until when a recoverable copy is kept.
+  - **For backends:** `SecretProviderDeleteOutput` and `SecretRevokeOutcome` gain an optional `recoverableUntil`, and `emitLifecycleEvent` takes one.
+  - **Clients:** the TypeScript client's `SecretRevokeOutcome` and the Python client's `SecretRevokeResult` gain the optional `recoverableUntil`.
+  - **`kindgi secrets revoke --hard`** prints until when your secret manager keeps the copy, and puts `recoverableUntil` in its JSON.
+- bf30268: **The `woocommerce` template's store agent takes its instructions from a prompt block the pack brings.** Their text is `blocks/store-agent-prompt.liquid`, and the block's file `blocks/store-agent-prompt.json` (`<pack>.store-agent-prompt`, the pack's version). The agent names it by range (`instructions: { prompt: '<pack>.store-agent-prompt', version: '^0.1.0' }`), so `kindgi deploy` publishes it with the agent, and a prompt pass (`kindgi proposals improve --tier=prompt`) can draft new instructions from it. The words are the ones the agent held before. The agent's own test reads them from the block. The README and AGENTS.md say where they live, and that a change to them needs a new version within the agent's range, since a deploy refuses a version whose content changed.
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [87a5290]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [e019e64]
+- Updated dependencies [119ac78]
+- Updated dependencies [ae09fc0]
+  - @kindgi/handler-runtime@0.2.0
+  - @kindgi/agents@0.2.0
+  - @kindgi/env-schema@0.2.0
+  - @kindgi/sdk@0.2.0
+  - @kindgi/client@0.2.0
+  - @kindgi/flow@0.2.0
+  - @kindgi/secrets-dotenv@0.2.0
+  - @kindgi/crypto@0.2.0
+  - @kindgi/dotenv-file@0.2.0
+  - @kindgi/log@0.2.0
+  - @kindgi/platform@0.2.0
+  - @kindgi/types@0.2.0
+
 ## 0.1.10
 
 ### Patch Changes
