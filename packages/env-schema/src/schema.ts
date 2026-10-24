@@ -694,7 +694,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SESSION_TTL_MS',
     description:
-      "A browser session's absolute lifetime, in milliseconds: the person signs in again after it. Default 43200000 (12 hours); at least 60000.",
+      "A browser session's absolute lifetime, in milliseconds: the person signs in again after it. Default 43200000 (12 hours); at least 60000, or the server refuses to start. Below an hour, also set `KINDGI_SESSION_IDLE_TIMEOUT_MS` no longer than it (its default is an hour), or the server refuses to start. Only browser sessions use it. Where nobody can open one, setting it stops the server from starting: that's with no `KINDGI_AUTH_SECRET(_PATH)` (sign-in with identity providers off) and `KINDGI_CONSOLE_TOKEN_SIGN_IN` off (its default outside development).",
     example: '43200000',
     required: false,
     appliesTo: appliesToServer,
@@ -703,7 +703,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SESSION_IDLE_TIMEOUT_MS',
     description:
-      'How long a browser session may sit idle before it ends, in milliseconds. Default 3600000 (60 minutes); at least 60000, and no longer than `KINDGI_SESSION_TTL_MS`.',
+      "How long a browser session may sit idle before it ends, in milliseconds. Default 3600000 (60 minutes); at least 60000, and no longer than `KINDGI_SESSION_TTL_MS`, or the server refuses to start. Only browser sessions use it. Where nobody can open one, setting it stops the server from starting: that's with no `KINDGI_AUTH_SECRET(_PATH)` (sign-in with identity providers off) and `KINDGI_CONSOLE_TOKEN_SIGN_IN` off (its default outside development).",
     example: '3600000',
     required: false,
     appliesTo: appliesToServer,
@@ -875,7 +875,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ERASURE_SHARED_WAIT_MS',
     description:
-      "How long an erasure waits for a turn of the person's that sits in a flow serving other people (cancelling it now could end their work), in milliseconds. The erasure shows `waiting-on-run`, naming the run, until then; at the deadline it cancels the run and goes on, and a tenant admin can stop the wait sooner (`kindgi memory erasures resume <id> --force`). Default 604800000 (7 days).",
+      "How long an erasure waits for a turn of the person's that sits in a flow serving other people (cancelling it now could end their work), in milliseconds. The erasure shows `waiting-on-run`, naming the run, until then; at the deadline it cancels the run and goes on, and a tenant admin can stop the wait sooner (`kindgi memory erasures resume <id> --force`). Default 604800000 (7 days); at least 3600000 (an hour), or the server refuses to start.",
     example: '604800000',
     required: false,
     appliesTo: appliesToServer,
@@ -902,7 +902,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ERASURE_LEDGER_EXPORT',
     description:
-      'Where the server keeps copies of the erasure ledger, off the database, so erasures can be replayed after a backup restore: `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs). On an interval (`KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS`) it writes the ledger of every tenant it serves as one file (keyed hashes only, never whom an erasure names), as `kindgi memory erasures export` does for one tenant: a new file when the ledger changed, and at least one a day. It never overwrites or deletes one; keep them longer than your backups. Replay the newest after a restore with `kindgi-runtime erasures replay`. Unset (the default): the ledger stays in the database only.',
+      'Where the server keeps copies of the erasure ledger, off the database, so erasures can be replayed after a backup restore: `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs). On an interval (`KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS`) it writes the ledger of every tenant it serves as one file (keyed hashes only, never whom an erasure names), as `kindgi memory erasures export` does for one tenant, and names every tenant marked purged, by id and when it was created: a new file when either changed, and at least one a day. It never overwrites or deletes one; keep them longer than your backups. After a restore, replay the newest with `kindgi-runtime erasures replay`, then purge the purged tenants again with `kindgi-runtime tenants repurge`, which reads the newest copy here by default. Unset (the default): the ledger stays in the database only.',
     example: 'gcs:acme-erasure-ledger/runtime',
     required: false,
     appliesTo: appliesToServer,
@@ -913,6 +913,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       'How often the server writes the erasure ledger to `KINDGI_ERASURE_LEDGER_EXPORT`, in milliseconds. An erasure made after the last copy and after the restore point is in neither, so this bounds what a restore can miss. Default 3600000 (an hour). At least 60000, and needs `KINDGI_ERASURE_LEDGER_EXPORT`, or the server refuses to start.',
     example: '900000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_TENANT_PURGE_RECORD',
+    description:
+      "Where the server writes a purged tenant's record, off the database, so a restore from an older backup purges it again: `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs). Each record is `purged/<tenant id>.json` there, as `kindgi-runtime tenants purge --record` writes it, and `kindgi-runtime tenants repurge --from` purges again every tenant one names, after a restore. It never overwrites or deletes one; keep them longer than your backups. On a runtime serving many tenants, `POST /v1/system/tenants/{tenantId}/purge` needs it: unset (the default), that route refuses every purge with `409 purge-record-unset`. A value that is neither form stops the server from starting.",
+    example: 'gcs:acme-purge-records/runtime',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -1060,7 +1069,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SECRETS_BACKEND',
     description:
-      'Where secret bytes live. `none` (default; /v1/secrets/* unmounted) | `postgres` (envelope-encrypted, needs KMS) | `dotenv` (`.env` files in a directory; development only, needs `KINDGI_DEV=true`) | `secret-manager` (your own secret manager holds the bytes; pick it with `KINDGI_SECRETS_MANAGER`).',
+      'Where secret bytes live. `none` (default; /v1/secrets/* unmounted, and tenants register no identity providers) | `postgres` (envelope-encrypted, needs KMS) | `dotenv` (`.env` files in a directory; development only, needs `KINDGI_DEV=true`) | `secret-manager` (your own secret manager holds the bytes; pick it with `KINDGI_SECRETS_MANAGER`).',
     example: 'postgres',
     required: false,
     appliesTo: appliesToServer,
@@ -1375,7 +1384,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_PACK_SERVICE_TOKEN',
     description:
-      'Shared secret between the server and the pack service. The pack service refuses any call without it, and the server sends it with every call. Required by the pack service, and by the server when `KINDGI_PACK_SERVICE_URL` is set. Use a long random value (`openssl rand -base64 32`). Both sides drop surrounding whitespace (such as the trailing newline of a stored secret), and refuse whitespace or control characters inside: the token travels in an HTTP header. The pack service removes it from its environment before it loads the pack code.',
+      'Shared secret between the server and the pack service. The pack service refuses any call without it, and the server sends it with every call. Required by the pack service, and by the server when `KINDGI_PACK_SERVICE_URL` is set. Use a long random value (`openssl rand -hex 32`). Both sides drop surrounding whitespace (such as the trailing newline of a stored secret), and refuse whitespace or control characters inside: the token travels in an HTTP header. The pack service removes it from its environment before it loads the pack code.',
     example: '',
     required: true,
     appliesTo: (t) => appliesToPackService(t) || appliesToServerHttpPackTransport(t),

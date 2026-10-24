@@ -68,7 +68,7 @@ function allow(action: Action, resource: ResourceRef): Decision {
   };
 }
 
-function makeApp() {
+function makeApp(over: Partial<KernelRunRecord> = {}) {
   const started: Record<string, unknown>[] = [];
   const stub = createStubAppBindings();
   const runId = randomUUID() as RunId;
@@ -84,6 +84,7 @@ function makeApp() {
     dryRun: false,
     createdAt: '2026-10-05T08:00:00.000Z' as Timestamp,
     updatedAt: '2026-10-05T08:00:00.000Z' as Timestamp,
+    ...over,
   };
   const kernelRuns = {
     ...stub.kernelBinding.run,
@@ -156,6 +157,31 @@ describe('POST /v1/runs: how the run started', () => {
     const claimed = await run('service-account-key', { ...agentRun, startedBy: 'person' });
     expect(claimed.status, claimed.body).toBeLessThan(300);
     expect(started.map((s) => s.startedBy)).toEqual(['key']);
+  });
+});
+
+describe('POST /v1/runs: what a run may call without a person', () => {
+  test("the body can't name tools allowed unattended: only a webhook's or a schedule's fire sets them", async () => {
+    const { run, started } = makeApp();
+    for (const body of [agentRun, flowRun]) {
+      const res = await run('service-account-key', {
+        ...body,
+        toolsAllowedUnattended: ['acme.refund'],
+      });
+      expect(res.status, res.body).toBeLessThan(300);
+    }
+    expect(started).toHaveLength(2);
+    for (const input of started) expect(input).not.toHaveProperty('toolsAllowedUnattended');
+  });
+
+  test('a run its trigger started with a list answers with it; none, without', async () => {
+    const listed = await makeApp({
+      startedBy: 'schedule',
+      toolsAllowedUnattended: ['acme.refund'],
+    }).run('session', flowRun);
+    expect(JSON.parse(listed.body)).toMatchObject({ toolsAllowedUnattended: ['acme.refund'] });
+    const none = await makeApp({ toolsAllowedUnattended: [] }).run('session', flowRun);
+    expect(JSON.parse(none.body)).not.toHaveProperty('toolsAllowedUnattended');
   });
 });
 

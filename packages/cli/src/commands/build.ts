@@ -31,6 +31,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import {
   type DiscoveryConfig,
   type PackLanguage,
+  codePatterns,
   findKindgiConfig,
   resolveDiscovery,
   resolvePackEnv,
@@ -47,6 +48,7 @@ import {
   type SkippedScript,
   devOnlyImports,
   resolveHostInstall,
+  whyDevDependencies,
 } from '../build/host-install.js';
 import {
   BuildServiceRefusal,
@@ -63,6 +65,7 @@ import {
   collectJavaContextFiles,
 } from '../build/java-image.js';
 import { nodeBaseImageFor } from '../build/node-image.js';
+import { type PackBlocksCheck, checkPackBlocks, packIndexerName } from '../build/pack-blocks.js';
 import { resolvePackRoots } from '../build/pack-root.js';
 import {
   DEFAULT_PYTHON_BASE_IMAGE_REF,
@@ -90,6 +93,7 @@ import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import { isPackageVersion } from '../package-manager.js';
 import { isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
+import { CLI_VERSION } from '../version-info.js';
 import { timeFlagValue } from './helpers.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
@@ -916,6 +920,20 @@ async function prepareNodeContext(
   const dependencies = dependenciesStep(image, bundle.computedImports, args.packDir);
   if (dependencies.kind === 'refuse') return failure(dependencies.message);
   lines(dependencies.lines.join('\n'));
+  // Only what the pack loads: the install cut down to it, or the full one trimmed after, and why.
+  let imageInstall = install;
+  let trimmedBecause: string | undefined;
+  if (image.dependencies === 'loaded') {
+    const loaded = await runners.loadedInstall({
+      install,
+      packDir: args.packDir,
+      externals: bundle.externals,
+      image,
+    });
+    if (loaded.kind === 'err') return failure(`${loaded.message}\n`);
+    if (loaded.kind === 'fallback') trimmedBecause = loaded.reason;
+    else imageInstall = loaded.install;
+  }
 
   // ---- 2. Local indexer over the bundles ----------------------------------
   const localIndex = await runners.runLocalIndexer({
@@ -937,9 +955,11 @@ async function prepareNodeContext(
         .join('\n')}\n`,
     );
   }
+  const blocks = await checkBuildBlocks(args, localIndex.counts, expectedIndexPath);
+  if (blocks.kind === 'err') return failure(`${blocks.message}\n`);
   lines(
     `    ✓ ${localIndex.counts.tools} tools, ${localIndex.counts.guardrails} guardrails, ` +
-      `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows indexed`,
+      `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows${blocksCounted(localIndex.counts)} indexed`,
   );
   printIndexWarnings(localIndex, lines);
 
@@ -951,28 +971,31 @@ async function prepareNodeContext(
     publishedAt: args.publishedAt,
     baseImageRef: base.image.ref,
     buildTarget: args.buildTarget,
-    install,
+    install: imageInstall,
     image,
     hasIncludes: includeFiles.files.length > 0,
+    hasBlocks: blocks.files.length > 0,
   });
   const contextDir = join(args.outDir, 'context');
   await runners.writeContext({
     contextDir,
     packDir: args.packDir,
-    install,
+    install: imageInstall,
     bundleDir,
     containerfilePath,
     includes: includeFiles.files,
     extensionFiles: image.contextFiles,
+    blockFiles: blocks.files,
   });
   lines(
-    `    ✓ Context: ${install.files.length} install file(s), the bundles${includeFiles.files.length > 0 ? `, ${includeFiles.files.length} bundle.include file(s)` : ''}; no pack source`,
+    `    ✓ Context: ${imageInstall.files.length} install file(s), the bundles${includeFiles.files.length > 0 ? `, ${includeFiles.files.length} bundle.include file(s)` : ''}${blocks.files.length > 0 ? `, ${blocks.files.length} block file(s) for the indexer` : ''}; no pack source`,
   );
   if (install.secrets.length > 0) {
     lines(
       `    ✓ ${install.secrets.map((s) => s.file).join(', ')}: read by the install as a build secret, never in the image`,
     );
   }
+  lines(installLine(imageInstall, image.steps, trimmedBecause));
   for (const line of skippedScriptLines(install.skippedScripts)) lines(line);
   const secrets = install.secrets.map((secret) => ({
     id: secret.id,
@@ -980,6 +1003,33 @@ async function prepareNodeContext(
     file: secret.file,
   }));
   return { kind: 'ok', contextDir, counts: localIndex.counts, secrets };
+}
+
+/**
+ * The image's install: production dependencies only, or dev ones too, and
+ * why. With `image.dependencies: 'loaded'`: only what the pack loads, or the
+ * full install trimmed after, and why (`trimmedBecause`).
+ */
+export function installLine(
+  install: Pick<HostInstall, 'manager' | 'yarnBerry' | 'reduced'>,
+  steps: ResolvedImage['steps'],
+  trimmedBecause?: string,
+): string {
+  const why = whyDevDependencies(install, steps);
+  const what =
+    why === undefined
+      ? 'production dependencies only'
+      : `dev dependencies too, ${why}; pruned to production after`;
+  if (install.reduced !== undefined) {
+    const { kept, total, leftOut } = install.reduced;
+    const line = `    ✓ Install: only what the pack loads, ${kept} of the lockfile's ${total} packages; ${what}`;
+    return leftOut.length === 0
+      ? line
+      : `${line}\n      Left out ${leftOut.length} of the pack's own dependencies its tools don't import: ${leftOut.join(', ')}`;
+  }
+  return trimmedBecause === undefined
+    ? `    ✓ Install: ${what}`
+    : `    ✓ Install: ${what}, then trimmed to what the pack loads\n      It downloads the app's whole install first, since ${trimmedBecause}.`;
 }
 
 /**
@@ -1069,10 +1119,12 @@ async function preparePythonContext(
         .join('\n')}\n`,
     );
   }
+  const blocks = await checkBuildBlocks(args, localIndex.counts, expectedIndexPath);
+  if (blocks.kind === 'err') return failure(`${blocks.message}\n`);
   lines(`  Indexing (Python — ${interpreter.value.join(' ')})`);
   lines(
     `    ✓ ${localIndex.counts.tools} tools, ${localIndex.counts.guardrails} guardrails, ` +
-      `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows discovered`,
+      `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows${blocksCounted(localIndex.counts)} discovered`,
   );
   printIndexWarnings(localIndex, lines);
 
@@ -1178,11 +1230,13 @@ async function prepareJvmContext(
     ...(declared.value?.required ?? []),
     ...(declared.value?.optional ?? []),
   ].sort();
+  const blocks = await checkBuildBlocks(args, localIndex.counts, expectedIndexPath);
+  if (blocks.kind === 'err') return failure(`${blocks.message}\n`);
   const tool = code.language === 'java' ? code.maven : code.sbt;
   lines(`  Indexing (${name} — ${code.javaHome ?? code.java}; ${tool.join(' ')})`);
   lines(
     `    ✓ ${localIndex.counts.tools} tools, ${localIndex.counts.guardrails} guardrails, ` +
-      `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows discovered`,
+      `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows${blocksCounted(localIndex.counts)} discovered`,
   );
   printIndexWarnings(localIndex, lines);
 
@@ -1647,16 +1701,45 @@ function renderExternalsSummary(externals: readonly string[]): string {
  * esbuild bundler to walk. Handles both shapes:
  *
  *   discovery: { tools: 'tools/**\/*.ts', ... }     →  ['tools', ...]
- *   discovery: { tools: 'kindgi/tools/** The config's discovery patterns with defaults filled in — what the indexer uses. */
+ *   discovery: { tools: 'kindgi/tools/**
+ * The config's code discovery patterns with defaults filled in — the
+ * files the indexer loads, and so the bundler's entries. Not the blocks
+ * pattern: blocks are data, read from the pack's files.
+ */
 export function discoveryPatternsOf(config: PackConfig): readonly string[] {
+  return codePatterns(discoveryOf(config));
+}
+
+/** The config's discovery with the defaults for the pack's language filled in. */
+function discoveryOf(config: PackConfig, language?: PackLanguage): Required<DiscoveryConfig> {
   const discovery = (config as { readonly discovery?: unknown }).discovery;
-  return Object.values(
-    resolveDiscovery(
-      typeof discovery === 'object' && discovery !== null
-        ? (discovery as DiscoveryConfig)
-        : undefined,
-    ),
+  return resolveDiscovery(
+    typeof discovery === 'object' && discovery !== null
+      ? (discovery as DiscoveryConfig)
+      : undefined,
+    language,
   );
+}
+
+/** The pack's blocks after its local index (`checkPackBlocks`), in every language. */
+function checkBuildBlocks(
+  args: ResolvedBuildArgs,
+  counts: IndexedCounts,
+  indexPath: string,
+): Promise<PackBlocksCheck> {
+  return checkPackBlocks({
+    packDir: args.packDir,
+    pattern: discoveryOf(args.config, args.language).blocks,
+    indexPath,
+    blocksCounted: counts.blocks !== undefined,
+    indexer: packIndexerName(args.language),
+    release: CLI_VERSION,
+  });
+}
+
+/** `, 2 blocks` for the indexed line, when the pack has any. */
+function blocksCounted(counts: IndexedCounts): string {
+  return counts.blocks !== undefined && counts.blocks > 0 ? `, ${counts.blocks} blocks` : '';
 }
 
 /**

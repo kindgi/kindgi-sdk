@@ -361,6 +361,10 @@ const noopJudgingQueue: JudgingQueueBinding = {
     kind: 'err',
     error: { code: 'judging-rule-not-found', message: 'noop' },
   }),
+  queueRecent: async () => ({
+    kind: 'err',
+    error: { code: 'judging-rule-not-found', message: 'noop' },
+  }),
   unregisterRule: async () => ({ unregistered: false }),
   getRule: async () => null,
   listRules: async () => ({ data: [], hasMore: false }),

@@ -412,6 +412,7 @@ export type {
   SystemTenantsClient,
   TenantAdminContact,
   TenantLimitsShape,
+  TenantPurge,
 } from './resources/system-tenants.js';
 export type {
   SystemUsageClient,
@@ -661,6 +662,8 @@ export type {
   Judgment,
   JudgmentAssertedBy,
   JudgmentWithCopies,
+  Correction,
+  ExpectedCall,
   McpAgentExposure,
   McpEndpoint,
   McpEndpointConfig,

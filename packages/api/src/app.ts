@@ -217,6 +217,7 @@ import type { SessionStoreBinding } from './session-store-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from './signing-key-binding.js';
 import type { SiteBinding } from './site-binding.js';
 import type { SupervisorBinding } from './supervisor-binding.js';
+import { ONE_TENANT_SYSTEM_SCOPES } from './system.js';
 import type { TenantHostAccess } from './tenant-host-access.js';
 import type { TokenAdmin } from './token-admin.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
@@ -604,7 +605,10 @@ export interface CreateAppInput {
   /**
    * Optional. The operator's system keys (`kgi_sy_…`), outside every
    * tenant: `/v1/system/keys`, for the full system capability only.
-   * Without it the routes aren't mounted (404).
+   * Without it the routes aren't mounted (404). Serving one tenant, they
+   * mint keys holding `system:license` alone, for the license renewal, and
+   * the deployment's own token reaches them through its resolution's
+   * `systemKeysOperator`.
    */
   readonly systemKeys?: SystemKeysBinding;
   /**
@@ -620,7 +624,8 @@ export interface CreateAppInput {
   /**
    * The record of every request a system principal makes (its key,
    * scope, route and target tenant). Required with `tenancy: 'multi'`;
-   * optional otherwise, where there is no system principal.
+   * optional otherwise, where the system keys are its only system
+   * principals.
    */
   readonly systemAccessAudit?: SystemAccessAuditBinding;
   /**
@@ -1808,6 +1813,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       releases: input.agentReleases,
       ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
       ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
+      ...(input.judgmentRegistry !== undefined && { judgeClasses: input.judgmentRegistry }),
+      ...(input.evalSuiteRegistry !== undefined && { suites: input.evalSuiteRegistry }),
     };
     v1.route(
       '/proposals',
@@ -1821,6 +1828,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
           ...(input.environmentOrders !== undefined && { orders: input.environmentOrders }),
+          // A drafter's promotion needs a separate approver when the tenant has
+          // a second person who could approve it — one who can read the
+          // approval's resource, so the count matches who the decide route lets in.
+          ...(input.reviewerRegistry !== undefined && { reviewers: input.reviewerRegistry }),
+          ...(input.authz !== undefined && { authz: input.authz.authzCheckBinding }),
         },
         authorizer,
         (r) => mountImproveRoute(r, improveDeps, authorizer, itemRights),
@@ -1837,7 +1849,13 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route('/license', licenseRouter(input.license, authorizer));
   }
   if (input.systemKeys !== undefined) {
-    v1.route('/system/keys', systemKeysRouter(input.systemKeys, authorizer));
+    v1.route(
+      '/system/keys',
+      systemKeysRouter(input.systemKeys, authorizer, {
+        // Serving one tenant, a system key is the license renewal's alone.
+        ...(input.tenancy !== 'multi' && { mintable: ONE_TENANT_SYSTEM_SCOPES }),
+      }),
+    );
   }
   if (input.systemDeployments !== undefined && input.systemTenantDirectory !== undefined) {
     // Each deployment's pack service gets the env its pack declares, from
@@ -2019,6 +2037,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // webhook receiver is outside the bearer chain (`/v1/hooks`, below).
   if (input.triggerRegistry !== undefined) {
     const kinds = new Set<TriggerKind>(input.triggerKinds ?? TRIGGER_KINDS);
+    // Where a trigger's `toolsAllowedUnattended` is checked against what
+    // its target calls (`routes/trigger-tools.ts`).
+    const targetTools = {
+      ...(input.agentRegistry !== undefined && { agents: input.agentRegistry }),
+      ...(input.flowRegistry !== undefined && { flows: input.flowRegistry }),
+    };
     if (kinds.has('cron')) {
       v1.route(
         '/schedules',
@@ -2035,6 +2059,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           input.referenceScope,
           input.auditEvents,
           itemRights,
+          targetTools,
         ),
       );
     }
@@ -2062,6 +2087,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           providerKeys,
           ...(itemRights !== undefined && { itemRights }),
           ...(receiveUrl !== undefined && { receiveUrl }),
+          targetTools,
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
         }),
       );
@@ -2112,6 +2138,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.conversationBinding,
         input.flowRegistry,
         input.reviewerBinding,
+        input.agentRegistry,
       ),
     );
     v1.route('/judge-classes', judgeClassesRouter(input.judgmentRegistry, authorizer));

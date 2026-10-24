@@ -21,7 +21,7 @@ Use the scoped name, `@kindgi/cli`: there is no unscoped `kindgi` package.
 **Requirements:** Node 22.12 or later, and Docker for `kindgi dev` (Docker
 Desktop, or a Docker engine on Linux). A Python pack needs Python and the
 [`kindgi` Python SDK](../../sdks/python), and gets this CLI from PyPI as
-`kindgi-cli`, with its own Node: `uv add --dev "kindgi-cli>=0.1,<0.2"`, then
+`kindgi-cli`, with its own Node: `uv add --dev "kindgi-cli>=0.2,<0.3"`, then
 `uv run kindgi <command>`.
 
 ## The pack lifecycle
@@ -321,7 +321,8 @@ On each boot, `kindgi dev`:
   settings or its key's name, so a difference only there gets the plain line.
 
 It records which providers it registered in `.kindgi/dev/providers.json`, per
-database and tenant.
+database and tenant. That file is `kindgi dev`'s local record, under the
+gitignored `.kindgi/`; a provider is declared in the config, which you commit.
 
 **Any OpenAI-compatible endpoint** — an open-source model you serve yourself
 (vLLM, llama.cpp's `llama-server`, Ollama, LM Studio), OpenRouter, a LiteLLM
@@ -414,11 +415,11 @@ data. `kindgi dev` runs it the same way, with the pack's own interpreter:
 - **Watch:** any `.py` file under the pack root (shared modules included)
   and `pyproject.toml`.
 - **The CLI:** a Python pack runs `kindgi-cli` from PyPI, the same CLI with
-  its own Node, pinned in its dev group (`kindgi-cli>=0.1,<0.2`), so it needs
+  its own Node, pinned in its dev group (`kindgi-cli>=0.2,<0.3`), so it needs
   no Node install. Run as `uv run kindgi <command>` (Poetry: `poetry run kindgi
   <command>`), which is what the startup hints and the `.mcp.json` entries
   `kindgi mcp add` writes say. The npm CLI still runs a Python pack:
-  `npx --yes @kindgi/cli@0.1 <command>`.
+  `npx --yes @kindgi/cli@0.2 <command>`.
 
 ### Stopping
 
@@ -500,11 +501,17 @@ Builds a signed pack image with a Kindgi build server, and writes
   and the `packageManager` field. A pnpm app with no `packageManager` gets the
   host's pnpm version (`pnpm --version`), the one that wrote the lockfile,
   never the newest. Build scripts are off during the install;
-  then `rebuild` runs the ones the app allows, and the install is pruned to
-  production dependencies.
+  then `rebuild` runs the ones the app allows. Only production dependencies
+  are installed, unless `image` has build steps (`prisma()`'s `prisma
+  generate`), whose tools can be dev dependencies: then dev dependencies are
+  installed too, and pruned after the steps. Yarn 2 or later always installs
+  them and prunes after, as its production install resolves what
+  `yarn.lock` lacks instead of failing, even with `enableImmutableInstalls`
+  on. The build says which (`✓ Install: …`).
 - **A workspace:** with pnpm, only the pack's project and what it depends on
   are installed, not the rest of the workspace. npm and yarn install the
-  whole workspace.
+  whole workspace. With `image.dependencies: 'loaded'`, the install is one
+  project, cut down to what the pack loads (below).
 - **Layout:** the lockfile's folder is `/app`, and a pack inside a workspace
   member sits at its own path.
 - **Runs:** the pack service, under tini, as `node`, on `$PORT` (8080).
@@ -534,8 +541,11 @@ export default {
   `prisma generate` after the install, before the prune. The app's own
   `postinstall` doesn't run in the image, because the install runs with
   scripts off.
-- `buildEnv` holds non-secret placeholders for the build steps, and for the
-  indexer, which imports the pack's modules. It's never in the final image.
+- `buildEnv` holds non-secret placeholders for the install, the build steps,
+  and the indexer, which imports the pack's modules. It's never in the final
+  image. The indexer imports them with `NODE_ENV=production`, as the deployed
+  service does, unless `buildEnv` sets `NODE_ENV`. A `NODE_ENV` there doesn't
+  change which dependencies the install takes.
 - `defineBuildExtension()` makes an app's own extension from the same parts:
   `contextFiles`, `systemPackages`, `postInstall` steps (a package's bin, run
   through the app's package manager) and `buildEnv`.
@@ -554,9 +564,18 @@ image: {
 },
 ```
 
-- **How it's chosen:** each package is resolved as Node resolves it at run
-  time, from the bundles' folder and then from each kept package's own
-  folder, over the layout the package manager made from the lockfile (pnpm's
+- **What the image downloads:** only those. `kindgi build` finds each
+  package as Node finds it from the pack folder, and cuts the app's
+  `package.json` and lockfile down to them and what they depend on, by the
+  lockfile: dependencies, optional ones for every platform, and peers as
+  installed. Each lockfile entry is copied as the app has it (version,
+  resolution, integrity), and the result is checked against the app's
+  lockfile before the image installs it, frozen, with the usual command.
+  pnpm (lockfile `9.0`, with its env document, catalogs, overrides and
+  patches), npm (lockfile 2 and 3) and Yarn 1.
+- **How it's chosen in the image:** each package is resolved again as Node
+  resolves it at run time, from the bundles' folder and then from each kept
+  package's own folder, over the layout the package manager made (pnpm's
   links, npm's and Yarn's hoisting). Packages are kept whole.
 - **Most misses fail the build, naming the package:**
   - an import that isn't installed fails the image's closure step, by name;
@@ -565,8 +584,42 @@ image: {
   - a `require(x)` / `import(x)` with a computed name in the pack's own code
     fails `kindgi build`, by file and line (esbuild reports each one), until
     `image.keep` names what it loads (or `dependencies` is `'all'`).
-- **The build says what it kept,** and which of the pack's own dependencies its
-  tools don't import. A Next.js app whose tools import `@kindgi/sdk` and `zod`:
+- **The build says what it installs,** and which of the pack's own
+  dependencies its tools don't import. A Next.js app whose tools import
+  `@kindgi/sdk` and `zod`:
+
+  ```text
+      ✓ Install: only what the pack loads, 39 of the lockfile's 96 packages; production dependencies only
+        Left out 3 of the pack's own dependencies its tools don't import: next, react, react-dom
+  ```
+- **A `node_modules` out of date with the lockfile fails the build:** the
+  bundles were built against a version the lockfile doesn't pin. The message
+  names the package, its folder and the command that brings it back in line
+  (`pnpm install`, `npm ci`, `yarn install`).
+- **Where the install isn't cut down:** the image downloads the app's whole
+  install and trims it after, and the build says why. That happens with:
+  - Yarn 2 or later (its lockfile can't be cut down by hand and still install
+    immutably);
+  - another lockfile version (pnpm's other than `9.0`, npm's other than 2
+    and 3);
+  - a local package (`link:`, `file:`, `workspace:`) among what the pack
+    loads;
+  - a package the pack loads that's installed outside the project, above the
+    lockfile's folder;
+  - a build step (`defineBuildExtension`) whose program no dependency of the
+    pack has;
+  - a lockfile entry it can't follow, such as one version installed twice
+    under different peers, where its folder doesn't say which.
+
+  An app whose tools import its own `@acme/ui` by `link:`:
+
+  ```text
+      ✓ Install: production dependencies only, then trimmed to what the pack loads
+        It downloads the app's whole install first, since @acme/ui is a local package (link:../../packages/ui).
+  ```
+
+  The image's closure step then says what it kept. The Next.js app above,
+  installed in full and trimmed:
 
   ```text
   … kindgi-closure: kept 36 of 59 packages (27.5 MB of 354 MB)

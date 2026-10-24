@@ -1422,6 +1422,74 @@ class TenantAdminContacts(BaseModel):
     data: Annotated[list[Datum3], Field(max_length=100)]
 
 
+class PurgeTenantBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    confirm: Annotated[str, Field(min_length=1)]
+    """
+    The tenant's slug, a second check on the id.
+    """
+
+
+class TenantTableRows(BaseModel):
+    """
+    A tenant's rows in one table: the table's name and a count.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    table: str
+    rows: Annotated[int, Field(ge=1)]
+
+
+class SystemTenantPurge(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    complete: bool
+    """
+    `true`: nothing of the tenant is left, its purge record is written, and it's marked purged. `false`: `left` and `objectsLeft` say what is; run it again.
+    """
+    already_purged: Annotated[bool, Field(alias="alreadyPurged")]
+    """
+    It was marked purged before this run: what this run deleted was written after its mark. Its mark and its record stay as they were.
+    """
+    purged_at: Annotated[AwareDatetime | None, Field(alias="purgedAt")] = None
+    """
+    When it was marked purged. Absent while something of it from before the mark is left.
+    """
+    deleted: list[TenantTableRows]
+    """
+    Rows this run deleted, per table with any: table names and counts, never the rows' content.
+    """
+    objects_deleted: Annotated[int, Field(alias="objectsDeleted", ge=0)]
+    """
+    Objects this run deleted from the artifacts' store.
+    """
+    authz_store_deleted: Annotated[bool, Field(alias="authzStoreDeleted")]
+    """
+    Whether this run deleted its authorization store.
+    """
+    left: list[TenantTableRows]
+    """
+    Rows of it still there afterwards, per table; empty when none are. A table the purge doesn't delete from is named too: report it.
+    """
+    objects_left: Annotated[int, Field(alias="objectsLeft", ge=0)]
+    """
+    Objects still under its prefix in the artifacts' store.
+    """
+    left_because: Annotated[str | None, Field(alias="leftBecause")] = None
+    """
+    Why what's left wasn't deleted, when it's a setting the runtime lacks.
+    """
+
+
 class SystemWhoami(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -2138,7 +2206,7 @@ class JudgedItem(BaseModel):
     )
     key: Annotated[str, Field(min_length=1)]
     """
-    The caller's stable id for the item.
+    The caller's stable id for the item. `kindgi:correction` is reserved: a judgment on it is accepted only when it carries a correction at pointer `""`.
     """
     pointer: str | None = None
     """
@@ -2147,6 +2215,41 @@ class JudgedItem(BaseModel):
     rank: Annotated[int | None, Field(ge=0)] = None
     """
     The item's position in a ranked list (0 = first).
+    """
+
+
+class ExpectedCall(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: Annotated[str, Field(max_length=200, min_length=1)]
+    args: Annotated[dict[str, Any], Field(max_length=100)]
+    """
+    The partial set of top-level argument fields to compare, by value. Fields left out are not compared; an empty object asks only that the tool was called. At most 4000 characters in canonical JSON.
+    """
+
+
+class NotCalledItem(RootModel[str]):
+    root: Annotated[str, Field(max_length=200, min_length=1)]
+
+
+class Correction(BaseModel):
+    """
+    An expert's correction of a run's decisions: the tool calls the agent should have made, and the tools it should not have called at all. Graded deterministically on a replay. A tool can't be in both `calls` and `notCalled`, and one of them must be non-empty (both empty is a 400).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    calls: Annotated[list[ExpectedCall], Field(max_length=50)]
+    """
+    The calls the agent should have made.
+    """
+    not_called: Annotated[list[NotCalledItem], Field(alias="notCalled", max_length=50)]
+    """
+    Tools that should not have been called at all.
     """
 
 
@@ -2179,6 +2282,10 @@ class Judgment(BaseModel):
     item: JudgedItem
     verdict: Annotated[Literal["yes", "no"] | str, _open.OPEN]
     reason: str | None = None
+    correction: Correction | None = None
+    """
+    The expert's correction of the run's decisions, when they gave one.
+    """
     judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
     """
     The judge class the judgment is recorded under. Absent when unclassified (counts with weight 1).
@@ -2249,6 +2356,10 @@ class CreateJudgmentBody(BaseModel):
     """
     An app's opaque id for its end user, when judging on their behalf.
     """
+    correction: Correction | None = None
+    """
+    Optional. The tool calls the agent should have made, graded on a replay. A correction judges the run's whole output, so it is recorded under one reserved item (`item.key` `"kindgi:correction"`, `item.pointer` `""`): a correction on any other item is a 400, and a second correction of the run by the same expert replaces the first, so it counts once.
+    """
 
 
 class UnregisterJudgmentResult(BaseModel):
@@ -2271,6 +2382,10 @@ class Restricted(BaseModel):
     )
     yes_weight: Annotated[float, Field(alias="yesWeight")]
     total_weight: Annotated[float, Field(alias="totalWeight")]
+    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
+    """
+    The judgments behind these two. Absent from a test set built before judgment ids.
+    """
 
 
 class Reason(BaseModel):
@@ -2321,6 +2436,10 @@ class JudgedItemSummary(BaseModel):
     restricted: Restricted | None = None
     """
     The same weights, counting only judgments recorded while their class was restricted (`Judgment.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.
+    """
+    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
+    """
+    The judgments summed into the item, by id: what a comparison on this case counts. Absent from a test set built before judgment ids.
     """
     reasons: list[Reason]
     """
@@ -4268,6 +4387,25 @@ class ProposalDrafter(BaseModel):
     """
 
 
+class ProposalEvidence(BaseModel):
+    """
+    What a proposal rests on.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
+    """
+    The judgments that motivated it. An improvement pass's proposal names the judgments it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items judged wrong, then the rest.
+    """
+    judgment_count: Annotated[int | None, Field(alias="judgmentCount", ge=0)] = None
+    """
+    How many judgments it rests on, when `judgmentIds` names only the first of them. Absent when `judgmentIds` names them all.
+    """
+
+
 class ProposalCandidate(BaseModel):
     """
     The versions evaluating the proposal published. They serve no scope until a promotion makes the agent version live.
@@ -4288,49 +4426,40 @@ class ProposalCandidate(BaseModel):
     pins_digest: Annotated[str, Field(alias="pinsDigest")]
 
 
-class ProposalEvaluation(BaseModel):
+class ProposalCost(BaseModel):
     """
-    The comparison the proposal was evaluated with, and what it found on the objective metric (the full summary is the eval run's).
+    What the replays cost in model calls on the same cases, in US dollars, averaged over the repetitions: the current version's and the candidate's. Set for a change held to the current version once both comparisons finished, when both reported a cost.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    eval_run_id: Annotated[UUID, Field(alias="evalRunId")]
-    suite_id: Annotated[str, Field(alias="suiteId")]
+    current: Annotated[float, Field(ge=0.0)]
+    candidate: Annotated[float, Field(ge=0.0)]
+
+
+class ProposalDecisions(BaseModel):
     """
-    The test set (a judged eval suite).
+    The corrections the current version was checked on, replayed on the same cases, against the candidate's. A model-settings change is kept only with at least one checked and none broken. Set once both comparisons finished.
     """
-    objective: Annotated[Literal["weightedYesShare", "weightedPrecisionAtK"] | str, _open.OPEN]
-    started_at: Annotated[AwareDatetime, Field(alias="startedAt")]
-    run_status: Annotated[
-        Annotated[
-            Literal["pending", "running", "completed", "failed", "cancelled"] | str, _open.OPEN
-        ]
-        | None,
-        Field(alias="runStatus"),
-    ] = None
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    checked: Annotated[int, Field(ge=0)]
+    held: Annotated[int, Field(ge=0)]
     """
-    The eval run's status. Absent when the run can't be read.
+    The current version passed them, and so did the candidate.
     """
-    baseline: float | None = None
+    broken: Annotated[int, Field(ge=0)]
     """
-    The recorded outputs' score; `null` without judged evidence.
+    The current version passed them; the candidate didn't.
     """
-    candidate: float | None = None
+    still_wrong: Annotated[int, Field(alias="stillWrong", ge=0)]
     """
-    The candidate's score.
-    """
-    delta: float | None = None
-    spread: float | None = None
-    """
-    With more than one repetition: the candidate's max − min, the noise a delta must beat.
-    """
-    cases: int | None = None
-    better: bool | None = None
-    """
-    Set once the comparison finished.
+    Neither passed them. The rest of `checked` the candidate fixed.
     """
 
 
@@ -4357,14 +4486,6 @@ class ProposalPromotion(BaseModel):
     """
     For a promoted proposal: whether its version still serves the scope.
     """
-
-
-class Evidence1(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
 
 
 class RolledBack(BaseModel):
@@ -4516,6 +4637,48 @@ class Budget2(BaseModel):
     max_candidates: Annotated[int | None, Field(alias="maxCandidates", ge=1, le=200)] = None
 
 
+class Basis(BaseModel):
+    """
+    What the estimate is built from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    replays: Annotated[int, Field(ge=0)]
+    """
+    How many replay runs the pass's comparisons would make.
+    """
+    mean_run_cost_usd: Annotated[str | None, Field(alias="meanRunCostUsd")] = None
+    """
+    The version's mean cost over its recent completed runs (US dollars). Absent with no cost history.
+    """
+
+
+class ImprovementPassEstimate(BaseModel):
+    """
+    What a pass this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    estimated_cost_usd: Annotated[str | None, Field(alias="estimatedCostUsd")] = None
+    """
+    The estimate (US dollars): `basis.replays` times `basis.meanRunCostUsd`, or `maxCostUsd` when that's smaller. Absent when the version has no cost history.
+    """
+    max_cost_usd: Annotated[str, Field(alias="maxCostUsd")]
+    """
+    The budget cap the estimate is clamped to (`budget.maxCostUsd`, US dollars).
+    """
+    basis: Basis
+    """
+    What the estimate is built from.
+    """
+
+
 class Content1(BaseModel):
     """
     `{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.
@@ -4542,6 +4705,14 @@ class Change(BaseModel):
     """
     `{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.
     """
+
+
+class Evidence1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
 
 
 class ProposalReasonBody(BaseModel):
@@ -4947,6 +5118,14 @@ class BlobMeta(BaseModel):
     Who uploaded it: `user:<id>` or `service_account:<id>`.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    bucket: str | None = None
+    """
+    The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.
+    """
+    key: str | None = None
+    """
+    The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one.
+    """
 
 
 class Datum5(BaseModel):
@@ -4992,6 +5171,14 @@ class Datum5(BaseModel):
     Who uploaded it: `user:<id>` or `service_account:<id>`.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    bucket: str | None = None
+    """
+    The bucket of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `key`, when the server's storage gives the blob one: an object put through `/s3` has the bucket and key it was put under, and an upload through `POST /v1/artifacts` conventionally has bucket `artifacts` and its `blobId` as the key.
+    """
+    key: str | None = None
+    """
+    The key of the blob's S3-compatible address (`/s3/{bucket}/{key}`). Present, with `bucket`, when the server's storage gives the blob one.
+    """
 
 
 class ArtifactCollectionPage(BaseModel):
@@ -6561,7 +6748,7 @@ class EvalOverrides(BaseModel):
 
 class EvalSample(BaseModel):
     """
-    Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified by judgment (the cases with a "no" and the others are split on their own, a stratum of two or more giving each part at least one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).
+    Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a "no" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).
     """
 
     model_config = ConfigDict(
@@ -6719,6 +6906,29 @@ class Metrics(BaseModel):
     weighted_precision_at_k: Annotated[ComparisonMetric, Field(alias="weightedPrecisionAtK")]
 
 
+class JudgedComparisonCost(BaseModel):
+    """
+    What the candidate's replays cost in model calls, as the runtime reported it. Absent from a summary when no case's replays reported a cost.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    candidate: Annotated[float, Field(ge=0.0)]
+    """
+    Each repetition's total over `cases`, averaged over the repetitions, in US dollars.
+    """
+    spread: Annotated[float | None, Field(ge=0.0)] = None
+    """
+    With more than one repetition: the totals' max − min.
+    """
+    cases: Annotated[int, Field(ge=1)]
+    """
+    The cases whose every repetition reported a cost: the ones totalled.
+    """
+
+
 class TopK(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -6840,6 +7050,83 @@ class Changes(BaseModel):
     kept: list[KeptItem]
     dropped: list[DroppedItem]
     new: list[NewItem]
+
+
+class Differences(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["count"]
+    expected: Annotated[int, Field(ge=0)]
+    actual: Annotated[int, Field(ge=0)]
+    refused: Annotated[int | None, Field(ge=1)] = None
+    """
+    How many of the actual calls were refused on the replay. Absent when none were.
+    """
+
+
+class Differences1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["must-not-call"]
+    actual: Annotated[int, Field(ge=1)]
+    refused: Annotated[int | None, Field(ge=1)] = None
+    """
+    How many of the forbidden calls were refused on the replay. Absent when none were.
+    """
+
+
+class Differences2(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["missing-field"]
+    field: str
+    expected: Any
+    refused: bool | None = None
+    """
+    Present and true when the call blamed for the miss was refused on the replay.
+    """
+
+
+class Differences3(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["field-value"]
+    field: str
+    expected: Any
+    actual: Any
+    refused: bool | None = None
+    """
+    Present and true when the call blamed for the miss was refused on the replay.
+    """
+
+
+class CorrectionDifference(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    repetition: Annotated[int, Field(ge=1)]
+    """
+    Which repetition (1-based) these differences are from.
+    """
+    differences: list[Differences | Differences1 | Differences2 | Differences3]
+
+
+class CostUsdItem(RootModel[float]):
+    root: Annotated[float, Field(ge=0.0)]
 
 
 class Stopped(BaseModel):
@@ -8069,6 +8356,44 @@ class JudgingRulePreview(BaseModel):
     """
 
 
+class JudgingQueueRecentInput(BaseModel):
+    """
+    Which recent runs to catch the rule up on. Give `last`, `since`, or both.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    last: Annotated[int | None, Field(ge=1, le=1000)] = None
+    """
+    This many of the project's most recent top-level runs (newest first).
+    """
+    since: AwareDatetime | None = None
+    """
+    Runs completed at or after this time.
+    """
+
+
+class JudgingRecentQueued(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    queued: Annotated[int, Field(ge=0)]
+    """
+    Matching recent runs this call newly queued for the rule: a new queue item, or the rule added to one already waiting for another rule.
+    """
+    already_queued: Annotated[int, Field(alias="alreadyQueued", ge=0)]
+    """
+    Matching recent runs this rule had already queued and that are still open (deduped per `(rule, run)`).
+    """
+    already_reviewed: Annotated[int, Field(alias="alreadyReviewed", ge=0)]
+    """
+    Matching recent runs whose run was already judged or dismissed: left as they are, not re-queued. An already-erased run is no longer a match and is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed` together are the matches.
+    """
+
+
 class AccessPathDirect(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -8349,7 +8674,7 @@ class PackEnvProblem(BaseModel):
 
 class DeploymentEndpoint(BaseModel):
     """
-    Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); it carries `waiting` or `retired` to say whether it comes back. Carries no URL and no token.
+    Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise, and for a deployment that ships nothing a pack service serves (no tool, and no guardrail check but built-in ones: a pack of agents and flows only), which needs none. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); it carries `waiting` or `retired` to say whether it comes back. Carries no URL and no token.
     """
 
     model_config = ConfigDict(
@@ -8576,7 +8901,7 @@ class DeploymentValidationDetails(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    primitive: Literal["tool", "guardrail", "agent", "flow"]
+    primitive: Literal["tool", "guardrail", "agent", "flow", "block"]
     index: Annotated[int, Field(ge=0)]
     id: str | None = None
     path: str
@@ -8677,6 +9002,7 @@ class EvidenceKind(RootModel[str]):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "trigger-tools-allowed-unattended-set",
                 "environment-order-set",
                 "deployment-promoted",
             ],
@@ -8843,6 +9169,7 @@ class ComplianceEvidence(BaseModel):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "trigger-tools-allowed-unattended-set",
                 "environment-order-set",
                 "deployment-promoted",
             ],
@@ -8937,6 +9264,7 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "trigger-tools-allowed-unattended-set",
                 "environment-order-set",
                 "deployment-promoted",
             ],
@@ -9008,6 +9336,7 @@ class Filter(BaseModel):
                 "person-granted",
                 "person-ungranted",
                 "trigger-owner-set",
+                "trigger-tools-allowed-unattended-set",
                 "environment-order-set",
                 "deployment-promoted",
             ],
@@ -9752,6 +10081,10 @@ class SecretRevokeOutcome(BaseModel):
     )
     revoked: bool
     hard: bool
+    recoverable_until: Annotated[AwareDatetime | None, Field(alias="recoverableUntil")] = None
+    """
+    A hard revoke left a copy your secret manager can still recover (for example Azure Key Vault's soft delete, when the vault doesn't allow a purge or the runtime isn't permitted to purge): when the secret manager purges it on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. Absent on a soft revoke, and when a hard revoke left nothing recoverable.
+    """
 
 
 class EnvDeleteResult(BaseModel):
@@ -9807,6 +10140,14 @@ class SecretRevokeResult(BaseModel):
     )
     revoked: bool
     hard: bool
+    recoverable_until: Annotated[AwareDatetime | None, Field(alias="recoverableUntil")] = None
+    """
+    A hard revoke left a copy your secret manager can still recover (for example Azure Key Vault's soft delete, when the vault doesn't allow a purge or the runtime isn't permitted to purge): when the secret manager purges it on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. Absent on a soft revoke, and when a hard revoke left nothing recoverable.
+    """
+
+
+class ToolsAllowedUnattendedItem(RootModel[str]):
+    root: Annotated[str, Field(max_length=200, min_length=1)]
 
 
 class TriggerOwner(BaseModel):
@@ -10026,7 +10367,7 @@ class Config8(BaseModel):
 
 class TakeTriggerOwnerBody(BaseModel):
     """
-    Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner.
+    Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner. A take-over keeps the trigger's `toolsAllowedUnattended`: change that with PATCH.
     """
 
     model_config = ConfigDict(
@@ -11119,6 +11460,33 @@ class JudgedRunContextFlow(BaseModel):
     """
 
 
+class JudgedEvalCaseCorrection(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    """
+    The judgment the correction was recorded on.
+    """
+    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
+    """
+    The judgment's class, when it had one.
+    """
+    restricted: Literal[True] | None = None
+    """
+    Set when the judgment was recorded while its class was restricted (`Judgment.restricted`).
+    """
+    calls: Annotated[list[ExpectedCall], Field(max_length=50)]
+    """
+    The calls the agent should have made.
+    """
+    not_called: Annotated[list[NotCalledItem], Field(alias="notCalled", max_length=50)]
+    """
+    Tools that should not have been called at all.
+    """
+
+
 class JudgedComparisonSummaryScope(BaseModel):
     """
     Where the test set's judgments came from.
@@ -11129,6 +11497,15 @@ class JudgedComparisonSummaryScope(BaseModel):
         populate_by_name=True,
     )
     project_id: Annotated[str | None, Field(alias="projectId")] = None
+
+
+class JudgedComparisonSummaryCorrectionsJudgment(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    pass_: Annotated[bool, Field(alias="pass")]
 
 
 class ComparisonCaseResultTool(BaseModel):
@@ -11147,6 +11524,26 @@ class ComparisonCaseResultTool(BaseModel):
     With `source: 'live'`: the call ran again from the same arguments because the compared version pins other settings, and the tool reads from nowhere, so it didn't diverge. Absent from older servers, and otherwise.
     """
     reason: str | None = None
+
+
+class ComparisonCaseResultCorrection(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    pass_: Annotated[bool, Field(alias="pass")]
+    """
+    Passed only when every repetition passed.
+    """
+    repetitions_passed: Annotated[int, Field(alias="repetitionsPassed", ge=0)]
+    """
+    The `k` of "k of n".
+    """
+    repetitions: Annotated[int, Field(ge=1)]
+    """
+    The `n` of "k of n".
+    """
 
 
 class DeploymentContentsTool(BaseModel):
@@ -12604,9 +13001,13 @@ class JudgedEvalCase(BaseModel):
     context: JudgedRunContext | None = None
     output: Any
     items: list[JudgedItemSummary]
+    corrections: list[JudgedEvalCaseCorrection] | None = None
+    """
+    Experts' corrections carried onto this case from its judgments, each graded on the replay. Empty or absent when none. `restricted-only` keeps only the entries whose judgment was restricted.
+    """
     erased: Literal[True] | None = None
     """
-    An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, and eval runs leave it out (counted as `erased`).
+    An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and eval runs leave it out (counted as `erased`).
     """
 
 
@@ -12818,7 +13219,7 @@ class RegisterToolBody(BaseModel):
         bool | None, Field(alias="needsApprovalWhenUnattended")
     ] = None
     """
-    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`.
     """
     sandbox: Annotated[Literal["none", "context-isolated", "strict"] | str, _open.OPEN] | None = (
         None
@@ -12850,6 +13251,58 @@ class RegisterToolBody(BaseModel):
     Handler-artifact pointer. Discriminated on `kind`: `oci` is the deploy-pipeline shape (image + module path + artifactVersion); `filesystem` is the local-development shape — absolute host path at the pack's on-disk handler file. Production servers SHOULD reject `filesystem`.
     """
     spec: ToolSpec | None = None
+
+
+class ProposalEvaluation(BaseModel):
+    """
+    The comparison the proposal was evaluated with, and what it found on the objective metric (the full summary is the eval run's).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    eval_run_id: Annotated[UUID, Field(alias="evalRunId")]
+    suite_id: Annotated[str, Field(alias="suiteId")]
+    """
+    The test set (a judged eval suite).
+    """
+    objective: Annotated[Literal["weightedYesShare", "weightedPrecisionAtK"] | str, _open.OPEN]
+    started_at: Annotated[AwareDatetime, Field(alias="startedAt")]
+    run_status: Annotated[
+        Annotated[
+            Literal["pending", "running", "completed", "failed", "cancelled"] | str, _open.OPEN
+        ]
+        | None,
+        Field(alias="runStatus"),
+    ] = None
+    """
+    The eval run's status. Absent when the run can't be read.
+    """
+    baseline: float | None = None
+    """
+    The recorded outputs' score; `null` without judged evidence.
+    """
+    candidate: float | None = None
+    """
+    The candidate's score.
+    """
+    delta: float | None = None
+    spread: float | None = None
+    """
+    With more than one repetition: the candidate's max − min, the noise a delta must beat.
+    """
+    cases: int | None = None
+    better: bool | None = None
+    """
+    Set once the comparison finished.
+    """
+    rule: Annotated[Literal["better", "cheaper"] | str, _open.OPEN] | None = None
+    """
+    How the candidate is kept. `better`: it beats the recorded outputs by more than the noise. `cheaper`: it's no worse than the current version replayed on the same cases (beyond that run's spread) and costs less (beyond the cost's own spread), with no errored case; `better` may then be false while the status is `evaluated`. Absent: `better`.
+    """
+    cost_usd: Annotated[ProposalCost | None, Field(alias="costUsd")] = None
+    decisions: ProposalDecisions | None = None
 
 
 class FixProposal(BaseModel):
@@ -12887,7 +13340,7 @@ class FixProposal(BaseModel):
     """
     What the change should improve, and why.
     """
-    evidence: Evidence1 | None = None
+    evidence: ProposalEvidence | None = None
     drafter: ProposalDrafter
     status: Annotated[
         Literal[
@@ -12909,7 +13362,7 @@ class FixProposal(BaseModel):
         _open.OPEN,
     ]
     """
-    Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.
+    Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.
     """
     candidate: ProposalCandidate | None = None
     evaluation: ProposalEvaluation | None = None
@@ -12992,7 +13445,7 @@ class ImprovementPass(BaseModel):
     """
     comparisons: list[Comparison1] | None = None
     """
-    Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.
+    Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.
     """
     trigger: Trigger | None = None
     """
@@ -13062,9 +13515,9 @@ class ImproveBody(BaseModel):
     """
     class_weights: Annotated[
         Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
-    ] = "restricted-only"
+    ] = None
     """
-    Which judgments the pass learns from: by default only those recorded under a restricted (trusted) judge class.
+    Which judgments the pass learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the pass reads its judgments from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has a restricted judge class, then only judgments recorded under one (`restricted-only`).
     """
     objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
     budget: Budget2 | None = None
@@ -13368,6 +13821,29 @@ class CostRecordCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class Corrections(BaseModel):
+    """
+    Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    checked: Annotated[int, Field(ge=0)]
+    """
+    How many corrections were graded.
+    """
+    passed: Annotated[int, Field(ge=0)]
+    """
+    How many passed (every repetition passed).
+    """
+    judgments: list[JudgedComparisonSummaryCorrectionsJudgment] | None = None
+    """
+    Each correction graded, by its judgment: whether it passed (every repetition did). What an improvement pass compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.
+    """
+
+
 class JudgedComparisonSummary(BaseModel):
     """
     What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a promotion gate reads.
@@ -13436,6 +13912,11 @@ class JudgedComparisonSummary(BaseModel):
     sampling: Sampling
     repetitions: Annotated[int, Field(ge=1)]
     metrics: Metrics
+    corrections: Corrections | None = None
+    """
+    Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.
+    """
+    cost_usd: Annotated[JudgedComparisonCost | None, Field(alias="costUsd")] = None
 
 
 class ComparisonCaseResult(BaseModel):
@@ -13467,6 +13948,20 @@ class ComparisonCaseResult(BaseModel):
     tools: list[ComparisonCaseResultTool] | None = None
     """
     The first repetition's tool calls, and what happened to each.
+    """
+    corrections: list[ComparisonCaseResultCorrection] | None = None
+    """
+    Each correction graded on this case: its verdict and how many repetitions passed. Shown, not enforced. Survives an erasure — the differences, which quote values, are in `correctionDifferences`.
+    """
+    correction_differences: Annotated[
+        list[CorrectionDifference] | None, Field(alias="correctionDifferences")
+    ] = None
+    """
+    The ways each correction's calls differed, by judgment: the differences from the first repetition that failed it, and that repetition's number. Quotes argument values, so an erasure clears it (the verdicts and counts stay in `corrections`).
+    """
+    cost_usd: Annotated[list[CostUsdItem] | None, Field(alias="costUsd")] = None
+    """
+    What each repetition's replay cost in model calls, as the runtime reported it, in US dollars: one per repetition. Absent when a repetition reported none.
     """
     diverged: bool
     refused_writes: Annotated[int, Field(alias="refusedWrites", ge=0)]
@@ -14337,6 +14832,13 @@ class WebhookTriggerRecord(BaseModel):
     """
     Refusals and skipped deliveries this minute past the 20 recorded in its history, which only counted.
     """
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
     last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
@@ -14403,6 +14905,13 @@ class RegisterWebhookTriggerBody(BaseModel):
     """
     A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Absent: the caller owns it.
     """
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this trigger's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the trigger's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
 
 
 class PatchWebhookTriggerBody(BaseModel):
@@ -14443,6 +14952,13 @@ class PatchWebhookTriggerBody(BaseModel):
     ] = None
     """
     `null`: the default.
+    """
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    Replaces the trigger's list; `[]` clears it, and absent keeps it (a new `flowVersion` too). Naming it takes `admin` on the trigger's project, and it's checked against the flow at the version the trigger will run. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -14669,6 +15185,12 @@ class Run(BaseModel):
     """
     How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
     """
+    tools_allowed_unattended: Annotated[list[str] | None, Field(alias="toolsAllowedUnattended")] = (
+        None
+    )
+    """
+    The tools, by id, whose calls in this run don't wait for a person's yes though no person started it: the list of the webhook or schedule that fired it, as it was when the run started, and never changed after. A child run has its parent's. Absent: none.
+    """
     replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
     """
     Set on a replay run (an eval run re-running a past run): the run it replays.
@@ -14754,6 +15276,12 @@ class Datum(BaseModel):
     """
     How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
     """
+    tools_allowed_unattended: Annotated[list[str] | None, Field(alias="toolsAllowedUnattended")] = (
+        None
+    )
+    """
+    The tools, by id, whose calls in this run don't wait for a person's yes though no person started it: the list of the webhook or schedule that fired it, as it was when the run started, and never changed after. A child run has its parent's. Absent: none.
+    """
     replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
     """
     Set on a replay run (an eval run re-running a past run): the run it replays.
@@ -14832,7 +15360,7 @@ class Tool(BaseModel):
         bool | None, Field(alias="needsApprovalWhenUnattended")
     ] = None
     """
-    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`.
     """
     sandbox: Annotated[Literal["none", "context-isolated", "strict"] | str, _open.OPEN] | None = (
         None
@@ -14937,7 +15465,7 @@ class ToolVersionRow(BaseModel):
         bool | None, Field(alias="needsApprovalWhenUnattended")
     ] = None
     """
-    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. Absent means `false`.
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`.
     """
     sandbox: Annotated[Literal["none", "context-isolated", "strict"] | str, _open.OPEN] | None = (
         None
@@ -15187,6 +15715,13 @@ class ScheduleRecord(BaseModel):
     """
     Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count.
     """
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
     next_fire_at: Annotated[AwareDatetime | None, Field(alias="nextFireAt")]
     """
     Wall-clock time of the next scheduled fire. `null` on paused rows if the cron scheduler never re-armed.
@@ -15259,6 +15794,13 @@ class RegisterScheduleBody(BaseModel):
     Default 600.
     """
     label: str | None = None
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this schedule's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the schedule's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
 
 
 class PatchScheduleBody(BaseModel):
@@ -15302,6 +15844,13 @@ class PatchScheduleBody(BaseModel):
     label: str | None = None
     """
     `null` clears the label; omit to leave unchanged.
+    """
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    Replaces the schedule's list; `[]` clears it, and absent keeps it. Naming it takes `admin` on the schedule's project. A change of what it runs (another flow or agent) while the list isn't empty must name it again, as it is or `[]`; a new version alone keeps it. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 

@@ -63,7 +63,7 @@ import {
   readingOf,
   toRunProgressEvent,
 } from './sse.js';
-import { type TurnConversation, closedRefusal, turnRefusal } from './turn-access.js';
+import { type TurnConversation, closedRefusal, hiddenOr, turnRefusal } from './turn-access.js';
 import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
 
 const KERNEL_RUN_CHANNEL_PREFIX = 'kernel:run:';
@@ -305,7 +305,15 @@ export function runsRouter(
           projectId,
           ...(opened !== null && { conversationId }),
         });
-        if (refusal !== undefined) return refusal;
+        // Refused on the conversation's own participant: as if it didn't
+        // exist, unless the caller can read it (`hiddenOr`). A participant
+        // the body names keeps its 403: the conversation rule above has
+        // already let the caller into the conversation.
+        if (refusal !== undefined) {
+          return opened?.participantId !== undefined && conversationId !== undefined
+            ? hiddenOr(c, authorizer, conversationId, opened, refusal)
+            : refusal;
+        }
       }
     }
     // A closed conversation takes no new turns: refused before a run is
@@ -1083,6 +1091,10 @@ function serializeRun(
       },
     }),
     ...(row.startedBy !== undefined && { startedBy: row.startedBy }),
+    ...(row.toolsAllowedUnattended !== undefined &&
+      row.toolsAllowedUnattended.length > 0 && {
+        toolsAllowedUnattended: [...row.toolsAllowedUnattended],
+      }),
     ...(row.versions != null && { versions: row.versions }),
     ...(row.contentErasedAt !== undefined && {
       contentErasedAt: row.contentErasedAt as unknown as string,

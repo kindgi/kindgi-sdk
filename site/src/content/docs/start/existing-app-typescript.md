@@ -11,7 +11,7 @@ lives beside your code: its tools import your app's modules.
 
 **Before you start**, set up what the [Install page](../install/) describes:
 Node 22.12 or later, Docker, and access to the runtime image. In the app's
-folder, `npx --yes @kindgi/cli@0.1 doctor` checks all three, and says how to
+folder, `npx --yes @kindgi/cli@0.2 doctor` checks all three, and says how to
 fix what's missing.
 
 :::tip[Your coding agent can do most of this]
@@ -26,11 +26,11 @@ Kindgi](../coding-agents/).
 In the app's root (where its `package.json` is), with no pack name:
 
 ```sh
-npx --yes @kindgi/cli@0.1 init
+npx --yes @kindgi/cli@0.2 init
 pnpm install
 ```
 
-- `npx --yes @kindgi/cli@0.1` runs the newest 0.1 release of the Kindgi CLI
+- `npx --yes @kindgi/cli@0.2` runs the newest 0.2 release of the Kindgi CLI
   without installing it ([Check this machine](../install/#check-this-machine)
   says how).
 - `init` with no pack name adds Kindgi to the app in this folder. The
@@ -382,31 +382,66 @@ const config = {
 With a `prisma.config.ts`, name it too:
 `prisma({ schema: 'prisma/schema.prisma', config: 'prisma.config.ts' })`.
 
+A build step's tool is often a dev dependency (the `prisma` CLI), so with
+build steps the install takes your dev dependencies too, and drops them after
+the steps; without any, it installs production dependencies only. Yarn 2 or
+later always takes them and drops them after, as its production install
+resolves what `yarn.lock` lacks instead of failing, even with
+`enableImmutableInstalls` on. The build says which:
+
+```text
+    ✓ Install: dev dependencies too, for the build steps (prisma), whose tools can be dev dependencies; pruned to production after
+```
+
+The install reads your registry config (`.npmrc`, and Yarn's `.yarnrc` or
+`.yarnrc.yml`) while it runs, and the image never holds it. When a slow
+registry makes the install time out, give each download longer, in
+milliseconds. With pnpm 10, in `.npmrc`:
+
+```ini excerpt
+fetch-timeout=180000
+fetch-retries=4
+```
+
+pnpm 11 and later don't read these from `.npmrc`: set them in
+`pnpm-workspace.yaml`, which the install takes too:
+
+```yaml excerpt
+fetchTimeout: 180000
+fetchRetries: 4
+```
+
 **Also under `image`:**
 - `systemPackages`: Debian packages the image needs, such as
   `['tesseract-ocr']`.
-- `buildEnv`: placeholder variables for the build steps and for loading your
-  modules while building, such as
+- `buildEnv`: placeholder variables for the install, the build steps and
+  loading your modules while building, such as
   `{ DATABASE_URL: 'postgresql://build-placeholder' }`. Never secrets: they're
-  set while building only, and the final image doesn't have them.
+  set while building only, and the final image doesn't have them. Your modules
+  load with `NODE_ENV=production` while building, as in the deployed service,
+  unless `buildEnv` sets `NODE_ENV`. A `NODE_ENV` in `buildEnv` doesn't change
+  which dependencies the install takes.
 - **patch-package:** when a skipped script runs it, `kindgi build` prints the
   build step to add (`defineBuildExtension`, also from `@kindgi/sdk/build`).
   With pnpm, `pnpm patch` applies your patches in the install itself.
-- `dependencies: 'loaded'`: the image keeps only the packages your tools
+- `dependencies: 'loaded'`: the image downloads only the packages your tools
   import, with their own dependencies, instead of every production dependency
   of your app. On a Next.js app whose tools import `@kindgi/sdk` and `zod`, the
   build says:
 
   ```text
-  … kindgi-closure: kept 36 of 59 packages (27.5 MB of 354 MB)
-  … kindgi-closure: dropped 3 of the pack's own dependencies its tools don't import: next, react, react-dom
+      ✓ Install: only what the pack loads, 39 of the lockfile's 96 packages; production dependencies only
+        Left out 3 of the pack's own dependencies its tools don't import: next, react, react-dom
   ```
 
   A package your code loads by a name no import shows (a plugin named in a
   config string) goes in `keep: ['pino-pretty']`. Most misses fail the build,
   naming the package. What no check can see, such as a package loaded by a
   name in a string, fails that call at run time, saying what to add to `keep`.
-  `'all'` is the default.
+  A `node_modules` out of date with your lockfile fails the build, saying what
+  to run. In a few cases, such as Yarn 2 or later or a local package (`link:`,
+  `file:`, `workspace:`) among what your tools import, the image downloads
+  everything and trims it after; the build says why. `'all'` is the default.
 
 The build ends with the image and a check of what's in it:
 

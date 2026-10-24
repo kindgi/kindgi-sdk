@@ -13,7 +13,7 @@ pack lives beside your code: its tools call your app's code.
 **Before you start**, set up what the [Install page](../install/) describes:
 Docker, Node 22.12 or later (or uv, to run the CLI from PyPI), and access to
 the runtime image. You also need a JDK 17 or later, with `JAVA_HOME` set to
-it, and sbt 1.10 or later. In the app's folder, `npx --yes @kindgi/cli@0.1 doctor`
+it, and sbt 1.10 or later. In the app's folder, `npx --yes @kindgi/cli@0.2 doctor`
 checks Node, Docker and access to the runtime image, and says how to fix
 what's missing. Run it again after `kindgi init`, and it checks the JDK and sbt too.
 
@@ -26,7 +26,7 @@ In the app's directory (where its `build.sbt` is), with a JDK 17 or later,
 `JAVA_HOME` set, and sbt:
 
 ```sh
-npx --yes @kindgi/cli@0.1 init   # --pack-id=<id> if the build's name doesn't make one
+npx --yes @kindgi/cli@0.2 init   # --pack-id=<id> if the build's name doesn't make one
 ```
 
 `init` writes `kindgi.config.json`: the pack id from the build's `name`, its

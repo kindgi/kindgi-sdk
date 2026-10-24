@@ -153,7 +153,7 @@ export const ERROR_ENTRIES = {
   },
   'participant-not-allowed': {
     description:
-      "A turn would run as a participant, and you may not read that participant's memory. A turn reads and keeps its participant's memory, so running as one takes what the memory API takes: you're the participant yourself (that user, with their session or their own API key, never a service account's key), or you hold `write` on the turn's project. When the turn's project isn't known, only the participant may. It's checked wherever a turn gets a participant: `input.participantId` on `POST /v1/runs`, `participantId` on `POST /v1/conversations`, and a conversation's own participant when you post a turn into it, whatever the body names. Nothing was started or opened. Use a key or role with `write` on the turn's project, or have the participant run it.",
+      "A turn would run as a participant, and you may not read that participant's memory. A turn reads and keeps its participant's memory, so running as one takes what the memory API takes: you're the participant yourself (that user, with their session or their own API key, never a service account's key), or you hold `write` on the turn's project. When the turn's project isn't known, only the participant may. It's checked wherever a turn gets a participant: `input.participantId` on `POST /v1/runs`, `participantId` on `POST /v1/conversations`, and a conversation's own participant when you post a turn into it, whatever the body names. Into a conversation you can't read, the refusal answers `404 conversation-not-found` instead. Nothing was started or opened. Use a key or role with `write` on the turn's project, or have the participant run it.",
     details: [
       {
         key: 'action',
@@ -315,7 +315,7 @@ export const ERROR_ENTRIES = {
   },
   'conversation-not-found': {
     description:
-      "The conversation doesn't exist in your tenant, or a turn names one in a project your key can't read. Check the conversation id.",
+      "The conversation doesn't exist in your tenant, or you can't read it: one you can't read answers as if it weren't there when you read it or its messages, or are refused closing it, unregistering it or adding a turn. Check the conversation id, and that your key or role can read its project.",
     details: [
       {
         key: 'conversationId',
@@ -1007,6 +1007,25 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['guides/agents/agent-and-tool-versions'],
   },
+  'block-unresolvable': {
+    description:
+      "A data block the agent uses (its prompt, settings or model settings) can't be loaded: no published version matches its version range, the pinned version is gone, it's the other kind of block, or the runtime serves no blocks. Under `kindgi dev`, blocks come only from the pack's files: add the block under the pack's blocks folder, at a version the range takes.",
+    details: [
+      {
+        key: 'blockId',
+        meaning: 'the block',
+      },
+      {
+        key: 'requestedRange',
+        meaning: 'the version range or pin the agent asked for',
+      },
+      {
+        key: 'runId',
+        meaning: 'the run that failed',
+      },
+    ],
+    seeAlso: ['guides/evals/change-a-prompt-or-setting'],
+  },
   'tool-invocation-failed': {
     description:
       "A tool the agent called failed, and the agent's tool-error policy didn't let the model recover. The message carries the tool's own error.",
@@ -1665,25 +1684,41 @@ export const ERROR_ENTRIES = {
   },
   'block-already-registered': {
     description:
-      'That block version is already published; versions never change, so publish a new version.',
+      "That block version is already published; versions never change, so publish a new version. On a deployment, the runtime holds a version of the pack's block with other content, or unregistered: give the block a new version in the pack, or reinstate the unregistered one (`kindgi blocks reinstate`). The message names each one.",
     details: [
       {
         key: 'blockId',
-        meaning: 'the block id',
+        meaning: 'the block id (single publish)',
       },
       {
         key: 'version',
-        meaning: 'the version that exists',
+        meaning: 'the version that exists (single publish)',
+      },
+      {
+        key: 'primitive',
+        meaning: 'on a deployment: the kind of item refused (`block`)',
+      },
+      {
+        key: 'id',
+        meaning: 'on a deployment: the refused block, as `id@version`',
       },
     ],
   },
   'block-project-mismatch': {
     description:
-      'The block belongs to another project. Publish its versions in the project that owns it.',
+      'The block belongs to another project. Publish its versions, or deploy the pack that brings it, in the project that owns it.',
     details: [
       {
         key: 'blockId',
-        meaning: 'the block id',
+        meaning: 'the block id (single publish)',
+      },
+      {
+        key: 'primitive',
+        meaning: 'on a deployment: the kind of item refused (`block`)',
+      },
+      {
+        key: 'id',
+        meaning: 'on a deployment: the refused block, as `id@version`',
       },
     ],
   },
@@ -2019,7 +2054,7 @@ export const ERROR_ENTRIES = {
   },
   'system-scope-missing': {
     description:
-      "The system key doesn't hold the scope this request takes, which `scope` names: the route's own, or more for what the request asks (creating a tenant without `firstAdmin`, for one). Every `/v1/system/keys` route takes the full system capability, which a scoped key doesn't hold. A deployment's secret values (`secrets=values` on its pack env) take a key holding `system:pack-env` itself: `kindgi:system` doesn't stand in for it.",
+      "The system key doesn't hold the scope this request takes, which `scope` names: the route's own, or more for what the request asks (creating a tenant without `firstAdmin`, for one). Every `/v1/system/keys` route takes the full system capability, which a scoped key doesn't hold. A deployment's secret values (`secrets=values` on its pack env) take a key holding `system:pack-env` itself: `kindgi:system` doesn't stand in for it. On a runtime serving one tenant, a system key reaches no `/v1/system/*` route, and `scope` is `kindgi:system`: the system keys take the deployment's own token there.",
     details: [
       {
         key: 'scope',
@@ -2038,6 +2073,33 @@ export const ERROR_ENTRIES = {
         meaning: 'why the caller was refused',
       },
     ],
+  },
+  'system-key-scope-not-served': {
+    description:
+      "The runtime serves one tenant, where a system key holds `system:license` alone, and this key holds anything else, which `scopes` names: it was minted while the runtime served many tenants, say. It's refused on every route. Mint one holding `system:license` with the deployment's own token, and revoke this one.",
+    details: [
+      {
+        key: 'scopes',
+        meaning: 'the scopes the key holds',
+      },
+      {
+        key: 'served',
+        meaning: 'the scopes a system key may hold on this runtime',
+      },
+      {
+        key: 'action',
+        meaning: 'the action that was refused',
+      },
+      {
+        key: 'resource',
+        meaning: 'the resource it was refused on',
+      },
+      {
+        key: 'reason',
+        meaning: 'why the caller was refused',
+      },
+    ],
+    seeAlso: ['POST /v1/system/keys', 'POST /v1/system/keys/{keyId}/revoke'],
   },
   'system-key-not-found': {
     description: 'No system key has that id.',
@@ -2080,6 +2142,78 @@ export const ERROR_ENTRIES = {
         meaning: 'the tenant; from a system route only',
       },
     ],
+  },
+  'tenant-slug-mismatch': {
+    description:
+      "A purge's `confirm` isn't the tenant's slug, the second check on its id. Nothing was changed: send its slug, as `GET /v1/system/tenants/{tenantId}` gives it.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+    ],
+  },
+  'tenant-not-closing': {
+    description:
+      'A purge of a tenant that is active or suspended. Only a closing tenant is purged, once its 30-day export window has passed: close it first (`POST /v1/system/tenants/{tenantId}/close`). Nothing was changed.',
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+      {
+        key: 'state',
+        meaning: '`active` or `suspended`',
+      },
+    ],
+  },
+  'tenant-export-window-open': {
+    description:
+      "A purge of a closing tenant whose 30-day export window hasn't passed: its own keys and sessions can still read and export it. Purge it once `windowEndsAt` has passed. Nothing was changed.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+      {
+        key: 'windowEndsAt',
+        meaning: 'when its export window ends',
+      },
+    ],
+  },
+  'purge-record-unset': {
+    description:
+      "A purge on a runtime with nowhere set to keep purge records (`KINDGI_TENANT_PURGE_RECORD`). Without a record, a restore from a backup older than the purge would bring the tenant back. Set it on the runtime's servers, then purge. Nothing was changed.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+    ],
+  },
+  'purge-setting-missing': {
+    description:
+      "A purge of a tenant holding something the runtime has no setting to reach: artifacts with no artifacts' store set (`KINDGI_ARTIFACTS`), or an authorization store with no OpenFGA set (`KINDGI_OPENFGA_API_URL`). The message says which. Nothing was changed.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+    ],
+  },
+  'authz-store-delete-failed': {
+    description:
+      "A purge's delete of the tenant's authorization store failed; the message gives OpenFGA's answer, if it gave one, and what that left. A tenant's rows go only after its store, so a failure before then leaves every row, though its artifacts' bytes may be deleted. Run the purge again once OpenFGA answers.",
+    details: [
+      {
+        key: 'tenantId',
+        meaning: 'the tenant',
+      },
+    ],
+  },
+  'tenant-purge-unsupported': {
+    description: "This runtime doesn't purge tenants through the API.",
+    details: [],
   },
   'tenant-slug-taken': {
     description:
@@ -2492,6 +2626,17 @@ export const ERROR_ENTRIES = {
     description:
       "The deployment's operator manages sign-in, so changing identity providers needs the deployment's own token; a tenant admin's key is refused.",
     details: [],
+  },
+  'identity-providers-need-secrets-store': {
+    description:
+      "The deployment has no secrets store (`KINDGI_SECRETS_BACKEND` is `none`), and an identity provider's client secret and keys are references into one, so no provider is added or changed until the operator sets one up. Removing a provider still works. Continue with Google, Microsoft or GitHub and the emailed link don't need a store.",
+    details: [
+      {
+        key: 'providerId',
+        meaning: 'the provider that was being added or changed',
+      },
+    ],
+    seeAlso: ['deploy/self-hosted/sign-in', 'deploy/self-hosted/secret-manager'],
   },
   'license-operator-only': {
     description:
@@ -3312,9 +3457,9 @@ export const ERROR_ENTRIES = {
   },
   'secret-store-error': {
     description:
-      "The secrets store failed in a way the other secret codes don't cover, such as a database error, an invalid name for the store, or a provider feature it doesn't support.",
+      "The secrets store failed in a way the other secret codes don't cover, such as a database error, an invalid name for the store, or a provider feature it doesn't support. With your own secret manager, it's also the answer for a secret stored under a name outside the rule for new names: store its value again under a name that fits.",
     details: [],
-    seeAlso: ['guides/secrets/store-a-secret'],
+    seeAlso: ['guides/secrets/store-a-secret', 'deploy/self-hosted/secret-manager'],
   },
   'secret-operation-unsupported': {
     description:
@@ -3539,7 +3684,7 @@ export const OUTSIDE_THE_MAP = [
     code: 'sign-in-unavailable',
     status: 500,
     description:
-      "Signing in failed on the server, for example because its database didn't answer. Nothing about the cause is sent to the browser; a sign-in page shows the code instead of JSON. The runtime's log says why, as an `sso` warning: `sign-in request failed: <reason>`. Try again.",
+      "Signing in failed on the server: its database didn't answer, say, or an identity provider's settings can't start a sign-in, or a SAML response the provider's page posted was refused. Nothing about the cause is sent to the browser; a sign-in page shows the code instead of JSON. The runtime's log says why, as an `sso` warning: `sign-in request failed: <reason>`, `sign-in with provider <id> didn't start: <reason>`, or `a SAML response for provider <id> was refused: <status> <code>: <message>`. Try again; when it keeps failing, the warning says what to fix.",
     seeAlso: ['deploy/self-hosted/sign-in'],
   },
 ];

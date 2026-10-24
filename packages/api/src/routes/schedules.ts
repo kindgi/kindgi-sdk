@@ -42,6 +42,14 @@ import {
   resolveTriggerOwner,
   triggerOwnerDeps,
 } from './trigger-owners.js';
+import {
+  type TargetToolsDeps,
+  parseToolsAllowedUnattended,
+  recordToolsAllowedUnattendedSet,
+  retargets,
+  sameToolList,
+  toolsAllowedUnattendedProblem,
+} from './trigger-tools.js';
 import { UUID_RE } from './uuid-param.js';
 
 /**
@@ -61,7 +69,9 @@ import { UUID_RE } from './uuid-param.js';
  * reads need `read` on the schedule's project, changes `write`, taking
  * ownership `admin`, and registering or retargeting also needs `execute`
  * on what it runs, as starting that run does. The `triggerId` is aliased
- * as `scheduleId` in bodies.
+ * as `scheduleId` in bodies. `toolsAllowedUnattended` (`trigger-tools.ts`)
+ * takes `admin` on its project to set or change, at register too, and a
+ * new target while it lists any must name it again.
  *
  * What it runs, when more than one project serves it (`item-rights.ts`):
  * from a schedule in one of them, that project's right, as a run naming
@@ -80,6 +90,8 @@ export function schedulesRouter(
   auditEvents?: AuditEventBinding,
   /** Rights on what a schedule runs, when more than one project serves it. Absent: one project each. */
   itemRights?: ItemRights,
+  /** Where a target's agents and flows are read, to check `toolsAllowedUnattended`; absent → a list is refused. */
+  targetTools?: TargetToolsDeps,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -165,6 +177,8 @@ export function schedulesRouter(
 
     const target = parseTarget(body);
     if (target.kind === 'err') return bad(c, requestId, target.message);
+    const tools = parseToolsAllowedUnattended(body);
+    if (tools.kind === 'err') return bad(c, requestId, tools.message);
     const cronExpression = requireString(body, 'config.cronExpression');
     if (cronExpression.kind === 'err') return bad(c, requestId, cronExpression.message);
     const policy = parsePolicy(body);
@@ -203,6 +217,22 @@ export function schedulesRouter(
       );
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
+    // What its runs may call without a person's yes: a project admin's to
+    // set, and only tools its target calls.
+    if (tools.kind === 'ok') {
+      const notAdmin =
+        project === undefined
+          ? undefined // a tenant admin already, above
+          : await denied(c, 'admin', ref('project', project));
+      if (notAdmin !== undefined) return notAdmin;
+      const problem = await toolsAllowedUnattendedProblem(
+        targetTools,
+        tenantId,
+        target.value,
+        tools.value,
+      );
+      if (problem !== undefined) return bad(c, requestId, problem);
+    }
 
     // Who its runs act as: the caller, or the service account named with
     // `runAsServiceAccountId` (gated by `act_as`; see `resolveTriggerOwner`).
@@ -231,6 +261,7 @@ export function schedulesRouter(
       },
       ...policy.value,
       ...(typeof body.label === 'string' && body.label.length > 0 && { label: body.label }),
+      ...(tools.kind === 'ok' && tools.value.length > 0 && { toolsAllowedUnattended: tools.value }),
     };
 
     const result = await binding.register(registerInput);
@@ -250,6 +281,20 @@ export function schedulesRouter(
         triggerId: result.value.triggerId,
         triggerKind: 'cron',
         to: owner,
+        by: callerRef(c),
+        correlationId: requestId,
+        log: c.get('log'),
+      });
+    }
+    if (tools.kind === 'ok' && tools.value.length > 0) {
+      await recordToolsAllowedUnattendedSet({
+        auditEvents,
+        tenantId,
+        ...(project !== undefined && { projectId: project as ProjectId }),
+        triggerId: result.value.triggerId,
+        triggerKind: 'cron',
+        target: target.value,
+        to: tools.value,
         by: callerRef(c),
         correlationId: requestId,
         log: c.get('log'),
@@ -349,6 +394,8 @@ export function schedulesRouter(
     if (target?.kind === 'err') return bad(c, requestId, target.message);
     const policy = parsePolicy(body);
     if (policy.kind === 'err') return bad(c, requestId, policy.message);
+    const tools = parseToolsAllowedUnattended(body);
+    if (tools.kind === 'err') return bad(c, requestId, tools.message);
 
     const found = await scheduleFor(c, 'write');
     if (found.kind === 'err') return found.response;
@@ -374,6 +421,35 @@ export function schedulesRouter(
         );
         if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
       }
+    }
+    // Its `toolsAllowedUnattended`: kept unless named. A new target (another
+    // kind or id, not just a version) while it lists any must name it again,
+    // kept or `[]`, so it's an admin's choice for what the schedule now runs,
+    // never carried over by a `write` caller nor dropped unseen.
+    const kept = found.value.toolsAllowedUnattended ?? [];
+    const nextTarget = target?.value ?? found.value.target;
+    const retargeted = target !== undefined && retargets(found.value.target, target.value);
+    if (retargeted && kept.length > 0 && tools.kind === 'absent') {
+      return bad(
+        c,
+        requestId,
+        `this schedule's \`toolsAllowedUnattended\` lists ${kept.map((id) => `"${id}"`).join(', ')}: a new target must name it again, as it is or \`[]\` to clear it`,
+      );
+    }
+    if (tools.kind === 'ok') {
+      const notAdmin = await denied(
+        c,
+        'admin',
+        ref('project', found.value.projectId as unknown as string),
+      );
+      if (notAdmin !== undefined) return notAdmin;
+      const problem = await toolsAllowedUnattendedProblem(
+        targetTools,
+        tenantId,
+        nextTarget,
+        tools.value,
+      );
+      if (problem !== undefined) return bad(c, requestId, problem);
     }
 
     const patchConfig = body.config as Record<string, unknown> | undefined;
@@ -402,6 +478,7 @@ export function schedulesRouter(
       ...(target !== undefined && { target: target.value }),
       ...policy.value,
       ...('label' in body && { label: body.label === null ? null : (body.label as string) }),
+      ...(tools.kind === 'ok' && { toolsAllowedUnattended: tools.value }),
     };
 
     const result = await binding.update(updateInput);
@@ -417,6 +494,27 @@ export function schedulesRouter(
           requestId,
         ),
       );
+    }
+    // A change of the list is audited; so is a new target it names again.
+    if (
+      tools.kind === 'ok' &&
+      (!sameToolList(kept, tools.value) || (retargeted && tools.value.length > 0))
+    ) {
+      await recordToolsAllowedUnattendedSet({
+        auditEvents,
+        tenantId,
+        ...(found.value.projectId !== undefined && {
+          projectId: found.value.projectId as ProjectId,
+        }),
+        triggerId,
+        triggerKind: 'cron',
+        target: nextTarget,
+        from: kept,
+        to: tools.value,
+        by: callerRef(c),
+        correlationId: requestId,
+        log: c.get('log'),
+      });
     }
     return scheduleJson(c, result.value as CronTriggerRecord);
   });
@@ -495,6 +593,13 @@ export function schedulesRouter(
     // `runAsServiceAccountId` in an optional body (gated by `act_as`).
     const parsed = await parseJsonObject(c, requestId, { allowEmpty: true });
     if (parsed.kind === 'err') return parsed.response;
+    if ('toolsAllowedUnattended' in parsed.value) {
+      return bad(
+        c,
+        requestId,
+        "a take-over keeps the schedule's `toolsAllowedUnattended`: change it with PATCH",
+      );
+    }
     const runAsRaw = parsed.value.runAsServiceAccountId;
     if (runAsRaw !== undefined && (typeof runAsRaw !== 'string' || runAsRaw.length === 0)) {
       return bad(c, requestId, '`runAsServiceAccountId` must be a service-account id');
@@ -521,6 +626,9 @@ export function schedulesRouter(
       by: callerRef(c),
       correlationId: requestId,
       log: c.get('log'),
+      ...(found.value.toolsAllowedUnattended !== undefined && {
+        toolsAllowedUnattended: found.value.toolsAllowedUnattended,
+      }),
     });
     return scheduleJson(c, result.value as CronTriggerRecord);
   });
@@ -568,6 +676,10 @@ function serializeSchedule(
     ...(r.statusReason !== undefined && { statusReason: r.statusReason }),
     nextFireAt: r.nextFireAt,
     ...(r.upcoming !== undefined && { upcoming: r.upcoming }),
+    ...(r.toolsAllowedUnattended !== undefined &&
+      r.toolsAllowedUnattended.length > 0 && {
+        toolsAllowedUnattended: [...r.toolsAllowedUnattended],
+      }),
     lastFiredAt: r.lastFiredAt,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,

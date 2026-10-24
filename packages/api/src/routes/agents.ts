@@ -49,13 +49,15 @@ import {
   outOfScopeResponse,
   referencesOutOfScope,
 } from '../reference-scope.js';
-import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
+import { refuseReadOnly, refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import {
   type AgentReleaseGateDeps,
   isLiveSet,
+  isLiveUndo,
   isPromotionCheck,
+  isPromotionRequest,
   isPromotionWrite,
   mountAgentReleaseRoutes,
 } from './agent-releases.js';
@@ -110,11 +112,19 @@ export function agentsRouter(
   // Every schema a publish compiles counts against its tenant's budget.
   const publishCompiles = publishCompilesMiddleware();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
-  // every write before anything else runs.
-  r.use(
-    '*',
-    refuseWritesWhenReadOnly(() => binding.readOnly),
-  );
+  // every write before anything else runs. One that takes Improve's
+  // candidates lets a promotion through (it writes the candidate where
+  // the definitions come from), and refuses an undo with its own reason.
+  const refuseWrites = refuseWritesWhenReadOnly(() => binding.readOnly);
+  r.use('*', async (c, next) => {
+    const candidates = binding.readOnly?.takesCandidates;
+    if (candidates !== undefined) {
+      const { method, path } = c.req;
+      if (isPromotionRequest(method, path) || isPromotionCheck(method, path)) return next();
+      if (isLiveUndo(method, path)) return refuseReadOnly(c, { reason: candidates.undoReason });
+    }
+    return refuseWrites(c, next);
+  });
 
   // Authorization — check the resource directly (ref('agent', businessId));
   // permissions cascade from the parent project because the
@@ -1061,6 +1071,8 @@ function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
     }),
     ...(a.budget !== undefined && { budget: a.budget }),
     ...(a.tags !== undefined && { tags: a.tags }),
+    ...(a.output !== undefined && { output: a.output }),
+    ...(a.toolErrors !== undefined && { toolErrors: a.toolErrors }),
     ...(a.preferredProvider !== undefined && { preferredProvider: a.preferredProvider }),
     ...(a.preferredModel !== undefined && { preferredModel: a.preferredModel }),
     ...(a.pins !== undefined && { pins: a.pins }),

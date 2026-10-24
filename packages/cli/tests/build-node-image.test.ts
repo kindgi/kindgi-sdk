@@ -7,10 +7,15 @@
  * lockfile, the bundles, the index from the bundles, the pack service.
  */
 
+import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, test } from 'vitest';
 
 import { prisma } from '@kindgi/handler-runtime/build-extensions';
 import { PNPM_STORE_DIR, renderContainerfile } from '../src/build/containerfile.js';
+import { writeContainerfileReal } from '../src/build/defaults.js';
 
 import { type HostInstall, installCommands } from '../src/build/host-install.js';
 import { type ResolvedImage, readImageConfig } from '../src/build/image-config.js';
@@ -46,6 +51,11 @@ const NO_IMAGE: ResolvedImage = {
   keepIfInstalled: [],
 };
 
+/** An image with one build step: `prisma()`'s `prisma generate`. */
+const PRISMA_IMAGE = imageOf({
+  image: { extensions: [prisma({ schema: 'prisma/schema.prisma' })] },
+});
+
 /** `install(over)` without the host's pnpm version. */
 function installWithoutHostPnpm(over: Partial<HostInstall> = {}): HostInstall {
   const { hostPnpm: _hostPnpm, ...rest } = install(over);
@@ -56,16 +66,22 @@ function render(over: Partial<HostInstall> = {}, hasIncludes = false, image = NO
   return renderHost(install(over), hasIncludes, image);
 }
 
-function renderHost(host: HostInstall, hasIncludes = false, image = NO_IMAGE): string {
+function renderHost(
+  host: HostInstall,
+  hasIncludes = false,
+  image = NO_IMAGE,
+  hasBlocks = false,
+): string {
   return renderContainerfile({
     baseImageRef: NODE_24?.ref ?? '',
     artifactVersion: '20261002.1',
     publishedAt: '1970-01-01T00:00:00.000Z',
     buildTarget: 'linux/amd64',
     install: host,
-    commands: installCommands(host),
+    commands: installCommands(host, image.steps),
     image,
     hasIncludes,
+    hasBlocks,
   });
 }
 
@@ -104,14 +120,18 @@ describe('the base image', () => {
 });
 
 describe('the Containerfile', () => {
-  test('pnpm: corepack, a frozen install with scripts off, the allowed builds, then the prune', () => {
+  test('pnpm: corepack, a frozen install of production dependencies with scripts off, then the allowed builds', () => {
     const text = render({ managerSpec: 'pnpm@11.25.0' });
     expect(text).toContain(`FROM ${NODE_24?.ref} AS system`);
     expect(text).toContain('apt-get install -y --no-install-recommends ca-certificates tini');
     expect(text).toContain('RUN corepack enable');
     expect(text).toContain('# --- stage: deps (pnpm: pnpm@11.25.0, from the lockfile) ---');
-    expect(text).toContain('pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild');
-    expect(text).toContain('pnpm prune --prod');
+    expect(text).toContain('# Production dependencies only, as there are no build steps.');
+    expect(text).toContain(
+      'pnpm install --frozen-lockfile --ignore-scripts --prod && pnpm rebuild',
+    );
+    // Nothing to prune: no dev dependency was installed.
+    expect(text).not.toContain('prune');
     // The install runs as `node`, in a folder it owns.
     expect(text.indexOf('RUN chown node:node /app && mkdir -p /home/node/.cache')).toBeLessThan(
       text.indexOf('USER node'),
@@ -175,12 +195,17 @@ describe('the Containerfile', () => {
   test('a pnpm workspace installs only the pack project and what it depends on, and prunes the same way', () => {
     const member = render({ workspace: true, packRel: 'apps/support' });
     expect(member).toContain(
-      "pnpm install --frozen-lockfile --ignore-scripts --filter '{./apps/support}...' && pnpm --filter '{./apps/support}...' rebuild",
+      "pnpm install --frozen-lockfile --ignore-scripts --prod --filter '{./apps/support}...' && pnpm --filter '{./apps/support}...' rebuild",
     );
-    expect(member).toContain(
-      "pnpm install --frozen-lockfile --ignore-scripts --prod --filter '{./apps/support}...'",
+    // With a build step: everything the project needs, then the same filtered install with --prod.
+    const withSteps = render({ workspace: true, packRel: 'apps/support' }, false, PRISMA_IMAGE);
+    expect(withSteps).toContain(
+      "pnpm install --frozen-lockfile --ignore-scripts --prod=false --filter '{./apps/support}...' && pnpm --filter '{./apps/support}...' rebuild",
     );
-    expect(member).not.toContain('pnpm prune');
+    expect(withSteps).toContain(
+      "pnpm install --frozen-lockfile --ignore-scripts --prod --config.confirm-modules-purge=false --filter '{./apps/support}...'\n",
+    );
+    expect(withSteps).not.toContain('pnpm prune');
     expect(render({ workspace: true })).toContain("--filter '{.}...'");
     expect(member).toContain(
       '--mount=type=cache,id=kindgi-pnpm-cache,target=/home/node/.cache/pnpm',
@@ -195,21 +220,42 @@ describe('the Containerfile', () => {
     expect(text).not.toMatch(/COPY[^\n]*\.npmrc/);
   });
 
-  test('npm: no corepack; npm ci, rebuild, prune', () => {
-    const text = render({ manager: 'npm', files: ['package.json', 'package-lock.json'] });
+  test('npm: no corepack; npm ci of production dependencies, then rebuild; with a build step, npm ci, the step, the prune', () => {
+    const npm = { manager: 'npm', files: ['package.json', 'package-lock.json'] } as const;
+    const text = render(npm);
     expect(text).not.toContain('corepack');
-    expect(text).toContain('npm ci --ignore-scripts --no-audit --no-fund && npm rebuild');
-    expect(text).toContain('npm prune --omit=dev');
+    expect(text).toContain(
+      'npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm rebuild',
+    );
+    expect(text).not.toContain('prune');
     expect(text).not.toContain('store_dir');
+    const withSteps = render(npm, false, PRISMA_IMAGE);
+    expect(withSteps).toContain(
+      'npm ci --include=dev --ignore-scripts --no-audit --no-fund && npm rebuild',
+    );
+    expect(withSteps).toContain('npm prune --omit=dev --no-audit --no-fund');
   });
 
-  test('yarn: berry installs immutably and focuses production; classic reinstalls production', () => {
-    expect(render({ manager: 'yarn', yarnBerry: true })).toContain(
-      'yarn workspaces focus --all --production',
+  test('yarn: classic installs production; berry installs immutably and focuses production, as its production install resolves what yarn.lock lacks', () => {
+    const classic = render({ manager: 'yarn', yarnBerry: false });
+    expect(classic).toContain(
+      'yarn install --production --frozen-lockfile --ignore-scripts --non-interactive && npm rebuild',
     );
-    expect(render({ manager: 'yarn', yarnBerry: false })).toContain(
-      'yarn install --production --frozen-lockfile --ignore-scripts --non-interactive',
+    expect(classic).not.toContain('yarn install --frozen-lockfile');
+    const berry = render({ manager: 'yarn', yarnBerry: true });
+    expect(berry).toContain(
+      "# Dev dependencies too, since yarn berry's production install resolves what yarn.lock lacks instead of failing; pruned to production after.",
     );
+    expect(berry.indexOf('yarn workspaces focus --all --production')).toBeGreaterThan(
+      berry.indexOf('yarn install --immutable'),
+    );
+    expect(berry.indexOf('yarn install --immutable')).toBeGreaterThan(0);
+    // Classic with a build step: the full install, then production again.
+    const classicSteps = render({ manager: 'yarn', yarnBerry: false }, false, PRISMA_IMAGE);
+    expect(classicSteps).toContain(
+      'yarn install --production=false --frozen-lockfile --ignore-scripts --non-interactive && npm rebuild',
+    );
+    expect(classicSteps).toContain('yarn install --production --frozen-lockfile');
   });
 
   test('the index comes from the bundles, at /app/index.json', () => {
@@ -224,12 +270,29 @@ describe('the Containerfile', () => {
     expect(text).toContain('COPY --from=indexer --chown=node:node /app/index.json /app/index.json');
   });
 
+  test('the indexer loads the modules with NODE_ENV=production, as the service does; the install has none', () => {
+    const text = render();
+    const indexer = text.slice(
+      text.indexOf('FROM deps AS indexer'),
+      text.indexOf('FROM system AS final'),
+    );
+    expect(indexer).toContain('\nENV NODE_ENV=production\n');
+    expect(indexer.indexOf('ENV NODE_ENV=production')).toBeLessThan(
+      indexer.indexOf('kindgi-index.mjs'),
+    );
+    // With it, the install would leave out the dev dependencies a build step needs.
+    expect(
+      text.slice(text.indexOf('FROM system AS deps'), text.indexOf('FROM scratch AS code')),
+    ).not.toContain('NODE_ENV');
+  });
+
   test('the final stage runs the pack service over the bundles, under tini, as node', () => {
     const text = render();
-    expect(text).toContain(
+    const final = text.slice(text.indexOf('FROM system AS final'));
+    expect(final).toContain(
       'ENTRYPOINT ["/usr/bin/tini","--","node","--enable-source-maps","./dist/kindgi-pack-service.mjs","--index","/app/index.json","--module-root","./dist","--bundle-map","./dist/bundle-map.json"]',
     );
-    expect(text).toContain('ENV NODE_ENV=production');
+    expect(final).toContain('ENV NODE_ENV=production');
     expect(text).toContain('ENV PORT=8080');
     expect(text).toContain('EXPOSE 8080');
     expect(text).toContain('HEALTHCHECK');
@@ -245,6 +308,23 @@ describe('the Containerfile', () => {
   test('bundle.include files are copied only when there are some', () => {
     expect(render({}, true)).toContain('COPY --chown=node:node include/ ./');
     expect(render({}, false)).not.toContain('include/');
+  });
+
+  test("the pack's blocks go to the indexer stage only, before it indexes", () => {
+    const text = renderHost(install({ packRel: 'apps/support' }), false, NO_IMAGE, true);
+    const indexer = text.slice(
+      text.indexOf('# --- stage: indexer ---'),
+      text.indexOf('# --- stage: final ---'),
+    );
+    const copy = 'COPY --chown=node:node blocks/ ./';
+    expect(indexer).toContain(
+      `WORKDIR /app/apps/support\n# The pack's data blocks, read into the index: this stage's only.\n${copy}`,
+    );
+    expect(indexer.indexOf(copy)).toBeLessThan(
+      indexer.indexOf('RUN node --enable-source-maps ./dist/kindgi-index.mjs'),
+    );
+    expect(text.split(copy)).toHaveLength(2);
+    expect(render()).not.toContain('blocks/');
   });
 });
 
@@ -271,6 +351,9 @@ describe('the Containerfile with image extensions', () => {
       'cd /app/apps/support && pnpm exec prisma generate --config prisma.config.ts',
     );
     const prune = text.indexOf('pnpm prune --prod');
+    expect(text).toContain(
+      '# Dev dependencies too, for the build steps (prisma), whose tools can be dev dependencies; pruned to production after.',
+    );
     expect(install).toBeGreaterThan(0);
     expect(files).toBeGreaterThan(install);
     expect(generate).toBeGreaterThan(files);
@@ -280,12 +363,97 @@ describe('the Containerfile with image extensions', () => {
     );
   });
 
+  test("kindgi build's Containerfile takes the image's steps: dev dependencies too, the step, the prune", async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), 'kindgi-containerfile-')));
+    try {
+      const write = async (image: ResolvedImage): Promise<string> => {
+        const outputPath = join(dir, 'Containerfile');
+        await writeContainerfileReal({
+          outputPath,
+          baseImageRef: NODE_24?.ref ?? '',
+          artifactVersion: '20261002.1',
+          publishedAt: '1970-01-01T00:00:00.000Z',
+          buildTarget: 'linux/amd64',
+          install: install(),
+          image,
+          hasIncludes: false,
+          hasBlocks: false,
+        });
+        return readFile(outputPath, 'utf8');
+      };
+      const withSteps = await write(image);
+      expect(withSteps).toContain(
+        'pnpm install --frozen-lockfile --ignore-scripts --prod=false && pnpm rebuild',
+      );
+      expect(withSteps).toContain('pnpm prune --prod');
+      const without = await write(NO_IMAGE);
+      expect(without).toContain(
+        'pnpm install --frozen-lockfile --ignore-scripts --prod && pnpm rebuild',
+      );
+      expect(without).not.toContain('prune');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test('build env is set in the install stage only, quoted, $ not expanded', () => {
     const text = render({}, false, image);
     const env = text.indexOf('ENV DATABASE_URL="postgresql://build-placeholder/\\$db"');
     expect(env).toBeGreaterThan(text.indexOf('FROM system AS deps'));
     expect(env).toBeLessThan(text.indexOf('FROM scratch AS code'));
     expect(text.slice(text.indexOf('FROM system AS final'))).not.toContain('DATABASE_URL');
+  });
+
+  test("buildEnv's NODE_ENV is the indexer's, with either dependencies setting; the service's stays production", () => {
+    for (const dependencies of ['all', 'loaded'] as const) {
+      const text = render(
+        {},
+        false,
+        imageOf({ image: { dependencies, buildEnv: { NODE_ENV: 'development' } } }),
+      );
+      const at = text.indexOf(' AS indexer');
+      const indexer = text.slice(at, text.indexOf('FROM system AS final'));
+      expect(indexer).not.toContain('NODE_ENV=production');
+      if (dependencies === 'all') {
+        // The indexer is on deps, where the build env is set.
+        expect(text).toContain('FROM deps AS indexer');
+        const set = text.indexOf('ENV NODE_ENV="development"');
+        expect(set).toBeGreaterThan(text.indexOf('FROM system AS deps'));
+        expect(set).toBeLessThan(text.indexOf('FROM scratch AS code'));
+      } else {
+        expect(indexer).toContain('ENV NODE_ENV="development"');
+      }
+      expect(text.slice(text.indexOf('FROM system AS final'))).toContain(
+        '\nENV NODE_ENV=production\n',
+      );
+    }
+  });
+
+  test("buildEnv's NODE_ENV=production comes before the install, which asks for dev dependencies for the steps all the same", () => {
+    const production = imageOf({
+      image: {
+        extensions: [prisma({ schema: 'prisma/schema.prisma' })],
+        buildEnv: { NODE_ENV: 'production' },
+      },
+    });
+    for (const [over, installs] of [
+      [{}, 'pnpm install --frozen-lockfile --ignore-scripts --prod=false && pnpm rebuild'],
+      [
+        { manager: 'npm' },
+        'npm ci --include=dev --ignore-scripts --no-audit --no-fund && npm rebuild',
+      ],
+      [
+        { manager: 'yarn', yarnBerry: false },
+        'yarn install --production=false --frozen-lockfile --ignore-scripts --non-interactive && npm rebuild',
+      ],
+    ] as const) {
+      const text = render(over, false, production);
+      const said = text.indexOf(
+        '\n# Build env: the install, the build steps and the indexer stage only, never the final image.\nENV NODE_ENV="production"\n',
+      );
+      expect(said).toBeGreaterThan(text.indexOf('FROM system AS deps'));
+      expect(text.indexOf(installs)).toBeGreaterThan(said);
+    }
   });
 
   test('without extensions, nothing extra is rendered', () => {
@@ -332,6 +500,26 @@ describe("the Containerfile with image.dependencies: 'loaded'", () => {
     );
   });
 
+  test('an install cut down to what the pack loads: one project, the same frozen install, and said', () => {
+    const reduced = {
+      written: {},
+      copied: ['apps/support/package.json'],
+      kept: 15,
+      total: 17,
+      leftOut: [],
+    };
+    const cut = render({ packRel: 'apps/support', workspace: false, reduced }, false, image);
+    const deps = cut.slice(cut.indexOf('AS deps'), cut.indexOf('FROM deps AS closure'));
+    expect(deps).toContain(
+      "# Only what the pack loads: 15 of the lockfile's 17 packages, from the manifest and lockfile kindgi build cut down to them.",
+    );
+    expect(deps).toContain('pnpm install --frozen-lockfile');
+    expect(deps).not.toContain('--filter');
+    const full = render({ packRel: 'apps/support', workspace: true }, false, image);
+    expect(full).not.toContain("of the lockfile's");
+    expect(full).toContain('--filter');
+  });
+
   test('the indexer runs on the trimmed install, after the load check, with the build env', () => {
     const text = render({}, false, image);
     const indexer = text.slice(
@@ -340,6 +528,7 @@ describe("the Containerfile with image.dependencies: 'loaded'", () => {
     );
     expect(indexer).toContain('USER node');
     expect(indexer).toContain('ENV DATABASE_URL="postgresql://build-placeholder"');
+    expect(indexer).toContain('\nENV NODE_ENV=production\n');
     const check = indexer.indexOf(
       'RUN node ./dist/kindgi-closure.mjs check --bundle-dir /app/dist --externals ./dist/externals.json',
     );

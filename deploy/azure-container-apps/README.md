@@ -158,6 +158,8 @@ KMS probe OK (azure-key-vault): azure-key-vault 7.5 (wrap/unwrap round trip, RSA
   "  Pack service: https://<name_prefix>-pack.internal.<environment domain> — <pack id> (artifact …), protocol 2, 4 tools, 1 check"]}
 ```
 
+`pack_min_instances` (default 1) keeps one pack service replica running, around the clock ([Azure Container Apps pricing](https://azure.microsoft.com/pricing/details/container-apps/)), so the first tool call after a quiet spell doesn't wait for one to start. Keep it when response time matters; 0 lets the pack service scale to zero, which suits a dev deployment.
+
 `logs show` streams the running replica. For a replica that stopped (a boot that failed), query Log Analytics:
 
 ```sh
@@ -224,10 +226,35 @@ server_secret_env = {
   - Console sessions are then accepted from that origin only, so open the console there.
   - The plan refuses `KINDGI_AUTH_SECRET` without it, because the server wouldn't start.
 - **Pin each secret to a version**, as above, rather than `latest`: a new version then reaches the server only when you change `version` here, not whenever Container Apps picks it up.
-- **Continue with Google, Microsoft or GitHub, verified domains, and Turnstile** go the same way:
-  - in `server_env`: each provider's client id, `KINDGI_AUTH_VERIFIED_DOMAINS` (`acme.com:<tenant id>`) and the Turnstile site key;
-  - in `server_secret_env`: each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET`.
-  - The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
+
+**With Continue with Google.** It needs the sign-in secret and `public_url`, as for the emailed link, and an OAuth client of type **Web application** in the Google Cloud console. Its authorized redirect URI is `public_url` followed by `/auth/kindgi/social/callback/google`:
+
+```
+https://kindgi-server.<environment domain>/auth/kindgi/social/callback/google
+```
+
+```sh
+# In the shell from step 3. The Google client's secret: paste it; it never goes in a file.
+read -rs GOOGLE_SECRET && printf '%s' "$GOOGLE_SECRET" | put google-client-secret && unset GOOGLE_SECRET
+```
+
+```hcl
+public_url = "https://kindgi-server.<environment domain>"
+server_env = {
+  KINDGI_AUTH_GOOGLE_CLIENT_ID = "<client id>" # ends in .apps.googleusercontent.com
+}
+server_secret_env = {
+  KINDGI_AUTH_SECRET               = { secret = "auth-secret", version = "<the version put printed>" }
+  KINDGI_AUTH_GOOGLE_CLIENT_SECRET = { secret = "google-client-secret", version = "<the version put printed>" }
+}
+```
+
+- **Microsoft and GitHub, verified domains, and Turnstile** go the same way:
+  - in `server_env`: `KINDGI_AUTH_MICROSOFT_CLIENT_ID` or `KINDGI_AUTH_GITHUB_CLIENT_ID`, `KINDGI_AUTH_VERIFIED_DOMAINS` (`acme.com:<tenant id>`) and the Turnstile site key;
+  - in `server_secret_env`: `KINDGI_AUTH_MICROSOFT_CLIENT_SECRET` or `KINDGI_AUTH_GITHUB_CLIENT_SECRET`, and `KINDGI_AUTH_TURNSTILE_SECRET`;
+  - each provider's redirect URI ends in its name: `…/auth/kindgi/social/callback/microsoft` or `…/github`.
+- Several ways in share the two maps: with the emailed link too, they hold both sets of settings.
+- The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
 
 ## Operating it
 
@@ -256,7 +283,40 @@ $(terraform output -raw license_enroll_command)   # fill in --for first
   - It has an identity of its own, `<name_prefix>-license-renewer`. That identity reads `license-key` and `license-renewer`, and holds a custom role, `<name_prefix>-license-key-writer-…`, that can only set `license-key`, never delete it or read other secrets.
   - The server gets no access to the renewer key.
   - Its runs: `az containerapp job execution list -n <name_prefix>-license-renew -g <rg> -o table`.
-  - **Two alerts come with it:** a failed run, and a key within 7 days of expiring (the run's own line, `⚠ It expires in N days`). They go to the action groups in `alert_action_groups`; with none, they fire in Azure Monitor only.
+  - **Two alerts come with it:** a failed run, and a key within 7 days of expiring (the run's own line, `⚠ It expires in N days`). With `license_usage_key_secret` (below), a third: a run that sent no counts (its line `counts: not sent (<why>)`). A production key's renewals never carry counts, so they never raise it. They go to the action groups in `alert_action_groups`; with none, they fire in Azure Monitor only.
+- **Counts of the deployment's use,** for a non-production key (the docs' Renew the license key page says what they are, under "What renewing sends"): mint a system key holding `system:license` alone with the deployment's own token, put it in the vault, then set `license_usage_key_secret` to its secret's name and apply. The job then reads that secret too, and renews with `--runtime` (the server) and `--runtime-token` (that secret), as `license_renew_command` does. Terraform never holds the key, and the server gets no access to it.
+
+  ```sh
+  # Off in this shell: az's log file, if it's on, records each request's body.
+  export AZURE_LOGGING_ENABLE_LOG_FILE=no
+  V=$(terraform output -raw key_vault_name)
+  put() { az keyvault secret set --vault-name "$V" -n "$1" --file /dev/stdin --query id -o tsv; }
+
+  # The deployment's own token, read from the vault into this shell only.
+  KINDGI_API_TOKEN=$(az keyvault secret show --vault-name "$V" -n api-token --query value -o tsv)
+  KEY=$(curl -sS -X POST "$(terraform output -raw server_url)/v1/system/keys" \
+    -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
+    -H 'Content-Type: application/json' \
+    -H "Idempotency-Key: $(uuidgen)" \
+    -d '{"scopes": ["system:license"], "label": "license renewal"}' \
+    | jq -r '.token // error(.error.message)') && [ -n "$KEY" ] \
+    && printf '%s' "$KEY" | put license-usage-key
+  unset KEY KINDGI_API_TOKEN
+  ```
+
+  Then `license_usage_key_secret = "license-usage-key"`. The key is never printed, and the token reaches `curl` as a header file, never in the list of processes. A refused mint prints its error instead, and nothing goes in the vault. To list the keys or revoke one, see "A key for the counts" on that page. A server serving one tenant that refuses the mint with `system-principal-required` is older than runtime 0.1.10, which has these keys: until you upgrade it, the job renews without counts.
+
+  **Check the first run.** A renewal that can't send its counts still renews, with `counts: not sent (<why>)` in its log. The alert `<name_prefix>-license-counts-not-sent` raises it within a day. To know now, start a run after the apply, wait for it to finish, and read its counts line. The log reaches Log Analytics a few minutes after the run ends, so an empty answer right after it means ask again a little later:
+
+  ```sh
+  az containerapp job start -n <name_prefix>-license-renew -g <rg>
+  az containerapp job execution list -n <name_prefix>-license-renew -g <rg> -o table   # until it shows Succeeded
+  WS=$(az monitor log-analytics workspace list -g <rg> --query "[0].customerId" -o tsv)
+  az monitor log-analytics query -w "$WS" --analytics-query \
+    "ContainerAppConsoleLogs_CL | where column_ifexists('ContainerJobName_s', '') == '<name_prefix>-license-renew' | where Log_s has 'counts:' | order by TimeGenerated desc | take 5"
+  ```
+
+  `counts: sent (…)` is what you want. With `server_ip_allowlist` set, this check matters most: the job calls the server's URL, and the module doesn't check whether the list lets it in.
 - **When a new key is used:** the server reads `license-key` without a version, so it gets the new key as for any rotated secret (see "Rotating a secret" above, and [Microsoft: Key Vault secret URI and secret rotation](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets#key-vault-secret-uri-and-secret-rotation)). Until then it runs on the key it started with. A running server never stops over its key.
 - **Stopping:** unset `license_renewal_schedule`, or stop the renewer on access.kindgi.com.
 

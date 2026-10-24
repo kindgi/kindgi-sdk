@@ -242,6 +242,34 @@ describe('run-handler error codes', () => {
       expect(res.status).toBe(422);
     },
   );
+
+  test("an agent's block-unresolvable maps to 422, as tool-version-unresolvable does, with its block", async () => {
+    const stubs = createStubAppBindings();
+    const error = {
+      code: 'block-unresolvable',
+      message: 'prompt block "acme.reply" has no published version in "^2.0.0" (published: 1.0.0)',
+      blockId: 'acme.reply',
+      requestedRange: '^2.0.0',
+    };
+    const failing: RunHandlerBinding = {
+      invokeAgent: async () => ({ kind: 'err', error }),
+      invokeFlow: async () => ({ kind: 'err', error }),
+      resumeRun: async () => ({ kind: 'err', error }),
+    };
+    const app = createApp({ ...stubs, resolveToken, runHandler: failing });
+    const res = await app.request('/v1/runs', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ agent: 'pack.agent', input: { userMessage: 'hi' } }),
+    });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: Record<string, unknown> };
+    expect(body.error).toMatchObject({
+      code: 'block-unresolvable',
+      message: error.message,
+      details: { blockId: 'acme.reply', requestedRange: '^2.0.0' },
+    });
+  });
 });
 
 describe('GET /v1/runs/:runId: why a failed run failed', () => {

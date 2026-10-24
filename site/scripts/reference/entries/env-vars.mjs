@@ -121,6 +121,8 @@ export const ENV_DEFAULTS = {
   KINDGI_ERASURE_LEDGER_KEY: 'none: same as `KINDGI_ERASURE_LEDGER_KEY_PATH`',
   KINDGI_ERASURE_LEDGER_EXPORT: 'none: the ledger stays in the database only',
   KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS: '`3600000` (an hour); at least `60000`',
+  KINDGI_TENANT_PURGE_RECORD:
+    'none: `POST /v1/system/tenants/{tenantId}/purge` refuses every purge (`purge-record-unset`)',
   KINDGI_PASSIVE: '`off`',
   KINDGI_PAGINATION_KEY_PATH:
     'none (with `KINDGI_PAGINATION_KEY` unset): a random key made at start and kept nowhere',
@@ -139,7 +141,8 @@ export const ENV_DEFAULTS = {
   KINDGI_LOG_LEVELS: 'none: no per-subsystem levels; `KINDGI_LOG_LEVEL` applies everywhere',
   KINDGI_LOG_FORMAT:
     '`auto`: `pretty` when stdout is a terminal or `KINDGI_DEV` is on, else `json`',
-  KINDGI_SECRETS_BACKEND: '`none` (the secrets routes are not served)',
+  KINDGI_SECRETS_BACKEND:
+    "`none` (the secrets routes are not served, and a workspace's own identity providers can't be added or changed)",
   KINDGI_SECRETS_DOTENV_FILES: '`.env,.env.local`',
   KINDGI_SECRETS_AAD_KEY_PATH:
     'none (with `KINDGI_SECRETS_AAD_KEY` unset): no key; the postgres backend refuses to start without one of the two',

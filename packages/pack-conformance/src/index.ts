@@ -82,6 +82,7 @@ export const FIXTURE_TOOL_IDS = [
   'conformance.defaults',
   'conformance.echo',
   'conformance.hold',
+  'conformance.http',
   'conformance.noisy',
   'conformance.process-env',
   'conformance.sleep',
@@ -465,6 +466,7 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
       guardrails: Record<string, unknown>[];
       agents: Record<string, unknown>[];
       flows: Record<string, unknown>[];
+      blocks?: Record<string, unknown>[];
     };
     let service: RunningService;
 
@@ -513,6 +515,40 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         expect(index.flows[0]?.kernelPayloadVersion).toBe(1);
       });
 
+      test("lists the pack's data blocks, a prompt's template file read into it", () => {
+        expect(index.blocks).toEqual([
+          {
+            id: 'conformance.greeting',
+            version: '1.0.0',
+            kind: 'prompt',
+            description: 'Greets the person by name',
+            content: {
+              template: 'Say hello to {{ name }}.\n',
+              parameters: [{ name: 'name', type: 'string' }],
+            },
+            modulePath: 'blocks/greeting.json',
+          },
+          {
+            id: 'conformance.limits',
+            version: '1.0.0',
+            kind: 'settings',
+            content: {
+              values: { maxSentences: 3, temperature: 1, minScore: 1e-7 },
+              schema: {
+                type: 'object',
+                properties: {
+                  maxSentences: { type: 'integer', minimum: 1 },
+                  temperature: { type: 'number', minimum: 0 },
+                  minScore: { type: 'number', minimum: 0 },
+                },
+                required: ['maxSentences'],
+              },
+            },
+            modulePath: 'blocks/limits.json',
+          },
+        ]);
+      });
+
       test('is canonical: keys sorted, two-space indent, trailing newline', () => {
         expect(indexText).toBe(canonical(index));
       });
@@ -534,6 +570,23 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         const config = spec.compile(minLength?.configSchema as object);
         expect(config({ minLength: 2 })).toBe(true);
         expect(config({ minLength: -1 })).toBe(false);
+      });
+
+      test('a declarative http tool indexes the same spec in every SDK', () => {
+        // pack-index types `spec` as an open object, so each SDK must emit the same bytes
+        // here for a declarative HTTP tool to mean the same thing across the four.
+        const http = index.tools.find((t) => t.id === 'conformance.http');
+        expect(http?.spec).toEqual({
+          kind: 'http',
+          method: 'GET',
+          urlTemplate: 'https://api.example.com/{path}',
+          headers: [{ name: 'Accept', value: 'application/json' }],
+          authorization: {
+            kind: 'bearer',
+            secretRef: { envName: 'local', name: 'API_TOKEN' },
+          },
+          successStatus: { min: 200, max: 299 },
+        });
       });
     });
 
