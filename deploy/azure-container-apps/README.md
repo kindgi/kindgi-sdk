@@ -8,6 +8,8 @@ A Terraform root module that runs Kindgi in one Azure resource group you already
 - Kindgi's own PostgreSQL Flexible Server (16, pgvector), on a private network;
 - everything they stand on: two user-assigned managed identities, a Container Registry, Key Vault (the key that wraps the runtime's secrets, and the secrets both services read), Log Analytics, and the network.
 
+**One tenant:** the runtime serves the tenant it seeds (`seed_tenant_id`), and the plan refuses `KINDGI_TENANCY` or `KINDGI_PACK_ROUTING` other than `single` in `server_env` (or in `server_secret_env` at all). Serving many tenants needs a container app for each deployment's pack service, run by an orchestrator of your own, which this module doesn't make.
+
 **Two network shapes:**
 
 | | New VNet (default) | Existing VNet |
