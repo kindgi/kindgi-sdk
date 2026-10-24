@@ -472,8 +472,8 @@ longer sees it. A `senior` or `admin` reviewer approves or rejects
 `a65cd23c-…`, and the run continues.
 
 **An approval addressed to one person can't be escalated.** That's a tool
-call that acts with the person's own connection: its `approver` decides it
-at any role, and only they see it among the reviewers. A tenant admin sees
+call that acts with the person's own connection: only its `approver`
+decides it, and only they see it among the reviewers. A tenant admin sees
 it too, but can't decide it (`403 named-approver-required`). An escalation
 is refused with `409 invalid-transition`, and at its deadline it expires
 instead ([When nobody decides](../approvals-reference/#when-nobody-decides)).

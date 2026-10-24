@@ -113,8 +113,9 @@ first email goes at once, then a digest every five minutes at most.
   came from and went to.
 - **`approver`** is there when only one person may decide the approval: a
   tool call that acts with that person's own connection. It's
-  `{ "kind": "member", "userId": "<id>" }`. They decide it at any role,
-  as [Approvals](../../connections/use-a-connection/#approvals) in Use a
+  `{ "kind": "member", "userId": "<id>" }`. Only they decide it, with a
+  reviewer seat at its `requiredRole` or above, as
+  [Approvals](../../connections/use-a-connection/#approvals) in Use a
   connection in a tool describes.
 - **`connection`** is the account such a call would use:
   `{ "app": "google", "appName": "Google", "account": "lee@acme.com" }`.
@@ -276,8 +277,9 @@ deadline passes with no decision:
   it would wait on the same person, whose seat may be below it.
 
 A decision made before the deadline always wins. Apart from an approval
-addressed to one person, a deadline always escalates this way: `hitl.onTimeout` takes only `'escalate'`, the default. An agent that
-asks for anything else is refused when it's defined:
+addressed to one person, a deadline always escalates this way:
+`hitl.onTimeout` takes only `'escalate'`, the default. An agent that asks
+for anything else is refused when it's defined:
 
 ```text
 hitl.onTimeout 'auto-approve' isn't supported: an approval that times out escalates one reviewer tier, and at admin it expires (the turn fails with hitl-cancelled). Use 'escalate', or leave it out.

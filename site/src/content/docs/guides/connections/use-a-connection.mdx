@@ -386,10 +386,11 @@ input:
 - **A flow's tool step can't wait,** so it fails with `connection-missing`
   the same way.
 
-A call stopped this way runs nothing. The run records `tool.failed` with
-the code, and the model reads that as the call's result
+An agent's call stopped this way runs nothing. The run records
+`tool.failed` with the code, and the model reads that as the call's result
 (`{ "status": "failed", "error": … }`). The turn goes on, so the agent
-can say what's missing.
+can say what's missing. A flow's tool step fails instead: the run records
+`step.failed`, with the code and its message.
 
 ## Approvals
 
