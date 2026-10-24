@@ -574,14 +574,56 @@ describe('the app refuses a token: renewed once, the call runs once more', () =>
     expect(t.results).toEqual([{ ok: true }]);
   });
 
-  test('refused again: it fails as any tool failure does, after one retry', async () => {
+  test('refused again: the call fails with connection-rejected, and the turn goes on', async () => {
     const t = await turn({
       run: async () => {
-        throw new ConnectionRejectedError('mail');
+        throw new ConnectionRejectedError('mail', 'Acme said 401.');
       },
     });
     expect(t.ran).toHaveLength(2);
     expect(t.asked).toHaveLength(3);
+    expect(t.thrown).toBeUndefined();
+    expect(t.failed.map((e) => e.error)).toEqual([
+      { code: 'connection-rejected', message: 'Acme said 401.' },
+    ]);
+    expect(t.results).toEqual([
+      {
+        status: 'failed',
+        error: { code: 'connection-rejected', message: 'Acme said 401.', connection: 'mail' },
+      },
+    ]);
+    // tool.started was sent once, for the call's first run.
+    expect(t.events.filter((e) => e.kind === 'tool.started')).toHaveLength(1);
+  });
+
+  test("a pack tool's refusal again, under a toolErrors retry: connection-rejected, not a tool error to retry", async () => {
+    const t = await turn({
+      toolErrors: { retryOn: ['tool-error'] },
+      run: async () => {
+        throw Object.assign(new Error('Acme said 401.'), {
+          code: 'connection-rejected',
+          connection: 'mail',
+        });
+      },
+    });
+    expect(t.ran).toHaveLength(2);
+    expect(t.failed.map((e) => e.error.code)).toEqual(['connection-rejected']);
+    // No `kindgi: 'tool-error-retry'`: the model isn't asked to call it again.
+    expect(t.results).toEqual([
+      {
+        status: 'failed',
+        error: { code: 'connection-rejected', message: 'Acme said 401.', connection: 'mail' },
+      },
+    ]);
+  });
+
+  test('refused again for a connection the tool never declared: it fails as the tool did', async () => {
+    const t = await turn({
+      run: async (_ctx, attempt) => {
+        throw new ConnectionRejectedError(attempt === 1 ? 'mail' : 'calendar');
+      },
+    });
+    expect(t.ran).toHaveLength(2);
     expect(t.failed[0]?.error.code).toBe('tool-invocation-failed');
   });
 
@@ -664,6 +706,24 @@ describe('a token the tool echoes in what it throws goes no further', () => {
     const seen = [JSON.stringify(t.events), JSON.stringify(t.results), ...stringsOf(t.thrown)].join(
       '\n',
     );
+    expect(seen).not.toContain('secret-token');
+  });
+
+  test('refused again: what connection-rejected says has both tokens redacted', async () => {
+    let firstToken = '';
+    const t = await turn({
+      run: async (ctx, attempt) => {
+        const token = ctx.connections?.mail?.accessToken ?? '';
+        if (attempt === 1) firstToken = token;
+        throw new ConnectionRejectedError('mail', `Acme refused ${token} (first ${firstToken}).`);
+      },
+    });
+    expect(t.ran).toHaveLength(2);
+    expect(t.failed[0]?.error).toEqual({
+      code: 'connection-rejected',
+      message: 'Acme refused [redacted] (first [redacted]).',
+    });
+    const seen = [JSON.stringify(t.events), JSON.stringify(t.results)].join('\n');
     expect(seen).not.toContain('secret-token');
   });
 

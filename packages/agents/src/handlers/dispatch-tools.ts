@@ -41,6 +41,7 @@ import {
   connectionPersonOf,
   freshConnections,
   gateConnections,
+  rejectedAgainOf,
   rejectedConnectionOf,
 } from './connection-gate.js';
 import type { AgentTurnIterationOutput, TurnContext } from './context.js';
@@ -559,6 +560,18 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
           });
           continue;
         }
+        // Refused again: it fails with `connection-rejected`, as a call its
+        // connections stop does, not as the tool's own failure: `toolErrors`
+        // doesn't hand the model a call the app refused twice to retry.
+        const again = refusedAgain(first, renewed, tool);
+        if (again !== undefined) {
+          nextMessages = await appendConnectionFailure(ctx, partial.step, call, binding, {
+            failure: again,
+            started: true,
+            target: { toolId: tool.id as unknown as string, nextMessages, iterationAppended },
+          });
+          continue;
+        }
         dispatched = renewed;
       }
       if (dispatched.kind === 'err') {
@@ -837,7 +850,8 @@ async function appendDenied(
 }
 
 /**
- * A call its connections stopped: it ran nothing, and fails with a
+ * A call its connections stopped: it ran nothing, or the app refused its
+ * renewed token too (`connection-rejected`). It fails with a
  * `connection-*` code (`tool.failed`), which the model reads as its result
  * (`{ status: 'failed', error }`). The turn goes on, and the failure counts
  * as no retry. `started`: `tool.started` was already sent for it.
@@ -872,6 +886,26 @@ async function appendConnectionFailure(
     error: { code: failed.failure.code, message: failed.failure.message },
   });
   return appendToolResult(ctx, call, connectionFailureResult(failed.failure), failed.target);
+}
+
+/** A call's run: what `dispatchOne` gives back. */
+type Dispatched = Awaited<ReturnType<typeof dispatchOne>>;
+
+/**
+ * The renewed run's refusal, when the app refused its token too, with
+ * both runs' tokens redacted (`rejectedAgainOf`).
+ */
+function refusedAgain(
+  first: Dispatched,
+  renewed: Dispatched,
+  tool: Tool,
+): ConnectionCallFailure | undefined {
+  if (renewed.kind !== 'err') return undefined;
+  const error = withoutConnectionTokens(renewed.error, [
+    first.kind === 'err' ? first.connections : undefined,
+    renewed.connections,
+  ]);
+  return rejectedAgainOf(error, tool);
 }
 
 async function dispatchOne(
