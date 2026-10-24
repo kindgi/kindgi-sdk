@@ -418,6 +418,7 @@ reset_env; export STUB_TAGS="0.1.8"
 run "yes" --to 0.2.0
 assert_rc 1 "a later target refused"
 assert_out "knows the steps up to 0.1.11"
+assert_out "as of the @kindgi/sdk@0.2.0 tag"
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_absent "$STUB_MARKER_EXPORT" "backup"
@@ -429,6 +430,7 @@ reset_env; export STUB_TAGS="0.1.10"
 run "yes" --to 0.2.0-rc.1
 assert_rc 1 "a later rc refused"
 assert_out "knows the steps up to 0.1.11"
+assert_out "as of the @kindgi/sdk@0.2.0-rc.1 tag"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 
 # --- summary ----------------------------------------------------------------
