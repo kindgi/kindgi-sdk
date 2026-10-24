@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import { prisma } from '@kindgi/handler-runtime/build-extensions';
+import { undeclaredPackEnv } from '@kindgi/handler-runtime/pack-env';
 import { PNPM_STORE_DIR, renderContainerfile } from '../src/build/containerfile.js';
 import { writeContainerfileReal } from '../src/build/defaults.js';
 
@@ -83,6 +84,58 @@ function imageOf(config: Record<string, unknown>): ResolvedImage {
   const read = readImageConfig(config);
   if (read.kind !== 'ok') throw new Error(read.message);
   return read.image;
+}
+
+/**
+ * A Containerfile line, for the walk below: a `FROM <image> AS <stage>`, or
+ * an `ENV` of one name set to one quoted or plain word. Any other form of
+ * either throws, so the walk never skips a stage or a name without saying so.
+ */
+function stageLine(
+  line: string,
+): { readonly from: string; readonly stage: string } | { readonly env: string } | undefined {
+  if (/^\s*FROM\s/i.test(line)) {
+    const at = /^FROM (\S+) AS (\S+)$/.exec(line);
+    if (at?.[1] === undefined || at[2] === undefined) {
+      throw new Error(`A FROM line the walk can't read: ${line}`);
+    }
+    return { from: at[1], stage: at[2] };
+  }
+  if (/^\s*ENV\s/i.test(line)) {
+    const set = /^ENV ([A-Za-z_][A-Za-z0-9_]*)=(?:"(?:[^"\\]|\\.)*"|[^\s"\\]+)$/.exec(line);
+    if (set?.[1] === undefined) throw new Error(`An ENV line the walk can't read: ${line}`);
+    return { env: set[1] };
+  }
+  return undefined;
+}
+
+/**
+ * The names the final image sets: the `ENV` lines of the final stage and of
+ * each stage it's built `FROM` in the file (not the base image's own).
+ */
+function finalImageEnv(text: string): string[] {
+  const from = new Map<string, string>();
+  const env = new Map<string, string[]>();
+  let stage: string | undefined;
+  for (const line of text.split('\n')) {
+    const read = stageLine(line);
+    if (read === undefined) continue;
+    if ('stage' in read) {
+      stage = read.stage;
+      from.set(stage, read.from);
+      env.set(stage, []);
+    } else if (stage === undefined) {
+      throw new Error(`An ENV line the walk can't read, before any FROM: ${line}`);
+    } else {
+      env.get(stage)?.push(read.env);
+    }
+  }
+  const names: string[] = [];
+  for (let at = from.has('final') ? 'final' : undefined; at !== undefined; at = from.get(at)) {
+    if (!env.has(at)) break;
+    names.push(...(env.get(at) ?? []));
+  }
+  return names;
 }
 
 describe('the base image', () => {
@@ -291,6 +344,62 @@ describe('the Containerfile', () => {
     expect(text).toContain('EXPOSE 8080');
     expect(text).toContain('HEALTHCHECK');
     expect(text).not.toContain('managed-run-controller');
+  });
+
+  test("the final image sets no name its pack service drops: corepack's, which only the install needs, is set in deps", () => {
+    const managers = [
+      { manager: 'npm', files: ['package.json', 'package-lock.json'] },
+      { manager: 'pnpm' },
+      { manager: 'pnpm', managerSpec: 'pnpm@11.25.0' },
+      { manager: 'yarn', yarnBerry: false, files: ['package.json', 'yarn.lock'] },
+      { manager: 'yarn', yarnBerry: true, files: ['package.json', 'yarn.lock'] },
+    ] as const;
+    const images = [
+      NO_IMAGE,
+      imageOf({
+        image: {
+          buildEnv: { ACME_BUILD_FLAG: '1' },
+          extensions: [prisma({ schema: 'prisma/schema.prisma' })],
+        },
+      }),
+      imageOf({ image: { dependencies: 'loaded', buildEnv: { ACME_BUILD_FLAG: '1' } } }),
+    ];
+    for (const over of managers) {
+      for (const image of images) {
+        const text = render(over, false, image);
+        const names = finalImageEnv(text);
+        expect(names).toEqual(expect.arrayContaining(['NODE_ENV', 'PORT']));
+        // A pack that declares nothing: every name the image sets is kept.
+        const environment = Object.fromEntries(names.map((name) => [name, '1']));
+        expect(undeclaredPackEnv(undefined, environment)).toEqual([]);
+        const deps = text.slice(text.indexOf('FROM system AS deps'), text.indexOf('USER node'));
+        if (over.manager === 'npm') {
+          expect(text).not.toContain('COREPACK_ENABLE_DOWNLOAD_PROMPT');
+        } else {
+          // Set before corepack fetches the manager, as node.
+          expect(deps).toContain('\nENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0\n');
+          expect(text.match(/COREPACK_ENABLE_DOWNLOAD_PROMPT/g)).toHaveLength(1);
+        }
+      }
+    }
+  });
+
+  test("the final image's walk refuses a FROM or ENV line it can't read", () => {
+    const final = '\nFROM system AS final\nENV PORT=8080\n';
+    expect(finalImageEnv(`FROM base AS system\nENV ACME_A="a b"${final}`)).toEqual([
+      'PORT',
+      'ACME_A',
+    ]);
+    for (const unread of [
+      'FROM --platform=linux/amd64 base AS system',
+      'FROM base',
+      'FROM base AS system\nENV ACME_A=1 ACME_B=2',
+      'FROM base AS system\nENV ACME_A 1',
+      'FROM base AS system\nENV ACME_A=1 \\',
+      'ENV ACME_A=1\nFROM base AS system',
+    ]) {
+      expect(() => finalImageEnv(`${unread}${final}`)).toThrow("the walk can't read");
+    }
   });
 
   test('a pack inside a workspace sits at its own path, so its own node_modules resolve', () => {
