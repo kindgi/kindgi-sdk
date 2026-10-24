@@ -21578,6 +21578,11 @@
           },
           "hard": {
             "type": "boolean"
+          },
+          "recoverableUntil": {
+            "type": "string",
+            "format": "date-time",
+            "description": "A hard revoke left a copy your secret manager can still recover (for example Azure Key Vault's soft delete, when the vault doesn't allow a purge or the runtime isn't permitted to purge): when the secret manager purges it on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. Absent on a soft revoke, and when a hard revoke left nothing recoverable."
           }
         }
       },
@@ -21892,6 +21897,11 @@
           },
           "hard": {
             "type": "boolean"
+          },
+          "recoverableUntil": {
+            "type": "string",
+            "format": "date-time",
+            "description": "A hard revoke left a copy your secret manager can still recover (for example Azure Key Vault's soft delete, when the vault doesn't allow a purge or the runtime isn't permitted to purge): when the secret manager purges it on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. Absent on a soft revoke, and when a hard revoke left nothing recoverable."
           }
         }
       },
@@ -55757,7 +55767,7 @@
             }
           }
         },
-        "description": "Requires the `secrets:revoke` capability (soft-revoke), or `secrets:revoke:hard` when `?hard=true`: that erases the value at Kindgi and hard-deletes it in a secret manager, and can't be undone. Backups, and a secret manager's own retention, may keep copies for a time. Optional `?reason=<text>` records the revoke reason.",
+        "description": "Requires the `secrets:revoke` capability (soft-revoke), or `secrets:revoke:hard` when `?hard=true`: that erases the value at Kindgi and hard-deletes it in a secret manager, and can't be undone. Backups, and a secret manager's own retention, may keep copies for a time. If your secret manager keeps a recoverable copy, the answer's `recoverableUntil` says until when. Optional `?reason=<text>` records the revoke reason.",
         "parameters": [
           {
             "name": "name",
@@ -55804,7 +55814,7 @@
               "type": "boolean"
             },
             "required": false,
-            "description": "Set to `true` to erase the value, which can't be undone. Backups, and a secret manager's own retention, may keep copies for a time."
+            "description": "Set to `true` to erase the value, which can't be undone. Backups, and a secret manager's own retention, may keep copies for a time. If your secret manager keeps a recoverable copy, the answer's `recoverableUntil` says until when."
           },
           {
             "name": "reason",

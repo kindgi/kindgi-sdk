@@ -9212,7 +9212,7 @@ class SecretsResource:
     ) -> _models.SecretRevokeResult:
         """Revoke a secret. `DELETE /v1/secrets/{name}`
 
-        Requires the `secrets:revoke` capability (soft-revoke), or `secrets:revoke:hard` when `?hard=true`: that erases the value at Kindgi and hard-deletes it in a secret manager, and can't be undone. Backups, and a secret manager's own retention, may keep copies for a time. Optional `?reason=<text>` records the revoke reason.
+        Requires the `secrets:revoke` capability (soft-revoke), or `secrets:revoke:hard` when `?hard=true`: that erases the value at Kindgi and hard-deletes it in a secret manager, and can't be undone. Backups, and a secret manager's own retention, may keep copies for a time. If your secret manager keeps a recoverable copy, the answer's `recoverableUntil` says until when. Optional `?reason=<text>` records the revoke reason.
         """
         return self._client._request(
             _OPERATIONS["secrets.revoke"],
@@ -18010,7 +18010,7 @@ class AsyncSecretsResource:
     ) -> _models.SecretRevokeResult:
         """Revoke a secret. `DELETE /v1/secrets/{name}`
 
-        Requires the `secrets:revoke` capability (soft-revoke), or `secrets:revoke:hard` when `?hard=true`: that erases the value at Kindgi and hard-deletes it in a secret manager, and can't be undone. Backups, and a secret manager's own retention, may keep copies for a time. Optional `?reason=<text>` records the revoke reason.
+        Requires the `secrets:revoke` capability (soft-revoke), or `secrets:revoke:hard` when `?hard=true`: that erases the value at Kindgi and hard-deletes it in a secret manager, and can't be undone. Backups, and a secret manager's own retention, may keep copies for a time. If your secret manager keeps a recoverable copy, the answer's `recoverableUntil` says until when. Optional `?reason=<text>` records the revoke reason.
         """
         return await self._client._request(
             _OPERATIONS["secrets.revoke"],
