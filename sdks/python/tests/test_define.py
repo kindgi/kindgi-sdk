@@ -82,6 +82,51 @@ def test_a_tool_input_is_an_object() -> None:
         def handler(input: str) -> Out: ...
 
 
+class Priced(BaseModel):
+    amount: int = Field(json_schema_extra={"x-acme-unit": "cents"})
+
+
+def test_a_schema_the_runtime_refuses_fails_where_declared() -> None:
+    # The runtime compiles a tool's schemas strictly, when the tool is registered or deployed.
+    with pytest.raises(DefinitionError) as raised:
+
+        @tool(id="acme.x", description="x")
+        def handler(input: Priced) -> Out: ...
+
+    assert str(raised.value) == (
+        'Tool "acme.x": the input schema doesn\'t compile: strict mode: unknown keyword: "x-acme-unit"'
+    )
+
+    with pytest.raises(DefinitionError, match="the output schema doesn't compile: strict mode"):
+
+        @tool(id="acme.x", description="x")
+        def handler2(input: In) -> Priced: ...
+
+
+@pytest.mark.parametrize(
+    ("schema", "why"),
+    [
+        (
+            {"type": "object", "properties": {"text": {"type": "strng"}}},
+            "'strng' is not valid under any of the given schemas",
+        ),
+        (
+            {"type": "object", "properties": {"text": {"$ref": "#/$defs/Text"}}},
+            "can't resolve reference #/$defs/Text from id #",
+        ),
+    ],
+)
+def test_a_json_schema_the_runtime_refuses_fails_where_declared(
+    schema: dict[str, Any], why: str
+) -> None:
+    with pytest.raises(DefinitionError) as raised:
+
+        @tool(id="acme.x", description="x", input=schema)
+        def handler(input: dict[str, Any]) -> Out: ...
+
+    assert str(raised.value) == f'Tool "acme.x": the input schema doesn\'t compile: {why}'
+
+
 def test_a_handler_takes_one_or_two_parameters() -> None:
     with pytest.raises(DefinitionError, match="takes \\(input\\) or \\(input, ctx\\)"):
 

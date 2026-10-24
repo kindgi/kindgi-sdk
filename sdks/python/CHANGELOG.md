@@ -13,6 +13,12 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a tool schema the runtime refuses fails where the tool is
+  declared.** `@tool` and `http_tool` now compile the input and output schemas
+  as the runtime does when it registers or deploys the tool, as TypeScript's
+  `defineTool` does, and raise `DefinitionError` with what it refuses: an
+  unknown keyword or format, a `$ref` that names nothing, or a schema that
+  isn't Draft 2020-12. Before, the author first heard of it at deploy.
 - `kindgi`: **a tool or an agent whose model has a pydantic tagged union
   deploys.** With `Field(discriminator=...)`, pydantic writes OpenAPI's
   `discriminator` keyword beside the union's `oneOf`, and the runtime refused

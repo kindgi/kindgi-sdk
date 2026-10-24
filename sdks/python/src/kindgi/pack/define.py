@@ -57,7 +57,7 @@ from typing import (
 from pydantic import TypeAdapter
 from pydantic_core import to_jsonable_python
 
-from .._schema import SchemaValidator, wire_schema
+from .._schema import SchemaValidator, compile_problem, wire_schema
 from .context import PauseAnswer, ToolContext
 from .needs import needs_spec_problem
 from .trace import CheckResult, RunTrace
@@ -214,8 +214,8 @@ def tool(
             handler=handler,
             description=text,
             version=version,
-            input_schema=_schema(input_type, "validation", where, "input"),
-            output_schema=_schema(output_type, "serialization", where, "output"),
+            input_schema=_tool_schema(input_type, "validation", where, "input"),
+            output_schema=_tool_schema(output_type, "serialization", where, "output"),
             input_type=input_type,
             output_type=output_type,
             takes_context=len(params) == 2,
@@ -279,7 +279,7 @@ def http_tool(
     _check_version(version, where)
     if description.strip() == "":
         raise DefinitionError(f"{where} needs a description")
-    input_schema = _schema(input, "validation", where, "input")
+    input_schema = _tool_schema(input, "validation", where, "input")
     spec = _compact(
         {
             "kind": "http",
@@ -324,7 +324,7 @@ def http_tool(
         description=description,
         version=version,
         input_schema=input_schema,
-        output_schema=_schema(output, "serialization", where, "output"),
+        output_schema=_tool_schema(output, "serialization", where, "output"),
         input_type=input,
         output_type=output,
         takes_context=False,
@@ -694,4 +694,14 @@ def _schema(source: Any, mode: Any, where: str, what: str) -> dict[str, Any]:
         raise DefinitionError(
             f"{where}: the input must be an object type (a model, TypedDict, or object schema)"
         )
+    return schema
+
+
+def _tool_schema(source: Any, mode: Any, where: str, what: str) -> dict[str, Any]:
+    """A tool's input or output schema, refused here when the runtime's compile refuses it: else
+    the author first hears of it when the tool is registered or deployed."""
+    schema = _schema(source, mode, where, what)
+    why = compile_problem(schema)
+    if why is not None:
+        raise DefinitionError(f"{where}: the {what} schema doesn't compile: {why}")
     return schema

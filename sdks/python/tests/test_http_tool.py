@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from kindgi import DefinitionError, Tool, http_tool
 from kindgi.pack.index import _spec, run_indexer
@@ -110,6 +110,26 @@ def test_every_placeholder_is_a_field_of_the_input() -> None:
         )
     text = lookup(method="POST", request_body={"kind": "text", "template": "case {case_id}"})
     assert text.spec is not None
+
+
+class Priced(BaseModel):
+    amount: int = Field(json_schema_extra={"x-acme-unit": "cents"})
+
+
+def test_a_schema_the_runtime_refuses_is_a_definition_error() -> None:
+    docket = {
+        "type": "object",
+        "properties": {"case_id": {"type": "string"}, "court": {"type": "string"}},
+        "x-acme-source": "docket",
+    }
+    with pytest.raises(DefinitionError) as raised:
+        lookup(input=docket)
+    assert str(raised.value) == (
+        'Tool "acme.lookup": the input schema doesn\'t compile: '
+        'strict mode: unknown keyword: "x-acme-source"'
+    )
+    with pytest.raises(DefinitionError, match="the output schema doesn't compile: strict mode"):
+        lookup(output=Priced)
 
 
 def test_id_version_and_description_are_checked() -> None:

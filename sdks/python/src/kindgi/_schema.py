@@ -27,6 +27,7 @@ from typing import Any, cast
 from urllib.parse import quote, unquote
 
 from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema.exceptions import SchemaError as InvalidSchemaError
 from jsonschema.exceptions import ValidationError as SchemaError
 from pydantic import BaseModel, TypeAdapter
 from pydantic import ValidationError as PydanticError
@@ -37,6 +38,7 @@ __all__ = [
     "SchemaValidator",
     "apply_defaults",
     "check_schema",
+    "compile_problem",
     "issues_from_pydantic",
     "strict_schema_problem",
     "wire_schema",
@@ -421,6 +423,16 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
         return unevaluated in here or evaluated(here, unevaluated, compiling)
 
     return walk(schema, "#", (id(schema),))
+
+
+def compile_problem(schema: Mapping[str, Any]) -> str | None:
+    """Why the runtime's compile refuses `schema`: not valid Draft 2020-12, or what
+    `strict_schema_problem` names. `None` when it compiles."""
+    try:
+        check_schema(schema)
+    except InvalidSchemaError as exc:
+        return getattr(exc, "message", None) or str(exc)
+    return strict_schema_problem(schema)
 
 
 def _names_a_base(node: Any) -> bool:
