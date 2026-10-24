@@ -380,6 +380,15 @@ Then the lines name the license and the pack's service it reached:
   Pack service: https://acme-pack.internal.… — acme (artifact 20261008.211554), protocol 2, 3 tools, 1 check
 ```
 
+**Keep the pack's service warm when response time matters.** The default,
+`pack_min_instances = 1`, keeps one replica running, so the first tool call
+after a quiet spell doesn't wait for one to start. That replica runs around
+the clock
+([Azure Container Apps pricing](https://azure.microsoft.com/pricing/details/container-apps/)).
+`pack_min_instances = 0` lets the service scale to zero when it's idle,
+which suits a dev deployment: the first tool call after that waits for a
+replica to start.
+
 ### How the runtime calls your pack's service
 
 The pack's service has environment-internal ingress, and the environment holds

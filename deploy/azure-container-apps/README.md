@@ -158,6 +158,8 @@ KMS probe OK (azure-key-vault): azure-key-vault 7.5 (wrap/unwrap round trip, RSA
   "  Pack service: https://<name_prefix>-pack.internal.<environment domain> — <pack id> (artifact …), protocol 2, 4 tools, 1 check"]}
 ```
 
+`pack_min_instances` (default 1) keeps one pack service replica running, around the clock ([Azure Container Apps pricing](https://azure.microsoft.com/pricing/details/container-apps/)), so the first tool call after a quiet spell doesn't wait for one to start. Keep it when response time matters; 0 lets the pack service scale to zero, which suits a dev deployment.
+
 `logs show` streams the running replica. For a replica that stopped (a boot that failed), query Log Analytics:
 
 ```sh

@@ -324,9 +324,16 @@ the first tool call, 3½ minutes after the warning, worked. If tool calls still
 fail after that, check that the runtime's service account has
 `roles/run.invoker` on the pack's service.
 
+**Keep the pack's service warm when response time matters.** The default,
+`pack_min_instances = 1`, keeps one instance running, so the first tool
+call after a quiet spell doesn't wait for one to start. That instance runs
+around the clock ([Cloud Run pricing](https://cloud.google.com/run/pricing)).
+`pack_min_instances = 0` lets the service stop when it's idle, which suits
+a dev deployment: the first tool call after that waits for an instance to
+start.
+
 **When the runtime starts with the pack's service at zero**
-(`pack_min_instances = 0`; the default, 1, keeps one instance up), the line
-can read instead:
+(`pack_min_instances = 0`), the line can read instead:
 
 ```text
 ⚠ Pack service at https://… didn't answer within 5 s. The server is up; pack tools and checks fail until it answers.
