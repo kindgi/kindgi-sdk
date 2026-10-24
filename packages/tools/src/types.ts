@@ -450,6 +450,10 @@ export interface ToolManifest {
    * lifts that, in its own runs only. In a run a person started, the
    * agent's rules decide, as for any tool. Absent = `false`.
    *
+   * A tool that acts with a person's connection (a `needsSpec.connections`
+   * entry `as: 'person'`) and isn't read-only (`mutating: false`) counts as
+   * declaring it, whatever this says: `false` doesn't lift it.
+   *
    * Declare it on a tool that moves money or changes something people
    * rely on, so that an agent reused under a trigger can't run it with no
    * one asked.

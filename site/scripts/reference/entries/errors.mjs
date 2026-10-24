@@ -1854,6 +1854,17 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['guides/approvals/decide-an-approval'],
   },
+  'named-approver-required': {
+    description:
+      "The approval is addressed to one person: the call it gates acts with that person's own connection, so only they decide it. You can read it, but not decide it.",
+    details: [
+      {
+        key: 'approvalId',
+        meaning: 'the approval only its approver decides',
+      },
+    ],
+    seeAlso: ['guides/approvals/decide-an-approval'],
+  },
   'gate-policy-not-found': {
     description: 'No gate policy with that id exists, or it has no version with that number.',
     details: [
