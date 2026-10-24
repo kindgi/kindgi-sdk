@@ -7,6 +7,10 @@ heading into its version.
 
 ## Unreleased
 
+## 0.1.11-rc.0
+
+No JVM changes; the version moves with the npm packages.
+
 ## 0.1.10
 
 No JVM changes; the version moves with the npm packages.

@@ -1,5 +1,25 @@
 # @kindgi/cli
 
+## 0.1.11-rc.0
+
+### Patch Changes
+
+- 9d11c5e: On `registry.kindgi.com`, the hints name the license key. `kindgi dev`'s refused pull and `kindgi doctor`'s registry fix give `docker login registry.kindgi.com --username kindgi`, with the key as the password. `kindgi auth registry` without `--username` says it's `kindgi`, with the key pasted as the token.
+- 9d11c5e: `kindgi dev` runs runtime 0.1.11-rc.0, from registry.kindgi.com.
+- 9d11c5e: `kindgi license enroll --for` says it takes the `em-` id the key page shows, as well as a GitHub login. Someone who signs in by email gives that id, and so does someone who first signed in by email and now signs in with GitHub. Its help, its usage line, the message when `--for` is missing, the error for a value that isn't one, and `kindgi license renew`'s pointer to enroll all said a GitHub login only. What `--for` accepts is unchanged: an `em-` id was already accepted. And `enroll`'s output says to add the line "signed in as the person it's for (<account>)", not "signed in as <account>": the key page names someone who signs in by email by their address, not by the `em-` id.
+- @kindgi/agents@0.1.11-rc.0
+  - @kindgi/crypto@0.1.11-rc.0
+  - @kindgi/dotenv-file@0.1.11-rc.0
+  - @kindgi/env-schema@0.1.11-rc.0
+  - @kindgi/flow@0.1.11-rc.0
+  - @kindgi/handler-runtime@0.1.11-rc.0
+  - @kindgi/log@0.1.11-rc.0
+  - @kindgi/platform@0.1.11-rc.0
+  - @kindgi/sdk@0.1.11-rc.0
+  - @kindgi/secrets-dotenv@0.1.11-rc.0
+  - @kindgi/types@0.1.11-rc.0
+  - @kindgi/client@0.1.11-rc.0
+
 ## 0.1.10
 
 ### Patch Changes

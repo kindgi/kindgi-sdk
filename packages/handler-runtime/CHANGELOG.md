@@ -1,5 +1,16 @@
 # @kindgi/handler-runtime
 
+## 0.1.11-rc.0
+
+### Patch Changes
+
+- @kindgi/env-schema@0.1.11-rc.0
+  - @kindgi/flow@0.1.11-rc.0
+  - @kindgi/log@0.1.11-rc.0
+  - @kindgi/sandbox@0.1.11-rc.0
+  - @kindgi/schema@0.1.11-rc.0
+  - @kindgi/types@0.1.11-rc.0
+
 ## 0.1.10
 
 ### Patch Changes
