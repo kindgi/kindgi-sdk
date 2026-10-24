@@ -63,6 +63,8 @@ import {
 import {
   type PackEnvPlan,
   describePackEnvPlan,
+  packEnvPlanLines,
+  packEnvPlanWarnings,
   plainSecretReason,
   planPackEnv,
 } from '../env/pack-env-plan.js';
@@ -264,8 +266,9 @@ export async function runDeploy(ctx: CommandContext): Promise<CommandResult> {
 
   // Deploy's lines, its inline build's among them: each to stderr as it
   // comes when the CLI streams them, else kept for the result. A failure's
-  // error comes after them either way. `--quiet` keeps errors only, as
-  // `kindgi dev` does: a refusal, and a secret sync that failed.
+  // error comes after them either way. `--quiet` keeps errors and warnings
+  // only, as `kindgi dev` does: a refusal, a secret sync that failed, and
+  // its warnings.
   const out = progressLines(ctx.progress, ctx.globals.format === 'quiet');
   const result = await deployWith(ctx, runners, args, out);
   if (result.kind === 'error') return { ...result, stderr: `${out.kept()}${result.stderr}` };
@@ -395,8 +398,8 @@ async function deployWith(
           'what would be POSTed.\n',
       );
     }
-    line('  ⚠ Envelope is unsigned — --dry-run is proceeding for inspection only.');
-    line('');
+    out.problem('  ⚠ Envelope is unsigned — --dry-run is proceeding for inspection only.');
+    out.problem('');
   }
 
   // ---- 5. Consistency check: envelope.tenantId vs --tenant override ---
@@ -625,12 +628,12 @@ async function runSecretsSync(
   // impossible to miss.
   const shaped = file.entries.filter((e) => plainSecretReason(e.name, e.value) !== undefined);
   if (shaped.length > 0) {
-    line(
+    problem(
       `  ! secret-shaped keys detected in .env.${args.envName}: ${shaped.map((e) => e.name).join(', ')}`,
     );
-    line('    Keep secrets out of .env files: store them with `kindgi secrets`.');
-    line(`    Consider: kindgi secrets set --env=${args.envName} <name> <value>`);
-    line('');
+    problem('    Keep secrets out of .env files: store them with `kindgi secrets`.');
+    problem(`    Consider: kindgi secrets set --env=${args.envName} <name> <value>`);
+    problem('');
   }
 
   const syncBody: SyncSecretsBody = {
@@ -700,14 +703,19 @@ function checkPackEnv(args: ResolvedDeployArgs, out: ProgressLines): CommandResu
     return undefined;
   }
   const refusal = packEnvRefusal(args, plan);
-  // A refusal's reason is the plan: said under `--quiet` too.
-  const say = refusal === undefined ? out.line : out.problem;
-  for (const l of describePackEnvPlan(plan)) say(l);
-  say('');
-  if (refusal !== undefined) return failure(refusal);
+  if (refusal !== undefined) {
+    // A refusal's reason is the plan: said under `--quiet` too.
+    for (const l of describePackEnvPlan(plan)) out.problem(l);
+    out.problem('');
+    return failure(refusal);
+  }
+  // A plan that deploys: under `--quiet`, its warnings alone.
+  for (const l of packEnvPlanLines(plan)) out.line(l);
+  for (const l of packEnvPlanWarnings(plan)) out.problem(l);
+  (plan.warnings.length > 0 ? out.problem : out.line)('');
   if (plan.missing.length > 0) {
-    out.line(`  ⚠ --allow-missing-env: deploying without ${plan.missing.join(', ')}`);
-    out.line('');
+    out.problem(`  ⚠ --allow-missing-env: deploying without ${plan.missing.join(', ')}`);
+    out.problem('');
   }
   return undefined;
 }

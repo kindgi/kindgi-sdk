@@ -1047,6 +1047,34 @@ describe('kindgi deploy — dry-run + safety gates', () => {
     expect(fixtures.state.postCalls).toBe(0);
   });
 
+  test('unsigned envelope + --dry-run: its warning shows under --quiet too', async () => {
+    const unsigned = makeEnvelope();
+    (unsigned as Record<string, unknown>).signature = undefined;
+    (unsigned as Record<string, unknown>).signerKeyId = undefined;
+    (unsigned as Record<string, unknown>).signerPublicKey = undefined;
+    await writeAutoEnvelope();
+    const dir = join(packDir, '.kindgi', 'build');
+    await writeFile(join(dir, 'deploy-envelope.json'), JSON.stringify(unsigned, null, 2), 'utf8');
+    for (const quiet of [false, true]) {
+      const fixtures = makeFixtures({ envelope: unsigned });
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        argv: [
+          'deploy',
+          '--env=staging',
+          '--dry-run',
+          `--path=${packDir}`,
+          ...(quiet ? ['--quiet'] : []),
+        ],
+      });
+      expect(fixtures.state.postCalls).toBe(0);
+      expect(out.stderr).toContain(
+        '  ⚠ Envelope is unsigned — --dry-run is proceeding for inspection only.\n',
+      );
+      expect(out.stderr.includes('Environment:')).toBe(!quiet);
+    }
+  });
+
   test('--tenant mismatch with envelope → refuses to POST', async () => {
     await writeAutoEnvelope();
     const fixtures = makeFixtures();
@@ -1273,6 +1301,23 @@ describe('kindgi deploy — secrets sync', () => {
     // Sync still runs.
     expect(fixtures.state.syncCalls).toBe(1);
     expect(fixtures.state.capturedSync?.body.secrets).toHaveLength(3);
+  });
+
+  test('--quiet: secret-shaped keys are warned about all the same', async () => {
+    await writeAutoEnvelope();
+    await writeFile(join(packDir, '.env.staging'), 'STRIPE_KEY=pk_live_x\nHARMLESS=ok\n', 'utf8');
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', '--sync-secrets', `--path=${packDir}`, '--quiet'],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.syncCalls).toBe(1);
+    expect(out.stderr).toBe(
+      '  ! secret-shaped keys detected in .env.staging: STRIPE_KEY\n' +
+        '    Keep secrets out of .env files: store them with `kindgi secrets`.\n' +
+        '    Consider: kindgi secrets set --env=staging <name> <value>\n\n',
+    );
   });
 
   test('--sync-secrets reads values the way the app does (quotes, comments) and never sends KINDGI_*', async () => {
@@ -1516,16 +1561,31 @@ describe("kindgi deploy — the pack service's env (preflight)", () => {
     expect(out.stderr).not.toContain('s3cret');
   });
 
-  test('--quiet: a plan that deploys, --allow-missing-env and all, says nothing', async () => {
-    await writeAutoEnvelope();
-    const fixtures = created();
-    const out = await runCli({
-      ...baseInputs(fixtures, {}, withEnv({})),
-      argv: ['deploy', '--env=staging', '--allow-missing-env', `--path=${packDir}`, '--quiet'],
-    });
-    expect(out.exitCode, out.stderr).toBe(0);
-    expect(fixtures.state.postCalls).toBe(1);
-    expect(out.stderr).toBe('');
+  test('--quiet: a plan that deploys says its warnings alone, --allow-missing-env among them', async () => {
+    const warnings =
+      "  ⚠ environments.staging.env.EXTRA isn't declared in env.required or env.optional, so it isn't injected\n\n" +
+      '  ⚠ --allow-missing-env: deploying without DATABASE_URL\n\n';
+    for (const quiet of [false, true]) {
+      await writeAutoEnvelope();
+      const fixtures = created();
+      const out = await runCli({
+        ...baseInputs(fixtures, {}, withEnv({ EXTRA: 'x' })),
+        argv: [
+          'deploy',
+          '--env=staging',
+          '--allow-missing-env',
+          `--path=${packDir}`,
+          ...(quiet ? ['--quiet'] : []),
+        ],
+      });
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(fixtures.state.postCalls).toBe(1);
+      if (quiet) expect(out.stderr).toBe(warnings);
+      else {
+        expect(out.stderr).toContain("  The pack service's env in staging:\n");
+        expect(out.stderr).toContain(warnings);
+      }
+    }
   });
 });
 
