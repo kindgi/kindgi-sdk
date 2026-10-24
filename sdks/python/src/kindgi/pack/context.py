@@ -10,9 +10,12 @@ import threading
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Final, Literal, cast
+from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 from ..log import Logger, noop_logger
+
+if TYPE_CHECKING:
+    from .define import Tool
 
 __all__ = [
     "MAX_PAUSE_NAME_LENGTH",
@@ -217,10 +220,23 @@ class ToolContext:
         run_id: str = "run-test",
         *,
         wait_token: WaitToken | None = None,
+        tool: Tool[Any, Any] | None = None,
         **kwargs: Any,
     ) -> ToolContext:
         """A context for calling a handler directly in a unit test. Pass `wait_token` to test a
-        pausing tool."""
+        pausing tool.
+
+        Pass `tool=` to fill `env` from the tool's `needs_spec["env"]` the way the runtime
+        does: every env name the tool declares, from the `env=` the test offers or the
+        schema's string default, each checked against its schema. A name the tool doesn't
+        declare is dropped. `secrets=` pass through unchecked (the runtime resolves them).
+        """
+        if tool is not None:
+            from .needs import resolve_env
+
+            kwargs["env"] = resolve_env(
+                tool.id, tool.needs_spec, dict(kwargs.pop("env", None) or {})
+            )
         return cls(tenant_id=tenant_id, run_id=run_id, _wait_token=wait_token, **kwargs)
 
     @classmethod

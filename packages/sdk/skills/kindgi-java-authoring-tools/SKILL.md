@@ -318,11 +318,15 @@ Docs: https://docs.kindgi.com/v0.1/guides/approvals/ask-before-a-tool-runs/#when
 
 `Tool.call(input, ctx)` runs the handler with the input as given (no schema
 check). `ToolContext.forTest()` is a context with a test tenant and run and
-nothing else; `new ToolContext(…)` builds one with secrets:
+nothing else. `ToolContext.forTest(tool, env, secrets)` adds the env values
+the tool declares in `needsSpec`, decided as a run decides them (a schema
+`default` fills a name the test doesn't set, each value is checked, and a
+missing or invalid one throws `IllegalArgumentException`), and the secrets as
+given. `ToolContext.Builder` sets the rest:
 
 ```java
-ToolContext ctx = new ToolContext("t-test", "run-test", null, null, null,
-    Map.of(), Map.of("CITATOR_KEY", "test-key-of-twenty-chars"), Map.of(), Map.of(), new Cancellation());
+ToolContext ctx = ToolContext.forTest(new ToolContext.Builder()
+    .withSecrets(Map.of("CITATOR_KEY", "test-key-of-twenty-chars")));
 Greet.Output out = Greet.TOOL.call(new Greet.Input("Ada", "Hi"), ctx);
 ```
 

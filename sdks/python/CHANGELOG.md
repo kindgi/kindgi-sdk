@@ -59,6 +59,19 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   erases the value at Kindgi and hard-deletes it in a secret manager, and
   can't be undone; backups, and a secret manager's own retention, may keep
   copies for a time. They no longer call it cryptographic erasure.
+- `kindgi`: **a tool's `needs_spec` is checked, and a test can fill its
+  `env`.** `@tool(..., needs_spec=...)` is refused at definition
+  (`DefinitionError`) when a schema under `env` or `secrets` doesn't compile
+  as the runtime compiles it (it isn't valid Draft 2020-12, or it or a schema
+  inside it has a keyword or a `format` the runtime doesn't know, a misspelled
+  one say, or a `$ref` that points nowhere), or an `env` default isn't a
+  string (`None` included).
+  `ToolContext.for_test(tool=...)` builds a context whose `env` is what the
+  tool declares under `needs_spec["env"]` — each name from the `env=` you pass
+  or its schema's string default, checked against its schema — so a handler
+  test resolves env the way the runtime does; names the tool doesn't declare
+  are dropped and `secrets=` pass through.
+  Matches the TypeScript `@kindgi/tools` definition check and test context.
 
 ## 0.1.10
 

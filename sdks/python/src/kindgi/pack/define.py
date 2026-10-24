@@ -59,6 +59,7 @@ from pydantic_core import to_jsonable_python
 
 from .._schema import SchemaValidator, wire_schema
 from .context import PauseAnswer, ToolContext
+from .needs import needs_spec_problem
 from .trace import CheckResult, RunTrace
 
 __all__ = [
@@ -204,6 +205,10 @@ def tool(
             raise DefinitionError(f"{where}: annotate the handler's return type or pass output=")
         input_type = _unwrap_awaitable(input_type)
         output_type = _without_pause(_unwrap_awaitable(output_type), pauses, where)
+        if needs_spec is not None:
+            problem = needs_spec_problem(needs_spec)
+            if problem is not None:
+                raise DefinitionError(f"{where}: {problem}")
         return Tool(
             id=id,
             handler=handler,
