@@ -81,7 +81,9 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
   service-account-not-found`) or it was unregistered (`409
   service-account-unregistered`).
 - **The account must be able to run it,** as any owner must: a fire it may
-  no longer run is `refused`.
+  no longer run is `refused`. So is every fire after the account is
+  unregistered (runtime 0.1.9 or later): take the schedule over, or
+  delete it.
 - **To hand an existing schedule to an account:** `kindgi schedules
   take-ownership <schedule-id> --run-as=<service-account-id>`. It needs
   what taking it over yourself needs, `admin` on the project and `execute`
@@ -109,7 +111,8 @@ each time still fires once.
   `--catch-up=skip` fires none of them. A time is missed when the fire would
   start more than `--starting-deadline` seconds late, 600 by default.
 - **Its owner may no longer run it,** such as when they lost their role on
-  the project, or were removed from the tenant (runtime 0.1.9 or later).
+  the project, or were removed from the tenant, or it's a service account
+  that was unregistered (runtime 0.1.9 or later).
   The fire is `refused`, with why. Whoever holds `admin` on the project can
   make themselves its owner: `kindgi schedules take-ownership <schedule-id>`,
   or hand it to a service account
