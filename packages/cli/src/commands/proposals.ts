@@ -228,7 +228,7 @@ const evaluate: LeafCommand = {
   kind: 'leaf',
   name: 'evaluate',
   description:
-    "Evaluate a suggested change on the test cases: a run on the test cases that tries the candidate against the version it changes. The first evaluation publishes the block version and derives the agent version; they serve no scope until made live, so the agent needs a live version for the whole tenant (`kindgi agents promote <agent-id> <version> --tenant`). The suggested change is `evaluating`, then `evaluated` (better), `not-better` or `evaluation-failed`. With `--rescore`, after people corrected the new answers of its replay runs: the latest evaluation scored again, counting those corrections, on the same replays (no other flag). Needs `publish` on the agent.",
+    'Evaluate a suggested change on the test cases: a run on the test cases that tries the candidate against the version it changes. The first evaluation publishes the block version and derives the agent version; they serve no scope until made live, so the agent needs a live version for the whole tenant (`kindgi agents promote <agent-id> <version> --tenant`). The suggested change is `evaluating`, then `evaluated` (better), `not-better` or `evaluation-failed`. With `--rescore`, after people corrected the new answers of its replay runs: the latest evaluation scored again, counting those corrections, on the same replays (no other flag). Needs `publish` on the agent.',
   usage:
     'kindgi proposals evaluate <proposal-id> --test-set=<suite-id> [--objective=weightedYesShare|weightedPrecisionAtK] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--class-weights=as-recorded|restricted-only] [--wait]\n       kindgi proposals evaluate <proposal-id> --rescore [--wait]',
   optionSpec: {
