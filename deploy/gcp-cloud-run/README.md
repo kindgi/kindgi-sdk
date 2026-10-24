@@ -150,9 +150,32 @@ With `database_private_network` set, the URL is `postgres://kindgi:<password>@<p
 **Without a KMS key (`secrets_backend = "none"`).** By default (`"postgres"`), secrets set through Kindgi's API are envelope-encrypted in its database under a Cloud KMS key this module creates. With `"none"`:
 - **Not created:** the KMS key ring, the key and its grants, and the `<prefix>-secrets-aad-key` secret. `secrets_aad_key_version` isn't needed.
 - **The server stores no secrets of its own.** `/v1/secrets` isn't served (it answers 404 `route-not-found`), and nothing can be stored through Kindgi's API. The boot record has no KMS probe line.
+- **No webhooks, in or out.** A webhook trigger's signing secret and an endpoint's secret are kept in the store, so their routes aren't served: `/v1/webhooks`, `/v1/hooks` and `/v1/webhook-endpoints` answer 404 `route-not-found`. No webhook starts a run, and none is sent.
 - **Sign-in:** Continue with Google, Microsoft or GitHub and the emailed link work (step 7). A workspace's own identity provider needs `"postgres"`: its client secret and keys are references into the store, so adding or changing one answers 409 `identity-providers-need-secrets-store`.
-- **Who it fits:** a deployment whose pack secrets all come by reference (`pack_secret_env`) and whose model uses the service's own identity, Gemini on Vertex AI (`vertex_ai = true`). A provider that needs an API key stored in Kindgi doesn't fit it.
+- **Who it fits:** a deployment whose pack secrets all come by reference (`pack_secret_env`), whose model uses the service's own identity, Gemini on Vertex AI (`vertex_ai = true`), and that takes and sends no webhooks. A provider that needs an API key stored in Kindgi doesn't fit it.
 - **Changing an existing deployment from `"postgres"`:** the key's `prevent_destroy` stops the plan. That's on purpose: secrets stored under the key would become unreadable. Move them out first, then take the key out of state, as in "Taking it down".
+
+**Turning the store on later (`"none"` to `"postgres"`).** Nothing was stored, so nothing moves. The server's next revision reads `<prefix>-secrets-aad-key`, so the store's key and that secret come first, before the services change:
+
+1. Set `secrets_backend = "postgres"`. Leave `secrets_aad_key_version` unset until step 4.
+2. Apply only what the store stands on: the KMS API, the key ring, the key and the server's grant on it, and the new secret with the server's read access.
+
+   ```sh
+   terraform apply -var-file=dev.tfvars \
+     -target=google_project_service.apis \
+     -target=google_kms_crypto_key_iam_member.server_wraps \
+     -target=google_secret_manager_secret_iam_member.server_reads
+   ```
+
+   Terraform warns that resource targeting is in effect and the applied changes may be incomplete. Both are expected: step 4 completes them.
+
+3. Add the secret's first version, as above:
+
+   ```sh
+   openssl rand 32 | base64 | gcloud secrets versions add $N-secrets-aad-key --data-file=-
+   ```
+
+4. Set `secrets_aad_key_version = "1"`, and apply in full (step 5). The server's new revision stores secrets in Postgres, and its boot has the KMS probe record. Webhooks, and a workspace's own identity providers, work from then on.
 
 ## 4. The pack's env
 
