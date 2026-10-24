@@ -1464,6 +1464,27 @@ const CommonMutationErrors: Readonly<Record<string, ResponseSpec>> = {
   '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
 };
 
+/** A read of a tenant-wide setting (`tenantResourceAccess`): a tenant member's; without an authorization store, anyone's. */
+const TenantSettingReadErrors: Readonly<Record<string, ResponseSpec>> = {
+  '403': ErrorResponse(
+    'Not a member of the tenant (`permission-denied`). Without an authorization store, anyone reads it.',
+  ),
+};
+
+/** Who a tenant admin is on a runtime without an authorization store, ending a 403's text. */
+const WITHOUT_STORE_ADMIN =
+  "Without an authorization store, a tenant admin is the deployment's API token, an admin key, or a console signed in with either.";
+
+/**
+ * A change to a tenant-wide setting (`tenantResourceAccess`), and every
+ * call to one only a tenant admin uses (`tenantAdminAccess`: webhook
+ * endpoints, compliance): a tenant admin's, with an authorization store or
+ * without one.
+ */
+const TenantAdminErrors: Readonly<Record<string, ResponseSpec>> = {
+  '403': ErrorResponse(`Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN}`),
+};
+
 /** A secrets store's external provider (the router's), answering a read or a write: each at its own status. */
 const SecretProviderErrors: Readonly<Record<string, ResponseSpec>> = {
   '429': ErrorResponse(
@@ -1505,7 +1526,7 @@ function conflictOrEnvNotServed(text: string): ResponseSpec {
 
 /** A change to the tenant's identity providers: not a tenant admin, or the operator manages sign-in. */
 const ProviderChangeRefused: ResponseSpec = ErrorResponse(
-  "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
+  `Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN} Or this deployment's operator manages sign-in (\`identity-providers-operator-managed\`, \`KINDGI_AUTH_TENANT_PROVIDERS=off\`): only the deployment's own token can change its providers.`,
 );
 
 /** Adding or changing a provider: the usual conflicts, or a deployment without a secrets store. */
@@ -1913,6 +1934,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Trusted.', schema: ref('TrustedSigningKey') },
       '200': { description: 'Already trusted.', schema: ref('TrustedSigningKey') },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        `Not a tenant admin, or the key doesn't carry the \`signing-keys:write\` capability (\`permission-denied\`). ${WITHOUT_STORE_ADMIN}`,
+      ),
       '409': ErrorResponse(
         '`keyId` is already trusted with a different public key (`signing-key-conflict`), or was revoked (`signing-key-revoked`: revocation is final).',
       ),
@@ -1949,6 +1973,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of trusted keys.', schema: ref('TrustedSigningKeyPage') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
     },
   },
   {
@@ -1964,6 +1989,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The key.', schema: ref('TrustedSigningKey') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No signing key with that id under this tenant.'),
     },
   },
@@ -1985,6 +2011,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('RevokeSigningKeyResult'),
       },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        `Not a tenant admin, or the key doesn't carry the \`signing-keys:write\` capability (\`permission-denied\`). ${WITHOUT_STORE_ADMIN}`,
+      ),
     },
   },
 
@@ -5282,6 +5311,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('CapabilityCollectionPage'),
       },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '400': ErrorResponse('Malformed query parameter.'),
     },
   },
@@ -5297,6 +5327,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Capability descriptor.', schema: ref('CapabilityDescriptor') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No capability with that id under this tenant.'),
     },
   },
@@ -5316,6 +5347,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of providers.', schema: ref('ProviderCollectionPage') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '400': ErrorResponse('Malformed query parameter.'),
     },
   },
@@ -5333,6 +5365,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Provider metadata.', schema: ref('ProviderMetadata') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No provider with that id under this tenant.'),
     },
   },
@@ -5353,6 +5386,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('ProviderCapabilitiesResult'),
       },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No provider with that id under this tenant.'),
     },
   },
@@ -5370,6 +5404,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The check.', schema: ref('ProviderCheckResult') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No provider with that id under this tenant.'),
     },
   },
@@ -5388,6 +5423,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Provider registered.', schema: ref('RegisterProviderResult') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse('Validation failed (see `details.reason`).'),
       '409': ErrorResponse(
         `Provider already registered at that id. Or \`provider-key-in-use\`: \`secret_ref\` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint or a webhook trigger uses; \`details.usedBy\` lists each (\`kind\`, \`id\`, a tool's \`version\`). Store the provider's key under its own name. Nothing is stored. Or ${ENV_NOT_SERVED_REFERENCE}`,
@@ -5411,6 +5447,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterProviderResult') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('No provider with that id under this tenant, or already unregistered.'),
     },
   },
@@ -5872,6 +5909,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of adapters.', schema: ref('AdapterCollectionPage') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '400': ErrorResponse('Malformed query parameter (unknown `kind` or `status`).'),
     },
   },
@@ -5889,6 +5927,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Adapter descriptor.', schema: ref('Adapter') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No adapter with that id under this tenant.'),
     },
   },
@@ -5907,6 +5946,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Probe outcome.', schema: ref('AdapterTestOutcome') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('No adapter with that id under this tenant.'),
     },
   },
@@ -5928,6 +5968,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: { type: 'string' },
       },
       ...CommonAuthErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse(
         'Adapter has no prepare() implementation, or adapter factories not wired.',
       ),
@@ -5955,6 +5996,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of policies.', schema: ref('PolicyCollectionPage') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '400': ErrorResponse('Malformed query parameter (unknown `kind`).'),
     },
   },
@@ -5970,6 +6012,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Latest policy version.', schema: ref('Policy') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No policy with that id under this tenant.'),
     },
   },
@@ -5991,6 +6034,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       '400': ErrorResponse("`bad-input`: a `cursor` this list didn't issue."),
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No policy with that id under this tenant.'),
     },
   },
@@ -6007,6 +6051,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Policy at that version.', schema: ref('PolicyVersionRow') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No policy at that (id, version) under this tenant.'),
     },
   },
@@ -6025,6 +6070,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Policy published.', schema: ref('PublishPolicyResult') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse(
         "Validation failed (see `details.issues`); `kind-not-applied`: no runtime consumer applies that kind yet; or `retention-over-limit`: the retention policy keeps its domain's rows longer than this server's limit, or holds them (`details.limitSeconds`).",
       ),
@@ -6045,6 +6091,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Unregistered.', schema: ref('UnregisterPolicyResult') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('No policy at that (id, version) under this tenant.'),
     },
   },
@@ -6062,6 +6109,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Reinstated.', schema: ref('ReinstatePolicyVersionResult') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse(
         "`retention-over-limit`: the version's retention policy keeps its domain's rows longer than this server's limit, or holds them (`details.limitSeconds`); it stays retired.",
       ),
@@ -6617,6 +6665,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('IdentityProviderCollectionPage'),
       },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
     },
   },
   {
@@ -6719,6 +6768,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The provider.', schema: ref('GetIdentityProviderResult') },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
     },
   },
@@ -6753,6 +6803,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('IdentityProviderSignInUrls'),
       },
       ...CommonAuthErrors,
+      ...TenantSettingReadErrors,
       '400': ErrorResponse(
         "`kind` missing for a provider that isn't registered, or a kind this deployment doesn't sign in with (`bad-input`).",
       ),
@@ -7746,6 +7797,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('ComplianceEvidenceCollectionPage'),
       },
       ...CommonAuthErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse('Malformed cursor, `from`, or `to`.'),
     },
   },
@@ -7771,6 +7823,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Full evidence record.', schema: ref('ComplianceEvidence') },
       ...CommonAuthErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('No evidence record with that id under this tenant.'),
     },
   },
@@ -7792,6 +7845,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SignedComplianceEvidenceBundle'),
       },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('Signing key id unknown, or signing not configured on this deployment.'),
     },
   },
@@ -10451,6 +10505,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Endpoint registered.', schema: ref('WebhookEndpoint') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse(
         "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist (`webhook-secret-not-found`) or is too weak (`webhook-secret-too-weak`), or it's a model provider's key (`provider-key-refused`).",
       ),
@@ -10471,6 +10526,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'A new secret.', schema: ref('GeneratedWebhookSecret') },
       ...CommonAuthErrors,
+      ...TenantAdminErrors,
       '409': ErrorResponse(
         "A retry with the Idempotency-Key of a request that succeeded: the secret isn't kept (`idempotency-key-replay-withheld`).",
       ),
@@ -10488,6 +10544,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of endpoints.', schema: ref('WebhookEndpointCollectionPage') },
       ...CommonAuthErrors,
+      ...TenantAdminErrors,
     },
   },
   {
@@ -10502,6 +10559,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The endpoint.', schema: ref('WebhookEndpoint') },
       ...CommonAuthErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('No endpoint with that id, or it was unregistered.'),
     },
   },
@@ -10520,6 +10578,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'The updated endpoint.', schema: ref('WebhookEndpoint') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse(
         "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist or is too weak, or it's a model provider's key (`provider-key-refused`).",
       ),
@@ -10541,6 +10600,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Outcome.', schema: ref('WebhookEndpointUnregisterResult') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
     },
   },
   {
@@ -10561,6 +10621,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of deliveries.', schema: ref('WebhookDeliveryCollectionPage') },
       ...CommonAuthErrors,
+      ...TenantAdminErrors,
       '400': ErrorResponse('Unknown `status`.'),
       '404': ErrorResponse('No endpoint with that id.'),
     },
@@ -10578,6 +10639,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '202': { description: 'Queued.', schema: ref('WebhookDelivery') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('No endpoint, or no delivery with that id for it.'),
     },
   },
@@ -10595,6 +10657,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '202': { description: 'Queued.', schema: ref('WebhookDelivery') },
       ...CommonMutationErrors,
+      ...TenantAdminErrors,
       '404': ErrorResponse('No endpoint with that id.'),
     },
   },
