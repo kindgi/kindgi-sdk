@@ -199,7 +199,7 @@ describe('baselineIsLive', () => {
       },
     });
     expect(check(gate({}, { summary: mixed }), 'baselineIsLive')?.message).toContain(
-      'measured it against 2 versions',
+      'measured this version against 2 versions',
     );
   });
 });
@@ -219,13 +219,22 @@ describe('scopeCovered', () => {
 
   test('an org promotion: tenant-wide judgments, or a project in the org', () => {
     const org: LiveScope = { kind: 'org', orgId: ORG };
-    expect(check(gate({}, { scope: org, summaryProjectOrgId: ORG }), 'scopeCovered')?.passed).toBe(
-      true,
+    const inOrg = check(gate({}, { scope: org, summaryProjectOrgId: ORG }), 'scopeCovered');
+    expect(inOrg?.passed).toBe(true);
+    expect(inOrg?.message).toBe(`The judgments came from project ${PROJECT}, within org ${ORG}.`);
+    const outside = check(gate({}, { scope: org }), 'scopeCovered');
+    expect(outside?.passed).toBe(false);
+    expect(outside?.message).toBe(
+      `The judgments came from project ${PROJECT}, outside org ${ORG}.`,
     );
-    expect(check(gate({}, { scope: org }), 'scopeCovered')?.passed).toBe(false);
-    expect(
-      check(gate({}, { scope: org, summary: summary({ scope: {} }) }), 'scopeCovered')?.passed,
-    ).toBe(true);
+    const everywhere = check(
+      gate({}, { scope: org, summary: summary({ scope: {} }) }),
+      'scopeCovered',
+    );
+    expect(everywhere?.passed).toBe(true);
+    expect(everywhere?.message).toBe(
+      `The judgments came from every project, which covers org ${ORG}.`,
+    );
   });
 
   test('a tenant promotion takes any judgments', () => {

@@ -291,7 +291,7 @@ function baselineCheck(summary: JudgedComparisonSummary, input: GateInput): Gate
     return {
       name,
       passed: false,
-      message: `The test run measured it against ${versions.length} versions (${versions.join(', ')}); it must be measured against the version it would replace, ${serving}.`,
+      message: `The test run measured this version against ${versions.length} versions (${versions.join(', ')}); it must be measured against the live version, ${serving}.`,
       value: versions.join(', '),
       threshold: serving,
     };
@@ -301,8 +301,8 @@ function baselineCheck(summary: JudgedComparisonSummary, input: GateInput): Gate
     name,
     passed,
     message: passed
-      ? `The test run measured it against ${serving}, the version it would replace.`
-      : `The test run measured it against ${versions[0]}; the version it would replace is ${serving}. Re-run it against that one.`,
+      ? `The test run measured this version against the live version, ${serving}.`
+      : `The test run measured this version against ${versions[0]}; the live version is ${serving}. Re-run it against that one.`,
     value: versions[0] ?? '',
     threshold: serving,
   };
@@ -321,9 +321,11 @@ function scopeCheck(summary: JudgedComparisonSummary, input: GateInput): GateChe
       return {
         name,
         passed,
-        message: passed
-          ? `The judgments came from ${judgedIn}, within org ${scope.orgId}.`
-          : `The judgments came from ${judgedIn}, outside org ${scope.orgId}.`,
+        message: !passed
+          ? `The judgments came from ${judgedIn}, outside org ${scope.orgId}.`
+          : from === undefined
+            ? `The judgments came from every project, which covers org ${scope.orgId}.`
+            : `The judgments came from ${judgedIn}, within org ${scope.orgId}.`,
       };
     }
     case 'project':
