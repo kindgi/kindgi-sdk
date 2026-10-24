@@ -317,7 +317,7 @@ docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -v "$PWD/public-token-signing.pem:/etc/kindgi/public-token-signing.pem:ro" \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.9
+  registry.kindgi.com/kindgi/runtime:0.1.11
 ```
 
 `-v` mounts the key file, read-only, at the path `kindgi.env` names. The
