@@ -126,6 +126,16 @@ In the console, open your workspace's **App registrations** page, choose
 Then choose **Register**. Kindgi shows the **Redirect URI** you entered in
 step 2.
 
+Or register it from the command line:
+
+```sh
+npx --yes @kindgi/cli@0.2 connection-apps add microsoft --client-id=<client-id> --client-secret-ref=production/ACME_MICROSOFT_CONNECT_SECRET --tenant=<directory>
+```
+
+`<directory>` is the directory from step 1. The command prints the
+registration as JSON, with the Redirect URI as its `redirectUrl`.
+`--projects=<project-id>,…` lets only those projects' runs use it.
+
 The directory can't change while people have connections through the
 registration, since their access belongs to that directory. Kindgi refuses
 the change (`connection-app-invalid`): disconnect them first, then change
