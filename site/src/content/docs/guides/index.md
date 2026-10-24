@@ -36,6 +36,9 @@ Kindgi these docs describe.
 - [Secrets and env](secrets/): where a pack's settings and secrets live on
   your machine and in a deployment, how your code gets them, and the sandbox
   `kindgi dev` runs it in.
+- [Connections](connections/): register your company's Google or GitHub
+  app, let people connect their accounts, and have a tool act with them,
+  approved by the account's owner.
 - [Sign-in](sso/sign-in/): sign in to the console, keep a session, and see
   the enterprise sign-in options Kindgi builds with you.
 - [Cost and provenance](observability/trace-an-answer/): trace an answer to
