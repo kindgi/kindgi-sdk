@@ -162,6 +162,11 @@ From your app, `runs.get(runId)` answers what a suspended run waits for, as
 `waitingFor`. It's the API's answer to the CLI's `kindgi runs resume`:
 
 - **`approvals`** are the approvals still to be decided.
+- **`connections`** are the connects it waits for: each names the app
+  (`appName`), what it asks for (`says`), and the link the person who
+  started the run connects from (`connectUrl`), until `expiresAt`. It's
+  left out when there are none
+  ([When the connection is missing](../../connections/use-a-connection/#when-the-connection-is-missing)).
 - **`other`** is the rest: a child run to finish, an approval already
   decided, or a wait no approval is linked to.
 

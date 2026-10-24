@@ -392,6 +392,14 @@ An agent's call stopped this way runs nothing. The run records
 can say what's missing. A flow's tool step fails instead: the run records
 `step.failed`, with the code and its message.
 
+A run that waits for a connect says so outside its page too.
+`kindgi runs resume <run-id>` names the app, what it asks for and the link
+to connect from, with when the link stops working, and exits `6`
+([What a run waits for](../../approvals/decide-an-approval/#what-a-run-waits-for)).
+`kindgi runs get <run-id>` prints the same line after the run's JSON. From
+your app, `runs.get` answers it under `waitingFor.connections`
+([A run's `waitingFor`](../../approvals/approvals-reference/#a-runs-waitingfor)).
+
 ## Approvals
 
 A call that uses a connection is approved as any other call is, and the
