@@ -63,6 +63,15 @@ export interface NodeContext {
    * a host that doesn't name its steps (a runtime before 0.1.6).
    */
   readonly stepScope?: string;
+  /**
+   * Which run of this step it is: `1` the first time, one more for each
+   * retry after a failure. A resume after a wait, or a re-run after a
+   * crash, keeps the number: it's counted from the journal. A tool call
+   * passes it on as `ToolContext.attempt`. Not for deduping a side effect:
+   * every attempt shares `stepScope`. Absent on a host that doesn't count
+   * attempts.
+   */
+  readonly attempt?: number;
   /** The tenant this run belongs to — required for any tenant-scoped I/O. */
   readonly tenantId: TenantId;
   /**
@@ -182,7 +191,7 @@ export interface NodeContext {
    *
    * `timeoutMs`: optional deadline. When set, the waitpoint timeout
    * sleeper (`WaitpointBinding` in `@kindgi/runtime`) cancels this
-   * waitpoint with `reason: 'timeout'` if it hasn't resolved by
+   * waitpoint with `reason: 'timeout'` (`WAITPOINT_TIMEOUT_REASON`) if it hasn't resolved by
    * `Date.now() + timeoutMs`. The handler's re-invocation after cancel
    * throws `WaitpointCancelledError` from `waitForToken`. Timeout is
    * stored on the waitpoint row — durable across process restarts.

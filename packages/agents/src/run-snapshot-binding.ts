@@ -47,6 +47,13 @@ export interface RunSnapshotWriteInput {
    * long as `read` answers the run's.
    */
   readonly startedBy?: RunStartedBy;
+  /**
+   * What the turn may call without a person's yes
+   * (`InvokeAgentInput.toolsAllowedUnattended`). A store that keeps it
+   * with the run's record instead may ignore it here, as long as `read`
+   * answers the run's.
+   */
+  readonly toolsAllowedUnattended?: readonly string[];
 }
 
 /**
@@ -77,6 +84,12 @@ export interface RunSnapshotRecord {
    * from before runs recorded it): the resumed turn counts as unattended.
    */
   readonly startedBy?: RunStartedBy | null;
+  /**
+   * What the turn may call without a person's yes, as recorded when its
+   * run started: a resumed turn gets it from here, never from whoever
+   * resumes it. Absent or null: none.
+   */
+  readonly toolsAllowedUnattended?: readonly string[] | null;
   readonly createdAt: Timestamp;
 }
 

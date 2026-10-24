@@ -19,10 +19,12 @@ locals {
   registry_host = "${local.own_repository ? var.region : var.image_repository.location}-docker.pkg.dev"
 
   # Every name the module sets on the server (some only with an option on),
-  # plus KINDGI_DEV: server_env and server_secret_env can't set these.
+  # plus KINDGI_DEV and KINDGI_DATABASE_SERVER_CA_PATH (the database's CA
+  # comes from the module): server_env and server_secret_env can't set these.
   # KINDGI_PUBLIC_URL comes from var.public_url.
   server_module_env = toset([
-    "KINDGI_API_TOKEN", "KINDGI_CORS_ORIGINS", "KINDGI_DATABASE_URL", "KINDGI_DEV", "KINDGI_ENV",
+    "KINDGI_API_TOKEN", "KINDGI_CORS_ORIGINS", "KINDGI_DATABASE_SERVER_CA",
+    "KINDGI_DATABASE_SERVER_CA_PATH", "KINDGI_DATABASE_URL", "KINDGI_DEV", "KINDGI_ENV",
     "KINDGI_EXPORT_SIGNING_KEY", "KINDGI_EXPORT_SIGNING_KMS_KEY", "KINDGI_IMAGE_REGISTRY_AUTH",
     "KINDGI_IMAGE_REGISTRY_HOST", "KINDGI_LICENSE_KEY", "KINDGI_OPENFGA_API_URL",
     "KINDGI_PACK_CALL_TIMEOUT_MS", "KINDGI_PACK_SERVICE_AUTH", "KINDGI_PACK_SERVICE_TOKEN",
@@ -97,6 +99,13 @@ resource "google_cloud_run_v2_service" "pack" {
           cpu    = "1"
           memory = "1Gi"
         }
+        # CPU only while a call runs: the service does no work between
+        # calls, so the instance pack_min_instances keeps up bills at the
+        # idle rate. Named because with limits set, Cloud Run otherwise
+        # keeps CPU allocated. The boost shortens the start, which imports
+        # every module before it listens.
+        cpu_idle          = true
+        startup_cpu_boost = true
       }
 
       env {
@@ -296,6 +305,16 @@ resource "google_cloud_run_v2_service" "server" {
             secret  = local.database_url_secret
             version = "latest"
           }
+        }
+      }
+      # Private-IP mode: the instance's CAs, which the database's
+      # certificate must chain to (data.tf). The /cloudsql socket is the
+      # connector's, which checks the instance itself.
+      dynamic "env" {
+        for_each = local.database_private ? [local.database_server_ca] : []
+        content {
+          name  = "KINDGI_DATABASE_SERVER_CA"
+          value = env.value
         }
       }
       # The tenant: with "single", the one the server seeds and serves, and
@@ -574,6 +593,10 @@ resource "google_cloud_run_v2_service" "server" {
     precondition {
       condition     = var.network_mode != "none" || !var.nat_static_ip
       error_message = "network_mode = \"none\" creates no Cloud NAT, so nat_static_ip has nothing to reserve; it applies in \"direct\" and is ignored in \"connector\"."
+    }
+    precondition {
+      condition     = var.network_mode != "direct" || var.nat_max_ports_per_vm > var.nat_min_ports_per_vm
+      error_message = "nat_max_ports_per_vm must be above nat_min_ports_per_vm: the Cloud NAT doubles an instance's ports from the minimum up to the maximum."
     }
     precondition {
       condition     = !(var.server_public && var.server_invoker_iam_disabled)

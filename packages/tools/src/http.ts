@@ -3,6 +3,7 @@
 
 import { bearerValueProblem, headerValueProblem } from '@kindgi/types';
 
+import { ConnectionRejectedError } from './connections.js';
 import { type ToolSpecSynthesizerOptions, registerToolSpecSynthesizer } from './spec-registry.js';
 import type { HttpAuthSpec, HttpRequestBodySpec, HttpToolSpec, ToolContext } from './types.js';
 
@@ -34,7 +35,9 @@ const ERROR_BODY_BYTES = 2048;
  *   3. `authorization` is resolved via `ctx.resolveSecret(secretRef)`.
  *      If the tool declares authorization but `ctx.resolveSecret` is
  *      undefined, the handler throws a clear error rather than
- *      silently dropping the credential.
+ *      silently dropping the credential. A `connection` authorization
+ *      reads `ctx.connections[connection]`'s access token instead, and
+ *      throws the same way when the call has none.
  *   4. Static headers are added as-is.
  *   5. Request body is built per `requestBody.kind`:
  *        - `'json-input'` (default when `requestBody` absent for
@@ -49,7 +52,9 @@ const ERROR_BODY_BYTES = 2048;
  *      30_000). The deadline and the signal cover reading the body
  *      too. Aborts propagate as `handler-error`.
  *   7. Status is checked against `successStatus` (default 200-299).
- *      Failures throw with the response body as the message.
+ *      Failures throw with the response body as the message; a 401 to
+ *      a `connection` authorization throws `ConnectionRejectedError`,
+ *      so the runtime renews the token and runs the call again.
  *   8. Response body is parsed as JSON (default) or returned as
  *      text. It's read up to `maxResponseBytes` (default 10 MiB);
  *      a longer body fails the call. Output JSON-Schema validation
@@ -89,7 +94,7 @@ function buildHttpHandler(
         spec.authorization,
         ctx,
         toolId,
-        await resolveAuthSecret(spec.authorization, ctx, toolId),
+        await resolveAuthValue(spec.authorization, ctx, toolId),
       );
     }
 
@@ -131,6 +136,23 @@ function buildHttpHandler(
   };
 }
 
+/**
+ * A status outside `successStatus`, with the body's start. A 401 to a
+ * `connection` authorization is the app refusing the connection's token.
+ */
+function statusFailure(
+  response: Response,
+  spec: HttpToolSpec,
+  toolId: string,
+  text: string,
+): Error {
+  const message = `http-tool "${toolId}" got status ${response.status} ${response.statusText || ''} — ${text.slice(0, 512)}`;
+  if (response.status === 401 && spec.authorization?.kind === 'connection') {
+    return new ConnectionRejectedError(spec.authorization.connection, message);
+  }
+  return new Error(message);
+}
+
 /** Steps 7 and 8: the status, then the body, read while `signal` holds. */
 async function readResponse(
   response: Response,
@@ -142,10 +164,7 @@ async function readResponse(
   const successMin = spec.successStatus?.min ?? 200;
   const successMax = spec.successStatus?.max ?? 299;
   if (response.status < successMin || response.status > successMax) {
-    const text = await safeText(response, signal);
-    throw new Error(
-      `http-tool "${toolId}" got status ${response.status} ${response.statusText || ''} — ${text.slice(0, 512)}`,
-    );
+    throw statusFailure(response, spec, toolId, await safeText(response, signal));
   }
 
   const read = await readBodyText(response, maxResponseBytes, signal);
@@ -237,11 +256,20 @@ function substituteTemplate(template: string, input: Record<string, unknown>): s
   });
 }
 
-async function resolveAuthSecret(
+async function resolveAuthValue(
   auth: HttpAuthSpec,
   ctx: ToolContext,
   toolId: string,
 ): Promise<string> {
+  if (auth.kind === 'connection') {
+    const connection = ctx.connections?.[auth.connection];
+    if (connection === undefined) {
+      throw new Error(
+        `http-tool "${toolId}" sends the connection "${auth.connection}", which this call doesn't have. The dispatch site must resolve the tool's needsSpec.connections into ToolContext.connections.`,
+      );
+    }
+    return connection.accessToken;
+  }
   if (ctx.resolveSecret === undefined) {
     throw new Error(
       `http-tool "${toolId}" declares authorization but ToolContext.resolveSecret is not wired. The dispatch site must populate resolveSecret from the deployment's SecretBinding.`,
@@ -261,10 +289,15 @@ function applyAuth(
   // the secret into the call's failure message, and so into the run. As it's
   // sent: after `Bearer `, a leading line break is an inner one.
   const problem =
-    auth.kind === 'bearer'
-      ? bearerValueProblem(resolvedSecret)
-      : headerValueProblem(resolvedSecret);
+    auth.kind === 'header'
+      ? headerValueProblem(resolvedSecret)
+      : bearerValueProblem(resolvedSecret);
   if (problem !== undefined) {
+    if (auth.kind === 'connection') {
+      throw new Error(
+        `http-tool "${toolId}": the access token of its connection "${auth.connection}" has ${problem}, which a header can't carry`,
+      );
+    }
     const header = auth.kind === 'bearer' ? 'Authorization' : auth.headerName;
     throw new Error(
       `http-tool "${toolId}": its secret ${auth.secretRef.envName}/${auth.secretRef.name} for the header "${header}" has ${problem}, which a header can't carry: store the secret without it`,
@@ -272,6 +305,7 @@ function applyAuth(
   }
   switch (auth.kind) {
     case 'bearer':
+    case 'connection':
       headers.Authorization = `Bearer ${resolvedSecret}`;
       return;
     case 'header':

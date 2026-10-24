@@ -9,6 +9,7 @@ import type { Cursor, ProjectId, ScopeSegment, TenantId, UserId } from '@kindgi/
 import { statusFor, toWireError } from '../errors.js';
 import type {
   EvalCaseStoreBinding,
+  JudgedCaseCorrection,
   JudgedEvalCase,
   JudgedItemSummary,
 } from '../eval-case-binding.js';
@@ -281,6 +282,21 @@ async function toCase(
   const items: JudgedItemSummary[] = [];
   for (const [key, list] of byKey) items.push(await summarizeJudgments(key, list, weightOf));
   items.sort((a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER));
+  // Each kept judgment that carries a correction rides onto the case, keyed by
+  // its judgment and carrying its judge class and restriction, so a
+  // restricted-only comparison filters corrections the way it filters items.
+  const corrections: JudgedCaseCorrection[] = kept.flatMap((j) =>
+    j.correction === undefined
+      ? []
+      : [
+          {
+            ...j.correction,
+            judgmentId: j.id,
+            ...(j.judgeClassId !== undefined && { judgeClassId: j.judgeClassId }),
+            ...(j.restricted === true && { restricted: true as const }),
+          },
+        ],
+  );
   const run = judged.run;
   return {
     caseId: run.runId,
@@ -289,6 +305,7 @@ async function toCase(
     ...(run.context !== undefined && { context: run.context }),
     output: run.output,
     items,
+    ...(corrections.length > 0 && { corrections }),
   };
 }
 

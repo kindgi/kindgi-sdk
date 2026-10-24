@@ -1,0 +1,30 @@
+{
+  "name": "{{PACK_NAME}}",
+  "version": "{{PACK_VERSION}}",
+  "private": true,
+  "description": "Kindgi pack — scaffolded by `kindgi init --template=follow-up`. An agent that writes a follow-up mail from your notes and sends it from your Gmail once you approve it.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@kindgi/connections": "workspace:*",
+    "@kindgi/sdk": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@kindgi/cli": "workspace:*",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.3",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
+  },
+  "allowScripts": {
+    "esbuild": false
+  }
+}

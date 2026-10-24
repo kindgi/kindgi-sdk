@@ -203,6 +203,34 @@ dropped before your code loads (`kindgi dev` keeps them), so an undeclared
 one works locally and is unset once deployed. `KINDGI_*` names are Kindgi's
 own: a pack can't declare one.
 
+### Connections to other apps
+
+A tool that acts in another app as a person or as the company (sending mail, opening an issue) declares a **connection**, never a secret holding someone's token, and reads the call's short-lived token from `ctx.connections` (runtime 0.2.0 or later):
+
+```scala
+val tool: Tool[Input, Output] = Tool[Input, Output]("my-pack.send-mail")
+  // …description, version, effects…
+  .set("needsSpec", Map("connections" -> Map(
+    "mail" -> Map("app" -> "google", "permissions" -> List("gmail.send"), "as" -> "person"))))
+  .handler { (in, ctx) =>
+    val mail = ctx.connections.get("mail")
+    val res = http.send(
+      HttpRequest.newBuilder(uri).header("authorization", s"Bearer ${mail.accessToken}").build(),
+      HttpResponse.BodyHandlers.ofString())
+    if (res.statusCode == 401) throw new ConnectionRejectedException("mail")
+    // …
+  }
+```
+
+- **Whose connection:** `"as" -> "person"` is the connection of the person the run acts as (whoever started it, or the owner of the schedule or webhook that did); `"as" -> "company"` is the company's. The runtime picks it from the run, never from the input or the model. A run that acts as nobody (a service account's, an event's) fails a `"person"` call with `connection-needs-a-person`.
+- **The token:** `accessToken` is current for this call only. Never keep, print, log or return it; it never reaches the journal. `account.label` says whose account it is (`ana@acme.com`). `ToolConnection`, `ConnectionAccount` and `ConnectionRejectedException` come with `com.kindgi.pack.scaladsl._`.
+- **A 401 from the app:** `throw new ConnectionRejectedException("mail")`, with the connection's name (a second argument can say what the app answered, never the token), or your own exception with it as the cause. The runtime renews the token once and runs the call again; refused again, the call fails with `connection-rejected`.
+- **An HTTP tool** sends the token with no code: `.authorization(new HttpAuthSpec.Connection("mail"))`.
+- **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, unless it's marked `.readOnly` (mark read-only tools so). The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needsApprovalWhenUnattended` (below).
+- **In a unit test:** `com.kindgi.pack.ToolContext.forTest(java.util.Map.of("mail", new ToolConnection("c-1", "google", "Google", "test", new ConnectionAccount("1", "ana@acme.com"), null)))`; the last argument, when the token expires, can be `null`. `ctx.connections` is empty when the tool declares none.
+
+Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
+
 ## Errors and output
 
 - Throw for a failure, or fail the `Future`: the call fails with
@@ -229,8 +257,50 @@ effect. `set(field, value)` sets the index entry's other fields (`needs`,
 `needsSpec`, `sandbox`, `limits`, `network`), with Scala maps and lists. They
 are recorded for policy and review, so declare what the tool really does.
 
-There is no HTTP-tool form (TypeScript's `kind: 'http'`). A tool that calls
-an HTTP API is a handler with `java.net.http.HttpClient`, as above.
+A tool that calls an HTTP API can be a handler with `java.net.http.HttpClient`,
+as above, or the request declared as data with no handler — see **HTTP tool (as
+data)** below.
+
+## HTTP tool (as data)
+
+A tool that calls an HTTP API can be the request itself, declared as data,
+instead of a handler: `.http(spec)` in place of `.handler(...)`. The Kindgi
+runtime makes the request from the spec — the SDK only builds and validates it,
+so calling such a tool in this JVM throws. The spec types are Java's, from
+`com.kindgi.pack.http`:
+
+```scala
+import com.kindgi.pack.scaladsl._
+import com.kindgi.pack.http._
+
+object FetchOrder {
+  final case class Input(orderId: String)
+  final case class Output(id: String, status: String, total: Double)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("shop.fetch-order")
+    .description("Fetch an order by id from the storefront API.")
+    .version("0.1.0")
+    .readOnly
+    .http(
+      HttpToolSpec.builder()
+        .method(HttpMethod.GET)
+        .urlTemplate("https://api.shop.example/orders/{orderId}")
+        .authorization(new HttpAuthSpec.Bearer(new ToolSecretRef("production", "shop-api-token")))
+        .successStatus(200, 299)
+        .build())
+}
+```
+
+Every `{placeholder}` in the URL — in the path and query only, never in the
+host or port — is a field of the input, and so is one in a
+`HttpRequestBodySpec.Text` body; `.http(...)` throws if it isn't. Authorization
+is a `secretRef` (`HttpAuthSpec.Bearer` or `HttpAuthSpec.Header`), named for the
+runtime to resolve, never a literal credential. A request body is
+`HttpRequestBodySpec.JsonInput` (the input as JSON), `InputPassthrough` or
+`Text`. `timeoutMs` (default 30 seconds) covers the whole call, the response
+read included, and a run's cancel does too; a response body over 10 MiB,
+measured decompressed, fails the call — so point a tool at an endpoint that
+pages or filters, not one that returns everything.
 
 ## A person's yes when no one is watching: `needsApprovalWhenUnattended`
 
@@ -238,6 +308,7 @@ an HTTP API is a handler with `java.net.http.HttpClient`, as above.
 
 - **An agent's call waits** for a person's yes, whatever the agent's `conversationPolicy.hitl.tools` says. The agent's rules can't lift it: agents are reused, and the tool's author knows what it does.
 - **A flow's tool step that calls it is refused.** Put the tool behind an agent step instead, whose call waits.
+- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's or a schedule's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks` and `kindgi schedules`). In that trigger's runs, the tool is then as in a run a person started. The tenant's approval rules still apply.
 
 In a run a person started (signed in, or with their own API key), the agent's rules decide, as for any tool. Left unset, it counts as `false`. Declare it on a tool that moves money or changes something people rely on:
 
@@ -253,7 +324,11 @@ Docs: https://docs.kindgi.com/v0.1/guides/approvals/ask-before-a-tool-runs/#when
 
 `tool.call(input, ctx)` runs the handler with the input as given (no schema
 check). `ToolContext.forTest()` is a context with a test tenant and run and
-nothing else. A handler that reads the environment and calls a service is
+nothing else. `ToolContext.forTest(tool, env, secrets)` adds the env values
+the tool declares in `needsSpec`, decided as a run decides them (a schema
+`default` fills a name the test doesn't set, each value is checked, and a
+missing or invalid one throws `IllegalArgumentException`), and the secrets as
+given. A handler that reads the environment and calls a service is
 tested through the method it calls, with a stub server:
 
 ```scala

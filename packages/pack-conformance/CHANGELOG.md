@@ -1,5 +1,53 @@
 # @kindgi/pack-conformance
 
+## 0.1.10
+
+### Patch Changes
+
+- Updated dependencies [b9a68d5]
+  - @kindgi/specs@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/specs@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- Updated dependencies [b9a68d5]
+  - @kindgi/specs@0.1.10-rc.0
+
+## 0.1.9
+
+### Patch Changes
+
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [7be0273]
+- Updated dependencies [cf339d3]
+- Updated dependencies [3502389]
+  - @kindgi/specs@0.1.9
+
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/specs@0.1.9-rc.1
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [7be0273]
+- Updated dependencies [cf339d3]
+- Updated dependencies [3502389]
+  - @kindgi/specs@0.1.9-rc.0
+
 ## 0.1.8
 
 ### Patch Changes

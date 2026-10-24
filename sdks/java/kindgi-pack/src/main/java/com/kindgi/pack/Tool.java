@@ -3,13 +3,21 @@
 
 package com.kindgi.pack;
 
+import com.kindgi.pack.http.HttpRequestBodySpec;
+import com.kindgi.pack.http.HttpToolSpec;
 import com.kindgi.pack.internal.SchemaDeriver;
+import com.kindgi.pack.internal.Specs;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -38,6 +46,9 @@ import org.jspecify.annotations.Nullable;
  */
 public final class Tool<I, O> {
   private static final Map<String, Object> ANY_OBJECT = Map.of("type", "object");
+  private static final Pattern URL_AUTHORITY =
+      Pattern.compile("(https?)://([^/?#]*)", Pattern.CASE_INSENSITIVE);
+  private static final Pattern PLACEHOLDER = Pattern.compile("\\{(\\w+)\\}");
 
   private final String id;
   private final @Nullable String description;
@@ -54,6 +65,10 @@ public final class Tool<I, O> {
   private final Class<?> definedIn;
 
   private Tool(Builder<I, O> b, ToolHandler<I, O> handler) {
+    this(b, b.extra, handler);
+  }
+
+  private Tool(Builder<I, O> b, Map<String, Object> extra, ToolHandler<I, O> handler) {
     this.id = b.id;
     this.description = b.description;
     this.version = b.version;
@@ -64,7 +79,7 @@ public final class Tool<I, O> {
     this.mutating = b.mutating;
     this.needsApprovalWhenUnattended = b.needsApprovalWhenUnattended;
     this.effects = List.copyOf(b.effects);
-    this.extra = Map.copyOf(b.extra);
+    this.extra = Map.copyOf(extra);
     this.handler = Objects.requireNonNull(handler, "handler");
     this.definedIn = b.definedIn;
   }
@@ -164,6 +179,28 @@ public final class Tool<I, O> {
   @Override
   public String toString() {
     return "Tool[" + id + "]";
+  }
+
+  private static @Nullable String checkHttpUrlTemplate(String url) {
+    Matcher m = URL_AUTHORITY.matcher(url);
+    if (!m.lookingAt()) {
+      return "must start with http:// or https:// and a host";
+    }
+    String authority = m.group(2);
+    if (authority.contains("{") || authority.contains("}")) {
+      return "fills {placeholders} in its path and query only, never in its host or port";
+    }
+    if (authority.isEmpty()) {
+      return "must name a host";
+    }
+    return null;
+  }
+
+  private static void addPlaceholders(Set<String> into, String template) {
+    Matcher m = PLACEHOLDER.matcher(template);
+    while (m.find()) {
+      into.add(m.group(1));
+    }
   }
 
   /**
@@ -272,7 +309,8 @@ public final class Tool<I, O> {
     /**
      * @param needsApprovalWhenUnattended {@code true} makes each call wait for a person's approval
      *     in a run no person started (a webhook, a schedule, an event, or a service account's key);
-     *     in a flow's tool step it is refused. A run a person starts is unaffected
+     *     in a flow's tool step it is refused. A run a person starts is unaffected, and so is
+     *     a run whose webhook or schedule names the tool in its {@code toolsAllowedUnattended}
      * @return this
      */
     public Builder<I, O> needsApprovalWhenUnattended(boolean needsApprovalWhenUnattended) {
@@ -323,6 +361,86 @@ public final class Tool<I, O> {
     public Tool<I, O> asyncHandler(AsyncToolHandler<I, O> handler) {
       Objects.requireNonNull(handler, "handler");
       return new Tool<>(this, (input, ctx) -> Awaiting.await(handler.handle(input, ctx), ctx.cancellation()));
+    }
+
+    /**
+     * Declares the tool as an HTTP request the Kindgi runtime makes (see {@link HttpToolSpec}), in
+     * place of a {@link #handler}. The spec is checked now: it must match the HTTP tool schema, its
+     * URL must name a host with {@code {placeholders}} only in the path and query, and every
+     * placeholder (in the URL and in a text body) must be one of the input's fields. Calling the
+     * returned tool in-process throws — only the runtime makes the request.
+     *
+     * @param spec the HTTP request to make
+     * @return the tool
+     * @throws IllegalArgumentException when the spec is not valid for this tool
+     */
+    public Tool<I, O> http(HttpToolSpec spec) {
+      Objects.requireNonNull(spec, "spec");
+      Map<String, Object> specMap = spec.toIndexMap();
+
+      List<Map<String, Object>> issues = Specs.validator("tool", "HttpToolSpec").issues(specMap);
+      if (!issues.isEmpty()) {
+        String joined =
+            issues.stream()
+                .map(
+                    issue -> {
+                      Object path = issue.get("instancePath");
+                      String at =
+                          (path == null || path.toString().isEmpty()) ? "/" : path.toString();
+                      return at + " " + issue.get("message");
+                    })
+                .collect(Collectors.joining("; "));
+        throw new IllegalArgumentException(
+            "Tool \"" + id + "\": not a valid HTTP tool spec: " + joined);
+      }
+
+      String urlProblem = checkHttpUrlTemplate(spec.urlTemplate());
+      if (urlProblem != null) {
+        throw new IllegalArgumentException("Tool \"" + id + "\" spec.urlTemplate " + urlProblem);
+      }
+
+      Set<String> placeholders = new TreeSet<>();
+      addPlaceholders(placeholders, spec.urlTemplate());
+      if (spec.requestBody() instanceof HttpRequestBodySpec.Text text) {
+        addPlaceholders(placeholders, text.template());
+      }
+      placeholders.removeAll(inputFields());
+      if (!placeholders.isEmpty()) {
+        String rendered =
+            placeholders.stream().map(name -> "{" + name + "}").collect(Collectors.joining(", "));
+        throw new IllegalArgumentException(
+            "Tool \""
+                + id
+                + "\": "
+                + rendered
+                + " not a field of the input, which fills placeholders");
+      }
+
+      // A terminal, not a setter: carry the spec on this tool only, without touching the shared
+      // builder, so a later tool built from the same builder doesn't inherit a stray `spec`.
+      Map<String, Object> httpExtra = new LinkedHashMap<>(extra);
+      httpExtra.put("spec", specMap);
+      return new Tool<>(
+          this,
+          httpExtra,
+          (input, ctx) -> {
+            throw new UnsupportedOperationException(
+                "Tool \""
+                    + id
+                    + "\" is an HTTP tool: the Kindgi runtime makes its request, not the Java SDK."
+                    + " Call it through Kindgi (an agent, a flow, `kindgi dev`).");
+          });
+    }
+
+    @SuppressWarnings("unchecked")
+    private Set<String> inputFields() {
+      Map<String, Object> schema =
+          inputSchema != null ? inputSchema : SchemaDeriver.schema(inputType);
+      Object props = schema.get("properties");
+      if (props instanceof Map<?, ?> map) {
+        return ((Map<String, Object>) map).keySet();
+      }
+      return Set.of();
     }
   }
 }

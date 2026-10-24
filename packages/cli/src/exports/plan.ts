@@ -191,6 +191,22 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     covers: ['/v1/secrets/{name}/versions/{versionId}'],
   },
   { name: 'tenant-config', route: '/v1/tenant/config', paging: cursor },
+  {
+    name: 'connection-apps',
+    route: '/v1/connection-apps',
+    paging: cursor,
+    query: { includeRemoved: 'true' },
+    covers: ['/v1/connection-apps/{appId}'],
+    admin: true,
+  },
+  {
+    name: 'connections',
+    route: '/v1/connections',
+    paging: cursor,
+    query: { includeRemoved: 'true' },
+    covers: ['/v1/connections/{connectionId}'],
+    admin: true,
+  },
 
   // What the packs and the console registered.
   {
@@ -382,6 +398,7 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     route: '/v1/webhook-endpoints',
     paging: cursor,
     covers: ['/v1/webhook-endpoints/{endpointId}'],
+    admin: true,
   },
   {
     name: 'webhook-deliveries',
@@ -498,6 +515,7 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     route: '/v1/compliance/evidence',
     paging: cursor,
     covers: ['/v1/compliance/evidence/{evidenceId}'],
+    admin: true,
   },
   { name: 'sign-ins', route: '/v1/audit/sign-ins', paging: cursor, admin: true },
   { name: 'access-decisions', route: '/v1/audit/authz', paging: cursor },
@@ -520,6 +538,8 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/adapters': 'the server, not the workspace: the adapters the deployment wired at boot',
   '/v1/adapters/{adapterId}':
     'the server, not the workspace: the adapters the deployment wired at boot',
+  '/v1/connection-entries':
+    'the server, not the workspace: the apps its deployment ships entries for',
   '/v1/system/keys': "the server's operator routes",
   '/v1/system/tenants': "the server's operator routes",
   '/v1/system/tenants/{tenantId}': "the server's operator routes",
@@ -567,6 +587,8 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   // Not listed by any route.
   '/v1/secrets/{name}/rotations/{rotationId}':
     "read by the id its rotation's request answered; no route lists rotations, and each rotation's versions are in secret-versions",
+  '/v1/connections/requests/{requestId}':
+    'read by the id its connect request answered; no route lists connect requests',
   // Read live from another server.
   '/v1/mcp/endpoints/{endpointId}/resources': "read live from the MCP endpoint's own server",
   '/v1/mcp/endpoints/{endpointId}/resources/{uri}': "read live from the MCP endpoint's own server",

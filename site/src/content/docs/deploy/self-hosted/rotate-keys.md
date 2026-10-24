@@ -16,8 +16,8 @@ one stops working.
 - **Docker** and **OpenSSL**, on the machine that runs the containers.
 - **`KINDGI_API_TOKEN` exported in your shell** as the runtime's API token,
   where the `kindgi` commands read it.
-- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead. The
   build and deploy steps need the pack's folder, so they use `pnpm exec kindgi`.
 
@@ -71,13 +71,13 @@ on both sides.
 Make a new one:
 
 ```sh
-openssl rand -base64 32
+openssl rand -hex 32
 ```
 
-It prints 32 random bytes in base64, elided here:
+It prints 32 random bytes as 64 hex characters, elided here:
 
 ```text
-YT0L…qlM=
+4be0…9c2d
 ```
 
 Put it in both files, as `KINDGI_PACK_SERVICE_TOKEN` in `pack.env` and in
@@ -138,7 +138,7 @@ revoked id can't be trusted again.
 1. Create a key:
 
    ```sh
-   npx --yes @kindgi/cli@0.1 key create acme-selfhost-2 --env selfhost
+   npx --yes @kindgi/cli@0.2 key create acme-selfhost-2 --env selfhost
    ```
 
    `acme-selfhost-2` is the new key's id. `--env selfhost` also prints the
@@ -175,7 +175,7 @@ revoked id can't be trusted again.
    Then trust it on the runtime:
 
    ```sh
-   npx --yes @kindgi/cli@0.1 key trust acme-selfhost-2 --url http://localhost:4000
+   npx --yes @kindgi/cli@0.2 key trust acme-selfhost-2 --url http://localhost:4000
    ```
 
    `--url` is the runtime's URL. It prints the trusted key as JSON, then
@@ -231,7 +231,7 @@ revoked id can't be trusted again.
 3. Revoke the old key:
 
    ```sh
-   npx --yes @kindgi/cli@0.1 key revoke acme-selfhost --reason "rotated to acme-selfhost-2" \
+   npx --yes @kindgi/cli@0.2 key revoke acme-selfhost --reason "rotated to acme-selfhost-2" \
      --url http://localhost:4000
    ```
 
@@ -317,7 +317,7 @@ docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -v "$PWD/public-token-signing.pem:/etc/kindgi/public-token-signing.pem:ro" \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.8
+  quay.io/kindgi/runtime:0.1.10
 ```
 
 `-v` mounts the key file, read-only, at the path `kindgi.env` names. The

@@ -14,7 +14,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.13"
+version: "0.3.15"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -97,7 +97,7 @@ Either way, `init` adds `@kindgi/sdk` and `@kindgi/cli` to the project's
 one. (`npx @kindgi/cli` is the scoped package; a bare `npx kindgi` would
 fetch an unrelated package.)
 
-Four templates:
+Five templates:
 
 - `--template=minimal` (default) — folder structure only, no example
   primitives. Right when you know what you want to build.
@@ -111,6 +111,10 @@ Four templates:
   Server signed in with OAuth: house-style fixes as drafts with every
   change approved, and a flow that checks each saved article before an
   agent sees it. Its README explains each choice.
+- `--template=follow-up` — an agent that writes a follow-up mail from
+  your notes and sends it from your own Gmail, each send approved first.
+  Its send tool comes from `@kindgi/connections`, under the pack's own
+  id. Its README explains each choice.
 
 ## Boot the dev harness
 
@@ -199,11 +203,16 @@ Most of the setup is automatable, but two require your knowledge:
 - **Real LLM provider credentials** — the built-in dev-echo provider
   returns canned responses (great for the loop test, useless for real
   agents). It is a fallback, so it steps aside once a real provider is
-  registered. Declare it in `kindgi.config.ts`
+  registered. Anthropic is the example below; `kindgi providers presets`
+  lists OpenAI, Gemini, Groq and OpenRouter too.
+  Declare one in `kindgi.config.ts`
   (`providers: [{ preset: 'anthropic' }]`, the key stored by the person with
   `kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant`) and `kindgi dev`
-  registers it on every boot, in every worktree and after `--reset`; or once,
-  by hand: `kindgi providers register --preset=anthropic`. See
+  registers it on every boot, in every worktree and after `--reset`. Commit
+  the declaration: it holds the key's name, never the key, and it's how a
+  teammate's `kindgi dev`, or another worktree's, gets the same provider.
+  Or once, by hand: `kindgi providers register --preset=anthropic`, which
+  is in this worktree's dev database only. See
   `kindgi-authoring-providers`.
 
 ## Commands for the person's own terminal

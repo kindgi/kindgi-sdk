@@ -61,6 +61,11 @@ const KEYS: Record<string, { readonly who: TokenResolution; readonly grants: rea
       who: { tenantId, userId: randomUUID() as UserId },
       grants: [...RUN, `write project:${P2}`],
     },
+    // A person who may run the agent and read P1, and not act in it.
+    viewer: {
+      who: { tenantId, userId: randomUUID() as UserId },
+      grants: [...RUN, `read project:${P1}`],
+    },
   };
 
 function decision(grants: readonly string[], action: Action, resource: ResourceRef): Decision {
@@ -236,20 +241,22 @@ describe('a person who may only run the agent', () => {
     expect(r.message).toContain(`write on project ${P1}`);
   });
 
-  test("posting into someone else's conversation is refused, even naming themselves", async () => {
+  test("posting into someone else's conversation is refused, even naming themselves: they can't read it, so it answers as if it didn't exist", async () => {
     const { as } = makeApp();
-    expect(
-      refusedForParticipant(await as('caller').run({ conversationId: BOBS_CONVERSATION })),
-    ).toBe(true);
-    expect(
-      refusedForParticipant(
-        await as('caller').run({ conversationId: BOBS_CONVERSATION, participantId: ALICE }),
-      ),
-    ).toBe(true);
+    for (const input of [
+      { conversationId: BOBS_CONVERSATION },
+      { conversationId: BOBS_CONVERSATION, participantId: ALICE },
+    ]) {
+      const r = await as('caller').run(input);
+      expect([r.status, r.code]).toEqual([404, 'conversation-not-found']);
+      expect(r.message).toBe(`No conversation with id "${BOBS_CONVERSATION}"`);
+      expect(r.raw).not.toContain('cus_bob');
+      expect(r.raw).not.toContain(P1);
+    }
   });
 
-  test('the refusal names only the conversation they sent, never its participant or project', async () => {
-    const r = await makeApp().as('caller').run({ conversationId: BOBS_CONVERSATION });
+  test('one who can read it is refused, naming only the conversation they sent, never its participant or project', async () => {
+    const r = await makeApp().as('viewer').run({ conversationId: BOBS_CONVERSATION });
     expect(refusedForParticipant(r)).toBe(true);
     expect(r.resource).toBe(`conversation:${BOBS_CONVERSATION}`);
     expect(r.message).toContain('this conversation');

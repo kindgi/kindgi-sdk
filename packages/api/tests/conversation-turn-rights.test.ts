@@ -7,9 +7,9 @@
  * conversation with a stored participant keeps the participant rule
  * (`participant-access.test.ts`). One without a participant takes its
  * opener, or `write` on the conversation's project (on its agent, for a
- * conversation from before projects). A caller who can't read the
+ * conversation from before projects). A caller refused who can't read the
  * conversation gets the answer for a conversation that doesn't exist, byte
- * for byte. A closed conversation takes no new turns: once the caller may
+ * for byte; the participant rule's refusal too, for its stored participant. A closed conversation takes no new turns: once the caller may
  * add the turn, it's refused before a run is made. None of it depends on an
  * environment order: the app here has none, and the rule holds the same.
  */
@@ -144,6 +144,8 @@ function makeApp({
   let current = 'alice';
   let reached = 0;
   let opened = 0;
+  /** The refusals the API decided itself and recorded, as `<code> <type>:<id>`. */
+  const recorded: string[] = [];
   const stub = createStubAppBindings();
   const toHandler = async () => {
     reached += 1;
@@ -216,6 +218,9 @@ function makeApp({
             decision(KEYS[current]?.grants ?? [], action, resource),
           checkBatch: async (_p, action, resources) =>
             resources.map((r) => decision(KEYS[current]?.grants ?? [], action, r)),
+          recordDecision: (_p, _action, r, d) => {
+            recorded.push(`${d.reason} ${r.type}:${r.id}`);
+          },
         } satisfies AuthzCheckBinding,
       },
     }),
@@ -279,7 +284,7 @@ function makeApp({
         }),
     };
   };
-  return { as, reached: () => reached, opened: () => opened };
+  return { as, reached: () => reached, opened: () => opened, recorded: () => recorded };
 }
 
 type Answer = Awaited<ReturnType<ReturnType<ReturnType<typeof makeApp>['as']>['turn']>>;
@@ -422,6 +427,14 @@ describe('a turn into a conversation with no participant', () => {
     expect(reached()).toBe(0);
   });
 
+  test('its opener naming a participant they may not run as keeps the 403: the conversation let them in', async () => {
+    // Alice opened it, and can't read B: the participant the body names is refused as on open.
+    const { as, reached } = makeApp();
+    const r = await as('alice').turn(ALICES, { participantId: 'someone-else' });
+    expect([r.status, r.code]).toEqual([403, 'participant-not-allowed']);
+    expect(reached()).toBe(0);
+  });
+
   test('without authorization, it continues', async () => {
     const { as } = makeApp({ withAuthz: false });
     expect(continued(await as('stranger').turn(ALICES))).toBe(true);
@@ -441,6 +454,22 @@ describe('a turn into a conversation with a participant', () => {
     const r = await as('viewer').turn(CAROLS);
     expect(r.status).toBe(403);
     expect(r.code).toBe('participant-not-allowed');
+  });
+
+  test("a caller it refuses who can't read it gets the 404 a missing conversation gets, the refusal recorded", async () => {
+    for (const wait of [true, false]) {
+      const { as, reached, recorded } = makeApp();
+      const r = await as('stranger').turn(CAROLS, { wait });
+      expect(notFound(r)).toBe(true);
+      expect(r.raw).not.toContain(CAROL);
+      expect(r.bytes).toBe((await asIfMissing('stranger', CAROLS, { wait })).bytes);
+      expect(recorded()).toEqual([
+        expect.stringMatching(
+          new RegExp(`^Posting into this conversation .* conversation:${CAROLS}$`),
+        ),
+      ]);
+      expect(reached()).toBe(0);
+    }
   });
 
   test('naming another project is refused before the participant rule answers', async () => {
@@ -519,6 +548,8 @@ describe('a turn into a closed conversation', () => {
     expect(closed(await as('carol').turn(CLOSED_CAROLS))).toBe(true);
     const r = await as('viewer').turn(CLOSED_CAROLS);
     expect([r.status, r.code]).toEqual([403, 'participant-not-allowed']);
+    const hidden = await as('stranger').turn(CLOSED_CAROLS);
+    expect(hidden.bytes).toBe((await asIfMissing('stranger', CLOSED_CAROLS)).bytes);
     expect(reached()).toBe(0);
   });
 

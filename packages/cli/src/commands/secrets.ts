@@ -708,14 +708,14 @@ const revokeCmd: LeafCommand = {
   kind: 'leaf',
   name: 'revoke',
   description:
-    'Revoke a secret. Default: soft (keeps audit tombstone). --hard: cryptographic erasure.',
+    'Revoke a secret. Default: soft (its values are kept, unreadable). --hard: erases them too.',
   usage: 'kindgi secrets revoke <NAME> --env=<name> --scope=<kind>[:id] [--hard] [--reason=<r>]',
   optionSpec: {
     ...SCOPE_OPTION_SPEC,
     hard: {
       type: 'boolean' as const,
       description:
-        'Erase the value for good instead of keeping an audit tombstone. Cannot be undone.',
+        "Erase the values too. Cannot be undone. Backups, and your secret manager's own retention, may keep copies for a time.",
     },
     reason: {
       type: 'string' as const,
@@ -743,12 +743,17 @@ const revokeCmd: LeafCommand = {
         envName: parsed.value.envName as unknown as string,
         revoked: out.revoked,
         hard: out.hard,
+        ...(out.recoverableUntil !== undefined && { recoverableUntil: out.recoverableUntil }),
       };
+      const recoverable =
+        out.recoverableUntil === undefined
+          ? ''
+          : `  Your secret manager keeps a recoverable copy until ${out.recoverableUntil}, then purges it on its own. If you set this name again before then, the copy stays, disabled, until you hard-revoke it again.\n\n`;
       return {
         kind: 'ok',
         rendered: {
           stdout: renderJson(summary, ctx.globals.format).stdout,
-          stderr: `\n  ${out.hard ? 'HARD-revoked' : 'Revoked'} ${name} at ${describeScope(parsed.value.scope)} in ${parsed.value.envName as unknown as string}.\n\n`,
+          stderr: `\n  ${out.hard ? 'HARD-revoked' : 'Revoked'} ${name} at ${describeScope(parsed.value.scope)} in ${parsed.value.envName as unknown as string}.\n\n${recoverable}`,
         },
       };
     } catch (err) {

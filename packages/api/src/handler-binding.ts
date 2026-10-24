@@ -129,6 +129,13 @@ export interface InvokeAgentBindingInput {
    */
   readonly startedBy?: RunStartedBy;
   /**
+   * What the run may call without a person's yes though no person started
+   * it (`RunFlowInput.toolsAllowedUnattended`): set by a webhook's or a
+   * schedule's fire from its trigger, never by a route from a body. The
+   * run records it.
+   */
+  readonly toolsAllowedUnattended?: readonly string[];
+  /**
    * Who started the run (the authenticated caller), when known: whom the
    * turn acts for, e.g. whose own memory its retrievals may read. Set by
    * the route, never from the body. On its own it enforces nothing.
@@ -164,6 +171,8 @@ export interface InvokeFlowBindingInput {
   readonly trigger?: RunTriggerRef;
   /** How the run started, as for `InvokeAgentBindingInput.startedBy`. */
   readonly startedBy?: RunStartedBy;
+  /** What it may call without a person's yes, as for `InvokeAgentBindingInput.toolsAllowedUnattended`. */
+  readonly toolsAllowedUnattended?: readonly string[];
   /** Agents and tools to run at other exact versions than the flow version's pins (`RunFlowInput.versions`). */
   readonly versions?: FlowVersionOverrides;
   /** Who started the run, as for `InvokeAgentBindingInput.principal`: its agent steps act for them. */

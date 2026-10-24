@@ -54,7 +54,9 @@ const runId = randomUUID();
 const approvalId = randomUUID();
 const TOKEN = 'signed-exports-token';
 const resolveToken: TokenResolver = async (token) =>
-  token === TOKEN ? { tenantId, userId: 'u-1' as UserId, reviewerRole: 'admin' } : null;
+  token === TOKEN
+    ? { tenantId, userId: 'u-1' as UserId, reviewerRole: 'admin', scopes: ['tenant-admin'] }
+    : null;
 
 const decided = {
   id: approvalId,

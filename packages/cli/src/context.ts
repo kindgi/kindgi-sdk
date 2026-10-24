@@ -6,6 +6,7 @@ import { type KindgiClient, createClient } from '@kindgi/client';
 import { ownAddressKeyRefusal } from './api-address.js';
 import type { BuildRunners } from './build/runners.js';
 import type { RegistryAuthSeam } from './commands/auth.js';
+import type { ConnectionsSeam } from './commands/connections.js';
 import type { DoctorSeam } from './commands/doctor.js';
 import type { EnvInitInputSeam } from './commands/env.js';
 import type { SecretsValueInputSeam } from './commands/secrets.js';
@@ -102,6 +103,13 @@ export interface CommandContext {
    */
   readonly stopSignal: AbortSignal | undefined;
   /**
+   * Where a command says how it's going while it runs (`kindgi build`'s
+   * lines): the CLI's stderr, each line as it comes (`cli.ts`). Undefined
+   * when `runCli` is given none (tests): the command then returns those
+   * lines with its result.
+   */
+  readonly progress: ((text: string) => void) | undefined;
+  /**
    * Injectable build-pipeline seams used exclusively by `kindgi
    * build`. Absent for every other command. Tests hand
    * in fixture implementations so the pipeline exercises without
@@ -194,6 +202,8 @@ export interface CommandContext {
   readonly rateLimitWaits?: RateLimitWaitSeam;
   /** `kindgi exports create`'s output, clock and pauses. Tests inject them; production leaves this undefined. */
   readonly exportsSeam?: ExportsSeam;
+  /** `kindgi connections connect`'s terminal, clock and pauses, and the removals' question. Tests inject them; production leaves this undefined. */
+  readonly connectionsSeam?: ConnectionsSeam;
 }
 
 export interface InitSeam {
@@ -222,6 +232,7 @@ export interface BuildContextInputs {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly devRunners?: DevRunners;
   readonly stopSignal?: AbortSignal;
+  readonly progress?: ((text: string) => void) | undefined;
   readonly buildRunners?: BuildRunners;
   readonly buildConfigLoader?: (packDir: string) => Promise<{ readonly [k: string]: unknown }>;
   readonly deployRunners?: DeployRunners;
@@ -238,6 +249,7 @@ export interface BuildContextInputs {
   readonly openUrl?: OpenUrl;
   readonly rateLimitWaits?: RateLimitWaitSeam;
   readonly exportsSeam?: ExportsSeam;
+  readonly connectionsSeam?: ConnectionsSeam;
 }
 
 export function buildContext(inputs: BuildContextInputs): CommandContext {
@@ -283,6 +295,7 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     env: inputs.env ?? {},
     devRunners: inputs.devRunners,
     stopSignal: inputs.stopSignal,
+    progress: inputs.progress,
     buildRunners: inputs.buildRunners,
     buildConfigLoader: inputs.buildConfigLoader,
     deployRunners: inputs.deployRunners,
@@ -299,5 +312,6 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     openUrl: inputs.openUrl,
     ...(inputs.rateLimitWaits !== undefined && { rateLimitWaits: inputs.rateLimitWaits }),
     ...(inputs.exportsSeam !== undefined && { exportsSeam: inputs.exportsSeam }),
+    ...(inputs.connectionsSeam !== undefined && { connectionsSeam: inputs.connectionsSeam }),
   };
 }
