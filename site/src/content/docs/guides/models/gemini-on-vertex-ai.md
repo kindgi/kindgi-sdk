@@ -103,8 +103,8 @@ missing:
 - **`iam.serviceAccounts.getAccessToken`:** the account you signed in with
   in the browser can't impersonate the service account. Grant it Service
   Account Token Creator on the service account. If you have more than one
-  Google account, log in again and pick the one with that role. A new grant
-  can take a few minutes to apply.
+  Google account, run the login above again and pick the one with that role.
+  A new grant can take a few minutes to apply.
 - **The IAM Service Account Credentials API,** not yet used in the project,
   or turned off: turn it on in the project the message names.
 - **`aiplatform.endpoints.predict`:** the service account can't call Vertex
