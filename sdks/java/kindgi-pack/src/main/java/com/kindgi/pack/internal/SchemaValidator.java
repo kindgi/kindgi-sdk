@@ -43,7 +43,10 @@ public final class SchemaValidator {
   private static final Set<String> TYPES = Set.of("null", "boolean", "object", "array", "number", "integer", "string");
   /** The keywords that apply to some types only, in the order strict mode checks them, with those types. */
   private static final Map<String, List<String>> TYPED = typed();
-  /** The keywords that make a schema check something (the others are annotations). */
+  /**
+   * The keywords that make a schema check something, as the runtime counts them ({@code $comment}
+   * among them): a schema with none passes anything, and the runtime compiles nothing in it.
+   */
   private static final Set<String> RULES = rules();
   /**
    * The names every JavaScript object has: the runtime's {@code required} check finds them on any
@@ -57,7 +60,7 @@ public final class SchemaValidator {
 
   private final Map<String, Object> root;
   private final Map<String, Pattern> patterns = new HashMap<>();
-  /** The schemas compiled on their own (the root, each definition, each reference's target). */
+  /** The schemas compiled on their own: the root, and each reference's target. */
   private final Set<Object> compiledAlone = Collections.newSetFromMap(new IdentityHashMap<>());
 
   /**
@@ -88,8 +91,9 @@ public final class SchemaValidator {
    * Checks a schema as the runtime's strict compile does: its keywords, then its types against
    * {@code context} (the types its data can have, from the schemas around it on the same data;
    * empty when unknown), then its subschemas, in the runtime's keyword order. {@code defined} holds
-   * the property names the schemas compiled so far on the same data define, which a
-   * {@code required} may name.
+   * the property names the runtime counts as defined so far, which a {@code required} may name: a
+   * subschema on the same data shares them, and one for other data (an item, a property's value, a
+   * name) that the runtime compiles starts them afresh, here too, with what it defines.
    */
   @SuppressWarnings("unchecked")
   private void compile(Object node, String at, List<String> context, Set<String> defined) {
@@ -120,7 +124,6 @@ public final class SchemaValidator {
     if (s.containsKey("$ref") && s.keySet().stream().noneMatch(k -> !k.equals("$ref") && RULES.contains(k))) {
       // A schema that only refers to another is that schema: the runtime checks no types here.
       reach((String) s.get("$ref"), at);
-      definitions(s, at);
       return;
     }
     List<String> types = types(context, declared, at);
@@ -155,7 +158,10 @@ public final class SchemaValidator {
       throw new SchemaException(at + "/format: unknown format \"" + s.get("format") + "\"");
     }
     if (s.containsKey("items")) {
-      compile(s.get("items"), at + "/items", List.of(), new HashSet<>());
+      if (!passesAnything(s.get("items"))) {
+        defined = new HashSet<>();
+      }
+      compile(s.get("items"), at + "/items", List.of(), defined);
     }
     if (s.containsKey("required")) {
       Object props = s.get("properties");
@@ -167,36 +173,43 @@ public final class SchemaValidator {
       }
     }
     if (s.containsKey("propertyNames")) {
+      if (!passesAnything(s.get("propertyNames"))) {
+        defined = new HashSet<>();
+      }
       compile(s.get("propertyNames"), at + "/propertyNames", List.of("string"), defined);
     }
     if (s.containsKey("additionalProperties")) {
-      compile(s.get("additionalProperties"), at + "/additionalProperties", List.of(), new HashSet<>());
+      // A false one is a check of its own: the runtime compiles no schema for it.
+      if (s.get("additionalProperties") instanceof Map && !passesAnything(s.get("additionalProperties"))) {
+        defined = new HashSet<>();
+      }
+      compile(s.get("additionalProperties"), at + "/additionalProperties", List.of(), defined);
     }
     if (s.containsKey("properties")) {
       Map<String, Object> props = map(s.get("properties"), at + "/properties");
       props.keySet().stream().filter(k -> !k.equals("__proto__")).forEach(defined::add);
+      // Nothing after them reads the names the runtime counts as defined.
       for (Map.Entry<String, Object> p : props.entrySet()) {
         compile(p.getValue(), at + "/properties/" + escape(p.getKey()), List.of(), new HashSet<>());
       }
     }
-    definitions(s, at);
+    // A definition compiles where a reference reaches it, as the runtime compiles it.
   }
 
-  /** Each definition, on its own, as the runtime compiles the target of a reference to it. */
-  private void definitions(Map<String, Object> s, String at) {
-    if (s.containsKey("$defs")) {
-      for (Map.Entry<String, Object> d : map(s.get("$defs"), at + "/$defs").entrySet()) {
-        if (compiledAlone.add(d.getValue())) {
-          compile(d.getValue(), at + "/$defs/" + escape(d.getKey()), List.of(), new HashSet<>());
-        }
-      }
+  /** Whether the runtime takes {@code node} for a schema any data passes, so compiles nothing in it. */
+  @SuppressWarnings("unchecked")
+  private static boolean passesAnything(Object node) {
+    if (node instanceof Boolean b) {
+      return b;
     }
+    return node instanceof Map && ((Map<String, Object>) node).keySet().stream().noneMatch(RULES::contains);
   }
 
   /**
    * Checks that {@code ref} resolves and compiles its target on its own (a fresh context, as the
    * runtime compiles it), once. A chain of schemas that only refer onward and comes back to
-   * itself is refused: following it never ends.
+   * itself is refused: following it never ends. A {@code #} or {@code #/} reference ends it: the
+   * runtime calls the root, compiled already.
    */
   @SuppressWarnings("unchecked")
   private void reach(String ref, String at) {
@@ -206,11 +219,19 @@ public final class SchemaValidator {
       if (!chain.add(t)) {
         throw new SchemaException(at + "/$ref: " + ref + " comes back to itself through references alone");
       }
-      t = resolve((String) ((Map<String, Object>) t).get("$ref"), at);
+      String next = (String) ((Map<String, Object>) t).get("$ref");
+      if (callsTheRoot(next)) {
+        break;
+      }
+      t = resolve(next, at);
     }
     if (compiledAlone.add(target)) {
       compile(target, ref, List.of(), new HashSet<>());
     }
+  }
+
+  private static boolean callsTheRoot(String ref) {
+    return ref.equals("#") || ref.equals("#/");
   }
 
   private static boolean onlyRefers(Map<String, Object> s) {
@@ -280,7 +301,7 @@ public final class SchemaValidator {
 
   private static Set<String> rules() {
     Set<String> rules = new LinkedHashSet<>(TYPED.keySet());
-    rules.addAll(List.of("$ref", "type", "const", "enum", "not", "anyOf", "oneOf", "allOf"));
+    rules.addAll(List.of("$ref", "$comment", "type", "const", "enum", "not", "anyOf", "oneOf", "allOf"));
     return Collections.unmodifiableSet(rules);
   }
 
@@ -303,7 +324,7 @@ public final class SchemaValidator {
       throw new SchemaException(at + "/$ref: only local references are supported, not " + ref);
     }
     Object target = root;
-    if (ref.length() > 1) {
+    if (!callsTheRoot(ref)) {
       if (!ref.startsWith("#/")) {
         throw new SchemaException(at + "/$ref: unsupported reference " + ref);
       }

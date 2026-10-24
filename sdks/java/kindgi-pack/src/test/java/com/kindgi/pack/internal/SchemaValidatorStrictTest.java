@@ -96,6 +96,25 @@ class SchemaValidatorStrictTest {
   }
 
   @Test
+  void aSchemaForOtherDataStartsTheDefinedNamesAfresh() {
+    // An item's properties count for a later required on the same data, and the names defined before
+    // the item don't.
+    compiles("{\"type\": [\"object\", \"array\"], \"items\": {\"type\": \"object\", \"properties\": {\"a\": {}}}, \"required\": [\"a\"]}");
+    refused(
+        "{\"type\": [\"object\", \"array\"], \"allOf\": [{\"type\": \"object\", \"properties\": {\"a\": {}}}], \"items\": {\"type\": \"string\"}, \"required\": [\"a\"]}",
+        "#/required: required property \"a\" is not defined");
+    // false is a check of its own; true and {} pass anything and don't compile.
+    refused(
+        "{\"type\": [\"object\", \"array\"], \"allOf\": [{\"type\": \"object\", \"properties\": {\"a\": {}}}], \"items\": false, \"required\": [\"a\"]}",
+        "#/required: required property \"a\" is not defined");
+    compiles("{\"type\": [\"object\", \"array\"], \"allOf\": [{\"type\": \"object\", \"properties\": {\"a\": {}}}], \"items\": {}, \"required\": [\"a\"]}");
+    // A member that starts afresh keeps its new names to itself.
+    refused(
+        "{\"type\": \"object\", \"allOf\": [{\"propertyNames\": {\"minLength\": 1}, \"properties\": {\"a\": {}}}], \"required\": [\"a\"]}",
+        "#/required: required property \"a\" is not defined");
+  }
+
+  @Test
   void anEnumNeedsAValue() {
     refused("{\"enum\": []}", "#/enum: enum must have non-empty array");
   }
@@ -109,6 +128,16 @@ class SchemaValidatorStrictTest {
     refused(
         "{\"$ref\": \"#/$defs/a\", \"$defs\": {\"a\": {\"$ref\": \"#/$defs/b\"}, \"b\": {\"$ref\": \"#/$defs/a\"}}}",
         "#/$ref: #/$defs/a comes back to itself through references alone");
+    // # and #/ call the root, which ends a chain.
+    compiles("{\"$ref\": \"#\"}");
+    compiles("{\"$ref\": \"#/\"}");
+    compiles("{\"$ref\": \"#/$defs/a\", \"$defs\": {\"a\": {\"$ref\": \"#/\"}}}");
+  }
+
+  @Test
+  void aDefinitionNoReferenceReachesDoesntCompile() {
+    compiles("{\"type\": \"object\", \"properties\": {\"a\": {\"type\": \"string\"}}, \"$defs\": {\"addr\": {\"properties\": {\"city\": {}}}}}");
+    compiles("{\"type\": \"string\", \"$defs\": {\"d\": {\"x-unknown\": 1}}}");
   }
 
   @Test

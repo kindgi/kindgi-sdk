@@ -836,6 +836,395 @@
         }
       ]
     },
+    "strictRequired: an item's properties count after it": {
+      "type": ["object", "array"],
+      "items": {
+        "type": "object",
+        "properties": {
+          "a": {}
+        }
+      },
+      "required": ["a"]
+    },
+    "strictRequired: items drop the names an allOf member defined": {
+      "type": ["object", "array"],
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "a": {}
+          }
+        }
+      ],
+      "items": {
+        "type": "string"
+      },
+      "required": ["a"]
+    },
+    "strictRequired: items: false drops the names defined before it": {
+      "type": ["object", "array"],
+      "allOf": [
+        {
+          "properties": {
+            "a": {}
+          }
+        }
+      ],
+      "items": false,
+      "required": ["a"]
+    },
+    "strictRequired: items: false after a tuple drops none": {
+      "type": ["object", "array"],
+      "allOf": [
+        {
+          "properties": {
+            "a": {}
+          }
+        }
+      ],
+      "prefixItems": [{}],
+      "minItems": 1,
+      "maxItems": 1,
+      "items": false,
+      "required": ["a"]
+    },
+    "strictRequired: items after a tuple drop the names defined before them": {
+      "type": ["object", "array"],
+      "allOf": [
+        {
+          "properties": {
+            "a": {}
+          }
+        }
+      ],
+      "prefixItems": [{}],
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "string"
+      },
+      "required": ["a"]
+    },
+    "strictRequired: only the last prefixItems item's properties count": {
+      "type": ["object", "array"],
+      "prefixItems": [
+        {
+          "type": "object",
+          "properties": {
+            "p": {}
+          }
+        },
+        {
+          "type": "object",
+          "properties": {
+            "q": {}
+          }
+        }
+      ],
+      "minItems": 2,
+      "maxItems": 2,
+      "required": ["p"]
+    },
+    "strictRequired: the last prefixItems item's properties count": {
+      "type": ["object", "array"],
+      "prefixItems": [
+        {
+          "type": "object",
+          "properties": {
+            "p": {}
+          }
+        },
+        {
+          "type": "object",
+          "properties": {
+            "q": {}
+          }
+        }
+      ],
+      "minItems": 2,
+      "maxItems": 2,
+      "required": ["q"]
+    },
+    "strictRequired: contains: false drops the names defined before it": {
+      "type": ["object", "array"],
+      "allOf": [
+        {
+          "properties": {
+            "a": {}
+          }
+        }
+      ],
+      "contains": false,
+      "required": ["a"]
+    },
+    "strictRequired: a property's own properties count after it": {
+      "type": "object",
+      "properties": {
+        "o": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "dependentSchemas": {
+        "o": {
+          "required": ["id"]
+        }
+      }
+    },
+    "strictRequired: a property compiled after an always-valid one drops it": {
+      "type": "object",
+      "properties": {
+        "a": {},
+        "b": {
+          "type": "string"
+        }
+      },
+      "dependentSchemas": {
+        "x": {
+          "required": ["a"]
+        }
+      }
+    },
+    "strictRequired: the last compiled property stays defined": {
+      "type": "object",
+      "properties": {
+        "a": {
+          "type": "string"
+        },
+        "b": {}
+      },
+      "dependentSchemas": {
+        "x": {
+          "required": ["a"]
+        }
+      }
+    },
+    "strictRequired: a property with only $comment is compiled": {
+      "type": "object",
+      "allOf": [
+        {
+          "properties": {
+            "a": {}
+          }
+        }
+      ],
+      "properties": {
+        "b": {
+          "$comment": "x"
+        }
+      },
+      "dependentSchemas": {
+        "x": {
+          "required": ["a"]
+        }
+      }
+    },
+    "strictRequired: a property with only a description isn't compiled": {
+      "type": "object",
+      "allOf": [
+        {
+          "properties": {
+            "a": {}
+          }
+        }
+      ],
+      "properties": {
+        "b": {
+          "description": "x"
+        }
+      },
+      "dependentSchemas": {
+        "x": {
+          "required": ["a"]
+        }
+      }
+    },
+    "strictRequired: additionalProperties' properties count after it": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "z": {}
+        }
+      },
+      "dependentSchemas": {
+        "x": {
+          "required": ["z"]
+        }
+      }
+    },
+    "strictRequired: additionalProperties: false drops none": {
+      "type": "object",
+      "allOf": [
+        {
+          "properties": {
+            "a": {}
+          }
+        }
+      ],
+      "additionalProperties": false,
+      "dependentSchemas": {
+        "x": {
+          "required": ["a"]
+        }
+      }
+    },
+    "strictRequired: a pattern's properties count after it": {
+      "type": "object",
+      "patternProperties": {
+        "^o": {
+          "type": "object",
+          "properties": {
+            "z": {}
+          }
+        }
+      },
+      "dependentSchemas": {
+        "x": {
+          "required": ["z"]
+        }
+      }
+    },
+    "strictRequired: propertyNames: false drops the names defined before it": {
+      "type": "object",
+      "allOf": [
+        {
+          "properties": {
+            "a": {}
+          }
+        }
+      ],
+      "propertyNames": false,
+      "dependentSchemas": {
+        "x": {
+          "required": ["a"]
+        }
+      }
+    },
+    "strictRequired: properties after propertyNames count": {
+      "type": "object",
+      "propertyNames": {
+        "minLength": 1
+      },
+      "properties": {
+        "a": {}
+      },
+      "dependentSchemas": {
+        "x": {
+          "required": ["a"]
+        }
+      }
+    },
+    "strictRequired: an allOf member's items keep their names to the member": {
+      "type": ["object", "array"],
+      "allOf": [
+        {
+          "items": {
+            "type": "object",
+            "properties": {
+              "m": {}
+            }
+          }
+        }
+      ],
+      "required": ["m"]
+    },
+    "strictRequired: an allOf member's names after its propertyNames stay in it": {
+      "type": "object",
+      "allOf": [
+        {
+          "propertyNames": {
+            "minLength": 1
+          },
+          "properties": {
+            "a": {}
+          }
+        }
+      ],
+      "required": ["a"]
+    },
+    "strictRequired: a dependent schema's own reset stays in it": {
+      "type": "object",
+      "allOf": [
+        {
+          "properties": {
+            "a": {}
+          }
+        }
+      ],
+      "dependentSchemas": {
+        "y": {
+          "properties": {
+            "b": {
+              "type": "string"
+            }
+          }
+        },
+        "x": {
+          "required": ["a"]
+        }
+      }
+    },
+    "definitions: one no ref reaches isn't compiled": {
+      "type": "object",
+      "properties": {
+        "a": {
+          "type": "string"
+        }
+      },
+      "$defs": {
+        "addr": {
+          "properties": {
+            "city": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "definitions: an unreferenced one's required isn't checked": {
+      "type": "string",
+      "$defs": {
+        "d": {
+          "type": "object",
+          "required": ["a"]
+        }
+      }
+    },
+    "ref: # alone": {
+      "$ref": "#"
+    },
+    "ref: #/ alone": {
+      "$ref": "#/"
+    },
+    "ref: a chain ending at #": {
+      "$ref": "#/$defs/a",
+      "$defs": {
+        "a": {
+          "$ref": "#"
+        }
+      }
+    },
+    "ref: a chain ending at #/": {
+      "$ref": "#/$defs/a",
+      "$defs": {
+        "a": {
+          "$ref": "#/"
+        }
+      }
+    },
+    "ref: #/ under a property": {
+      "type": "object",
+      "properties": {
+        "a": {
+          "$ref": "#/"
+        }
+      }
+    },
     "then without if": {
       "type": "string",
       "then": {
@@ -1141,6 +1530,68 @@
     "ref: an anchor nothing names": {
       "type": "string",
       "$ref": "#foo"
+    },
+    "ref: an anchor one schema names": {
+      "type": "object",
+      "properties": {
+        "a": {
+          "$ref": "#x"
+        }
+      },
+      "$defs": {
+        "d": {
+          "type": "string",
+          "minLength": 1,
+          "$anchor": "x"
+        }
+      }
+    },
+    "ref: an anchor in a nested definition": {
+      "type": "array",
+      "items": {
+        "$ref": "#x"
+      },
+      "$defs": {
+        "d": {
+          "$defs": {
+            "e": {
+              "$anchor": "x",
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "ref: an anchor's schema with another unknown keyword first": {
+      "type": "object",
+      "properties": {
+        "a": {
+          "$ref": "#x"
+        }
+      },
+      "$defs": {
+        "d": {
+          "x-first": 1,
+          "$anchor": "x"
+        }
+      }
+    },
+    "ref: an anchor an allOf member reaches": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#x"
+        }
+      ],
+      "unevaluatedProperties": false,
+      "$defs": {
+        "d": {
+          "$anchor": "x",
+          "properties": {
+            "a": {}
+          }
+        }
+      }
     },
     "ref: a loop of refs": {
       "type": "object",

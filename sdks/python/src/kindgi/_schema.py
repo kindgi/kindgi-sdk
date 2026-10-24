@@ -344,8 +344,9 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
     - a keyword for a type the data can't have there, or a `type` the context rules out (Ajv's
       `strictTypes`), and `nullable` without a `type`, or `false` with a `null` one;
     - a `prefixItems` tuple whose length `minItems` with `maxItems` or `items: false` doesn't pin
-      (`strictTuples`), and a `required` name the schemas compiled so far for the data don't
-      define (`strictRequired`);
+      (`strictTuples`), and a `required` name not among those the runtime counts as defined so
+      far, where a schema it compiles for other data (an item, a property's value) starts the
+      count afresh with what that schema defines (`strictRequired`);
     - a keyword that does nothing without another (`then` or `else` without `if`, `if` without
       either, `minContains` or `maxContains` without `contains`, a format bound without a format
       it can compare), `minContains` 0 without `maxContains` or above it, and an empty `enum`;
@@ -353,14 +354,15 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
     - a `$dynamicRef` or `$recursiveRef` that isn't `#`-something, and a value of the wrong type
       for a keyword Draft 2020-12 doesn't define (`nullable`, a format bound, `$recursiveAnchor`).
 
-    A `$ref` that is empty, `#` or a `#/...` pointer is followed, unless a subschema names a base
-    of its own (`$id`): what it reaches then depends on bases this walk doesn't track, so it is
-    neither followed nor refused. Another `$ref` is refused, but one naming a meta-schema the
-    runtime knows, unless the schema names a base or an anchor (`$id`, `$dynamicAnchor`): then it
-    is left alone too. Nor are the refusals of a base or an anchor itself checked (one that two
-    schemas share, say). A pattern is tried on a name only where Python's `re` reads both as
-    JavaScript does (`_js_matches`); a pattern's syntax isn't checked here, nor a
-    `$recursiveAnchor` or `$recursiveRef` that isn't a string, which Ajv's own meta-schema refuses.
+    A `$ref` that is empty, `#`, a `#/...` pointer, or a plain anchor (`#name`) one schema's
+    `$anchor` names is followed, unless a subschema names a base of its own (`$id`): what it
+    reaches then depends on bases this walk doesn't track, so it is neither followed nor refused.
+    Another `$ref` is refused, but one naming a meta-schema the runtime knows, unless the schema
+    names a base or an anchor (`$id`, `$dynamicAnchor`): then it is left alone too. Nor are the
+    refusals of a base or an anchor itself checked (one that two schemas share, say). A pattern is
+    tried on a name only where Python's `re` reads both as JavaScript does (`_js_matches`); a
+    pattern's syntax isn't checked here, nor a `$recursiveAnchor` or `$recursiveRef` that isn't a
+    string, which Ajv's own meta-schema refuses.
     """
     pointers = not any(_names(sub, ("$id",)) for sub in _subschemas(schema))
     others = not _names(schema, _BASE_KEYWORDS)
@@ -373,6 +375,12 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
         # What `ref` reaches: a schema, `_NOWHERE` (the runtime refuses it), or `_UNKNOWN`.
         if ref == "" or ref.startswith("#/") or ref == "#":
             return (schema if ref == "" else _local_ref(schema, ref)) if pointers else _UNKNOWN
+        if ref.startswith("#") and pointers:
+            # A plain anchor names the schema whose `$anchor` it is. The runtime finds it, then
+            # refuses `$anchor` there as a keyword it doesn't know.
+            anchored = _anchored(schema, ref[1:])
+            if len(anchored) == 1:
+                return anchored[0]
         if not others or ref.removesuffix("#") in _META_SCHEMAS:
             return _UNKNOWN
         if any(ref.startswith(f"{meta}#") for meta in _META_SCHEMAS):
@@ -382,8 +390,8 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
     def problems(
         node: Any, path: str, types: list[str], defined: set[str], compiling: tuple[int, ...]
     ) -> Iterator[str]:
-        # `types`: the types the data can have here; `defined`: the property names the schemas
-        # compiled so far for the same data define. Both are what the runtime knows of the data.
+        # `types`: the types the data can have here; `defined`: the property names the runtime
+        # counts as defined so far. Both are what the runtime knows of the data.
         if not isinstance(node, Mapping):
             return
         here = cast("Mapping[str, Any]", node)
@@ -487,8 +495,19 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
                     f'are not specified or different at path "{path}"'
                 )
             for i, item in enumerate(cast("list[Any]", items)):
-                yield from problems(item, f"{path}/prefixItems/{i}", [], set(), compiling)
-        yield from problems(here.get("items"), f"{path}/items", [], set(), compiling)
+                # The runtime compiles a schema for other data (an item, a property's value, a
+                # name) with the names it counts as defined set afresh, and keeps that set after:
+                # what the schema defines counts here from then on, what was defined before
+                # doesn't. `false` is compiled too, but not as `additionalProperties`, an
+                # `unevaluated...` keyword, or `items` after `prefixItems`.
+                if not _passes_anything(item):
+                    defined = set()
+                yield from problems(item, f"{path}/prefixItems/{i}", [], defined, compiling)
+        rest = here.get("items")
+        after_tuple = rest is False and isinstance(items, list)
+        if "items" in here and not _passes_anything(rest) and not after_tuple:
+            defined = set()
+        yield from problems(rest, f"{path}/items", [], defined, compiling)
         if "contains" in here:
             least, most = here.get("minContains", 1), here.get("maxContains")
             if most is None and least == 0:
@@ -498,30 +517,38 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
                 )
             elif most is not None and least > most:
                 yield 'strict mode: "minContains" > "maxContains" is always invalid'
-            yield from problems(here["contains"], f"{path}/contains", [], set(), compiling)
+            if not _passes_anything(here["contains"]):
+                defined = set()
+            yield from problems(here["contains"], f"{path}/contains", [], defined, compiling)
         else:
             for keyword in ("maxContains", "minContains"):
                 if keyword in here:
                     yield f'strict mode: "{keyword}" without "contains" is ignored'
         if "unevaluatedItems" in here and not evaluated(here, "unevaluatedItems", compiling):
+            if _compiles_a_schema(here["unevaluatedItems"]):
+                defined = set()
             yield from problems(
-                here["unevaluatedItems"], f"{path}/unevaluatedItems", [], set(), compiling
+                here["unevaluatedItems"], f"{path}/unevaluatedItems", [], defined, compiling
             )
         props = here.get("properties")
         for key in _list(here.get("required")):
             # Defined by the schema's own `properties` (a name any JavaScript object has
-            # included), or by a schema for the same data the runtime compiled before.
+            # included), or among the names the runtime counts as defined so far.
             own = isinstance(props, Mapping) and (key in props or key in _OBJECT_MEMBERS)
             if not own and key not in defined:
                 yield (
                     f'strict mode: required property "{key}" is not defined '
                     f'at "{base}{path}" (strictRequired)'
                 )
+        if "propertyNames" in here and not _passes_anything(here["propertyNames"]):
+            defined = set()
         yield from problems(
             here.get("propertyNames"), f"{path}/propertyNames", ["string"], defined, compiling
         )
+        if _compiles_a_schema(here.get("additionalProperties")):
+            defined = set()
         yield from problems(
-            here.get("additionalProperties"), f"{path}/additionalProperties", [], set(), compiling
+            here.get("additionalProperties"), f"{path}/additionalProperties", [], defined, compiling
         )
         for name, dependency in _entries(here.get("dependencies")):
             if name != "__proto__" and not isinstance(dependency, list):
@@ -534,7 +561,12 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
         for _, sub in properties:
             yield from _unknown_keywords(sub)
         for name, sub in properties:
-            yield from problems(sub, f"{path}/properties/{_segment(name)}", [], set(), compiling)
+            if not _passes_anything(sub):
+                defined = set()
+                yield from problems(
+                    sub, f"{path}/properties/{_segment(name)}", [], defined, compiling
+                )
+                defined.add(name)
         patterns = [(p, s) for p, s in _entries(here.get("patternProperties")) if p != "__proto__"]
         for _, sub in patterns:
             yield from _unknown_keywords(sub)
@@ -549,8 +581,10 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
                         f"strict mode: property {name} matches pattern {pattern} "
                         "(use allowMatchingProperties)"
                     )
+            if not _passes_anything(sub):
+                defined = set()
             yield from problems(
-                sub, f"{path}/patternProperties/{_segment(pattern)}", [], set(), compiling
+                sub, f"{path}/patternProperties/{_segment(pattern)}", [], defined, compiling
             )
         for name, dependent in _entries(here.get("dependentSchemas")):
             yield from problems(
@@ -559,8 +593,14 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
         if "unevaluatedProperties" in here and not evaluated(
             here, "unevaluatedProperties", compiling
         ):
+            if _compiles_a_schema(here["unevaluatedProperties"]):
+                defined = set()
             yield from problems(
-                here["unevaluatedProperties"], f"{path}/unevaluatedProperties", [], set(), compiling
+                here["unevaluatedProperties"],
+                f"{path}/unevaluatedProperties",
+                [],
+                defined,
+                compiling,
             )
 
     def reach(ref: Any, compiling: tuple[int, ...]) -> Iterator[str]:
@@ -576,9 +616,10 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
 
     def loops(node: Any) -> bool:
         # The runtime reads through a schema that is only a `#/...` ref to the schema it reaches,
-        # and overflows its stack on a loop of them.
+        # and overflows its stack on a loop of them. A `#` or `#/` ref ends the chain: the runtime
+        # calls the root for it.
         chain: set[int] = set()
-        while _only_ref(node) and node["$ref"].startswith("#/"):
+        while _only_ref(node) and node["$ref"].startswith("#/") and node["$ref"] != "#/":
             if id(node) in chain:
                 return True
             chain.add(id(node))
@@ -634,6 +675,17 @@ def _names(node: Any, keywords: tuple[str, ...]) -> bool:
     return any(keyword in here for keyword in keywords) or any(
         _names(sub, keywords) for sub in _subschemas(here)
     )
+
+
+def _anchored(node: Any, anchor: str) -> list[Mapping[str, Any]]:
+    """The schemas in `node` (itself included) whose `$anchor` is `anchor`."""
+    if not isinstance(node, Mapping):
+        return []
+    here = cast("Mapping[str, Any]", node)
+    found = [here] if here.get("$anchor") == anchor else []
+    for sub in _subschemas(here):
+        found.extend(_anchored(sub, anchor))
+    return found
 
 
 def _subschemas(node: Mapping[str, Any]) -> list[Any]:
@@ -695,6 +747,12 @@ def _only_ref(node: Any) -> bool:
     here = cast("Mapping[str, Any]", node)
     ref = here.get("$ref")
     return isinstance(ref, str) and ref != "" and not any(k in _RULES for k in here if k != "$ref")
+
+
+def _compiles_a_schema(node: Any) -> bool:
+    """Whether the runtime compiles `node` as a schema where `false` is a check of its own:
+    `additionalProperties` and the `unevaluated...` keywords."""
+    return isinstance(node, Mapping) and not _passes_anything(node)
 
 
 def _passes_anything(node: Any) -> bool:
