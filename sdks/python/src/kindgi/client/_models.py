@@ -10348,59 +10348,29 @@ class ConnectionEntryPermission(BaseModel):
     """
 
 
-class SignIn(BaseModel):
+class Removal(BaseModel):
     """
-    How a person signs in at the app.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Annotated[Literal["oauth2", "github-app"] | str, _open.OPEN]
-
-
-class ConnectionEntry(BaseModel):
-    """
-    An app this server can connect to.
+    How a disconnect withdraws access at the app, and how the app reports a removal made there. `{}` when the app has neither: a disconnect then withdraws nothing at the app, and a removal made there is not reported.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    id: str
+    revoke: (
+        Annotated[Literal["oauth2-revoke", "github-installation-token"] | str, _open.OPEN] | None
+    ) = None
     """
-    The entry id: `'google'`, `'github'`.
+    How a disconnect withdraws access at the app: an OAuth revoke, or revoking the GitHub App's installation tokens (the app stays installed).
     """
-    name: str
+    revoke_is_grant_wide: Annotated[bool | None, Field(alias="revokeIsGrantWide")] = None
     """
-    The app's name as people know it.
+    Whether the app's revoke withdraws everything the person granted the registration, not only this connection's permissions. Google's does.
     """
-    owners: list[Annotated[Literal["member", "company"] | str, _open.OPEN]]
+    notices: Annotated[Literal["google-risc", "github-webhooks"] | str, _open.OPEN] | None = None
     """
-    Who may own a connection to this app.
+    How the app reports a removal made at the app.
     """
-    sign_in: Annotated[SignIn, Field(alias="signIn")]
-    """
-    How a person signs in at the app.
-    """
-    permissions: dict[str, ConnectionEntryPermission]
-    """
-    What a tool may ask for, by permission key (`gmail.send`).
-    """
-    setup_guide: Annotated[str, Field(alias="setupGuide")]
-    """
-    The docs page an admin follows to register the app.
-    """
-
-
-class ConnectionEntryList(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[ConnectionEntry]
 
 
 class ConnectionOAuth2App(BaseModel):
@@ -10410,6 +10380,10 @@ class ConnectionOAuth2App(BaseModel):
     )
     client_id: Annotated[str, Field(alias="clientId")]
     client_secret: Annotated[ConnectionSecretRef, Field(alias="clientSecret")]
+    tenant: Annotated[str | None, Field(max_length=253, min_length=1)] = None
+    """
+    The directory the app signs people in at, for an app whose sign-in names one: Microsoft's tenant id or domain for a single-tenant app, `organizations`, `common` or `consumers` for a multi-tenant one. Required when the app's entry has no default, refused for an app without one (`connection-app-invalid`, `details.field` `oauth2.tenant`).
+    """
 
 
 class ConnectionGitHubApp(BaseModel):
@@ -11879,6 +11853,21 @@ class PromotionMovesGuardrail(BaseModel):
     version: str | None = None
     """
     Absent for guardrails, which have no version.
+    """
+
+
+class ConnectionEntrySignInTenant(BaseModel):
+    """
+    Present when the sign-in happens in a directory of the app's own (Microsoft's tenant, not a Kindgi tenant). A registration's `oauth2.tenant` names it; without `default`, each registration must give its own.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    default: str | None = None
+    """
+    The directory a registration that names none signs in at.
     """
 
 
@@ -15123,6 +15112,69 @@ class WebhookEndpointCollectionPage(BaseModel):
     data: list[WebhookEndpoint]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class SignIn(BaseModel):
+    """
+    How a person signs in at the app.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Annotated[Literal["oauth2", "github-app"] | str, _open.OPEN]
+    tenant: ConnectionEntrySignInTenant | None = None
+    """
+    Present when the sign-in happens in a directory of the app's own (Microsoft's tenant, not a Kindgi tenant). A registration's `oauth2.tenant` names it; without `default`, each registration must give its own.
+    """
+
+
+class ConnectionEntry(BaseModel):
+    """
+    An app this server can connect to.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The entry id: `'google'`, `'github'`.
+    """
+    name: str
+    """
+    The app's name as people know it.
+    """
+    owners: list[Annotated[Literal["member", "company"] | str, _open.OPEN]]
+    """
+    Who may own a connection to this app.
+    """
+    sign_in: Annotated[SignIn, Field(alias="signIn")]
+    """
+    How a person signs in at the app.
+    """
+    permissions: dict[str, ConnectionEntryPermission]
+    """
+    What a tool may ask for, by permission key (`gmail.send`).
+    """
+    removal: Removal | None = None
+    """
+    How a disconnect withdraws access at the app, and how the app reports a removal made there. `{}` when the app has neither: a disconnect then withdraws nothing at the app, and a removal made there is not reported.
+    """
+    setup_guide: Annotated[str, Field(alias="setupGuide")]
+    """
+    The docs page an admin follows to register the app.
+    """
+
+
+class ConnectionEntryList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ConnectionEntry]
 
 
 class ConnectRequest(BaseModel):

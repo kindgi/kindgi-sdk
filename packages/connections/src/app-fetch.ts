@@ -48,7 +48,7 @@ const buckets = new Map<string, Bucket>();
  * - **Pacing:** each of the entry's `rateLimits` is a bucket per connection
  *   in this process, holding `units` and refilled over `perSeconds`. The
  *   call takes `costs[toolId]` (1 when not listed) from each before it goes
- *   out, waiting until there's enough.
+ *   out, waiting until there's enough. A limit it costs 0 doesn't count it.
  * - **Busy:** a 429, a 403 that says a rate limit is spent (in GitHub's
  *   headers, or Google's `rateLimitExceeded` or `userRateLimitExceeded`), or
  *   a 503 to a GET is tried again, up to 3 tries in all, after the app's `Retry-After`
@@ -180,6 +180,7 @@ async function take(
   for (const [i, limit] of (entry.rateLimits ?? []).entries()) {
     // A call that costs more than the bucket holds could never go: it takes a full bucket.
     const cost = Math.min(limit.costs?.[toolId] ?? 1, limit.units);
+    if (cost === 0) continue;
     const key = `${entry.id}\u0000${connectionId}\u0000${i}`;
     for (;;) {
       const b = refilled(key, limit, Date.now());

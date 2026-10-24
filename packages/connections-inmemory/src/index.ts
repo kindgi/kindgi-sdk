@@ -35,7 +35,7 @@ import type {
   ConnectionWithdrawn,
 } from '@kindgi/api';
 import type { PrincipalRef } from '@kindgi/authz';
-import type { AppEntry } from '@kindgi/connections';
+import { type AppEntry, SIGN_IN_TENANT_PATTERN } from '@kindgi/connections';
 import {
   type ConnectionAccount,
   ConnectionRenewError,
@@ -340,7 +340,41 @@ export function createInMemoryConnections(
         field: 'githubApp',
       });
     }
-    return ok(true);
+    return input.oauth2 === undefined ? ok(true) : checkTenant(entry, input.oauth2.tenant);
+  }
+
+  /**
+   * A registration's directory: refused for an entry whose sign-in names
+   * none, needed when it has no default, and a name its URLs can hold.
+   */
+  function checkTenant(entry: AppEntry, tenant: string | undefined): Outcome<true> {
+    const named = entry.signIn.kind === 'oauth2' ? entry.signIn.tenant : undefined;
+    const at = { field: 'oauth2.tenant' };
+    if (named === undefined) {
+      return tenant === undefined
+        ? ok(true)
+        : refuse(
+            'connection-app-invalid',
+            `${entry.name} signs in at no directory: leave out \`oauth2.tenant\``,
+            at,
+          );
+    }
+    if (tenant === undefined) {
+      return named.default !== undefined
+        ? ok(true)
+        : refuse(
+            'connection-app-invalid',
+            `${entry.name} needs \`oauth2.tenant\`: the directory its app signs people in at`,
+            at,
+          );
+    }
+    return SIGN_IN_TENANT_PATTERN.test(tenant)
+      ? ok(true)
+      : refuse(
+          'connection-app-invalid',
+          `\`oauth2.tenant\` must match ${SIGN_IN_TENANT_PATTERN.source}`,
+          at,
+        );
   }
 
   function createApp(input: ConnectionAppCreateInput): Outcome<ConnectionAppRecord> {
@@ -430,17 +464,29 @@ export function createInMemoryConnections(
     app: ConnectionAppRecord,
     input: ConnectionAppUpdateInput,
   ): string | undefined {
-    if (
-      app.oauth2 !== undefined &&
-      input.oauth2 !== undefined &&
-      app.oauth2.clientId !== input.oauth2.clientId
-    ) {
-      return 'oauth2.clientId';
+    if (app.oauth2 !== undefined && input.oauth2 !== undefined) {
+      return changedOAuth2Field(app.app, app.oauth2, input.oauth2);
     }
     if (app.githubApp === undefined || input.githubApp === undefined) return undefined;
     if (app.githubApp.appNumber !== input.githubApp.appNumber) return 'githubApp.appNumber';
     if (app.githubApp.clientId !== input.githubApp.clientId) return 'githubApp.clientId';
     return undefined;
+  }
+
+  /**
+   * The directory counts as the client: the connections' refresh tokens
+   * belong to it. It's compared as the sign-in uses it, the entry's default
+   * standing in for none, so leaving `tenant` out can't move it quietly.
+   */
+  function changedOAuth2Field(
+    app: string,
+    was: NonNullable<ConnectionAppRecord['oauth2']>,
+    now: NonNullable<ConnectionAppUpdateInput['oauth2']>,
+  ): string | undefined {
+    if (was.clientId !== now.clientId) return 'oauth2.clientId';
+    const entry = entries.get(app);
+    const fallback = entry?.signIn.kind === 'oauth2' ? entry.signIn.tenant?.default : undefined;
+    return (was.tenant ?? fallback) === (now.tenant ?? fallback) ? undefined : 'oauth2.tenant';
   }
 
   /** A change of the client while connections granted to it live: they're disconnected first. */
@@ -453,9 +499,15 @@ export function createInMemoryConnections(
     if (field === undefined || granted === 0) return undefined;
     return refuse(
       'connection-app-invalid',
-      `${granted} connection(s) were granted to this registration's current ${field === 'githubApp.appNumber' ? 'GitHub App' : 'client'}: disconnect them first, then change it and connect again`,
+      `${granted} connection(s) were granted to this registration's current ${grantedTo(field)}: disconnect them first, then change it and connect again`,
       { field },
     );
+  }
+
+  /** What the connections were granted to, named by the changed field, for the refusal. */
+  function grantedTo(field: string): string {
+    if (field === 'githubApp.appNumber') return 'GitHub App';
+    return field === 'oauth2.tenant' ? 'directory' : 'client';
   }
 
   /** The registration's connections that aren't removed. */
@@ -763,22 +815,31 @@ export function createInMemoryConnections(
     return ok(true);
   }
 
-  /** An OAuth app's authorize page: the account's scopes and each permission's grants, with PKCE. */
+  /**
+   * An OAuth app's authorize page, in the registration's directory when the
+   * sign-in names one: the sign-in's and the account's scopes and each
+   * permission's grants, with PKCE.
+   */
   function oauth2Url(
     entry: AppEntry,
     signIn: Extract<AppEntry['signIn'], { kind: 'oauth2' }>,
     app: ConnectionAppRecord,
     request: ConnectRequestRecord,
   ): URL {
-    const url = new URL(signIn.authorizeUrl);
-    const scopes = [
-      ...(entry.account.kind === 'openid' ? entry.account.scopes : []),
+    // Filled in the text: `new URL` would percent-encode the braces.
+    const tenant = app.oauth2?.tenant ?? signIn.tenant?.default;
+    const url = new URL(
+      tenant === undefined ? signIn.authorizeUrl : signIn.authorizeUrl.replace('{tenant}', tenant),
+    );
+    const scopes = new Set([
+      ...(signIn.scopes ?? []),
+      ...(entry.account.kind === 'github-installation' ? [] : entry.account.scopes),
       ...request.permissions.map((p) => entry.permissions[p]?.grants ?? p),
-    ];
+    ]);
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('client_id', app.oauth2?.clientId ?? '');
     url.searchParams.set('redirect_uri', app.redirectUrl);
-    url.searchParams.set('scope', scopes.join(' '));
+    url.searchParams.set('scope', [...scopes].join(' '));
     url.searchParams.set('code_challenge', challengeOf(randomBytes(32).toString('base64url')));
     url.searchParams.set('code_challenge_method', 'S256');
     for (const [key, value] of Object.entries(signIn.authorizeParams ?? {})) {

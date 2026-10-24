@@ -13728,12 +13728,50 @@ export const ConnectionEntrySchema: JsonSchema = {
       additionalProperties: false,
       required: ['kind'],
       description: 'How a person signs in at the app.',
-      properties: { kind: { type: 'string', enum: ['oauth2', 'github-app'] } },
+      properties: {
+        kind: { type: 'string', enum: ['oauth2', 'github-app'] },
+        tenant: {
+          type: 'object',
+          additionalProperties: false,
+          description:
+            "Present when the sign-in happens in a directory of the app's own (Microsoft's tenant, not a Kindgi tenant). A registration's `oauth2.tenant` names it; without `default`, each registration must give its own.",
+          properties: {
+            default: {
+              type: 'string',
+              description: 'The directory a registration that names none signs in at.',
+            },
+          },
+        },
+      },
     },
     permissions: {
       type: 'object',
       additionalProperties: { $ref: '#/components/schemas/ConnectionEntryPermission' },
       description: 'What a tool may ask for, by permission key (`gmail.send`).',
+    },
+    removal: {
+      type: 'object',
+      additionalProperties: false,
+      description:
+        'How a disconnect withdraws access at the app, and how the app reports a removal made there. `{}` when the app has neither: a disconnect then withdraws nothing at the app, and a removal made there is not reported.',
+      properties: {
+        revoke: {
+          type: 'string',
+          enum: ['oauth2-revoke', 'github-installation-token'],
+          description:
+            "How a disconnect withdraws access at the app: an OAuth revoke, or revoking the GitHub App's installation tokens (the app stays installed).",
+        },
+        revokeIsGrantWide: {
+          type: 'boolean',
+          description:
+            "Whether the app's revoke withdraws everything the person granted the registration, not only this connection's permissions. Google's does.",
+        },
+        notices: {
+          type: 'string',
+          enum: ['google-risc', 'github-webhooks'],
+          description: 'How the app reports a removal made at the app.',
+        },
+      },
     },
     setupGuide: {
       type: 'string',
@@ -13758,6 +13796,13 @@ export const ConnectionOAuth2AppSchema: JsonSchema = {
   properties: {
     clientId: { type: 'string' },
     clientSecret: { $ref: '#/components/schemas/ConnectionSecretRef' },
+    tenant: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 253,
+      description:
+        "The directory the app signs people in at, for an app whose sign-in names one: Microsoft's tenant id or domain for a single-tenant app, `organizations`, `common` or `consumers` for a multi-tenant one. Required when the app's entry has no default, refused for an app without one (`connection-app-invalid`, `details.field` `oauth2.tenant`).",
+    },
   },
 };
 

@@ -194,6 +194,20 @@ describe('kindgi connections list and get', () => {
     expect(out.stdout).toContain(removedAt);
   });
 
+  // An empty filter read as left out would list every project's or every app's connections.
+  test.each([
+    ['--project=', '--project takes a value'],
+    ['--app=', '--app takes a value'],
+  ] as const)('list with %s, given empty, is refused', async (flag, said) => {
+    const { calls, rec } = recorder();
+    const out = await run(['connections', 'list', flag], {
+      connections: { list: rec('list', { data: [], hasMore: false }) },
+    });
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain(said);
+    expect(calls).toEqual([]);
+  });
+
   test('get reads one connection', async () => {
     const { calls, rec } = recorder();
     const out = await run(['connections', 'get', CONNECTION_ID], {
@@ -315,6 +329,21 @@ describe('kindgi connections connect', () => {
     });
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('--permissions names no permission');
+    expect(calls).toEqual([]);
+  });
+
+  // An empty --app-id or --project read as left out would leave the server to pick.
+  test.each([
+    [['--permissions=gmail.send', '--app-id='], '--app-id takes a value'],
+    [['--permissions=gmail.send', '--project='], '--project takes a value'],
+    [['--permissions='], '--permissions takes a value'],
+  ] as const)('connect with %j, given empty, is refused', async (flags, said) => {
+    const { calls, rec } = recorder();
+    const out = await run(['connections', 'connect', 'google', ...flags], {
+      connections: { connect: rec('connect', REQUEST) },
+    });
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain(said);
     expect(calls).toEqual([]);
   });
 
