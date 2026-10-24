@@ -361,6 +361,25 @@ run "yes"
 assert_rc 0 "json var-file runs"
 if [[ "$(jq -r .server_image "$VAR_FILE")" == "$NEW_IMAGE" ]]; then pass; else fail "json var-file not rewritten"; fi
 
+# 21. Past the newest release this script knows: refused before anything is
+# read, mirrored or backed up, though 0.1.9 and 0.1.10 lie on the way.
+case_start "target past the newest known release"
+reset_env; export STUB_TAGS="0.1.8"
+run "yes" --to 0.2.0
+assert_rc 1 "a later target refused"
+assert_out "knows the steps up to 0.1.10"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_varfile_unchanged
+
+# 22. An rc of a later release counts as that release.
+case_start "rc of a later release"
+reset_env; export STUB_TAGS="0.1.9"
+run "yes" --to 0.1.11-rc.0
+assert_rc 1 "a later rc refused"
+assert_out "knows the steps up to 0.1.10"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [[ $FAIL -eq 0 ]]

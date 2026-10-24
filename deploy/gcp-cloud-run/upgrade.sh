@@ -45,7 +45,9 @@
 #                      is written to. The export is one database, never an
 #                      instance backup.
 #   --to               The target runtime version (default 0.1.10; an rc such
-#                      as 0.1.10-rc.1 works too).
+#                      as 0.1.10-rc.1 works too). This script knows the steps
+#                      up to 0.1.10; for a later release, use the upgrade.sh
+#                      from that release.
 #   --from             Assert the current version when it can't be read from the
 #                      deployment (no version tag on the running image).
 #   --pack-dir         Rebuild and push the pack from here with `kindgi build`
@@ -213,6 +215,11 @@ done
 [[ -n $BACKUP_BUCKET ]] || die "--backup-bucket is required (see --help)."
 [[ $BACKUP_BUCKET =~ ^gs://[a-z0-9][-a-z0-9._]*(/.*)?$ ]] || die "--backup-bucket must look like gs://<bucket>[/<prefix>]."
 is_semver "$TARGET" || die "--to \"$TARGET\" isn't a version like 0.1.10."
+# A later release may need steps this copy doesn't have, so it isn't run past
+# the newest release it knows (an rc counts as its final).
+NEWEST_KNOWN="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
+[[ "$(ver_num "${TARGET%%-*}")" -le "$(ver_num "$NEWEST_KNOWN")" ]] \
+  || die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. Use the upgrade.sh from the release you're upgrading to."
 if [[ -n $FROM_OVERRIDE ]]; then is_semver "$FROM_OVERRIDE" || die "--from \"$FROM_OVERRIDE\" isn't a version like 0.1.8."; fi
 if [[ -n $PACK_DIR ]]; then [[ -d $PACK_DIR ]] || die "--pack-dir \"$PACK_DIR\" isn't a directory."; fi
 
