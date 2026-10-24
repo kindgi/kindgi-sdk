@@ -3471,9 +3471,10 @@ describe("a pass started by hand works in one project: the one named, else its s
         suiteId: DEV_SET,
       });
       expect(res.status, JSON.stringify(res.body)).toBe(400);
-      expect(res.body.error.message).toBe(
-        "`projectId` must be a project id when given (default: the scope's project, else the agent version's)",
-      );
+      expect(res.body.error).toMatchObject({
+        code: 'bad-input',
+        message: '`projectId` must be a project id (a UUID)',
+      });
     }
     expect(h.passes.started).toEqual([]);
   });

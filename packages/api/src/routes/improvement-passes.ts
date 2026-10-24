@@ -39,6 +39,7 @@ import { actorOf, coordinatesOf } from './agent-releases.js';
 import { deniedBy } from './denied.js';
 import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
+import { UUID_RE } from './uuid-param.js';
 
 type Ctx = Context<AppEnv>;
 
@@ -678,8 +679,11 @@ function parseImproveBody(b: Record<string, unknown>): ImproveBody | string {
   if (b.fromVersion !== undefined && !nonEmpty(b.fromVersion)) {
     return '`fromVersion` must be a version when given (default: the one serving the scope)';
   }
-  if (b.projectId !== undefined && !nonEmpty(b.projectId)) {
-    return "`projectId` must be a project id when given (default: the scope's project, else the agent version's)";
+  if (
+    b.projectId !== undefined &&
+    (typeof b.projectId !== 'string' || !UUID_RE.test(b.projectId))
+  ) {
+    return '`projectId` must be a project id (a UUID)';
   }
   const scope = parseLiveScopeBody(b.scope);
   if (scope.kind === 'err') return scope.message;
