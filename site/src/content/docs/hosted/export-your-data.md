@@ -106,8 +106,20 @@ its name, its versions, its tags and its dates, never its value
 ## What each file holds
 
 Each file is a route's answer, so you can read any kind through the API too.
-Every list answers a page at a time: `?limit=` (at most 100), and `?cursor=`
-with the page before's `nextCursor`.
+The export also asks for what a list leaves out by default, so ask for it the
+same way:
+
+- **Retired agents, flows, tools and test sets:** `?includeRetired=true`.
+- **Removed versions** of agents, flows, tools, blocks, policies and test
+  sets: `?includeTombstoned=true`.
+- **Removed sites, people and service accounts:** `?includeUnregistered=true`.
+- **Revoked signing keys and secrets:** `?includeRevoked=true`.
+- **Replays among runs and conversations:** `?replays=include`.
+- **A scope's own env values and secrets,** without what it inherits:
+  `?inherit=false`.
+
+A list that pages answers a page at a time: `?limit=` (at most 100), and
+`?cursor=` with the page before's `nextCursor`.
 
 | Kind | Files | API |
 | --- | --- | --- |
@@ -117,9 +129,9 @@ with the page before's `nextCursor`.
 | Service accounts | `service-accounts.jsonl` | `GET /v1/service-accounts` |
 | API keys (never the key itself) | `api-keys.jsonl` | `GET /v1/tokens` |
 | Agents: every version, the live versions and the promotions | `agents.jsonl`, `agent-versions.jsonl`, `agent-live-versions.jsonl`, `agent-promotions.jsonl` | `GET /v1/agents`, `…/{agentId}/versions`, `…/live-versions`, `…/promotions` |
-| Tools, flows and blocks, every version | `tools.jsonl`, `flows.jsonl`, `blocks.jsonl`, each with its `-versions.jsonl` | `GET /v1/tools`, `/v1/flows`, `/v1/blocks`, each with `…/versions` |
+| Tools, flows and blocks, every version | `tools.jsonl`, `tool-versions.jsonl`, `flows.jsonl`, `flow-versions.jsonl`, `blocks.jsonl`, `block-versions.jsonl` | `GET /v1/tools`, `/v1/flows`, `/v1/blocks`, each with `…/versions` |
 | Guardrails | `guardrails.jsonl` | `GET /v1/guardrails` |
-| Policies and gate policies, every version | `policies.jsonl`, `gate-policies.jsonl`, each with its `-versions.jsonl` | `GET /v1/policies`, `/v1/gate-policies`, each with `…/versions` |
+| Policies and gate policies, every version | `policies.jsonl`, `policy-versions.jsonl`, `gate-policies.jsonl`, `gate-policy-versions.jsonl` | `GET /v1/policies`, `/v1/gate-policies`, each with `…/versions` |
 | Runs: the record, the output, the journal | `runs.jsonl`, `run-journals.jsonl` | `GET /v1/runs?include=output`, `…/{runId}/journal` |
 | Conversations and their messages | `conversations.jsonl`, `conversation-messages.jsonl` | `GET /v1/conversations`, `…/{conversationId}/messages` |
 | Memory facts and their revisions | `memory-facts.jsonl`, `memory-fact-revisions.jsonl` | `GET /v1/memory/facts`, `…/{factId}/revisions` |
