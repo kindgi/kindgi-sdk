@@ -60263,6 +60263,16 @@
               }
             }
           },
+          "400": {
+            "description": "An `includeRemoved` other than `true` or `false` (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
             "content": {
@@ -60284,8 +60294,21 @@
             }
           }
         },
-        "description": "The tenant's own registrations of its client at an app: its client id, and its secrets by reference. Tenant admins only.",
+        "description": "The tenant's own registrations of its client at an app: its client id, and its secrets by reference. Tenant admins only. Removed registrations are listed only with `includeRemoved=true`.",
         "parameters": [
+          {
+            "name": "includeRemoved",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "required": false,
+            "description": "`true` lists removed registrations too."
+          },
           {
             "name": "limit",
             "in": "query",
@@ -60763,7 +60786,7 @@
             }
           },
           "400": {
-            "description": "An unknown `app`, `owner`, `ownerKind` or `state` (`bad-input`).",
+            "description": "An unknown `app`, `owner`, `ownerKind` or `state`, or an `includeRemoved` other than `true` or `false` (`bad-input`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -60783,7 +60806,7 @@
             }
           }
         },
-        "description": "A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`.",
+        "description": "A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`, or with the others under `includeRemoved=true`.",
         "parameters": [
           {
             "name": "projectId",
@@ -60836,6 +60859,19 @@
             },
             "required": false,
             "description": "Only those in this state."
+          },
+          {
+            "name": "includeRemoved",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "required": false,
+            "description": "`true` lists removed connections too."
           },
           {
             "name": "limit",

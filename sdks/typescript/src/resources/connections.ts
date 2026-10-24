@@ -58,6 +58,8 @@ export type ConnectFinish = ConnectFinishWire;
 export type ConnectionStartResult = ConnectStart;
 
 export interface ListConnectionAppsFilter {
+  /** Removed registrations too, with their `removedAt`. */
+  readonly includeRemoved?: boolean;
   readonly limit?: number;
   readonly cursor?: string;
 }
@@ -70,6 +72,8 @@ export interface ListConnectionsFilter {
   readonly owner?: 'me';
   readonly ownerKind?: 'member' | 'company';
   readonly state?: Connection['state'];
+  /** Removed connections too, with the others. */
+  readonly includeRemoved?: boolean;
   readonly limit?: number;
   readonly cursor?: string;
 }
@@ -151,6 +155,7 @@ export function makeConnectionAppsClient(transport: Transport): ConnectionAppsCl
         method: 'GET',
         path: '/v1/connection-apps',
         query: {
+          ...(filter?.includeRemoved === true && { includeRemoved: true }),
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
         },
@@ -203,6 +208,7 @@ export function makeConnectionsClient(transport: Transport): ConnectionsClient {
           ...(filter?.owner !== undefined && { owner: filter.owner }),
           ...(filter?.ownerKind !== undefined && { ownerKind: filter.ownerKind }),
           ...(filter?.state !== undefined && { state: filter.state }),
+          ...(filter?.includeRemoved === true && { includeRemoved: true }),
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
         },
