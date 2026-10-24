@@ -692,12 +692,48 @@ then reaches the runtime only when you change `version`.
   Console sessions are then accepted from that address only. The plan
   refuses `KINDGI_AUTH_SECRET` without it, because the runtime wouldn't
   start.
-- **Continue with Google, Microsoft or GitHub, verified domains and
-  Turnstile** go the same way: each provider's client id,
-  `KINDGI_AUTH_VERIFIED_DOMAINS` and the Turnstile site key in `server_env`;
-  each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET` in
-  `server_secret_env`. The module mounts no files, so use the value forms of
-  the settings, not their `…_PATH` forms.
+
+**With Continue with Google,** you need the sign-in secret and `public_url`,
+as for the emailed link, and an OAuth client of type **Web application** in
+the Google Cloud console ([Google](../sign-in/#google)). Its authorized
+redirect URI is `public_url` followed by
+`/auth/kindgi/social/callback/google`:
+
+```text
+https://kindgi-dev-server-abc123-pd.a.run.app/auth/kindgi/social/callback/google
+```
+
+Store the client's secret, then give the runtime the client's ID and the
+secret:
+
+```sh
+# The Google client's secret: paste it; it never goes in a file.
+read -rs GOOGLE_SECRET && printf '%s' "$GOOGLE_SECRET" | gcloud secrets create $N-google-client-secret --data-file=- && unset GOOGLE_SECRET
+```
+
+```hcl excerpt
+public_url = "https://kindgi-dev-server-abc123-pd.a.run.app"
+server_env = {
+  KINDGI_AUTH_GOOGLE_CLIENT_ID = "<client id>"
+}
+server_secret_env = {
+  KINDGI_AUTH_SECRET               = { secret = "kindgi-dev-auth-secret", version = "1" }
+  KINDGI_AUTH_GOOGLE_CLIENT_SECRET = { secret = "kindgi-dev-google-client-secret", version = "1" }
+}
+```
+
+- `<client id>` is the client's ID in the Google Cloud console, ending in
+  `.apps.googleusercontent.com`.
+- **Microsoft and GitHub** go the same way, with `MICROSOFT` or `GITHUB` in
+  the names, and a redirect URI ending in `microsoft` or `github`
+  ([Continue with Google, Microsoft or GitHub](../sign-in/#continue-with-google-microsoft-or-github)).
+  So do verified domains and Turnstile: `KINDGI_AUTH_VERIFIED_DOMAINS` and
+  the Turnstile site key in `server_env`, and `KINDGI_AUTH_TURNSTILE_SECRET`
+  in `server_secret_env`.
+- **Several ways in** share the two maps: with the emailed link too, they
+  hold both sets of settings.
+- **The module mounts no files,** so use the value forms of the settings,
+  such as `KINDGI_AUTH_GOOGLE_CLIENT_SECRET`, not their `…_PATH` forms.
 
 **Check it worked:** after the apply, the new revision's startup lines say
 where it's reached, and which ways in the console has, instead of the

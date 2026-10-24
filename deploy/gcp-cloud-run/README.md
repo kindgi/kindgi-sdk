@@ -261,10 +261,35 @@ Pin each secret to a version, as above, rather than `latest`: a new version then
 - **`public_url`** (`KINDGI_PUBLIC_URL`) is the URL people open the console at. On a new deployment that's `terraform output -raw server_url` after the first apply, so the emailed link comes with a second apply. With your own domain in front, it's that domain.
   - Console sessions are then accepted from that origin only, so open the console there.
   - The plan refuses `KINDGI_AUTH_SECRET` without it, because the server wouldn't start.
-- **Continue with Google, Microsoft or GitHub, verified domains, and Turnstile** go the same way:
-  - in `server_env`: each provider's client id, `KINDGI_AUTH_VERIFIED_DOMAINS` (`acme.com:<tenant id>`) and the Turnstile site key;
-  - in `server_secret_env`: each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET`.
-  - The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
+
+**With Continue with Google.** It needs the sign-in secret and `public_url`, as for the emailed link, and an OAuth client of type **Web application** in the Google Cloud console. Its authorized redirect URI is `public_url` followed by `/auth/kindgi/social/callback/google`:
+
+```
+https://kindgi-dev-server-abc123-pd.a.run.app/auth/kindgi/social/callback/google
+```
+
+```sh
+# The Google client's secret: paste it; it never goes in a file.
+read -rs GOOGLE_SECRET && printf '%s' "$GOOGLE_SECRET" | gcloud secrets create $N-google-client-secret --data-file=- && unset GOOGLE_SECRET
+```
+
+```hcl
+public_url = "https://kindgi-dev-server-abc123-pd.a.run.app"
+server_env = {
+  KINDGI_AUTH_GOOGLE_CLIENT_ID = "<client id>" # ends in .apps.googleusercontent.com
+}
+server_secret_env = {
+  KINDGI_AUTH_SECRET               = { secret = "kindgi-dev-auth-secret", version = "1" }
+  KINDGI_AUTH_GOOGLE_CLIENT_SECRET = { secret = "kindgi-dev-google-client-secret", version = "1" }
+}
+```
+
+- **Microsoft and GitHub, verified domains, and Turnstile** go the same way:
+  - in `server_env`: `KINDGI_AUTH_MICROSOFT_CLIENT_ID` or `KINDGI_AUTH_GITHUB_CLIENT_ID`, `KINDGI_AUTH_VERIFIED_DOMAINS` (`acme.com:<tenant id>`) and the Turnstile site key;
+  - in `server_secret_env`: `KINDGI_AUTH_MICROSOFT_CLIENT_SECRET` or `KINDGI_AUTH_GITHUB_CLIENT_SECRET`, and `KINDGI_AUTH_TURNSTILE_SECRET`;
+  - each provider's redirect URI ends in its name: `…/auth/kindgi/social/callback/microsoft` or `…/github`.
+- Several ways in share the two maps: with the emailed link too, they hold both sets of settings.
+- The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
 
 ## Many tenants (`tenancy`)
 

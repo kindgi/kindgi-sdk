@@ -20,8 +20,14 @@ stay Kindgi's.
 
 ## Before you start
 
-- **A runtime you deploy yourself,** whose settings you can change
-  ([Self-host with Docker](../self-host/)).
+- **A runtime you deploy yourself,** whose settings you can change. This
+  page writes them for Docker, in `kindgi.env` with secrets in files
+  ([Self-host with Docker](../self-host/)). Kindgi's Terraform modules mount
+  no files: on [Cloud Run](../cloud-run/#7-turn-on-sign-in) and
+  [Azure Container Apps](../azure-container-apps/#7-turn-on-sign-in), plain
+  values go in `server_env`, and secrets in `server_secret_env` by their
+  value forms, such as `KINDGI_AUTH_GOOGLE_CLIENT_SECRET` rather than
+  `KINDGI_AUTH_GOOGLE_CLIENT_SECRET_PATH`.
 - **The address people reach it at,** over `https`, such as
   `https://kindgi.acme.com`.
 - **A secrets store for the runtime,** set by `KINDGI_SECRETS_BACKEND`, for
