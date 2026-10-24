@@ -111,6 +111,16 @@ first email goes at once, then a digest every five minutes at most.
   leave out an Approve button they can't use.
 - **`escalatedFrom` and `escalatedTo`** are the approval ids an escalation
   came from and went to.
+- **`approver`** is there when only one person may decide the approval: a
+  tool call that acts with that person's own connection. It's
+  `{ "kind": "member", "userId": "<id>" }`. Only they decide it, with a
+  reviewer seat at its `requiredRole` or above, as
+  [Approvals](../../connections/use-a-connection/#approvals) in Use a
+  connection in a tool describes.
+- **`connection`** is the account such a call would use:
+  `{ "app": "google", "appName": "Google", "account": "lee@acme.com" }`.
+  `app` is the app's entry id, and `account` is the account's label at the
+  app, such as an email address or a login.
 - **`withdrawnBecause`** is `run-cancelled` or `run-ended` on an approval its
   run withdrew, as [Withdrawn by its run](#withdrawn-by-its-run) describes.
 
@@ -205,6 +215,12 @@ run has moved on by the time the call returns.
   ended. It's refused with `409 run-already-terminal`. Its `details` name
   the run that ended, which may be the run the approval's run is a step of,
   and its `status`.
+- **By anyone but its `approver`,** on an approval addressed to one person.
+  A tenant admin, who can read it, gets `403 named-approver-required`. To
+  any other reviewer it doesn't exist: `404 approval-not-found`.
+- **An escalation of an approval addressed to one person:** it's theirs at
+  every role, so it's refused with `409 invalid-transition`. They approve
+  or reject it.
 
 A decision recorded before its run ended stands, however close the two are.
 The answer then has `waitpointResolved: false` and the run's `runStatus`.
@@ -215,8 +231,8 @@ person's outcome, not an error:
 - `hitl-rejected`: a reviewer rejected the turn, at its session gate. A
   rejected tool call skips only the tool, and the turn goes on.
 - `hitl-withdrawn`: a reviewer withdrew the approval.
-- `hitl-cancelled`: nobody decided in time, so the approval expired at the
-  `admin` role.
+- `hitl-cancelled`: nobody decided in time, so the approval expired: at the
+  `admin` role, or at its deadline for one addressed to one person.
 
 A run cancelled while it waits ends `cancelled`, with no failure code.
 
@@ -256,10 +272,14 @@ deadline passes with no decision:
 
   The run's `failure` says the same as data: `code: "hitl-cancelled"`,
   `reason: "timeout"`. Read `reason` rather than the message.
+- **Addressed to one person** (`approver`), at any role, the approval
+  becomes `expired`, and the run's turn fails the same way. One tier up
+  it would wait on the same person, whose seat may be below it.
 
-A decision made before the deadline always wins. A deadline always escalates
-this way: `hitl.onTimeout` takes only `'escalate'`, the default. An agent that
-asks for anything else is refused when it's defined:
+A decision made before the deadline always wins. Apart from an approval
+addressed to one person, a deadline always escalates this way:
+`hitl.onTimeout` takes only `'escalate'`, the default. An agent that asks
+for anything else is refused when it's defined:
 
 ```text
 hitl.onTimeout 'auto-approve' isn't supported: an approval that times out escalates one reviewer tier, and at admin it expires (the turn fails with hitl-cancelled). Use 'escalate', or leave it out.

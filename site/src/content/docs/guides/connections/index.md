@@ -60,7 +60,7 @@ secret), its runs act as them from then on, with their connections
 
 ## What you need
 
-- **Kindgi 0.1.12 or later,** the runtime and the CLI.
+- **Kindgi 0.2.0 or later,** the runtime and the CLI.
 - **A runtime that offers connections.** It offers them only with all
   three of:
   - its public address (`KINDGI_PUBLIC_URL`): the app sends people back

@@ -214,6 +214,12 @@ as it is.
 To throw your own error instead, give it the refusal as its cause: Kindgi
 looks for one up to three causes deep.
 
+A token in what a call throws goes no further. In a failed call's error,
+Kindgi puts `[redacted]` in place of each of the call's connection tokens:
+in its message and its other strings, in what it holds, and down its cause
+chain. The run's events, its record and the model see that copy. Leave
+tokens out of your errors all the same.
+
 In TypeScript, `appFetch(ctx, call)` from `@kindgi/connections/app-fetch`
 makes the call the way the [ready-made tools](#ready-made-tools) do. It
 sends the connection's token as the only `Authorization`, paces calls by
@@ -380,6 +386,12 @@ input:
 - **A flow's tool step can't wait,** so it fails with `connection-missing`
   the same way.
 
+An agent's call stopped this way runs nothing. The run records
+`tool.failed` with the code, and the model reads that as the call's result
+(`{ "status": "failed", "error": … }`). The turn goes on, so the agent
+can say what's missing. A flow's tool step fails instead: the run records
+`step.failed`, with the code and its message.
+
 ## Approvals
 
 A call that uses a connection is approved as any other call is, and the
@@ -401,6 +413,17 @@ Without one, the call fails at once with
 workspace admin sees such an approval but can't decide it
 (`named-approver-required`). It never escalates: if that person doesn't
 decide by its deadline, it expires.
+The approval names them as its `approver`, and the account as its
+`connection`
+([An approval's fields](../../approvals/approvals-reference/#an-approvals-fields)).
+With reviewer email on, only they're emailed about it
+([Reviewer email](../../approvals/decide-an-approval/#reviewer-email)).
+
+**A flow's tool step** in a run no person started can't wait for that yes.
+A step whose tool changes things with a person's connection fails before
+the tool runs, with `needs-a-person`
+([Ask before a tool runs](../../approvals/ask-before-a-tool-runs/#in-a-flow)).
+Call the tool from an agent step instead.
 
 A rule that asks for a second person to approve (`separateApprover`) can't
 be met for a person's connection, so such a call fails with
