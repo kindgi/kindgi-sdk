@@ -324,9 +324,16 @@ the first tool call, 3½ minutes after the warning, worked. If tool calls still
 fail after that, check that the runtime's service account has
 `roles/run.invoker` on the pack's service.
 
+**Keep the pack's service warm when response time matters.** The default,
+`pack_min_instances = 1`, keeps one instance running, so the first tool
+call after a quiet spell doesn't wait for one to start. That instance runs
+around the clock ([Cloud Run pricing](https://cloud.google.com/run/pricing)).
+`pack_min_instances = 0` lets the service stop when it's idle, which suits
+a dev deployment: the first tool call after that waits for an instance to
+start.
+
 **When the runtime starts with the pack's service at zero**
-(`pack_min_instances = 0`; the default, 1, keeps one instance up), the line
-can read instead:
+(`pack_min_instances = 0`), the line can read instead:
 
 ```text
 ⚠ Pack service at https://… didn't answer within 5 s. The server is up; pack tools and checks fail until it answers.
@@ -672,14 +679,14 @@ read -rs SMTP_URL && printf '%s' "$SMTP_URL" | gcloud secrets create $N-smtp-url
 ```
 
 ```hcl excerpt
-public_url = "https://kindgi-dev-server-abc123-pd.a.run.app" # terraform output -raw server_url
+public_url = "https://kindgi-server-abc123-pd.a.run.app" # terraform output -raw server_url
 server_env = {
   KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
   KINDGI_AUTH_EMAIL_FROM       = "kindgi@acme.example"
 }
 server_secret_env = {
-  KINDGI_AUTH_SECRET         = { secret = "kindgi-dev-auth-secret", version = "1" }
-  KINDGI_AUTH_EMAIL_SMTP_URL = { secret = "kindgi-dev-smtp-url", version = "1" }
+  KINDGI_AUTH_SECRET         = { secret = "kindgi-auth-secret", version = "1" }
+  KINDGI_AUTH_EMAIL_SMTP_URL = { secret = "kindgi-smtp-url", version = "1" }
 }
 ```
 
@@ -692,12 +699,48 @@ then reaches the runtime only when you change `version`.
   Console sessions are then accepted from that address only. The plan
   refuses `KINDGI_AUTH_SECRET` without it, because the runtime wouldn't
   start.
-- **Continue with Google, Microsoft or GitHub, verified domains and
-  Turnstile** go the same way: each provider's client id,
-  `KINDGI_AUTH_VERIFIED_DOMAINS` and the Turnstile site key in `server_env`;
-  each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET` in
-  `server_secret_env`. The module mounts no files, so use the value forms of
-  the settings, not their `…_PATH` forms.
+
+**With Continue with Google,** you need the sign-in secret and `public_url`,
+as for the emailed link, and an OAuth client of type **Web application** in
+the Google Cloud console ([Google](../sign-in/#google)). Its authorized
+redirect URI is `public_url` followed by
+`/auth/kindgi/social/callback/google`:
+
+```text
+https://kindgi-server-abc123-pd.a.run.app/auth/kindgi/social/callback/google
+```
+
+Store the client's secret, then give the runtime the client's ID and the
+secret:
+
+```sh
+# The Google client's secret: paste it; it never goes in a file.
+read -rs GOOGLE_SECRET && printf '%s' "$GOOGLE_SECRET" | gcloud secrets create $N-google-client-secret --data-file=- && unset GOOGLE_SECRET
+```
+
+```hcl excerpt
+public_url = "https://kindgi-server-abc123-pd.a.run.app"
+server_env = {
+  KINDGI_AUTH_GOOGLE_CLIENT_ID = "<client id>"
+}
+server_secret_env = {
+  KINDGI_AUTH_SECRET               = { secret = "kindgi-auth-secret", version = "1" }
+  KINDGI_AUTH_GOOGLE_CLIENT_SECRET = { secret = "kindgi-google-client-secret", version = "1" }
+}
+```
+
+- `<client id>` is the client's ID in the Google Cloud console, ending in
+  `.apps.googleusercontent.com`.
+- **Microsoft and GitHub** go the same way, with `MICROSOFT` or `GITHUB` in
+  the names, and a redirect URI ending in `microsoft` or `github`
+  ([Continue with Google, Microsoft or GitHub](../sign-in/#continue-with-google-microsoft-or-github)).
+  So do verified domains and Turnstile: `KINDGI_AUTH_VERIFIED_DOMAINS` and
+  the Turnstile site key in `server_env`, and `KINDGI_AUTH_TURNSTILE_SECRET`
+  in `server_secret_env`.
+- **Several ways in** share the two maps: with the emailed link too, they
+  hold both sets of settings.
+- **The module mounts no files,** so use the value forms of the settings,
+  such as `KINDGI_AUTH_GOOGLE_CLIENT_SECRET`, not their `…_PATH` forms.
 
 **Check it worked:** after the apply, the new revision's startup lines say
 where it's reached, and which ways in the console has, instead of the
@@ -809,7 +852,7 @@ A new grant can take a minute or two to apply.
 
   ```hcl excerpt
   server_secret_env = {
-    KINDGI_ERASURE_LEDGER_KEY = { secret = "kindgi-dev-erasure-ledger-key", version = "1" }
+    KINDGI_ERASURE_LEDGER_KEY = { secret = "kindgi-erasure-ledger-key", version = "1" }
   }
   ```
 
