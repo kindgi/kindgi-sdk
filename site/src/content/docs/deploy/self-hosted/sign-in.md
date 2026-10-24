@@ -16,7 +16,10 @@ People sign in to the console with their email first. The sign-in page then
 offers the ways in that this deployment has. Whatever way someone signs in,
 the runtime lets in **only people already added to a workspace**, by an
 email their provider has proved. Nobody is created by signing in, and roles
-stay Kindgi's.
+stay Kindgi's. Without [authorization](../../authorization/), everyone signed
+in works in every project, and the tenant's settings change only with the
+API token or an `admin` key
+([Without authorization](../../people-and-keys/#without-authorization)).
 
 ## Before you start
 
