@@ -3040,6 +3040,37 @@ describe('POST /v1/proposals/improve/estimate', () => {
     expect((await none.call('POST', '/v1/proposals/improve/estimate', IMPROVE)).status).toBe(501);
   });
 
+  // A pass can work in a project other than its version's: an order carries
+  // the agent from its project to prod, and prod reaches the agent, its own
+  // test set and the versions shipped to it.
+  const PROD = randomUUID() as ProjectId;
+  const PROD_SEGMENT = { ...SEGMENT_WIRE, projectId: PROD };
+  const PROD_SET = 'acme.scoring-prod-judged';
+  function inProd(shipped: string[], grants?: string[]): Parameters<typeof harness>[0] {
+    const reached = new Map<string, Set<string>>([
+      [projectId, new Set([AGENT, `${AGENT}@1.0.0`, IMPROVE.suiteId])],
+      [PROD, new Set([AGENT, ...shipped.map((v) => `${AGENT}@${v}`), PROD_SET])],
+    ]);
+    return {
+      orders: [[projectId, PROD]],
+      items: [
+        {
+          kind: 'agent',
+          id: AGENT,
+          projects: [projectId, PROD],
+          versions: [{ version: '1.0.0', projects: [projectId, PROD] }],
+        },
+      ],
+      referenceScope: {
+        async reachable({ fromProjectId, ref }) {
+          const key = ref.version === undefined ? ref.id : `${ref.id}@${ref.version}`;
+          return reached.get(fromProjectId)?.has(key) === true;
+        },
+      },
+      ...(grants !== undefined && { grants }),
+    };
+  }
+
   // `/improve` and `/improve/estimate` take the same body and resolve +
   // reach-check it through the one shared helper (`resolveImproveTarget`), so
   // a bad body is refused identically. One case per branch of that helper,
@@ -3084,6 +3115,27 @@ describe('POST /v1/proposals/improve/estimate', () => {
       label: 'a scope in another project',
       opts: { referenceScope: reach(new Set()) },
       body: { ...IMPROVE, scope: OTHER_SEGMENT, fromVersion: '1.0.0' },
+      status: 400,
+      code: 'reference-out-of-scope',
+    },
+    {
+      label: 'a scope outside `projectId`',
+      opts: inProd(['1.0.0']),
+      body: { ...IMPROVE, projectId: PROD, fromVersion: '1.0.0' },
+      status: 400,
+      code: 'bad-input',
+    },
+    {
+      label: 'another project, without write there',
+      opts: inProd(['1.0.0'], [`read project:${projectId}`, `write project:${projectId}`]),
+      body: { ...IMPROVE, scope: PROD_SEGMENT, suiteId: PROD_SET, fromVersion: '1.0.0' },
+      status: 403,
+      code: 'permission-denied',
+    },
+    {
+      label: "a version its project doesn't reach",
+      opts: inProd([]),
+      body: { ...IMPROVE, scope: PROD_SEGMENT, suiteId: PROD_SET, fromVersion: '1.0.0' },
       status: 400,
       code: 'reference-out-of-scope',
     },
