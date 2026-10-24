@@ -7,7 +7,8 @@
 the JSON Schema a pack index carries — Draft 2020-12, field names as they
 travel (aliases), no generated titles, local `$ref`s inlined unless a type is
 recursive, and no OpenAPI `discriminator` (a tagged union's `oneOf` picks its
-member by the tag). A dict is taken as JSON Schema already.
+member by the tag; a union whose member a callable `Discriminator` picks is an
+`anyOf`). A dict is taken as JSON Schema already.
 
 `SchemaValidator` checks a value against a schema and reports issues shaped
 like Ajv's (`instancePath`, `schemaPath`, `keyword`, `params`, `message`) —
@@ -50,6 +51,15 @@ class _WireSchema(GenerateJsonSchema):
 
     def field_title_should_be_set(self, schema: Any) -> bool:
         return False
+
+    def tagged_union_schema(self, schema: core_schema.TaggedUnionSchema) -> JsonSchemaValue:
+        out = super().tagged_union_schema(schema)
+        # With no `discriminator` beside it, as when a callable `Discriminator` picks the member,
+        # the members can overlap: a `oneOf` refuses a value that fits two of them, though
+        # pydantic takes it. An `anyOf` takes every value that fits the member pydantic picks.
+        if "discriminator" not in out and "oneOf" in out:
+            out["anyOf"] = out.pop("oneOf")
+        return out
 
     def model_schema(self, schema: core_schema.ModelSchema) -> JsonSchemaValue:
         out = super().model_schema(schema)

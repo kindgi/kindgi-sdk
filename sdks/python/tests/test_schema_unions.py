@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import pytest
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, ValidationError
 
 from kindgi import tool
 from kindgi._schema import (
@@ -258,6 +258,66 @@ def test_a_recursive_member_asks_for_its_tag_beside_its_ref() -> None:
             "properties": {"kind": True},
             "required": ["kind"],
         }
+
+
+class CallableCat(BaseModel):
+    meows: int
+
+
+class CallableDog(BaseModel):
+    barks: bool = False
+
+
+def _which_pet(value: Any) -> str:
+    if isinstance(value, CallableCat):
+        return "cat"
+    return "cat" if isinstance(value, dict) and "meows" in value else "dog"
+
+
+class Shelter(BaseModel):
+    """A callable picks the member: pydantic writes no `discriminator`, and the members overlap."""
+
+    pet: Annotated[
+        Annotated[CallableCat, Tag("cat")] | Annotated[CallableDog, Tag("dog")],
+        Discriminator(_which_pet),
+    ]
+
+
+SHELTERED: list[Any] = [
+    {"pet": {"meows": 2}},
+    {"pet": {"meows": 2, "barks": True}},
+    {"pet": {"barks": True}},
+    {"pet": {}},
+]
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_a_union_a_callable_picks_is_an_any_of(mode: Any) -> None:
+    schema = wire_schema(Shelter, mode)
+    assert set(schema["properties"]["pet"]) == {"anyOf"}
+    assert strict_schema_problem(schema) is None
+
+
+@pytest.mark.parametrize("value", SHELTERED)
+def test_a_union_a_callable_picks_takes_what_pydantic_takes(value: Any) -> None:
+    assert accepts(Shelter, value)
+    assert SchemaValidator(wire_schema(Shelter)).issues(value) == []
+
+
+@pytest.mark.parametrize("value", SHELTERED)
+def test_a_union_a_callable_picks_takes_its_own_output(value: Any) -> None:
+    dumped = Shelter.model_validate(value).model_dump(mode="json", by_alias=True)
+    assert SchemaValidator(wire_schema(Shelter, "serialization")).issues(dumped) == []
+
+
+def test_a_one_of_refused_a_value_that_fits_both_members() -> None:
+    # Why an `anyOf`: a cat's `{"meows": 2}` fits the dog too, whose fields all have defaults.
+    value = {"pet": {"meows": 2}}
+    for mode in MODES:
+        schema = wire_schema(Shelter, mode)
+        before = json.loads(json.dumps(schema).replace('"anyOf"', '"oneOf"'))
+        assert SchemaValidator(before).issues(value) != []
+        assert SchemaValidator(schema).issues(value) == []
 
 
 def test_a_property_named_discriminator_stays() -> None:
