@@ -252,11 +252,11 @@ export const devCommand: LeafCommand = {
         'Let `docker compose` recreate the bundled Postgres if its definition changed (needs compose). By default an existing container is reused.',
     },
     // The runtime's and the pack service's records: what's shown, and how.
-    // `--quiet` (a global flag) keeps errors only.
+    // `--quiet` (a global flag) keeps errors and warnings only.
     'log-level': {
       type: 'string',
       description:
-        "The lowest level of the log records shown: error, warn, info, debug or trace. Default: `KINDGI_LOG_LEVEL` (the shell's, then the env files'), else info; with `--quiet`, error.",
+        "The lowest level of the log records shown: error, warn, info, debug or trace. Default: `KINDGI_LOG_LEVEL` (the shell's, then the env files'), else info; with `--quiet`, warn.",
     },
     log: {
       type: 'string',

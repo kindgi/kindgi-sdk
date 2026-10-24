@@ -58,7 +58,7 @@ export interface DevLogView {
   readonly format: 'pretty' | 'json';
   /** Colours in pretty lines: stderr is a terminal and `NO_COLOR` is unset. */
   readonly color: boolean;
-  /** `--quiet`: errors only. */
+  /** `--quiet`: errors and warnings only. */
   readonly quiet: boolean;
 }
 
