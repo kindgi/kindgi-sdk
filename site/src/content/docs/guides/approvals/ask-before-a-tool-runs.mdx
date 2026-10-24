@@ -472,6 +472,8 @@ pnpm exec kindgi schedules update <schedule-id> --allow-unattended=acme-ops.post
 - **A schedule pointed at another agent or flow** must name its list
   again, as it is or `none` (`[]` from your app), or the change is refused
   (`400 bad-input`). A new version of the same one keeps the list.
+  Pointed at improvement passes, it must name `none`, since a pass calls
+  no tools.
 - **Each change is recorded as evidence,**
   `trigger-tools-allowed-unattended-set`, with the list before and after
   and what the trigger runs. It's kept for good, on
