@@ -521,12 +521,13 @@ A run an event trigger starts reads the same, with `startedBy: "event"`.
 - **`kindgi webhooks take-ownership <trigger-id>`:** for a trigger whose owner
   left. Once they're removed from the tenant, or the service account it runs
   as is unregistered, its deliveries are refused (runtime 0.1.9 or later).
-  After 5 deliveries in a row whose run was refused (not for a limit) or
-  failed to start, a trigger pauses itself, with the reason in its
-  `statusReason`. A request turned away before that, such as one that doesn't
-  prove its sender or is past the trigger's
-  [limits](#what-kindgi-does-with-each-request), neither counts nor resets
-  the run of 5. Take the trigger over, then
+  After 5 deliveries in a row whose run was refused or failed to start, a
+  trigger pauses itself, with the reason in its `statusReason`. A run refused
+  for a limit, such as `rate-limited`, or one the database was too busy to
+  start (runtime 0.1.9 or later) neither counts nor starts the count over.
+  Nor does a request turned away before that, such as one that doesn't prove
+  its sender or is past the trigger's
+  [limits](#what-kindgi-does-with-each-request). Take the trigger over, then
   `kindgi webhooks resume <trigger-id>`. Its runs act as you from the next
   delivery. This needs `admin` on the project and `execute` on the flow.
   With `--run-as=<service-account-id>`, the account becomes its owner
