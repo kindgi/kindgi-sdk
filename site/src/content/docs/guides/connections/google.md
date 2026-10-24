@@ -81,6 +81,16 @@ Then choose **Register**. Kindgi shows what to give Google: the
 **Redirect URI** you entered in step 1, and a **RISC receiver (optional)**
 ([When Google ends access](#when-google-ends-access)).
 
+Or register it from the command line:
+
+```sh
+npx --yes @kindgi/cli@0.2 connection-apps add google --client-id=<client-id> --client-secret-ref=production/ACME_GOOGLE_CONNECT_SECRET
+```
+
+The command prints the registration as JSON: its `redirectUrl` is the
+Redirect URI, and its `noticesUrl` the RISC receiver.
+`--projects=<project-id>,…` lets only those projects' runs use it.
+
 ## 4. Connect
 
 Each person connects their own account. In a project, open
