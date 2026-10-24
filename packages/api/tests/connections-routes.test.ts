@@ -364,6 +364,26 @@ describe('GET /v1/connection-entries', () => {
       notices: 'github-webhooks',
     });
   });
+
+  test("a field an entry's tenant or removal carries that the schema doesn't list stays off the wire", async () => {
+    const oauth2 = microsoft.signIn as Extract<SignIn, { kind: 'oauth2' }>;
+    const ahead = {
+      ...microsoft,
+      id: 'acme-ahead',
+      signIn: { ...oauth2, tenant: { default: 'organizations', region: 'eu' } },
+      removal: { ...google.removal, reportsTo: 'acme-hook' },
+    } as AppEntry;
+    const { app } = makeApp({ entries: [ahead] });
+    const res = await call(app, 'ana', 'GET', '/v1/connection-entries');
+    expect(res.status).toBe(200);
+    const [entry] = res.json.data;
+    expect(entry.signIn).toEqual({ kind: 'oauth2', tenant: { default: 'organizations' } });
+    expect(entry.removal).toEqual({
+      revoke: 'oauth2-revoke',
+      revokeIsGrantWide: true,
+      notices: 'google-risc',
+    });
+  });
 });
 
 describe('/v1/connection-apps', () => {
