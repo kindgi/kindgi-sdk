@@ -5,7 +5,7 @@
 "@kindgi/cli": patch
 ---
 
-**A stdio MCP server's secret goes by reference, never in plaintext `config.env`** (runtime 0.1.12 or later).
+**A stdio MCP server's secret goes by reference, never in plaintext `config.env`** (runtime 0.3.0 or later).
 - **New field, `secretEnv`:** a stdio endpoint's secret variables, each name with the secret its value is read from when the runtime starts the server. The value is never stored with the endpoint or answered:
   ```json
   "secretEnv": { "GITHUB_TOKEN": { "envName": "production", "name": "FILES_GITHUB_TOKEN" } }
@@ -18,7 +18,7 @@
 - **`secretRef` on a `stdio` endpoint is refused** (`secret-ref-on-stdio`): it's sent as a bearer header, and a stdio server gets no headers. Use `secretEnv`.
 - **What a process's environment can't carry is refused** (`invalid-stdio-env`): an empty `config.env` name, `=` or a NUL in a name, a NUL in a value. The message names the variable, never the value.
 - **Endpoints registered before keep working.** `kindgi doctor` has a new check, MCP endpoint env (`mcp-env`). It lists each stdio endpoint on the runtime the CLI points at that keeps a credential-named variable in `config.env`, or a `secretRef`, with the fix. It's a warning: the endpoint still works.
-- **If you roll back** to a runtime older than 0.1.12, an endpoint registered with `secretEnv` before the rollback starts without those variables. The server fails its own calls, and no value is exposed. Registering one with `secretEnv` there is refused (`invalid-mcp-endpoint`, reason `unknown-field`): that runtime doesn't know the field.
+- **If you roll back** to a runtime older than 0.3.0, an endpoint registered with `secretEnv` before the rollback starts without those variables. The server fails its own calls, and no value is exposed. Registering one with `secretEnv` there is refused (`invalid-mcp-endpoint`, reason `unknown-field`): that runtime doesn't know the field.
 - **New exports:**
   - `@kindgi/types`: `isCredentialName()`, the rule both `isCredentialHeaderName()` and `isCredentialEnvName()` apply;
   - `@kindgi/api`: `isCredentialEnvName()`, `MCP_SECRET_ENV_MAX` and `REDACTED_ENV_VALUE`;
