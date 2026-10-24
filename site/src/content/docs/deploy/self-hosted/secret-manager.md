@@ -43,6 +43,16 @@ in a secret manager already, Kindgi can keep them there instead.
 - **Tools, providers and endpoints still name a secret the same way,** by
   its name in an env ([Store a secret](../../../guides/secrets/store-a-secret/)).
   Only where its values live changes.
+- **A name outside the rule for new names**
+  ([Store a secret](../../../guides/secrets/store-a-secret/)) isn't sent to
+  your secret manager. A secret stored under one can't be read or rotated:
+  it's refused with `secret-store-error`, and `kindgi secrets set` refuses
+  the name with `secret-name-invalid`. Store its value again under a name
+  that fits, point what uses it at the new name, then revoke the old one.
+  Revoking it leaves its value in your secret manager, so delete it there
+  too. `--hard` can't erase it either: the old name is revoked as without
+  it, so `kindgi secrets list --include-revoked` still shows it, and the
+  answer is `secret-store-error` to say the value is left there.
 
 ## Choose the backend
 
@@ -131,7 +141,7 @@ KINDGI_AWS_IDENTITY=container    # or instance, or web-identity
   operations are eventually consistent"
   ([AWS](https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_ListSecrets.html)).
   Within the window, an AWS admin can restore it, until the name is set
-  again in Kindgi.
+  again in Kindgi. With `--hard`, see [Revoking for good](#revoking-for-good).
 
 At startup, the runtime checks it can reach Secrets Manager as its identity,
 and says where it keeps secrets (`2017-10-17` is Secrets Manager's API
@@ -191,7 +201,8 @@ KINDGI_SECRETS_AZURE_VAULT_URL=https://<vault>.vault.azure.net
 - **What Kindgi writes:** one Key Vault secret per Kindgi secret, under a
   hashed name (`kindgi-…`), each version tagged with Kindgi's number
   (`kindgi-version`).
-- **Revoking** a secret disables its versions in Key Vault.
+- **Revoking** a secret disables its versions in Key Vault. With `--hard`,
+  see [Revoking for good](#revoking-for-good).
 
 At startup, the runtime checks it can reach the vault, and says so:
 
@@ -219,7 +230,8 @@ KINDGI_SECRETS_GCP_PROJECT_ID=<project id>
   a hashed id, labelled with its tenant (`kindgi_tenant_id`) and annotated
   with its Kindgi path (`kindgi-path`). Its versions are numbered as
   Kindgi's.
-- **Revoking** a secret disables every one of its versions.
+- **Revoking** a secret disables every one of its versions. With `--hard`,
+  see [Revoking for good](#revoking-for-good).
 
 At startup, the runtime checks it can use Secret Manager in the project, and
 says where it keeps secrets:
@@ -283,6 +295,7 @@ KINDGI_SECRETS_VAULT_TOKEN_FILE=/var/run/kindgi/vault-token
   ```
 
 - **Revoking** a secret soft-deletes every one of its versions in Vault.
+  With `--hard`, see [Revoking for good](#revoking-for-good).
 
 At startup, the runtime checks the token's access and says where it keeps
 secrets:
@@ -313,6 +326,50 @@ doesn't start either (exit code 2). The part after `403:` is Vault's own:
 ```text
 Secrets manager probe failed at boot: unauthorized: Vault probe failed: Vault's Kubernetes login (auth/kubernetes, role kindgi-runtime) answered 403: service account name not authorized. Check that the role exists, binds this service account and namespace, and that the auth method can review tokens. Check …
 ```
+
+## Revoking for good
+
+`kindgi secrets revoke <NAME> --env=<runtime env> --scope=<kind>[:id] --hard`
+(`DELETE /v1/secrets/{name}?hard=true`) erases a secret's values at Kindgi.
+It needs the `secrets:revoke:hard` capability
+([Who can do what](../../people-and-keys/#who-can-do-what)), and it can't be
+undone:
+
+- No read, list or version shows the secret again. A read answers as for a
+  name never used there: `secret-not-found`, or the same name's value at a
+  wider scope.
+- Its name and the revoke stay on record for the audit trail.
+- Setting the name again later stores a new value under it.
+
+What's left after that follows where the values were:
+
+- **Kindgi's own store** (`KINDGI_SECRETS_BACKEND=postgres`): every
+  version's encrypted value and its wrapped key are cleared in the database
+  at once.
+  - Copies made before then stay in Postgres's write-ahead log, its replicas
+    and its backups, until your backup retention ages them out.
+  - The KMS key isn't destroyed, since it wraps every secret's key. So a
+    backup from before the revoke, with the KMS key and the AAD key
+    ([Back up and restore](../back-up-and-restore/)), still decrypts the
+    value until the backup ages out.
+  - Restoring a backup from before the revoke brings the secret back as it
+    was, so revoke it again after the restore.
+- **AWS Secrets Manager:** the secret is deleted with no recovery window, so
+  it can't be restored.
+- **Google Secret Manager:** the secret is deleted with all its versions,
+  which Google calls irreversible.
+- **HashiCorp Vault or OpenBao:** every version is destroyed, then the
+  secret's metadata. Backups of Vault's own storage keep them until they age
+  out.
+- **Azure Key Vault:** the secret is deleted, and Key Vault keeps it
+  soft-deleted for the vault's retention period: 7 to 90 days, set when the
+  vault was made
+  ([Microsoft](https://learn.microsoft.com/en-us/azure/key-vault/general/soft-delete-overview)).
+  - Within that period, a vault admin can recover it, with its versions as
+    they were.
+  - Setting the name again in Kindgi within that period recovers it too,
+    old versions included, before the new value is written. Kindgi never
+    reads the old ones, but they're back in the vault as they were.
 
 ## Next
 
