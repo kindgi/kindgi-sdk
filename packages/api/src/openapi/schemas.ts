@@ -12808,6 +12808,12 @@ export const SecretRevokeOutcomeSchema: JsonSchema = {
   properties: {
     revoked: { type: 'boolean' },
     hard: { type: 'boolean' },
+    recoverableUntil: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "A hard revoke left a copy your secret manager can still recover (for example Azure Key Vault's soft delete, when the vault doesn't allow a purge or the runtime isn't permitted to purge): when the secret manager purges it on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. Absent on a soft revoke, and when a hard revoke left nothing recoverable.",
+    },
   },
 };
 
@@ -13004,6 +13010,12 @@ export const SecretRevokeResultSchema: JsonSchema = {
   properties: {
     revoked: { type: 'boolean' },
     hard: { type: 'boolean' },
+    recoverableUntil: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "A hard revoke left a copy your secret manager can still recover (for example Azure Key Vault's soft delete, when the vault doesn't allow a purge or the runtime isn't permitted to purge): when the secret manager purges it on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. Absent on a soft revoke, and when a hard revoke left nothing recoverable.",
+    },
   },
 };
 

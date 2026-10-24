@@ -9903,7 +9903,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'secrets.revoke',
     summary: 'Revoke a secret',
     description:
-      'Requires the `secrets:revoke` capability (soft-revoke) or `secrets:revoke:hard` when `?hard=true` (cryptographic erasure). Optional `?reason=<text>` records the revoke reason.',
+      "Requires the `secrets:revoke` capability (soft-revoke), or `secrets:revoke:hard` when `?hard=true`: that erases the value at Kindgi and hard-deletes it in a secret manager, and can't be undone. Backups, and a secret manager's own retention, may keep copies for a time. If your secret manager keeps a recoverable copy, the answer's `recoverableUntil` says until when. Optional `?reason=<text>` records the revoke reason.",
     tags: ['secrets'],
     security: 'bearer',
     parameters: [
@@ -9915,7 +9915,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         name: 'hard',
         in: 'query',
         required: false,
-        description: 'Set to `true` to perform cryptographic erasure.',
+        description:
+          "Set to `true` to erase the value, which can't be undone. Backups, and a secret manager's own retention, may keep copies for a time. If your secret manager keeps a recoverable copy, the answer's `recoverableUntil` says until when.",
         schema: { type: 'boolean' },
       },
       {

@@ -10,6 +10,10 @@ same version, and the CLI's own changes are in
 
 ## Unreleased
 
+- `kindgi`: **`SecretRevokeOutcome` and `SecretRevokeResult` gain an optional
+  `recoverable_until`**: when a hard revoke left a copy your secret manager can
+  still recover, until when it keeps it. It's `None` on a soft revoke, and
+  when a hard revoke left nothing recoverable.
 - `kindgi`: **`ScheduleRecord`, `WebhookTriggerRecord`, their register and
   patch bodies, and `Run` gain `tools_allowed_unattended`**: the tools whose
   calls in a webhook's or a schedule's runs needn't wait for a person's yes.
@@ -27,6 +31,10 @@ same version, and the CLI's own changes are in
   `better` false. A judged comparison's summary gains `cost_usd`
   (`JudgedComparisonCost`) and `corrections.judgments`, and each case result
   gains `cost_usd`, one per repetition.
+- `kindgi`: **`secrets.revoke`'s docstrings say what a hard revoke does**: it
+  erases the value at Kindgi and hard-deletes it in a secret manager, and
+  can't be undone; backups, and a secret manager's own retention, may keep
+  copies for a time. They no longer call it cryptographic erasure.
 
 ## 0.1.10
 

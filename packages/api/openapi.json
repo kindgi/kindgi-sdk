@@ -203,7 +203,7 @@
     },
     {
       "name": "secrets",
-      "description": "Sensitive per-env values (`/v1/secrets/*`). The ONLY endpoint that accepts plaintext is `POST /v1/secrets`; every other route is metadata-only (`value` NEVER returns on list / get / listVersions / getVersion — structural redaction). Rotation is discriminated: sync providers return 201 inline, async providers return 202 with a status URL + SSE events URL. Hard-revoke performs cryptographic erasure. Every mutating route is capability-gated (`secrets:write`, `secrets:rotate`, `secrets:revoke`, `secrets:revoke:hard`)."
+      "description": "Sensitive per-env values (`/v1/secrets/*`). The ONLY endpoint that accepts plaintext is `POST /v1/secrets`; every other route is metadata-only (`value` NEVER returns on list / get / listVersions / getVersion — structural redaction). Rotation is discriminated: sync providers return 201 inline, async providers return 202 with a status URL + SSE events URL. A hard revoke erases the value, which can't be undone; backups, and a secret manager's own retention, may keep copies for a time. Every mutating route is capability-gated (`secrets:write`, `secrets:rotate`, `secrets:revoke`, `secrets:revoke:hard`)."
     },
     {
       "name": "schedules",
@@ -22123,6 +22123,11 @@
           },
           "hard": {
             "type": "boolean"
+          },
+          "recoverableUntil": {
+            "type": "string",
+            "format": "date-time",
+            "description": "A hard revoke left a copy your secret manager can still recover (for example Azure Key Vault's soft delete, when the vault doesn't allow a purge or the runtime isn't permitted to purge): when the secret manager purges it on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. Absent on a soft revoke, and when a hard revoke left nothing recoverable."
           }
         }
       },
@@ -22437,6 +22442,11 @@
           },
           "hard": {
             "type": "boolean"
+          },
+          "recoverableUntil": {
+            "type": "string",
+            "format": "date-time",
+            "description": "A hard revoke left a copy your secret manager can still recover (for example Azure Key Vault's soft delete, when the vault doesn't allow a purge or the runtime isn't permitted to purge): when the secret manager purges it on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. Absent on a soft revoke, and when a hard revoke left nothing recoverable."
           }
         }
       },
@@ -56505,7 +56515,7 @@
             }
           }
         },
-        "description": "Requires the `secrets:revoke` capability (soft-revoke) or `secrets:revoke:hard` when `?hard=true` (cryptographic erasure). Optional `?reason=<text>` records the revoke reason.",
+        "description": "Requires the `secrets:revoke` capability (soft-revoke), or `secrets:revoke:hard` when `?hard=true`: that erases the value at Kindgi and hard-deletes it in a secret manager, and can't be undone. Backups, and a secret manager's own retention, may keep copies for a time. If your secret manager keeps a recoverable copy, the answer's `recoverableUntil` says until when. Optional `?reason=<text>` records the revoke reason.",
         "parameters": [
           {
             "name": "name",
@@ -56552,7 +56562,7 @@
               "type": "boolean"
             },
             "required": false,
-            "description": "Set to `true` to perform cryptographic erasure."
+            "description": "Set to `true` to erase the value, which can't be undone. Backups, and a secret manager's own retention, may keep copies for a time. If your secret manager keeps a recoverable copy, the answer's `recoverableUntil` says until when."
           },
           {
             "name": "reason",
