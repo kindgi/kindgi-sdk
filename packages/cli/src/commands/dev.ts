@@ -304,6 +304,15 @@ function emitProblem(msg: string): void {
   stoppingLineOpen = false;
 }
 
+/** The dev sandbox's lines, then its warnings: those are said under `--quiet` too. */
+function emitSandboxLines(outcome: {
+  readonly lines: readonly string[];
+  readonly warnings: readonly string[];
+}): void {
+  for (const line of outcome.lines) emitProgress(line);
+  for (const line of outcome.warnings) emitProblem(line);
+}
+
 /**
  * How logs show this session (`dev/log-view.ts`): set from the flags as
  * `runDev` starts, and again once the env files are read.
@@ -552,7 +561,7 @@ async function runDevForPack(
   if (devSandbox.kind === 'error') {
     return { kind: 'error', stderr: `kindgi dev: ${devSandbox.message}\n`, exitCode: 1 };
   }
-  for (const line of devSandbox.lines) emitProgress(line);
+  emitSandboxLines(devSandbox);
   const sandboxNotices = new Set<string>();
 
   // The runtime's port, before anything starts. Taken without `--port`
@@ -820,7 +829,9 @@ async function runDevForPack(
     ...(devOnly !== undefined && {
       onBuild: async (build) => {
         if (build.externals === undefined) return;
-        for (const line of await devOnly.check(build.externals)) emitProgress(`  ${line}`);
+        const checked = await devOnly.check(build.externals);
+        for (const line of checked.warnings) emitProblem(`  ${line}`);
+        for (const line of checked.lines) emitProgress(`  ${line}`);
       },
     }),
   });
@@ -2126,7 +2137,9 @@ async function applyDeclaredProviders(inputs: {
     );
     return;
   }
-  for (const line of describeReconcile(result.outcomes, inputs)) emitProgress(line);
+  for (const line of describeReconcile(result.outcomes, inputs)) {
+    (line.problem ? emitProblem : emitProgress)(line.text);
+  }
   try {
     await writeOwnedProviders(recordPath, inputs.key, result.owned);
   } catch (err) {

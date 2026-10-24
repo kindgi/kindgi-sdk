@@ -1349,6 +1349,42 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(await boot()).not.toContain(hint);
   });
 
+  test('under --quiet the providers that need a look are said, under their heading; the ones that went fine are not', async () => {
+    await writeFile(
+      join(packDir, 'kindgi.config.ts'),
+      "export default { pack: { id: 'my-pack', version: '0.1.0' }, providers: [{ preset: 'anthropic' }, { preset: 'gemini', project: 'acme-gcp', models: ['gemini-3.5-flash-lite'] }] };\n",
+      'utf8',
+    );
+    for (const flags of LOUD_AND_QUIET) {
+      // The key isn't in the env files: anthropic is skipped, gemini registered.
+      await rm(join(packDir, '.kindgi', 'dev', 'providers.json'), { force: true });
+      const said = await bootSaid(makeFixtures(), flags);
+      expect(said).toContain('Providers from kindgi.config.ts:\n');
+      expect(said).toContain(
+        '  ⚠ anthropic: not registered: ANTHROPIC_API_KEY is not in .env, .env.local, .kindgi/secrets.env.',
+      );
+      expect(said.includes('  ✓ gemini: registered\n')).toBe(flags.length === 0);
+      expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
+    }
+  });
+
+  test('under --quiet providers that all went fine say nothing, not even the heading', async () => {
+    await writeFile(
+      join(packDir, 'kindgi.config.ts'),
+      "export default { pack: { id: 'my-pack', version: '0.1.0' }, providers: [{ preset: 'gemini', project: 'acme-gcp', models: ['gemini-3.5-flash-lite'] }] };\n",
+      'utf8',
+    );
+    const fixtures = makeFixtures();
+    const first = await bootSaid(fixtures, ['--quiet']);
+    expect(first).not.toContain('Providers from');
+    // The next boot finds it unchanged: the one line is progress.
+    const second = await bootSaid(fixtures, ['--quiet']);
+    expect(second).not.toContain('Providers from');
+    expect(await bootSaid(fixtures)).toContain(
+      '✓ Providers from kindgi.config.ts: gemini (unchanged)',
+    );
+  });
+
   test('a malformed provider in the config stops the boot before anything starts', async () => {
     await writeFile(
       join(packDir, 'kindgi.config.ts'),
@@ -2120,6 +2156,53 @@ describe("kindgi dev — imports a deployed pack wouldn't have", () => {
     ]);
     // Where the pack stood when kindgi dev stopped.
     expect(JSON.parse(out.stdout).devOnlyImports).toEqual([nanoid]);
+  });
+
+  test('under --quiet the warning at boot is still said', async () => {
+    await manifest({ dependencies: { zod: '^4.0.0' }, devDependencies: { ms: '^2.1.3' } });
+    const fixtures = makeFixtures({ externals: [ms, { name: 'zod', importers: ['tools/a.ts'] }] });
+    const said = await bootSaid(fixtures, ['--quiet']);
+    expect(said.split('\n').filter((line) => line.includes(WARNING))).toEqual([
+      "    ⚠ The pack imports ms (in tools/clock/index.ts), which package.json lists only in devDependencies: a deployed pack installs production dependencies only, so it won't load there. Move it to dependencies (kindgi build refuses until then).",
+    ]);
+    expect(said).not.toContain(BOOT_PROGRESS);
+  });
+
+  test('under --quiet on a save: a new one still warns; one moved to dependencies is not reported', async () => {
+    await manifest({ devDependencies: { ms: '^2.1.3', nanoid: '^5.0.0' } });
+    const controller = new AbortController();
+    const fixtures = makeFixtures({ externals: [ms] });
+    const { writes, restore } = captureStderr();
+    let out: Awaited<ReturnType<typeof runCli>>;
+    try {
+      const promise = runCli({
+        ...baseInputs(fixtures, { stopSignal: controller.signal }),
+        argv: ['dev', '--quiet', `--path=${packDir}`],
+      });
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(3), WAIT);
+      expect(linesWith(writes, { stderr: '' }, 'The pack imports ms')).toHaveLength(1);
+
+      // A save that imports nanoid too: a warning for nanoid only.
+      fixtures.triggerChange(build(ms, nanoid));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(2), WAIT);
+      expect(linesWith(writes, { stderr: '' }, WARNING)).toEqual([
+        expect.stringContaining('The pack imports ms (in tools/clock/index.ts), which'),
+        expect.stringContaining('The pack imports nanoid (in lib/ids.ts, tools/a.ts), which'),
+      ]);
+
+      // ms moves to dependencies: that line is progress, so --quiet leaves it out.
+      await manifest({ dependencies: { ms: '^2.1.3' }, devDependencies: { nanoid: '^5.0.0' } });
+      fixtures.triggerChange(build(ms, nanoid));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(3), WAIT);
+      fixtures.triggerChange(build(ms, nanoid));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(4), WAIT);
+      controller.abort();
+      out = await promise;
+    } finally {
+      restore();
+    }
+    expect(linesWith(writes, out, WARNING)).toHaveLength(2);
+    expect(linesWith(writes, out, 'no longer imports')).toEqual([]);
   });
 
   test("the builder gets the pack's config: a pack image bundles it, so its imports count", async () => {
@@ -3341,6 +3424,47 @@ describe('kindgi dev — what --quiet keeps (warnings)', () => {
       expect(said).toContain(
         '⚠ This preview runtime (0.1.8) stops starting on 2027-01-18, in 20 days.',
       );
+      expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
+    }
+  });
+});
+
+describe('kindgi dev — the dev sandbox', () => {
+  const unavailable = async () =>
+    ({
+      kind: 'unavailable',
+      reason: "bubblewrap (bwrap) isn't installed",
+      fix: 'Install bubblewrap.',
+    }) as const;
+  const WARNING =
+    '⚠ Your tools run without the dev sandbox on this system: they can read your files and keys.';
+
+  test('without one on this system: the warning, why and the fix, under --quiet too', async () => {
+    for (const flags of LOUD_AND_QUIET) {
+      const fixtures = makeFixtures();
+      const devRunners: DevRunners = { ...fixtures.runners, detectSandbox: unavailable };
+      const said = await bootSaid(fixtures, flags, { devRunners });
+      expect(said).toContain(`${WARNING}\n`);
+      expect(said).toContain("  Why: bubblewrap (bwrap) isn't installed. Install bubblewrap.\n");
+      expect(said).toContain('KINDGI_DEV_SANDBOX=required');
+      expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
+    }
+  });
+
+  test('available: its line is progress, so --quiet leaves it out', async () => {
+    const loud = await bootSaid(makeFixtures());
+    expect(loud).toContain('✓ dev sandbox: ');
+    const quiet = await bootSaid(makeFixtures(), ['--quiet']);
+    expect(quiet).not.toContain('dev sandbox');
+  });
+
+  test('off: the warning is said under --quiet too', async () => {
+    for (const flags of LOUD_AND_QUIET) {
+      const fixtures = makeFixtures();
+      const said = await bootSaid(fixtures, flags, {
+        env: { ...baseInputs(fixtures).env, KINDGI_DEV_SANDBOX: 'off' },
+      });
+      expect(said).toContain('⚠ dev sandbox: off (KINDGI_DEV_SANDBOX=off): ');
       expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
     }
   });
