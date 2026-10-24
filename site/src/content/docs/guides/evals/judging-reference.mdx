@@ -26,7 +26,7 @@ shows. To judge a run, follow [Judge a run's output](../judge-a-runs-output/).
 - **A judgment keeps copies** of the run's input and output, so it outlives
   the run's own retention.
 - **Judging a run takes write access** to its project, as cancelling it does.
-- **What it should have done** (runtime 0.1.11 or later): a correction of
+- **What it should have done** (runtime 0.2.0 or later): a correction of
   an agent's run can say it, in `correction: { calls, notCalled }`. Each of
   `calls` is `{ tool, args }`, and each of `notCalled` is a tool id. Both
   lists are required, and one of them can be empty. It's about the whole

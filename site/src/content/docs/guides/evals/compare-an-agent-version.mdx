@@ -349,7 +349,7 @@ restricted afterwards:
 
 When the test cases' runs have corrections that say
 [what the run should have done](../judge-a-runs-output/#say-what-it-should-have-done)
-(runtime 0.1.11 or later), each one is checked against what the version
+(runtime 0.2.0 or later), each one is checked against what the version
 did on that case:
 
 ```text
@@ -399,7 +399,7 @@ tool with the same arguments.
   call needs an approval, or reaches outside. The case shows what it would
   have done, and `refusedWrites` counts these calls.
 - **A case with a correction that says what the run should have done
-  replays strictly** (runtime 0.1.11 or later): no tool runs live, even
+  replays strictly** (runtime 0.2.0 or later): no tool runs live, even
   with `--reads=live`, or when the version pins other settings blocks. A
   read gets the past run's result for the same call, or doesn't run: the
   model is told

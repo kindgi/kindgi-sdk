@@ -114,7 +114,7 @@ the correction's reason and the run, you have what the agent did and what it
 should have done.
 
 An expert can also have said exactly what the run should have done (runtime
-0.1.11 or later): the judgment then has a `correction`, with `calls` (each
+0.2.0 or later): the judgment then has a `correction`, with `calls` (each
 `{ tool, args }`, with only the argument fields that matter) and `notCalled`
 (the tools it shouldn't have called). Take those as what the pack test
 asserts. It's the expert's: never record or change a correction yourself.
