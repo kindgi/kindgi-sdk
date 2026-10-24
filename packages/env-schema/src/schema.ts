@@ -683,6 +683,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_CONSOLE_LINKS',
+    description:
+      "The deployment's own links, such as its help desk, status page or data processing terms (sign-in options' `links`). The console shows them in the person menu, under Docs, and in a line at the foot of every page, the sign-in page too. A JSON object, in the order written: each name is the label shown, each value an absolute https URL with no username or password. At most 8 links; a label is 1 to 40 characters once trimmed, not only digits, with no control or format character, and not another link's once trimmed. Anything else, and the runtime refuses to start. Unset: the console shows no links of the deployment's own. The sign-in page's terms and privacy links are `KINDGI_AUTH_TERMS_URL` and `KINDGI_AUTH_PRIVACY_URL`.",
+    example: '{"Help":"https://example.com/help","Status":"https://status.example.com"}',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_TRUSTED_PROXIES',
     description:
       "Which proxies in front of the runtime to trust for the client's address, which rate limits and audit records use. Unset: the connection's peer, and `X-Forwarded-For` is ignored (anyone can send it). A hop count (`1` behind one proxy such as a cloud load balancer or ingress, `2` behind two) or comma-separated IPs/CIDR ranges of your proxies: the client is the first `X-Forwarded-For` hop, from the right, that isn't one of them; never the leftmost on its own. Behind a proxy without this, every client counts as the proxy, so rate limits are shared by everyone.",

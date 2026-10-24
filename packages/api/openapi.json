@@ -16344,6 +16344,28 @@
           }
         }
       },
+      "ConsoleLink": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "label",
+          "url"
+        ],
+        "description": "One of the deployment's own links, which the console shows on every page.",
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "description": "The text shown."
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "An absolute https URL with no username or password."
+          }
+        }
+      },
       "SignInOptions": {
         "type": "object",
         "additionalProperties": false,
@@ -16410,6 +16432,14 @@
                 "format": "uri",
                 "description": "Its privacy policy."
               }
+            }
+          },
+          "links": {
+            "type": "array",
+            "maxItems": 8,
+            "description": "The deployment's own links (its help desk, status page, data processing terms), which the console shows on every page, the sign-in page too, in its operator's order. Absent when there are none, and from older servers.",
+            "items": {
+              "$ref": "#/components/schemas/ConsoleLink"
             }
           }
         }
@@ -46511,7 +46541,7 @@
             }
           }
         },
-        "description": "Public: nobody is signed in yet. With `email`, the ways in for that email's domain: the identity providers of the one tenant the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, \"Continue with Google\"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).",
+        "description": "Public: nobody is signed in yet. With `email`, the ways in for that email's domain: the identity providers of the one tenant the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, \"Continue with Google\"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Lookups with an email are rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`); a read without one, the same for everyone, isn't counted.",
         "parameters": [
           {
             "name": "email",

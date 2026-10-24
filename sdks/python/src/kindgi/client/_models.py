@@ -7478,6 +7478,25 @@ class SignInOption(BaseModel):
     """
 
 
+class ConsoleLink(BaseModel):
+    """
+    One of the deployment's own links, which the console shows on every page.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    label: Annotated[str, Field(max_length=40, min_length=1)]
+    """
+    The text shown.
+    """
+    url: AnyUrl
+    """
+    An absolute https URL with no username or password.
+    """
+
+
 class EmailLink(BaseModel):
     """
     Present when the deployment emails sign-in links: a sign-in page offers "Email me a sign-in link". With `captchaSiteKey`, the request needs a Cloudflare Turnstile token (`x-captcha-response`).
@@ -7551,6 +7570,10 @@ class SignInOptions(BaseModel):
     legal: Legal | None = None
     """
     The deployment's terms and privacy policy, for a sign-in page to link: only the ones its operator set, each an absolute https URL with no username or password. Absent when neither is set, and from older servers.
+    """
+    links: Annotated[list[ConsoleLink] | None, Field(max_length=8)] = None
+    """
+    The deployment's own links (its help desk, status page, data processing terms), which the console shows on every page, the sign-in page too, in its operator's order. Absent when there are none, and from older servers.
     """
 
 
