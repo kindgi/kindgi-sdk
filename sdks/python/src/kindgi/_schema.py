@@ -214,9 +214,10 @@ def compile_problem(schema: Mapping[str, Any]) -> str | None:
     """Why the runtime's compile of an inline schema refuses `schema`: it isn't valid Draft
     2020-12, or its strict mode refuses it (`strict_schema_problem`). `None` when it compiles.
 
-    Then, of a schema the runtime compiles, a pattern Python's `re` can't read, which JavaScript
-    does: this SDK can't check data against it (`SchemaValidator`), so it's refused here too, as
-    `check_schema` refuses it."""
+    Then, of a schema the runtime compiles, any pattern it holds that Python's `re` can't read,
+    as `check_schema` refuses it: one JavaScript reads, which this SDK can't check data against
+    (`SchemaValidator`), and also one the runtime never compiles (in a `$defs` schema no `$ref`
+    reaches, say)."""
     try:
         # The runtime checks a schema against the meta-schema without its formats: a pattern's
         # syntax is its compile's to refuse.

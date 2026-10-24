@@ -106,14 +106,23 @@ jobs:
       # The SDKs read a pattern's syntax as the runtime's JavaScript does:
       # packages/specs/test-vectors/regexp-syntax/answers.json holds what this
       # Node's `new RegExp` says to each source of the corpus, with the u flag
-      # and without, and the Unicode tables the SDKs read are this Node's. The
-      # Python and Java tests replay the answers.
-      - name: Regular-expression test vectors and tables are current
-        run: node scripts/regexp-syntax-oracle.mjs --check && node scripts/regexp-tables.mjs --check
+      # and without. The Python and Java tests replay the answers.
+      - name: Regular-expression test vectors are current
+        run: node scripts/regexp-syntax-oracle.mjs --check
 
       - name: Docs ship with the change
         if: github.event_name == 'pull_request'
         run: pnpm run check:docs-ship
+
+      # The Unicode tables the SDKs read (a group name's characters, the names
+      # \p{…} takes) are those of the runtime's Node, so they're checked on the
+      # Node of the runtime's image, not the newest 22.x: this version follows
+      # the image's. Last, so no other step runs on it.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22.21.1"
+      - name: Regular-expression tables are current
+        run: node scripts/regexp-tables.mjs --check
 
   # Independent of `checks` (no `needs:`) so a lint failure never hides
   # test results. Require both jobs in the main-branch ruleset.

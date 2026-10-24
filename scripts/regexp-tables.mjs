@@ -14,6 +14,8 @@
 //
 // The UCD files aren't kept in the repository. Take them from
 // https://www.unicode.org/Public/<version>/ucd/ for the version process.versions.unicode names.
+// CI checks the tables on the Node of the runtime's image (.github/workflows/ci.yml), so write
+// them with that Node.
 //
 //   node scripts/regexp-tables.mjs <ucd dir>   # write the tables
 //   node scripts/regexp-tables.mjs --check     # fail when they're stale (no UCD needed)
@@ -333,11 +335,21 @@ function check() {
       // Not written yet: stale.
     }
     if (current !== writer.render(t)) {
-      console.error(`regexp-tables: ${writer.path} is stale; run node scripts/regexp-tables.mjs`);
+      const written = /\(Unicode ([\d.]+)\)/.exec(current)?.[1] ?? 'none';
+      console.error(
+        `regexp-tables: ${writer.path} is stale: this Node (${process.version}, Unicode ${process.versions.unicode}) renders it otherwise; the file says Unicode ${written}`,
+      );
       stale = true;
     }
   }
-  if (stale) process.exit(1);
+  if (stale) {
+    // The UCD's directories name a release in full: Unicode 16.0 is 16.0.0.
+    const release = process.versions.unicode.split('.').concat('0', '0').slice(0, 3).join('.');
+    console.error(
+      `regexp-tables: on Node ${process.version}, take PropertyAliases.txt and PropertyValueAliases.txt from https://www.unicode.org/Public/${release}/ucd/ and run node scripts/regexp-tables.mjs <their dir>`,
+    );
+    process.exit(1);
+  }
   console.log(
     `regexp-tables: the tables are current (Unicode ${process.versions.unicode}, ${universe.size} names)`,
   );
