@@ -6,15 +6,17 @@ sidebar:
 ---
 
 When you finish this page, your deployment's people have their own
-sign-ins, roles and API keys. Your pipelines have service accounts, with
-only what they need. You can also remove someone in one step.
+sign-ins and API keys, and your pipelines have service accounts. With
+[authorization](../authorization/) on, each has a role, with only what they
+need. You can also remove someone in one step.
 
-With [authorization](../authorization/) on, a tenant has **people**, each
-with their own sign-in and API keys. It also has **service accounts**, which
-act for a pipeline or an app. What each may do is kept in OpenFGA, so turn
-authorization on first. A **tenant admin** adds them. The first one is the
-runtime's seed user: `KINDGI_SEED_USER_ID`, or the API token's user. The
-runtime makes the seed user a tenant admin at every start.
+A tenant has **people**, each with their own sign-in and API keys. It also
+has **service accounts**, which act for a pipeline or an app. A **tenant
+admin** adds them. With authorization on, what each may do is kept in
+OpenFGA, and the first tenant admin is the runtime's seed user:
+`KINDGI_SEED_USER_ID`, or the API token's user. The runtime makes the seed
+user a tenant admin at every start. Without authorization, roles aren't
+checked ([Without authorization](#without-authorization)).
 
 :::note[On Kindgi Cloud]
 Whoever signs up is the workspace's first tenant admin. Authorization is
@@ -24,8 +26,9 @@ as `KINDGI_SEED_USER_ID`, are Kindgi's.
 
 ## Before you start
 
-- **Authorization is on** for your runtime
-  ([Run with authorization](../authorization/)).
+- **For roles:** authorization on for your runtime
+  ([Run with authorization](../authorization/)). Without it, see
+  [Without authorization](#without-authorization).
 - **You're a tenant admin,** such as the seed user.
 - **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
   exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`. The
@@ -35,6 +38,8 @@ as `KINDGI_SEED_USER_ID`, are Kindgi's.
   project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## Who can do what
+
+With authorization on:
 
 - **A tenant admin** does everything in the tenant. They add and remove
   people, make keys for anyone, and change tenant-wide settings: providers,
@@ -62,6 +67,34 @@ Lists hold only what the caller may read.
 Everyone in a tenant reads its settings. Give people from different
 companies different tenants, not different projects of one tenant.
 :::
+
+## Without authorization
+
+A runtime without an authorization store, with no `KINDGI_OPENFGA_API_URL`,
+suits one tenant whose people trust each other: one operator, or a small
+team. `kindgi dev` runs this way. Serving many tenants needs authorization:
+with `KINDGI_TENANCY=multi`, the runtime doesn't start without a store.
+
+- **Everyone it lets in works in every project,** by a sign-in or a key:
+  its agents, runs, conversations and deployments. Writing secrets and
+  environment values still takes its capability: a key made with it
+  carries it, and a sign-in carries none ([API keys](#api-keys)).
+- **Tenant settings are the tenant admin's.** Anyone reads the tenant's
+  policies, model providers, adapters, identity providers and signing keys,
+  and only the tenant admin changes them. Webhook endpoints and compliance
+  evidence are the tenant admin's to read too, as are people, keys for
+  others and service accounts. Anyone else gets `403 permission-denied`.
+- **The tenant admin is whoever uses the runtime's API token,** or an
+  `admin` key made for the seed user, and a console signed in with either
+  ([Signing in with an API token](../self-hosted/sign-in/#signing-in-with-an-api-token)).
+  Someone signed in through an identity provider or an emailed link isn't
+  one, the seed user included.
+- **Roles aren't checked.** A project role you record, and a service
+  account's grants, give nothing more here. Making a person a tenant admin
+  answers `501 person-grants-unsupported`.
+
+[Run with authorization](../authorization/) when people need different
+access, or more than one person needs to be a tenant admin.
 
 ## Add a person
 
@@ -92,8 +125,8 @@ Added to the tenant: they can read its settings. Give them a project role to wor
 An email another person already has is refused with
 `409 identity-user-email-taken`.
 
-Then give them a role on a project. A tenant admin, or an admin of that
-project, adds them by email or by id:
+With authorization on, give them a role on a project next. A tenant admin,
+or an admin of that project, adds them by email or by id:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/memberships" \
