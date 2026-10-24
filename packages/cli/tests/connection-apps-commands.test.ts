@@ -286,6 +286,21 @@ describe('kindgi connection-apps list and get', () => {
     expect(out.stdout).toMatch(/Acme Workspace\s+every/);
     expect(out.stdout).toContain(P1);
     expect(out.stderr).toContain('Next page: --cursor=c2');
+    expect(out.stdout).not.toContain('REMOVED');
+  });
+
+  test('list --include-removed asks for removed ones too, and the table says when', async () => {
+    const { calls, rec } = recorder();
+    const removedAt = '2026-10-24T02:30:00.000Z';
+    const out = await run(['connection-apps', 'list', '--include-removed', '--table'], {
+      connectionApps: {
+        list: rec('list', { data: [{ ...GOOGLE, removedAt }], hasMore: false }),
+      },
+    });
+    expect(out.exitCode).toBe(0);
+    expect(calls).toEqual([['list', { includeRemoved: true }]]);
+    expect(out.stdout).toMatch(/CREATED\s+REMOVED/);
+    expect(out.stdout).toContain(removedAt);
   });
 
   test('get reads one registration', async () => {

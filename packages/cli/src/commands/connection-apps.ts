@@ -142,12 +142,26 @@ const TABLE: TableSpec<ConnectionAppPage, ConnectionApp> = {
   ],
 };
 
+/** `list --include-removed`: when each was removed, too. */
+const TABLE_WITH_REMOVED: TableSpec<ConnectionAppPage, ConnectionApp> = {
+  rows: TABLE.rows,
+  columns: [
+    ...TABLE.columns,
+    { header: 'REMOVED', get: (a) => (a.removedAt !== undefined ? String(a.removedAt) : '') },
+  ],
+};
+
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: "List the tenant's registrations at other apps.",
-  usage: 'kindgi connection-apps list [--limit=<n>] [--cursor=<c>] [--table]',
+  description:
+    "List the tenant's registrations at other apps. Removed ones are left out unless `--include-removed`.",
+  usage: 'kindgi connection-apps list [--include-removed] [--limit=<n>] [--cursor=<c>] [--table]',
   optionSpec: {
+    'include-removed': {
+      type: 'boolean',
+      description: 'Removed registrations too, with when (`removedAt`).',
+    },
     limit: { type: 'string', description: 'Page size.' },
     cursor: { type: 'string', description: 'The next page, from `nextCursor`.' },
   },
@@ -159,11 +173,12 @@ const list: LeafCommand = {
         const limit = integerFlag(ctx, 'limit');
         const cursor = stringFlag(ctx, 'cursor');
         return await ctx.client().connectionApps.list({
+          ...(ctx.options['include-removed'] === true && { includeRemoved: true }),
           ...(limit !== undefined && { limit }),
           ...(cursor !== undefined && { cursor }),
         });
       },
-      TABLE,
+      ctx.options['include-removed'] === true ? TABLE_WITH_REMOVED : TABLE,
     ),
 };
 

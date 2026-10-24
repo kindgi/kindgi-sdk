@@ -139,6 +139,7 @@ describe('kindgi connections list and get', () => {
         `--project=${PROJECT}`,
         '--app=google',
         '--mine',
+        '--include-removed',
         '--limit=10',
         '--cursor=c1',
       ],
@@ -146,7 +147,17 @@ describe('kindgi connections list and get', () => {
     );
     expect(out.exitCode).toBe(0);
     expect(calls).toEqual([
-      ['list', { projectId: PROJECT, app: 'google', owner: 'me', limit: 10, cursor: 'c1' }],
+      [
+        'list',
+        {
+          projectId: PROJECT,
+          app: 'google',
+          owner: 'me',
+          includeRemoved: true,
+          limit: 10,
+          cursor: 'c1',
+        },
+      ],
     ]);
     expect(JSON.parse(out.stdout).data[0].connectionId).toBe(CONNECTION_ID);
   });
@@ -168,6 +179,19 @@ describe('kindgi connections list and get', () => {
       /ana@acme\.example\s+company\s+needs-reconnecting \(invalid-grant\)/,
     );
     expect(out.stderr).toContain('Next page: --cursor=c2');
+    expect(out.stdout).not.toContain('REMOVED');
+  });
+
+  test('list --include-removed --table says when each was removed', async () => {
+    const { rec } = recorder();
+    const removedAt = '2026-10-24T02:30:00.000Z';
+    const gone = { ...CONNECTION, state: 'removed', removedAt, removedReason: 'disconnected' };
+    const out = await run(['connections', 'list', '--include-removed', '--table'], {
+      connections: { list: rec('list', { data: [gone], hasMore: false }) },
+    });
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).toMatch(/LAST USED\s+REMOVED/);
+    expect(out.stdout).toContain(removedAt);
   });
 
   test('get reads one connection', async () => {

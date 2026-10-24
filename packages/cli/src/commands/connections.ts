@@ -120,13 +120,22 @@ const TABLE: TableSpec<ConnectionPage, Connection> = {
   ],
 };
 
+/** `list --include-removed`: when each was removed, too. */
+const TABLE_WITH_REMOVED: TableSpec<ConnectionPage, Connection> = {
+  rows: TABLE.rows,
+  columns: [
+    ...TABLE.columns,
+    { header: 'REMOVED', get: (c) => (c.removedAt !== undefined ? String(c.removedAt) : '') },
+  ],
+};
+
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description:
-    "List connections: a member's own, every one for a tenant admin. `--mine` keeps to your own.",
+    "List connections: a member's own, every one for a tenant admin. `--mine` keeps to your own. Removed ones are left out unless `--include-removed`.",
   usage:
-    'kindgi connections list [--project=<project-id>] [--app=<app>] [--mine] [--limit=<n>] [--cursor=<c>] [--table]',
+    'kindgi connections list [--project=<project-id>] [--app=<app>] [--mine] [--include-removed] [--limit=<n>] [--cursor=<c>] [--table]',
   optionSpec: {
     project: {
       type: 'string',
@@ -134,6 +143,10 @@ const list: LeafCommand = {
     },
     app: { type: 'string', description: "Only this app's, by its entry id: `google`, `github`." },
     mine: { type: 'boolean', description: 'Only your own, even as a tenant admin.' },
+    'include-removed': {
+      type: 'boolean',
+      description: 'Removed connections too, with when (`removedAt`).',
+    },
     limit: { type: 'string', description: 'Page size.' },
     cursor: { type: 'string', description: 'The next page, from `nextCursor`.' },
   },
@@ -150,11 +163,12 @@ const list: LeafCommand = {
           ...(projectId !== undefined && { projectId }),
           ...(app !== undefined && { app }),
           ...(ctx.options.mine === true && { owner: 'me' as const }),
+          ...(ctx.options['include-removed'] === true && { includeRemoved: true }),
           ...(limit !== undefined && { limit }),
           ...(cursor !== undefined && { cursor }),
         });
       },
-      TABLE,
+      ctx.options['include-removed'] === true ? TABLE_WITH_REMOVED : TABLE,
     ),
 };
 

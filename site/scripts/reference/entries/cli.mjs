@@ -1930,6 +1930,10 @@ export const CLI_EXAMPLES = {
       purpose: "List the connections a project's registrations allow.",
       line: 'kindgi connections list --project=<project-id>',
     },
+    {
+      purpose: 'List your connections, removed ones too, as a table.',
+      line: 'kindgi connections list --include-removed --table',
+    },
   ],
   'connections get': [
     {
@@ -1957,6 +1961,10 @@ export const CLI_EXAMPLES = {
     {
       purpose: "List the tenant's registrations, as a table.",
       line: 'kindgi connection-apps list --table',
+    },
+    {
+      purpose: 'List every registration, removed ones too, as a table.',
+      line: 'kindgi connection-apps list --include-removed --table',
     },
   ],
   'connection-apps get': [
