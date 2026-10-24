@@ -57,7 +57,7 @@ from typing import (
 from pydantic import TypeAdapter
 from pydantic_core import to_jsonable_python
 
-from .._schema import SchemaValidator, compile_problem, wire_schema
+from .._schema import SchemaValidator, compile_problem, pattern_problem, wire_schema
 from .context import PauseAnswer, ToolContext
 from .needs import needs_spec_problem
 from .trace import CheckResult, RunTrace
@@ -694,6 +694,12 @@ def _schema(source: Any, mode: Any, where: str, what: str) -> dict[str, Any]:
         # compiles it, so a schema the runtime refuses fails here, not at the deploy or on a dev
         # server's first call.
         problem = compile_problem(schema)
+        if problem is not None:
+            raise DefinitionError(f"{where}: the {what} JSON Schema doesn't compile: {problem}")
+    else:
+        # A derived schema's patterns are the tool's, written for pydantic's engine: check them as
+        # the runtime reads them, so one it refuses fails here, not at the deploy.
+        problem = pattern_problem(schema)
         if problem is not None:
             raise DefinitionError(f"{where}: the {what} JSON Schema doesn't compile: {problem}")
     if what == "input" and schema.get("type") != "object":

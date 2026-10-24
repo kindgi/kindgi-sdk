@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Annotated, Any
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from kindgi import CheckResult, DefinitionError, RunTrace, ToolContext, guardrail, tool
 
@@ -130,6 +130,50 @@ def test_a_dict_schema_that_compiles_is_kept_as_written() -> None:
 
     assert handler.input_schema == schema
     assert handler.output_schema == OBJECT
+
+
+class NamedGroup(BaseModel):
+    q: str = Field(pattern=r"^(?P<q>\w+)$")
+
+
+class NamedKeys(BaseModel):
+    tags: dict[Annotated[str, StringConstraints(pattern=r"^(?P<t>\w+)$")], int]
+
+
+class Letters(BaseModel):
+    q: str = Field(pattern=r"^\p{L}+$")
+
+
+@pytest.mark.parametrize(
+    ("slot", "model", "source"),
+    [
+        ("input", NamedGroup, r"^(?P<q>\w+)$"),
+        ("input", NamedKeys, r"^(?P<t>\w+)$"),
+        ("output", NamedGroup, r"^(?P<q>\w+)$"),
+    ],
+)
+def test_a_models_pattern_is_read_as_the_runtime_reads_it(
+    slot: str, model: type[BaseModel], source: str
+) -> None:
+    # pydantic's engine reads `(?P<name>…)`; JavaScript's doesn't, so the deploy would refuse it.
+    schemas: dict[str, Any] = {"input": In, "output": Out, slot: model}
+    with pytest.raises(DefinitionError) as raised:
+
+        @tool(id="acme.x", description="x", **schemas)
+        def handler(input: Any) -> Any: ...
+
+    assert str(raised.value) == (
+        f'Tool "acme.x": the {slot} JSON Schema doesn\'t compile: '
+        f"Invalid regular expression: /{source}/u: Invalid group"
+    )
+
+
+def test_a_models_pattern_both_engines_read_is_kept() -> None:
+    # JavaScript and pydantic's engine both read `\p{L}`: the tool checks data against it.
+    @tool(id="acme.x", description="x")
+    def handler(input: Letters) -> Out: ...
+
+    assert handler.input_schema["properties"]["q"]["pattern"] == r"^\p{L}+$"
 
 
 def test_a_handler_takes_one_or_two_parameters() -> None:

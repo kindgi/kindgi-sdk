@@ -181,7 +181,9 @@ where no scope sets one.
   with keywords such as `enum`, `pattern` or `minLength`. A name with a
   `default` is optional. Every other declared name is required. Each schema
   must compile as the runtime compiles it, strictly: an unknown keyword is
-  an error. A `default` must be a string. A tool with a schema that doesn't
+  an error. A `pattern` must be one JavaScript and your SDK's language both
+  read ([Write a tool](../write-a-tool/#the-tool)). A `default` must be a
+  string. A tool with a schema that doesn't
   compile is refused when it's defined, registered or deployed:
 
   ```text
