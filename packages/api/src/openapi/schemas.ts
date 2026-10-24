@@ -9554,6 +9554,21 @@ export const SignInOptionSchema: JsonSchema = {
   },
 };
 
+export const ConsoleLinkSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['label', 'url'],
+  description: "One of the deployment's own links, which the console shows on every page.",
+  properties: {
+    label: { type: 'string', minLength: 1, maxLength: 40, description: 'The text shown.' },
+    url: {
+      type: 'string',
+      format: 'uri',
+      description: 'An absolute https URL with no username or password.',
+    },
+  },
+};
+
 export const SignInOptionsSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -9601,6 +9616,13 @@ export const SignInOptionsSchema: JsonSchema = {
         termsUrl: { type: 'string', format: 'uri', description: 'Its terms.' },
         privacyUrl: { type: 'string', format: 'uri', description: 'Its privacy policy.' },
       },
+    },
+    links: {
+      type: 'array',
+      maxItems: 8,
+      description:
+        "The deployment's own links (its help desk, status page, data processing terms), which the console shows on every page, the sign-in page too, in its operator's order. Absent when there are none, and from older servers.",
+      items: { $ref: '#/components/schemas/ConsoleLink' },
     },
   },
 };
@@ -14773,6 +14795,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['GetIdentityProviderResult', GetIdentityProviderResultSchema],
   ['IdentityProviderCollectionPage', IdentityProviderCollectionPageSchema],
   ['SignInOption', SignInOptionSchema],
+  ['ConsoleLink', ConsoleLinkSchema],
   ['SignInOptions', SignInOptionsSchema],
   ['TokenSignInResult', TokenSignInResultSchema],
   ['SignInEvent', SignInEventSchema],

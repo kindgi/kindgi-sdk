@@ -176,8 +176,10 @@ import { authSettingsRouter, secondFactorIdentityRouter } from './routes/second-
 import { secretsRouter } from './routes/secrets.js';
 import { serviceAccountsRouter } from './routes/service-accounts.js';
 import {
+  type ConsoleLink,
   type SignInLegalLinks,
   type SignInOptionsRateLimit,
+  checkConsoleLinks,
   checkSignInLegal,
   signInOptionsRouter,
 } from './routes/sign-in-options.js';
@@ -1054,7 +1056,8 @@ export interface CreateAppInput {
   };
   /**
    * The rate limit on `GET /v1/auth/sign-in-options` (unauthenticated):
-   * requests per client per window, and how to tell clients apart.
+   * lookups with an email per client per window, and how to tell clients
+   * apart. A read without an email (the same for everyone) isn't counted.
    * Default: 30 a minute, per nearest (rightmost) `X-Forwarded-For` hop.
    */
   readonly signInOptionsRateLimit?: SignInOptionsRateLimit;
@@ -1075,6 +1078,16 @@ export interface CreateAppInput {
    * answer has no `legal`.
    */
   readonly signInLegal?: SignInLegalLinks;
+  /**
+   * The deployment's own links (its help desk, status page, data
+   * processing terms), which the console shows on every page, the sign-in
+   * page too (sign-in options' `links`), in this order. At most 8; each
+   * label 1 to 40 characters once trimmed, with no control or format
+   * character, and no other link's once trimmed; each URL an absolute
+   * https URL with no username or password. Anything else, and createApp
+   * throws. Absent or empty: the answer has no `links`.
+   */
+  readonly consoleLinks?: readonly ConsoleLink[];
   /**
    * Optional. Signed-deployment ledger — the audit anchor for every
    * `POST /v1/deployments` landing. Caller-plugged per the pattern
@@ -2455,6 +2468,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   checkSignInLegal(input.signInLegal);
+  checkConsoleLinks(input.consoleLinks);
   app.route(
     '/v1/auth/sign-in-options',
     signInOptionsRouter({
@@ -2466,6 +2480,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       }),
       ...(input.signInEmailLink !== undefined && { emailLink: input.signInEmailLink }),
       ...(input.signInLegal !== undefined && { legal: input.signInLegal }),
+      ...(input.consoleLinks !== undefined && { links: input.consoleLinks }),
     }),
   );
   // The inbound webhook receiver: outside the bearer chain (mounted ahead

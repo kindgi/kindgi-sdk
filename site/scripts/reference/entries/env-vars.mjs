@@ -89,6 +89,7 @@ export const ENV_DEFAULTS = {
   KINDGI_AUTH_TURNSTILE_SITE_KEY: 'none: no Turnstile widget',
   KINDGI_AUTH_TERMS_URL: 'none: the sign-in page links no terms',
   KINDGI_AUTH_PRIVACY_URL: 'none: the sign-in page links no privacy policy',
+  KINDGI_CONSOLE_LINKS: "none: the console shows no links of the deployment's own",
   KINDGI_TRUSTED_PROXIES:
     "none: no trusted proxies; the connection's peer is the client address and `X-Forwarded-For` is ignored",
   KINDGI_SESSION_TTL_MS: '`43200000` (12 hours); at least `60000`',
