@@ -72,6 +72,11 @@ export interface ValueRecordedPayload {
  * with attempts remaining. The executor waits `nextDelayMs` (subject to the
  * backoff shape) then re-dispatches the node.
  *
+ * Also emitted, with `left: true` and `nextDelayMs: 0`, when a step is left
+ * for the run's next resume instead: a read the step needs failed, so the
+ * run is given up, still running, and the step runs again when the run is
+ * resumed.
+ *
  * `attempt` is 1-based: `1` means the first retry (following the initial
  * failure), `2` the second, etc. The number of `step.retry-scheduled`
  * entries for a given node is the attempt count at derivation time.
@@ -81,6 +86,12 @@ export interface StepRetryScheduledPayload {
   readonly attempt: number;
   readonly nextDelayMs: number;
   readonly previousError: string;
+  /**
+   * `true` when the step was left for the run's next resume; absent for a
+   * retry by the edge's policy. Written from runtime 0.1.12; earlier runtimes
+   * never set it.
+   */
+  readonly left?: true;
 }
 
 /**
