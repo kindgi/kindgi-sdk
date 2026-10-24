@@ -28,7 +28,8 @@ import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'provider-keys-token';
-const resolveToken: TokenResolver = async (token) => (token === TOKEN ? { tenantId } : null);
+const resolveToken: TokenResolver = async (token) =>
+  token === TOKEN ? { tenantId, scopes: ['tenant-admin'] } : null;
 const runHandler: RunHandlerBinding = {
   invokeAgent: async () => ({ kind: 'err', error: { code: 'bad-input', message: 'not used' } }),
   invokeFlow: async () => ({ kind: 'err', error: { code: 'bad-input', message: 'not used' } }),

@@ -87,14 +87,14 @@ With sign-in off, nobody is [invited](#their-invitation):
   "displayName": "Sam Rivera",
   "email": "sam@acme.example"
 }
-Added to the tenant: they can read its settings. Give them a project role to work on its agents and runs, then their first key: kindgi tokens create --for=user:002ee784-0b05-47fb-918e-34d192be94c1
+Added to the tenant: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:002ee784-0b05-47fb-918e-34d192be94c1
 ```
 
 An email another person already has is refused with
 `409 identity-user-email-taken`.
 
-Then give them a role on a project. A tenant admin, or an admin of that
-project, adds them by email or by id:
+With authorization on, give them a role on a project next. A tenant admin,
+or an admin of that project, adds them by email or by id:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/memberships" \

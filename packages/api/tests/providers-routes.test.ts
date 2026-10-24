@@ -28,7 +28,7 @@ const tenantId = randomUUID() as TenantId;
 const TOKEN = 'providers-token-abc';
 
 const resolveToken: TokenResolver = async (token) => {
-  if (token === TOKEN) return { tenantId };
+  if (token === TOKEN) return { tenantId, scopes: ['tenant-admin'] };
   return null;
 };
 
