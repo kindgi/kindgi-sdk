@@ -375,7 +375,7 @@ assert_varfile_unchanged
 # 22. An rc of a later release counts as that release.
 case_start "rc of a later release"
 reset_env; export STUB_TAGS="0.1.9"
-run "yes" --to 0.1.11-rc.0
+run "yes" --to 0.2.0-rc.1
 assert_rc 1 "a later rc refused"
 assert_out "knows the steps up to 0.1.10"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
