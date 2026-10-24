@@ -262,14 +262,14 @@ whatever classes exist.
 
 The proposal a pass writes names the judgments it learned from on the
 search part, never the hold-out: the ones its comparisons counted and, for
-a prompt pass, the ones its drafter was shown. Its `evidence.judgmentIds`
-lists up to 100 of them: first the ones the drafter was shown, then the
-ones behind items judged wrong, then the rest. When there are more,
-`evidence.judgmentCount` gives how many. A correction's calls (what the
-agent should have done) aren't among what its drafter learns from: it's
-shown a correction's verdict and reason, not its calls. Its comparisons
-grade those calls on each replay and show the result, and that result
-decides only whether a change to the model settings is kept
+a prompt pass, the ones its drafter was shown, corrections included. Its
+`evidence.judgmentIds` lists up to 100 of them: first
+the ones the drafter was shown, case by case, each case's corrections right
+after its items judged wrong; then the ones behind items judged wrong, then
+the rest. When there are more, `evidence.judgmentCount` gives how many. Its
+comparisons also grade a correction's calls on each replay and show the
+result, and that result decides only whether a change to the model settings
+is kept
 ([the decisions must stay right](#let-it-try-a-cheaper-model-or-another-temperature)).
 A pass on a test set built before judgment ids names none.
 
@@ -303,8 +303,12 @@ curl -X POST "$KINDGI_API_URL/v1/proposals/improve" \
 
 It answers at once (`202`) with the pass, as the CLI does without `--wait`.
 
-The drafter sees the cases judged wrong and their reasons. A template it
-writes is compared only if it stays within what the agent already has:
+The drafter sees the cases judged wrong, their reasons, and
+[the corrections on them](../fix-what-experts-corrected/): the
+calls the agent should have made and the tools it shouldn't have called,
+as an example for that case, not a rule. It's shown only the corrections
+the pass [counts](#whose-judgments-it-learns-from). A template it writes is
+compared only if it stays within what the agent already has:
 
 - it parses as Liquid;
 - it reads only the prompt's declared parameters, the variables the current
