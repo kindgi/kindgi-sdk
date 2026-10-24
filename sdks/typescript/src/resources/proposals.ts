@@ -112,7 +112,7 @@ export interface ProposalsClient {
   /**
    * What a pass {@link ProposalsClient.improve} with this input would start is
    * estimated to cost, before you start it: `min(budget.maxCostUsd, the replay
-   * count × the version's mean cost over its recent completed runs)`.
+   * count times the version's mean cost over its recent completed runs)`.
    * `estimatedCostUsd` is absent when the version has no cost history. It starts
    * nothing and takes no idempotency key.
    *
