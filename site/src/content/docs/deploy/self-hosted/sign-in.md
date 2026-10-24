@@ -479,7 +479,7 @@ These two are for the sign-in page alone; links for every page are
 ## Your own links in the console
 
 The console can show links of your own, such as your help desk, status
-page or data processing terms (runtime 0.1.12 or later):
+page or data processing terms (runtime 0.2.0 or later):
 
 ```sh
 # kindgi.env
