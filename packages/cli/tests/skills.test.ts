@@ -296,6 +296,18 @@ describe('refreshSkillsForDev — kindgi dev as it starts', () => {
     expect(await readFile(ignore(), 'utf8')).toBe('dist/\n');
   });
 
+  test("records a copy that already matches but isn't in the manifest, so an upgrade doesn't take it for an edit", async () => {
+    const recorded = JSON.parse(await readFile(manifestPath(), 'utf8'));
+    await writeFile(manifestPath(), JSON.stringify({ ...recorded, skills: {}, agentsSkills: {} }));
+    expect(await start()).toEqual([]);
+    expect(JSON.parse(await readFile(manifestPath(), 'utf8'))).toEqual(recorded);
+    await upgrade();
+    expect(await start()).toEqual(['  ✓ Framework skills: 1 updated, 1 added.']);
+    for (const folder of ['.claude/skills', '.agents/skills']) {
+      expect(await copy(folder)).toContain('# one, again');
+    }
+  });
+
   test('an edited copy is kept while its other copy moves on, and it says how to replace it', async () => {
     await writeFile(join(packDir, '.agents', 'skills', 'one', 'SKILL.md'), '# mine\n');
     expect(await start()).toEqual([]);

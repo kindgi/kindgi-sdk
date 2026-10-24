@@ -226,7 +226,8 @@ export interface LeftOutSkill {
 /**
  * The sync, from `manifest`. With `keepRemoved` (`kindgi dev`), what was
  * removed by hand stays removed (`LeftOutSkill`), and the manifest is
- * written only when a copy was.
+ * written only when it changes: a copy was written, or one that already
+ * matches is recorded, so a later upgrade doesn't take it for an edit.
  */
 async function syncFrom(
   manifest: Manifest,
@@ -263,12 +264,12 @@ async function syncFrom(
     outcomes.push(...(await localOnly(skillsDir, folder, bundledSet)));
   }
 
-  if (!dryRun && (!keepRemoved || outcomes.some(wroteCopy))) {
-    await writeManifest(join(targetDir, MANIFEST_PATH), {
-      v: MANIFEST_VERSION,
-      skills: next['.claude/skills'],
-      agentsSkills: next['.agents/skills'],
-    });
+  if (!dryRun) {
+    await writeManifest(
+      join(targetDir, MANIFEST_PATH),
+      { v: MANIFEST_VERSION, skills: next['.claude/skills'], agentsSkills: next['.agents/skills'] },
+      { onlyIfChanged: keepRemoved },
+    );
   }
 
   const report: SkillSyncReport = {
@@ -608,9 +609,17 @@ function readEntries(field: unknown): Record<string, ManifestEntry> {
   return out;
 }
 
-async function writeManifest(path: string, manifest: Manifest): Promise<void> {
+async function writeManifest(
+  path: string,
+  manifest: Manifest,
+  options: { readonly onlyIfChanged: boolean },
+): Promise<void> {
+  const text = `${JSON.stringify(manifest, null, 2)}\n`;
+  if (options.onlyIfChanged && (await readFile(path, 'utf8').catch(() => undefined)) === text) {
+    return;
+  }
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  await writeFile(path, text, 'utf8');
 }
 
 async function listSkillDirs(root: string): Promise<string[]> {
