@@ -505,6 +505,77 @@ describe('kindgi connections connect', () => {
     expect(out.stderr).toContain('`kindgi connections list --app=google`');
     expect(calls.map(([name]) => name)).toEqual(['connect']);
   });
+
+  describe('--quiet: the link alone, since it is what the person opens', () => {
+    const LINK = `Open this link to connect google:\n  ${REQUEST.connectUrl}\n`;
+
+    test('without a terminal: stdout is exactly the link line', async () => {
+      const { calls, rec } = recorder();
+      const out = await run(
+        ['connections', 'connect', 'google', '--permissions=gmail.send', '--quiet'],
+        {
+          connections: { connect: rec('connect', REQUEST) },
+        },
+      );
+      expect(out.exitCode).toBe(0);
+      expect(out.stdout).toBe(LINK);
+      expect(out.stderr).toBe('');
+      expect(calls.map(([name]) => name)).toEqual(['connect']);
+    });
+
+    test('at a terminal: the link first, then it still waits, saying nothing once connected', async () => {
+      const { calls, rec, seq } = recorder();
+      const lines: string[] = [];
+      const results: string[] = [];
+      const done = { ...REQUEST, state: 'connected', connectionId: CONNECTION_ID };
+      const out = await run(
+        ['connections', 'connect', 'google', '--permissions=gmail.send', '--quiet'],
+        {
+          connections: {
+            connect: rec('connect', REQUEST),
+            getRequest: seq('getRequest', [REQUEST, done]),
+            get: rec('get', CONNECTION),
+          },
+        },
+        waitingSeam(lines, { result: (line) => results.push(line) }),
+      );
+      expect(out.exitCode).toBe(0);
+      expect(results).toEqual([LINK]);
+      expect(lines).toEqual([]);
+      expect(calls.map(([name]) => name)).toEqual(['connect', 'getRequest', 'getRequest', 'get']);
+      expect(out.stdout).toBe('');
+      expect(out.stderr).toBe('');
+    });
+
+    test('a partial grant still says what is missing, and exits 1', async () => {
+      const { rec } = recorder();
+      const results: string[] = [];
+      const partial = {
+        ...REQUEST,
+        permissions: ['gmail.send', 'gmail.readonly'],
+        state: 'declined',
+        connectionId: CONNECTION_ID,
+        missing: ['gmail.readonly'],
+      };
+      const out = await run(
+        ['connections', 'connect', 'google', '--permissions=gmail.send,gmail.readonly', '--quiet'],
+        {
+          connections: {
+            connect: rec('connect', REQUEST),
+            getRequest: rec('getRequest', partial),
+            get: rec('get', CONNECTION),
+          },
+        },
+        waitingSeam([], { result: (line) => results.push(line) }),
+      );
+      expect(out.exitCode).toBe(1);
+      expect(results).toEqual([LINK]);
+      expect(out.stdout).toBe('');
+      expect(out.stderr).toBe(
+        'The app granted less than asked: not gmail.readonly. Tools that need those ask to connect again.\n',
+      );
+    });
+  });
 });
 
 describe('kindgi connections disconnect', () => {
@@ -539,6 +610,27 @@ describe('kindgi connections disconnect', () => {
     });
     expect(out.exitCode).toBe(0);
     expect(out.stdout).toContain(said);
+  });
+
+  test.each([
+    ['at-app', ''],
+    ['kept-for-other-connection', ''],
+    [
+      'app-failed',
+      'Disconnected ana@acme.example at google: the app refused to withdraw its access, so revoke it there too; its token is destroyed here.\n',
+    ],
+    [
+      'not-supported',
+      "Disconnected ana@acme.example at google: the app can't withdraw this connection alone, so revoke it there if it should go; its token is destroyed here.\n",
+    ],
+  ] as const)('--quiet says only what is left to do at the app (%s)', async (withdrawn, said) => {
+    const { rec } = recorder();
+    const out = await run(['connections', 'disconnect', CONNECTION_ID, '--yes', '--quiet'], {
+      connections: { disconnect: rec('disconnect', { ...removed, withdrawn }) },
+    });
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toBe(said);
   });
 
   test('--json prints the removed connection', async () => {

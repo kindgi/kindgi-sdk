@@ -1018,7 +1018,7 @@ to a mirror instead and checks for the same image there.
 | `--json` | Pretty JSON on stdout (the default), for `jq`. |
 | `--raw` | One-line JSON. |
 | `--table` | A table for list responses (`runs list`, `tools list`, `providers list`; JSON where a list has no columns). |
-| `--quiet` | Nothing on stdout; the exit code only. |
+| `--quiet` | Nothing on stdout; the exit code only. `kindgi connections connect` still prints its link, which is what you open. |
 | `--url=<url>`, `--token=<token>` | The API and its token (see above). |
 | `--hosted` | Go to the CLI's own address, never a `kindgi dev` runtime's `.kindgirc.json` (see above). `kindgi build` and `kindgi deploy` then use the hosted build service. `kindgi dev` refuses it. |
 | `--verbose`, `-v` | Full errors: stack traces and the API's error bodies. |
