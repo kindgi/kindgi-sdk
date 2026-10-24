@@ -61,6 +61,12 @@ export const EVIDENCE_KINDS = [
   // Human-in-the-loop approval decisions (exportable in the shipped
   // compliance classifier).
   'hitl-decision',
+  // Another system's answer to a run's paused tool call, at its wait
+  // token's link or through the API: an answer landed (held for the run,
+  // or taken), and a held early answer the run never took. The payload
+  // carries the answer's size and SHA-256, never the answer.
+  'wait-token-completed',
+  'wait-token-discarded',
   // Which agent version is live for a scope: a promotion, a rollback, or
   // an unpin (the scope falls back to the one above).
   'agent-promotion',
@@ -86,6 +92,11 @@ export const EVIDENCE_KINDS = [
   // A trigger's owner (the principal its runs act as) set at registration
   // or changed on take-over — a delegation when it names a service account.
   'trigger-owner-set',
+  // A trigger's `toolsAllowedUnattended` set at registration or changed:
+  // the tools its runs may call without a person's yes though no person
+  // started them. The payload names the trigger, its target and project,
+  // and the tool ids before and after — never what a run did.
+  'trigger-tools-allowed-unattended-set',
   // The order a tenant (or one of its orgs) runs a project through to live
   // was set, changed or cleared. The payload carries the order before and
   // after, each a list of project ids — never anything a project holds.

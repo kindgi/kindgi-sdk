@@ -497,7 +497,9 @@ export interface Agent {
    *
    * The value is a `ProviderMetadata.id` string (e.g. `'anthropic'`).
    * Use in combination with `preferredModel` for `(provider, model)`
-   * tuple pinning. Unset = capability-match only.
+   * tuple pinning. Unset = capability-match only. A version whose
+   * model-settings block names the model (`providerId`, `model`) sets
+   * neither: the model is named in one place.
    */
   readonly preferredProvider?: string;
   /**
@@ -515,7 +517,8 @@ export interface Agent {
    * The value is a `ModelInfo.name` string (e.g. `'claude-sonnet-5-5'`).
    * Enables model-level A/B'ing under one connection: register
    * Anthropic once with `models: [sonnet, opus, haiku]`, then pin
-   * per-agent.
+   * per-agent. To let an improvement pass try other models, name the
+   * model in the model-settings block (`model`) instead: never both.
    */
   readonly preferredModel?: string;
   /**
@@ -574,8 +577,9 @@ export interface Agent {
   readonly settings?: readonly BlockRef[];
   /**
    * A settings block of model settings (`MODEL_SETTINGS_SCHEMA`:
-   * `temperature`, `maxOutputTokens`) the turn's model calls use. Pinned
-   * at publish with the other settings.
+   * `temperature`, `maxOutputTokens`, and the model it prefers,
+   * `providerId` and `model`) the turn's model calls use. Pinned at
+   * publish with the other settings.
    */
   readonly modelSettings?: BlockRef;
   /** `pinsDigest(pins)`, recorded when the version was published. */

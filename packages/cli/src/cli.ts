@@ -29,6 +29,10 @@ async function main(): Promise<void> {
     argv: process.argv.slice(2),
     env: process.env,
     stopSignal,
+    // A command's progress (`kindgi build`'s lines): out as it comes.
+    progress: (text: string) => {
+      process.stderr.write(text);
+    },
   });
   // Exit once the output is out: piped output would be cut otherwise.
   await writeFully(process.stdout, outcome.stdout);

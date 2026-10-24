@@ -14,10 +14,11 @@ credentials, and Vertex AI runs and bills them in a project you name.
 
 ## Before you start
 
-- **A pack** with `kindgi dev` running, from Kindgi 0.1's CLI.
+- **A pack** with `kindgi dev` running, from Kindgi 0.2's CLI.
 - **The `gcloud` CLI.**
 - **A Google Cloud project** with the Vertex AI API turned on, and an account
-  with access to Vertex AI in it.
+  with access to Vertex AI in it: yours, or a service account you
+  [impersonate](#as-a-service-account-by-impersonation).
 
 ## 1. Log in to Google Cloud
 
@@ -48,6 +49,9 @@ mounts the file read-only, and names it and whose it is when it starts:
 ✓ Google credentials: /Users/you/.config/gcloud/application_default_credentials.json (your gcloud application-default login, a user account), mounted read-only for Vertex AI
 ```
 
+When the file names a quota project, the line names it too, after whose it
+is: `, quota project <gcp-project>`.
+
 Without the setting, a `gemini` provider has no credentials and its calls
 fail. `kindgi dev` says so when it starts, and `kindgi doctor` says the same:
 
@@ -57,6 +61,57 @@ fail. `kindgi dev` says so when it starts, and `kindgi doctor` says the same:
 
 A `GOOGLE_APPLICATION_CREDENTIALS` in your shell isn't used unless you name it:
 `KINDGI_DEV_GOOGLE_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS`.
+
+### As a service account, by impersonation
+
+If your organization doesn't let your own account call Vertex AI, or doesn't
+let you create a service-account key, sign in as a service account by
+impersonation. You log in as yourself, and Google gives the runtime
+short-lived tokens for the service account. No key file is made.
+
+It needs, in Google Cloud:
+
+- **The service account** to have Vertex AI User (`roles/aiplatform.user`)
+  in the project.
+- **Your account** to have Service Account Token Creator
+  (`roles/iam.serviceAccountTokenCreator`) on the service account.
+- **The project** to have the IAM Service Account Credentials API turned on.
+
+Use a service account made for development, not the one a deployed runtime
+runs as: whoever can impersonate an account can do whatever it can.
+
+Then log in through it:
+
+```sh
+gcloud auth application-default login --impersonate-service-account=<service-account-email>
+```
+
+`<service-account-email>` is the service account's email, such as
+`kindgi-dev@<gcp-project>.iam.gserviceaccount.com`. It opens a browser for
+your own sign-in, and writes Application Default Credentials that impersonate
+the service account, in place of your own login. `KINDGI_DEV_GOOGLE_CREDENTIALS=adc`
+uses them as before. Restart `kindgi dev`, and it names the service account
+when it starts:
+
+```text
+✓ Google credentials: /Users/you/.config/gcloud/application_default_credentials.json (impersonating kindgi-dev@<gcp-project>.iam.gserviceaccount.com), mounted read-only for Vertex AI
+```
+
+If the model calls fail with a permission denied, the message names what's
+missing:
+
+- **`iam.serviceAccounts.getAccessToken`:** the account you signed in with
+  in the browser can't impersonate the service account. Grant it Service
+  Account Token Creator on the service account. If you have more than one
+  Google account, run the login above again and pick the one with that role.
+  A new grant can take a few minutes to apply.
+- **The IAM Service Account Credentials API,** not yet used in the project,
+  or turned off: turn it on in the project the message names.
+- **`aiplatform.endpoints.predict`:** the service account can't call Vertex
+  AI. Grant it Vertex AI User in the project.
+
+To call Vertex AI as yourself again, run `gcloud auth application-default login`
+without the flag, and restart `kindgi dev`.
 
 ## 2. Register the preset
 

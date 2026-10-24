@@ -82,6 +82,56 @@ def test_a_tool_input_is_an_object() -> None:
         def handler(input: str) -> Out: ...
 
 
+OBJECT: dict[str, Any] = {"type": "object"}
+
+
+@pytest.mark.parametrize(
+    ("slot", "schema", "why"),
+    [
+        (
+            "input",
+            {"type": "object", "properties": {"q": {"type": "strng"}}},
+            "'strng' is not valid under any of the given schemas",
+        ),
+        (
+            "input",
+            {"type": "object", "properties": {"q": {"type": "string", "minLenght": 1}}},
+            'strict mode: unknown keyword: "minLenght"',
+        ),
+        (
+            "output",
+            {"type": "object", "properties": {"at": {"type": "string", "format": "datetime"}}},
+            'unknown format "datetime" ignored in schema at path "#/properties/at"',
+        ),
+        (
+            "output",
+            {"type": "object", "properties": {"a": {"$ref": "#/$defs/nope"}}},
+            "can't resolve reference #/$defs/nope from id #",
+        ),
+    ],
+)
+def test_a_dict_schema_compiles_as_the_runtime_compiles_it(
+    slot: str, schema: dict[str, Any], why: str
+) -> None:
+    schemas = {"input": OBJECT, "output": OBJECT, slot: schema}
+    with pytest.raises(DefinitionError) as raised:
+
+        @tool(id="acme.x", description="x", **schemas)
+        def handler(input: dict[str, Any]) -> dict[str, Any]: ...
+
+    assert str(raised.value) == f'Tool "acme.x": the {slot} JSON Schema doesn\'t compile: {why}'
+
+
+def test_a_dict_schema_that_compiles_is_kept_as_written() -> None:
+    schema = {"type": "object", "properties": {"q": {"type": "string", "minLength": 1}}}
+
+    @tool(id="acme.x", description="x", input=schema, output=OBJECT)
+    def handler(input: dict[str, Any]) -> dict[str, Any]: ...
+
+    assert handler.input_schema == schema
+    assert handler.output_schema == OBJECT
+
+
 def test_a_handler_takes_one_or_two_parameters() -> None:
     with pytest.raises(DefinitionError, match="takes \\(input\\) or \\(input, ctx\\)"):
 

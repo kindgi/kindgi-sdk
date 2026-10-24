@@ -196,6 +196,8 @@ input, and can't give a typed answer: an agent with an output type fails
 with `output-schema-violation` until a real model is registered. To register
 one, see `kindgi-authoring-providers` (`./kindgiw providers register --preset=anthropic`,
 or `"providers": [{"preset": "anthropic"}]` in `kindgi.config.json`).
+Commit the declaration: it holds the key's name, never the key, and it's how
+a teammate's `kindgi dev`, or another worktree's, gets the same provider.
 
 ## Iterating
 

@@ -1,5 +1,61 @@
 # @kindgi/authz
 
+## 0.1.10
+
+### Patch Changes
+
+- @kindgi/types@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/types@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- @kindgi/types@0.1.10-rc.0
+
+## 0.1.9
+
+### Patch Changes
+
+- d563887: **Rights on an item an environment order carries come from the projects that serve it.** Once an order carries an agent, a flow, a tool, a guardrail, a data block or an eval suite from one environment to the next, each project that serves the item governs what happens to it there. All of this applies only when the runtime wires `itemProjects` (`ItemProjectsBinding`, new on `CreateAppInput`). An item that one project serves is checked as before, check for check.
+  - **Reading.** A caller reads the item through any project that serves it, and sees each version that can run in a project it reads. A version it can't see answers as one that doesn't exist, with the same 404. `GET /v1/agents/{agentId}`, `/v1/flows/{flowId}`, `/v1/tools/{toolId}`, `/v1/eval-suites/{suiteId}` and `/v1/blocks/{blockId}`, and each list row, answer the newest active version the caller can see. A grant on the item itself reads as its first project's readers do. An agent's live versions and promotions list only versions the caller can see.
+  - **`?projectId=`** on those five reads answers the newest version that can run in that project, which the caller must read. Otherwise it's a 404, the same whether or not the item runs there. A value that isn't a project id (a UUID) is a 400. On an item one project serves, only its own project answers; on one that names no project (under `kindgi dev`, a pack's agents, flows and tools), any project does. With authorization off, the caller reads every project, so each one answers the version it runs. An older runtime ignores the parameter and answers the latest version.
+  - **Changing.** A change in one project needs the right on that project, and not the item's own as well. A promotion, a rollback or an unpin of a project's or a segment's live version is `admin` there. A tenant's or an org's live version needs `admin` on every project that serves the item. Unregistering or reinstating a version needs `admin` on every project that version can run in (`write`, for a data block). A derived agent version, an improvement proposal and an improvement pass are `write` in the order's first environment, where the item's new versions are made. Requesting or rolling back a proposal is `admin` where its scope is. Building a test set from judgments under such a suite is `admin` in the project whose judged runs it takes, where the new version is made; a body naming a project the suite isn't in needs `admin` on every project of the suite.
+  - **Running.** A run of an agent in one of its projects needs `call` on that project, which its callers and editors have. A run of a flow or an eval suite needs `execute` there, which its executors and editors have. Neither the item's own `execute` nor `write` on the named project is asked. An unnamed run is checked where the runtime puts it: the conversation's project; else a project-scoped key's own project, when that project serves the item, and the run is filed there; else the item's first project. Opening and closing a conversation, scheduling an agent or a flow, and wiring a webhook trigger are checked the same way, in the conversation's or the trigger's project. A schedule that improves an agent is `write` in the order's first environment. An eval run still needs `write` on its project.
+  - **What runs leave.** An eval run of such a suite is read on its own project, and cancelled or rescored with `execute` there. An event trigger's runs land in the flow's first project, so registering one is `write` on the flow and `execute` there, and reading one is `read` there. Reading observations of such an agent needs `read` on every project that serves it.
+  - A project-scoped key reaches only what its project serves.
+  - `@kindgi/authz`: `Action` gains `call`. `CHECK_ONLY_ACTIONS` lists what the model defines but a role's capabilities never report: a project's `call` and `execute`. `GET /v1/identity/me/permissions` doesn't change.
+  - `@kindgi/client`: `get` on agents, flows, tools, eval suites and blocks takes `{ projectId }` (`GetLatestOptions`). In the Python client, `project_id`.
+- 3502389: A webhook or schedule trigger can run as a **service account**. A trigger's runs act as its owner; now the owner can be an account rather than whoever registered it. Pass `runAsServiceAccountId` when registering (`webhooks.register`, `schedules.register`) or when taking over a trigger whose owner left (`webhooks.takeOwnership`, `schedules.takeOwnership`), or `--run-as <service-account-id>` on `kindgi webhooks register`, `kindgi schedules create` and the `take-ownership` commands. Naming an account needs `act_as` on it. Only a caller who may read service accounts learns whether a named one is missing, unregistered or not `act_as`-able; everyone else gets a uniform permission error.
+- @kindgi/types@0.1.9
+
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/types@0.1.9-rc.1
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- d563887: **Rights on an item an environment order carries come from the projects that serve it.** Once an order carries an agent, a flow, a tool, a guardrail, a data block or an eval suite from one environment to the next, each project that serves the item governs what happens to it there. All of this applies only when the runtime wires `itemProjects` (`ItemProjectsBinding`, new on `CreateAppInput`). An item that one project serves is checked as before, check for check.
+  - **Reading.** A caller reads the item through any project that serves it, and sees each version that can run in a project it reads. A version it can't see answers as one that doesn't exist, with the same 404. `GET /v1/agents/{agentId}`, `/v1/flows/{flowId}`, `/v1/tools/{toolId}`, `/v1/eval-suites/{suiteId}` and `/v1/blocks/{blockId}`, and each list row, answer the newest active version the caller can see. A grant on the item itself reads as its first project's readers do. An agent's live versions and promotions list only versions the caller can see.
+  - **`?projectId=`** on those five reads answers the newest version that can run in that project, which the caller must read. Otherwise it's a 404, the same whether or not the item runs there. A value that isn't a project id (a UUID) is a 400. On an item one project serves, only its own project answers; on one that names no project (under `kindgi dev`, a pack's agents, flows and tools), any project does. With authorization off, the caller reads every project, so each one answers the version it runs. An older runtime ignores the parameter and answers the latest version.
+  - **Changing.** A change in one project needs the right on that project, and not the item's own as well. A promotion, a rollback or an unpin of a project's or a segment's live version is `admin` there. A tenant's or an org's live version needs `admin` on every project that serves the item. Unregistering or reinstating a version needs `admin` on every project that version can run in (`write`, for a data block). A derived agent version, an improvement proposal and an improvement pass are `write` in the order's first environment, where the item's new versions are made. Requesting or rolling back a proposal is `admin` where its scope is. Building a test set from judgments under such a suite is `admin` in the project whose judged runs it takes, where the new version is made; a body naming a project the suite isn't in needs `admin` on every project of the suite.
+  - **Running.** A run of an agent in one of its projects needs `call` on that project, which its callers and editors have. A run of a flow or an eval suite needs `execute` there, which its executors and editors have. Neither the item's own `execute` nor `write` on the named project is asked. An unnamed run is checked where the runtime puts it: the conversation's project; else a project-scoped key's own project, when that project serves the item, and the run is filed there; else the item's first project. Opening and closing a conversation, scheduling an agent or a flow, and wiring a webhook trigger are checked the same way, in the conversation's or the trigger's project. A schedule that improves an agent is `write` in the order's first environment. An eval run still needs `write` on its project.
+  - **What runs leave.** An eval run of such a suite is read on its own project, and cancelled or rescored with `execute` there. An event trigger's runs land in the flow's first project, so registering one is `write` on the flow and `execute` there, and reading one is `read` there. Reading observations of such an agent needs `read` on every project that serves it.
+  - A project-scoped key reaches only what its project serves.
+  - `@kindgi/authz`: `Action` gains `call`. `CHECK_ONLY_ACTIONS` lists what the model defines but a role's capabilities never report: a project's `call` and `execute`. `GET /v1/identity/me/permissions` doesn't change.
+  - `@kindgi/client`: `get` on agents, flows, tools, eval suites and blocks takes `{ projectId }` (`GetLatestOptions`). In the Python client, `project_id`.
+- 3502389: A webhook or schedule trigger can run as a **service account**. A trigger's runs act as its owner; now the owner can be an account rather than whoever registered it. Pass `runAsServiceAccountId` when registering (`webhooks.register`, `schedules.register`) or when taking over a trigger whose owner left (`webhooks.takeOwnership`, `schedules.takeOwnership`), or `--run-as <service-account-id>` on `kindgi webhooks register`, `kindgi schedules create` and the `take-ownership` commands. Naming an account needs `act_as` on it. Only a caller who may read service accounts learns whether a named one is missing, unregistered or not `act_as`-able; everyone else gets a uniform permission error.
+- @kindgi/types@0.1.9-rc.0
+
 ## 0.1.8
 
 ### Patch Changes

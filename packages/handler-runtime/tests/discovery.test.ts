@@ -5,6 +5,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   DEFAULT_DISCOVERY,
+  codePatterns,
   createGlobMatcher,
   discoveryRoots,
   globStaticPrefix,
@@ -41,8 +42,18 @@ describe('globStaticPrefix', () => {
 });
 
 describe('discoveryRoots', () => {
-  test('defaults: the four folders', () => {
+  test('defaults: the four code folders and the blocks folder', () => {
     expect(discoveryRoots(Object.values(DEFAULT_DISCOVERY))).toEqual([
+      'agents',
+      'blocks',
+      'flows',
+      'guardrails',
+      'tools',
+    ]);
+  });
+
+  test("the code patterns leave the blocks out: they're not modules to bundle or import", () => {
+    expect(discoveryRoots(codePatterns(DEFAULT_DISCOVERY))).toEqual([
       'agents',
       'flows',
       'guardrails',

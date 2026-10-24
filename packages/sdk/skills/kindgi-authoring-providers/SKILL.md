@@ -18,13 +18,15 @@ description: >
   when the user asks to "register a provider", "use Claude / GPT /
   Groq / Llama / Gemini", "wire Anthropic", "use Vertex", "use Bedrock", "set up an API key for the agent",
   "give the pack on Kindgi Cloud its model key",
+  "register the provider on staging",
   or when an agent has been authored but the pack has no provider
-  registered yet. Authoring agents themselves is covered by
+  registered yet, or another worktree or a teammate's `kindgi dev` has
+  none. Authoring agents themselves is covered by
   kindgi-authoring-agents; getting-started is covered by
   kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.9.16"
+version: "0.9.17"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 sources:
@@ -91,7 +93,9 @@ Three moving parts:
    `.env.local` with a positional value — never route real secrets
    through it. `KINDGI_*`
    names configure Kindgi itself and are never resolvable as secrets.
-2. **Provider registration** — `kindgi providers register --spec=@provider.json` (`POST /v1/providers`)
+2. **Provider registration** — declared in the pack's config, which is
+   committed, and registered by `kindgi dev` at each boot; on a runtime
+   `kindgi dev` doesn't run, `kindgi providers register` (`POST /v1/providers`)
 3. **Agent's `capabilities.needs`** — matched at the (provider, model) tuple level at turn time
 
 **Registration body:** `{ metadata, adapter_id, secret_ref?, adapter_config? }`.
@@ -136,6 +140,9 @@ kindgi deploy --hosted --env=prod
 - The deployment `kindgi deploy` sends names no environment. Its
   `--env=prod` picks the pack's own `prod` settings, such as its signing
   key.
+- `kindgi deploy` doesn't register providers, and the providers declared in
+  the pack's config are `kindgi dev`'s only. Register once on `prod`, by
+  hand, and again when you add a provider or change one.
 - OpenAI, the Gemini API, Groq and OpenRouter take the same two lines,
   with their preset and key: `openai` and `OPENAI_API_KEY`, `gemini-api`
   and `GEMINI_API_KEY`, `groq` and `GROQ_API_KEY`, `openrouter` and
@@ -173,32 +180,12 @@ credential on argv.
 For a pack on Kindgi Cloud, `--env=prod` instead: the key goes to your
 workspace's runtime, not to a file (On Kindgi Cloud, above).
 
-**Step 2 — register it, from the preset:**
-```sh
-kindgi providers register --preset=anthropic                          # Opus 5.5, Sonnet 5.5 (default), Haiku 5.5, Haiku 4.5
-kindgi providers register --preset=anthropic --models=claude-sonnet-5-5  # just one
-```
-Before pinning a Claude model, check its status on Anthropic's model
-deprecations page (https://platform.claude.com/docs/en/about-claude/model-deprecations): a turn routed to a retired model fails. Prefer the
-preset's default. Each
-preset names a default model (`metadata.defaultModel`, marked `(default)`
-when it registers), which an agent with no preference gets. A preset
-registered before 0.1.4 has none: unregister it and register it again.
-The Claude 5.5 and GPT-6 models take no `temperature` (`"sampling": false`:
-the call goes without it, with a `sampling-unsupported` warning), and a
-model's `thinking` says how it thinks; thinking counts against
-`maxOutputTokens` and bills as output.
-The preset carries the models, context windows, default output caps (what
-a call asks for when its agent sets no `maxOutputTokens`; not the model's own
-limit) and current prices (`kindgi providers presets` lists the presets and
-when their prices were checked); `--max-output-tokens=<n>` sets another cap. In a pack it refuses until the key is in the pack's env files —
-step 1. That's all for Anthropic; go to step 4. The rest of this path is
-the same registration by hand, for a spec of your own.
-
-**Or declare it in the pack's config**, and `kindgi dev` registers it on
-every boot: in every git worktree (each has its own dev database), after
-`--reset`, and on a teammate's machine. Prefer this for any provider the pack
-needs under `kindgi dev`:
+**Step 2 — declare it in the pack's config, and commit it.** `kindgi dev`
+registers what the config declares on every boot: in every git worktree
+(each has its own dev database), after `--reset`, and on a teammate's
+machine. The declaration holds a key's name, never the key, so it goes in
+git with the rest of the config. Committing it is how a teammate's
+`kindgi dev`, or another worktree's, gets the same provider:
 ```ts
 // in kindgi.config.ts
 providers: [
@@ -232,14 +219,70 @@ In a Java or Scala pack's `kindgi.config.json`, the same keys:
   `unregistered (no longer in kindgi.config.ts)`, or ⚠ `not registered: <KEY>
   is not in .env, .env.local, .kindgi/secrets.env` (set the key, then
   restart: the config isn't watched).
+- A declaration applies at the next boot: the config isn't watched, so
+  restart `kindgi dev` after changing it. Each person, and each worktree,
+  sets the key in its own env files (step 1).
 - A provider with that id that `kindgi dev` didn't register is left as it is;
   if its region or models differ, a ⚠ line names the
   `kindgi providers unregister` that lets the config's version apply.
-- A runtime `kindgi dev` doesn't run (staging, production) still gets its
-  providers with `kindgi providers register` (on Kindgi Cloud, with
-  `--env=prod`).
+- `.kindgi/dev/providers.json` is `kindgi dev`'s own record of what it
+  registered. `.kindgi/` is gitignored, so that record stays in this
+  worktree, and it isn't where a provider is declared.
 
-**Step 2 (by hand) — write `provider.json`** at the pack root. One connection,
+Before pinning a Claude model, check its status on Anthropic's model
+deprecations page (https://platform.claude.com/docs/en/about-claude/model-deprecations): a turn routed to a retired model fails. Prefer the
+preset's default model. `anthropic` without `models` registers Opus 5.5,
+Sonnet 5.5 (the default), Haiku 5.5 and Haiku 4.5. Each
+preset names a default model (`metadata.defaultModel`, marked `(default)`
+when it registers), which an agent with no preference gets. A preset
+registered before 0.1.4 has none: unregister it and register it again.
+The Claude 5.5 and GPT-6 models take no `temperature` (`"sampling": false`:
+the call goes without it, with a `sampling-unsupported` warning), and a
+model's `thinking` says how it thinks; thinking counts against
+`maxOutputTokens` and bills as output.
+The preset carries the models, context windows, default output caps (what
+a call asks for when its agent sets no `maxOutputTokens`; not the model's own
+limit) and current prices (`kindgi providers presets` lists the presets and
+when their prices were checked); an entry's `maxOutputTokens` sets another cap. That's
+all for Anthropic; go to step 4. The rest of this path is a spec of your
+own, by hand.
+
+**Staging and production: register by hand, once per runtime.** The
+declaration drives `kindgi dev` only. A runtime `kindgi dev` doesn't run
+(staging, production, Kindgi Cloud) gets its providers from
+`kindgi providers register` against that runtime, once, and again when you
+add a provider or change one. A registration is the runtime's, shared by
+every environment it serves: register once in all when one runtime serves
+both staging and prod, and once on each when they're separate runtimes. The
+key isn't shared: set it first in each environment that runs the pack
+(`kindgi secrets set ANTHROPIC_API_KEY --env=<environment>`), then:
+```sh
+kindgi providers register --preset=anthropic --env=<env>                          # the preset's models
+kindgi providers register --preset=anthropic --models=claude-sonnet-5-5 --env=<env>  # just one
+```
+- `--env` names one of the pack's environments. On a runtime that keeps
+  its values under one env, the key goes in that environment's project, and
+  `register` with it prints the `kindgi secrets set` line, to run again with
+  each other environment's name. On a runtime that serves several
+  environments, or with an `--env` that isn't one of the pack's,
+  `kindgi secrets set` asks for a `--scope`. On Kindgi Cloud, it's `prod`
+  (On Kindgi Cloud, above; mistake 1). `--max-output-tokens=<n>` sets
+  another output cap.
+- To change a provider there, unregister it first (mistake 5), then
+  register it again.
+- `kindgi deploy` doesn't register providers. `kindgi promote` checks the
+  target first and stops (exit 1) while it has no provider, naming
+  `kindgi providers register --preset=<name>`.
+- Nothing in git records what a runtime has registered:
+  `kindgi providers list` against it shows it.
+- Under `kindgi dev`, `kindgi providers register` puts a provider in this
+  worktree's dev database only, and leaves nothing to commit. Use it to try a
+  provider, then declare it.
+
+**Step 2 (by hand) — write `provider.json`** at the pack root, and commit it:
+like the declaration, it names its key (`secret_ref`) and never holds it.
+Under `kindgi dev`, declare its body as a `spec` entry; on another runtime,
+register it with `--spec` (step 3). One connection,
 two models — matches how the Anthropic SDK actually works (the API
 key is per-vendor; the model is per-call):
 ```json
@@ -866,6 +909,15 @@ defineAgent({
     names its problems (`GET /v1/providers/<id>/check`); unregister it
     and register it again.
 
+11. **A provider registered by hand under `kindgi dev`, with nothing
+    committed.** `kindgi providers register` puts it in this worktree's dev
+    database only. Another worktree, a `kindgi dev --reset`, or a
+    teammate's `kindgi dev` has no provider, and its turns land on
+    dev-echo (mistake 9). Declare the provider in the pack's config and
+    commit it (step 2). `.kindgi/dev/providers.json` isn't the file to
+    commit: it's `kindgi dev`'s local record of what it registered, and
+    `.kindgi/` is gitignored.
+
 ## Verifying end-to-end
 
 ```sh
@@ -875,8 +927,8 @@ kindgi dev
 # 1. Set the key (interactive, no-echo prompt)
 kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
 
-# 2. Register the provider (one row, all models)
-kindgi providers register --preset=anthropic   # or --spec=@provider.json
+# 2. Declare the provider in the pack's config (step 2), commit it, then
+#    restart `kindgi dev`: its boot prints `anthropic: registered`
 
 # 3. Confirm it's there (list shows nested models per provider)
 kindgi providers list
@@ -887,9 +939,10 @@ kindgi runs start \
   --input='{"userMessage": "test"}'
 ```
 
-On Kindgi Cloud there's no `kindgi dev`: set the key and register the
-provider with `--env=prod` (steps 1 and 2), deploy with
-`kindgi deploy --hosted --env=prod`, then run the agent.
+On Kindgi Cloud there's no `kindgi dev`, so the declaration doesn't apply
+there: set the key with `--env=prod` (step 1), register the provider by
+hand (`kindgi providers register --preset=anthropic --env=prod`), deploy
+with `kindgi deploy --hosted --env=prod`, then run the agent.
 
 If the run completes with `status: "completed"`, the whole chain works
 end-to-end. If it fails with `secret-not-found`, check point (1). If it

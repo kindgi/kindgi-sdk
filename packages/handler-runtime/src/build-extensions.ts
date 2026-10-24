@@ -43,8 +43,9 @@ export interface BuildExtension {
   /** Debian packages the image needs. */
   readonly systemPackages?: readonly string[];
   /**
-   * Steps after the install, before the prune: dev dependencies (a
-   * generator's CLI) are still there. Run in the pack folder.
+   * Steps after the install, before the prune. With any, the image's
+   * install takes dev dependencies too (a generator's CLI), and the prune
+   * after the steps drops them. Run in the pack folder.
    */
   readonly postInstall?: readonly BuildStep[];
   /**

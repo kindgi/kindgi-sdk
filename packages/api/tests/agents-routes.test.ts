@@ -620,6 +620,62 @@ describe('API — an agent stored with autoCloseAfterInactiveSeconds, from befor
   });
 });
 
+describe("API — an agent's output and toolErrors in every answer", () => {
+  /**
+   * Publishes acme.drafting with `field` set to `value` and acme.plain
+   * without it, then reads each through the four answers that carry an
+   * agent: the field as published on the one, absent on the other.
+   */
+  async function answered(field: 'output' | 'toolErrors', value: unknown) {
+    const { app } = makeApp();
+    const publish = async (body: Record<string, unknown>) => {
+      const res = await app.request('/v1/agents', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(201);
+    };
+    await publish({ ...agentSpec(), [field]: value });
+    await publish(agentSpec({ id: 'acme.plain' }));
+    const read = async (path: string) => {
+      const res = await app.request(path, { headers: { authorization: `Bearer ${TOKEN}` } });
+      expect(res.status).toBe(200);
+      return (await res.json()) as Record<string, unknown> & {
+        data?: Record<string, unknown>[];
+      };
+    };
+    for (const [id, has] of [
+      ['acme.drafting', true],
+      ['acme.plain', false],
+    ] as const) {
+      const answers = [
+        await read(`/v1/agents/${id}`),
+        await read(`/v1/agents/${id}/versions/1.0.0`),
+        ...((await read(`/v1/agents/${id}/versions`)).data ?? []),
+        ...((await read('/v1/agents')).data ?? []).filter((a) => a.id === id),
+      ];
+      expect(answers).toHaveLength(4);
+      for (const a of answers) {
+        if (has) expect(a[field]).toEqual(value);
+        else expect(a).not.toHaveProperty(field);
+      }
+    }
+  }
+
+  test('output: as published when it is set, absent when it is not', async () => {
+    await answered('output', {
+      schema: { type: 'object', properties: { draft: { type: 'string' } }, required: ['draft'] },
+      name: 'draft',
+      maxRepairs: 2,
+    });
+  });
+
+  test('toolErrors: as published when it is set, absent when it is not', async () => {
+    await answered('toolErrors', { maxRetries: 3, retryOn: ['invalid-arguments', 'tool-error'] });
+  });
+});
+
 describe('API — agents unregister', () => {
   test('unregister known version → 200 unregistered: true', async () => {
     const { app, registry } = makeApp();

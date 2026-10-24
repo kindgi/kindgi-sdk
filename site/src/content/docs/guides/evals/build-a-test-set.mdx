@@ -18,10 +18,10 @@ whether people would rate its answers higher, before anyone uses it.
 ## Before you start
 
 - **An agent with finished runs** in a project, on a runtime such as
-  `kindgi dev`, with Kindgi 0.1's CLI.
+  `kindgi dev`, with Kindgi 0.2's CLI.
 - **`admin` on the project,** when authorization is on.
 - **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
-  Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+  Kindgi 0.2's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
 
 ## Judge some runs
 
@@ -347,7 +347,8 @@ One of them:
       "no": 0,
       "yesWeight": 1,
       "totalWeight": 1,
-      "restricted": { "yesWeight": 0, "totalWeight": 0 },
+      "restricted": { "yesWeight": 0, "totalWeight": 0, "judgmentIds": [] },
+      "judgmentIds": ["8f2c4e1a-6b0d-4c3e-9a57-2d1f0b7e4c93"],
       "reasons": [{ "verdict": "yes", "reason": "Resets the password" }]
     },
     …
@@ -364,6 +365,15 @@ One of them:
   `restricted` has the weights of the
   [restricted](../judge-a-runs-output/#restrict-who-may-judge-as-a-class)
   judgments alone, such as `{ "yesWeight": 3, "totalWeight": 3 }`.
+  `judgmentIds` (runtime 0.2.0 or later) names every judgment counted in
+  the item, and `restricted.judgmentIds` the restricted ones. A test set
+  built before judgment ids has neither.
+- **`corrections`** (runtime 0.2.0 or later) has the run's corrections
+  that say [what it should have done](../judge-a-runs-output/#say-what-it-should-have-done),
+  whatever their verdict: each one's `calls` and `notCalled`, its
+  `judgmentId`, its `judgeClassId` when it had a class, and
+  `restricted: true` when that class was restricted. A case without them
+  has no `corrections`.
 - **`output`** is the run's output, as it was judged.
 - **`context`**, for an agent turn, is what the turn had before it answered:
   the conversation so far, up to 200 messages, and what it retrieved. A

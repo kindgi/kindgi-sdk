@@ -158,6 +158,8 @@ async function countUsage(
   current: LicenseClaims,
 ): Promise<CountsSent> {
   if (current.use === 'production') {
+    // The Azure module's counts alert leaves out this reason by its text:
+    // keep it.
     return { sent: false, reason: "a production key's renewal carries no counts" };
   }
   let answer: unknown;

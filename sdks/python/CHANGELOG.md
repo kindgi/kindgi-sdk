@@ -4,8 +4,11 @@
 developers) have one version, the same as the npm packages', spelled as PyPI
 spells it: `0.1.8rc0` for npm's `0.1.8-rc.0`. Each user-visible change adds
 its line under **Unreleased** in the pull request that makes it. A release
-turns that heading into its version. `kindgi-cli` carries `@kindgi/cli` of the
-same version, and the CLI's own changes are in
+turns that heading into its version. From 0.2.0 on, a release after release
+candidates lists their changes too, so its section has every change since
+the release before. An earlier release's section has only what came after
+its candidates, and theirs are just below it. `kindgi-cli` carries
+`@kindgi/cli` of the same version, and the CLI's own changes are in
 [`@kindgi/cli`'s changelog](../../packages/cli/CHANGELOG.md).
 
 ## Unreleased
@@ -20,6 +23,132 @@ same version, and the CLI's own changes are in
   that isn't `True` or `False`. The client's `Agent` and `PublishAgentBody`
   models gain `parallel_tool_calls`. `mutating`'s description says it
   decides what runs together.
+- `kindgi`: **a tool or an agent whose model has a pydantic tagged union
+  deploys.** With `Field(discriminator=...)`, pydantic writes OpenAPI's
+  `discriminator` keyword beside the union's `oneOf`, and the runtime refused
+  a tool's input or output, or an agent's typed answer, when it was
+  registered or deployed (`strict mode: unknown keyword: "discriminator"`).
+  The wire schema now leaves it out: each member's tag is a `const` (an
+  `enum` for several values), so the `oneOf` picks the member. Each member
+  also lists its tag in `required`, since pydantic refuses a value without
+  its tag, even when the tag has a default.
+- `kindgi`: **a union whose member a callable `Discriminator` picks takes
+  every value pydantic takes.** pydantic writes it as a plain `oneOf`, and its
+  members can overlap: a value that fit two of them was refused, as a tool's
+  input or output or an agent's typed answer, though pydantic took it. The
+  wire schema now writes it as an `anyOf`.
+- `kindgi`: **a tool can pause its run until another system answers.**
+  `@tool(pauses=True)`: the handler hands `ctx.wait_token.url` to that system
+  and returns `ctx.pause(timeout_ms=..., name=...)`, 24 hours by default and
+  at most 24 days. Annotate it `-> Answer | PauseAnswer`: the output schema is
+  `Answer`'s. A call from a runtime that sends no wait token fails with
+  `pause-not-available`: reading `ctx.wait_token` raises `PauseNotAvailable`
+  first, so the tool hands nothing on. `ToolContext.for_test(wait_token=...)`
+  tests one. New: `PauseAnswer`, `PauseNotAvailable` and `WaitToken`. The
+  client's `Tool` model carries `pauses`.
+- `kindgi`: **the client answers a run's wait for another system.**
+  `runs.resume(run_id, waitpoint_id=..., value=...)` takes a `pause:` waitpoint
+  from `runs.get(run_id).waiting_for.tokens` (`RunWaitingToken`), with the
+  tool's output as `value`. Any other waitpoint is refused with
+  `run-resume-not-supported`. New error codes: `wait-token-not-found`,
+  `wait-token-closed`, `wait-token-output-invalid` and `unsupported-media-type`.
+- `kindgi`: **a run says whom it acts for.** The client's `Run` gains
+  `acts_for`: `user:<id>` (a person) or `service_account:<id>` (a service
+  account), whose access the run has. A schedule's or a webhook's run acts
+  for the trigger's owner, and a child run for its parent's. It is an id,
+  never a name, and it is `None` on a run that acts for no one and on older
+  runs.
+- `kindgi`: **`SecretRevokeOutcome` and `SecretRevokeResult` gain an optional
+  `recoverable_until`**: when a hard revoke left a copy your secret manager can
+  still recover, until when it keeps it. It's `None` on a soft revoke, and
+  when a hard revoke left nothing recoverable.
+- `kindgi`: **connections to other apps.** The client gains
+  `connection_entries.list`; `connection_apps.list`, `create`, `get`,
+  `update` and `remove`; `connections.list`, `connect`, `finish`, `get` and
+  `disconnect`; and `connections.requests.get` and `start`, with their async
+  twins. A tool reads its connections from `ToolContext.connections`, a
+  mapping of each declared name to a `ToolConnection` (`connection_id`,
+  `app`, `app_name`, `access_token`, `account` as a `ConnectionAccount`,
+  `expires_at`), empty when the tool declares none; no `repr` shows a token.
+  A tool whose app refuses the token raises `ConnectionRejected(name)` (or
+  its own error `from` it), and the pack answers `connection-rejected` naming
+  the connection (pack protocol 2.9.0).
+- `kindgi`: **`ScheduleRecord`, `WebhookTriggerRecord`, their register and
+  patch bodies, and `Run` gain `tools_allowed_unattended`**: the tools whose
+  calls in a webhook's or a schedule's runs needn't wait for a person's yes.
+  Naming it takes `admin` on the trigger's project, and each id must be a tool
+  the trigger's flow or agent calls. A take-over keeps it.
+- `kindgi`: **a test set's cases name their judgments, and a proposal says
+  how many it rests on.** A judged case's items gain `judgment_ids`, and their
+  `restricted` gains `judgment_ids` too. A proposal's `evidence` is now the
+  `ProposalEvidence` model, with `judgment_count` beside `judgment_ids`. The
+  create body's `Evidence1` is unchanged.
+- `kindgi`: **a proposal says how it was kept, what the replays cost and
+  which decisions held.** A proposal's `evaluation` gains `rule` (`better` or
+  `cheaper`), `cost_usd` (`ProposalCost`) and `decisions`
+  (`ProposalDecisions`). A proposal kept as `cheaper` is `evaluated` with
+  `better` false. A judged comparison's summary gains `cost_usd`
+  (`JudgedComparisonCost`) and `corrections.judgments`, and each case result
+  gains `cost_usd`, one per repetition.
+- `kindgi`: **`secrets.revoke`'s docstrings say what a hard revoke does**: it
+  erases the value at Kindgi and hard-deletes it in a secret manager, and
+  can't be undone; backups, and a secret manager's own retention, may keep
+  copies for a time. They no longer call it cryptographic erasure.
+- `kindgi`: **a tool's `needs_spec` is checked, and a test can fill its
+  `env`.** `@tool(..., needs_spec=...)` is refused at definition
+  (`DefinitionError`) when a schema under `env` or `secrets` doesn't compile
+  as the runtime compiles it (it isn't valid Draft 2020-12, or it or a schema
+  inside it has a keyword or a `format` the runtime doesn't know, a misspelled
+  one say, or a `$ref` that points nowhere), or an `env` default isn't a
+  string (`None` included).
+  `ToolContext.for_test(tool=...)` builds a context whose `env` is what the
+  tool declares under `needs_spec["env"]` — each name from the `env=` you pass
+  or its schema's string default, checked against its schema — so a handler
+  test resolves env the way the runtime does; names the tool doesn't declare
+  are dropped and `secrets=` pass through.
+  Matches the TypeScript `@kindgi/tools` definition check and test context.
+- `kindgi`: **a tool's schema given as a dict is checked when the tool is
+  defined.** `@tool(input={...}, output={...})` and `http_tool` raise
+  `DefinitionError` when the runtime would refuse the schema (it isn't valid
+  JSON Schema Draft 2020-12, or it has a keyword or a `format` the runtime
+  doesn't know, or a `$ref` that points nowhere), the check `needs_spec`'s
+  schemas get. Before, such a schema reached the pack index as written, and
+  the deploy refused it (under `kindgi dev`, the tool's first call failed).
+  Matches the TypeScript `@kindgi/tools` definition check.
+- `kindgi`: **the definition check refuses what the runtime's strict
+  compile refuses besides unknown names**, word for word as the runtime
+  says it:
+  - a keyword with no `type` it applies to (`minLength` with no
+    `"type": "string"`, say), or a `type` its context can't be;
+  - a `required` property nothing defines;
+  - a `prefixItems` tuple without matching `minItems` and `maxItems`
+    (or `items: false`);
+  - `nullable` without a `type`;
+  - `then`/`else` without `if`, and `minContains`/`maxContains` without
+    `contains`;
+  - an empty `enum`;
+  - a format bound without a `format` it can compare;
+  - a `patternProperties` pattern that matches a property `properties`
+    also names;
+  - a chain of `$ref`s that only leads back to itself.
+
+  A corpus of schemas, with the runtime's answer to each, keeps the two in
+  step.
+
+## 0.1.10
+
+No Python changes; the version moves with the npm packages.
+
+## 0.1.10rc1
+
+No Python changes; the version moves with the npm packages.
+
+## 0.1.10rc0
+
+- `kindgi`: **`system_keys.mint`, `list`, `revoke` and `whoami` say what a
+  runtime serving one tenant answers.** Its own token mints, lists and revokes
+  keys holding `system:license` alone, for the license renewal, and such a key
+  reads the license and its use and nothing else.
 - `kindgi`: **an agent's `conversation_policy` can't set
   `autoCloseAfterInactiveSeconds`.** It was accepted and never acted on: a
   conversation never closes by itself, only when someone closes it. The
@@ -32,6 +161,17 @@ same version, and the CLI's own changes are in
   signs them in. Refused (`site-person-restore-refused`) for someone who
   isn't removed, someone their site said left, and someone who also signs
   in another way. Tenant admins only.
+
+## 0.1.9
+
+No Python changes; the version moves with the npm packages.
+
+## 0.1.9rc1
+
+No Python changes; the version moves with the npm packages.
+
+## 0.1.9rc0
+
 - `kindgi`: **`deployments.pack_env` shows where each name a deployment's
   pack declares is set** (`project`, `org` or `tenant`) and why it can't be
   given to its pack service, if it can't, on a server that runs a pack

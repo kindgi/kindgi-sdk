@@ -14,7 +14,7 @@ vLLM, LiteLLM and OpenRouter among them. Kindgi reaches them with one adapter,
 
 ## Before you start
 
-- **A pack** with `kindgi dev` running, from Kindgi 0.1's CLI.
+- **A pack** with `kindgi dev` running, from Kindgi 0.2's CLI.
 - **Ollama running, with the model pulled:** `ollama pull llama3.1`.
 - **An agent,** to try it. This guide uses `acme.order-desk`.
 

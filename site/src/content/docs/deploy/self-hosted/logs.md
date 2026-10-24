@@ -58,7 +58,8 @@ A subsystem no part of the runtime logs under only warns:
 `db`, `migrations`, `openfga`, `sso`, `tenants`, `improvement-passes` and
 `api-keys`, with these nested ones: `kernel.waitpoints`, `kernel.sweeper`,
 `webhooks.worker`, `authz.outbox`, `approvals.notifier`, `audit.retention`,
-`mcp.headers`, `providers.keys`, `providers.prune` and `secrets.scopes`.
+`mcp.headers`, `providers.keys`, `providers.prune`, `secrets.scopes` and
+`tenants.purge` (runtime 0.1.10 or later).
 
 ## The two formats
 
@@ -96,7 +97,12 @@ values and the passwords in URLs are redacted.
 ## Requests
 
 Every API request gets one line under `http`: its method, its route (with its
-ids as `:runId`, not their values), its status and how long it took.
+ids as `:runId`, not their values), its status and how long it took. A
+paused tool call's link carries its token in its path, and the line writes
+it as `/v1/wait-tokens/:token`. A proxy or a load balancer in front of the
+runtime writes the whole path, so keep its access log out of shared logs,
+or redact the token there
+([Wait for another system's answer](../../../guides/tools/wait-for-another-system/#on-a-server-you-run)).
 
 | The request | Level |
 | --- | --- |
@@ -239,7 +245,7 @@ terminal unless `NO_COLOR` is set. A line that isn't a record shows as it is.
 | `--log-level=<level>` | The lowest level shown. Default: `KINDGI_LOG_LEVEL` from the shell, then from the pack's env files, else `info`. |
 | `--log=<subsystem>=<level>` | A level for one subsystem; repeat it for more. |
 | `--log-format=json` | Each record as written, one per line on standard output, for `\| jq`; everything else stays on standard error. |
-| `--quiet` | Errors only, in the live output too. |
+| `--quiet` | Errors and warnings only, in the live output too. |
 
 The levels reach the sources: the runtime, the pack service and the indexer
 get them as `KINDGI_LOG_LEVEL` and `KINDGI_LOG_LEVELS`, so they write only
