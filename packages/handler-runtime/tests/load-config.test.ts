@@ -332,6 +332,7 @@ describe('a Scala pack: kindgi.config.json', () => {
       guardrails: 'src/main/scala/**/guardrails/**/*.scala',
       agents: 'src/main/scala/**/agents/**/*.scala',
       flows: 'src/main/scala/**/flows/**/*.scala',
+      blocks: 'blocks/**/*.json',
     });
   });
 

@@ -80,6 +80,16 @@ resource "google_compute_router_nat" "nat" {
   nat_ips                            = google_compute_address.nat[*].self_link
   source_subnetwork_ip_ranges_to_nat = "LIST_OF_SUBNETWORKS"
 
+  # Ports per server instance grow on demand: Google's fixed 64 caps an instance
+  # at 64 connections open at once to one destination, such as a public-IP
+  # database through Cloud Run's Cloud SQL connection. Dynamic allocation needs
+  # endpoint-independent mapping off. The provider defaults TIME_WAIT to 120 s.
+  enable_dynamic_port_allocation      = true
+  enable_endpoint_independent_mapping = false
+  min_ports_per_vm                    = var.nat_min_ports_per_vm
+  max_ports_per_vm                    = var.nat_max_ports_per_vm
+  tcp_time_wait_timeout_sec           = var.nat_tcp_time_wait_timeout_sec
+
   subnetwork {
     name                    = google_compute_subnetwork.run[0].id
     source_ip_ranges_to_nat = ["ALL_IP_RANGES"]
@@ -105,18 +115,24 @@ resource "google_service_account" "pack" {
 # The server reaches Kindgi's database; the pack service reaches the
 # databases its own code uses.
 # Only for the /cloudsql socket (a private-IP database is reached over
-# TCP, with no IAM check), and only on Kindgi's own instance: the project
-# may hold other instances (an app's, production's).
+# TCP, with no IAM check), and only on Kindgi's instance — the module's own,
+# or database_host_instance's shared one: the project may hold other
+# instances (an app's, production's).
 resource "google_project_iam_member" "server_sql_client" {
   count   = var.database_private_network == "" ? 1 : 0
   project = var.project_id
   role    = "roles/cloudsql.client"
   member  = "serviceAccount:${google_service_account.server.email}"
 
+  # The expression is what covers database_host_instance. Keep the title and
+  # the description as they are: the Google provider replaces the grant when
+  # any of the condition's fields changes, so an upgrade that changed one would
+  # take the server's access away and give it back while the new revision
+  # starts.
   condition {
     title       = "kindgi-instance-only"
     description = "Kindgi's own Cloud SQL instance only."
-    expression  = "resource.name == \"projects/${var.project_id}/instances/${var.name_prefix}\""
+    expression  = "resource.name == \"projects/${var.project_id}/instances/${var.database_host_instance != null ? var.database_host_instance : var.name_prefix}\""
   }
 }
 

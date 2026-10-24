@@ -16,7 +16,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.2"
+version: "0.1.3"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -64,7 +64,7 @@ You need a JDK 17 or later (`JAVA_HOME`). Maven comes with the pack
 (`./mvnw`).
 
 ```sh
-npx --yes @kindgi/cli@0.1 init my-pack --template=java   # or: uvx --from "kindgi-cli>=0.1,<0.2" kindgi init …
+npx --yes @kindgi/cli@0.2 init my-pack --template=java   # or: uvx --from "kindgi-cli>=0.2,<0.3" kindgi init …
 cd my-pack
 ./mvnw test        # the template's tests: the tools, called directly
 ./kindgiw dev      # boots Kindgi locally and runs this pack, recompiling on save
@@ -88,7 +88,7 @@ reported as `file:line:col`, and the last good code keeps serving.
 In the app's directory (where its `pom.xml` is):
 
 ```sh
-npx --yes @kindgi/cli@0.1 init   # --pack-id=<id> if the app's artifactId doesn't make one
+npx --yes @kindgi/cli@0.2 init   # --pack-id=<id> if the app's artifactId doesn't make one
 ./kindgiw dev
 ```
 
@@ -162,7 +162,10 @@ It takes over at the next turn. That registration is in this project's dev
 database only. To have `kindgi dev` register it on every boot, in every
 worktree and after `--reset`, declare it in `kindgi.config.json`:
 `"providers": [{"preset": "anthropic"}]` (its key, `ANTHROPIC_API_KEY`, comes
-from the env files). Details and other providers: `kindgi-authoring-providers`.
+from the env files). Commit it: it holds the key's name, never the key, and
+it's how a teammate's `kindgi dev`, or another worktree's, gets the same
+provider. Restart `kindgi dev` after adding it: the config isn't watched.
+Details and other providers: `kindgi-authoring-providers`.
 
 To see what Kindgi sees (the index), with no runtime:
 

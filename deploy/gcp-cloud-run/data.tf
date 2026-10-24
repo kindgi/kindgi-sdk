@@ -10,22 +10,52 @@
 
 # ---- Cloud SQL ----------------------------------------------------------------
 # Either public IP with no authorized networks, reachable only through the
-# Cloud SQL connector Cloud Run mounts at /cloudsql (which checks IAM), or
-# private IP only on an existing VPC (database_private_network), reached
-# over TCP through the services' VPC egress. ENCRYPTED_ONLY either way:
-# over TCP the URL says sslmode=require (postgres.js then speaks TLS; the
-# private IP isn't in the server certificate, so it isn't verified).
+# Cloud SQL connector Cloud Run mounts at /cloudsql (which checks IAM, and
+# encrypts the connection and verifies the instance itself), or private IP
+# only on an existing VPC (database_private_network), reached over TCP
+# through the services' VPC egress. ENCRYPTED_ONLY either way. Over TCP
+# the URL says sslmode=require, which encrypts and checks no certificate,
+# and the private IP isn't in the server certificate, so the server checks
+# its certificate against the instance's own CAs (KINDGI_DATABASE_SERVER_CA,
+# read from runtime 0.2.0 on): the chain and the dates, not the name.
+# That's enough with the per-instance CA the instance gets by default,
+# which signs this one instance's certificate alone.
 
 locals {
   database_private = var.database_private_network != ""
+  # Private-IP mode: the CAs the server's certificate must chain to.
+  database_server_ca = (length(data.google_sql_ca_certs.kindgi) > 0
+    ? join("\n", [for ca in data.google_sql_ca_certs.kindgi[0].certs : trimspace(ca.cert)])
+  : "")
 }
 
 resource "google_sql_database_instance" "kindgi" {
+  count               = var.database_host_instance == null ? 1 : 0
   name                = var.name_prefix
   region              = var.region
   database_version    = var.database_version
   deletion_protection = var.database_deletion_protection
   depends_on          = [google_project_service.apis]
+
+  lifecycle {
+    # Cloud SQL keeps at most 7 days of transaction logs on ENTERPRISE: refused at
+    # plan, not halfway through an apply. A precondition, since a variable's own
+    # validation can't read another before Terraform 1.9.
+    precondition {
+      condition     = var.database_point_in_time_days == null ? true : var.database_point_in_time_days <= (var.database_edition == "ENTERPRISE_PLUS" ? 35 : 7)
+      error_message = "database_point_in_time_days is at most 7 on ENTERPRISE (35 on ENTERPRISE_PLUS)."
+    }
+    # Cloud SQL keeps no more days of logs than backups: "The transaction log
+    # retention setting must always be less than or equal to the backup
+    # retention setting". Unset, each is Cloud SQL's default for the edition.
+    precondition {
+      condition = (
+        coalesce(var.database_point_in_time_days, var.database_edition == "ENTERPRISE_PLUS" ? 14 : 7)
+        <= coalesce(var.database_backup_retention, var.database_edition == "ENTERPRISE_PLUS" ? 15 : 7)
+      )
+      error_message = "database_point_in_time_days is more than the backups kept (database_backup_retention; unset, 7 on ENTERPRISE and 15 on ENTERPRISE_PLUS, with 7 and 14 days of logs): Cloud SQL keeps at most as many days of logs as backups. Google recommends one backup more than days of logs."
+    }
+  }
 
   settings {
     edition           = var.database_edition
@@ -41,11 +71,48 @@ resource "google_sql_database_instance" "kindgi" {
     backup_configuration {
       enabled                        = true
       point_in_time_recovery_enabled = true
+      # Unset unless a variable says otherwise: Cloud SQL's own defaults.
+      location                       = var.database_backup_location
+      transaction_log_retention_days = var.database_point_in_time_days
+
+      dynamic "backup_retention_settings" {
+        for_each = var.database_backup_retention == null ? [] : [var.database_backup_retention]
+        content {
+          retained_backups = backup_retention_settings.value
+          retention_unit   = "COUNT"
+        }
+      }
     }
 
     database_flags {
       name  = "cloudsql.iam_authentication"
       value = "on"
+    }
+
+    # A backstop for every session on the instance; the server's own
+    # connections set a shorter one of their own.
+    database_flags {
+      name  = "idle_in_transaction_session_timeout"
+      value = tostring(var.database_idle_in_transaction_timeout_ms)
+    }
+  }
+}
+
+# Private-IP mode: every CA the instance trusts (the one in use, one added
+# for a rotation, one rotated out), read at each plan, so a CA added before
+# a rotation reaches the server at the next apply. Private-IP mode serves
+# from the module's own instance alone: database_instance and
+# database_host_instance are reached through /cloudsql, and services.tf
+# refuses either with private-IP mode. With database_host_instance set
+# there's no instance here to read.
+data "google_sql_ca_certs" "kindgi" {
+  count    = local.database_private ? length(google_sql_database_instance.kindgi) : 0
+  instance = google_sql_database_instance.kindgi[count.index].name
+
+  lifecycle {
+    postcondition {
+      condition     = length(self.certs) > 0
+      error_message = "The instance lists no server CA: the server would have nothing to check the database's certificate against."
     }
   }
 }
@@ -66,9 +133,49 @@ data "google_sql_database_instance" "served" {
   }
 }
 
+# Kindgi's database and user live on this existing instance when
+# database_host_instance is set (the module makes no instance of its own):
+# read, never managed here.
+data "google_sql_database_instance" "host" {
+  count = var.database_host_instance == null ? 0 : 1
+  name  = var.database_host_instance
+
+  lifecycle {
+    # A host's backups are the app's, set where that instance is managed. The
+    # module makes no instance here to set them on, so a backup variable given
+    # with a host would be dropped without a word: a promise of where backups
+    # are kept, broken at the apply that said it.
+    precondition {
+      condition     = var.database_backup_retention == null && var.database_backup_location == null && var.database_point_in_time_days == null
+      error_message = "database_host_instance names ${var.database_host_instance}, whose backups are set where that instance is managed: leave database_backup_retention, database_backup_location and database_point_in_time_days unset."
+    }
+    # Public IP: the server reaches it through Cloud Run's /cloudsql volume.
+    postcondition {
+      condition     = try(self.settings[0].ip_configuration[0].ipv4_enabled, false)
+      error_message = "database_host_instance names ${self.name}, which has no public IP: the server reaches its instance through the /cloudsql volume, which needs one."
+    }
+    # Postgres 16 or later keeps Kindgi's and the app's databases apart by
+    # their role rules: before 16, CREATEROLE — which Kindgi's user needs —
+    # could grant itself any other user's role.
+    postcondition {
+      condition     = can(regex("^POSTGRES_(1[6-9]|[2-9][0-9])$", self.database_version))
+      error_message = "database_host_instance names ${self.name}, which runs ${self.database_version}: Kindgi shares an instance only with Postgres 16 or later, whose role rules keep the databases apart."
+    }
+  }
+}
+
 resource "google_sql_database" "kindgi" {
-  name     = var.database_name
-  instance = google_sql_database_instance.kindgi.name
+  name = var.database_name
+  # A host's name from its read, not from the variable: README's first apply
+  # targets this database, so the host is read in that apply too. Its checks
+  # run there, and sql_connection_name is in the state for step 3.
+  instance = var.database_host_instance != null ? data.google_sql_database_instance.host[0].name : google_sql_database_instance.kindgi[0].name
+
+  # With a host instance the database lives on the app's own instance, so a
+  # destroy or a database_name change must not drop it unless the operator
+  # turned deletion protection off. Without a host it's the module's own
+  # instance, deleted with it (DELETE, the provider default).
+  deletion_policy = var.database_host_instance != null && var.database_deletion_protection ? "ABANDON" : "DELETE"
 }
 
 # The database user and its password are created by the operator (README,

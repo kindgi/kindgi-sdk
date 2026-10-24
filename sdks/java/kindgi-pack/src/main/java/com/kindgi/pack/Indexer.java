@@ -6,6 +6,7 @@ package com.kindgi.pack;
 import com.kindgi.pack.internal.CanonicalJson;
 import com.kindgi.pack.internal.Discovery;
 import com.kindgi.pack.internal.Json;
+import com.kindgi.pack.internal.PackBlocks;
 import com.kindgi.pack.internal.PackConfig;
 import com.kindgi.pack.internal.SchemaDeriver;
 import com.kindgi.pack.internal.SchemaValidator;
@@ -47,8 +48,9 @@ import org.jspecify.annotations.Nullable;
  * The Java counterpart of {@code kindgi-index} and {@code python -m kindgi.pack index}: reads
  * {@code kindgi.config.json}, discovers the source files under the {@code tools}, {@code
  * guardrails}, {@code agents} and {@code flows} packages (or the configured globs), loads each
- * one's class from the classpath, collects the primitives its static fields hold, and writes the
- * index atomically. Byte-deterministic: same classes and pinned {@code --artifact-version} and
+ * one's class from the classpath, collects the primitives its static fields hold, reads the pack's
+ * data blocks ({@code blocks/**}{@code /*.json}, {@link PackBlocks}), and writes the index
+ * atomically. Byte-deterministic: same classes and pinned {@code --artifact-version} and
  * {@code --published-at}, same bytes.
  *
  * <p>Fails loud, but per file: a class that fails to load, defines a primitive of the wrong kind
@@ -112,22 +114,28 @@ final class Indexer {
         discovered.putIfAbsent(rel, expectedKind(rel));
       }
     }
-    if (discovered.isEmpty()) {
+    PackBlocks blocks = PackBlocks.read(root, config.discovery().get("blocks"));
+    if (discovered.isEmpty() && blocks.files().isEmpty() && blocks.errors().isEmpty()) {
       return err("discovery-empty", "Indexer discovered zero files under " + root
           + ". Check the discovery patterns in " + PackConfig.FILE_NAME + ".", null, null);
     }
-    return new Indexer(config, loader).index(root, discovered, outputPath, artifactVersion, publishedAt);
+    return new Indexer(config, loader).index(root, discovered, blocks, outputPath, artifactVersion, publishedAt);
   }
 
   private Map<String, Object> index(
       Path root,
       Map<String, @Nullable String> discovered,
+      PackBlocks blocks,
       @Nullable Path outputPath,
       @Nullable String artifactVersion,
       @Nullable String publishedAt) {
     Map<String, List<Map<String, Object>>> entries = new LinkedHashMap<>();
     for (String kind : FOLDERS.values()) {
       entries.put(kind, new ArrayList<>());
+    }
+    for (Map<String, Object> refused : blocks.errors()) {
+      fileErrors.add(fileError("manifest-validation-failed", (String) refused.get("message"),
+          (String) refused.get("filePath"), null));
     }
     // Per kind and id, the versions defined so far and their files.
     Map<String, Map<@Nullable String, String>> owners = new LinkedHashMap<>();
@@ -246,6 +254,9 @@ final class Indexer {
     index.put("guardrails", sorted(entries.get("guardrail")));
     index.put("agents", sorted(entries.get("agent")));
     index.put("flows", sorted(entries.get("flow")));
+    if (!blocks.blocks().isEmpty()) {
+      index.put("blocks", blocks.blocks());
+    }
     if (config.env() != null) {
       Map<String, Object> env = new LinkedHashMap<>();
       env.put("optional", config.env().optional());
@@ -267,6 +278,7 @@ final class Indexer {
     }
     Map<String, Object> counts = new LinkedHashMap<>();
     FOLDERS.forEach((folder, kind) -> counts.put(folder, entries.get(kind).size()));
+    counts.put("blocks", blocks.blocks().size());
     Map<String, Object> value = new LinkedHashMap<>();
     value.put("packId", config.id());
     value.put("packVersion", config.version());
@@ -481,6 +493,12 @@ final class Indexer {
       throw new EntryException(kind + " '" + idOf(primitive) + "' is invalid at " + (at.isEmpty() ? "/" : at) + ": "
           + first.get("message") + (additional != null ? " ('" + additional + "')" : ""));
     }
+    if (primitive instanceof Tool) {
+      String needsProblem = Needs.check(((Tool<?, ?>) primitive).id(), plain.get("needsSpec"));
+      if (needsProblem != null) {
+        throw new EntryException(needsProblem);
+      }
+    }
     return plain;
   }
 
@@ -495,6 +513,7 @@ final class Indexer {
     e.put("output", output);
     e.put("effects", tool.effects());
     put(e, "mutating", tool.mutating());
+    put(e, "needsApprovalWhenUnattended", tool.needsApprovalWhenUnattended());
     tool.extra().forEach(e::put);
     e.put("modulePath", rel);
     return e;

@@ -25,10 +25,12 @@ import type {
   UserId,
 } from '@kindgi/types';
 
+import { approvalResourceRef } from '../approval-resource.js';
 import { statusFor, toWireError } from '../errors.js';
-import type { RunHandlerBinding, RunTrace } from '../handler-binding.js';
+import type { RunHandlerBinding } from '../handler-binding.js';
 import type {
   Approval,
+  ApprovalConnection,
   ApprovalPosition,
   ApprovalStatus,
   HitlBinding,
@@ -37,6 +39,7 @@ import type {
 } from '../hitl-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
+import { type ResumeReport, resumeInline } from '../resume-inline.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import {
@@ -129,6 +132,13 @@ export interface ApprovalsRouterOptions {
  * as an `admin` reviewer (`reviewersRouter`). Deciding stays the roster's,
  * and an API key with no user reads nothing it couldn't before.
  *
+ * An approval addressed to one member (`approver`: a call that acts with
+ * that member's own connection) is theirs alone to decide, and among the
+ * reviewers only they see it. A person who is the tenant's admin still
+ * reads it, but can't decide it (`403 named-approver-required`); to anyone
+ * else it doesn't exist. That check is made only when a read holds an
+ * approval addressed to someone else.
+ *
  * Visibility filter: a caller with role `R` sees approvals whose
  * `requiredRole` rank ≤ their rank (standard < senior < admin). The
  * scoping is applied post-fetch on the returned rows — pushing the
@@ -154,16 +164,15 @@ export function approvalsRouter(
   const runHandler = options.runHandler;
 
   /** What an approval is checked on: its project, else its run's, else the tenant. */
-  const approvalRef = async (tenantId: TenantId, approval: Approval): Promise<ResourceRef> => {
-    if (approval.projectId !== undefined) {
-      return ref('project', approval.projectId as unknown as string);
-    }
-    const runId = approval.provenanceRef?.runId;
-    const run = runId === undefined ? null : await runBinding.getRun(tenantId, runId as never);
-    return run === null
-      ? ref('tenant', tenantId as unknown as string)
-      : ref('project', run.projectId as unknown as string);
-  };
+  const approvalRef = (tenantId: TenantId, approval: Approval): Promise<ResourceRef> =>
+    approvalResourceRef(
+      tenantId,
+      {
+        projectId: approval.projectId,
+        runId: approval.provenanceRef?.runId as RunId | undefined,
+      },
+      (t, runId) => runBinding.getRun(t, runId as never),
+    );
   /** Whether the caller may read the approval's project (always, without an authorizer). */
   const mayRead = async (c: Context<AppEnv>, approval: Approval): Promise<boolean> =>
     authorizer === undefined ||
@@ -174,10 +183,33 @@ export function approvalsRouter(
    * the roster gives, since the authorizer records each check it makes: a
    * reviewer reading their own tier makes none.
    */
-  const readsAsTenantAdmin = async (c: Context<AppEnv>): Promise<boolean> =>
-    authorizer !== undefined &&
-    c.get('userId') !== undefined &&
-    authorizer.can(c, 'admin', ref('tenant', c.get('tenantId') as unknown as string));
+  const readsAsTenantAdmin = (c: Context<AppEnv>): Promise<boolean> => {
+    // Asked once per request, however many places need it.
+    let asked = tenantAdminAsked.get(c);
+    if (asked === undefined) {
+      asked = (async () =>
+        authorizer !== undefined &&
+        c.get('userId') !== undefined &&
+        authorizer.can(c, 'admin', ref('tenant', c.get('tenantId') as unknown as string)))();
+      tenantAdminAsked.set(c, asked);
+    }
+    return asked;
+  };
+  const tenantAdminAsked = new WeakMap<Context<AppEnv>, Promise<boolean>>();
+  /**
+   * Whether the caller may see an approval addressed to one member
+   * (`approver`, a call that acts with that member's own connection): that
+   * member, or a person who is the tenant's admin. Another reviewer of the
+   * rank doesn't: it isn't theirs to decide. One addressed to no one is
+   * seen as the tiers allow.
+   */
+  const seesAddressed = async (c: Context<AppEnv>, approval: Approval): Promise<boolean> =>
+    approval.approver === undefined ||
+    approval.approver.userId === c.get('userId') ||
+    (await readsAsTenantAdmin(c));
+  /** Whether the caller may decide it: only its approver, when it has one. */
+  const decidesAddressed = (c: Context<AppEnv>, approval: Approval): boolean =>
+    approval.approver === undefined || approval.approver.userId === c.get('userId');
 
   // ---------- role gate for the whole resource ----------
   // A reviewer: a token that carries a role, or whose user the roster
@@ -239,6 +271,21 @@ export function approvalsRouter(
         ),
       );
     }
+
+    // `?decidedBy=me`: the approvals the caller's own reviewer row decided.
+    const decidedByRaw = c.req.query('decidedBy');
+    if (decidedByRaw !== undefined && decidedByRaw !== 'me') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: '`decidedBy` takes `me` (the approvals you decided)' },
+          requestId,
+        ),
+      );
+    }
+    // Every page of the list says it holds only the caller's decisions, an
+    // empty one too, so a client can tell a runtime that ignores the filter.
+    const filtered = decidedByRaw === 'me' ? { decidedBy: 'me' as const } : {};
 
     const orderRaw = c.req.query('order');
     if (orderRaw !== undefined && orderRaw !== 'asc' && orderRaw !== 'desc') {
@@ -392,8 +439,19 @@ export function approvalsRouter(
         userId === undefined
           ? null
           : await reviewerBinding.resolveReviewer({ tenantId, userId: userId as UserId });
-      if (found === null) return c.json({ data: [], hasMore: false, order });
+      if (found === null) return c.json({ data: [], hasMore: false, order, ...filtered });
       assignee = found as ReviewerId;
+    }
+    // Decided by the caller: the same reviewer row. A caller with none decided nothing.
+    let decider: ReviewerId | undefined;
+    if (decidedByRaw === 'me') {
+      const userId = c.get('userId');
+      const found =
+        userId === undefined
+          ? null
+          : await reviewerBinding.resolveReviewer({ tenantId, userId: userId as UserId });
+      if (found === null) return c.json({ data: [], hasMore: false, order, ...filtered });
+      decider = found as ReviewerId;
     }
 
     // Over-fetch up to 4× the page size (capped at 500) so a page still
@@ -408,6 +466,7 @@ export function approvalsRouter(
       ...(statuses?.length === 1 && { status: statuses[0] }),
       ...(statuses !== undefined && { statuses }),
       ...(assignee !== undefined && { assignedTo: assignee }),
+      ...(decider !== undefined && { decidedBy: decider }),
       ...(order === 'asc' && { order }),
       ...(requiredRoleFilter !== undefined && { requiredRole: requiredRoleFilter }),
       ...(createdAfterIso !== undefined && { since: createdAfterIso as unknown as Timestamp }),
@@ -429,15 +488,25 @@ export function approvalsRouter(
       (a) =>
         REVIEWER_ROLE_RANK[a.requiredRole] <= roleRank &&
         (statuses === undefined || statuses.includes(a.status)) &&
-        (assignee === undefined || a.assignedTo === assignee),
+        (assignee === undefined || a.assignedTo === assignee) &&
+        (decider === undefined || a.decision?.reviewerId === decider),
     );
-    let visible = inTier;
+    // One addressed to someone else is left out, unless the caller reads as
+    // the tenant's admin: asked only when the page holds one.
+    const theirs = inTier.some(
+      (a) => a.approver !== undefined && a.approver.userId !== c.get('userId'),
+    );
+    const addressed = theirs && !(await readsAsTenantAdmin(c));
+    let visible = addressed
+      ? inTier.filter((a) => a.approver === undefined || a.approver.userId === c.get('userId'))
+      : inTier;
     if (authorizer !== undefined) {
-      const refs = await Promise.all(inTier.map((a) => approvalRef(tenantId, a)));
+      const mine = visible;
+      const refs = await Promise.all(mine.map((a) => approvalRef(tenantId, a)));
       const readable = await authorizer.filterByCan(
         c,
         'read',
-        inTier.map((approval, i) => ({ approval, at: refs[i] as ResourceRef })),
+        mine.map((approval, i) => ({ approval, at: refs[i] as ResourceRef })),
         (row) => row.at,
       );
       visible = readable.map((row) => row.approval);
@@ -472,6 +541,7 @@ export function approvalsRouter(
       hasMore: hasMore && (nextCursor !== undefined || listedOrder === 'desc'),
       ...(nextCursor !== undefined && { nextCursor }),
       order: listedOrder,
+      ...filtered,
     });
   });
 
@@ -497,7 +567,7 @@ export function approvalsRouter(
     const aboveTier =
       REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role] &&
       !(await readsAsTenantAdmin(c));
-    if (aboveTier || !(await mayRead(c, approval))) {
+    if (aboveTier || !(await mayRead(c, approval)) || !(await seesAddressed(c, approval))) {
       c.status(statusFor('approval-not-found') as never);
       return c.json(
         toWireError(
@@ -552,9 +622,12 @@ export function approvalsRouter(
       return c.json(toWireError(found.error as never, requestId));
     }
     const approval = found.value;
+    // One addressed to a member is hidden from the other reviewers, as in
+    // the list: they find no such approval.
     if (
       REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role] ||
-      !(await mayRead(c, approval))
+      !(await mayRead(c, approval)) ||
+      !(await seesAddressed(c, approval))
     ) {
       c.status(statusFor('approval-not-found') as never);
       return c.json(
@@ -562,6 +635,22 @@ export function approvalsRouter(
           {
             code: 'approval-not-found',
             message: `No approval with id ${approvalId as unknown as string}`,
+            approvalId: approvalId as unknown as string,
+          },
+          requestId,
+        ),
+      );
+    }
+    // The tenant's admin reads it, but only its approver decides it.
+    if (!decidesAddressed(c, approval)) {
+      const account =
+        approval.connection === undefined ? 'account' : `${approval.connection.appName} account`;
+      c.status(statusFor('named-approver-required') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'named-approver-required',
+            message: `Only user ${approval.approver?.userId} can decide approval ${approvalId as unknown as string}: the call it gates acts with their own ${account}.`,
             approvalId: approvalId as unknown as string,
           },
           requestId,
@@ -598,12 +687,16 @@ export function approvalsRouter(
       });
     }
 
+    // The session's provider, kept with the decision: who vouched for the
+    // reviewer (a site's sign-in, an identity provider). None for a key.
+    const sessionProvider = c.get('sessionId') !== undefined ? c.get('providerId') : undefined;
     const submitted = await hitlBinding.submitReview({
       tenantId,
       approvalId,
       reviewerId: reviewerId as ReviewerId,
       decision: parsed.value.decision,
       ...(parsed.value.rationale !== undefined && { rationale: parsed.value.rationale }),
+      ...(sessionProvider !== undefined && { sessionProvider }),
     });
     if (submitted.kind === 'err') {
       c.status(statusFor(submitted.error.code) as never);
@@ -733,7 +826,8 @@ export function approvalsRouter(
     const approval = found.value;
     if (
       REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role] ||
-      !(await mayRead(c, approval))
+      !(await mayRead(c, approval)) ||
+      !(await seesAddressed(c, approval))
     ) {
       c.status(statusFor('approval-not-found') as never);
       return c.json(
@@ -884,7 +978,16 @@ function serializeApproval(a: Approval): Record<string, unknown> {
     ...(a.withdrawnBecause !== undefined && { withdrawnBecause: a.withdrawnBecause }),
     ...(a.escalatedFrom !== undefined && { escalatedFrom: a.escalatedFrom }),
     ...(a.escalatedTo !== undefined && { escalatedTo: a.escalatedTo }),
+    ...(a.approver !== undefined && {
+      approver: { kind: a.approver.kind, userId: a.approver.userId },
+    }),
+    ...(a.connection !== undefined && { connection: approvalConnection(a.connection) }),
   };
+}
+
+/** The person's account the call would use, field by field. */
+function approvalConnection(connection: ApprovalConnection): Record<string, unknown> {
+  return { app: connection.app, appName: connection.appName, account: connection.account };
 }
 
 function serializeApprovalDecision(d: ReviewDecisionRecord): Record<string, unknown> {
@@ -895,6 +998,8 @@ function serializeApprovalDecision(d: ReviewDecisionRecord): Record<string, unkn
     reviewerRoleAtDecision: d.reviewerRoleAtDecision,
     decidedAt: d.decidedAt,
     ...(d.rationale !== undefined && { rationale: d.rationale }),
+    ...(d.sessionProvider !== undefined && { sessionProvider: d.sessionProvider }),
+    ...(d.deciderName !== undefined && { deciderName: d.deciderName }),
   };
 }
 
@@ -982,40 +1087,6 @@ function parseAuditBundleBody(
     includeMessages = im;
   }
   return { kind: 'ok', value: { signingKeyId: signingKeyId.value, includeMessages } };
-}
-
-/** How the inline resume after a decision went. */
-type ResumeReport =
-  | { readonly kind: 'ok' }
-  | { readonly kind: 'failed'; readonly code: string; readonly message: string };
-
-/**
- * Resume the run a decision released, in the same request. A resume that
- * fails is reported, not raised: the decision is durable either way, and
- * the runtime ends a run that can't go on, or resumes it later.
- */
-async function resumeInline(
-  runHandler: RunHandlerBinding,
-  tenantId: TenantId,
-  runId: RunId,
-  trace: RunTrace | undefined,
-): Promise<ResumeReport> {
-  try {
-    const outcome = await runHandler.resumeRun({
-      tenantId,
-      runId,
-      ...(trace !== undefined && { trace }),
-    });
-    return outcome.kind === 'ok'
-      ? { kind: 'ok' }
-      : { kind: 'failed', code: outcome.error.code, message: outcome.error.message };
-  } catch (cause) {
-    return {
-      kind: 'failed',
-      code: 'resume-failed',
-      message: cause instanceof Error ? cause.message : String(cause),
-    };
-  }
 }
 
 /** Marks an oldest-first page's cursor (`order=asc`), which only continues that order. */

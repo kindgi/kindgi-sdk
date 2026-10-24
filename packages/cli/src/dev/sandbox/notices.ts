@@ -34,6 +34,8 @@ export type DevSandboxOutcome =
       readonly sandbox: ActiveDevSandbox | undefined;
       /** What to print, in order. */
       readonly lines: readonly string[];
+      /** A warning, after `lines`: said under `--quiet` too. */
+      readonly warnings: readonly string[];
     }
   | { readonly kind: 'error'; readonly message: string };
 
@@ -55,7 +57,8 @@ export async function resolveDevSandbox(opts: {
     return {
       kind: 'ok',
       sandbox: undefined,
-      lines: [
+      lines: [],
+      warnings: [
         `⚠ dev sandbox: off (${why}): your tools' code can read your files and keys as you can`,
       ],
     };
@@ -71,7 +74,8 @@ export async function resolveDevSandbox(opts: {
     return {
       kind: 'ok',
       sandbox: undefined,
-      lines: [
+      lines: [],
+      warnings: [
         '⚠ Your tools run without the dev sandbox on this system: they can read your files and keys.',
         `  Why: ${availability.reason}. ${availability.fix}`,
         `  More: ${DEV_SANDBOX_DOCS}. To refuse to run without it: ${DEV_SANDBOX_VAR}=required; to drop this warning: ${DEV_SANDBOX_VAR}=off.`,
@@ -98,6 +102,7 @@ export async function resolveDevSandbox(opts: {
       ...allowRead.map((p) => `  also reads ${p} (dev.sandbox.allowRead)`),
       ...allowUnixSockets.map((p) => `  also connects to ${p} (dev.sandbox.allowUnixSockets)`),
     ],
+    warnings: [],
   };
 }
 

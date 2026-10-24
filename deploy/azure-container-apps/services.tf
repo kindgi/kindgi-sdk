@@ -311,9 +311,14 @@ resource "azurerm_container_app" "server" {
       condition     = var.erasure_ledger_key_version != ""
       error_message = "erasure_ledger_key_version is needed for the services: the version `az keyvault secret set` printed for erasure-ledger-key (README, step 3)."
     }
+    # Key Vault compares a secret's name without its case: API-Token is api-token.
     precondition {
-      condition     = !contains(values(merge(local.server_secrets, local.export_signing_secrets, local.shared_secrets)), local.license_renewer_secret)
-      error_message = "license_renewer_secret: ${local.license_renewer_secret} is one of the module's own secrets. The renewer key needs a secret of its own (the default, license-renewer)."
+      condition     = !contains([for name in values(merge(local.server_secrets, local.export_signing_secrets, local.shared_secrets)) : lower(name)], lower(local.license_renewer_secret))
+      error_message = "license_renewer_secret: ${local.license_renewer_secret} is one of the module's own secrets (Key Vault ignores case in a name). The renewer key needs a secret of its own (the default, license-renewer)."
+    }
+    precondition {
+      condition     = !contains([for name in concat(values(merge(local.server_secrets, local.export_signing_secrets, local.shared_secrets)), [local.license_renewer_secret], [for ref in values(var.pack_secret_env) : ref.secret]) : lower(name)], lower(var.license_usage_key_secret))
+      error_message = "license_usage_key_secret: ${var.license_usage_key_secret} is a secret the module or the pack uses already (Key Vault ignores case in a name), which the renewal job would then read. The usage key needs a secret of its own, such as license-usage-key."
     }
     precondition {
       condition     = length(setintersection(local.server_module_env, local.server_extra_env)) == 0
@@ -326,6 +331,16 @@ resource "azurerm_container_app" "server" {
     precondition {
       condition     = length(setintersection(local.server_extra_env, toset(["KINDGI_AUTH_SECRET", "KINDGI_AUTH_SECRET_PATH"]))) == 0 || var.public_url != ""
       error_message = "Sign-in with identity providers (KINDGI_AUTH_SECRET) needs public_url: the URL people open the console at, where identity providers send them back. The server won't start without it."
+    }
+    # One tenant: the one the server seeds. A runtime serving many calls a
+    # pack service of each deployment's own, never this module's shared one.
+    precondition {
+      condition     = contains(["", "single"], lookup(var.server_env, "KINDGI_TENANCY", "")) && !contains(keys(var.server_secret_env), "KINDGI_TENANCY")
+      error_message = "This module runs one tenant: server_env's KINDGI_TENANCY, if set, is \"single\", and server_secret_env doesn't set it. A server serving many tenants wouldn't start here: it refuses the KINDGI_TENANT_ID this module sets (seed_tenant_id), and calls a pack service of each deployment's own, never the one this module makes. Serving many tenants needs a container app for each deployment's pack service, run by an orchestrator of your own."
+    }
+    precondition {
+      condition     = contains(["", "single"], trimspace(lookup(var.server_env, "KINDGI_PACK_ROUTING", ""))) && !contains(keys(var.server_secret_env), "KINDGI_PACK_ROUTING")
+      error_message = "This module runs one tenant, with one pack service: server_env's KINDGI_PACK_ROUTING, if set, is empty or \"single\", and server_secret_env doesn't set it. The server refuses \"per-deployment\" at boot: it needs KINDGI_TENANCY = \"multi\", which this module doesn't run."
     }
   }
 

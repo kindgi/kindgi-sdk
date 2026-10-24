@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import { routePath } from 'hono/route';
 
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
@@ -15,12 +15,21 @@ import {
   type EvalSuiteRecord,
   type EvalSuiteRegistryBinding,
 } from '../eval-suite-binding.js';
+import {
+  type ItemCheck,
+  type ItemRights,
+  type ItemServing,
+  itemMiddleware,
+  itemPathCheck,
+  shownLatest,
+} from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
+import { UUID_RE } from './uuid-param.js';
 
 /**
  * Evaluation-suite resource routes — part of the admin control plane.
@@ -43,6 +52,10 @@ import { parseScopeParams } from './scope-params.js';
 export function evalSuitesRouter(
   binding: EvalSuiteRegistryBinding,
   authorizer?: Authorizer,
+  /** Rights on a suite more than one project serves (`item-rights.ts`); absent → the suite's own. */
+  itemRights?: ItemRights,
+  /** With no authorizer: which projects serve it, for `?projectId=` (`itemServingOf`). */
+  itemServing?: ItemServing,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -78,35 +91,97 @@ export function evalSuitesRouter(
       const mw = authorizer.authorize('read', () => ref('project', scopeProjectId));
       return mw(c, next);
     });
-    r.use('/:suiteId/*', async (c, next) => {
-      const suiteId = c.req.param('suiteId') ?? '';
-      // Starting a run (`POST /:suiteId/runs`, exactly) doesn't change the
-      // suite, and the start route checks it all itself: `execute` on the
-      // suite, `write` on the project and `execute` on the agent or flow.
-      const under = c.req.path.split('/').slice(routePath(c).split('/').length - 1);
-      if (c.req.method === 'POST' && under.length === 1 && under[0] === 'runs') return next();
-      const action = c.req.method === 'GET' ? 'read' : 'admin';
-      // A test set built from judgments under a suite id never registered
-      // (no head row) has no suite to check yet: the build checks `admin`
-      // on the project it names, the project the new suite belongs to. A
-      // tombstoned suite keeps its head row, so it's checked as an existing
-      // one. Anything else under a suite id, and a build under an existing
-      // suite, checks the suite.
-      if (
-        c.req.method === 'POST' &&
-        c.req.path.endsWith('/versions/from-judgments') &&
-        !(await binding.headExists({ tenantId: c.get('tenantId') as TenantId, suiteId }))
-      ) {
-        return next();
-      }
-      const mw = authorizer.authorize(action, () => ref('eval_suite', suiteId));
-      return mw(c, next);
-    });
-    r.use('/:suiteId', async (c, next) => {
-      if (c.req.method !== 'GET') return next();
-      const suiteId = c.req.param('suiteId') ?? '';
-      const mw = authorizer.authorize('read', () => ref('eval_suite', suiteId));
-      return mw(c, next);
+    // A suite more than one project serves is checked on those projects
+    // instead (`item-rights.ts`).
+    r.use(
+      '/:suiteId/*',
+      itemMiddleware({
+        authorizer,
+        rights: itemRights,
+        kind: 'eval_suite',
+        id: (c) => c.req.param('suiteId') ?? '',
+        async today(c) {
+          const suiteId = c.req.param('suiteId') ?? '';
+          // Starting a run (`POST /:suiteId/runs`, exactly) doesn't change the
+          // suite, and the start route checks it all itself: `execute` on the
+          // suite, `write` on the project and `execute` on the agent or flow.
+          const under = c.req.path.split('/').slice(routePath(c).split('/').length - 1);
+          if (c.req.method === 'POST' && under.length === 1 && under[0] === 'runs') {
+            return undefined;
+          }
+          // A test set built from judgments under a suite id never registered
+          // (no head row) has no suite to check yet: the build checks `admin`
+          // on the project it names, the project the new suite belongs to. A
+          // tombstoned suite keeps its head row, so it's checked as an existing
+          // one. Anything else under a suite id, and a build under an existing
+          // suite, checks the suite.
+          if (
+            c.req.method === 'POST' &&
+            c.req.path.endsWith('/versions/from-judgments') &&
+            !(await binding.headExists({ tenantId: c.get('tenantId') as TenantId, suiteId }))
+          ) {
+            return undefined;
+          }
+          return c.req.method === 'GET' ? 'read' : 'admin';
+        },
+        check: suiteCheck,
+        versionNotFound: suiteVersionNotFound,
+      }),
+    );
+    r.use(
+      '/:suiteId',
+      itemMiddleware({
+        authorizer,
+        rights: itemRights,
+        kind: 'eval_suite',
+        id: (c) => c.req.param('suiteId') ?? '',
+        today: (c) => (c.req.method === 'GET' ? 'read' : undefined),
+        check: () => ({ rule: 'read' }),
+        versionNotFound: suiteVersionNotFound,
+      }),
+    );
+  }
+
+  /** A version of the suite that isn't there, or that the caller can't see: one 404 for both. */
+  function suiteVersionNotFound(c: Context<AppEnv>, version: string): Response {
+    const suiteId = c.req.param('suiteId') ?? '';
+    c.status(statusFor('eval-suite-not-found') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'eval-suite-not-found',
+          message: `No eval suite "${suiteId}" at version "${version}"`,
+          suiteId,
+          version,
+        },
+        c.get('requestId'),
+      ),
+    );
+  }
+
+  /**
+   * The rows of a list the caller may read (T243 A), as `GET …/:id` asks:
+   * a suite more than one project serves, at its newest version they see.
+   */
+  async function readable(
+    c: Context<AppEnv>,
+    tenantId: TenantId,
+    rows: readonly EvalSuiteRecord[],
+  ): Promise<readonly EvalSuiteRecord[]> {
+    if (authorizer === undefined) return rows;
+    if (itemRights === undefined) {
+      return authorizer.filterByCan(c, 'read', rows, (a) =>
+        ref('eval_suite', a.id as unknown as string),
+      );
+    }
+    return itemRights.filterItems(c, 'eval_suite', rows, {
+      idOf: (a) => a.id as unknown as string,
+      todayRef: (a) => ref('eval_suite', a.id as unknown as string),
+      versions: {
+        versionOf: (a) => a.version as unknown as string,
+        getVersion: (id, version) => binding.getVersion({ tenantId, suiteId: id, version }),
+      },
+      retired: (a) => a.unregisteredAt !== undefined,
     });
   }
 
@@ -155,13 +230,7 @@ export function evalSuitesRouter(
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
       ...(includeRetired && { includeRetired: true }),
     });
-    // Only what the caller may read (T243 A), as `GET …/:id` asks.
-    const visible =
-      authorizer === undefined
-        ? page.data
-        : await authorizer.filterByCan(c, 'read', page.data, (a) =>
-            ref('eval_suite', a.id as unknown as string),
-          );
+    const visible = await readable(c, tenantId, page.data);
     return c.json({
       data: visible.map(serializeEvalSuite),
       hasMore: page.nextCursor !== undefined,
@@ -175,8 +244,8 @@ export function evalSuitesRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const suiteId = c.req.param('suiteId');
 
-    const suite = await binding.get({ tenantId, suiteId });
-    if (suite === null) {
+    const latest = await binding.get({ tenantId, suiteId });
+    if (latest === null) {
       // 410 gone (head exists, no active version) vs 404 not-found.
       const exists = await binding.headExists({ tenantId, suiteId });
       if (exists) {
@@ -204,7 +273,31 @@ export function evalSuitesRouter(
         ),
       );
     }
-    return c.json(serializeEvalSuite(suite));
+    // The newest version the caller can see, or the newest in
+    // `?projectId=` (`item-rights.ts`).
+    const shown = await shownLatest(c, itemRights ?? itemServing, 'eval_suite', suiteId, latest, {
+      versionOf: (s) => s.version as unknown as string,
+      projectOf: (s) => s.projectId as unknown as string | undefined,
+      getVersion: (version) => binding.getVersion({ tenantId, suiteId, version }),
+    });
+    if (shown.kind === 'bad-input') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: shown.message }, requestId));
+    }
+    if (shown.kind === 'not-found') {
+      c.status(statusFor('eval-suite-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'eval-suite-not-found',
+            message: `No eval suite registered with id "${suiteId}"`,
+            suiteId,
+          },
+          requestId,
+        ),
+      );
+    }
+    return c.json(serializeEvalSuite(shown.row));
   });
 
   // ---------- GET /:suiteId/versions (list versions) ----------
@@ -247,8 +340,22 @@ export function evalSuitesRouter(
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
       ...(includeTombstoned && { includeTombstoned: true }),
     });
+    // A suite more than one project serves: only the versions the caller
+    // can see (`item-rights.ts`).
+    const projects = await itemRights?.multi(c, 'eval_suite', suiteId);
+    const data =
+      itemRights === undefined || projects === undefined
+        ? page.data
+        : await itemRights.visibleVersions(
+            c,
+            'eval_suite',
+            suiteId,
+            projects,
+            page.data,
+            (s) => s.version as unknown as string,
+          );
     return c.json({
-      data: page.data.map(serializeEvalSuite),
+      data: data.map(serializeEvalSuite),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -256,26 +363,12 @@ export function evalSuitesRouter(
 
   // ---------- GET /:suiteId/versions/:version ----------
   r.get('/:suiteId/versions/:version', async (c) => {
-    const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const suiteId = c.req.param('suiteId');
     const version = c.req.param('version');
 
     const suite = await binding.getVersion({ tenantId, suiteId, version });
-    if (suite === null) {
-      c.status(statusFor('eval-suite-not-found') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'eval-suite-not-found',
-            message: `No eval suite "${suiteId}" at version "${version}"`,
-            suiteId,
-            version,
-          },
-          requestId,
-        ),
-      );
-    }
+    if (suite === null) return suiteVersionNotFound(c, version);
     return c.json(serializeEvalSuite(suite));
   });
 
@@ -438,6 +531,29 @@ export function evalSuitesRouter(
   });
 
   return r;
+}
+
+/**
+ * What a route under a suite more than one project serves asks
+ * (`itemPathCheck`), but for a test set built from judgments: `admin` in
+ * the one project whose judged runs it takes, where the new version is
+ * made, as an eval run follows its own project (rule 3). A body naming
+ * none of the suite's projects is checked on every project, and the
+ * route answers what's wrong with it.
+ */
+async function suiteCheck(c: Context<AppEnv>, projects: readonly ProjectId[]): Promise<ItemCheck> {
+  if (c.req.method === 'POST' && c.req.path.endsWith('/versions/from-judgments')) {
+    const body = (await c.req.json().catch(() => null)) as { projectId?: unknown } | null;
+    const projectId = body?.projectId;
+    if (
+      typeof projectId === 'string' &&
+      UUID_RE.test(projectId) &&
+      projects.includes(projectId as ProjectId)
+    ) {
+      return { rule: 'on', action: 'admin', projectId };
+    }
+  }
+  return itemPathCheck(c);
 }
 
 function serializeEvalSuite(s: EvalSuiteRecord): Record<string, unknown> {

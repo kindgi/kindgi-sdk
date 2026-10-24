@@ -7,6 +7,8 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { CORRECTION_ITEM } from '@kindgi/types';
+
 import { runCli } from '../src/main.js';
 
 let home: string;
@@ -75,6 +77,66 @@ describe('kindgi judgments', () => {
       ],
     ]);
     expect(JSON.parse(out.stdout)).toEqual({ id: 'j-1' });
+  });
+
+  test('add sends a correction on the fixed item, without --item', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      [
+        'judgments',
+        'add',
+        '--run=r-1',
+        '--no',
+        '--correction={"calls":[{"tool":"acme.refund","args":{"amount":25}}],"notCalled":["acme.escalate"]}',
+      ],
+      { judgments: { create: rec('create', { id: 'j-2' }) } },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      [
+        'create',
+        {
+          runId: 'r-1',
+          item: { key: CORRECTION_ITEM.key, pointer: CORRECTION_ITEM.pointer },
+          verdict: 'no',
+          correction: {
+            calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+            notCalled: ['acme.escalate'],
+          },
+        },
+      ],
+    ]);
+  });
+
+  test('add refuses --item, --pointer or --rank that fight the correction item', async () => {
+    const client = { judgments: { create: recorder().rec('create') } };
+    const corr = '--correction={"calls":[],"notCalled":["acme.escalate"]}';
+    const wrongItem = await run(
+      ['judgments', 'add', '--run=r-1', '--item=c1', '--no', corr],
+      client,
+    );
+    expect(wrongItem.exitCode).toBe(2);
+    expect(wrongItem.stderr).toContain(CORRECTION_ITEM.key);
+    const wrongPointer = await run(
+      ['judgments', 'add', '--run=r-1', '--pointer=/matches/0', '--no', corr],
+      client,
+    );
+    expect(wrongPointer.exitCode).toBe(2);
+    expect(wrongPointer.stderr).toContain('whole output');
+    const wrongRank = await run(
+      ['judgments', 'add', '--run=r-1', '--rank=1', '--no', corr],
+      client,
+    );
+    expect(wrongRank.exitCode).toBe(2);
+    expect(wrongRank.stderr).toContain('whole output');
+  });
+
+  test('add rejects a malformed --correction', async () => {
+    const out = await run(['judgments', 'add', '--run=r-1', '--no', '--correction={bad'], {
+      judgments: { create: recorder().rec('create') },
+    });
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain('Malformed JSON input');
   });
 
   test('add without a class is unclassified', async () => {

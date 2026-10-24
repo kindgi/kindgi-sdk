@@ -17,21 +17,48 @@ the data each step gets, without the writes.
 
 ## Before you start
 
-- **A flow,** registered on a runtime such as `kindgi dev`, with Kindgi 0.1's
+- **A flow,** registered on a runtime such as `kindgi dev`, with Kindgi 0.2's
   CLI. This guide uses `acme.handle-order` and `acme.check-order-stock`.
 - **Tools declared truthfully:** `mutating: false` on every tool that only
   reads, and never on one that writes, as [What runs](#what-runs) explains.
 - **For the app's half:** Node 22.12 or later, Python 3.11 or later, or Java 17
-  or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
   `KINDGI_API_TOKEN` set.
 
 ## Dry-run it
 
 Start the run with `--dry-run`:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}' --dry-run
+pnpm exec kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}' --dry-run
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.handle-order --input='{"orderId":"A-100"}' --dry-run
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.handle-order --input='{"orderId":"A-100"}' --dry-run
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.handle-order --input='{"orderId":"A-100"}' --dry-run
+```
+
+</TabItem>
+</Tabs>
 
 `--flow` is the flow, and `--input` its input. `--dry-run` runs only the
 tools declared read-only, as [What runs](#what-runs) shows. It prints the
@@ -66,9 +93,36 @@ input the next step would have had:
 
 A flow whose steps all only read completes, with its output:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --flow=acme.check-order-stock --input='{"orderId":"A-200"}' --dry-run
+pnpm exec kindgi runs start --flow=acme.check-order-stock --input='{"orderId":"A-200"}' --dry-run
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --flow=acme.check-order-stock --input='{"orderId":"A-200"}' --dry-run
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --flow=acme.check-order-stock --input='{"orderId":"A-200"}' --dry-run
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --flow=acme.check-order-stock --input='{"orderId":"A-200"}' --dry-run
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -102,7 +156,8 @@ So a dry run is only as safe as the tools' declarations. Declare
 
 ## From your app
 
-Your app starts a dry run with `options: { dryRun: true }`:
+Ask your coding agent: "I want my app to start a dry run of my flow." For
+reference, your app starts a dry run with `options: { dryRun: true }`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

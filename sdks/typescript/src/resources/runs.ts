@@ -6,7 +6,15 @@ import type { AgentId, FlowId, RunId, TenantId, Timestamp } from '@kindgi/types'
 import type { ScopeRef } from '../scope-wire.js';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
-import type { LiveScope, RunFailureGroups, RunProgress, ScopeSegment } from '../generated/api.js';
+import type {
+  LiveScope,
+  RunFailureGroups,
+  RunProgress,
+  RunWaitingApproval,
+  RunWaitingFor,
+  RunWaitingToken,
+  ScopeSegment,
+} from '../generated/api.js';
 import { type RunProgressEvent, followRun } from '../run-follow.js';
 import { scopeToQuery } from '../scope-wire.js';
 import { type Transport, seconds } from '../transport.js';
@@ -164,15 +172,19 @@ export interface RunsClient {
   get(runId: RunId): Promise<Run>;
 
   /**
-   * Resume a suspended run at a waitpoint. Used to complete HITL
-   * approvals, external callbacks, or event-triggered inbox waits.
+   * Answer a run's wait for another system, as that system would through
+   * the link its tool handed on. `waitpointId` is a wait's `tokenId` from
+   * `get(runId)`'s `waitingFor.tokens` (a `pause:` id); `value` is the
+   * tool's output, checked against its schema (absent: `{}`). Needs
+   * write access and `execute` on the run's agent or flow. Any other
+   * waitpoint is refused with `run-resume-not-supported`: a run waiting
+   * for an approval continues through `approvals.decide`.
    *
    * @wire `POST /v1/runs/{runId}/resume` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1runs~1{runId}~1resume/post`.
    *
-   * Returns the updated run row, so callers see the transition from
-   * `suspended` back to `running` (or onward) without a follow-up
-   * `get`.
+   * Returns the run as `get` does, so callers see it resume without a
+   * follow-up `get`.
    */
   resume(input: ResumeRunInput): Promise<Run>;
 
@@ -216,7 +228,7 @@ export interface RunsClient {
   failures(query: RunFailuresQuery): Promise<RunFailureGroups>;
 }
 
-export type { RunFailureGroups };
+export type { RunFailureGroups, RunWaitingApproval, RunWaitingFor, RunWaitingToken };
 
 export interface RunFailuresQuery {
   readonly projectId: string;
@@ -456,6 +468,13 @@ export interface Run {
    * message and journal payloads): a person's words were erased.
    */
   readonly contentErasedAt?: string;
+  /**
+   * Set on a suspended run by `get` (not `list`): what it waits for. Its
+   * approvals still to be decided, its waits for another system's answer
+   * (`tokens`, answered with `resume`) and the rest. Absent from an older
+   * runtime, or when the run's journal can't be read.
+   */
+  readonly waitingFor?: RunWaitingFor;
   /**
    * The W3C trace id of the request that started the run (yours, when you
    * sent a `traceparent`). Absent for a run no request started, and from

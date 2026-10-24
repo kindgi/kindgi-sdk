@@ -21,15 +21,22 @@ import { parsePrivateKeyPem, serializePublicKeyPem, signEd25519 } from '@kindgi/
 import { readSse } from '@kindgi/sdk/client';
 
 import { runJavaIndexer, runPythonIndexer } from '../dev/defaults.js';
+import type { IndexedCounts } from '../dev/runners.js';
 import { createJavaPackBuilder } from '../dev/java-builder.js';
 import { createScalaPackBuilder } from '../dev/scala-builder.js';
-import { REQUIRE_BANNER, collectPackEntries, nodeModulesExternalPlugin } from './bundle.js';
+import {
+  REQUIRE_BANNER,
+  collectPackEntries,
+  nodeModulesExternalPlugin,
+} from './bundle.js';
+import { COMPUTED_IMPORT_LOG_OVERRIDE, computedImportsFrom } from './computed-imports.js';
 import { loadEsbuild } from '../esbuild-loader.js';
 import { readPnpmVersion } from '../package-manager.js';
 import { renderContainerfile } from './containerfile.js';
 import { BuildServiceRefusal, retryAfterSeconds } from './hosted.js';
 import { installCommands, withoutInstallScripts } from './host-install.js';
 import { renderJavaContainerfile } from './java-image.js';
+import { loadedInstall } from './loaded-install.js';
 import { renderScalaContainerfile } from './scala-image.js';
 import { renderPythonContainerfile } from './python-image.js';
 import type {
@@ -103,7 +110,7 @@ export async function runLocalIndexerReal(
   let report: {
     readonly packId: string;
     readonly packVersion: string;
-    readonly counts: { tools: number; guardrails: number; agents: number; flows: number };
+    readonly counts: IndexedCounts;
     readonly fileErrors: readonly { code: string; message: string; filePath?: string }[];
     readonly warnings?: readonly { code: string; message: string; filePath?: string }[];
   };
@@ -149,8 +156,8 @@ export async function runLocalIndexerReal(
  *     `node_modules` (imported by name);
  *   - the framework's process entries, `kindgi-index.mjs` and
  *     `kindgi-pack-service.mjs`: self-contained, from the CLI's own
- *     `@kindgi/handler-runtime` (the pack's install has none once
- *     pruned);
+ *     `@kindgi/handler-runtime` (the image's install has none: it has
+ *     production dependencies only);
  *   - `bundle-map.json`: each primitive's source path → its bundle.
  */
 export async function esbuildBundleReal(
@@ -177,10 +184,15 @@ export async function esbuildBundleReal(
 
   const packEntries = await collectPackEntries(opts.packDir, opts.discoveryPatterns);
   const externalPackages = new Set<string>();
+  const externalSpecifiers = new Set<string>();
   const externals = nodeModulesExternalPlugin({
     importBy: 'bare',
-    onExternal: (name) => externalPackages.add(name),
+    onExternal: (name, _importer, specifier) => {
+      externalPackages.add(name);
+      externalSpecifiers.add(specifier);
+    },
   });
+  const loaded = opts.dependencies === 'loaded';
   const pack = await esbuild.build({
     ...common,
     entryPoints: [
@@ -188,6 +200,8 @@ export async function esbuildBundleReal(
       { in: opts.configPath, out: 'kindgi.config' },
     ],
     plugins: [externals],
+    // Only what the pack loads: esbuild's notes on computed imports, as warnings.
+    ...(loaded && { logOverride: COMPUTED_IMPORT_LOG_OVERRIDE }),
   });
   // Resolved from the CLI's own package, whose dependency it is.
   const cliRoot = await cliPackageRoot();
@@ -197,8 +211,17 @@ export async function esbuildBundleReal(
     entryPoints: [
       { in: '@kindgi/handler-runtime/kindgi-index-main', out: 'kindgi-index' },
       { in: '@kindgi/handler-runtime/pack-service-main', out: 'kindgi-pack-service' },
+      // Only what the pack loads: the image's closure and load check.
+      ...(loaded ? [{ in: '@kindgi/handler-runtime/kindgi-closure-main', out: 'kindgi-closure' }] : []),
     ],
   });
+  if (loaded) {
+    await writeFile(
+      join(opts.outputDir, 'externals.json'),
+      `${JSON.stringify({ packages: [...externalPackages].sort(), specifiers: [...externalSpecifiers].sort() }, null, 2)}\n`,
+      'utf8',
+    );
+  }
 
   const bundleMap: Record<string, string> = {};
   for (const entry of packEntries) bundleMap[entry.sourceRel] = `${entry.outRel}.mjs`;
@@ -217,6 +240,7 @@ export async function esbuildBundleReal(
     emitted: outputs.map(([p]) => p).sort(),
     totalBytes: outputs.reduce((sum, [, o]) => sum + o.bytes, 0),
     externals: [...externalPackages].sort(),
+    computedImports: loaded ? computedImportsFrom(pack.warnings, opts.packDir) : [],
     bundleMap,
   };
 }
@@ -248,9 +272,10 @@ export async function writeContainerfileReal(opts: WriteContainerfileOptions): P
     publishedAt: opts.publishedAt,
     buildTarget: opts.buildTarget,
     install: opts.install,
-    commands: installCommands(opts.install),
+    commands: installCommands(opts.install, opts.image.steps),
     image: opts.image,
     hasIncludes: opts.hasIncludes,
+    hasBlocks: opts.hasBlocks,
   });
   await mkdir(join(opts.outputPath, '..'), { recursive: true });
   await writeFile(opts.outputPath, text, 'utf8');
@@ -263,9 +288,12 @@ export async function writeContainerfileReal(opts: WriteContainerfileOptions): P
 /**
  * Write the image's build context into `contextDir` (emptied first):
  *   host/          the files the install reads, at their paths under the install root
+ *                  (with `'loaded'`, the manifest and lockfile cut down to what the pack loads)
  *   ext/           the files the build extensions read, at their paths under the install root
  *   dist/          the bundles
  *   include/       `bundle.include` files, at their pack-relative paths
+ *   blocks/        the pack's data blocks and their templates, at their
+ *                  pack-relative paths: the indexer stage's only
  *   Containerfile
  * Nothing else of the app: never its source, never its `.env` or
  * registry credentials.
@@ -274,10 +302,14 @@ export async function writeContextReal(opts: WriteContextOptions): Promise<void>
   await rm(opts.contextDir, { recursive: true, force: true });
   await mkdir(opts.contextDir, { recursive: true });
   const projectManifests = new Set(opts.install.projectManifests);
+  const written = opts.install.reduced?.written ?? {};
   for (const rel of opts.install.files) {
     const dest = join(opts.contextDir, 'host', rel);
     await mkdir(dirname(dest), { recursive: true });
-    if (projectManifests.has(rel)) {
+    const text = written[rel];
+    if (text !== undefined) {
+      await writeFile(dest, text, 'utf8');
+    } else if (projectManifests.has(rel)) {
       // The app's own install scripts never run in the image.
       const text = await readFile(join(opts.install.root, rel), 'utf8');
       await writeFile(dest, withoutInstallScripts(text), 'utf8');
@@ -293,6 +325,11 @@ export async function writeContextReal(opts: WriteContextOptions): Promise<void>
   await cp(opts.bundleDir, join(opts.contextDir, 'dist'), { recursive: true });
   for (const rel of opts.includes) {
     const dest = join(opts.contextDir, 'include', rel);
+    await mkdir(dirname(dest), { recursive: true });
+    await cp(join(opts.packDir, rel), dest);
+  }
+  for (const rel of opts.blockFiles) {
+    const dest = join(opts.contextDir, 'blocks', rel);
     await mkdir(dirname(dest), { recursive: true });
     await cp(join(opts.packDir, rel), dest);
   }
@@ -866,6 +903,7 @@ export const REAL_BUILD_RUNNERS: BuildRunners = {
   python: PYTHON_BUILD_RUNNERS,
   jvm: JVM_BUILD_RUNNERS,
   hostPnpmVersion: readPnpmVersion,
+  loadedInstall,
 };
 
 // Re-export utility for callers that want a portable tmp workdir for
