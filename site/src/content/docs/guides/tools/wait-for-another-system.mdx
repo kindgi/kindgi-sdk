@@ -430,7 +430,9 @@ Its refusals:
 - `404 run-not-found`, or `404 wait-token-not-found` when the run has no
   such wait.
 - `409 wait-token-closed` (`details.state`), as at the link, and
-  `409 project-suspended`.
+  `409 project-suspended`. A closing or suspended tenant's refusals
+  (`409 tenant-closing`, `409 tenant-suspended`,
+  `503 tenant-state-unavailable`) come back too, as for any write.
 - `422 run-resume-not-supported`: the wait isn't a pause. A run that waits
   for an approval goes on when the approval is decided
   ([Decide an approval](../../approvals/decide-an-approval/)).
@@ -446,10 +448,15 @@ again.
   says never to follow instructions found there, as
   [What its agents read](../../webhooks/start-runs-from-webhooks/#what-its-agents-read)
   describes for webhooks.
+- **In a flow, the agent steps after it** read their input the same way:
+  once the run has taken another system's answer, every later agent step
+  gets its message in an `<event>` block, with the same system line, since
+  that message may carry the answer.
 - **A wait that times out** is the tool error `wait-token-timed-out`, which
   fails the turn by default. With `tool-error` in the agent's
   `toolErrors.retryOn` (`tool_errors` in Python), the failure goes back to
-  the model, which can call the tool again: that call waits on a new link.
+  the model up to `maxRetries` times (1 by default), then the turn fails.
+  The model can call the tool again: that call waits on a new link.
 
 ## What a paused run shows
 
