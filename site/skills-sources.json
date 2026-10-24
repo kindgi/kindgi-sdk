@@ -54,6 +54,7 @@
     },
     "kindgi-authoring-tools": {
       "pages": [
+        "guides/connections/use-a-connection",
         "guides/tools/give-a-tool-a-secret",
         "guides/tools/give-a-tool-env-values",
         "guides/tools/http-tools",
@@ -119,6 +120,7 @@
     },
     "kindgi-java-authoring-tools": {
       "pages": [
+        "guides/connections/use-a-connection",
         "guides/tools/give-a-tool-a-secret",
         "guides/tools/http-tools",
         "guides/tools/index",
@@ -170,6 +172,7 @@
     },
     "kindgi-python-authoring-tools": {
       "pages": [
+        "guides/connections/use-a-connection",
         "guides/tools/give-a-tool-a-secret",
         "guides/tools/give-a-tool-env-values",
         "guides/tools/http-tools",
@@ -227,6 +230,7 @@
     },
     "kindgi-scala-authoring-tools": {
       "pages": [
+        "guides/connections/use-a-connection",
         "guides/tools/give-a-tool-a-secret",
         "guides/tools/http-tools",
         "guides/tools/index",
