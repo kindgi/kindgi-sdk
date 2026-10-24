@@ -5,10 +5,11 @@ import { type Context, Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
 import { type Action, ref } from '@kindgi/authz';
-import type { Cursor, FixProposalId, TenantId } from '@kindgi/types';
+import type { Cursor, FixProposalId, LiveScope, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { EvalComparison } from '../eval-run-binding.js';
+import { type ItemRights, liveScopeCheck, widthRefusal, writeWhereMade } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import {
@@ -68,12 +69,20 @@ type Ctx = Context<AppEnv>;
  * evaluating, rescoring and withdrawing are `publish`, and
  * requesting and rolling back are `promote`. A proposal the caller can't
  * read answers 404, as one that doesn't exist.
+ *
+ * For an agent more than one project serves (`item-rights.ts`): reading
+ * is `read` on the agent or on any of its projects; drafting, evaluating,
+ * rescoring and withdrawing are `write` where its new versions are made;
+ * requesting and rolling back are `admin` where the scope is (each of the
+ * agent's projects, for the tenant's or an org's).
  */
 export function proposalsRouter(
   store: ProposalServiceDeps['store'],
   deps: ProposalsRouteDeps,
   authorizer?: Authorizer,
   mount?: (r: Hono<AppEnv>, service: ProposalService) => void,
+  /** Rights on an agent more than one project serves. Absent: one project each. */
+  itemRights?: ItemRights,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -82,15 +91,53 @@ export function proposalsRouter(
   // Routes mounted before `/:proposalId` (an improvement pass's `improve`).
   mount?.(r, service);
 
-  /** `undefined` when allowed; else the 403. */
-  async function deny(c: Ctx, action: Action, agentId: string) {
+  /** The agent's projects, when more than one serves it; else `undefined` (today's checks). */
+  const served = (c: Ctx, agentId: string) =>
+    authorizer === undefined
+      ? Promise.resolve(undefined)
+      : (itemRights?.multi(c, 'agent', agentId) ?? Promise.resolve(undefined));
+
+  /**
+   * `undefined` when allowed; else the 403. For an agent more than one
+   * project serves, `publish` is `write` where its versions are made and
+   * `promote` is `admin` where `scope` is (the module's rules).
+   */
+  async function deny(c: Ctx, action: Action, agentId: string, scope?: LiveScope) {
     if (authorizer === undefined) return undefined;
+    const projects = await served(c, agentId);
+    if (itemRights !== undefined && projects !== undefined) {
+      if (action === 'promote') {
+        // A live scope's check names no version, so the 404 is never answered.
+        return itemRights.enforce(c, 'agent', agentId, projects, liveScopeCheck(scope), () =>
+          failWith(c, proposalNotFound(c.req.param('proposalId') ?? '')),
+        );
+      }
+      return writeWhereMade(
+        c,
+        itemRights,
+        { kind: 'agent', id: agentId },
+        projects,
+        `changing a proposal for agent "${agentId}"`,
+      );
+    }
     const decision = await authorizer.check(c, action, ref('agent', agentId));
     if (decision.allowed) return undefined;
     return fail(c, 'permission-denied', {
       code: 'permission-denied',
       message: `Permission denied: this needs ${action} on agent "${agentId}" (${decision.reason})`,
     });
+  }
+
+  /** The proposals of a page whose agent the caller may read (`item-rights.ts`). */
+  async function readableOnPage(c: Ctx, rows: readonly StoredProposal[]) {
+    if (authorizer === undefined) return rows;
+    const agentOf = (p: StoredProposal) => ref('agent', p.agentId as unknown as string);
+    return itemRights === undefined
+      ? authorizer.filterByCan(c, 'read', rows, agentOf)
+      : itemRights.filterItems(c, 'agent', rows, {
+          idOf: (p) => p.agentId as unknown as string,
+          todayRef: agentOf,
+        });
   }
 
   /** The proposal, if it exists and the caller may read it (else the 404). */
@@ -100,12 +147,18 @@ export function proposalsRouter(
       tenantId: c.get('tenantId') as TenantId,
       proposalId: proposalId as FixProposalId,
     });
-    const hidden =
-      stored !== null &&
-      authorizer !== undefined &&
-      !(await authorizer.can(c, 'read', ref('agent', stored.agentId as unknown as string)));
+    const hidden = stored !== null && !(await readable(c, stored.agentId as unknown as string));
     if (stored === null || hidden) return failWith(c, proposalNotFound(proposalId));
     return stored;
+  }
+
+  /** Whether the caller reads the agent: `read` on it, or for one more than one project serves, on any of them. */
+  async function readable(c: Ctx, agentId: string): Promise<boolean> {
+    if (authorizer === undefined) return true;
+    const projects = await served(c, agentId);
+    return itemRights !== undefined && projects !== undefined
+      ? (await itemRights.read(c, 'agent', agentId, projects)) === undefined
+      : authorizer.can(c, 'read', ref('agent', agentId));
   }
 
   async function answer(c: Ctx, stored: StoredProposal, status: 200 | 201 | 202 = 200) {
@@ -123,7 +176,7 @@ export function proposalsRouter(
     if (body === undefined) return badInput(c, 'Request body must be a JSON object');
     const proposal = await load(c);
     if (proposal instanceof Response) return proposal;
-    const denied = await deny(c, action, proposal.agentId as unknown as string);
+    const denied = await deny(c, action, proposal.agentId as unknown as string, proposal.scope);
     return denied ?? { body, proposal };
   }
 
@@ -150,14 +203,9 @@ export function proposalsRouter(
       ...(tier !== undefined && { tier: tier as ProposalTier }),
       ...(scope.scope !== undefined && { liveScope: scope.scope }),
     });
-    const readable =
-      authorizer === undefined
-        ? page.data
-        : await authorizer.filterByCan(c, 'read', page.data, (p) =>
-            ref('agent', p.agentId as unknown as string),
-          );
+    const shown = await readableOnPage(c, page.data);
     const read = service.facts(tenantId);
-    const rows = await Promise.all(readable.map(async (p) => serialize(p, await read(p))));
+    const rows = await Promise.all(shown.map(async (p) => serialize(p, await read(p))));
     return c.json({
       // A status filter applies after deriving, so a page can hold fewer rows than `limit`.
       data: status === undefined ? rows : rows.filter((row) => row.status === status),
@@ -247,6 +295,12 @@ export function proposalsRouter(
   r.post('/:proposalId/request', async (c) => {
     const ready = await prepare(c, 'promote');
     if (ready instanceof Response) return ready;
+    const spans = await widthRefusal(c, {
+      rights: itemRights,
+      agentId: ready.proposal.agentId as unknown as string,
+      scope: ready.proposal.scope,
+    });
+    if (spans !== undefined) return spans;
     const reason = optionalText(ready.body, 'reason');
     if (reason.kind === 'err') return badInput(c, reason.message);
     const outcome = await service.request({
@@ -268,6 +322,12 @@ export function proposalsRouter(
   r.post('/:proposalId/rollback', async (c) => {
     const ready = await prepare(c, 'promote');
     if (ready instanceof Response) return ready;
+    const spans = await widthRefusal(c, {
+      rights: itemRights,
+      agentId: ready.proposal.agentId as unknown as string,
+      scope: ready.proposal.scope,
+    });
+    if (spans !== undefined) return spans;
     const reason = optionalText(ready.body, 'reason');
     if (reason.kind === 'err') return badInput(c, reason.message);
     const outcome = await service.rollback({
@@ -308,9 +368,18 @@ function evaluationWire(
   stored: NonNullable<StoredProposal['evaluation']>,
   seen: ProposalEvaluationOutcome | null | undefined,
 ): Record<string, unknown> {
-  if (seen === undefined || seen === null) return { ...stored };
+  // The reference run it's held to stays the runtime's: what it found is
+  // `costUsd` and `decisions`.
+  const recorded = {
+    evalRunId: stored.evalRunId,
+    suiteId: stored.suiteId,
+    objective: stored.objective,
+    startedAt: stored.startedAt,
+    ...(stored.rule !== undefined && { rule: stored.rule }),
+  };
+  if (seen === undefined || seen === null) return recorded;
   return {
-    ...stored,
+    ...recorded,
     runStatus: seen.runStatus,
     ...(seen.baseline !== undefined && { baseline: seen.baseline }),
     ...(seen.candidate !== undefined && { candidate: seen.candidate }),
@@ -318,6 +387,8 @@ function evaluationWire(
     ...(seen.spread !== undefined && { spread: seen.spread }),
     ...(seen.cases !== undefined && { cases: seen.cases }),
     ...(seen.better !== undefined && { better: seen.better }),
+    ...(seen.costUsd !== undefined && { costUsd: seen.costUsd }),
+    ...(seen.decisions !== undefined && { decisions: seen.decisions }),
   };
 }
 

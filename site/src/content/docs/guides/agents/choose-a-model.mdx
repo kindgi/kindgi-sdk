@@ -164,9 +164,36 @@ it adds the preference to the agent's definition:
 
 A dry run shows the pick without calling the model:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
+pnpm exec kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
+```
+
+</TabItem>
+</Tabs>
 
 `--dry-run` runs the turn without its model call. Its output names the
 provider and model the turn would use:
@@ -195,6 +222,14 @@ provider and model the turn would use:
 `anthropic/claude-sonnet-5-5` matches nothing. A preference never excludes: if
 the provider isn't registered, or its models don't meet the needs, the turn
 takes the next model in line.
+
+The preference can live in the agent's model-settings block instead, as its
+`model` and `providerId`, with the same rules. Then an expert can change it
+without a code deploy, and an
+[improvement pass can try cheaper models](../../evals/improve-an-agent/#let-it-try-a-cheaper-model-or-another-temperature)
+from the list you give it. Name the model in one place: a version whose
+definition and model-settings block both name a model or a provider is
+refused when it's published.
 
 ## Require a model
 

@@ -4,18 +4,20 @@
 import type { ProjectId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from './agent-binding.js';
+import type { BlockRegistryBinding } from './block-binding.js';
 import type { FlowRegistryBinding } from './flow-binding.js';
 import type { GuardrailRegistryBinding } from './guardrail-binding.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
 
-type PublishedPrimitive = 'tool' | 'guardrail' | 'agent' | 'flow';
+type PublishedPrimitive = 'tool' | 'guardrail' | 'agent' | 'flow' | 'block';
 
 /** A registry's answer to a deploy's publish, other than `ok` or `already-registered`. */
 type RefusedOutcome = Exclude<
   | Awaited<ReturnType<ToolRegistryBinding['publish']>>
   | Awaited<ReturnType<GuardrailRegistryBinding['register']>>
   | Awaited<ReturnType<AgentRegistryBinding['publish']>>
-  | Awaited<ReturnType<FlowRegistryBinding['publish']>>,
+  | Awaited<ReturnType<FlowRegistryBinding['publish']>>
+  | Awaited<ReturnType<BlockRegistryBinding['publish']>>,
   { readonly kind: 'ok' | 'already-registered' }
 >;
 
@@ -23,10 +25,15 @@ type RefusedOutcome = Exclude<
  * A refusal the deploy decides itself, when its registry answered
  * `already-registered` for a live guardrail it can't keep: one in another
  * project (whose project the registry doesn't say), or one in its own
- * project with a different definition.
+ * project with a different definition. Or a pack's data block whose
+ * version the registry holds with other content, or unregistered
+ * (`deploy-blocks.ts`).
  */
 interface DeployRefusal {
-  readonly code: 'guardrail-project-mismatch' | 'guardrail-already-registered';
+  readonly code:
+    | 'guardrail-project-mismatch'
+    | 'guardrail-already-registered'
+    | 'block-already-registered';
   readonly reason: string;
 }
 
@@ -42,15 +49,23 @@ interface DeployRefusal {
  * deploy never moves it, and the message names the fix (a pack per client,
  * whose ids carry its own pack id). The project it belongs to (`projectId`)
  * is for the log, never the answer.
+ *
+ * A tool whose id is of another kind (an MCP endpoint's tool, where the
+ * pack's is published here, or the other way round) answers
+ * `tool-kind-mismatch`, as publishing it on its own does, with the
+ * endpoint (`endpointId`) when the id is an endpoint's.
  */
 export class PublishRefused extends Error {
   /** The code the deploy answers with. */
   readonly code:
-    | Exclude<RefusedOutcome['kind'], 'project-mismatch'>
+    | Exclude<RefusedOutcome['kind'], 'project-mismatch' | 'kind-mismatch'>
     | `${PublishedPrimitive}-project-mismatch`
+    | 'tool-kind-mismatch'
     | DeployRefusal['code'];
   /** With `…-project-mismatch`: the project the primitive belongs to, for the log only. */
   readonly projectId?: ProjectId;
+  /** With `tool-kind-mismatch`: the MCP endpoint whose tool the id is, when it's one's. */
+  readonly endpointId?: string;
 
   /** The primitive refused. */
   readonly primitive: PublishedPrimitive;
@@ -68,6 +83,9 @@ export class PublishRefused extends Error {
     this.id = id;
     if ('code' in outcome) {
       this.code = outcome.code;
+    } else if (outcome.kind === 'kind-mismatch') {
+      this.code = 'tool-kind-mismatch';
+      if (outcome.endpointId !== undefined) this.endpointId = outcome.endpointId;
     } else if (outcome.kind === 'project-mismatch') {
       this.code = `${primitive}-project-mismatch`;
       this.projectId = outcome.projectId;
@@ -80,6 +98,11 @@ export class PublishRefused extends Error {
 /** Why a refused primitive wasn't published, for `PublishRefused`'s message. */
 function refusedBecause(outcome: RefusedOutcome | DeployRefusal): string {
   if ('code' in outcome) return outcome.reason;
+  if (outcome.kind === 'kind-mismatch') {
+    return outcome.endpointId === undefined
+      ? "its id is a tool published here, and this version is an MCP endpoint's"
+      : `its id is MCP endpoint "${outcome.endpointId}"'s tool (give the pack's tool another name, or unregister the endpoint first)`;
+  }
   if (outcome.kind === 'project-mismatch') {
     return 'it belongs to another project (one pack per client: `kindgi init` a copy of the pack for this client, with its own pack id)';
   }

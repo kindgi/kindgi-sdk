@@ -38,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          # The docs-ship check diffs the branch against origin/main.
+          # The docs-ship check reads the pull request's history back to its base.
           fetch-depth: 0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
@@ -107,6 +107,22 @@ jobs:
         if: github.event_name == 'pull_request'
         run: pnpm run check:docs-ship
 
+      # The SDKs read a pattern's syntax as the runtime's JavaScript does, so
+      # these two run on the Node of the runtime's image, not the newest 22.x:
+      # this version follows the image's. Last, so no other step runs on it.
+      # - packages/specs/test-vectors/regexp-syntax/answers.json holds what
+      #   that Node's `new RegExp` says to each source of the corpus, with the
+      #   u flag and without. The Python and Java tests replay the answers.
+      # - The Unicode tables the SDKs read (a group name's characters, the
+      #   names \p{…} takes) are that Node's.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22.23.3"
+      - name: Regular-expression test vectors are current
+        run: node scripts/regexp-syntax-oracle.mjs --check
+      - name: Regular-expression tables are current
+        run: node scripts/regexp-tables.mjs --check
+
   # Independent of `checks` (no `needs:`) so a lint failure never hides
   # test results. Require both jobs in the main-branch ruleset.
   build-test:
@@ -156,6 +172,12 @@ jobs:
         run: ./mvnw -B -ntp -pl kindgi-pack -am install -DskipTests
       - name: Build (prod-dependency topological order)
         run: pnpm run build
+      # The SDKs' definition-time schema checks answer as the runtime's compile
+      # does: packages/specs/test-vectors/strict-schemas/answers.json holds what the
+      # built @kindgi/schema's compileInlineSchema says to each schema of the
+      # corpus, and the Python and Java tests replay it.
+      - name: Strict-schema test vectors are current
+        run: node scripts/strict-schemas-oracle.mjs --check
       - name: Typecheck
         run: pnpm run typecheck:all
       # kindgi dev's sandbox on Linux (packages/cli/tests/dev-sandbox-live.test.ts,

@@ -1,0 +1,60 @@
+// {{PACK_ID}}.gmail.send — tested without Google: a made-up connection, and
+// Gmail's send endpoint stubbed. No test needs a real account or token.
+
+import { afterEach, describe, expect, test, vi } from 'vitest';
+
+import { invokeToolForTest } from '@kindgi/sdk/define';
+
+import gmailSend from './index.js';
+
+const connection = {
+  connectionId: '00000000-0000-0000-0000-0000000000c1',
+  app: 'google',
+  appName: 'Google',
+  accessToken: 'not-a-real-token',
+  account: { id: 'g-1', label: 'you@example.com' },
+};
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe('{{PACK_ID}}.gmail.send', () => {
+  test("is this pack's tool, sends as the person, and waits for their yes in a run no person started", () => {
+    expect(gmailSend.id).toBe('{{PACK_ID}}.gmail.send');
+    expect(gmailSend.mutating).toBe(true);
+    expect(gmailSend.needsApprovalWhenUnattended).toBe(true);
+    expect(gmailSend.needsSpec?.connections?.mail).toEqual({
+      app: 'google',
+      permissions: ['gmail.send'],
+      as: 'person',
+    });
+  });
+
+  test("sends the mail through Gmail with the connection's token, and answers with its id", async () => {
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => Response.json({ id: 'msg-1' }));
+    vi.stubGlobal('fetch', fetch);
+    const r = await invokeToolForTest(
+      gmailSend,
+      { to: ['bo@example.com'], subject: 'Following up', body: 'Hi Bo,\n\nThe notes, as promised.' },
+      { connections: { mail: connection } },
+    );
+    expect(r).toEqual({ kind: 'ok', value: { messageId: 'msg-1' } });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = fetch.mock.calls[0] ?? [];
+    expect(url).toBe('https://gmail.googleapis.com/gmail/v1/users/me/messages/send');
+    expect((init?.headers as Record<string, string>).authorization).toBe('Bearer not-a-real-token');
+  });
+
+  test('a line break in the subject is refused before anything is sent: it could add a header', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const r = await invokeToolForTest(
+      gmailSend,
+      { to: ['bo@example.com'], subject: 'Hi\r\nBcc: eve@example.com', body: 'Hi' },
+      { connections: { mail: connection } },
+    );
+    expect(r.kind).toBe('err');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});

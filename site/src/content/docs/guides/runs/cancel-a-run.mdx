@@ -14,18 +14,45 @@ inside it.
 
 - **A run that's running or waiting,** and its id. `kindgi runs list` lists
   runs, as [List runs](../list-runs/) shows.
-- **`kindgi dev` running** in your pack's directory, with Kindgi 0.1's CLI.
+- **`kindgi dev` running** in your pack's directory, with Kindgi 0.2's CLI.
 - **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
-  Java 17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  Java 17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
   `KINDGI_API_TOKEN` set.
 
 ## Cancel it
 
 A cancel stops the run wherever it is, and ends it as `cancelled`.
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs cancel <run-id>
+pnpm exec kindgi runs cancel <run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs cancel <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs cancel <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs cancel <run-id>
+```
+
+</TabItem>
+</Tabs>
 
 `<run-id>` is the run's id. It prints:
 

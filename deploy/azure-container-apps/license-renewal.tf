@@ -11,14 +11,30 @@
 # offline, and adds it to `license-key` only when it changed. The server
 # picks it up when it next starts. The job has an identity of its own: it
 # reads the two secrets, and may set only the license key, never delete it.
+#
+# With `license_usage_key_secret` too, the request carries counts of the
+# deployment's use, which the job reads from the server with the system key
+# in that secret (it holds `system:license` alone). You mint the key and put
+# it in the vault; Terraform names the secret and lets the job read it.
 
 locals {
   license_renewal        = var.license_renewal_schedule != ""
   license_renewer_secret = coalesce(var.license_renewer_secret, "license-renewer")
+  license_usage_counts   = var.license_usage_key_secret != ""
 
   # Where the key and the renewer key live, as `kindgi license` names them.
   license_key_ref     = "azure:${azurerm_key_vault.kindgi.vault_uri}secrets/${local.server_secrets.license_key}"
   license_renewer_ref = "azure:${azurerm_key_vault.kindgi.vault_uri}secrets/${local.license_renewer_secret}"
+
+  # `kindgi license renew`'s arguments: with the usage key, the server and
+  # where the key is, for the counts.
+  license_renew_args = concat(
+    ["license", "renew", "--key", local.license_key_ref, "--renewer", local.license_renewer_ref],
+    local.license_usage_counts ? [
+      "--runtime", "https://${azurerm_container_app.server.ingress[0].fqdn}",
+      "--runtime-token", "azure:${azurerm_key_vault.kindgi.vault_uri}secrets/${var.license_usage_key_secret}",
+    ] : [],
+  )
 }
 
 resource "azurerm_user_assigned_identity" "license_renewer" {
@@ -37,16 +53,17 @@ resource "azurerm_role_assignment" "license_renewer_pulls" {
   principal_type       = "ServicePrincipal"
 }
 
-# Reading: the renewer key (to sign its request) and the license key (to
-# check a new one is for the same holder and expires no earlier). The
-# grants are on the two secrets, in the services apply: the renewer key
-# exists once `kindgi license enroll` has run (README, "Renewing the
-# license key").
+# Reading: the renewer key (to sign its request), the license key (to
+# check a new one is for the same holder and expires no earlier) and, with
+# `license_usage_key_secret`, the usage key (to read the counts). The
+# grants are on those secrets, in the services apply: the renewer key
+# exists once `kindgi license enroll` has run, and the usage key once you
+# put it in the vault (README, "Renewing the license key").
 resource "azurerm_role_assignment" "license_renewer_reads" {
-  for_each = local.license_renewal ? {
+  for_each = local.license_renewal ? merge({
     license_key = local.server_secrets.license_key
     renewer     = local.license_renewer_secret
-  } : {}
+  }, local.license_usage_counts ? { usage_key = var.license_usage_key_secret } : {}) : {}
   scope                = "${azurerm_key_vault.kindgi.id}/secrets/${each.value}"
   role_definition_name = "Key Vault Secrets User"
   principal_id         = azurerm_user_assigned_identity.license_renewer[0].principal_id
@@ -123,7 +140,7 @@ resource "azurerm_container_app_job" "license_renewal" {
       cpu     = 0.25
       memory  = "0.5Gi"
       command = ["kindgi"]
-      args    = ["license", "renew", "--key", local.license_key_ref, "--renewer", local.license_renewer_ref]
+      args    = local.license_renew_args
 
       # The job's own identity, for Key Vault.
       env {
@@ -137,10 +154,12 @@ resource "azurerm_container_app_job" "license_renewal" {
 }
 
 # ---- alerts, with the job on ------------------------------------------------------
-# Two alerts, sent to `alert_action_groups` (none: they fire in Azure
-# Monitor only): a renewal that failed, and a key that expires within a
-# week, which `kindgi license renew` says on every run ("⚠ It expires in N
-# days"; a CLI test pins that line).
+# Sent to `alert_action_groups` (none: they fire in Azure Monitor only): a
+# renewal that failed, and a key that expires within a week, which `kindgi
+# license renew` says on every run ("⚠ It expires in N days"). With the
+# usage key, a third: a run that sent no counts, which renew says on its
+# counts line ("counts: not sent (<why>)"). The CLI's tests run renew
+# against both queries (packages/cli/tests/license-commands.test.ts).
 
 resource "azurerm_monitor_metric_alert" "license_renewal_failed" {
   count               = local.license_renewal ? 1 : 0
@@ -194,6 +213,47 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "license_key_expiring"
       ContainerAppConsoleLogs_CL
       | where column_ifexists("ContainerJobName_s", "") == "${var.name_prefix}-license-renew"
       | where Log_s matches regex @"It expires in (-[0-9]+|[0-6]) days"
+    KQL
+    time_aggregation_method = "Count"
+    operator                = "GreaterThan"
+    threshold               = 0
+  }
+
+  dynamic "action" {
+    for_each = length(var.alert_action_groups) == 0 ? [] : [var.alert_action_groups]
+    content {
+      action_groups = action.value
+    }
+  }
+}
+
+# The renewal went on without the counts: the usage key expired or was
+# revoked, or the job can't reach the server (`server_ip_allowlist`), say.
+# A run that renews without them still succeeds, so the failed-run alert
+# never sees it. A production key's renewal carries no counts by design,
+# and says so with a reason of its own, which this leaves out. Severity 2
+# (Warning), as the other two: an informational alert is easy to route
+# nowhere.
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "license_counts_not_sent" {
+  count                = local.license_renewal && local.license_usage_counts ? 1 : 0
+  name                 = "${var.name_prefix}-license-counts-not-sent"
+  resource_group_name  = data.azurerm_resource_group.kindgi.name
+  location             = local.location
+  scopes               = [azurerm_log_analytics_workspace.kindgi.id]
+  description          = "The license renewal ran without sending this deployment's counts: see the renewal job's last run for its line \"counts: not sent (<why>)\". Usually the system key in the vault secret ${var.license_usage_key_secret} has expired or been revoked, or the job can't reach the server (server_ip_allowlist). The key still renews without them, and a run that failed raises its own alert too."
+  severity             = 2
+  evaluation_frequency = "P1D"
+  window_duration      = "P1D"
+  # The console log table appears once something has logged.
+  skip_query_validation = true
+  tags                  = local.tags
+
+  criteria {
+    query                   = <<-KQL
+      ContainerAppConsoleLogs_CL
+      | where column_ifexists("ContainerJobName_s", "") == "${var.name_prefix}-license-renew"
+      | where Log_s contains "counts: not sent ("
+      | where Log_s !contains "counts: not sent (a production key's renewal carries no counts)"
     KQL
     time_aggregation_method = "Count"
     operator                = "GreaterThan"

@@ -1,20 +1,35 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
 import type { Cursor, EnvName, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types';
 
+import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
+import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
+import {
+  type ItemRights,
+  type ItemServing,
+  itemMiddleware,
+  itemPathCheck,
+  shownLatest,
+} from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { reservedToolMetadataKeys, reservedToolMetadataMessage } from '../reference-scope.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import { type SecretScopeDeps, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
-import type { ToolRecord, ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
+import type {
+  ToolKindMismatch,
+  ToolRecord,
+  ToolRegistryBinding,
+  ToolReinstateVersionOutcome,
+  ToolVersionRow,
+} from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
@@ -59,8 +74,19 @@ export function toolsRouter(
     readonly projects?: SecretScopeDeps['projects'];
     /** The env the runtime serves: where the secrets a tool's code declares are read. */
     readonly envName?: EnvName;
+    /**
+     * The tenant's environment orders: a publish into a later environment is
+     * refused (`environment-entry.ts`). Absent: no project is a later
+     * environment.
+     */
+    readonly environmentOrders?: Pick<EnvironmentOrderBinding, 'orderOf'>;
+    /** Rights on a tool more than one project serves (`item-rights.ts`); absent → the tool's own. */
+    readonly itemRights?: ItemRights;
+    /** With no authorizer: which projects serve it, for `?projectId=` (`itemServingOf`). */
+    readonly itemServing?: ItemServing;
   } = {},
 ): Hono<AppEnv> {
+  const itemRights = options.itemRights;
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
   const publishCompiles = publishCompilesMiddleware();
@@ -104,13 +130,38 @@ export function toolsRouter(
       const mw = authorizer.authorize('read', () => ref('project', scopeProjectId));
       return mw(c, next);
     });
+    // An item more than one project serves is checked on those projects
+    // instead (`item-rights.ts`).
     // '/:toolId/*' matches '/:toolId' too: this one gate decides both, once.
-    r.use('/:toolId/*', async (c, next) => {
-      const action = c.req.method === 'GET' ? 'read' : 'admin';
-      const toolId = c.req.param('toolId') ?? '';
-      const mw = authorizer.authorize(action, () => ref('tool', toolId));
-      return mw(c, next);
-    });
+    r.use(
+      '/:toolId/*',
+      itemMiddleware({
+        authorizer,
+        rights: itemRights,
+        kind: 'tool',
+        id: (c) => c.req.param('toolId') ?? '',
+        today: (c) => (c.req.method === 'GET' ? 'read' : 'admin'),
+        check: itemPathCheck,
+        versionNotFound: toolVersionNotFound,
+      }),
+    );
+  }
+
+  /** A version of the tool that isn't there, or that the caller can't see: one 404 for both. */
+  function toolVersionNotFound(c: Context<AppEnv>, version: string): Response {
+    const toolId = c.req.param('toolId') ?? '';
+    c.status(statusFor('tool-not-found') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'tool-not-found',
+          message: `No tool "${toolId}" at version "${version}"`,
+          toolId,
+          version,
+        },
+        c.get('requestId'),
+      ),
+    );
   }
 
   // ---------- GET / (list, cursor-paginated) ----------
@@ -147,9 +198,20 @@ export function toolsRouter(
     const visible =
       authorizer === undefined
         ? page.data
-        : await authorizer.filterByCan(c, 'read', page.data, (a) =>
-            ref('tool', a.id as unknown as string),
-          );
+        : itemRights === undefined
+          ? await authorizer.filterByCan(c, 'read', page.data, (a) =>
+              ref('tool', a.id as unknown as string),
+            )
+          : await itemRights.filterItems(c, 'tool', page.data, {
+              idOf: (a) => a.id as unknown as string,
+              todayRef: (a) => ref('tool', a.id as unknown as string),
+              versions: {
+                versionOf: (a) => a.version as unknown as string,
+                getVersion: (id, version) =>
+                  binding.getVersion({ tenantId, toolId: id as ToolId, version: version as never }),
+              },
+              retired: (a) => a.unregisteredAt !== undefined,
+            });
     return c.json({
       data: visible.map(serializeToolVersionRow),
       hasMore: page.nextCursor !== undefined,
@@ -163,8 +225,8 @@ export function toolsRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const toolId = c.req.param('toolId') as ToolId;
 
-    const tool = await binding.get({ tenantId, toolId });
-    if (tool === null) {
+    const latest = await binding.get({ tenantId, toolId });
+    if (latest === null) {
       // Distinguish 410 gone (identity exists — head row present, no
       // active version) from 404 not-found (never registered). Retirement
       // is derived from the tool having no latest version; the head row is
@@ -195,7 +257,39 @@ export function toolsRouter(
         ),
       );
     }
-    return c.json(serializeTool(tool));
+    // The newest version the caller can see, or the newest in
+    // `?projectId=` (`item-rights.ts`).
+    const shown = await shownLatest(
+      c,
+      itemRights ?? options.itemServing,
+      'tool',
+      toolId as unknown as string,
+      latest,
+      {
+        versionOf: (t) => t.version as unknown as string,
+        projectOf: (t) => t.projectId as unknown as string | undefined,
+        getVersion: (version) =>
+          binding.getVersion({ tenantId, toolId, version: version as never }),
+      },
+    );
+    if (shown.kind === 'bad-input') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: shown.message }, requestId));
+    }
+    if (shown.kind === 'not-found') {
+      c.status(statusFor('tool-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'tool-not-found',
+            message: `No tool registered with id "${toolId as unknown as string}"`,
+            toolId: toolId as unknown as string,
+          },
+          requestId,
+        ),
+      );
+    }
+    return c.json(serializeTool(shown.row));
   });
 
   // ---------- GET /:toolId/versions (list versions, cursor-paginated) ----------
@@ -242,8 +336,22 @@ export function toolsRouter(
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
       ...(includeTombstoned && { includeTombstoned: true }),
     });
+    // A tool more than one project serves: only the versions the caller
+    // can see (`item-rights.ts`).
+    const projects = await itemRights?.multi(c, 'tool', toolId as unknown as string);
+    const data =
+      itemRights === undefined || projects === undefined
+        ? page.data
+        : await itemRights.visibleVersions(
+            c,
+            'tool',
+            toolId as unknown as string,
+            projects,
+            page.data,
+            (t) => t.version as unknown as string,
+          );
     return c.json({
-      data: page.data.map(serializeToolVersionRow),
+      data: data.map(serializeToolVersionRow),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -251,26 +359,12 @@ export function toolsRouter(
 
   // ---------- GET /:toolId/versions/:version ----------
   r.get('/:toolId/versions/:version', async (c) => {
-    const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const toolId = c.req.param('toolId') as ToolId;
     const version = c.req.param('version') as never;
 
     const tool = await binding.getVersion({ tenantId, toolId, version });
-    if (tool === null) {
-      c.status(statusFor('tool-not-found') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'tool-not-found',
-            message: `No tool "${toolId as unknown as string}" at version "${version as unknown as string}"`,
-            toolId: toolId as unknown as string,
-            version: version as unknown as string,
-          },
-          requestId,
-        ),
-      );
-    }
+    if (tool === null) return toolVersionNotFound(c, version as unknown as string);
     return c.json(serializeTool(tool));
   });
 
@@ -309,6 +403,16 @@ export function toolsRouter(
       );
     }
     const projectId = projectIdRaw as ProjectId;
+    const later = await laterEnvironment(options.environmentOrders, tenantId, projectId);
+    if (later !== undefined) {
+      return environmentTakesPromotionsResponse(
+        c,
+        requestId,
+        authorizer,
+        { kind: 'publish', noun: 'tool' },
+        later,
+      );
+    }
     // Strip `projectId` before validation — the tool manifest itself
     // is project-agnostic. `validateToolManifest` rejects unknown
     // top-level keys via additionalProperties: false.
@@ -400,6 +504,10 @@ export function toolsRouter(
     }
     if (outcome.kind === 'project-mismatch') {
       return projectMismatch(c, 'tool', outcome.toolId as unknown as string, outcome.projectId);
+    }
+    if (outcome.kind === 'kind-mismatch') {
+      c.status(statusFor('tool-kind-mismatch') as never);
+      return c.json(toWireError(kindMismatch(outcome, 'publish'), requestId));
     }
     if (outcome.kind === 'project-not-found') {
       // Caller supplied a `projectId` that does not resolve within
@@ -509,19 +617,10 @@ export function toolsRouter(
     }
 
     const outcome = await binding.reinstateVersion({ tenantId, toolId, version });
-    if (outcome.kind === 'not-found') {
-      c.status(statusFor('tool-not-found') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'tool-not-found',
-            message: `No tool "${toolId as unknown as string}" at version "${version as unknown as string}" to reinstate`,
-            toolId: toolId as unknown as string,
-            version: version as unknown as string,
-          },
-          requestId,
-        ),
-      );
+    if (outcome.kind !== 'ok') {
+      const refusal = reinstateRefusal(outcome);
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, requestId));
     }
     if (onWrite !== undefined) {
       try {
@@ -545,12 +644,56 @@ export function toolsRouter(
   return r;
 }
 
+/** A reinstate's refusal: no such version (`404 tool-not-found`), or `409 tool-kind-mismatch`. */
+function reinstateRefusal(outcome: Exclude<ToolReinstateVersionOutcome, { readonly kind: 'ok' }>) {
+  if (outcome.kind === 'kind-mismatch') return kindMismatch(outcome, 'reinstate');
+  const toolId = outcome.toolId as unknown as string;
+  const version = outcome.version as unknown as string;
+  return {
+    code: 'tool-not-found' as const,
+    message: `No tool "${toolId}" at version "${version}" to reinstate`,
+    toolId,
+    version,
+  };
+}
+
+/**
+ * `409 tool-kind-mismatch`'s body: the version is of another kind than the
+ * tool's active versions (`ToolKindMismatch`), and nothing was written.
+ * `endpointId` is the one the tool's versions name in their metadata,
+ * which reading the tool shows.
+ */
+function kindMismatch(outcome: ToolKindMismatch, write: 'publish' | 'reinstate') {
+  const toolId = outcome.toolId as unknown as string;
+  const version = outcome.version as unknown as string;
+  const { endpointId } = outcome;
+  const done = write === 'publish' ? 'published' : 'reinstated';
+  const fix =
+    endpointId === undefined
+      ? 'unregister its published versions first'
+      : write === 'publish'
+        ? 'publish this one under another id, or unregister the endpoint first'
+        : 'unregister the endpoint first';
+  const is =
+    endpointId === undefined
+      ? `Tool "${toolId}" is a tool published here, and version "${version}" is an MCP endpoint's`
+      : `Tool "${toolId}" is MCP endpoint "${endpointId}"'s tool, and version "${version}" isn't`;
+  return {
+    code: 'tool-kind-mismatch' as const,
+    message: `${is}, so it can't be ${done} under that id; ${fix}`,
+    toolId,
+    version,
+    ...(endpointId !== undefined && { endpointId }),
+  };
+}
+
 /**
  * The manifest as the wire carries it: every `ToolManifest` field the
  * `Tool` schema declares (a mirror of `@kindgi/specs/tool.schema.json`),
  * including where the code runs (`codeArtifactRef`) and the declarative
- * `spec`, and the tool's project when the registry records it. A secret
- * appears only as a reference (`secretRef`), never a value.
+ * `spec`, and the tool's project and where each secret it names is read
+ * (`secretScopes`) when the registry records them. A secret appears only
+ * as a reference (`secretRef`), never a value.
  */
 function serializeTool(t: ToolRecord): Record<string, unknown> {
   return {
@@ -569,12 +712,14 @@ function serializeTool(t: ToolRecord): Record<string, unknown> {
     ...(t.needsApprovalWhenUnattended !== undefined && {
       needsApprovalWhenUnattended: t.needsApprovalWhenUnattended,
     }),
+    ...(t.pauses !== undefined && { pauses: t.pauses }),
     ...(t.sandbox !== undefined && { sandbox: t.sandbox }),
     ...(t.limits !== undefined && { limits: t.limits }),
     ...(t.network !== undefined && { network: t.network }),
     ...(t.needsSpec !== undefined && { needsSpec: t.needsSpec }),
     ...(t.codeArtifactRef !== undefined && { codeArtifactRef: t.codeArtifactRef }),
     ...(t.spec !== undefined && { spec: t.spec }),
+    ...(t.secretScopes !== undefined && { secretScopes: t.secretScopes }),
   };
 }
 

@@ -12,6 +12,11 @@ import type { TenantId, ToolId } from '@kindgi/types';
 import { defineTool, validateToolManifest } from '../src/define.js';
 // Side-effect import so the 'http' synthesizer is registered.
 import '../src/http.js';
+import {
+  type ConnectionRejectedError,
+  type ToolConnection,
+  isConnectionRejectedError,
+} from '../src/connections.js';
 import { invokeTool } from '../src/invoke.js';
 import { getToolSpecSynthesizer } from '../src/spec-registry.js';
 import type { HttpToolSpec, ToolContext } from '../src/types.js';
@@ -290,6 +295,137 @@ describe('defineTool({spec: http}) — authorization / secret resolution', () =>
     if (tool.kind !== 'ok') throw new Error('build failed');
     await invokeTool(tool.value, { owner: 'a', repo: 'b', number: 1 }, makeCtx({ resolveSecret }));
     expect(resolveSecret).not.toHaveBeenCalled();
+  });
+});
+
+describe('defineTool({spec: http}) — a connection authorization', () => {
+  const connection: ToolConnection = {
+    connectionId: '00000000-0000-0000-0000-0000000000c1',
+    app: 'github',
+    appName: 'GitHub',
+    accessToken: 'ghs-installation-token',
+    account: { id: '42', label: 'acme' },
+  };
+
+  function buildConnectionTool(name = 'repo'): ReturnType<typeof defineTool> {
+    return defineTool({
+      id: 'github.get-issue' as ToolId,
+      description: 'Fetch a GitHub issue by owner + repo + number.',
+      version: '1.0.0',
+      input: ISSUE_INPUT_SCHEMA,
+      output: ISSUE_OUTPUT_SCHEMA,
+      needsSpec: {
+        connections: { repo: { app: 'github', permissions: ['issues.read'], as: 'company' } },
+      },
+      spec: baseSpec({ authorization: { kind: 'connection', connection: name } }),
+    });
+  }
+
+  test("sends the connection's access token as a bearer token, and no secret", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { number: 1, title: 't' }));
+    const resolveSecret = vi.fn();
+    const tool = buildConnectionTool();
+    if (tool.kind !== 'ok') throw new Error('build failed');
+    const invoked = await invokeTool(
+      tool.value,
+      { owner: 'a', repo: 'b', number: 1 },
+      makeCtx({ resolveSecret, connections: { repo: connection } }),
+    );
+    expect(invoked.kind).toBe('ok');
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      'Bearer ghs-installation-token',
+    );
+    expect(resolveSecret).not.toHaveBeenCalled();
+  });
+
+  test('a 401 fails the call with ConnectionRejectedError, naming the connection', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(401, { message: 'Bad credentials' }, { statusText: 'Unauthorized' }),
+    );
+    const handler = getToolSpecSynthesizer('http')?.(
+      baseSpec({ authorization: { kind: 'connection', connection: 'repo' } }),
+      'github.get-issue',
+    );
+    if (handler === undefined) throw new Error('no http synthesizer');
+    const thrown = await handler(
+      { owner: 'a', repo: 'b', number: 1 },
+      makeCtx({ connections: { repo: connection } }),
+    ).catch((e: unknown) => e);
+    expect(isConnectionRejectedError(thrown)).toBe(true);
+    expect((thrown as ConnectionRejectedError).connection).toBe('repo');
+    expect((thrown as Error).message).toContain('got status 401');
+    expect((thrown as Error).message).not.toContain('ghs-installation-token');
+  });
+
+  test('another failing status stays a plain error', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(403, { message: 'Forbidden' }));
+    const handler = getToolSpecSynthesizer('http')?.(
+      baseSpec({ authorization: { kind: 'connection', connection: 'repo' } }),
+      'github.get-issue',
+    );
+    if (handler === undefined) throw new Error('no http synthesizer');
+    const thrown = await handler(
+      { owner: 'a', repo: 'b', number: 1 },
+      makeCtx({ connections: { repo: connection } }),
+    ).catch((e: unknown) => e);
+    expect(isConnectionRejectedError(thrown)).toBe(false);
+    expect((thrown as Error).message).toContain('got status 403');
+  });
+
+  test('a 401 to a secret authorization is not a connection refusal', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, { message: 'Bad credentials' }));
+    const spec = baseSpec({
+      authorization: { kind: 'bearer', secretRef: { envName: 'production', name: 'gh' } },
+    });
+    const handler = getToolSpecSynthesizer('http')?.(spec, 'github.get-issue');
+    if (handler === undefined) throw new Error('no http synthesizer');
+    const thrown = await handler(
+      { owner: 'a', repo: 'b', number: 1 },
+      makeCtx({ resolveSecret: vi.fn().mockResolvedValue('t') }),
+    ).catch((e: unknown) => e);
+    expect(isConnectionRejectedError(thrown)).toBe(false);
+  });
+
+  test('a call without the connection fails before fetch, naming it', async () => {
+    const tool = buildConnectionTool();
+    if (tool.kind !== 'ok') throw new Error('build failed');
+    const invoked = await invokeTool(tool.value, { owner: 'a', repo: 'b', number: 1 }, makeCtx());
+    expect(invoked.kind).toBe('err');
+    if (invoked.kind === 'err') {
+      expect(invoked.error.code).toBe('handler-error');
+      expect(invoked.error.message).toContain(
+        'the connection "repo", which this call doesn\'t have',
+      );
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('a token with a line break fails before fetch, without quoting it', async () => {
+    const tool = buildConnectionTool();
+    if (tool.kind !== 'ok') throw new Error('build failed');
+    const invoked = await invokeTool(
+      tool.value,
+      { owner: 'a', repo: 'b', number: 1 },
+      makeCtx({ connections: { repo: { ...connection, accessToken: 'abc\r\ndef' } } }),
+    );
+    expect(invoked.kind).toBe('err');
+    if (invoked.kind === 'err') {
+      expect(invoked.error.message).toContain('the access token of its connection "repo"');
+      expect(invoked.error.message).not.toContain('abc');
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('defineTool refuses a connection the tool does not declare', () => {
+    const tool = buildConnectionTool('mail');
+    expect(tool.kind).toBe('err');
+    if (tool.kind === 'err') {
+      expect(tool.error.code).toBe('invalid-tool-definition');
+      expect(tool.error.message).toContain(
+        'sends the connection "mail", which needsSpec.connections doesn\'t declare',
+      );
+    }
   });
 });
 

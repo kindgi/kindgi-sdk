@@ -4,6 +4,8 @@
 import { REVIEWER_ROLE_RANK, type ReviewerRole } from '@kindgi/authz';
 import type { Cursor, ListScope, ProjectId, ScopeSegment, TenantId } from '@kindgi/types';
 
+import type { Correction } from './corrections.js';
+
 /**
  * Caller-plugged surface for judgments: a person says yes or no, with an
  * optional reason, about one item of a run's output. A judgment may name a
@@ -243,6 +245,8 @@ export interface Judgment {
   readonly item: JudgedItem;
   readonly verdict: Verdict;
   readonly reason?: string;
+  /** The expert's correction of the run's decisions, when they gave one. */
+  readonly correction?: Correction;
   /** The judge's class; absent for an unclassified judgment (weight 1). */
   readonly judgeClassId?: string;
   /**
@@ -399,6 +403,8 @@ export interface JudgmentRecordInput {
   readonly itemValue?: unknown;
   readonly verdict: Verdict;
   readonly reason?: string;
+  /** The expert's correction of the run's decisions, validated by the route. */
+  readonly correction?: Correction;
   readonly judgeClassId?: string;
   /** The class was restricted, and the judge met it (see `Judgment.restricted`). */
   readonly restricted?: true;

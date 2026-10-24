@@ -5,6 +5,7 @@ import {
   type Agent,
   type AgentId,
   type AgentPins,
+  modelNamedTwice,
   modelSettingsIssues,
   pinsDigest,
 } from '@kindgi/agents';
@@ -16,6 +17,12 @@ import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.j
 import { activeAgentVersions } from './agent-pins.js';
 import type { BlockRegistryBinding } from './block-binding.js';
 import { definitionKey } from './deploy-versions.js';
+import {
+  type LaterEnvironment,
+  firstEnvironmentOf,
+  laterEnvironment,
+} from './environment-entry.js';
+import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 
 /** Which data-block pins to swap, by kind then block id → exact version. */
 export interface PinSwaps {
@@ -37,8 +44,20 @@ export interface DeriveAgentVersionInput {
   readonly by?: string;
   /** The improvement proposal it's derived for, recorded in `derivedFrom`. */
   readonly proposalId?: string;
-  /** The project, when the store doesn't record one on the version. */
+  /**
+   * The project, when the store doesn't record one on the version. A later
+   * environment of an environment order is refused
+   * (`environment-takes-promotions`); any other is used only when the store
+   * records none.
+   */
   readonly projectId?: ProjectId;
+  /**
+   * The tenant's environment orders: a version derived from an agent whose
+   * project is in an order is made in that order's first environment, and
+   * reaches the later ones when a build of the agent is promoted. Absent:
+   * it's made in the agent's project.
+   */
+  readonly orders?: Pick<EnvironmentOrderBinding, 'orderOf'>;
   /** The authorization tuples for the new version, in the project it lands in. */
   readonly tuplesFor: (projectId: ProjectId) => TupleEnqueueHook;
 }
@@ -49,7 +68,7 @@ export interface SwapIssue {
 }
 
 export type DeriveAgentVersionOutcome =
-  /** The new version, in the project it was published to. */
+  /** The new version: the agent's project, and the one it was made in (`madeInProjectId`). */
   | { readonly kind: 'ok'; readonly agent: AgentVersionRecord }
   /** An active version already has this definition and these pins: that one, unchanged. */
   | { readonly kind: 'reused'; readonly agent: AgentVersionRecord }
@@ -59,7 +78,9 @@ export type DeriveAgentVersionOutcome =
   | { readonly kind: 'no-project' }
   | { readonly kind: 'project-not-found'; readonly projectId: ProjectId }
   /** The agent belongs to another project than the one given (`projectId`): nothing is written. */
-  | { readonly kind: 'project-mismatch'; readonly projectId: ProjectId };
+  | { readonly kind: 'project-mismatch'; readonly projectId: ProjectId }
+  /** The project given is a later environment of its order: nothing is written. */
+  | { readonly kind: 'environment-takes-promotions'; readonly later: LaterEnvironment };
 
 /** How many numbers after the highest a derive tries before it gives up. */
 const MAX_TRIES = 100;
@@ -79,6 +100,12 @@ const MAX_TRIES = 100;
  * already references (adding one is a code change), at a published,
  * active version of the right kind (and, for the model-settings block,
  * model settings). Tool pins come from code.
+ *
+ * In a tenant with environment orders, the new version is made in the
+ * first environment of the agent's project's order, whichever environment
+ * the version it's derived from runs in, and reaches the later ones only
+ * when a build of the agent is promoted: nothing reaches a later
+ * environment but by promotion.
  */
 export async function deriveAgentVersion(
   input: DeriveAgentVersionInput,
@@ -100,27 +127,45 @@ export async function deriveAgentVersion(
     return { kind: 'invalid', issues: [{ path: '/pins', message: 'no pin changes' }] };
   }
 
-  const projectId = from.projectId ?? input.projectId;
-  if (projectId === undefined) return { kind: 'no-project' };
-  const { unregisteredAt: _u, projectId: _p, derivedFrom: _d, ...definition } = from;
-  return publishNextFree(input, projectId, {
-    ...definition,
-    pins,
-    pinsDigest: digest,
-    derivedFrom: {
-      version: from.version,
-      reason: 'edited',
-      ...(input.label !== undefined && { label: input.label }),
-      ...(input.by !== undefined && { by: input.by }),
-      ...(input.proposalId !== undefined && { proposalId: input.proposalId }),
+  if (input.projectId !== undefined) {
+    const later = await laterEnvironment(input.orders, tenantId, input.projectId);
+    if (later !== undefined) return { kind: 'environment-takes-promotions', later };
+  }
+  const home = from.projectId ?? input.projectId;
+  if (home === undefined) return { kind: 'no-project' };
+  const madeIn = (await firstEnvironmentOf(input.orders, tenantId, home)) ?? home;
+  const {
+    unregisteredAt: _u,
+    projectId: _p,
+    madeInProjectId: _m,
+    derivedFrom: _d,
+    ...definition
+  } = from;
+  return publishNextFree(
+    input,
+    { home, madeIn },
+    {
+      ...definition,
+      pins,
+      pinsDigest: digest,
+      derivedFrom: {
+        version: from.version,
+        reason: 'edited',
+        ...(input.label !== undefined && { label: input.label }),
+        ...(input.by !== undefined && { by: input.by }),
+        ...(input.proposalId !== undefined && { proposalId: input.proposalId }),
+      },
     },
-  });
+  );
 }
 
-/** Publish the derived version under the first free patch after the agent's highest. */
+/**
+ * Publish the derived version under the first free patch after the
+ * agent's highest, in `madeIn`; `home` is the agent's project.
+ */
 async function publishNextFree(
   input: DeriveAgentVersionInput,
-  projectId: ProjectId,
+  { home, madeIn: projectId }: { readonly home: ProjectId; readonly madeIn: ProjectId },
   derived: Agent,
 ): Promise<DeriveAgentVersionOutcome> {
   const { agents, tenantId, agentId } = input;
@@ -142,7 +187,9 @@ async function publishNextFree(
       agent,
       enqueueTuples: input.tuplesFor(projectId),
     });
-    if (outcome.kind === 'ok') return { kind: 'ok', agent: { ...agent, projectId } };
+    if (outcome.kind === 'ok') {
+      return { kind: 'ok', agent: { ...agent, projectId: home, madeInProjectId: projectId } };
+    }
     if (outcome.kind === 'project-not-found') return { kind: 'project-not-found', projectId };
     if (outcome.kind === 'project-mismatch') {
       return { kind: 'project-mismatch', projectId: outcome.projectId };
@@ -199,6 +246,8 @@ async function blockProblem(
     if (issues.length > 0) {
       return `${what} isn't model settings: ${issues.map((i) => `${i.path} ${i.message}`).join('; ')}`;
     }
+    const twice = modelNamedTwice(from, block.content.values);
+    if (twice !== undefined) return `${what}: ${twice}`;
   }
   return undefined;
 }

@@ -16,19 +16,46 @@ explains what it holds and why.
 
 ## Before you start
 
-- **A run's id,** on a runtime such as `kindgi dev`, with Kindgi 0.1's CLI.
+- **A run's id,** on a runtime such as `kindgi dev`, with Kindgi 0.2's CLI.
   [List runs](../list-runs/) finds one.
 - **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
-  Java 17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  Java 17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
   `KINDGI_API_TOKEN` set.
 
 ## Read it from the CLI
 
 The journal shows what the run did, step by step:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs journal <run-id>
+pnpm exec kindgi runs journal <run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs journal <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs journal <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs journal <run-id>
+```
+
+</TabItem>
+</Tabs>
 
 `<run-id>` is the run's id. For a run of `acme.review-order` with order
 `A-200`, it prints:
@@ -103,9 +130,36 @@ flow's run as its `parentRunId`, so
 [List runs](../list-runs/#the-runs-inside-a-run) finds it too. Read its
 journal:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs journal <the turn's run id>
+pnpm exec kindgi runs journal <the turn's run id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs journal <the turn's run id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs journal <the turn's run id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs journal <the turn's run id>
+```
+
+</TabItem>
+</Tabs>
 
 `<the turn's run id>` is the turn's `runId`. Its journal has the model calls
 and the tool calls. Each model call has the messages sent, the answer, and

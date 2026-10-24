@@ -638,59 +638,79 @@ export interface DescribeInputs {
   readonly envFiles: string;
 }
 
+/** A line of the boot log, and whether it's an error or a warning: said under `--quiet` too. */
+export interface ReconcileLine {
+  readonly text: string;
+  readonly problem: boolean;
+}
+
 /** The boot log's lines for a reconcile; none when the config declares nothing and nothing changed. */
 export function describeReconcile(
   outcomes: readonly ProviderOutcome[],
   inputs: DescribeInputs,
-): readonly string[] {
+): readonly ReconcileLine[] {
   if (outcomes.length === 0) return [];
   const unchanged = outcomes.filter((o) => o.kind === 'unchanged').map((o) => o.id);
   if (unchanged.length === outcomes.length) {
-    return [`✓ Providers from ${inputs.file}: ${unchanged.join(', ')} (unchanged)`];
+    return [
+      {
+        text: `✓ Providers from ${inputs.file}: ${unchanged.join(', ')} (unchanged)`,
+        problem: false,
+      },
+    ];
   }
   const unregister = (id: string): string =>
     `${inputs.kindgi('providers', 'unregister', id)}, then restart kindgi dev`;
-  const lines = [`Providers from ${inputs.file}:`];
-  if (unchanged.length > 0) lines.push(`  · ${unchanged.join(', ')}: unchanged`);
+  const lines: ReconcileLine[] = [];
+  const say = (text: string): void => {
+    lines.push({ text, problem: false });
+  };
+  // An error or a warning.
+  const problem = (text: string): void => {
+    lines.push({ text, problem: true });
+  };
+  if (unchanged.length > 0) say(`  · ${unchanged.join(', ')}: unchanged`);
   for (const o of outcomes) {
     switch (o.kind) {
       case 'unchanged':
         break;
       case 'registered':
-        lines.push(`  ✓ ${o.id}: registered`);
+        say(`  ✓ ${o.id}: registered`);
         break;
       case 'updated':
-        lines.push(`  ✓ ${o.id}: registered again (changed in ${inputs.file})`);
+        say(`  ✓ ${o.id}: registered again (changed in ${inputs.file})`);
         break;
       case 'removed':
-        lines.push(`  ✓ ${o.id}: unregistered (no longer in ${inputs.file})`);
+        say(`  ✓ ${o.id}: unregistered (no longer in ${inputs.file})`);
         break;
       case 'present':
-        lines.push(
+        say(
           `  · ${o.id}: registered already, not from ${inputs.file}, with the same models (its adapter settings and key aren't listed to compare); left as it is. For the config's: ${unregister(o.id)}`,
         );
         break;
       case 'conflict':
-        lines.push(
+        problem(
           `  ⚠ ${o.id}: registered already, not from ${inputs.file}, with another region or models; left as it is. For the config's: ${unregister(o.id)}`,
         );
         break;
       case 'released':
-        lines.push(
-          `  · ${o.id}: changed in the runtime since kindgi dev registered it; left as it is`,
-        );
+        say(`  · ${o.id}: changed in the runtime since kindgi dev registered it; left as it is`);
         break;
       case 'skipped':
-        lines.push(
+        problem(
           `  ⚠ ${o.id}: not registered: ${o.secret} is not in ${inputs.envFiles}. Set it (${inputs.kindgi('secrets', 'set', o.secret, `--env=${LOCAL_ENV_NAME}`, '--scope=tenant')}), then restart kindgi dev`,
         );
         break;
       case 'failed':
-        lines.push(`  ✗ ${o.id}: ${o.message}`);
+        problem(`  ✗ ${o.id}: ${o.message}`);
         break;
     }
   }
-  return lines;
+  // The heading goes with the problems under it.
+  return [
+    { text: `Providers from ${inputs.file}:`, problem: lines.some((l) => l.problem) },
+    ...lines,
+  ];
 }
 
 function hashOf(value: unknown): string {

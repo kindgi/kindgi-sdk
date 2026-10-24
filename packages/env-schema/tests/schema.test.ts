@@ -491,6 +491,22 @@ describe('validateEnvForTarget', () => {
     const server = new Map(envVarsForTarget({}).map((v) => [v.name, v]));
     expect(server.has('KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH')).toBe(true);
     expect(server.has('KINDGI_PUBLIC_TOKEN_SIGNING_KEY')).toBe(true);
+    expect(server.get('KINDGI_DATABASE_SERVER_CA_PATH')?.required).toBe(false);
+    expect(server.get('KINDGI_DATABASE_SERVER_CA')?.required).toBe(false);
+    expect(server.get('KINDGI_DATABASE_SERVER_CA')?.example).toBe('');
+  });
+
+  test("the database timeouts are the server's, none required, each example its default", () => {
+    const server = new Map(envVarsForTarget({}).map((v) => [v.name, v]));
+    for (const [name, example] of [
+      ['KINDGI_DB_STATEMENT_TIMEOUT_MS', '60000'],
+      ['KINDGI_DB_LOCK_TIMEOUT_MS', '30000'],
+      ['KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS', '30000'],
+      ['KINDGI_DB_POOL_WAIT_TIMEOUT_MS', '10000'],
+    ] as const) {
+      expect(server.get(name)?.required, name).toBe(false);
+      expect(server.get(name)?.example, name).toBe(example);
+    }
   });
 
   test('KINDGI_LICENSE_KEY is a server variable the schema leaves optional (the server requires it outside development mode)', () => {

@@ -5,14 +5,17 @@ import { resolve } from 'node:path';
 
 import type { KindgiClient } from '@kindgi/client';
 
+import { type HostedScope, devRuntimeHint, hostedNoAddress, hostedScope } from './api-address.js';
+import { HOSTED_BUILD } from './build/hosted.js';
 import type { BuildRunners } from './build/runners.js';
 import { cliPinWarning, readCliPin } from './cli-pin.js';
 import type { RegistryAuthSeam } from './commands/auth.js';
+import type { ConnectionsSeam } from './commands/connections.js';
 import type { DoctorSeam } from './commands/doctor.js';
 import type { EnvInitInputSeam } from './commands/env.js';
 import { ROOT_COMMANDS, findCommand } from './commands/index.js';
 import type { SecretsValueInputSeam } from './commands/secrets.js';
-import type { Command } from './commands/types.js';
+import type { Command, LeafCommand } from './commands/types.js';
 import { type ResolvedConfig, loadConfig } from './config.js';
 import type { InitSeam } from './context.js';
 import { buildContext } from './context.js';
@@ -22,11 +25,18 @@ import type { EnvRunners } from './env/runners.js';
 import { formatThrown } from './errors.js';
 import type { ExportsSeam } from './exports/create.js';
 import type { FeedbackSeam } from './feedback/run.js';
-import { commandHelpText, rootHelpText, unknownSubcommandText } from './help.js';
+import {
+  commandHelpText,
+  rootHelpText,
+  unknownCommandText,
+  unknownSubcommandText,
+} from './help.js';
 import type { KeyRunners } from './key/runners.js';
 import type { LicenseCommandDeps } from './license/renew.js';
 import type { OpenUrl } from './open-url.js';
-import { GLOBAL_OPTION_SPEC, parseCommand } from './parse.js';
+import { loadPackConfig } from './pack-config.js';
+import { type CommandParse, GLOBAL_OPTION_SPEC, parseCommand } from './parse.js';
+import { progressAfterHead } from './progress-head.js';
 import type { RateLimitWaitSeam } from './rate-limit-wait.js';
 import type { TestRunners } from './test/runners.js';
 import { CLI_VERSION } from './version-info.js';
@@ -55,6 +65,13 @@ export interface RunCliInputs {
    * `AbortController.signal`.
    */
   readonly stopSignal?: AbortSignal;
+  /**
+   * Where a command says how it's going while it runs (`kindgi build`'s
+   * lines, `CommandContext.progress`): the `cli.js` bin writes it to
+   * stderr as it comes. Without it (tests), those lines come in the
+   * outcome's stderr.
+   */
+  readonly progress?: (text: string) => void;
   /**
    * Injectable seams used exclusively by `kindgi build` — the local
    * indexer, esbuild bundler, Containerfile writer, tar producer, POST
@@ -130,6 +147,8 @@ export interface RunCliInputs {
   readonly rateLimitWaits?: RateLimitWaitSeam;
   /** `kindgi exports create`'s output, clock and pauses. */
   readonly exportsSeam?: ExportsSeam;
+  /** `kindgi connections connect`'s terminal, clock and pauses, and the removals' question. */
+  readonly connectionsSeam?: ConnectionsSeam;
 }
 
 /**
@@ -176,7 +195,7 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
   if (found === null) {
     return {
       stdout: '',
-      stderr: `Unknown command: ${argv.join(' ')}\n\n${rootHelpText()}`,
+      stderr: unknownCommandText(argv),
       exitCode: 2,
     };
   }
@@ -214,6 +233,13 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
   }
   if (parsed.globals.version) {
     return { stdout: `${CLI_VERSION}\n`, stderr: '', exitCode: 0 };
+  }
+  if (argv[0] === 'dev' && parsed.globals.hosted) {
+    return {
+      stdout: '',
+      stderr: 'kindgi dev runs a local runtime, never a hosted one: leave --hosted out.\n',
+      exitCode: 2,
+    };
   }
 
   const config = await configFor(
@@ -254,11 +280,35 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     inputs.keyRunners ?? (topLevel === 'key' ? await loadRealKeyRunners() : undefined);
 
   const label = commandLabel(command, argv, consumed);
+  // One hosted rule for every command (api-address.ts); `kindgi dev` is
+  // the dev runtime itself. A command that sends a key to a dev runtime
+  // this folder names says so first, when another address is in reach: a
+  // hosted one never goes there.
+  const scope: HostedScope =
+    topLevel === 'dev'
+      ? { hosted: false, config }
+      : await hostedScopeFor(command, parsed, config, inputs);
+  const hint = devRuntimeHint(label, scope.config);
+  let hinted = false;
+  const lead = (): string => (hinted && hint !== undefined ? hint : '');
+  // A command's progress lines go out as they come, the first after what
+  // main says first: the dev runtime's line and the pin's.
+  const stream = progressAfterHead(inputs.progress, lead, () => before);
   const ctx = buildContext({
     globals: parsed.globals,
     positionals: parsed.positionals,
     options: parsed.options,
-    config,
+    config: scope.config,
+    hosted: scope.hosted,
+    ...(scope.hosted &&
+      scope.config.apiUrl === undefined && {
+        noAddress: hostedNoAddress(hostedLabel(label, parsed), scope.config),
+      }),
+    ...(hint !== undefined && {
+      onToken: () => {
+        hinted = true;
+      },
+    }),
     commandLabel: label,
     ...(inputs.fetchImpl !== undefined ? { fetchImpl: inputs.fetchImpl } : {}),
     ...(inputs.clientFactory !== undefined ? { clientFactory: inputs.clientFactory } : {}),
@@ -267,6 +317,7 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     ...(inputs.env !== undefined ? { env: inputs.env } : {}),
     ...(devRunners !== undefined ? { devRunners } : {}),
     ...(inputs.stopSignal !== undefined ? { stopSignal: inputs.stopSignal } : {}),
+    progress: stream.progress,
     ...(buildRunners !== undefined ? { buildRunners } : {}),
     ...(inputs.buildConfigLoader !== undefined
       ? { buildConfigLoader: inputs.buildConfigLoader }
@@ -285,6 +336,7 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     ...(inputs.openUrl !== undefined ? { openUrl: inputs.openUrl } : {}),
     ...(inputs.rateLimitWaits !== undefined ? { rateLimitWaits: inputs.rateLimitWaits } : {}),
     ...(inputs.exportsSeam !== undefined ? { exportsSeam: inputs.exportsSeam } : {}),
+    ...(inputs.connectionsSeam !== undefined ? { connectionsSeam: inputs.connectionsSeam } : {}),
   });
 
   // A Java pack pins the CLI it runs with (`cli-pin.ts`): say when this isn't it.
@@ -299,15 +351,77 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     if (result.kind === 'ok') {
       return {
         stdout: result.rendered.stdout,
-        stderr: `${before}${result.rendered.stderr}`,
+        stderr: `${stream.unsaid(before)}${result.rendered.stderr}`,
         exitCode: result.exitCode ?? 0,
       };
     }
-    return { stdout: '', stderr: `${before}${result.stderr}`, exitCode: result.exitCode };
+    return {
+      stdout: '',
+      stderr: `${stream.unsaid(before)}${result.stderr}`,
+      exitCode: result.exitCode,
+    };
   } catch (err) {
     const formatted = formatThrown(err, { commandLabel: label, verbose: parsed.globals.verbose });
-    return { stdout: '', stderr: formatted.stderr, exitCode: formatted.exitCode };
+    return {
+      stdout: '',
+      stderr: `${stream.unsaid('')}${formatted.stderr}`,
+      exitCode: formatted.exitCode,
+    };
   }
+}
+
+/**
+ * The hosted rule for this command (api-address.ts `hostedScope`). It acts
+ * in `--env`, else its default (`hostedRun`); a build given its own build
+ * server isn't hosted by its env block. Its pack: `--path`, else here, for
+ * a command with a `hostedRun`; for every other one, the folder whose
+ * .kindgirc.json names the dev runtime.
+ */
+async function hostedScopeFor(
+  command: LeafCommand,
+  parsed: CommandParse,
+  config: ResolvedConfig,
+  inputs: RunCliInputs,
+): Promise<HostedScope> {
+  const rule = command.hostedRun;
+  const server = rule?.buildServerOption;
+  const ownServer = server !== undefined && givenString(parsed.options[server]) !== undefined;
+  const envName = ownServer ? undefined : (givenString(parsed.options.env) ?? rule?.defaultEnv);
+  const cwd = inputs.cwd ?? process.cwd();
+  const path = rule === undefined ? undefined : givenString(parsed.options.path);
+  const packDir = path === undefined ? cwd : resolve(cwd, path);
+  return hostedScope({
+    config,
+    flag: parsed.globals.hosted,
+    envName,
+    always: rule !== undefined,
+    envIsHosted: async (name) => {
+      const loaded = await loadPackConfig({ buildConfigLoader: inputs.buildConfigLoader }, packDir);
+      return loaded.kind === 'ok' && envBuild(loaded.config, name) === HOSTED_BUILD;
+    },
+  });
+}
+
+/** The env block's `build`, if the pack config has that env. */
+function envBuild(config: { readonly [k: string]: unknown }, envName: string): unknown {
+  const environments = config.environments;
+  if (environments === null || typeof environments !== 'object') return undefined;
+  if (!Object.hasOwn(environments, envName)) return undefined;
+  const block = (environments as Record<string, unknown>)[envName];
+  return block !== null && typeof block === 'object'
+    ? (block as Record<string, unknown>).build
+    : undefined;
+}
+
+/** The command as a hosted refusal names it: with what made it hosted. */
+function hostedLabel(label: string, parsed: CommandParse): string {
+  if (parsed.globals.hosted) return `${label} --hosted`;
+  const env = givenString(parsed.options.env);
+  return env === undefined ? label : `${label} --env=${env}`;
+}
+
+function givenString(value: unknown): string | undefined {
+  return typeof value === 'string' && value !== '' ? value : undefined;
 }
 
 /** Commands that never warn about the pin: they make it, move it, or don't run against a pack. */

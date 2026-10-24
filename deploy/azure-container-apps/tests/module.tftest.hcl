@@ -454,12 +454,83 @@ run "sign_in_with_providers_needs_public_url" {
   expect_failures = [azurerm_container_app.server]
 }
 
+# One tenant: "single", or unset, plans; serving many is refused, in either map.
+run "one_tenant_plans" {
+  command = plan
+  variables {
+    server_env = { KINDGI_TENANCY = "single" }
+  }
+  assert {
+    condition     = [for e in azurerm_container_app.server.template[0].container[0].env : e.value if e.name == "KINDGI_TENANCY"] == ["single"]
+    error_message = "KINDGI_TENANCY = \"single\" reaches the server."
+  }
+}
+
+# The runtime reads an empty KINDGI_TENANCY as "single".
+run "an_empty_tenancy_plans" {
+  command = plan
+  variables {
+    server_env = { KINDGI_TENANCY = "" }
+  }
+}
+
+run "refuses_many_tenants" {
+  command = plan
+  variables {
+    server_env = { KINDGI_TENANCY = "multi" }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_tenancy_as_a_secret" {
+  command = plan
+  variables {
+    server_secret_env = { KINDGI_TENANCY = { secret = "tenancy", version = "latest" } }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "one_pack_service_plans" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PACK_ROUTING = "single" }
+  }
+  assert {
+    condition     = [for e in azurerm_container_app.server.template[0].container[0].env : e.value if e.name == "KINDGI_PACK_ROUTING"] == ["single"]
+    error_message = "KINDGI_PACK_ROUTING = \"single\" reaches the server."
+  }
+}
+
+# The runtime trims KINDGI_PACK_ROUTING before it reads it.
+run "a_padded_single_routing_plans" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PACK_ROUTING = " single " }
+  }
+}
+
+run "refuses_a_pack_service_per_deployment" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PACK_ROUTING = "per-deployment" }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_pack_routing_as_a_secret" {
+  command = plan
+  variables {
+    server_secret_env = { KINDGI_PACK_ROUTING = { secret = "pack-routing", version = "latest" } }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
 # Renewing the license key: off by default. The server still gets where the
 # two keys are, so its 30-day warning prints the exact command.
 run "license_renewal_is_off_by_default" {
   command = plan
   assert {
-    condition     = length(azurerm_container_app_job.license_renewal) == 0 && length(azurerm_user_assigned_identity.license_renewer) == 0 && length(azurerm_role_definition.license_key_writer) == 0 && length(azurerm_role_assignment.license_renewer_reads) == 0 && length(azurerm_monitor_metric_alert.license_renewal_failed) == 0 && length(azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring) == 0
+    condition     = length(azurerm_container_app_job.license_renewal) == 0 && length(azurerm_user_assigned_identity.license_renewer) == 0 && length(azurerm_role_definition.license_key_writer) == 0 && length(azurerm_role_assignment.license_renewer_reads) == 0 && length(azurerm_monitor_metric_alert.license_renewal_failed) == 0 && length(azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring) == 0 && length(azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent) == 0
     error_message = "No schedule: no job, no renewer identity, no grants, no alerts."
   }
   assert {
@@ -513,6 +584,72 @@ run "license_renewal_on_a_schedule" {
     condition     = !contains([for k, a in azurerm_role_assignment.server_reads : a.scope], "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/license-renewer")
     error_message = "The server never reads the renewer key."
   }
+  assert {
+    condition     = length(azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent) == 0
+    error_message = "Without the usage key, renewals carry no counts, so nothing alerts on them."
+  }
+}
+
+# With a usage key: the job reads the counts from the server with the
+# system key in that secret, which it may read. Its value is the operator's:
+# Terraform names the secret and nothing else.
+run "license_renewal_with_counts" {
+  command = plan
+  variables {
+    license_renewal_schedule = "17 6 * * *"
+    license_usage_key_secret = "license-usage-key"
+  }
+  # The server's address, which Azure gives it.
+  override_resource {
+    target          = azurerm_container_app.server
+    override_during = plan
+    values = {
+      ingress = { fqdn = "kindgi-server.acme-env.canadacentral.azurecontainerapps.io" }
+    }
+  }
+  assert {
+    condition     = slice(azurerm_container_app_job.license_renewal[0].template[0].container[0].args, 0, 6) == tolist(["license", "renew", "--key", "azure:https://kindgi-ab12.vault.azure.net/secrets/license-key", "--renewer", "azure:https://kindgi-ab12.vault.azure.net/secrets/license-renewer"]) && length(azurerm_container_app_job.license_renewal[0].template[0].container[0].args) == 10
+    error_message = "It renews with the two refs, and four arguments more."
+  }
+  assert {
+    condition     = azurerm_container_app_job.license_renewal[0].template[0].container[0].args[6] == "--runtime" && azurerm_container_app_job.license_renewal[0].template[0].container[0].args[7] == "https://kindgi-server.acme-env.canadacentral.azurecontainerapps.io" && azurerm_container_app_job.license_renewal[0].template[0].container[0].args[8] == "--runtime-token" && azurerm_container_app_job.license_renewal[0].template[0].container[0].args[9] == "azure:https://kindgi-ab12.vault.azure.net/secrets/license-usage-key"
+    error_message = "It reads the counts from the server, with the usage key's reference."
+  }
+  assert {
+    condition     = [for e in azurerm_container_app_job.license_renewal[0].template[0].container[0].env : e.name] == ["KINDGI_AZURE_CLIENT_ID"]
+    error_message = "The job's env holds its identity only: the usage key stays in the vault."
+  }
+  assert {
+    condition     = toset([for k, a in azurerm_role_assignment.license_renewer_reads : a.scope]) == toset(["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/license-key", "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/license-renewer", "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/license-usage-key"]) && azurerm_role_assignment.license_renewer_reads["usage_key"].role_definition_name == "Key Vault Secrets User"
+    error_message = "It reads the usage key too, on that secret only."
+  }
+  assert {
+    condition     = !contains([for k, a in azurerm_role_assignment.server_reads : a.scope], "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/license-usage-key")
+    error_message = "The server never reads the usage key."
+  }
+  assert {
+    condition     = output.license_renew_command == "kindgi license renew --key azure:https://kindgi-ab12.vault.azure.net/secrets/license-key --renewer azure:https://kindgi-ab12.vault.azure.net/secrets/license-renewer --runtime https://kindgi-server.acme-env.canadacentral.azurecontainerapps.io --runtime-token azure:https://kindgi-ab12.vault.azure.net/secrets/license-usage-key"
+    error_message = "license_renew_command carries the counts too."
+  }
+}
+
+# Without the schedule, the usage key still goes in the command you run.
+run "license_usage_key_without_a_schedule" {
+  command = plan
+  variables {
+    license_usage_key_secret = "license-usage-key"
+  }
+  override_resource {
+    target          = azurerm_container_app.server
+    override_during = plan
+    values = {
+      ingress = { fqdn = "kindgi-server.acme-env.canadacentral.azurecontainerapps.io" }
+    }
+  }
+  assert {
+    condition     = length(azurerm_container_app_job.license_renewal) == 0 && length(azurerm_role_assignment.license_renewer_reads) == 0 && length(azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent) == 0 && endswith(output.license_renew_command, "--runtime https://kindgi-server.acme-env.canadacentral.azurecontainerapps.io --runtime-token azure:https://kindgi-ab12.vault.azure.net/secrets/license-usage-key")
+    error_message = "No job, no grant and no alert, and the command carries the counts."
+  }
 }
 
 run "license_renewer_secret_of_your_own_name" {
@@ -543,6 +680,58 @@ run "refuses_a_renewer_secret_the_module_uses" {
   expect_failures = [azurerm_container_app.server]
 }
 
+# Key Vault ignores case in a name: License-Key is the license-key secret.
+run "refuses_a_renewer_secret_the_module_uses_in_another_case" {
+  command = plan
+  variables {
+    license_renewer_secret = "License-Key"
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_a_usage_key_secret_the_module_uses" {
+  command = plan
+  variables {
+    license_usage_key_secret = "api-token"
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+# API-Token is the api-token secret, and the job would renew with the
+# deployment's own token.
+run "refuses_a_usage_key_secret_the_module_uses_in_another_case" {
+  command = plan
+  variables {
+    license_usage_key_secret = "API-Token"
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_the_renewer_secret_as_the_usage_key" {
+  command = plan
+  variables {
+    license_usage_key_secret = "license-renewer"
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_a_pack_secret_as_the_usage_key" {
+  command = plan
+  variables {
+    pack_secret_env          = { ACME_API_KEY = { secret = "acme-api-key", version = "latest" } }
+    license_usage_key_secret = "acme-api-key"
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_a_usage_key_secret_that_isnt_a_name" {
+  command = plan
+  variables {
+    license_usage_key_secret = "license usage key"
+  }
+  expect_failures = [var.license_usage_key_secret]
+}
+
 run "refuses_the_license_refs_in_server_env" {
   command = plan
   variables {
@@ -570,6 +759,34 @@ run "license_renewal_alerts" {
   assert {
     condition     = toset([for a in azurerm_monitor_metric_alert.license_renewal_failed[0].action : a.action_group_id]) == toset(var.alert_action_groups) && toset(azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring[0].action[0].action_groups) == toset(var.alert_action_groups)
     error_message = "Both go to the action groups."
+  }
+}
+
+# With the usage key, a third: a run whose counts line says it sent none. A
+# production key's renewal never carries counts and says so with a reason of
+# its own, which doesn't alert. Severity 2 (Warning), as the other two.
+run "license_renewal_alerts_with_counts" {
+  command = plan
+  variables {
+    license_renewal_schedule = "17 6 * * *"
+    license_usage_key_secret = "license-usage-key"
+    alert_action_groups      = ["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-ops/providers/microsoft.insights/actionGroups/oncall"]
+  }
+  assert {
+    condition     = strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].criteria[0].query, "== \"kindgi-license-renew\"") && strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].criteria[0].query, "| where Log_s contains \"counts: not sent (\"") && azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].scopes == tolist([azurerm_log_analytics_workspace.kindgi.id])
+    error_message = "The job's line saying the renewal sent no counts alerts, from the environment's workspace."
+  }
+  assert {
+    condition     = strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].criteria[0].query, "| where Log_s !contains \"counts: not sent (a production key's renewal carries no counts)\"")
+    error_message = "A production key's renewal, which never carries counts, doesn't alert."
+  }
+  assert {
+    condition     = azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].severity == 2 && azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].name == "kindgi-license-counts-not-sent" && strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].description, "the vault secret license-usage-key")
+    error_message = "Severity 2 (Warning), as the other two, named for what it says, and it names the usage key's secret."
+  }
+  assert {
+    condition     = toset(azurerm_monitor_scheduled_query_rules_alert_v2.license_counts_not_sent[0].action[0].action_groups) == toset(var.alert_action_groups)
+    error_message = "It goes to the action groups too."
   }
 }
 

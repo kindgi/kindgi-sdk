@@ -39,6 +39,7 @@ import { clampLimit } from './pagination.js';
  *   - `GET       /:projectId/judging-rules/preview`
  *   - `GET|PATCH /:projectId/judging-rules/:ruleId`, `POST …/unregister`
  *   - `GET       /:projectId/judging-rules/:ruleId/versions`, `…/results`
+ *   - `POST      /:projectId/judging-rules/:ruleId/queue-recent`
  *   - `GET       /:projectId/judging-queue`
  *   - `POST      /:projectId/judging-queue/:runId/dismiss`, `…/reopen`
  *
@@ -198,6 +199,44 @@ export function judgingRouter(
       ...inProject(c),
       ruleId: c.req.param('ruleId'),
       ...(since !== undefined && { since: new Date(since).toISOString() as Timestamp }),
+    });
+    if (out.kind === 'err') return judgingFail(c, out.error);
+    return c.json(out.value);
+  });
+
+  r.post('/:projectId/judging-rules/:ruleId/queue-recent', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      last?: unknown;
+      since?: unknown;
+    } | null;
+    if (body !== null && typeof body !== 'object') {
+      return fail(c, 'bad-input', 'The body must be a JSON object');
+    }
+    let last: number | undefined;
+    if (body?.last !== undefined) {
+      const raw = body.last;
+      if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 1 || raw > 1000) {
+        return fail(c, 'bad-input', '`last` must be an integer from 1 to 1000');
+      }
+      last = raw;
+    }
+    let since: Timestamp | undefined;
+    if (body?.since !== undefined) {
+      const raw = body.since;
+      if (typeof raw !== 'string' || Number.isNaN(Date.parse(raw))) {
+        return fail(c, 'bad-input', '`since` must be a date-time');
+      }
+      since = new Date(raw).toISOString() as Timestamp;
+    }
+    if (last === undefined && since === undefined) {
+      return fail(c, 'bad-input', 'Give `last`, `since`, or both.');
+    }
+    const out = await binding.queueRecent({
+      ...inProject(c),
+      ruleId: c.req.param('ruleId'),
+      ...(last !== undefined && { last }),
+      ...(since !== undefined && { since }),
+      ...by(c),
     });
     if (out.kind === 'err') return judgingFail(c, out.error);
     return c.json(out.value);

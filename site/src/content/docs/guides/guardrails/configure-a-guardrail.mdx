@@ -14,7 +14,7 @@ without touching the check's code.
 
 - **The answer-length guardrail** from
   [Write a guardrail](../write-a-guardrail/), in the pack `my-pack`, with
-  `kindgi dev` running and Kindgi 0.1's CLI.
+  `kindgi dev` running and Kindgi 0.2's CLI.
 
 ## Declare the settings
 
@@ -127,9 +127,36 @@ A new value takes effect without a restart. Edit the value and save. The
 next turn uses it. With `maxChars: 300`, the `dev-echo` answer from
 [Write a guardrail](../write-a-guardrail/#run-it) passes:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+pnpm exec kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--agent` is the agent the guardrail is on, and `--input` its input.
 
@@ -141,9 +168,36 @@ kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
 
 The registered guardrail shows the values it runs with. Get it by its id:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi guardrails get my-pack.answer-length
+pnpm exec kindgi guardrails get my-pack.answer-length
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi guardrails get my-pack.answer-length
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw guardrails get my-pack.answer-length
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw guardrails get my-pack.answer-length
+```
+
+</TabItem>
+</Tabs>
 
 ```json excerpt
   "config": {

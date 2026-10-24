@@ -79,9 +79,14 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
 
 - The input and output schemas come from the handler's annotations — a
   pydantic model, a `TypedDict`, a dataclass, anything pydantic understands —
-  or from `input=` / `output=` (a type, or a JSON Schema dict). Field aliases
-  are the names on the wire. The input is an object: a model calls a tool with
-  an object of arguments.
+  or from `input=` / `output=` (a type, or a JSON Schema dict). A dict is
+  checked when the tool is defined, as the runtime compiles it, strictly: one
+  the runtime would refuse raises `DefinitionError`. So does a `pattern` only
+  JavaScript reads, such as `\p{L}`: the SDK checks data against it with
+  Python's `re`. A model's patterns are checked as the runtime reads them
+  too; pydantic checks data against them, and reads `\p{L}`. Field aliases
+  are the names on the wire. The input is an object: a model calls a tool
+  with an object of arguments.
 - The description is the docstring (or `description=`); the version is the
   pack's (or `version=`, an exact semver).
 - `mutating=False` declares a tool read-only: it runs in a dry run, and an
@@ -91,7 +96,9 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
 - `needs_approval_when_unattended=True` makes each call wait for a person's
   approval in a run no person started (a webhook, a schedule, an event, or a
   service account's key). A flow's tool step that calls it is refused there.
-  A run a person starts is unaffected.
+  A webhook trigger or a schedule whose `toolsAllowedUnattended` names the
+  tool (a project admin's to set) lifts that, in its own runs only. A run a
+  person starts is unaffected.
 - The handler is `(input)` or `(input, ctx)`, `def` or `async def`. A `def`
   handler runs in a worker thread, so blocking I/O is fine.
 - Before calling you, the pack service validates the input against the schema
@@ -309,6 +316,12 @@ never reads `.kindgirc.json`. It's the same lookup as the TypeScript SDK's
   that name is another schema's (`JudgedRunContextFlow`). A union's members
   are named by the value that tells them apart (`ScopeTenant`, `ScopeOrg`,
   `ScopeProject`).
+- **Newer runtimes are expected.** An enum in an answer is typed
+  `Literal[...] | str`: a value this client doesn't know comes back as its
+  text. A union in an answer has a member for a kind it doesn't know,
+  `<Union>Unrecognized` (`ScopeUnrecognized`), with every field kept. A
+  request body is checked against the values this client knows before it's
+  sent, so a value read from a newer runtime can't be sent back.
 - Path parameters are positional; query and header parameters keyword-only.
 - An operation that takes an `Idempotency-Key` gets one when you pass none.
   Retries (`max_retries=2`, honouring `Retry-After`):

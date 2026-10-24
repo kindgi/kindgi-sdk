@@ -19,17 +19,21 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 
 // ---------- Sub-path: /define ----------
 import {
+  ConnectionRejectedError,
   defineAgent,
   defineCheck,
   defineFlow,
   defineTool,
   defineToolAsync,
+  isConnectionRejectedError,
   isZodSchema,
   toJSONSchema,
 } from '@kindgi/sdk/define';
 import type {
   Agent,
   AnySchema,
+  ConnectionAccount,
+  ConnectionNeed,
   DefineAgentSpec,
   DefineCheckSpec,
   DefineToolSpec,
@@ -45,6 +49,7 @@ import type {
   LoopNode,
   SubflowNode,
   Tool,
+  ToolConnection,
   ToolContext,
   ToolManifest,
   ZodLikeSchema,
@@ -139,7 +144,11 @@ import {
   isZodSchema as isZodSchemaFromSchema,
   toJSONSchema as toJSONSchemaFromSchema,
 } from '@kindgi/schema';
-import { defineTool as defineToolFromTools } from '@kindgi/tools';
+import {
+  ConnectionRejectedError as ConnectionRejectedErrorFromTools,
+  defineTool as defineToolFromTools,
+  isConnectionRejectedError as isConnectionRejectedErrorFromTools,
+} from '@kindgi/tools';
 
 describe('@kindgi/sdk/define — pack authoring re-exports', () => {
   it('re-exports defineTool identically (===) from @kindgi/tools', () => {
@@ -151,6 +160,14 @@ describe('@kindgi/sdk/define — pack authoring re-exports', () => {
     expect(typeof defineToolAsync).toBe('function');
     expect(defineCheck).toBe(defineCheckFromGuardrails);
     expect(defineAgent).toBe(defineAgentFromAgents);
+  });
+
+  it("re-exports a connection's names identically (===) from @kindgi/tools", () => {
+    expect(ConnectionRejectedError).toBe(ConnectionRejectedErrorFromTools);
+    expect(isConnectionRejectedError).toBe(isConnectionRejectedErrorFromTools);
+    expectTypeOf<ToolConnection>().toEqualTypeOf<import('@kindgi/tools').ToolConnection>();
+    expectTypeOf<ConnectionNeed>().toEqualTypeOf<import('@kindgi/tools').ConnectionNeed>();
+    expectTypeOf<ConnectionAccount>().toEqualTypeOf<import('@kindgi/tools').ConnectionAccount>();
   });
 
   it('re-exports defineFlow identically (===) from @kindgi/flow', () => {

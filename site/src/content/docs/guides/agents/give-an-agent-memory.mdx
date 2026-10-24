@@ -48,9 +48,36 @@ the customer `end-7`, gives it the type `acme.note`, and saves it as
 
 Write it:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi memory facts write --input=@fact.json
+pnpm exec kindgi memory facts write --input=@fact.json
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi memory facts write --input=@fact.json
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw memory facts write --input=@fact.json
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw memory facts write --input=@fact.json
+```
+
+</TabItem>
+</Tabs>
 
 `--input=@fact.json` reads the fact from the file.
 
@@ -84,10 +111,40 @@ model that embedded it for search by meaning:
 
 Read facts back:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi memory facts list --type=acme.note
-kindgi memory facts get <fact-id>
+pnpm exec kindgi memory facts list --type=acme.note
+pnpm exec kindgi memory facts get <fact-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi memory facts list --type=acme.note
+uv run kindgi memory facts get <fact-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw memory facts list --type=acme.note
+./kindgiw memory facts get <fact-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw memory facts list --type=acme.note
+./kindgiw memory facts get <fact-id>
+```
+
+</TabItem>
+</Tabs>
 
 `--type` lists one type's facts, and `<fact-id>` is a fact's `id`. `get`
 prints the same fact. `content` is yours to shape: any JSON.
@@ -226,6 +283,15 @@ name.
   a run that names none (`participantId`) isn't offered the tool, and its
   result carries a `memory-needs-participant` warning. `same-conversation`,
   `same-project` and `tenant` are what they say.
+- **`tenant` takes a tenant admin**
+  [with authorization on](../../../deploy/authorization/): facts every
+  project reads are a tenant-level decision. In a turn that a person or a
+  key runs, the agent proposes one only when that caller is a tenant admin.
+  With anyone else, the call doesn't run, and the model is told:
+
+  ```text
+  You don't have permission to remember facts for everyone in the organization: that needs a tenant admin.
+  ```
 - **Every remembered fact** is `unverified`, attributed to the agent version
   and the tool call that wrote it, and kept `keepDays` (30 by default) unless
   a person verifies it.
@@ -251,9 +317,36 @@ before you answer", took a turn on a small local model. A real model's
 wording differs. Its first call left out `type`. The tool's validation said
 so, and it called again:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme.desk '--input={"userMessage":"Please remember that I prefer email for anything about my orders. My washing machine from order 4471 leaks water.","participantId":"end-7"}'
+pnpm exec kindgi runs start --agent=acme.desk '--input={"userMessage":"Please remember that I prefer email for anything about my orders. My washing machine from order 4471 leaks water.","participantId":"end-7"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme.desk '--input={"userMessage":"Please remember that I prefer email for anything about my orders. My washing machine from order 4471 leaks water.","participantId":"end-7"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme.desk '--input={"userMessage":"Please remember that I prefer email for anything about my orders. My washing machine from order 4471 leaks water.","participantId":"end-7"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme.desk '--input={"userMessage":"Please remember that I prefer email for anything about my orders. My washing machine from order 4471 leaks water.","participantId":"end-7"}'
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -320,9 +413,36 @@ kindgi runs start --agent=acme.desk '--input={"userMessage":"Please remember tha
 user's, unverified, attributed to the agent and the call, and expires 30 days
 on:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi memory facts get <fact-id>
+pnpm exec kindgi memory facts get <fact-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi memory facts get <fact-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw memory facts get <fact-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw memory facts get <fact-id>
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -436,9 +556,36 @@ conversation's date, the message and the ones either side. Here end user
 `end-9` writes again about the same washing machine, and the turn recalls
 what they said in an earlier conversation:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme.desk '--input={"userMessage":"My washing machine leaks water. What should I do?","participantId":"end-9"}'
+pnpm exec kindgi runs start --agent=acme.desk '--input={"userMessage":"My washing machine leaks water. What should I do?","participantId":"end-9"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme.desk '--input={"userMessage":"My washing machine leaks water. What should I do?","participantId":"end-9"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme.desk '--input={"userMessage":"My washing machine leaks water. What should I do?","participantId":"end-9"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme.desk '--input={"userMessage":"My washing machine leaks water. What should I do?","participantId":"end-9"}'
+```
+
+</TabItem>
+</Tabs>
 
 ```json
 {
@@ -481,9 +628,36 @@ The run's journal shows what the model was sent: the system message with
 its fixed line about `<memory>` blocks, then the recalled message as data,
 then the user's message:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs journal <run-id>
+pnpm exec kindgi runs journal <run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs journal <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs journal <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs journal <run-id>
+```
+
+</TabItem>
+</Tabs>
 
 `<run-id>` is the run's id.
 
@@ -528,13 +702,52 @@ A conversation that's
 
 A fact changes by revision, so its history stays readable:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi memory facts supersede <fact-id> --input='{"content":"Prefers phone"}' --expect-version=1
-kindgi memory facts verify <fact-id>
-kindgi memory facts delete <fact-id>
-kindgi memory facts revisions <fact-id>
-kindgi memory facts get <fact-id> --as-of=2026-10-01T00:00:00Z
+pnpm exec kindgi memory facts supersede <fact-id> --input='{"content":"Prefers phone"}' --expect-version=1
+pnpm exec kindgi memory facts verify <fact-id>
+pnpm exec kindgi memory facts delete <fact-id>
+pnpm exec kindgi memory facts revisions <fact-id>
+pnpm exec kindgi memory facts get <fact-id> --as-of=2026-10-01T00:00:00Z
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi memory facts supersede <fact-id> --input='{"content":"Prefers phone"}' --expect-version=1
+uv run kindgi memory facts verify <fact-id>
+uv run kindgi memory facts delete <fact-id>
+uv run kindgi memory facts revisions <fact-id>
+uv run kindgi memory facts get <fact-id> --as-of=2026-10-01T00:00:00Z
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw memory facts supersede <fact-id> --input='{"content":"Prefers phone"}' --expect-version=1
+./kindgiw memory facts verify <fact-id>
+./kindgiw memory facts delete <fact-id>
+./kindgiw memory facts revisions <fact-id>
+./kindgiw memory facts get <fact-id> --as-of=2026-10-01T00:00:00Z
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw memory facts supersede <fact-id> --input='{"content":"Prefers phone"}' --expect-version=1
+./kindgiw memory facts verify <fact-id>
+./kindgiw memory facts delete <fact-id>
+./kindgiw memory facts revisions <fact-id>
+./kindgiw memory facts get <fact-id> --as-of=2026-10-01T00:00:00Z
+```
+
+</TabItem>
+</Tabs>
 
 - **`supersede`** writes the fact's next revision, under the same id.
 - **`verify`** marks it verified: a person vouches for it.

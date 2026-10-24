@@ -200,16 +200,17 @@ describe('POST /v1/runs — options.wait', () => {
 });
 
 describe('POST /v1/runs/:runId/resume', () => {
-  // Not available in this release: every waitpoint belongs to an approval
-  // (decided through the approvals routes) or to the runtime. The route
-  // answers 422 and completes nothing, whatever the body names.
+  // Only a run paused until another system answers (a `pause:` waitpoint,
+  // `wait-tokens.test.ts`) resumes here. Every other waitpoint belongs to an
+  // approval (decided through the approvals routes) or to the runtime: the
+  // route answers 422 and completes nothing.
   test.each([
     [
       'an approval waitpoint, approved',
       { waitpointId: 'approval-1', value: { decided: 'approve' } },
     ],
     ['a runtime child waitpoint', { waitpointId: `child:${randomUUID()}:1`, value: {} }],
-    ['no waitpoint', {}],
+    ['a pause, on a runtime that pauses no run', { waitpointId: 'pause:k:1', value: {} }],
   ])('%s: 422 run-resume-not-supported, nothing completed or resumed', async (_name, body) => {
     const suspended = row({ status: 'suspended' });
     const h = harness([suspended]);
@@ -218,6 +219,16 @@ describe('POST /v1/runs/:runId/resume', () => {
     const json = res.body as { error: { code: string; message: string } };
     expect(json.error.code).toBe('run-resume-not-supported');
     expect(json.error.message).toContain('/v1/approvals/{approvalId}/complete');
+    expect(h.completed).toEqual([]);
+    expect(h.resumed).toEqual([]);
+  });
+
+  test('no waitpoint: 400 bad-input, nothing completed or resumed', async () => {
+    const suspended = row({ status: 'suspended' });
+    const h = harness([suspended]);
+    const res = await call(h, `/v1/runs/${suspended.runId}/resume`, {});
+    expect(res.status).toBe(400);
+    expect((res.body as { error: { code: string } }).error.code).toBe('bad-input');
     expect(h.completed).toEqual([]);
     expect(h.resumed).toEqual([]);
   });
@@ -242,6 +253,34 @@ describe('run-handler error codes', () => {
       expect(res.status).toBe(422);
     },
   );
+
+  test("an agent's block-unresolvable maps to 422, as tool-version-unresolvable does, with its block", async () => {
+    const stubs = createStubAppBindings();
+    const error = {
+      code: 'block-unresolvable',
+      message: 'prompt block "acme.reply" has no published version in "^2.0.0" (published: 1.0.0)',
+      blockId: 'acme.reply',
+      requestedRange: '^2.0.0',
+    };
+    const failing: RunHandlerBinding = {
+      invokeAgent: async () => ({ kind: 'err', error }),
+      invokeFlow: async () => ({ kind: 'err', error }),
+      resumeRun: async () => ({ kind: 'err', error }),
+    };
+    const app = createApp({ ...stubs, resolveToken, runHandler: failing });
+    const res = await app.request('/v1/runs', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ agent: 'pack.agent', input: { userMessage: 'hi' } }),
+    });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: Record<string, unknown> };
+    expect(body.error).toMatchObject({
+      code: 'block-unresolvable',
+      message: error.message,
+      details: { blockId: 'acme.reply', requestedRange: '^2.0.0' },
+    });
+  });
 });
 
 describe('GET /v1/runs/:runId: why a failed run failed', () => {

@@ -90,6 +90,13 @@ export const AUTH_TURNSTILE_SECRET_VAR = 'KINDGI_AUTH_TURNSTILE_SECRET';
 export const AUTH_TURNSTILE_SECRET_PATH_VAR = 'KINDGI_AUTH_TURNSTILE_SECRET_PATH';
 export const AUTH_TURNSTILE_SITE_KEY_VAR = 'KINDGI_AUTH_TURNSTILE_SITE_KEY';
 
+/** The deployment's terms and privacy policy, which the sign-in page links: each an absolute https URL. */
+export const AUTH_TERMS_URL_VAR = 'KINDGI_AUTH_TERMS_URL';
+export const AUTH_PRIVACY_URL_VAR = 'KINDGI_AUTH_PRIVACY_URL';
+
+/** The deployment's own links, which the console shows on every page: a JSON object, each label to an absolute https URL. */
+export const CONSOLE_LINKS_VAR = 'KINDGI_CONSOLE_LINKS';
+
 /** Which hops in front of the runtime to trust for the client's address: a hop count, or IPs/CIDRs. */
 export const TRUSTED_PROXIES_VAR = 'KINDGI_TRUSTED_PROXIES';
 
