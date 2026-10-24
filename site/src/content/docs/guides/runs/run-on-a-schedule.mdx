@@ -389,8 +389,8 @@ Without one, it would count every "no", and the note would drop "trusted".
   cover the scope it changes. Make it live more widely by hand after review.
 - **Its input,** `--input`, takes the Improve run's options, `threshold` and
   `monthlyCapUsd`. It's kept with the defaults applied: the thresholds
-  default to 5 corrections, 3 runs and 2 judges, and the cap to 20 US dollars a
-  month.
+  default to 5 corrections (`judgments`), across 3 runs (`runs`), from 2
+  people (`judges`), and the cap to 20 US dollars a month.
 - **A monthly cap:** once the schedule's Improve runs this month, in UTC,
   have cost `monthlyCapUsd`, its fires are skipped until the next month. An
   Improve run's budget is never more than what's left of it. Its cost counts

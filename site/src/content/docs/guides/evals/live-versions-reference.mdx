@@ -122,9 +122,13 @@ ea4e7c15-7990-41b6-b153-0847a83f2e9d  promote   promoted  tenant                
 
 - `--tenant`, `--org`, `--project` and `--segment` narrow it to one scope's
   history.
-- A request's `status` is `promoted`, `pending-approval`, `refused` or
-  `superseded`. A waiting request is `superseded` when another version goes
-  live for the same scope first.
+- A request's `status` is `promoted`, `pending-approval`, `refused`,
+  `superseded`, `rejected` or `expired`. A waiting request is `superseded`
+  when something changed before it was approved: what serves the scope isn't
+  what the release gate policy measured against (another request went live
+  first, for example), the policy has a new version, the version is no longer
+  registered, or making it live would move a narrower scope that has a release
+  gate policy of its own and follows this one.
 - `--eval-run=<eval-run-id>` on `promote` keeps the run on the test cases
   behind the decision on its record.
 

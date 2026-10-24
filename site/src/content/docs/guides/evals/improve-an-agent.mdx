@@ -99,8 +99,8 @@ the next one in line.
   graded on each replay. The Improve run checks one on the part it searches and
   again on the part that proves its best change, and the split puts cases
   that carry a correction in both parts only when there are two or more. So
-  at least two of the test cases need corrections; without them, nothing is
-  kept, and the Improve run says why.
+  at least two of the test cases need a correction that names the tool calls;
+  without them, nothing is kept, and the Improve run says why.
 - **Better, or no worse and cheaper.** Such a change is kept when it's better,
   as any candidate is. Or when it's no worse than the current version (beyond
   the spread of the current version's repeated runs) and costs less, by more
@@ -193,9 +193,9 @@ most 30 minutes, and prints it:
     With `"separateApprover": false`, that holds only while there's such a
     reviewer; if there isn't, you can approve it yourself.
 - **`nothing-found`**, with why. No candidate beat the current version by more
-  than the spread of its own repeated runs on the 70%. Or the best one didn't
-  beat the recorded outputs on the 30%, and the outcome's run on those cases
-  gives both figures there.
+  than the spread of the current version's repeated runs on the 70%. Or the
+  best one didn't beat the recorded outputs on the 30%, and the outcome's run
+  on those cases gives both figures there.
   Or a model-settings change wasn't
   [kept under its rule](#let-it-try-a-cheaper-model-or-another-temperature).
   Or the best one is a change an existing suggested change already holds. Or
@@ -280,7 +280,8 @@ shown a correction's verdict and reason, not its calls. Its runs on the test
 cases grade those calls on each replay and show the result, and that result
 decides only whether a change to the model settings is kept
 ([the decisions must stay right](#let-it-try-a-cheaper-model-or-another-temperature)).
-An Improve run on test cases built before correction ids names none.
+An Improve run on test cases built before correction ids (`judgmentIds`)
+names none.
 
 ## Draft the agent's instructions instead
 

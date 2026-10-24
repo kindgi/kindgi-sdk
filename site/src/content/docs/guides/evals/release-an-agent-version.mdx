@@ -568,8 +568,8 @@ uv run kindgi gate-policies publish acme.order-desk-release --policy-version=1.0
 - `--agent` and `--tenant` are the agent and the scope it gates.
 - `--spec=@gate.json` reads the policy from the file.
 
-Requests to make `acme.order-desk` live for the tenant now go through the
-release gate policy.
+Requests to make `acme.order-desk` live anywhere in the tenant now go
+through the release gate policy, unless a narrower scope has one of its own.
 [Release gate policies](../live-versions-reference/#release-gate-policies) has what
 each part asks, and who may publish one.
 

@@ -172,7 +172,8 @@ oldest first.
   correcting out of the queue. `judgingQueue.reopen` puts it back. Each item's
   `can` says whether you may.
 - **Counts:** `limit: 0` answers only the `total`. With `state`,
-  `addedAfter` and `closedAfter`, it gives "N waiting, M corrected this week".
+  `addedAfter` and `closedAfter`, it counts, for example, how many are
+  waiting and how many were corrected this week.
 - **When a run's content is gone,** erased or purged by
   [retention](../../../deploy/retention/), its waiting item closes as
   `erased` and shows nothing of the run.
@@ -286,7 +287,7 @@ Each rule is in words:
 - **What it wants:** "An expert correction", "Any correction" or "A bot
   correction".
 - **Its cap:** "No cap", or no new items while that many are open.
-- **What it has open now:** for example "3 open", linking **Waiting**.
+- **What it has open now:** for example "3 open", linking **To correct**, filtered to the rule.
 
 A rule matches an agent's or a flow's own runs, not an agent's turns as a
 flow's step. Replays never match.
