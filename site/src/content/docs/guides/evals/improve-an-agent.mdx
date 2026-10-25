@@ -209,9 +209,9 @@ most 30 minutes, and prints it:
 - **`failed`**, with the reason.
 
 An Improve run is `running`, then `completed`, `failed` or `cancelled`. Here
-one tried four candidates. On the search part, setting `fit` to 0 scored best,
-but an earlier suggested change already held that change, so it wrote none.
-The cost is 0 on `dev-echo`, which costs nothing:
+one tried four settings. On the cases it learned from, setting `fit` to 0
+scored best, but an earlier suggested change already held that change, so it
+wrote none. The cost is 0 on `dev-echo`, which costs nothing:
 
 ```json
 {
@@ -268,8 +268,8 @@ or in a different project, doesn't count. Set it with the `--class-weights`
 flag, or `classWeights` in the API or the clients, to choose either,
 whatever classes exist.
 
-The suggested change an Improve run writes names the corrections it learned
-from on the search part, never on the rest: the ones its runs on the test
+The suggested change an Improve run writes names the corrections on the cases
+it learned from, never on the rest: the ones its runs on the test
 cases counted and, for an Improve run on the instructions, the ones its
 drafter was shown, including the ones with calls. Its `evidence.judgmentIds`
 lists up to 100 of them: first the ones the drafter was shown, case by case,
