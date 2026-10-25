@@ -31,7 +31,7 @@ import type { EnvName } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
 import type { EnvRunners } from '../env/runners.js';
-import { renderJson } from '../output.js';
+import { renderJson, successNote } from '../output.js';
 import {
   PromptCancelled,
   type TtySeam,
@@ -197,10 +197,14 @@ function withTarget(
   return async (ctx) => {
     const parsed = await parseScopeAndEnv(ctx);
     if (parsed.kind === 'err') return { kind: 'error', stderr: parsed.stderr, exitCode: 2 };
-    return withEnvironmentNote(await run(ctx, parsed), {
-      envName: parsed.value.envName as unknown as string,
-      ...(parsed.value.environment !== undefined && { environment: parsed.value.environment }),
-    });
+    return withEnvironmentNote(
+      await run(ctx, parsed),
+      {
+        envName: parsed.value.envName as unknown as string,
+        ...(parsed.value.environment !== undefined && { environment: parsed.value.environment }),
+      },
+      ctx.globals.format,
+    );
   };
 }
 
@@ -544,7 +548,10 @@ const setCmd: LeafCommand = {
         kind: 'ok',
         rendered: {
           stdout: rendered.stdout,
-          stderr: `\n  Set ${name} at ${describeScope(parsed.value.scope)} in ${parsed.value.envName as unknown as string}${ctx.options.app === true ? ", in your app's env file" : ''}.\n\n`,
+          stderr: successNote(
+            ctx.globals.format,
+            `\n  Set ${name} at ${describeScope(parsed.value.scope)} in ${parsed.value.envName as unknown as string}${ctx.options.app === true ? ", in your app's env file" : ''}.\n\n`,
+          ),
         },
       };
     } catch (err) {
@@ -669,7 +676,10 @@ function renderRotationOutcome(
       kind: 'ok',
       rendered: {
         stdout: renderJson(summary, ctx.globals.format).stdout,
-        stderr: `\n  Rotated ${name} → v${outcome.newVersionId} (was v${outcome.oldVersionId}).\n\n`,
+        stderr: successNote(
+          ctx.globals.format,
+          `\n  Rotated ${name} → v${outcome.newVersionId} (was v${outcome.oldVersionId}).\n\n`,
+        ),
       },
     };
   }
@@ -753,7 +763,8 @@ const revokeCmd: LeafCommand = {
         kind: 'ok',
         rendered: {
           stdout: renderJson(summary, ctx.globals.format).stdout,
-          stderr: `\n  ${out.hard ? 'HARD-revoked' : 'Revoked'} ${name} at ${describeScope(parsed.value.scope)} in ${parsed.value.envName as unknown as string}.\n\n${recoverable}`,
+          // The recoverable copy is a warning: the value isn't gone yet.
+          stderr: `${successNote(ctx.globals.format, `\n  ${out.hard ? 'HARD-revoked' : 'Revoked'} ${name} at ${describeScope(parsed.value.scope)} in ${parsed.value.envName as unknown as string}.\n\n`)}${recoverable}`,
         },
       };
     } catch (err) {
@@ -832,7 +843,10 @@ const pullCmd: LeafCommand = {
         kind: 'ok',
         rendered: {
           stdout: renderJson(summary, ctx.globals.format).stdout,
-          stderr: `\n  Wrote ${records.length} secret metadata entries → ${manifestPath}\n  (values NEVER cross the wire on pull.)\n\n`,
+          stderr: successNote(
+            ctx.globals.format,
+            `\n  Wrote ${records.length} secret metadata entries → ${manifestPath}\n  (values NEVER cross the wire on pull.)\n\n`,
+          ),
         },
       };
     } catch (err) {

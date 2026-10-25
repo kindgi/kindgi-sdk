@@ -3178,6 +3178,64 @@ describe('kindgi dev — the console (T374)', () => {
     }
   });
 
+  test('--open --quiet: a browser that would not start is still said; one that opened is not', async () => {
+    for (const [answer, said, unsaid] of [
+      [
+        { ok: false, reason: 'xdg-open: ENOENT' },
+        "  ⚠ Couldn't open a browser (xdg-open: ENOENT)",
+        'Opened',
+      ],
+      [{ ok: true }, undefined, 'Opened the console'],
+    ] as const) {
+      const controller = new AbortController();
+      const fixtures = makeFixtures({ consoleMounted: true });
+      const asked: string[] = [];
+      const err = captureStderr();
+      try {
+        const promise = runCli({
+          ...baseInputs(fixtures, {
+            stopSignal: controller.signal,
+            openUrl: async (url) => {
+              asked.push(url);
+              return answer;
+            },
+          }),
+          argv: ['dev', '--open', '--quiet', `--path=${packDir}`],
+        });
+        await vi.waitFor(() => expect(asked).toHaveLength(1), WAIT);
+        controller.abort();
+        expect((await promise).exitCode).toBe(0);
+      } finally {
+        err.restore();
+      }
+      if (said !== undefined) expect(err.writes.join('')).toContain(said);
+      expect(err.writes.join('')).not.toContain(unsaid);
+    }
+  });
+
+  test('--open --quiet on a runtime without a console: that there is nothing to open is still said', async () => {
+    const controller = new AbortController();
+    const fixtures = makeFixtures();
+    const err = captureStderr();
+    try {
+      const promise = runCli({
+        ...baseInputs(fixtures, { stopSignal: controller.signal }),
+        argv: ['dev', '--open', '--quiet', `--path=${packDir}`],
+      });
+      await vi.waitFor(
+        () =>
+          expect(err.writes.join('')).toContain(
+            '  ⚠ --open: this runtime serves no console, so there is nothing to open.\n',
+          ),
+        WAIT,
+      );
+      controller.abort();
+      expect((await promise).exitCode).toBe(0);
+    } finally {
+      err.restore();
+    }
+  });
+
   test('--open with --no-watch is refused: the runtime stops as kindgi dev exits', async () => {
     const fixtures = makeFixtures({ consoleMounted: true });
     const out = await runCli({
@@ -3354,6 +3412,45 @@ describe('kindgi dev — what --quiet keeps (warnings)', () => {
       const said = await bootSaid(fixtures, flags, { devRunners });
       expect(said).toContain(`⚠ ${notice}`);
       expect(said.split(notice).length - 1).toBe(1);
+      expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
+    }
+  });
+
+  test('a .kindgirc.json that --reset could not remove, and could not be written, is said under --quiet too', async () => {
+    // A folder by that name: neither removed as a file nor written over.
+    await mkdir(join(packDir, '.kindgirc.json'));
+    for (const flags of LOUD_AND_QUIET) {
+      const said = await bootSaid(makeFixtures(), ['--reset', ...flags]);
+      expect(said).toMatch(/ {2}⚠ --reset: could not remove \.kindgirc\.json: .+\n/);
+      expect(said).toMatch(
+        / {2}⚠ couldn't write \.kindgirc\.json \(.+\): the CLI in this folder needs --url and --token to reach this runtime\n/,
+      );
+      expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
+    }
+  });
+
+  test("a saved pack service port that's taken is said under --quiet too", async () => {
+    for (const flags of LOUD_AND_QUIET) {
+      // Each boot saves the port it got: the next one starts from 4242 again.
+      await writeFile(join(packDir, '.kindgirc.json'), JSON.stringify({ packServicePort: 4242 }));
+      const fixtures = makeFixtures();
+      const devRunners: DevRunners = {
+        ...fixtures.runners,
+        createPackService: (serviceOpts) => {
+          const service = fixtures.runners.createPackService(serviceOpts);
+          if (serviceOpts.port === undefined) return service;
+          return {
+            ...service,
+            listen: async () => {
+              throw Object.assign(new Error(`listen EADDRINUSE: :::${serviceOpts.port}`), {
+                code: 'EADDRINUSE',
+              });
+            },
+          };
+        },
+      };
+      const said = await bootSaid(fixtures, flags, { devRunners });
+      expect(said).toContain("  ⚠ the pack service's port 4242 is taken: using another one\n");
       expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
     }
   });

@@ -498,8 +498,8 @@ Builds a signed pack image with a Kindgi build server, and writes
 build server's log among them, so a long build shows where it is. A build
 that fails keeps those lines, with the error after them. The summary goes
 to stdout at the end, as JSON, so `kindgi build > build.json` keeps it
-apart. With `--quiet`, the build's own lines are left out but its errors
-and warnings, and the CLI pin's warning and a rate limit's wait still show.
+apart. With `--quiet`, only the build's errors and warnings show, the CLI
+pin's warning and a rate limit's wait among them.
 
 **The image (a TypeScript pack):**
 - **Base:** `node:22` or `node:24-bookworm-slim`, pinned by digest: the
@@ -1019,7 +1019,7 @@ to a mirror instead and checks for the same image there.
 | `--json` | Pretty JSON on stdout (the default), for `jq`. |
 | `--raw` | One-line JSON. |
 | `--table` | A table for list responses (`runs list`, `tools list`, `providers list`; JSON where a list has no columns). |
-| `--quiet` | Nothing on stdout, and errors and warnings only on stderr, the CLI pin's warning and a rate limit's wait among them: the exit code reports the result. `kindgi connections connect` still prints its link, which is what you open. |
+| `--quiet` | Nothing on stdout, and errors and warnings only on stderr, the CLI pin's warning and a rate limit's wait among them: the exit code reports the result. `kindgi connections connect` still prints its link, which is what you open, and what's shown only once prints alone on stdout too: `kindgi tokens create`'s secret, `kindgi webhooks register`'s signing secret, and the one-time code from `kindgi sites register` and `kindgi sites code`. |
 | `--url=<url>`, `--token=<token>` | The API and its token (see above). |
 | `--hosted` | Go to the CLI's own address, never a `kindgi dev` runtime's `.kindgirc.json` (see above). `kindgi build` and `kindgi deploy` then use the hosted build service. `kindgi dev` refuses it. |
 | `--verbose`, `-v` | Full errors: stack traces and the API's error bodies. |
