@@ -127,11 +127,47 @@ describe('finalIteration — only an iteration that finished the turn is an answ
     );
   });
 
-  test('a null finalOutput is broken loop output, like a missing one', () => {
-    const empty = { iterations: 1, stopReason: 'exit-condition', finalOutput: null };
-    expect(failureOf(() => finalIteration(empty, 'reader'))).toEqual({
+  test.each([
+    { shape: 'undefined loop output', output: undefined, received: 'undefined loop output' },
+    {
+      shape: 'null loop output',
+      output: null,
+      received: 'loop output that is not an object (null)',
+    },
+    {
+      shape: 'loop output that is a string',
+      output: 'done',
+      received: 'loop output that is not an object (string)',
+    },
+    {
+      shape: 'loop output without finalOutput',
+      output: { iterations: 1, stopReason: 'exit-condition' },
+      received: 'loop output without finalOutput',
+    },
+    {
+      shape: 'a null finalOutput',
+      output: { iterations: 1, stopReason: 'exit-condition', finalOutput: null },
+      received: 'loop output without finalOutput',
+    },
+    {
+      shape: 'a finalOutput that is a number',
+      output: { iterations: 1, stopReason: 'exit-condition', finalOutput: 7 },
+      received: 'loop output whose finalOutput is not an object (number)',
+    },
+    {
+      shape: 'a finished iteration without a message',
+      output: loop({ ...finished, message: undefined } as never, 1, 'exit-condition'),
+      received: "loop output whose last iteration's message is not an object (undefined)",
+    },
+    {
+      shape: 'a finished iteration whose provider is null',
+      output: loop({ ...finished, provider: null } as never, 1, 'exit-condition'),
+      received: "loop output whose last iteration's provider is not an object (null)",
+    },
+  ])('$shape is broken loop output', ({ output, received }) => {
+    expect(failureOf(() => finalIteration(output, 'reader'))).toEqual({
       code: 'model-invocation-failed',
-      message: 'reader received loop output without finalOutput',
+      message: `reader received ${received}`,
       cause: null,
     });
   });

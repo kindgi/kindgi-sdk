@@ -18,23 +18,27 @@ import { throwAgentTurnFailure } from './errors.js';
  * (`max-iterations`), the turn fails with `budget-exceeded`, kind
  * `steps`, as `budget-check` fails a turn whose model still wants a tool
  * on the last iteration. An unfinished iteration that ended the loop any
- * other way is broken loop output, like a missing one.
+ * other way is broken loop output.
+ *
+ * So is loop output the readers can't read: not an object, without a
+ * `finalOutput` object, or a finished iteration whose `message` or
+ * `provider` isn't an object. It fails the turn with
+ * `model-invocation-failed`.
  */
 export function finalIteration(loopOutput: unknown, nodeName: string): AgentTurnIterationOutput {
-  const output = loopOutput as LoopNodeOutput<AgentTurnIterationOutput> | undefined;
-  if (output === undefined) {
-    throwAgentTurnFailure({
-      code: 'model-invocation-failed',
-      message: `${nodeName} received undefined loop output`,
-      cause: null,
-    });
+  if (loopOutput === undefined) brokenLoopOutput(nodeName, 'undefined loop output');
+  if (!isObject(loopOutput)) {
+    brokenLoopOutput(nodeName, `loop output that is not an object (${kindOf(loopOutput)})`);
   }
+  const output = loopOutput as LoopNodeOutput<AgentTurnIterationOutput>;
   if (output.finalOutput === undefined || output.finalOutput === null) {
-    throwAgentTurnFailure({
-      code: 'model-invocation-failed',
-      message: `${nodeName} received loop output without finalOutput`,
-      cause: null,
-    });
+    brokenLoopOutput(nodeName, 'loop output without finalOutput');
+  }
+  if (!isObject(output.finalOutput)) {
+    brokenLoopOutput(
+      nodeName,
+      `loop output whose finalOutput is not an object (${kindOf(output.finalOutput)})`,
+    );
   }
   const final = output.finalOutput;
   if (final.finishedTurn !== true) {
@@ -47,11 +51,40 @@ export function finalIteration(loopOutput: unknown, nodeName: string): AgentTurn
         observed: output.iterations,
       });
     }
-    throwAgentTurnFailure({
-      code: 'model-invocation-failed',
-      message: `${nodeName} received loop output whose last iteration did not finish the turn (stopReason ${output.stopReason}, ${output.iterations} iterations)`,
-      cause: null,
-    });
+    brokenLoopOutput(
+      nodeName,
+      `loop output whose last iteration did not finish the turn (stopReason ${output.stopReason}, ${output.iterations} iterations)`,
+    );
+  }
+  if (!isObject(final.message)) {
+    brokenLoopOutput(
+      nodeName,
+      `loop output whose last iteration's message is not an object (${kindOf(final.message)})`,
+    );
+  }
+  if (!isObject(final.provider)) {
+    brokenLoopOutput(
+      nodeName,
+      `loop output whose last iteration's provider is not an object (${kindOf(final.provider)})`,
+    );
   }
   return final;
+}
+
+/** Fails the turn on loop output `nodeName` can't read: a broken flow state. */
+function brokenLoopOutput(nodeName: string, received: string): never {
+  throwAgentTurnFailure({
+    code: 'model-invocation-failed',
+    message: `${nodeName} received ${received}`,
+    cause: null,
+  });
+}
+
+function isObject(value: unknown): value is object {
+  return typeof value === 'object' && value !== null;
+}
+
+/** What a value that isn't an object is: `null`, or its `typeof`. */
+function kindOf(value: unknown): string {
+  return value === null ? 'null' : typeof value;
 }
