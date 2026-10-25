@@ -21,6 +21,7 @@ const tool: ToolInvocationSpec = {
   id: 'acme.list-orders',
   modulePath: '/fake/orders.js',
   inputSchema: { type: 'object' },
+  outputSchema: { type: 'object' },
 };
 
 const ctx = (overrides: Partial<HandlerContext> = {}): HandlerContext => ({
