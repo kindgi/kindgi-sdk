@@ -8,8 +8,8 @@ description: >
   project has no kindgi.config.ts yet and the user asks to "add
   Kindgi", "create a pack", "scaffold a Kindgi pack", "start a
   new pack", or when the user needs the mental model for what a Kindgi
-  pack IS. Load it too to upgrade a self-hosted deployment, or when
-  asked for a migration script (there is none). Once the pack is
+  pack IS. Load it too when upgrading a self-hosted deployment, or
+  when asked for a migration script (there is none). Once the pack is
   scaffolded and you are authoring code,
   switch to kindgi-authoring-tools / kindgi-authoring-agents /
   kindgi-authoring-guardrails / kindgi-authoring-flows for the specific
@@ -341,12 +341,12 @@ doesn't have yet, then serving. Migrations only go forward: an upgrade
 starts with a backup of the database, and going back means restoring it and
 running the older version on it.
 
-- **On Cloud Run, a small dev deployment** (`network_mode = "none"`): the
-  Cloud Run module's `./upgrade.sh`, as of the `@kindgi/sdk@<version>` tag
-  of the release you're upgrading to, since it knows the steps up to its own
-  release. Run `./upgrade.sh --dry-run` first: it changes nothing, and lists
-  what a real run would change. The module README's Upgrading section has
-  the rest:
+- **On Cloud Run, a small dev deployment** (`network_mode = "none"`, on
+  runtime 0.1.8 or later): the Cloud Run module's `./upgrade.sh`, as of the
+  `@kindgi/sdk@<version>` tag of the release you're upgrading to, since it
+  knows the steps up to its own release. Run `./upgrade.sh --dry-run` first:
+  it changes nothing, and lists what a real run would change. The module
+  README's Upgrading section has the rest:
   https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading
 - **Any other Cloud Run deployment, or one on Azure Container Apps:** the
   "Operate it" section of its page,
