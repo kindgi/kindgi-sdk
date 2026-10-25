@@ -21,9 +21,13 @@ import {
 import {
   type JournalEntry,
   RESUME_EXIT_CODES,
+  type RunWaitPort,
   type WaitingApproval,
+  connectionLines,
+  onlyTokenWait,
   runWaitAnswer,
   runWaitText,
+  tokenLines,
 } from './run-waits.js';
 import type { Command, LeafCommand } from './types.js';
 
@@ -124,12 +128,21 @@ const list: LeafCommand = {
 const get: LeafCommand = {
   kind: 'leaf',
   name: 'get',
-  description: 'Fetch a run snapshot by id.',
+  description:
+    "Fetch a run snapshot by id. A run waiting for another system's answer also gets a line per wait, with the command that answers it, and one waiting for a person to connect an app gets a line per connect, with its link.",
   usage: 'kindgi runs get <run-id>',
   run: (ctx) =>
-    runSdk(ctx, 'runs get', async () => {
+    runSdkRendered(ctx, 'runs get', async () => {
       const runId = requiredPositional(ctx, 0, 'run-id') as RunId;
-      return ctx.client().runs.get(runId);
+      const run = await ctx.client().runs.get(runId);
+      const json = renderJson(run, ctx.globals.format);
+      const id = run.id as unknown as string;
+      const waits = [
+        ...tokenLines(id, run.waitingFor?.tokens ?? []),
+        ...connectionLines(id, run.waitingFor?.connections ?? []),
+      ];
+      const quiet = ctx.globals.format === 'quiet';
+      return { stdout: json.stdout, stderr: quiet ? '' : waits.map((l) => `${l}\n`).join('') };
     }),
 };
 
@@ -392,45 +405,75 @@ function renderTurnWarnings(output: unknown): string {
   );
 }
 
+/** What `runs resume` reads, through the client. */
+function waitPort(client: ReturnType<CommandContext['client']>): RunWaitPort {
+  return {
+    getRun: async (id) => await client.runs.get(id as RunId),
+    journalPage: async (id, since) =>
+      await client.runs.journal(id as RunId, since !== undefined ? { since } : undefined),
+    approvalsFor: async (tokenIds) => {
+      const page = await client.approvals.list({ waitTokenIds: tokenIds, limit: 100 });
+      return page.data.flatMap((a): WaitingApproval[] =>
+        typeof a.waitTokenId === 'string'
+          ? [
+              {
+                id: a.id as unknown as string,
+                ...(typeof a.title === 'string' && { title: a.title }),
+                requiredRole: a.requiredRole,
+                status: a.status,
+                waitTokenId: a.waitTokenId,
+              },
+            ]
+          : [],
+      );
+    },
+  };
+}
+
 const resume: LeafCommand = {
   kind: 'leaf',
   name: 'resume',
   description:
-    'Say what a run waits for before it resumes: an approval (named, with the command that decides it), the runtime (a queued start, a child run, a retry, a lease, a timeout), or nothing. Exit 0: not waiting; 3: waits for an approval; 4: waits on the runtime. (5 is reserved for a held run.)',
-  usage: 'kindgi runs resume <run-id>',
+    "Say what a run waits for before it resumes: an approval (named, with the command that decides it), another system's answer (a tool's call that paused), a person's connect (an app a tool's call needs, with the link to connect it), the runtime (a queued start, a child run, a retry, a lease, a timeout), or nothing. With --output, answer its wait for another system's answer as that system would, then say what it waits for next. Exit 0: not waiting; 3: waits for an approval; 4: waits on the runtime; 5: waits for another system's answer; 6: waits for a person to connect an app.",
+  usage: 'kindgi runs resume <run-id> [--output=<json-or-@file> [--waitpoint=<id>]]',
+  optionSpec: {
+    output: {
+      type: 'string',
+      description:
+        "The answer to the run's wait for another system, as JSON or @file: the output of the tool whose call paused, checked against the tool's output schema.",
+    },
+    waitpoint: {
+      type: 'string',
+      description:
+        'The wait it answers, a `pause:` id as `kindgi runs get` lists it under `waitingFor.tokens`: needed only when the run waits on more than one.',
+    },
+  },
   run: async (ctx) => {
     try {
       const runId = requiredPositional(ctx, 0, 'run-id');
+      const outputSpec = stringFlag(ctx, 'output');
+      const waitpoint = stringFlag(ctx, 'waitpoint');
+      if (waitpoint !== undefined && outputSpec === undefined) {
+        throw new UsageError('--waitpoint goes with --output=<json-or-@file>');
+      }
       const client = ctx.client();
-      const answer = await runWaitAnswer(
-        {
-          getRun: async (id) => await client.runs.get(id as RunId),
-          journalPage: async (id, since) =>
-            await client.runs.journal(id as RunId, since !== undefined ? { since } : undefined),
-          approvalsFor: async (tokenIds) => {
-            const page = await client.approvals.list({ waitTokenIds: tokenIds, limit: 100 });
-            return page.data.flatMap((a): WaitingApproval[] =>
-              typeof a.waitTokenId === 'string'
-                ? [
-                    {
-                      id: a.id as unknown as string,
-                      ...(typeof a.title === 'string' && { title: a.title }),
-                      requiredRole: a.requiredRole,
-                      status: a.status,
-                      waitTokenId: a.waitTokenId,
-                    },
-                  ]
-                : [],
-            );
-          },
-        },
-        runId,
+      const port = waitPort(client);
+      let answered: string | undefined;
+      if (outputSpec !== undefined) {
+        const value = await readJsonInput(outputSpec);
+        answered = waitpoint ?? onlyTokenWait(await port.getRun(runId));
+        await client.runs.resume({ runId: runId as RunId, waitpointId: answered, value });
+      }
+      const answer = await runWaitAnswer(port, runId);
+      const json = renderJson(
+        answered === undefined ? answer : { ...answer, answered: { waitpointId: answered } },
+        ctx.globals.format,
       );
-      const json = renderJson(answer, ctx.globals.format);
       const quiet = ctx.globals.format === 'quiet';
+      const said = answered === undefined ? '' : `Answered ${answered}.\n`;
       return {
         kind: 'ok',
-        rendered: { stdout: json.stdout, stderr: quiet ? '' : runWaitText(answer) },
+        rendered: { stdout: json.stdout, stderr: quiet ? '' : `${said}${runWaitText(answer)}` },
         exitCode: RESUME_EXIT_CODES[answer.kind],
       };
     } catch (err) {

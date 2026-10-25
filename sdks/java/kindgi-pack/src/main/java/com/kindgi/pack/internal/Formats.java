@@ -9,7 +9,6 @@ import java.time.LocalDate;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
 
 /** The string formats a schema may name, checked as {@code ajv-formats} checks them (fast mode). */
 final class Formats {
@@ -31,6 +30,7 @@ final class Formats {
           Pattern.CASE_INSENSITIVE);
   private static final Pattern URI = Pattern.compile("^[a-z][a-z0-9+\\-.]*:[^\\s]*$", Pattern.CASE_INSENSITIVE);
   private static final Pattern NO_SPACE = Pattern.compile("^[^\\s]*$");
+  private static final Pattern Z_ANCHOR = Pattern.compile("[^\\\\]\\\\Z");
   private static final Pattern IPV4 = Pattern.compile("^(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)$");
 
   static boolean accepts(String format, String value) {
@@ -57,12 +57,8 @@ final class Formats {
       case "uri-reference":
         return NO_SPACE.matcher(value).matches();
       case "regex":
-        try {
-          Pattern.compile(value);
-          return true;
-        } catch (PatternSyntaxException e) {
-          return false;
-        }
+        // As ajv-formats: what JavaScript's RegExp takes with no flags, but a \Z after a character.
+        return !Z_ANCHOR.matcher(value).find() && RegExp.problem(value, false) == null;
       default:
         return true;
     }

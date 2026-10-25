@@ -743,12 +743,17 @@ const revokeCmd: LeafCommand = {
         envName: parsed.value.envName as unknown as string,
         revoked: out.revoked,
         hard: out.hard,
+        ...(out.recoverableUntil !== undefined && { recoverableUntil: out.recoverableUntil }),
       };
+      const recoverable =
+        out.recoverableUntil === undefined
+          ? ''
+          : `  Your secret manager keeps a recoverable copy until ${out.recoverableUntil}, then purges it on its own. If you set this name again before then, Kindgi purges the copy if it now can; if it still can't, the copy stays, disabled, until you hard-revoke it again.\n\n`;
       return {
         kind: 'ok',
         rendered: {
           stdout: renderJson(summary, ctx.globals.format).stdout,
-          stderr: `\n  ${out.hard ? 'HARD-revoked' : 'Revoked'} ${name} at ${describeScope(parsed.value.scope)} in ${parsed.value.envName as unknown as string}.\n\n`,
+          stderr: `\n  ${out.hard ? 'HARD-revoked' : 'Revoked'} ${name} at ${describeScope(parsed.value.scope)} in ${parsed.value.envName as unknown as string}.\n\n${recoverable}`,
         },
       };
     } catch (err) {

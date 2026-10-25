@@ -35,17 +35,31 @@ import inspect
 import json
 import re
 import sys
+import types
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import cache
 from importlib import resources
-from typing import Any, Generic, Literal, NoReturn, ParamSpec, TypeVar, cast, get_type_hints
+from typing import (
+    Any,
+    Generic,
+    Literal,
+    NoReturn,
+    ParamSpec,
+    TypeVar,
+    Union,
+    cast,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from pydantic import TypeAdapter
 from pydantic_core import to_jsonable_python
 
-from .._schema import SchemaValidator, wire_schema
-from .context import ToolContext
+from .._schema import SchemaValidator, compile_problem, pattern_problem, wire_schema
+from .context import PauseAnswer, ToolContext
+from .needs import needs_spec_problem
 from .trace import CheckResult, RunTrace
 
 __all__ = [
@@ -114,6 +128,9 @@ class Tool(Generic[P, R]):
     network: Mapping[str, Any] | None = None
     spec: Mapping[str, Any] | None = None
     """A declarative tool's spec (`http_tool`): the runtime runs it; `handler` refuses."""
+    pauses: bool = False
+    """`True`: each call gets a wait token (`ctx.wait_token`), and the handler may return
+    `ctx.pause()` to make the run wait for another system's answer."""
     module: str = ""
     _input_adapter: TypeAdapter[Any] | None = field(default=None, repr=False)
     _output_adapter: TypeAdapter[Any] | None = field(default=None, repr=False)
@@ -150,6 +167,7 @@ def tool(
     sandbox: str | None = None,
     limits: Mapping[str, Any] | None = None,
     network: Mapping[str, Any] | None = None,
+    pauses: bool = False,
 ) -> Callable[[Callable[P, R]], Tool[P, R]]:
     """Declare a tool. The handler is `(input)` or `(input, ctx: ToolContext)`, sync or async.
 
@@ -158,6 +176,11 @@ def tool(
     approval gates don't ask before it by default. `needs_approval_when_unattended=True`
     makes each call wait for a person's approval in a run no person started (a webhook, a
     schedule, an event, or a service account's key).
+
+    `pauses=True` lets a call wait for another system's answer: the handler hands
+    `ctx.wait_token.url` to that system and returns `ctx.pause()`; the answer that system
+    posts becomes the call's result. Annotate the return as `Answer | PauseAnswer`: the
+    output schema is `Answer`'s.
     """
     annotation_scope = _caller_locals()
 
@@ -181,7 +204,11 @@ def tool(
         if output_type is None:
             raise DefinitionError(f"{where}: annotate the handler's return type or pass output=")
         input_type = _unwrap_awaitable(input_type)
-        output_type = _unwrap_awaitable(output_type)
+        output_type = _without_pause(_unwrap_awaitable(output_type), pauses, where)
+        if needs_spec is not None:
+            problem = needs_spec_problem(needs_spec)
+            if problem is not None:
+                raise DefinitionError(f"{where}: {problem}")
         return Tool(
             id=id,
             handler=handler,
@@ -201,6 +228,7 @@ def tool(
             sandbox=sandbox,
             limits=limits,
             network=network,
+            pauses=pauses,
             module=handler.__module__,
             _input_adapter=_adapter(input_type),
             _output_adapter=_adapter(output_type),
@@ -632,6 +660,24 @@ def _unwrap_awaitable(annotation: Any) -> Any:
     return annotation
 
 
+def _without_pause(annotation: Any, pauses: bool, where: str) -> Any:
+    """A pausing tool's output type: its return annotation without `PauseAnswer`."""
+    if annotation is PauseAnswer:
+        raise DefinitionError(
+            f"{where}: name the type of the answer beside PauseAnswer"
+            " (`-> Answer | PauseAnswer`), or pass output="
+        )
+    if get_origin(annotation) not in (Union, types.UnionType):
+        return annotation
+    members = get_args(annotation)
+    kept = tuple(member for member in members if member is not PauseAnswer)
+    if len(kept) == len(members):
+        return annotation
+    if not pauses:
+        raise DefinitionError(f"{where} returns a PauseAnswer: declare it with pauses=True")
+    return kept[0] if len(kept) == 1 else Union[kept]  # noqa: UP007
+
+
 def _adapter(annotation: Any) -> TypeAdapter[Any] | None:
     if annotation is None or isinstance(annotation, Mapping):
         return None
@@ -643,6 +689,19 @@ def _schema(source: Any, mode: Any, where: str, what: str) -> dict[str, Any]:
         schema = wire_schema(source, mode)
     except Exception as cause:
         raise DefinitionError(f"{where}: cannot derive the {what} JSON Schema: {cause}") from cause
+    if isinstance(source, Mapping):
+        # A schema given as a dict reaches the index as written: check it the way the runtime
+        # compiles it, so a schema the runtime refuses fails here, not at the deploy or on a dev
+        # server's first call.
+        problem = compile_problem(schema)
+        if problem is not None:
+            raise DefinitionError(f"{where}: the {what} JSON Schema doesn't compile: {problem}")
+    else:
+        # A derived schema's patterns are the tool's, written for pydantic's engine: check them as
+        # the runtime reads them, so one it refuses fails here, not at the deploy.
+        problem = pattern_problem(schema)
+        if problem is not None:
+            raise DefinitionError(f"{where}: the {what} JSON Schema doesn't compile: {problem}")
     if what == "input" and schema.get("type") != "object":
         # A model calls a tool with an object of arguments.
         raise DefinitionError(

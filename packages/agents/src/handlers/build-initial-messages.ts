@@ -4,7 +4,12 @@
 import type { ModelMessage, ModelToolCall } from '@kindgi/capabilities';
 import type { NodeHandler } from '@kindgi/handler';
 
-import { EVENT_DATA_RULE, formatEventForPrompt, turnMessageIsEvent } from '../event-data.js';
+import {
+  EVENT_DATA_RULE,
+  formatEventForPrompt,
+  toolResultForModel,
+  turnMessageIsEvent,
+} from '../event-data.js';
 import {
   MEMORY_DATA_RULE,
   formatPoliciesForPrompt,
@@ -74,7 +79,10 @@ export function buildBuildInitialMessagesHandler(ctx: TurnContext): NodeHandler 
     }
 
     const isEvent = turnMessageIsEvent(ctx.input);
-    const readsEvent = isEvent || history.some((m) => m.fromEvent === true);
+    // A pausing tool's answer comes from outside in the middle of the turn,
+    // so the rule is there from the turn's start, and the same on replay.
+    const readsEvent =
+      isEvent || offersPausingTool(ctx) || history.some((m) => m.fromEvent === true);
     const system = [
       rendered,
       ...(memoryMessage !== undefined ? [MEMORY_DATA_RULE] : []),
@@ -104,11 +112,17 @@ function offersTools(ctx: TurnContext): boolean {
   return (ctx.tools?.definitions.length ?? 0) > 0;
 }
 
+/** Whether a tool the turn offers may wait for another system's answer (`Tool.pauses`). */
+function offersPausingTool(ctx: TurnContext): boolean {
+  return [...(ctx.tools?.byName.values() ?? [])].some(({ tool }) => tool.pauses === true);
+}
+
 function conversationToModelMessage(msg: ConversationMessage): ModelMessage {
   if (msg.role === 'tool') {
     return {
       role: 'tool',
-      content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+      // Another system's answer to a paused call stays data.
+      content: toolResultForModel(msg.content, msg.fromEvent === true),
       ...(msg.toolCall !== undefined && { toolCallId: msg.toolCall.invocationId }),
     };
   }

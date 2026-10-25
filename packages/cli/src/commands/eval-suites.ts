@@ -117,37 +117,37 @@ const fromJudgments: LeafCommand = {
   kind: 'leaf',
   name: 'from-judgments',
   description:
-    "Build a test set: publish a `judged` suite version whose cases are copies of an agent's or flow's judged runs, with each item's judgments summed up.",
+    "Build test cases: publish a `judged` suite version whose cases are copies of an agent's or flow's corrected runs, with each item's corrections summed up.",
   usage:
     'kindgi eval-suites from-judgments <suite-id> --suite-version=<semver> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id>) [--since=<iso>] [--until=<iso>] [--class=<judge-class-id> ...] [--min-judgments=<n>] [--segment=<key:value> ...] [--description=<text>]',
   optionSpec: {
     'suite-version': { type: 'string', description: 'The version to publish. Required.' },
-    project: { type: 'string', description: 'The project whose judged runs to use. Required.' },
-    agent: { type: 'string', description: 'Use judged runs of this agent.' },
+    project: { type: 'string', description: 'The project whose corrected runs to use. Required.' },
+    agent: { type: 'string', description: 'Use corrected runs of this agent.' },
     'agent-version': {
       type: 'string',
       description: 'Only runs of this agent version. Needs `--agent`.',
     },
-    flow: { type: 'string', description: 'Use judged runs of this flow.' },
+    flow: { type: 'string', description: 'Use corrected runs of this flow.' },
     since: {
       type: 'string',
       description:
-        'Only runs first judged at or after this time: an ISO 8601 time with a zone, or a date (its start, UTC).',
+        'Only runs first corrected at or after this time: an ISO 8601 time with a zone, or a date (its start, UTC).',
     },
     until: {
       type: 'string',
       description:
-        'Only runs first judged before this time: an ISO 8601 time with a zone, or a date (its start, UTC).',
+        'Only runs first corrected before this time: an ISO 8601 time with a zone, or a date (its start, UTC).',
     },
     class: {
       type: 'string',
       multiple: true,
       description:
-        'Count only judgments under this judge class id. Repeat the flag for several classes.',
+        'Count only corrections under this judge class id. Repeat the flag for several classes.',
     },
     'min-judgments': {
       type: 'string',
-      description: 'Leave out runs with fewer counted judgments (default 1).',
+      description: 'Leave out runs with fewer counted corrections (default 1).',
     },
     segment: {
       type: 'string',
@@ -224,6 +224,6 @@ export const evalSuitesCommand: Command = {
   kind: 'group',
   name: 'eval-suites',
   description:
-    'Eval suites and test sets built from judgments (list / show / from-judgments / cases).',
+    'Eval suites and test cases built from corrections (list / show / from-judgments / cases).',
   subcommands: [list, show, fromJudgments, cases],
 };
