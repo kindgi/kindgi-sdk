@@ -94,6 +94,32 @@ function validateKeyId(
 // ---------------------------------------------------------------------
 
 /**
+ * The file `kindgi build` reads for a `signingKey` of `value`: `~` is the
+ * home (not --home's, and '' with no HOME), and a relative path is read
+ * from here.
+ */
+function buildKeyFile(ctx: CommandContext, value: string): string {
+  const home = ctx.home ?? ctx.env.HOME ?? '';
+  return resolve(ctx.cwd, value.startsWith('~') ? `${home}${value.slice(1)}` : value);
+}
+
+/**
+ * The `signingKey` the hint gives for the key at `privPath`:
+ * `~/.kindgi/keys/<keyId>.pem` when the build reads that as this file, else
+ * this file's absolute path (a --home that isn't the home, or no HOME).
+ */
+function hintSigningKey(ctx: CommandContext, keyId: string, privPath: string): string {
+  const file = resolve(ctx.cwd, privPath);
+  const underHome = `~/.kindgi/keys/${keyId}.pem`;
+  return buildKeyFile(ctx, underHome) === file ? underHome : file;
+}
+
+/** `value` as a single-quoted string in `kindgi.config.ts`. */
+function configString(value: string): string {
+  return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+}
+
+/**
  * What the `--env` block of the `kindgi.config.ts` here says about signing,
  * read the way `kindgi build --env=<name>` reads it. `this-key`: the build
  * will sign with the key just made (its `signingKey` is this key's file, and
@@ -135,13 +161,7 @@ async function envKeyState(
       ? fields.signerKeyId
       : undefined;
   if (signingKey === undefined && signerKeyId === undefined) return { kind: 'unset' };
-  // `kindgi build` reads `~` as the home (not --home's, and '' with no HOME)
-  // and a relative path from here.
-  const home = ctx.home ?? ctx.env.HOME ?? '';
-  const keyFile =
-    signingKey === undefined
-      ? undefined
-      : resolve(ctx.cwd, signingKey.startsWith('~') ? `${home}${signingKey.slice(1)}` : signingKey);
+  const keyFile = signingKey === undefined ? undefined : buildKeyFile(ctx, signingKey);
   if (
     keyFile === resolve(ctx.cwd, privPath) &&
     (signerKeyId === undefined || signerKeyId === keyId)
@@ -245,9 +265,11 @@ const createCmd: LeafCommand = {
         banner.push(
           `  environments.${envName} in kindgi.config.ts has these now:`,
           '',
-          ...(envKey.signingKey !== undefined ? [`    signingKey: '${envKey.signingKey}',`] : []),
+          ...(envKey.signingKey !== undefined
+            ? [`    signingKey: ${configString(envKey.signingKey)},`]
+            : []),
           ...(envKey.signerKeyId !== undefined
-            ? [`    signerKeyId: '${envKey.signerKeyId}',`]
+            ? [`    signerKeyId: ${configString(envKey.signerKeyId)},`]
             : []),
           '',
         );
@@ -257,8 +279,8 @@ const createCmd: LeafCommand = {
         '',
         `    ${envName}: {`,
         '      // …existing fields…',
-        `      signingKey: '~/.kindgi/keys/${keyId}.pem',`,
-        `      signerKeyId: '${keyId}',`,
+        `      signingKey: ${configString(hintSigningKey(ctx, keyId, privPath))},`,
+        `      signerKeyId: ${configString(keyId)},`,
         '    },',
         '',
         `  Then \`kindgi build --env=${envName}\` will pick up the key.`,
