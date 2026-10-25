@@ -1132,12 +1132,12 @@ export const CLI_EXAMPLES = {
   'auth registry': [
     {
       purpose:
-        "Log Docker in to the runtime image's registry with the robot name you were given, then check the pull; the token is prompted for.",
-      line: 'kindgi auth registry --username=acme+reader',
+        'Log Docker in to registry.kindgi.com with your license key, then check the pull; the key is prompted for.',
+      line: 'kindgi auth registry',
     },
     {
-      purpose: 'Log in in a script, reading the token from stdin.',
-      line: 'kindgi auth registry --username=acme+reader --password-stdin < registry-token.txt',
+      purpose: 'Log in in a script, reading the license key from stdin.',
+      line: 'kindgi auth registry --password-stdin < kindgi-license-key.txt',
     },
     {
       purpose:
@@ -1147,6 +1147,11 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Check that Docker can already pull the image, without logging in.',
       line: 'kindgi auth registry --check',
+    },
+    {
+      purpose:
+        "Log in to a mirror of the image instead, with that registry's own username and token; the check then looks for the image there.",
+      line: 'kindgi auth registry --registry=registry.acme.example --username=acme-ci --password-stdin < mirror-token.txt',
     },
   ],
   upgrade: [

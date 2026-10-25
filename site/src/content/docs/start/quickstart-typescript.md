@@ -11,8 +11,8 @@ on its answers and a flow, running on your machine.
 
 **Before you start**, set up what the [Install page](../install/) describes:
 Node 22.12, Docker, and access to the runtime image: sign in at
-[access.kindgi.com](https://access.kindgi.com) with GitHub for its pull
-credentials, then log in once with `kindgi auth registry`.
+[access.kindgi.com](https://access.kindgi.com) with GitHub or your email
+address for a license key, then log in once with `kindgi auth registry`.
 
 ## 1. Create the pack
 
