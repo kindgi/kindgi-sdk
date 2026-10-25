@@ -46,7 +46,8 @@ export interface ResolveContext {
     | 'admin-cli'
     | 'boot-bridge'
     | 'webhook-receiver'
-    | 'pack-env';
+    | 'pack-env'
+    | 'connections';
 }
 
 /** Input to `emitResolveEvent`. */
@@ -142,6 +143,11 @@ export interface EmitLifecycleEventInput {
    * their retention ended here.
    */
   readonly revokedValuesPurged?: true;
+  /**
+   * A hard revoke left a copy the secret manager can still recover: when
+   * it purges that copy on its own (ISO 8601).
+   */
+  readonly recoverableUntil?: string;
   /**
    * Who did it, as the API names its caller (`user:<id>`,
    * `service_account:<id>`, `session:<id>`, `token:<hash>`). Absent: from
@@ -365,6 +371,7 @@ function buildLifecyclePayload(input: EmitLifecycleEventInput): Readonly<Record<
   if (input.writeMode !== undefined) payload.writeMode = input.writeMode;
   if (input.rotationId !== undefined) payload.rotationId = input.rotationId;
   if (input.revokedValuesPurged === true) payload.revokedValuesPurged = true;
+  if (input.recoverableUntil !== undefined) payload.recoverableUntil = input.recoverableUntil;
   if (input.resolveContext?.nodeId !== undefined) payload.nodeId = input.resolveContext.nodeId;
   if (input.resolveContext?.runId !== undefined) payload.runId = input.resolveContext.runId;
   return payload;

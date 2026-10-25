@@ -108,19 +108,36 @@ export interface ProposalsClient {
    * @wire `POST /v1/proposals/improve`
    */
   improve(input: ImproveInput): Promise<ImprovementPass>;
+
+  /**
+   * What a pass {@link ProposalsClient.improve} with this input would start is
+   * estimated to cost, before you start it: `min(budget.maxCostUsd, the replay
+   * count times the version's mean cost over its recent completed runs)`.
+   * `estimatedCostUsd` is absent when the version has no cost history. It starts
+   * nothing and takes no idempotency key.
+   *
+   * @wire `POST /v1/proposals/improve/estimate`
+   */
+  improveEstimate(input: ImproveEstimateInput): Promise<ImprovementPassEstimate>;
 }
 
 export interface ImproveInput {
   readonly agentId: AgentId | string;
   /** Default: the version serving `scope`. */
   readonly fromVersion?: string;
+  /**
+   * The project the pass works in: the test sets it may use, and where
+   * its eval runs run. Default: the scope's project, else (a tenant or
+   * org scope) the agent version's.
+   */
+  readonly projectId?: string;
   readonly scope: LiveScope;
   /** The test set to search and prove on. */
   readonly suiteId: string;
   /** `['settings']` (the default): tunable settings values; `['prompt']`: drafted templates (needs `model`). */
   readonly tiers?: readonly ('settings' | 'prompt')[];
   readonly objective?: ProposalObjective;
-  /** Which judgments it learns from. Default `restricted-only`: trusted ones. */
+  /** Which judgments it learns from. Omit it for the default: everyone's (`as-recorded`) until the test set's project, its tenant, or the agent improved there has a restricted judge class, then only judgments recorded under one (`restricted-only`). */
   readonly classWeights?: 'restricted-only' | 'as-recorded';
   /** For a prompt pass: the tenant's provider and model that drafts the templates. */
   readonly model?: { readonly providerId: string; readonly model: string };
@@ -133,6 +150,12 @@ export interface ImproveInput {
 
 /** An improvement pass — `@kindgi/api/openapi.json#ImprovementPass`. */
 export type ImprovementPass = import('../generated/api.js').ImprovementPass;
+
+/** The input to {@link ProposalsClient.improveEstimate}: the start input without an idempotency key (the estimate starts nothing). */
+export type ImproveEstimateInput = Omit<ImproveInput, 'idempotencyKey'>;
+
+/** An improvement-pass cost estimate — `@kindgi/api/openapi.json#ImprovementPassEstimate`. */
+export type ImprovementPassEstimate = import('../generated/api.js').ImprovementPassEstimate;
 
 export interface ProposalsListInput {
   readonly limit?: number;
@@ -262,6 +285,14 @@ export function makeProposalsClient(transport: Transport): ProposalsClient {
         path: '/v1/proposals/improve',
         body: body as unknown as Record<string, unknown>,
         ...(idempotencyKey !== undefined && { idempotencyKey }),
+      });
+    },
+
+    async improveEstimate(input) {
+      return transport.request<ImprovementPassEstimate>({
+        method: 'POST',
+        path: '/v1/proposals/improve/estimate',
+        body: input as unknown as Record<string, unknown>,
       });
     },
   };

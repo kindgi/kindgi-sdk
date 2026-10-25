@@ -124,9 +124,14 @@ resource "google_project_iam_member" "server_sql_client" {
   role    = "roles/cloudsql.client"
   member  = "serviceAccount:${google_service_account.server.email}"
 
+  # The expression is what covers database_host_instance. Keep the title and
+  # the description as they are: the Google provider replaces the grant when
+  # any of the condition's fields changes, so an upgrade that changed one would
+  # take the server's access away and give it back while the new revision
+  # starts.
   condition {
     title       = "kindgi-instance-only"
-    description = "Kindgi's Cloud SQL instance only (the module's own, or database_host_instance's)."
+    description = "Kindgi's own Cloud SQL instance only."
     expression  = "resource.name == \"projects/${var.project_id}/instances/${var.database_host_instance != null ? var.database_host_instance : var.name_prefix}\""
   }
 }

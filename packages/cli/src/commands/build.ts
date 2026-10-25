@@ -31,6 +31,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import {
   type DiscoveryConfig,
   type PackLanguage,
+  codePatterns,
   findKindgiConfig,
   resolveDiscovery,
   resolvePackEnv,
@@ -64,6 +65,7 @@ import {
   collectJavaContextFiles,
 } from '../build/java-image.js';
 import { nodeBaseImageFor } from '../build/node-image.js';
+import { type PackBlocksCheck, checkPackBlocks, packIndexerName } from '../build/pack-blocks.js';
 import { resolvePackRoots } from '../build/pack-root.js';
 import {
   DEFAULT_PYTHON_BASE_IMAGE_REF,
@@ -90,7 +92,9 @@ import type { IndexedCounts } from '../dev/runners.js';
 import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import { isPackageVersion } from '../package-manager.js';
+import { type ProgressLines, progressLines } from '../progress-lines.js';
 import { isWait, sendWaitingOutRateLimits } from '../rate-limit-wait.js';
+import { CLI_VERSION } from '../version-info.js';
 import { timeFlagValue } from './helpers.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
@@ -244,7 +248,8 @@ export const buildCommand: LeafCommand = {
     },
     path: { type: 'string', description: 'The pack root. Default: the current directory.' },
   },
-  run: async (ctx): Promise<CommandResult> => runBuild(ctx),
+  run: async (ctx): Promise<CommandResult> =>
+    runBuild(ctx, progressLines(ctx.progress, ctx.globals.format === 'quiet')),
 };
 
 interface ResolvedBuildArgs {
@@ -291,7 +296,11 @@ interface ResolvedBuildArgs {
   readonly config: PackConfig;
 }
 
-export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
+/**
+ * `kindgi build`. `out` is where its lines go: the command's own, or
+ * `kindgi deploy`'s, for its inline build.
+ */
+export async function runBuild(ctx: CommandContext, out: ProgressLines): Promise<CommandResult> {
   const runners = ctx.buildRunners;
   if (runners === undefined) {
     return {
@@ -305,12 +314,9 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
   const parsed = await resolveBuildArgs(ctx);
   if (parsed.kind === 'error') return parsed;
   const args = parsed.args;
-  if (args.local) return runLocalBuild(ctx, runners, args);
+  if (args.local) return runLocalBuild(ctx, runners, args, out);
 
-  const banner: string[] = [];
-  const lines = (s: string): void => {
-    banner.push(s);
-  };
+  const lines = out.line;
   lines('');
   lines(`  Environment: ${args.envName}`);
   lines(`  Build:       ${args.hosted ? `hosted (${args.endpoint})` : args.endpoint}`);
@@ -323,15 +329,15 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
   // ---- 1. Local indexer pass ------------------------------------------
   const expectedIndexPath = join(args.outDir, 'expected-index.json');
   await mkdir(args.outDir, { recursive: true });
-  const prepared = await prepareTarball(ctx, runners, args, expectedIndexPath, lines);
-  if (prepared.kind === 'error') return prepared;
+  const prepared = await prepareTarball(ctx, runners, args, expectedIndexPath, out);
+  if (prepared.kind === 'error') return withBanner(prepared, out);
   const { tarball, tarballHash, counts } = prepared;
   lines('');
 
   // ---- 6. POST /v1/build + SSE stream ---------------------------------
   if (args.hosted) {
     const tooLarge = hostedUploadTooLarge(tarball.bytes.length);
-    if (tooLarge !== undefined) return failure(tooLarge);
+    if (tooLarge !== undefined) return withBanner(failure(tooLarge), out);
   }
   const packId = (args.config.pack as { readonly id?: unknown } | undefined)?.id;
   lines('  Uploading to build service');
@@ -370,7 +376,7 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
   );
   if ('thrown' in sent) {
     if (sent.thrown instanceof BuildServiceRefusal) {
-      return failure(describeBuildRefusal(sent.thrown));
+      return withBanner(failure(describeBuildRefusal(sent.thrown)), out);
     }
     throw sent.thrown;
   }
@@ -401,15 +407,18 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
       });
     } catch (err) {
       if (err instanceof BuildServiceRefusal) {
-        return failure(describeBuildRefusal(err));
+        return withBanner(failure(describeBuildRefusal(err)), out);
       }
-      return failure(`${(err as Error).message}\n`);
+      return withBanner(failure(`${(err as Error).message}\n`), out);
     }
   }
 
   if (terminal.status === 'failed') {
-    return failure(
-      `Build failed: [${terminal.error?.code ?? 'unknown'}] ${terminal.error?.message ?? 'no message'}\n`,
+    return withBanner(
+      failure(
+        `Build failed: [${terminal.error?.code ?? 'unknown'}] ${terminal.error?.message ?? 'no message'}\n`,
+      ),
+      out,
     );
   }
   if (
@@ -418,8 +427,11 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
     terminal.indexJson === undefined ||
     terminal.indexHash === undefined
   ) {
-    return failure(
-      'Build terminal payload missing required fields (imageRef / imageDigest / indexJson / indexHash).\n',
+    return withBanner(
+      failure(
+        'Build terminal payload missing required fields (imageRef / imageDigest / indexJson / indexHash).\n',
+      ),
+      out,
     );
   }
   lines(`    ✓ Build complete (${terminal.imageRef})`);
@@ -433,13 +445,13 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
   let serverBytes: Uint8Array | undefined;
   lines('  Verifying build output');
   if (args.skipIntegrityGate) {
-    lines('    ⚠ Integrity gate SKIPPED — --skip-integrity-gate. Signature will attest to');
-    lines('      the server-reported hash without local re-verification. NOT RECOMMENDED.');
+    out.problem('    ⚠ Integrity gate SKIPPED — --skip-integrity-gate. Signature will attest to');
+    out.problem('      the server-reported hash without local re-verification. NOT RECOMMENDED.');
   } else {
     if (args.skipImagePull || runners.pullImageIndex === undefined) {
-      lines('    ⚠ Image pull SKIPPED — hash-only comparison. Byte-diff path unavailable');
-      lines('      (requires Docker). CI environments where this is expected can safely');
-      lines('      omit --skip-image-pull warnings.');
+      out.problem('    ⚠ Image pull SKIPPED — hash-only comparison. Byte-diff path unavailable');
+      out.problem('      (requires Docker). CI environments where this is expected can safely');
+      out.problem('      omit --skip-image-pull warnings.');
     } else {
       try {
         const pulled = await runners.pullImageIndex({
@@ -450,8 +462,8 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
         });
         serverBytes = pulled.bytes;
       } catch (err) {
-        lines(`    ⚠ docker pull failed: ${(err as Error).message}`);
-        lines('      Falling back to hash-only comparison.');
+        out.problem(`    ⚠ docker pull failed: ${(err as Error).message}`);
+        out.problem('      Falling back to hash-only comparison.');
       }
     }
     const check = checkIntegrity({
@@ -461,8 +473,11 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
       ...(serverBytes !== undefined && { serverBytes }),
     });
     if (!check.ok) {
-      return failure(
-        `Integrity gate FAILED — refusing to sign.\n\n${check.reason ?? 'unknown reason'}\n`,
+      return withBanner(
+        failure(
+          `Integrity gate FAILED — refusing to sign.\n\n${check.reason ?? 'unknown reason'}\n`,
+        ),
+        out,
       );
     }
     lines(`    ✓ indexHash matches local indexer output (${terminal.indexHash.slice(0, 14)}…)`);
@@ -473,14 +488,14 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
   lines('');
 
   // ---- 8. Sign + 9. emit deploy-envelope.json ------------------------------
-  const written = await signAndWriteEnvelope(runners, args, lines, {
+  const written = await signAndWriteEnvelope(runners, args, out, {
     imageRef: terminal.imageRef,
     imageDigest: terminal.imageDigest,
     index: terminal.indexJson,
     indexHash: terminal.indexHash,
     ...(terminal.buildLogsUrl !== undefined && { buildLogsUrl: terminal.buildLogsUrl }),
   });
-  if (written.kind === 'error') return written;
+  if (written.kind === 'error') return withBanner(written, out);
   const { envelopePath, signature } = written;
 
   const summary = {
@@ -501,10 +516,7 @@ export async function runBuild(ctx: CommandContext): Promise<CommandResult> {
     imagePullSkipped: args.skipImagePull || runners.pullImageIndex === undefined,
   };
   const rendered = renderJson(summary, ctx.globals.format);
-  return {
-    kind: 'ok',
-    rendered: { stdout: rendered.stdout, stderr: `${banner.join('\n')}\n` },
-  };
+  return { kind: 'ok', rendered: { stdout: rendered.stdout, stderr: out.kept() } };
 }
 
 // ---------------------------------------------------------------------
@@ -525,14 +537,12 @@ async function runLocalBuild(
   ctx: CommandContext,
   runners: BuildRunners,
   args: ResolvedBuildArgs,
+  out: ProgressLines,
 ): Promise<CommandResult> {
   if (runners.dockerBuild === undefined || runners.pullImageIndex === undefined) {
     return failure('kindgi build --local needs Docker runners; rebuild the CLI.\n');
   }
-  const banner: string[] = [];
-  const lines = (s: string): void => {
-    banner.push(s);
-  };
+  const lines = out.line;
   const pushTo = args.pushRepository;
   lines('');
   lines(
@@ -545,8 +555,8 @@ async function runLocalBuild(
 
   const expectedIndexPath = join(args.outDir, 'expected-index.json');
   await mkdir(args.outDir, { recursive: true });
-  const context = await preparePackContext(ctx, runners, args, expectedIndexPath, lines);
-  if (context.kind === 'error') return withBanner(context, banner);
+  const context = await preparePackContext(ctx, runners, args, expectedIndexPath, out);
+  if (context.kind === 'error') return withBanner(context, out);
   const expectedBytes = new Uint8Array(await readFile(expectedIndexPath));
   const packId = (JSON.parse(new TextDecoder().decode(expectedBytes)) as { packId?: unknown })
     .packId;
@@ -568,10 +578,10 @@ async function runLocalBuild(
     },
   });
   if (built.kind === 'err')
-    return withBanner(failure(`Image build failed: ${built.message}\n`), banner);
+    return withBanner(failure(`Image build failed: ${built.message}\n`), out);
   for (const line of closureSummary(buildLog)) lines(line);
   if (pushTo !== undefined && built.digest === undefined) {
-    return withBanner(failure(`The push of ${tag} reported no digest.\n`), banner);
+    return withBanner(failure(`The push of ${tag} reported no digest.\n`), out);
   }
   // Pushed: the image is the registry's, by digest; loaded: the local tag.
   const imageRef = pushTo !== undefined ? `${pushTo}@${built.digest}` : tag;
@@ -602,20 +612,20 @@ async function runLocalBuild(
       failure(
         `Integrity gate FAILED: the image's index isn't the local one.\n\n${check.reason ?? ''}\n`,
       ),
-      banner,
+      out,
     );
   }
   lines('    ✓ /app/index.json in the image matches the local index byte for byte');
   lines('');
 
   if (pushTo !== undefined && built.digest !== undefined) {
-    const written = await signAndWriteEnvelope(runners, args, lines, {
+    const written = await signAndWriteEnvelope(runners, args, out, {
       imageRef,
       imageDigest: built.digest,
       index: JSON.parse(new TextDecoder().decode(expectedBytes)) as Record<string, unknown>,
       indexHash: expectedHash,
     });
-    if (written.kind === 'error') return withBanner(written, banner);
+    if (written.kind === 'error') return withBanner(written, out);
     const rendered = renderJson(
       {
         envName: args.envName,
@@ -633,7 +643,7 @@ async function runLocalBuild(
       },
       ctx.globals.format,
     );
-    return { kind: 'ok', rendered: { stdout: rendered.stdout, stderr: `${banner.join('\n')}\n` } };
+    return { kind: 'ok', rendered: { stdout: rendered.stdout, stderr: out.kept() } };
   }
 
   lines('  Run it:');
@@ -663,7 +673,7 @@ async function runLocalBuild(
     },
     ctx.globals.format,
   );
-  return { kind: 'ok', rendered: { stdout: rendered.stdout, stderr: `${banner.join('\n')}\n` } };
+  return { kind: 'ok', rendered: { stdout: rendered.stdout, stderr: out.kept() } };
 }
 
 /** The built image, as the envelope names it. */
@@ -689,7 +699,7 @@ type Signature = {
 async function signAndWriteEnvelope(
   runners: BuildRunners,
   args: ResolvedBuildArgs,
-  lines: (s: string) => void,
+  out: ProgressLines,
   image: BuiltImage,
 ): Promise<
   | {
@@ -699,10 +709,13 @@ async function signAndWriteEnvelope(
     }
   | (CommandResult & { readonly kind: 'error' })
 > {
+  const lines = out.line;
   let signature: Signature | undefined;
   if (args.skipSign) {
-    lines('  ⚠ Signing SKIPPED — --skip-sign. Emitted envelope is unsigned; deploy will refuse');
-    lines('    it. Use only for CI that signs elsewhere.');
+    out.problem(
+      '  ⚠ Signing SKIPPED — --skip-sign. Emitted envelope is unsigned; deploy will refuse',
+    );
+    out.problem('    it. Use only for CI that signs elsewhere.');
   } else if (args.signingKeyPath === undefined) {
     return failure(noSigningKey(undefined));
   } else {
@@ -743,12 +756,12 @@ async function signAndWriteEnvelope(
   return { kind: 'ok', envelopePath, signature };
 }
 
-/** A failure that still shows what the build did up to it. */
+/** A failure that still shows what the build did up to it (the lines kept, when not streamed). */
 function withBanner(
   result: CommandResult & { readonly kind: 'error' },
-  banner: readonly string[],
+  out: ProgressLines,
 ): CommandResult & { readonly kind: 'error' } {
-  return { ...result, stderr: `${banner.join('\n')}\n${result.stderr}` };
+  return { ...result, stderr: `${out.kept()}${result.stderr}` };
 }
 
 // ---------------------------------------------------------------------
@@ -797,13 +810,13 @@ function preparePackContext(
   runners: BuildRunners,
   args: ResolvedBuildArgs,
   expectedIndexPath: string,
-  lines: (s: string) => void,
+  out: ProgressLines,
 ): Promise<PackContext> {
   if (args.language === 'java' || args.language === 'scala')
-    return prepareJvmContext(ctx, runners, args, args.language, expectedIndexPath, lines);
+    return prepareJvmContext(ctx, runners, args, args.language, expectedIndexPath, out);
   return args.language === 'python'
-    ? preparePythonContext(ctx, runners, args, expectedIndexPath, lines)
-    : prepareNodeContext(runners, args, expectedIndexPath, lines);
+    ? preparePythonContext(ctx, runners, args, expectedIndexPath, out)
+    : prepareNodeContext(runners, args, expectedIndexPath, out);
 }
 
 /**
@@ -849,8 +862,9 @@ async function prepareNodeContext(
   runners: BuildRunners,
   args: ResolvedBuildArgs,
   expectedIndexPath: string,
-  lines: (s: string) => void,
+  out: ProgressLines,
 ): Promise<PackContext> {
+  const lines = out.line;
   const hostInstall = await resolveHostInstall(args.packDir);
   if (hostInstall.kind === 'err') return failure(`${hostInstall.message}\n`);
   const pinned = await withHostPnpm(runners, hostInstall.install);
@@ -916,7 +930,8 @@ async function prepareNodeContext(
   }
   const dependencies = dependenciesStep(image, bundle.computedImports, args.packDir);
   if (dependencies.kind === 'refuse') return failure(dependencies.message);
-  lines(dependencies.lines.join('\n'));
+  lines(dependencies.mode);
+  warn(out, dependencies.warnings);
   // Only what the pack loads: the install cut down to it, or the full one trimmed after, and why.
   let imageInstall = install;
   let trimmedBecause: string | undefined;
@@ -952,11 +967,13 @@ async function prepareNodeContext(
         .join('\n')}\n`,
     );
   }
+  const blocks = await checkBuildBlocks(args, localIndex.counts, expectedIndexPath);
+  if (blocks.kind === 'err') return failure(`${blocks.message}\n`);
   lines(
     `    ✓ ${localIndex.counts.tools} tools, ${localIndex.counts.guardrails} guardrails, ` +
-      `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows indexed`,
+      `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows${blocksCounted(localIndex.counts)} indexed`,
   );
-  printIndexWarnings(localIndex, lines);
+  printIndexWarnings(localIndex, out.problem);
 
   // ---- 3. Containerfile + context --------------------------------------
   const containerfilePath = join(args.outDir, 'Containerfile');
@@ -969,6 +986,7 @@ async function prepareNodeContext(
     install: imageInstall,
     image,
     hasIncludes: includeFiles.files.length > 0,
+    hasBlocks: blocks.files.length > 0,
   });
   const contextDir = join(args.outDir, 'context');
   await runners.writeContext({
@@ -979,9 +997,10 @@ async function prepareNodeContext(
     containerfilePath,
     includes: includeFiles.files,
     extensionFiles: image.contextFiles,
+    blockFiles: blocks.files,
   });
   lines(
-    `    ✓ Context: ${imageInstall.files.length} install file(s), the bundles${includeFiles.files.length > 0 ? `, ${includeFiles.files.length} bundle.include file(s)` : ''}; no pack source`,
+    `    ✓ Context: ${imageInstall.files.length} install file(s), the bundles${includeFiles.files.length > 0 ? `, ${includeFiles.files.length} bundle.include file(s)` : ''}${blocks.files.length > 0 ? `, ${blocks.files.length} block file(s) for the indexer` : ''}; no pack source`,
   );
   if (install.secrets.length > 0) {
     lines(
@@ -990,6 +1009,7 @@ async function prepareNodeContext(
   }
   lines(installLine(imageInstall, image.steps, trimmedBecause));
   for (const line of skippedScriptLines(install.skippedScripts)) lines(line);
+  warn(out, patchPackageWarnings(install.skippedScripts));
   const secrets = install.secrets.map((secret) => ({
     id: secret.id,
     src: join(install.root, secret.file),
@@ -1025,24 +1045,30 @@ export function installLine(
     : `    ✓ Install: ${what}, then trimmed to what the pack loads\n      It downloads the app's whole install first, since ${trimmedBecause}.`;
 }
 
-/**
- * What the image leaves out of the app's own install scripts, and what
- * to do when one of them is something the image needs: `patch-package`
- * (pnpm's own patches are applied by the install).
- */
+/** What the image leaves out of the app's own install scripts. */
 export function skippedScriptLines(skipped: readonly SkippedScript[]): string[] {
   if (skipped.length === 0) return [];
-  const where = (s: SkippedScript): string =>
-    s.manifest === 'package.json' ? s.name : `${s.manifest} ${s.name}`;
-  const lines = [
-    `    ✓ The app's own install scripts don't run in the image: ${skipped.map((s) => `${where(s)} (\`${s.command}\`)`).join(', ')}`,
+  return [
+    `    ✓ The app's own install scripts don't run in the image: ${skipped.map((s) => `${scriptWhere(s)} (\`${s.command}\`)`).join(', ')}`,
   ];
-  for (const s of skipped.filter((s) => /\bpatch-package\b/.test(s.command))) {
-    lines.push(
-      `    ⚠ ${where(s)} runs patch-package, so its patches aren't applied in the image. Apply them with a build step: defineBuildExtension({ name: 'patch-package', contextFiles: [<each file in patches/>], postInstall: [{ bin: 'patch-package' }] }) in image.extensions (@kindgi/sdk/build). With pnpm, pnpm patch applies them in the install itself.`,
+}
+
+/**
+ * What to do when a skipped script is something the image needs:
+ * `patch-package` (pnpm's own patches are applied by the install). A
+ * warning each, after `skippedScriptLines`.
+ */
+export function patchPackageWarnings(skipped: readonly SkippedScript[]): string[] {
+  return skipped
+    .filter((s) => /\bpatch-package\b/.test(s.command))
+    .map(
+      (s) =>
+        `    ⚠ ${scriptWhere(s)} runs patch-package, so its patches aren't applied in the image. Apply them with a build step: defineBuildExtension({ name: 'patch-package', contextFiles: [<each file in patches/>], postInstall: [{ bin: 'patch-package' }] }) in image.extensions (@kindgi/sdk/build). With pnpm, pnpm patch applies them in the install itself.`,
     );
-  }
-  return lines;
+}
+
+function scriptWhere(s: SkippedScript): string {
+  return s.manifest === 'package.json' ? s.name : `${s.manifest} ${s.name}`;
 }
 
 /** A pack's context, tarred for the build service. */
@@ -1051,12 +1077,12 @@ async function prepareTarball(
   runners: BuildRunners,
   args: ResolvedBuildArgs,
   expectedIndexPath: string,
-  lines: (s: string) => void,
+  out: ProgressLines,
 ): Promise<PreparedContext> {
-  const context = await preparePackContext(ctx, runners, args, expectedIndexPath, lines);
+  const context = await preparePackContext(ctx, runners, args, expectedIndexPath, out);
   if (context.kind === 'error') return context;
   if (context.secrets.length > 0) {
-    lines(
+    out.problem(
       `    ⚠ The build service gets no build secrets: an install that needs ${context.secrets.map((s) => s.file).join(', ')} (a private registry) fails there. \`kindgi build --local\` passes them.`,
     );
   }
@@ -1066,7 +1092,9 @@ async function prepareTarball(
     outputPath: tarballPath,
   });
   const tarballHash = await sha256Hex(tarball.bytes);
-  lines(`    ✓ Emitted ${tarballPath} (${humanBytes(tarball.size)}, ${tarballHash.slice(0, 14)}…)`);
+  out.line(
+    `    ✓ Emitted ${tarballPath} (${humanBytes(tarball.size)}, ${tarballHash.slice(0, 14)}…)`,
+  );
   return { kind: 'ok', tarball, tarballHash, counts: context.counts };
 }
 
@@ -1080,8 +1108,9 @@ async function preparePythonContext(
   runners: BuildRunners,
   args: ResolvedBuildArgs,
   expectedIndexPath: string,
-  lines: (s: string) => void,
+  out: ProgressLines,
 ): Promise<PackContext> {
+  const lines = out.line;
   const python = runners.python;
   if (python === undefined)
     return failure('This CLI cannot build Python packs (no Python build runners).\n');
@@ -1112,12 +1141,14 @@ async function preparePythonContext(
         .join('\n')}\n`,
     );
   }
+  const blocks = await checkBuildBlocks(args, localIndex.counts, expectedIndexPath);
+  if (blocks.kind === 'err') return failure(`${blocks.message}\n`);
   lines(`  Indexing (Python — ${interpreter.value.join(' ')})`);
   lines(
     `    ✓ ${localIndex.counts.tools} tools, ${localIndex.counts.guardrails} guardrails, ` +
-      `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows discovered`,
+      `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows${blocksCounted(localIndex.counts)} discovered`,
   );
-  printIndexWarnings(localIndex, lines);
+  printIndexWarnings(localIndex, out.problem);
 
   const packFiles = await collectPythonContextFiles(args.packDir);
   if (packFiles.kind === 'error') return failure(`${packFiles.message}\n`);
@@ -1167,8 +1198,9 @@ async function prepareJvmContext(
   args: ResolvedBuildArgs,
   language: 'java' | 'scala',
   expectedIndexPath: string,
-  lines: (s: string) => void,
+  out: ProgressLines,
 ): Promise<PackContext> {
+  const lines = out.line;
   const java = runners.jvm;
   const name = language === 'java' ? 'Java' : 'Scala';
   if (java === undefined)
@@ -1221,13 +1253,15 @@ async function prepareJvmContext(
     ...(declared.value?.required ?? []),
     ...(declared.value?.optional ?? []),
   ].sort();
+  const blocks = await checkBuildBlocks(args, localIndex.counts, expectedIndexPath);
+  if (blocks.kind === 'err') return failure(`${blocks.message}\n`);
   const tool = code.language === 'java' ? code.maven : code.sbt;
   lines(`  Indexing (${name} — ${code.javaHome ?? code.java}; ${tool.join(' ')})`);
   lines(
     `    ✓ ${localIndex.counts.tools} tools, ${localIndex.counts.guardrails} guardrails, ` +
-      `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows discovered`,
+      `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows${blocksCounted(localIndex.counts)} discovered`,
   );
-  printIndexWarnings(localIndex, lines);
+  printIndexWarnings(localIndex, out.problem);
 
   const packFiles =
     language === 'java'
@@ -1690,16 +1724,45 @@ function renderExternalsSummary(externals: readonly string[]): string {
  * esbuild bundler to walk. Handles both shapes:
  *
  *   discovery: { tools: 'tools/**\/*.ts', ... }     →  ['tools', ...]
- *   discovery: { tools: 'kindgi/tools/** The config's discovery patterns with defaults filled in — what the indexer uses. */
+ *   discovery: { tools: 'kindgi/tools/**
+ * The config's code discovery patterns with defaults filled in — the
+ * files the indexer loads, and so the bundler's entries. Not the blocks
+ * pattern: blocks are data, read from the pack's files.
+ */
 export function discoveryPatternsOf(config: PackConfig): readonly string[] {
+  return codePatterns(discoveryOf(config));
+}
+
+/** The config's discovery with the defaults for the pack's language filled in. */
+function discoveryOf(config: PackConfig, language?: PackLanguage): Required<DiscoveryConfig> {
   const discovery = (config as { readonly discovery?: unknown }).discovery;
-  return Object.values(
-    resolveDiscovery(
-      typeof discovery === 'object' && discovery !== null
-        ? (discovery as DiscoveryConfig)
-        : undefined,
-    ),
+  return resolveDiscovery(
+    typeof discovery === 'object' && discovery !== null
+      ? (discovery as DiscoveryConfig)
+      : undefined,
+    language,
   );
+}
+
+/** The pack's blocks after its local index (`checkPackBlocks`), in every language. */
+function checkBuildBlocks(
+  args: ResolvedBuildArgs,
+  counts: IndexedCounts,
+  indexPath: string,
+): Promise<PackBlocksCheck> {
+  return checkPackBlocks({
+    packDir: args.packDir,
+    pattern: discoveryOf(args.config, args.language).blocks,
+    indexPath,
+    blocksCounted: counts.blocks !== undefined,
+    indexer: packIndexerName(args.language),
+    release: CLI_VERSION,
+  });
+}
+
+/** `, 2 blocks` for the indexed line, when the pack has any. */
+function blocksCounted(counts: IndexedCounts): string {
+  return counts.blocks !== undefined && counts.blocks > 0 ? `, ${counts.blocks} blocks` : '';
 }
 
 /**
@@ -1751,12 +1814,17 @@ async function isFile(path: string): Promise<boolean> {
   }
 }
 
+/** Each of `warnings`, a line each: said under `--quiet` too. */
+function warn(out: ProgressLines, warnings: readonly string[]): void {
+  for (const w of warnings) out.problem(w);
+}
+
 /** The indexer's warnings, a line each: what the pack should change, though it builds as it is. */
 function printIndexWarnings(
   result: { readonly warnings?: readonly { readonly message: string }[] },
-  lines: (s: string) => void,
+  problem: (s: string) => void,
 ): void {
-  for (const w of result.warnings ?? []) lines(`    ⚠ ${w.message}`);
+  for (const w of result.warnings ?? []) problem(`    ⚠ ${w.message}`);
 }
 
 /** The image's dependencies, as the build says them (`image.dependencies`). */
@@ -1768,18 +1836,18 @@ function renderDependenciesMode(image: ResolvedImage): string {
   return `    ✓ Dependencies: only what the pack loads (image.dependencies: 'loaded')${kept.length > 0 ? `, and ${kept.join(', ')}` : ''}`;
 }
 
-/** The image's dependencies, said, and with `'loaded'` the computed-import check. */
+/** The image's dependencies, said, and with `'loaded'` the computed-import check's warnings. */
 function dependenciesStep(
   image: ResolvedImage,
   computed: readonly ComputedImport[] | undefined,
   packDir: string,
 ):
   | { readonly kind: 'refuse'; readonly message: string }
-  | { readonly kind: 'ok'; readonly lines: readonly string[] } {
+  | { readonly kind: 'ok'; readonly mode: string; readonly warnings: readonly string[] } {
   const mode = renderDependenciesMode(image);
-  if (image.dependencies === 'all') return { kind: 'ok', lines: [mode] };
+  if (image.dependencies === 'all') return { kind: 'ok', mode, warnings: [] };
   const check = computedImportsCheck(computed ?? [], image.keep, packDir);
-  return check.kind === 'refuse' ? check : { kind: 'ok', lines: [mode, ...check.lines] };
+  return check.kind === 'refuse' ? check : { kind: 'ok', mode, warnings: check.lines };
 }
 
 /**

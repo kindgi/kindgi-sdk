@@ -3,7 +3,10 @@
 Every artifact under `sdks/java` and `sdks/scala` has one version, the same as
 the npm packages' and PyPI's. Each user-visible change adds its line under
 **Unreleased** in the pull request that makes it. A release turns that
-heading into its version.
+heading into its version. From 0.2.0 on, a release after release candidates
+lists their changes too, so its section has every change since the release
+before. An earlier release's section has only what came after its
+candidates, and theirs are just below it.
 
 ## Unreleased
 
@@ -12,6 +15,21 @@ heading into its version.
 - `kindgi-client`: **`SignedExports.verify` checks a signed export** (an approval's audit bundle, a run's provenance, compliance evidence) — its `ed25519` or `ecdsa-p256-sha256` signature over the exact bytes shipped, and, when you pass the keys you trust, that the signing key is one of them. It returns a `SignedExportVerification`, with the signed body when it checks out, and never throws for an export that doesn't verify. The Java counterpart of `verifySignedExport` in the TypeScript client and `verify_signed_export` in Python; it checks with the JDK's own crypto, so there's nothing extra to install.
 - `kindgi-client`: **a comparison eval run's result, typed.** `Comparisons.comparisonOf(run)` reads a `judged` `EvalRun`'s open `result` as the OpenAPI `JudgedComparisonResult` — its summary and each case — and is empty for another kind of run, a dry run, or one that hasn't finished. The same reading as the TypeScript `comparisonOf` and Python `comparison_of`.
 - `kindgi-client`: **verify the webhooks Kindgi sends, or sign them.** `Webhooks.verify(secret, headers, body)` checks a Standard Webhooks `v1` signature — HMAC-SHA256, a constant-time compare, a 300-second timestamp tolerance, and a message signed by several secrets during a rotation (any signature that matches yours passes) — and returns the `VerifiedWebhook`, or throws `WebhookVerificationException` naming which check failed. `Webhooks.parseEvent(body)` reads the typed `WebhookEvent`, keeping a type the client doesn't know yet as `WebhookEvent.Unrecognized`. `sign`, `signedHeaders`, `generateSecret` and `isStrongSecret` round out the helper, matching the TypeScript `@kindgi/crypto` and Python `kindgi.webhooks`.
+- `kindgi-pack`, `kindgi-pack-scala`: **a tool's `needsSpec` is checked, and a test can fill its `env`.** The indexer refuses a tool whose `needsSpec.env` or `needsSpec.secrets` names a schema that doesn't compile, or whose `needsSpec.env` default isn't a string, as a file error at `/needsSpec/<slot>/<name>`; `kindgi build` stops on it. `ToolContext.forTest(tool, env, secrets)` builds a context whose `env` is what the tool declares under `needsSpec.env` — each name from the `env` you pass or its schema's string default, checked against its schema, with an `IllegalArgumentException` when one is missing or doesn't match — so a handler test resolves env the way the runtime does. A `ToolContext.Builder` sets a test context's fields one by one; with `withTool(tool)` it decides `env` the same way, so a test can set the project, config or logger too. Scala reaches both through the same Java `ToolContext`. Matches the TypeScript `@kindgi/tools` definition check and test context.
+- `kindgi-pack`, `kindgi-pack-scala`: **a tool's connections to other apps (pack protocol 2.9.0).** `ToolContext.connections()` maps each connection the tool declares (`needsSpec.connections`) to a `ToolConnection`: its id, the app, the account (`ConnectionAccount`: `id`, `label`) and a short-lived `accessToken` for this call, empty when the tool declares none. Printing a connection or the context never shows a token, and their JSON leaves it out. When the app answers 401, throw `ConnectionRejectedException(name)`, or your own exception with it as the cause: the call answers `connection-rejected` naming the connection, and the runtime renews the token once and runs the call again. An HTTP tool sends a connection's token with `new HttpAuthSpec.Connection(name)`. `ToolContext.forTest(connections)` builds one for a unit test, as does `ToolContext.Builder.withConnections`, and the constructors without `connections` still compile. Scala names them `ToolConnection`, `ConnectionAccount` and `ConnectionRejectedException` in `scaladsl`.
+- `kindgi-pack`, `kindgi-pack-scala`: **a tool's schemas are refused where the runtime's strict compile refuses them, beyond unknown names.** This covers a keyword with no `type` it applies to (`minLength` with no `"type": "string"`, say), a `type` its context can't be (`number` under `integer`), a `required` property nothing defines, an empty `enum`, and references that only lead back to themselves. The indexer refuses such a tool, and so does `needsSpec`'s check, naming where the schema goes wrong; before, such a schema reached the runtime, which refused it. A schema derived from a type is unchanged. The SDKs replay the runtime's answers to a shared set of schemas (`@kindgi/specs`' `test-vectors/strict-schemas`).
+- `kindgi-pack`, `kindgi-pack-scala`: **a `pattern` is checked as the runtime's JavaScript reads it.** The indexer refuses a `pattern` the runtime's `RegExp` refuses, and so does `needsSpec`'s check, in the runtime's words (`Invalid regular expression: /(/u: Unterminated group`). Before, it went by Java's `Pattern`: a pattern only Java reads, such as `(?i)abc` or `a\Z`, reached the runtime, which refused it. A pattern only JavaScript reads, such as `[^]`, is still refused, since the service checks data against it with Java's `Pattern`. A `"format": "regex"` value is checked as the runtime checks it, too.
+
+## 0.1.10
+
+No JVM changes; the version moves with the npm packages.
+
+## 0.1.10-rc.1
+
+No JVM changes; the version moves with the npm packages.
+
+## 0.1.10-rc.0
+
 - `kindgi-pack`, `kindgi-pack-scala`: **an agent's `conversationPolicy` can't set `autoCloseAfterInactiveSeconds`.** It was accepted and never acted on: a conversation never closes by itself, only when someone closes it. The indexer refuses an agent that sets it, as a file error at `/conversationPolicy/autoCloseAfterInactiveSeconds`; the rest of the pack still indexes, and `kindgi build` stops on it.
 
 ## 0.1.9

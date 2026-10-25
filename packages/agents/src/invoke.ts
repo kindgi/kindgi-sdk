@@ -313,7 +313,9 @@ export type {
   InvokeAgentBindings,
   InvokeAgentInput,
   ToolCallAuthorization,
+  TurnConnections,
 } from './handlers/public-types.js';
+export type { ConnectionCallCode } from './handlers/connection-gate.js';
 
 /**
  * The `InvokeAgentInput` a resumed turn runs with: the one captured in its

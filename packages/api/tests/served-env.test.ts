@@ -47,7 +47,11 @@ const projectId = randomUUID();
 const TOKEN = 'served-env-token';
 const resolveToken: TokenResolver = async (token) =>
   token === TOKEN
-    ? { tenantId, capabilities: ['secrets:write', 'secrets:rotate', 'secrets:revoke', 'env:write'] }
+    ? {
+        tenantId,
+        scopes: ['tenant-admin'],
+        capabilities: ['secrets:write', 'secrets:rotate', 'secrets:revoke', 'env:write'],
+      }
     : null;
 const runHandler: RunHandlerBinding = {
   invokeAgent: async () => ({ kind: 'err', error: { code: 'bad-input', message: 'not used' } }),

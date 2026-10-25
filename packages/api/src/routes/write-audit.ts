@@ -45,6 +45,8 @@ export interface WriteAuditInput {
   readonly writeMode?: 'create-new' | 'add-version';
   readonly rotationId?: string;
   readonly revokedValuesPurged?: true;
+  /** A hard revoke left a recoverable copy in the secret manager, until this ISO 8601 time. */
+  readonly recoverableUntil?: string;
 }
 
 /**

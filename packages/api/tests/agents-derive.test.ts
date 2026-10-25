@@ -195,7 +195,11 @@ async function harness(
     return { status: res.status, body: (await res.json()) as Record<string, any> };
   };
   /** Publish a version of the agent straight to the store, pinned to the first block versions. */
-  const publishAgent = async (version: string, pinned = true) => {
+  const publishAgent = async (
+    version: string,
+    pinned = true,
+    extra: Record<string, unknown> = {},
+  ) => {
     const pins = {
       tools: {},
       prompts: { 'acme.intake-prompt': '1.0.0' },
@@ -213,6 +217,7 @@ async function harness(
       retrieval: [],
       guardrails: [],
       ...(pinned && { pins, pinsDigest: pinsDigest(pins) }),
+      ...extra,
     } as unknown as Agent;
     await agents.publish({ tenantId, projectId, agent, enqueueTuples: () => [] });
   };
@@ -411,6 +416,28 @@ describe('POST /v1/agents/:agentId/versions refuses', () => {
         message: expect.stringContaining('block "acme.model" version 1.1.0 isn\'t model settings'),
       },
     ]);
+  });
+
+  test('model settings that name the model the agent names too are refused, naming both', async () => {
+    const { call, settings, publishAgent } = await harness();
+    await publishAgent('1.0.0', true, { preferredModel: 'claude-sonnet-5-5' });
+    await settings('acme.model', '1.1.0', { model: 'claude-haiku-4-5' });
+    await settings('acme.model', '1.2.0', { temperature: 0.7 });
+    const res = await call(
+      ...derive({ from: '1.0.0', pins: { settings: { 'acme.model': '1.1.0' } } }),
+    );
+    expect(res.status).toBe(400);
+    expect(res.body.error.details.issues).toEqual([
+      {
+        path: '/pins/settings/acme.model',
+        message:
+          'block "acme.model" version 1.1.0: it sets model, and the agent version sets preferredModel: name the model in one place, the block or the agent version',
+      },
+    ]);
+    const temperature = await call(
+      ...derive({ from: '1.0.0', pins: { settings: { 'acme.model': '1.2.0' } } }),
+    );
+    expect(temperature.status).toBe(201);
   });
 
   test('an unregistered block version, no swaps, or swaps that change nothing', async () => {

@@ -13,12 +13,13 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import type { SecretsValueInputSeam } from '../src/commands/secrets.js';
 import type { EnvRunners } from '../src/env/runners.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
 import { PromptCancelled, type TtySeam } from '../src/terminal-input.js';
+import { stubOutGitRepoVars } from './git-env.js';
 
 let packDir: string;
 
@@ -109,11 +110,13 @@ function baseInputs(
 }
 
 beforeEach(async () => {
+  stubOutGitRepoVars();
   packDir = await mkdtemp(join(tmpdir(), 'kindgi-cli-secrets-'));
   await writeFile(join(packDir, 'kindgi.config.ts'), 'export default {};\n', 'utf8');
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await rm(packDir, { recursive: true, force: true });
 });
 
@@ -868,6 +871,35 @@ describe('kindgi secrets revoke', () => {
     const call = fixtures.state.revokeCalls[0] as { hard?: boolean; reason?: string };
     expect(call.hard).toBe(true);
     expect(call.reason).toBe('compromised');
+    expect(out.stderr).not.toContain('recoverable copy');
+    expect(JSON.parse(out.stdout)).not.toHaveProperty('recoverableUntil');
+  });
+
+  test('a hard revoke that left a recoverable copy says until when', async () => {
+    const until = '2026-11-22T21:00:00.000Z';
+    const fixtures = makeFixtures();
+    const clientFactory = (): unknown =>
+      makeFakeClient({
+        revoke: async () => ({ revoked: true, hard: true, recoverableUntil: until }),
+      });
+    const out = await runCli({
+      ...baseInputs(fixtures, [
+        'secrets',
+        'revoke',
+        'stripe.key',
+        '--env=staging',
+        '--scope=tenant',
+        '--hard',
+        '--url=https://api.example.com',
+        '--token=t',
+      ]),
+      clientFactory: clientFactory as never,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain(
+      `Your secret manager keeps a recoverable copy until ${until}, then purges it on its own. If you set this name again before then, Kindgi purges the copy if it now can; if it still can't, the copy stays, disabled, until you hard-revoke it again.`,
+    );
+    expect(JSON.parse(out.stdout)).toMatchObject({ hard: true, recoverableUntil: until });
   });
 });
 
