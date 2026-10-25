@@ -610,6 +610,165 @@ assert_absent "$STUB_PLAN_SAW" "a plan"
 assert_reads_only
 assert_varfile_unchanged
 
+# 37. A server-only release, X.Y.Z.N, is a server fix for X.Y.Z with no SDK
+# release of its own. From X.Y.Z it crosses no release and has no steps to
+# confirm by hand; its image comes from its own tag on registry.kindgi.com.
+case_start "0.2.0 to a server-only release, 0.2.0.1"
+reset_env; export STUB_TAGS="0.2.0"
+run "yes" --to 0.2.0.1
+assert_rc 0 "0.2.0 -> 0.2.0.1 runs"
+assert_out "upgrading 0.2.0 -> 0.2.0.1, a server fix for 0.2.0: no release crossed"
+assert_out "none: 0.2.0.1 is a server fix for 0.2.0."
+if grep -q "now comes from registry.kindgi.com" "$OUT"; then fail "0.2.0's steps shown for 0.2.0 -> 0.2.0.1"; else pass; fi
+assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.2.0.1 " "the server fix's own tag is read"
+assert_file_has "$STUB_DOCKER_LOG" "--tag $REPO/runtime:0.2.0.1 registry.kindgi.com/kindgi/runtime:0.2.0.1@$NEW_DIGEST" "the mirror tags it 0.2.0.1"
+assert_present "$STUB_MARKER_EXPORT" "backup"
+assert_present "$STUB_MARKER_APPLY" "apply"
+assert_out "0.2.0 -> 0.2.0.1 applied"
+
+# 38. From before X.Y.Z, a server-only release crosses X.Y.Z: its steps print.
+case_start "0.1.10 to 0.2.0.1"
+reset_env; export STUB_TAGS="0.1.10"
+run "yes" --to 0.2.0.1
+assert_rc 0 "0.1.10 -> 0.2.0.1 runs"
+assert_out "crossing: 0.2.0$"
+assert_out "now comes from registry.kindgi.com"
+if grep -q "none: " "$OUT"; then fail "a crossing upgrade said there are no steps"; else pass; fi
+assert_out "0.1.10 -> 0.2.0.1 applied"
+
+# 39. From an rc of X.Y.Z, too: the rc is below its final.
+case_start "0.2.0-rc.0 to 0.2.0.1"
+reset_env; export STUB_TAGS="0.2.0-rc.0"
+run "yes" --to 0.2.0.1
+assert_rc 0 "0.2.0-rc.0 -> 0.2.0.1 runs"
+assert_out "crossing: 0.2.0$"
+assert_out "0.2.0-rc.0 -> 0.2.0.1 applied"
+
+# 40. From one server fix to the next: the running X.Y.Z.N is read from its
+# mirrored tag, and names the export.
+case_start "0.2.0.1 to 0.2.0.2"
+reset_env; export STUB_TAGS="0.2.0.1"
+run "yes" --to 0.2.0.2
+assert_rc 0 "0.2.0.1 -> 0.2.0.2 runs"
+assert_out "read 0.2.0.1 from the mirrored image's tag"
+assert_out "a server fix for 0.2.0: no release crossed"
+assert_out "backup complete: gs://backups/dev/kindgi-kindgi-0.2.0.1-"
+assert_out "0.2.0.1 -> 0.2.0.2 applied"
+
+# 41. A later server fix is past an earlier one, and past its release: going
+# back down is refused before anything is read from the registry.
+case_start "0.2.0.2 to 0.2.0.1 is refused"
+reset_env; export STUB_TAGS="0.2.0.2"
+run "yes" --to 0.2.0.1
+assert_rc 1 "going down refused"
+assert_out "already on 0.2.0.2, at or past the target 0.2.0.1\."
+assert_absent "$STUB_DOCKER_LOG" "a registry read"
+assert_varfile_unchanged
+
+case_start "0.2.0.1 to 0.2.0 is refused"
+reset_env; export STUB_TAGS="0.2.0.1"
+run "yes"
+assert_rc 1 "a server fix to its release refused"
+assert_out "already on 0.2.0.1, at or past the target 0.2.0\."
+assert_absent "$STUB_DOCKER_LOG" "a registry read"
+assert_varfile_unchanged
+
+# 42. A server fix of a release past the newest this script knows: the refusal
+# names its release's SDK tag, since a server-only release has none.
+case_start "server fix past the newest known release"
+reset_env; export STUB_TAGS="0.2.0"
+run "yes" --to 0.3.0.1
+assert_rc 1 "a later server fix refused"
+assert_out "knows the steps up to 0.2.0. 0.3.0.1 is a server fix for 0.3.0: use this script as of the @kindgi/sdk@0.3.0 tag."
+if grep -q "@kindgi/sdk@0.3.0.1" "$OUT"; then fail "the refusal names an SDK tag a server-only release doesn't have"; else pass; fi
+assert_absent "$STUB_DOCKER_LOG" "a registry read"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_varfile_unchanged
+
+# 43. A server-only release has no rc, and its N starts at 1 with no leading
+# zero, as the runtime's releases are numbered: anything else isn't a target.
+for bad in 0.2.0.1-rc.0 0.2.0.0 0.2.0.01 0.2.0.1.1; do
+  case_start "--to $bad isn't a version"
+  reset_env; export STUB_TAGS="0.2.0"
+  run "yes" --to "$bad"
+  assert_rc 1 "$bad refused"
+  assert_out "--to \"$bad\" isn't a version like 0.2.0, 0.2.0-rc.0 or 0.2.0.1"
+  assert_absent "$STUB_DOCKER_LOG" "a registry read"
+done
+
+# 44. --from takes a server-only release; and with no version tag to read, the
+# refusal says --from takes one.
+case_start "--from a server-only release"
+reset_env
+run "yes" --from 0.2.0.1 --to 0.2.0.2
+assert_rc 0 "--from 0.2.0.1 runs"
+assert_out "using --from 0.2.0.1"
+assert_out "0.2.0.1 -> 0.2.0.2 applied"
+
+case_start "--from an rc of a server fix isn't a version"
+reset_env
+run "yes" --from 0.2.0.1-rc.0 --to 0.2.0.2
+assert_rc 1 "--from 0.2.0.1-rc.0 refused"
+assert_out "--from \"0.2.0.1-rc.0\" isn't a version like 0.1.10 or 0.2.0.1"
+
+case_start "no version tag, no --from"
+reset_env
+run "yes" --to 0.2.0.1
+assert_rc 1 "no version refused"
+assert_out "Re-run with --from <the version it runs, such as 0.1.10 or 0.2.0.1>"
+assert_absent "$STUB_DOCKER_LOG" "a registry read"
+
+# 45. A dry run lists a server-only release like any other target: its own
+# tag read and mirrored, no steps by hand, and nothing changed.
+case_start "dry run to a server-only release"
+reset_env; export STUB_TAGS="0.2.0"
+run "yes" --to 0.2.0.1 --dry-run
+assert_rc 0 "a dry run to 0.2.0.1 exits 0"
+assert_file_has "$STUB_CALLS_LOG" "docker buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.2.0.1 " "the server fix's digest is read"
+assert_file_has "$OUT" "2. add the image tag $REPO/runtime:0.2.0.1 to Artifact Registry" "the mirror"
+assert_file_has "$OUT" "(a copy of registry.kindgi.com/kindgi/runtime:0.2.0.1@$NEW_DIGEST;" "the mirror's source"
+assert_file_has "$OUT" "export the \"kindgi\" database to gs://backups/dev/kindgi-kindgi-0.2.0-<YYYYMMDDTHHMMSSZ>.sql.gz" "the export"
+assert_out "none: 0.2.0.1 is a server fix for 0.2.0."
+assert_out "dry run done. Nothing was changed"
+assert_reads_only
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+
+# 46. The same script with releases it doesn't ship yet (0.2.1, and 0.4.0
+# past a 0.3.0 it doesn't list), for what today's list can't reach: a server
+# fix sorts below the next release's rc, and a server fix of a release the
+# script doesn't list is refused.
+GAP_SCRIPT="$TMP/upgrade-gap.sh"
+sed 's/^readonly KNOWN_RELEASES=.*/readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.2.1" "0.4.0")/' "$SCRIPT" >"$GAP_SCRIPT"
+chmod +x "$GAP_SCRIPT"
+if grep -qx 'readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.2.1" "0.4.0")' "$GAP_SCRIPT"; then pass; else fail "the copy's KNOWN_RELEASES wasn't set"; fi
+REAL_SCRIPT="$SCRIPT"; SCRIPT="$GAP_SCRIPT"
+
+case_start "0.2.0.3 to the next release's rc"
+reset_env; export STUB_TAGS="0.2.0.3"
+run "yes" --to 0.2.1-rc.0
+assert_rc 0 "0.2.0.3 -> 0.2.1-rc.0 runs"
+assert_out "crossing: 0.2.1$"
+assert_out "0.2.0.3 -> 0.2.1-rc.0 applied"
+
+case_start "the next release's rc to 0.2.0.3 is refused"
+reset_env; export STUB_TAGS="0.2.1-rc.0"
+run "yes" --to 0.2.0.3
+assert_rc 1 "an rc to an earlier release's server fix refused"
+assert_out "already on 0.2.1-rc.0, at or past the target 0.2.0.3\."
+
+case_start "server fix of a release the script doesn't list"
+reset_env; export STUB_TAGS="0.2.1"
+run "yes" --to 0.3.0.1
+assert_rc 1 "0.3.0.1 refused"
+assert_out "--to 0.3.0.1: a server fix for 0.3.0, which isn't a release this script knows (0.1.9 0.1.10 0.2.0 0.2.1 0.4.0)."
+assert_absent "$STUB_DOCKER_LOG" "a registry read"
+assert_varfile_unchanged
+
+SCRIPT="$REAL_SCRIPT"
+
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [[ $FAIL -eq 0 ]]
