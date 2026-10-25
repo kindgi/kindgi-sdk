@@ -36,7 +36,7 @@
 #   ./upgrade.sh --var-file dev.tfvars \
 #                --runtime-digest sha256:<64 hex> \
 #                --backup-bucket gs://<bucket>[/<prefix>] \
-#                [--to 0.2.0] [--from 0.1.8|0.1.9|0.1.10] \
+#                [--to 0.2.0] [--from <version>] \
 #                [--pack-dir <path to the pack project>] \
 #                [--check-tenant <uuid>] [--dry-run]
 #
@@ -51,14 +51,17 @@
 #                      is written to. The export is one database, never an
 #                      instance backup.
 #   --to               The target runtime version, 0.2.0 or later (default
-#                      0.2.0; an rc such as 0.2.0-rc.0 works too). Earlier
+#                      0.2.0). An rc such as 0.2.0-rc.0 works too, and so does
+#                      a server-only release such as 0.2.0.1: a server fix for
+#                      0.2.0, with no SDK release of its own. Earlier
 #                      releases aren't on registry.kindgi.com: for those, use
 #                      this script as of the @kindgi/sdk@0.1.10 tag. This
 #                      script knows the steps up to 0.2.0; for a later
 #                      release, use this script as of that release's
-#                      @kindgi/sdk@<version> tag.
-#   --from             Assert the current version when it can't be read from the
-#                      deployment (no version tag on the running image).
+#                      @kindgi/sdk@<version> tag (for X.Y.Z.N, X.Y.Z's tag).
+#   --from             Assert the current version (0.1.10, say, or 0.2.0.1)
+#                      when it can't be read from the deployment (no version
+#                      tag on the running image).
 #   --pack-dir         Rebuild and push the pack from here with `kindgi build`
 #                      (only if the deployment has a pack service). Without it,
 #                      the runtime is upgraded alone and the pack is left as is.
@@ -111,18 +114,28 @@ require_cmd() {
   done
 }
 
-# A version as a plain base-10 integer for comparison, with an rc ranked below
-# its final: 0.1.10-rc.1 -> 1010001, 0.1.10 -> 1010999. 10# keeps a
+# A version as a plain base-10 integer for comparison: an rc ranks below its
+# final, and a server-only release X.Y.Z.N above it, in order of N:
+# 0.2.0-rc.1 -> 200000001, 0.2.0 -> 200050000, 0.2.0.1 -> 200050001. Each of
+# X, Y and Z is below 1000, an rc's number and N below 50000. 10# keeps a
 # zero-padded component from being read as octal.
 ver_num() {
-  local v="${1%%-*}" rc=999 a b c
-  if [[ $1 =~ -rc\.([0-9]+)$ ]]; then rc="${BASH_REMATCH[1]}"; fi
+  local v="${1%%-*}" tail=50000 a b c n
+  if [[ $1 =~ -rc\.([0-9]+)$ ]]; then tail=$((10#${BASH_REMATCH[1]})); fi
   local IFS=.
-  read -r a b c <<<"$v"
-  printf '%d' "$(( ((10#${a:-0}) * 1000000 + (10#${b:-0}) * 1000 + (10#${c:-0})) * 1000 + 10#$rc ))"
+  read -r a b c n <<<"$v"
+  if [[ -n ${n:-} ]]; then tail=$((50000 + 10#$n)); fi
+  printf '%d' "$(( ((10#${a:-0}) * 1000000 + (10#${b:-0}) * 1000 + (10#${c:-0})) * 100000 + tail ))"
 }
 
-is_semver() { [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; }
+# A version: X.Y.Z, an rc of it (X.Y.Z-rc.N), or a server-only release
+# X.Y.Z.N (N from 1), a server fix for X.Y.Z with no SDK release of its own.
+# A server-only release has no rc.
+is_version() { [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|\.[1-9][0-9]*)?$ ]]; }
+is_server_fix() { [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[1-9][0-9]*$ ]]; }
+# The release a version belongs to, whose @kindgi/sdk@ tag has the upgrade.sh
+# for it: X.Y.Z for X.Y.Z, X.Y.Z-rc.N and X.Y.Z.N.
+release_of() { [[ $1 =~ ^([0-9]+\.[0-9]+\.[0-9]+) ]] && printf '%s' "${BASH_REMATCH[1]}"; }
 
 # The var-file's value for one variable, or nothing unless the file sets it
 # exactly once, on one line, as  name = "value"  (or as a string in .json).
@@ -263,15 +276,24 @@ done
 [[ -n $BACKUP_BUCKET ]] || die "--backup-bucket is required (see --help)."
 [[ $BACKUP_BUCKET =~ ^gs://[a-z0-9][-a-z0-9._]*(/.*)?$ ]] || die "--backup-bucket must look like gs://<bucket>[/<prefix>]."
 BUCKET_ONLY="${BACKUP_BUCKET#gs://}"; BUCKET_ONLY="${BUCKET_ONLY%%/*}"
-is_semver "$TARGET" || die "--to \"$TARGET\" isn't a version like 0.2.0."
-[[ "$(ver_num "${TARGET%%-*}")" -ge "$(ver_num "$TARGET_FLOOR")" ]] \
+is_version "$TARGET" || die "--to \"$TARGET\" isn't a version like 0.2.0, 0.2.0-rc.0 or 0.2.0.1."
+TARGET_RELEASE="$(release_of "$TARGET")"
+[[ "$(ver_num "$TARGET_RELEASE")" -ge "$(ver_num "$TARGET_FLOOR")" ]] \
   || die "--to $TARGET: this script copies the runtime from registry.kindgi.com, which has $TARGET_FLOOR and later. For an earlier release, use this script as of the @kindgi/sdk@0.1.10 tag."
 # A later release may need steps this copy doesn't have, so it isn't run past
-# the newest release it knows (an rc counts as its final).
+# the newest release it knows (an rc counts as its final). A server-only
+# release has no SDK tag of its own: its release's script runs it.
 NEWEST_KNOWN="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
-[[ "$(ver_num "${TARGET%%-*}")" -le "$(ver_num "$NEWEST_KNOWN")" ]] \
-  || die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. Use this script as of the @kindgi/sdk@${TARGET%%-*} tag (before it's out, that release's newest @kindgi/sdk@${TARGET%%-*}-rc.N tag)."
-if [[ -n $FROM_OVERRIDE ]]; then is_semver "$FROM_OVERRIDE" || die "--from \"$FROM_OVERRIDE\" isn't a version like 0.1.8."; fi
+if [[ "$(ver_num "$TARGET_RELEASE")" -gt "$(ver_num "$NEWEST_KNOWN")" ]]; then
+  if is_server_fix "$TARGET"; then
+    die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. $TARGET is a server fix for $TARGET_RELEASE: use this script as of the @kindgi/sdk@$TARGET_RELEASE tag."
+  fi
+  die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. Use this script as of the @kindgi/sdk@$TARGET_RELEASE tag (before it's out, that release's newest @kindgi/sdk@$TARGET_RELEASE-rc.N tag)."
+fi
+if is_server_fix "$TARGET" && [[ " ${KNOWN_RELEASES[*]} " != *" $TARGET_RELEASE "* ]]; then
+  die "--to $TARGET: a server fix for $TARGET_RELEASE, which isn't a release this script knows (${KNOWN_RELEASES[*]})."
+fi
+if [[ -n $FROM_OVERRIDE ]]; then is_version "$FROM_OVERRIDE" || die "--from \"$FROM_OVERRIDE\" isn't a version like 0.1.10 or 0.2.0.1."; fi
 if [[ -n $PACK_DIR ]]; then [[ -d $PACK_DIR ]] || die "--pack-dir \"$PACK_DIR\" isn't a directory."; fi
 
 VARFILE_JSON=false
@@ -411,14 +433,14 @@ else
   # an empty result just iterates zero times under set -u on bash 3.2). An rc
   # promoted to its final carries both tags; the highest is the version.
   for tag in ${tags//[;,]/ }; do
-    if is_semver "$tag"; then
+    if is_version "$tag"; then
       if [[ -z $CURRENT || "$(ver_num "$tag")" -gt "$(ver_num "$CURRENT")" ]]; then CURRENT="$tag"; fi
     fi
   done
   if [[ -n $CURRENT ]]; then
     info "read $CURRENT from the mirrored image's tag"
   else
-    die "couldn't read the version from the running image (no version tag on its digest). Re-run with --from <0.1.8|0.1.9|0.1.10>."
+    die "couldn't read the version from the running image (no version tag on its digest). Re-run with --from <the version it runs, such as 0.1.10 or 0.2.0.1>."
   fi
 fi
 
@@ -429,16 +451,23 @@ if [[ "$(ver_num "$CURRENT")" -ge "$(ver_num "$TARGET")" ]]; then
   die "the deployment is already on $CURRENT, at or past the target $TARGET. Nothing to do."
 fi
 
-# The releases this upgrade crosses (current < r <= target's final, so an rc
-# target gets its release's steps), from what we know.
+# The releases this upgrade crosses (current < r <= the target's release, so
+# an rc target gets its release's steps), from what we know. From X.Y.Z, or
+# an earlier X.Y.Z.N, to a server-only release X.Y.Z.N it crosses none: a
+# server fix has no steps of its own.
 CROSSED=()
 for r in "${KNOWN_RELEASES[@]}"; do
-  if [[ "$(ver_num "$r")" -gt "$(ver_num "$CURRENT")" && "$(ver_num "$r")" -le "$(ver_num "${TARGET%%-*}")" ]]; then
+  if [[ "$(ver_num "$r")" -gt "$(ver_num "$CURRENT")" && "$(ver_num "$r")" -le "$(ver_num "$TARGET_RELEASE")" ]]; then
     CROSSED+=("$r")
   fi
 done
-[[ ${#CROSSED[@]} -gt 0 ]] || die "no known upgrade steps between $CURRENT and $TARGET; this script knows ${KNOWN_RELEASES[*]}."
-info "upgrading $CURRENT -> $TARGET, crossing: ${CROSSED[*]}"
+if [[ ${#CROSSED[@]} -gt 0 ]]; then
+  info "upgrading $CURRENT -> $TARGET, crossing: ${CROSSED[*]}"
+elif is_server_fix "$TARGET" && [[ "$(ver_num "$CURRENT")" -ge "$(ver_num "$TARGET_RELEASE")" ]]; then
+  info "upgrading $CURRENT -> $TARGET, a server fix for $TARGET_RELEASE: no release crossed"
+else
+  die "no known upgrade steps between $CURRENT and $TARGET; this script knows ${KNOWN_RELEASES[*]}."
+fi
 
 NEW_SERVER_IMAGE="${IMAGE_REPOSITORY}/runtime@${RUNTIME_DIGEST}"
 NEW_PACK_IMAGE="$OLD_PACK_IMAGE"
@@ -503,7 +532,9 @@ fi
 print_by_hand_steps() {
   local r
   step "Steps to confirm by hand (per release crossed)"
-  for r in "${CROSSED[@]}"; do
+  # Empty for a server fix; expanded this way so bash 3.2's set -u allows that.
+  if [[ ${#CROSSED[@]} -eq 0 ]]; then info "none: $TARGET is a server fix for $TARGET_RELEASE."; fi
+  for r in ${CROSSED[@]+"${CROSSED[@]}"}; do
     case "$r" in
       0.1.9)
         cat <<'EOT'
