@@ -126,6 +126,15 @@ describe('finalIteration — only an iteration that finished the turn is an answ
       },
     );
   });
+
+  test('a null finalOutput is broken loop output, like a missing one', () => {
+    const empty = { iterations: 1, stopReason: 'exit-condition', finalOutput: null };
+    expect(failureOf(() => finalIteration(empty, 'reader'))).toEqual({
+      code: 'model-invocation-failed',
+      message: 'reader received loop output without finalOutput',
+      cause: null,
+    });
+  });
 });
 
 function helper() {

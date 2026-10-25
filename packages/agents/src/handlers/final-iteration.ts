@@ -29,7 +29,7 @@ export function finalIteration(loopOutput: unknown, nodeName: string): AgentTurn
       cause: null,
     });
   }
-  if (output.finalOutput === undefined) {
+  if (output.finalOutput === undefined || output.finalOutput === null) {
     throwAgentTurnFailure({
       code: 'model-invocation-failed',
       message: `${nodeName} received loop output without finalOutput`,
