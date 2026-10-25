@@ -12,18 +12,45 @@ cause and by version, so a version that fails in a new way stands out.
 
 ## Before you start
 
-- **Failed runs,** on a runtime such as `kindgi dev`, with Kindgi 0.1's CLI.
+- **Failed runs,** on a runtime such as `kindgi dev`, with Kindgi 0.2's CLI.
 - **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
-  Java 17 or later, with Kindgi 0.1's client, `KINDGI_API_URL` and
+  Java 17 or later, with Kindgi 0.2's client, `KINDGI_API_URL` and
   `KINDGI_API_TOKEN` set, and `read` on the project.
 
 ## Why one run failed
 
 A failed run says why in its `failure`. Read the run:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs get <run-id>
+pnpm exec kindgi runs get <run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs get <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs get <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs get <run-id>
+```
+
+</TabItem>
+</Tabs>
 
 `<run-id>` is the failed run's id. In the clients, it's `runs.get`, and over
 HTTP `GET /v1/runs/{runId}`. Here a guardrail halted an agent's turn:
@@ -183,8 +210,9 @@ public final class Failures {
 }
 ```
 
-On a project where two turns of `acme.echo-agent` were refused in a closed
-conversation and two runs of `acme.review-order` failed, it prints:
+On a project where two turns of `acme.echo-agent` failed because their
+conversation was closed, and two runs of `acme.review-order` failed, it
+prints:
 
 ```text
 conversation-closed acme.echo-agent 0.1.0 2
@@ -225,8 +253,9 @@ object Failures {
 }
 ```
 
-On a project where two turns of `acme.echo-agent` were refused in a closed
-conversation and two runs of `acme.review-order` failed, it prints:
+On a project where two turns of `acme.echo-agent` failed because their
+conversation was closed, and two runs of `acme.review-order` failed, it
+prints:
 
 ```text
 conversation-closed acme.echo-agent 0.1.0 2

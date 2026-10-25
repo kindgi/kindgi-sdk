@@ -15,6 +15,7 @@ Same keys as `kindgi.config.ts` (`pack.id`, `pack.version`, `discovery`,
     guardrails = "guardrails/**/*.py"
     agents = "agents/**/*.py"
     flows = "flows/**/*.py"
+    blocks = "blocks/**/*.json"     # the pack's data blocks, one JSON file each
 
     [tool.kindgi.env]                # optional; the process env the pack service needs
     required = ["DATABASE_URL"]      # unset or "" → the service isn't ready
@@ -49,6 +50,7 @@ DEFAULT_DISCOVERY: Mapping[str, str] = {
     "guardrails": "guardrails/**/*.py",
     "agents": "agents/**/*.py",
     "flows": "flows/**/*.py",
+    "blocks": "blocks/**/*.json",
 }
 
 

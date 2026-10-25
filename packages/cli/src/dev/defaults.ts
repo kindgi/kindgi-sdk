@@ -30,6 +30,7 @@ import {
   createGlobMatcher,
   discoveryRoots,
   runIndexer as runIndexerReal,
+  writePackBlock,
 } from '@kindgi/handler-runtime';
 import { createPackServiceSupervisor } from '@kindgi/handler-runtime/pack-service';
 
@@ -180,6 +181,12 @@ export function createPackServiceReal(opts: DevPackServiceOptions): DevPackServi
     env,
     onLog: opts.onLog,
     onEvent: opts.onEvent,
+    // A version made live in the console goes into the pack's own file.
+    writeBlock: async (write) => {
+      const outcome = await writePackBlock(opts.packDir, opts.blocks.pattern, write);
+      if (outcome.kind === 'ok') opts.blocks.onWritten(write, outcome);
+      return outcome;
+    },
     ...(opts.port !== undefined && { port: opts.port }),
     ...(opts.token !== undefined && { token: opts.token }),
   });

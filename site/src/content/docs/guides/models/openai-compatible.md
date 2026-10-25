@@ -14,7 +14,7 @@ vLLM, LiteLLM and OpenRouter among them. Kindgi reaches them with one adapter,
 
 ## Before you start
 
-- **A pack** with `kindgi dev` running, from Kindgi 0.1's CLI.
+- **A pack** with `kindgi dev` running, from Kindgi 0.2's CLI.
 - **Ollama running, with the model pulled:** `ollama pull llama3.1`.
 - **An agent,** to try it. This guide uses `acme.order-desk`.
 
@@ -48,7 +48,7 @@ provider `ollama`, and saves its spec in the pack as `ollama.json`:
 Register it. `--spec=@ollama.json` reads the spec from that file:
 
 ```sh
-kindgi providers register --spec=@ollama.json
+pnpm exec kindgi providers register --spec=@ollama.json
 ```
 
 ```text
@@ -68,7 +68,7 @@ Then run an agent. With no other provider registered, Ollama answers.
 `--agent` is the agent, and `--input` its input:
 
 ```sh
-kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
+pnpm exec kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}'
 ```
 
 ```json

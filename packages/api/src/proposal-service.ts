@@ -3,11 +3,19 @@
 
 import { createHash } from 'node:crypto';
 
-import { type AgentId, modelSettingsIssues } from '@kindgi/agents';
-import { tuplesForCreate } from '@kindgi/authz';
+import { type AgentId, modelNamedTwice, modelSettingsIssues } from '@kindgi/agents';
+import {
+  type AuthzCheckBinding,
+  REVIEWER_ROLE_RANK,
+  type ResourceRef,
+  type ReviewerRole,
+  tuplesForCreate,
+  userPrincipal,
+} from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
 import { canonicalize } from '@kindgi/schema';
 import type {
+  Cursor,
   LiveScope,
   ProjectId,
   RunId,
@@ -18,11 +26,18 @@ import type {
 } from '@kindgi/types';
 
 import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.js';
+import { approvalResourceRef, projectOfScope } from './approval-resource.js';
 import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
 import { type BlockEdit, blockEditDefinition, publishBlockEdit } from './block-publish.js';
 import { deriveAgentVersion } from './derive-agent-version.js';
+import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import { rescoreRefusal, rescoreStart } from './eval-rescore.js';
-import type { EvalComparison, EvalRunBinding, EvalRunStartOutcome } from './eval-run-binding.js';
+import type {
+  EvalComparison,
+  EvalRun,
+  EvalRunBinding,
+  EvalRunStartOutcome,
+} from './eval-run-binding.js';
 import type { GateApproval } from './gate.js';
 import type {
   AgentReleaseBindings,
@@ -44,12 +59,16 @@ import {
   liveScopeOutOfScope,
   referencesOutOfScope,
 } from './reference-scope.js';
+import { refusesCandidates, refusesScope } from './registry-read-only.js';
+import type { ReviewerRegistryBinding } from './reviewer-binding.js';
 import { type PromotionRequestOutcome, requestPromotion } from './routes/agent-releases.js';
 import { liveScopeToWire } from './routes/live-scope-wire.js';
 import type {
   ProposalDrafter,
+  ProposalEvaluationRef,
   ProposalEvidence,
   ProposalObjective,
+  ProposalRule,
   ProposalStep,
   ProposalTier,
   ProposedChange,
@@ -76,6 +95,27 @@ export interface ProposalServiceDeps {
   readonly projects?: ProjectBinding;
   /** What the agent's project may reach (`reference-scope.ts`); absent → as named. */
   readonly referenceScope?: ReferenceScopeBinding;
+  /**
+   * The tenant's environment orders: a candidate (its block version and
+   * agent version) is made in the first environment of the agent's
+   * project's order, whichever environment's runs the proposal learned
+   * from, and reaches the later ones only with a promoted build. Absent:
+   * in the agent's project.
+   */
+  readonly orders?: Pick<EnvironmentOrderBinding, 'orderOf'>;
+  /**
+   * The tenant's reviewer roster, to decide whether a drafter's promotion
+   * needs a separate approver. Absent: a drafter's promotion keeps
+   * the legacy rule — any reviewer, the requester included, may approve.
+   */
+  readonly reviewers?: Pick<ReviewerRegistryBinding, 'list'>;
+  /**
+   * The PDP, to count only reviewers who could actually decide a drafter's
+   * promotion: one who can't read its resource is 404'd by the decide route
+   * (routes/approvals.ts `mayRead`), so they can't separate it. Absent
+   * (no authorizer): every roster reviewer may read, as `mayRead` allows.
+   */
+  readonly authz?: AuthzCheckBinding;
 }
 
 /** An error with the code the API answers it with (`statusFor`), and its details. */
@@ -115,6 +155,16 @@ export interface EvaluateProposalInput {
   readonly suiteId: string;
   readonly objective: ProposalObjective;
   readonly comparison?: EvalComparison;
+  /**
+   * The current version replayed on the same cases (an improvement pass's
+   * model-settings change): no correction it passes may fail on the
+   * candidate, and under `rule: 'cheaper'` the candidate is kept for
+   * being no worse and costing less. Absent: beat the recorded outputs.
+   */
+  readonly against?: {
+    readonly rule: ProposalRule;
+    readonly reference: { readonly evalRunId: string };
+  };
   /** Who it's done for: what the derived version records as `by`. */
   readonly actor: PromotionActor;
 }
@@ -135,8 +185,95 @@ export const DRAFTED_PROPOSAL_APPROVAL: GateApproval = {
   separateApprover: false,
 };
 
+/**
+ * Whether the tenant has a reviewer who could actually approve a drafter's
+ * promotion other than whoever requested it — the test the `separateApprover`
+ * flag enforces (the decide call blocks an `approve` by the requester
+ * themselves, `user:<id>` against `user:<id>`). A reviewer counts when all of
+ * these hold: active (not deactivated); ranked at or above the rule's role;
+ * not the requester; and, with an authorizer wired, able to read the
+ * approval's `resource` — the decide route 404s a reviewer who can't
+ * (routes/approvals.ts `mayRead`), so a count that ignored it could leave the
+ * promotion stuck. A service requester (an improvement pass) is no
+ * `user:<id>`, so every eligible reviewer counts; a human requester who is the
+ * only one who counts counts as none, so they may approve their own request
+ * rather than being deadlocked.
+ *
+ * The rank filter is future-proofing: `DRAFTED_PROPOSAL_APPROVAL.role` is
+ * `standard`, the lowest rank, so it never excludes anyone today.
+ */
+async function hasOtherEligibleReviewer(
+  reviewers: Pick<ReviewerRegistryBinding, 'list'>,
+  tenantId: TenantId,
+  requiredRole: ReviewerRole,
+  requesterUserId: UserId | undefined,
+  resource: ResourceRef,
+  authz: AuthzCheckBinding | undefined,
+): Promise<boolean> {
+  const required = REVIEWER_ROLE_RANK[requiredRole];
+  let cursor: Cursor | undefined;
+  // The roster is small (dozens at most), so a page or two answers it; the
+  // cap bounds a pathologically large one, which surely has a second person.
+  for (let page = 0; page < 50; page += 1) {
+    const { data, nextCursor } = await reviewers.list({
+      tenantId,
+      limit: 100,
+      ...(cursor !== undefined && { cursor }),
+    });
+    for (const reviewer of data) {
+      if (reviewer.deactivatedAt !== undefined) continue;
+      if (REVIEWER_ROLE_RANK[reviewer.role] < required) continue;
+      if (requesterUserId !== undefined && reviewer.userId === requesterUserId) continue;
+      if (
+        authz !== undefined &&
+        !(await authz.check(userPrincipal(reviewer.userId, tenantId), 'read', resource)).allowed
+      ) {
+        continue;
+      }
+      return true;
+    }
+    if (nextCursor === undefined) return false;
+    cursor = nextCursor;
+  }
+  return true;
+}
+
 export function createProposalService(deps: ProposalServiceDeps) {
   const err = (error: ProposalServiceError) => ({ kind: 'err' as const, error });
+
+  /**
+   * The approval a drafter's promotion needs (K2), with `separateApprover`
+   * decided from the tenant roster. No reviewer registry wired keeps the
+   * legacy rule (any reviewer, the requester included, may approve).
+   *
+   * Returns both the approval (its `separateApprover` settled at the drafter's
+   * own `standard` rank, which is what a promotion with no scope policy waits
+   * for) and `eligibleAtRole`, the same roster test at an arbitrary role: a
+   * scope policy that sets `separateApprover: false` asks it again at the
+   * policy's (higher) role, so a lower-ranked reviewer doesn't deadlock a
+   * requester the policy would let decide alone.
+   */
+  async function draftedApproval(
+    tenantId: TenantId,
+    actor: PromotionActor,
+    proposal: StoredProposal,
+  ): Promise<{
+    readonly approval: GateApproval;
+    readonly eligibleAtRole: (role: ReviewerRole) => Promise<boolean>;
+  }> {
+    if (deps.reviewers === undefined) {
+      return { approval: DRAFTED_PROPOSAL_APPROVAL, eligibleAtRole: () => Promise.resolve(false) };
+    }
+    const reviewers = deps.reviewers;
+    const requesterUserId = actor.kind === 'user' ? (actor.id as UserId) : undefined;
+    const resource = await approvalResourceRef(tenantId, {
+      projectId: projectOfScope(proposal.scope),
+    });
+    const eligibleAtRole = (role: ReviewerRole): Promise<boolean> =>
+      hasOtherEligibleReviewer(reviewers, tenantId, role, requesterUserId, resource, deps.authz);
+    const second = await eligibleAtRole(DRAFTED_PROPOSAL_APPROVAL.role);
+    return { approval: { ...DRAFTED_PROPOSAL_APPROVAL, separateApprover: second }, eligibleAtRole };
+  }
 
   /** A reader of proposal facts for one call: each agent's pins are read once. */
   function facts(tenantId: TenantId): (p: StoredProposal) => Promise<ProposalFacts> {
@@ -154,10 +291,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
           ? undefined
           : await deps.releases.promotions.get(tenantId, p.promotionId);
       let evaluation: ProposalEvaluationOutcome | null | undefined;
-      if (p.evaluation !== undefined) {
-        const run = await deps.evalRuns.get({ tenantId, runId: p.evaluation.evalRunId as RunId });
-        evaluation = run === null ? null : evaluationOutcome(p.evaluation.objective, run);
-      }
+      if (p.evaluation !== undefined) evaluation = await evaluationOf(tenantId, p.evaluation);
       const status = proposalStatus(p, promotion, evaluation);
       let liveNow: boolean | undefined;
       if (status === 'promoted' && promotion !== undefined && promotion !== null) {
@@ -171,6 +305,78 @@ export function createProposalService(deps: ProposalServiceDeps) {
         ...(liveNow !== undefined && { liveNow }),
       };
     };
+  }
+
+  /**
+   * A proposal's evaluation, read off its eval run (and its reference's,
+   * when it has one); `null` when either can't be read.
+   */
+  async function evaluationOf(
+    tenantId: TenantId,
+    stored: ProposalEvaluationRef,
+  ): Promise<ProposalEvaluationOutcome | null> {
+    const run = await deps.evalRuns.get({ tenantId, runId: stored.evalRunId as RunId });
+    if (run === null) return null;
+    if (stored.reference === undefined) return evaluationOutcome(stored.objective, run);
+    const reference = await deps.evalRuns.get({
+      tenantId,
+      runId: stored.reference.evalRunId as RunId,
+    });
+    if (reference === null) return null;
+    return evaluationOutcome(stored.objective, run, {
+      rule: stored.rule ?? 'better',
+      reference,
+    });
+  }
+
+  /**
+   * The eval runs a rescore scores again, each a completed comparison of a
+   * test set: the latest evaluation's, then the current version's replays
+   * it's held to, if any, so both sides count the same judgments.
+   */
+  async function rescorable(
+    tenantId: TenantId,
+    latest: ProposalEvaluationRef,
+  ): Promise<ProposalOutcome<EvalRun[]>> {
+    const runs: EvalRun[] = [];
+    for (const runId of [latest.evalRunId, latest.reference?.evalRunId]) {
+      if (runId === undefined) continue;
+      const run = await deps.evalRuns.get({ tenantId, runId: runId as RunId });
+      if (run === null) {
+        return err({ code: 'eval-run-not-found', message: `No eval run with id ${runId}`, runId });
+      }
+      const notRescorable = rescoreRefusal(run);
+      if (notRescorable !== undefined) {
+        return err({ code: 'eval-run-not-rescorable', message: notRescorable, runId });
+      }
+      runs.push(run);
+    }
+    return { kind: 'ok', value: runs };
+  }
+
+  /**
+   * Start a rescore of each run, in order: their ids. Not half a rescore:
+   * when one can't start, the ones started are cancelled.
+   */
+  async function startRescores(
+    tenantId: TenantId,
+    runs: readonly EvalRun[],
+    projectId: ProjectId,
+    correlationId: string,
+  ): Promise<ProposalOutcome<string[]>> {
+    const started: RunId[] = [];
+    for (const run of runs) {
+      // A runtime that doesn't record the run's project: the candidate's, as evaluate starts it.
+      const again = await deps.evalRuns.start(
+        rescoreStart(run, run.projectId ?? projectId, correlationId),
+      );
+      if (again.kind !== 'ok') {
+        for (const runId of started) await deps.evalRuns.cancel({ tenantId, runId });
+        return err(startError(again));
+      }
+      started.push(again.runId);
+    }
+    return { kind: 'ok', value: started.map((id) => id as unknown as string) };
   }
 
   /** The 409 when the proposal's status doesn't allow `action`. */
@@ -209,7 +415,11 @@ export function createProposalService(deps: ProposalServiceDeps) {
     });
   }
 
-  /** The project the candidate version is registered in; `undefined` when it's unregistered. */
+  /**
+   * The project the candidate version runs in: the one it was made in (the
+   * first environment of its agent's order), else its agent's;
+   * `undefined` when it's unregistered.
+   */
   async function candidateProject(proposal: StoredProposal): Promise<ProjectId | undefined> {
     if (proposal.candidate === undefined) return undefined;
     const version = await deps.agents.getVersion({
@@ -217,7 +427,9 @@ export function createProposalService(deps: ProposalServiceDeps) {
       agentId: proposal.agentId,
       version: proposal.candidate.agentVersion as Semver,
     });
-    return version === null || version.unregisteredAt !== undefined ? undefined : version.projectId;
+    return version === null || version.unregisteredAt !== undefined
+      ? undefined
+      : (version.madeInProjectId ?? version.projectId);
   }
 
   /** Publish the block version and derive the agent version a proposal is evaluated as. */
@@ -257,17 +469,19 @@ export function createProposalService(deps: ProposalServiceDeps) {
         agentId: proposal.agentId,
         version: proposal.fromVersion as Semver,
       });
-      const issues = agent?.modelSettings?.id === blockId ? modelSettingsIssues(edit.values) : [];
-      if (issues.length > 0) {
-        return err(
-          validationFailed(
-            `The proposal's content isn't model settings, which block "${blockId}" is`,
-            issues,
-          ),
-        );
-      }
+      const refused =
+        agent !== null && agent.modelSettings?.id === blockId
+          ? modelSettingsRefusal(agent, blockId, edit.values)
+          : undefined;
+      if (refused !== undefined) return err(refused);
     }
-    const published = await publishBlockEdit({ blocks: deps.blocks, tenantId, from, edit });
+    const published = await publishBlockEdit({
+      blocks: deps.blocks,
+      tenantId,
+      from,
+      edit,
+      ...(deps.orders !== undefined && { orders: deps.orders }),
+    });
     if (published.kind === 'invalid') {
       return err(
         validationFailed(
@@ -288,6 +502,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
       label: `proposal ${proposal.id as unknown as string}`,
       by: `${actor.kind}:${actor.id}`,
       proposalId: proposal.id as unknown as string,
+      ...(deps.orders !== undefined && { orders: deps.orders }),
       tuplesFor: (projectId) => (id) =>
         tuplesForCreate(
           { kind: 'agent', id: id as AgentId, tenantId, projectId },
@@ -328,6 +543,9 @@ export function createProposalService(deps: ProposalServiceDeps) {
       input: DraftProposalInput,
     ): Promise<ProposalOutcome<{ proposal: StoredProposal; deduped: boolean }>> {
       const { tenantId } = input;
+      // A registry that takes Improve's candidates improves the whole tenant only.
+      const narrower = refusesScope(deps.agents.readOnly, input.scope);
+      if (narrower !== undefined) return err({ code: 'registry-read-only', message: narrower });
       const from = await deps.agents.getVersion({
         tenantId,
         agentId: input.agentId as AgentId,
@@ -409,10 +627,13 @@ export function createProposalService(deps: ProposalServiceDeps) {
       const agentId = proposal.agentId as unknown as string;
       const refused = await refuseStatus('evaluate', proposal);
       if (refused !== undefined) return err(refused);
-      // Evaluating derives an agent version: not into a registry that takes no writes.
-      if (deps.agents.readOnly !== undefined) {
+      // Evaluating derives an agent version: not into a registry that takes
+      // no writes, unless it takes Improve's candidates.
+      if (deps.agents.readOnly !== undefined && refusesCandidates(deps.agents.readOnly)) {
         return err({ code: 'registry-read-only', message: deps.agents.readOnly.reason });
       }
+      const narrower = refusesScope(deps.agents.readOnly, proposal.scope);
+      if (narrower !== undefined) return err({ code: 'registry-read-only', message: narrower });
       // A version promoted nowhere is still the agent's latest, and the
       // latest serves every scope nothing is pinned for.
       if ((await deps.releases.live.resolve({ tenantId, agentId })) === null) {
@@ -445,17 +666,17 @@ export function createProposalService(deps: ProposalServiceDeps) {
           message: `The candidate ${agentId} ${candidate.agentVersion} is unregistered: withdraw this proposal and draft it again`,
         });
       }
-      // The suite must be the candidate's project's to reach (`reference-scope.ts`).
-      const suiteOutOfScope = await referencesOutOfScope(
-        deps.referenceScope,
-        tenantId,
-        version.projectId,
-        [{ path: '/suiteId', kind: 'suite', id: input.suiteId }],
-      );
+      // It runs where it was made (in an environment order, the first
+      // environment), and the suite must be that project's to reach
+      // (`reference-scope.ts`).
+      const runIn = version.madeInProjectId ?? version.projectId;
+      const suiteOutOfScope = await referencesOutOfScope(deps.referenceScope, tenantId, runIn, [
+        { path: '/suiteId', kind: 'suite', id: input.suiteId },
+      ]);
       if (suiteOutOfScope !== undefined) return err({ ...suiteOutOfScope });
       const started = await deps.evalRuns.start({
         tenantId,
-        projectId: version.projectId,
+        projectId: runIn,
         suiteId: input.suiteId,
         agentRef: { agentId: proposal.agentId, version: candidate.agentVersion as Semver },
         correlationId: `proposal:${proposal.id as unknown as string}`,
@@ -469,6 +690,10 @@ export function createProposalService(deps: ProposalServiceDeps) {
           suiteId: input.suiteId,
           objective: input.objective,
           startedAt: new Date().toISOString() as Timestamp,
+          ...(input.against !== undefined && {
+            rule: input.against.rule,
+            reference: { evalRunId: input.against.reference.evalRunId },
+          }),
         },
       });
     },
@@ -484,15 +709,8 @@ export function createProposalService(deps: ProposalServiceDeps) {
       if (refused !== undefined) return err(refused);
       const latest = proposal.evaluation;
       if (latest === undefined) throw new Error('an evaluated proposal has an evaluation');
-      const runId = latest.evalRunId;
-      const run = await deps.evalRuns.get({ tenantId, runId: runId as RunId });
-      if (run === null) {
-        return err({ code: 'eval-run-not-found', message: `No eval run with id ${runId}`, runId });
-      }
-      const notRescorable = rescoreRefusal(run);
-      if (notRescorable !== undefined) {
-        return err({ code: 'eval-run-not-rescorable', message: notRescorable, runId });
-      }
+      const runs = await rescorable(tenantId, latest);
+      if (runs.kind === 'err') return runs;
       // As evaluate: not for a candidate unregistered since.
       const candidateIn = await candidateProject(proposal);
       if (candidateIn === undefined) {
@@ -501,22 +719,23 @@ export function createProposalService(deps: ProposalServiceDeps) {
           message: `The candidate ${proposal.agentId as unknown as string} ${proposal.candidate?.agentVersion} is unregistered: withdraw this proposal and draft it again`,
         });
       }
-      // A runtime that doesn't record the run's project: the candidate's, as evaluate starts it.
-      const started = await deps.evalRuns.start(
-        rescoreStart(
-          run,
-          run.projectId ?? candidateIn,
-          `proposal:${proposal.id as unknown as string}`,
-        ),
+      const started = await startRescores(
+        tenantId,
+        runs.value,
+        candidateIn,
+        `proposal:${proposal.id as unknown as string}`,
       );
-      if (started.kind !== 'ok') return err(startError(started));
+      if (started.kind === 'err') return started;
+      const [evalRunId, referenceId] = started.value;
       return record(proposal, {
         kind: 'evaluation',
         evaluation: {
-          evalRunId: started.runId as unknown as string,
+          evalRunId: evalRunId as string,
           suiteId: latest.suiteId,
           objective: latest.objective,
           startedAt: new Date().toISOString() as Timestamp,
+          ...(latest.rule !== undefined && { rule: latest.rule }),
+          ...(referenceId !== undefined && { reference: { evalRunId: referenceId } }),
         },
       });
     },
@@ -540,6 +759,19 @@ export function createProposalService(deps: ProposalServiceDeps) {
       if (candidate === undefined || evaluation === undefined) {
         throw new Error('an evaluated proposal has a candidate and an evaluation');
       }
+      // A drafter's promotion always waits for a reviewer (K2). Whether that
+      // reviewer must differ from whoever asked is the tenant roster's to say:
+      // a second eligible reviewer → a separate approver; a lone reviewer →
+      // the requester may approve their own, so they aren't stuck. A scope
+      // policy's approval is the floor; the drafter's rule only tightens it.
+      const drafted =
+        proposal.drafter.kind === 'person'
+          ? undefined
+          : await draftedApproval(tenantId, input.actor, proposal);
+      const drafterApproval =
+        drafted === undefined
+          ? {}
+          : { requireApproval: drafted.approval, draftedEligibleAtRole: drafted.eligibleAtRole };
       const promotion = await requestPromotion(
         deps.agents,
         deps.releases,
@@ -557,7 +789,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
           reason: input.reason ?? `Improvement proposal ${proposal.id as unknown as string}`,
           evalRunId: evaluation.evalRunId,
         },
-        proposal.drafter.kind === 'person' ? {} : { requireApproval: DRAFTED_PROPOSAL_APPROVAL },
+        drafterApproval,
       );
       if (promotion.kind !== 'ok') return { kind: 'ok', value: { proposal, promotion } };
       const recorded = await record(proposal, {
@@ -576,6 +808,10 @@ export function createProposalService(deps: ProposalServiceDeps) {
       readonly reason?: string;
     }): Promise<ProposalOutcome<StoredProposal>> {
       const { tenantId, proposal } = input;
+      // Where a promotion was written in place of a pin (under `kindgi
+      // dev`, the pack's files), that's also where it's undone.
+      const undo = deps.agents.readOnly?.takesCandidates;
+      if (undo !== undefined) return err({ code: 'registry-read-only', message: undo.undoReason });
       const seen = await facts(tenantId)(proposal);
       const refused = await refuseStatus('rollback', proposal, seen);
       if (refused !== undefined) return err(refused);
@@ -667,6 +903,30 @@ function validationFailed(
     message,
     issues: issues as unknown as Record<string, unknown>[],
   };
+}
+
+/**
+ * Why new values for the agent version's model-settings block are refused:
+ * they aren't model settings, or they name the model the version names too.
+ */
+function modelSettingsRefusal(
+  agent: AgentVersionRecord,
+  blockId: string,
+  values: unknown,
+): ProposalServiceError | undefined {
+  const issues = modelSettingsIssues(values);
+  if (issues.length > 0) {
+    return validationFailed(
+      `The proposal's content isn't model settings, which block "${blockId}" is`,
+      issues,
+    );
+  }
+  const twice = modelNamedTwice(agent, values);
+  return twice === undefined
+    ? undefined
+    : validationFailed(`The proposal's model settings name the model twice`, [
+        { path: '/content/values', message: `model-settings block "${blockId}": ${twice}` },
+      ]);
 }
 
 function startError(outcome: Exclude<EvalRunStartOutcome, { kind: 'ok' }>): ProposalServiceError {

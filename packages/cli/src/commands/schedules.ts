@@ -4,13 +4,16 @@
 import type { SchedulesClient } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
+import { type Rendered, renderJson } from '../output.js';
 import { scopeCell } from './agents.js';
 import {
   type TableSpec,
+  allowUnattendedField,
   integerFlag,
   readJsonInput,
   requiredPositional,
   runSdk,
+  runSdkRendered,
   segmentsFlag,
   stringFlag,
 } from './helpers.js';
@@ -90,7 +93,7 @@ const TARGET_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
   improve: {
     type: 'string',
     description:
-      'Start improvement passes on this agent (instead of runs), when enough new trusted "no" judgments have come in: for the project (--project), or a segment of it (--segment). `--input` takes the pass options, `threshold` and `monthlyCapUsd`.',
+      'Start Improve runs on this agent (instead of running it), when enough new corrections marking answers wrong have come in: for the project (--project), or a segment of it (--segment). `--input` takes the Improve options, `threshold` and `monthlyCapUsd`.',
   },
   segment: {
     type: 'string',
@@ -112,7 +115,7 @@ const WHEN_FLAGS = {
   input: {
     type: 'string',
     description:
-      'The input each run gets, as JSON or `@<file>`. An agent needs `{"userMessage": "…"}`; a flow takes its own input (default `{}`); --improve takes its pass options (`{"tiers": ["settings"], "threshold": {"judgments": 5, "runs": 3, "judges": 2}, "monthlyCapUsd": 20}`, the defaults).',
+      'The input each run gets, as JSON or `@<file>`. An agent needs `{"userMessage": "…"}`; a flow takes its own input (default `{}`); --improve takes its Improve options (`{"tiers": ["settings"], "threshold": {"judgments": 5, "runs": 3, "judges": 2}, "monthlyCapUsd": 20}`, the defaults).',
   },
   'catch-up': {
     type: 'string',
@@ -143,7 +146,7 @@ const UPDATE_WHEN_FLAGS: Readonly<Record<keyof typeof WHEN_FLAGS, ParseArgsOptio
   input: {
     type: 'string',
     description:
-      'The input each run gets from now on, as JSON or `@<file>`. An agent needs `{"userMessage": "…"}`; a flow takes its own input; --improve takes its pass options.',
+      'The input each run gets from now on, as JSON or `@<file>`. An agent needs `{"userMessage": "…"}`; a flow takes its own input; --improve takes its Improve options.',
   },
   'catch-up': {
     type: 'string',
@@ -170,7 +173,7 @@ function improveScope(ctx: CommandContext): NonNullable<RegisterInput['improve']
   const segments = segmentsFlag(ctx);
   if (project === undefined) {
     throw new Error(
-      '--improve needs its scope: --project=<id> [--segment=<key:value>]… (a pass learns from one project; promote to the tenant by hand after review)',
+      '--improve needs its scope: --project=<id> [--segment=<key:value>]… (an Improve run learns from one project; make its suggested change live for the tenant by hand after review)',
     );
   }
   return segments.length > 0
@@ -185,7 +188,7 @@ function targetFields(ctx: CommandContext): Partial<RegisterInput> {
     if (
       ['agent', 'agent-version', 'flow', 'flow-version'].some((f) => ctx.options[f] !== undefined)
     ) {
-      throw new Error('--improve starts improvement passes: not with --agent or --flow');
+      throw new Error('--improve starts Improve runs: not with --agent or --flow');
     }
     return { improve: { agentId: improve, scope: improveScope(ctx) } };
   }
@@ -289,13 +292,24 @@ const RUN_AS_FLAG: Readonly<Record<string, ParseArgsOption>> = {
   },
 };
 
+/** `--allow-unattended`, as `create` and `update` each word it. */
+function allowUnattendedFlag(on: 'register' | 'update'): Record<string, ParseArgsOption> {
+  return {
+    'allow-unattended': {
+      type: 'string',
+      multiple: true,
+      description: `A tool, by id, whose calls in this schedule's runs needn't wait for a person's yes, though the tool asks for one when no person started the run (repeatable; only tools its agent or flow calls, no wildcard). Needs \`admin\` on the schedule's project. The tenant's and the agent's approval rules still apply.${on === 'update' ? ' Replaces the list; `none` clears it; left out, the list is kept, and a new --agent or --flow must name it again (or `none`).' : ''}`,
+    },
+  };
+}
+
 const create: LeafCommand = {
   kind: 'leaf',
   name: 'create',
   description:
-    "Run an agent or a flow on a schedule, or start improvement passes on an agent (--improve). Its runs act as you, checked again at every run; they're in your project's runs, naming the schedule.",
+    "Run an agent or a flow on a schedule, or start Improve runs on an agent (--improve). Its runs act as you, checked again at every run; they're in your project's runs, naming the schedule.",
   usage:
-    'kindgi schedules create --cron=<expr> (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…) [--timezone=<tz>] [--input=<json-or-@file>] [--project=<project-id>] [--catch-up=latest|skip] [--overlap=skip|allow] [--starting-deadline=<s>] [--label=<text>] [--run-as=<service-account-id>]',
+    'kindgi schedules create --cron=<expr> (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…) [--timezone=<tz>] [--input=<json-or-@file>] [--project=<project-id>] [--catch-up=latest|skip] [--overlap=skip|allow] [--starting-deadline=<s>] [--label=<text>] [--run-as=<service-account-id>] [--allow-unattended=<tool-id>]…',
   optionSpec: {
     ...TARGET_FLAGS,
     ...WHEN_FLAGS,
@@ -304,6 +318,7 @@ const create: LeafCommand = {
       description: "The schedule's project, by id (default: the tenant's Default project).",
     },
     ...RUN_AS_FLAG,
+    ...allowUnattendedFlag('register'),
   },
   run: (ctx) =>
     runSdk(ctx, 'schedules create', async () => {
@@ -317,6 +332,7 @@ const create: LeafCommand = {
         ...(project !== undefined && { projectId: project }),
         ...policyFields(ctx),
         ...(runAs !== undefined && { runAsServiceAccountId: runAs }),
+        ...allowUnattendedField(ctx, 'register'),
       } as RegisterInput);
     }),
 };
@@ -325,9 +341,9 @@ const update: LeafCommand = {
   kind: 'leaf',
   name: 'update',
   description:
-    "Change a schedule: when it runs, what it runs, or its policies. A flag left out keeps the schedule's value.",
+    "Change a schedule: when it runs, what it runs, its policies, or the tools its runs may call unattended. A flag left out keeps the schedule's value.",
   usage:
-    'kindgi schedules update <schedule-id> [--cron=<expr>] [--timezone=<tz>] [--input=<json-or-@file>] [--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…] [--catch-up=…] [--overlap=…] [--starting-deadline=<s>] [--label=<text>]',
+    'kindgi schedules update <schedule-id> [--cron=<expr>] [--timezone=<tz>] [--input=<json-or-@file>] [--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…] [--catch-up=…] [--overlap=…] [--starting-deadline=<s>] [--label=<text>] [--allow-unattended=<tool-id>|none]…',
   optionSpec: {
     ...TARGET_FLAGS,
     ...UPDATE_WHEN_FLAGS,
@@ -335,6 +351,7 @@ const update: LeafCommand = {
       type: 'string',
       description: "With --improve: the scope's project (the schedule's own).",
     },
+    ...allowUnattendedFlag('update'),
   },
   run: (ctx) =>
     runSdk(ctx, 'schedules update', async () => {
@@ -344,6 +361,7 @@ const update: LeafCommand = {
         ...targetFields(ctx),
         ...(Object.keys(config).length > 0 && { config }),
         ...policyFields(ctx),
+        ...allowUnattendedField(ctx, 'update'),
       });
     }),
 };
@@ -373,13 +391,22 @@ const takeOwnership: LeafCommand = {
   usage: 'kindgi schedules take-ownership <schedule-id> [--run-as=<service-account-id>]',
   optionSpec: { ...RUN_AS_FLAG },
   run: (ctx) =>
-    runSdk(ctx, 'schedules take-ownership', async () => {
+    runSdkRendered(ctx, 'schedules take-ownership', async (): Promise<Rendered> => {
       const id = requiredPositional(ctx, 0, 'schedule-id');
       const runAs = stringFlag(ctx, 'run-as');
       const schedulesClient = ctx.client().schedules;
-      return await (runAs !== undefined
+      const schedule = await (runAs !== undefined
         ? schedulesClient.takeOwnership(id, { runAsServiceAccountId: runAs })
         : schedulesClient.takeOwnership(id));
+      const rendered = renderJson(schedule, ctx.globals.format);
+      const kept = schedule.toolsAllowedUnattended ?? [];
+      return {
+        stdout: rendered.stdout,
+        stderr:
+          kept.length > 0
+            ? `\n  It keeps its tools allowed unattended (${kept.join(', ')}): their calls in its runs still don't wait for a person's yes just because no person started them, now as the new owner. \`kindgi schedules update ${schedule.scheduleId} --allow-unattended=none\` clears them.\n\n`
+            : rendered.stderr,
+      };
     }),
 };
 

@@ -6,6 +6,7 @@ import { type KindgiClient, createClient } from '@kindgi/client';
 import { ownAddressKeyRefusal } from './api-address.js';
 import type { BuildRunners } from './build/runners.js';
 import type { RegistryAuthSeam } from './commands/auth.js';
+import type { ConnectionsSeam } from './commands/connections.js';
 import type { DoctorSeam } from './commands/doctor.js';
 import type { EnvInitInputSeam } from './commands/env.js';
 import type { SecretsValueInputSeam } from './commands/secrets.js';
@@ -41,7 +42,14 @@ export interface CommandContext {
   readonly globals: GlobalFlags;
   readonly positionals: readonly string[];
   readonly options: Readonly<Record<string, OptionValue>>;
+  /** The resolved config: without a `kindgi dev` runtime's .kindgirc.json when `hosted`. */
   readonly config: ResolvedConfig;
+  /**
+   * `--hosted`, or the env the command acts in has `build: 'hosted'`
+   * (api-address.ts `hostedScope`): the command goes to the CLI's own
+   * address, never a `kindgi dev` runtime's.
+   */
+  readonly hosted: boolean;
   /**
    * Create an SDK client using the resolved config. Throws if apiUrl / token
    * are missing, or the token is a stored key that isn't for apiUrl.
@@ -57,6 +65,12 @@ export interface CommandContext {
    * (api-address.ts): before anything is sent.
    */
   readonly token: () => string;
+  /**
+   * A command that reads its key with its address (`kindgi deploy`,
+   * api-address.ts) sends it to the CLI's own address: main's line about
+   * a `kindgi dev` runtime goes first, as it does for `token()`.
+   */
+  readonly noteOwnAddressKey: () => void;
   /** fetch impl (injectable for tests). */
   readonly fetch: typeof fetch;
   /** Home directory used by `auth login` when persisting `~/.kindgi/config.json`. */
@@ -88,6 +102,13 @@ export interface CommandContext {
    * SIGINT/SIGTERM in `main.ts`.
    */
   readonly stopSignal: AbortSignal | undefined;
+  /**
+   * Where a command says how it's going while it runs (`kindgi build`'s
+   * lines): the CLI's stderr, each line as it comes (`cli.ts`). Undefined
+   * when `runCli` is given none (tests): the command then returns those
+   * lines with its result.
+   */
+  readonly progress: ((text: string) => void) | undefined;
   /**
    * Injectable build-pipeline seams used exclusively by `kindgi
    * build`. Absent for every other command. Tests hand
@@ -181,6 +202,8 @@ export interface CommandContext {
   readonly rateLimitWaits?: RateLimitWaitSeam;
   /** `kindgi exports create`'s output, clock and pauses. Tests inject them; production leaves this undefined. */
   readonly exportsSeam?: ExportsSeam;
+  /** `kindgi connections connect`'s terminal, clock and pauses, and the removals' question. Tests inject them; production leaves this undefined. */
+  readonly connectionsSeam?: ConnectionsSeam;
 }
 
 export interface InitSeam {
@@ -194,6 +217,12 @@ export interface BuildContextInputs {
   readonly positionals: readonly string[];
   readonly options: Readonly<Record<string, OptionValue>>;
   readonly config: ResolvedConfig;
+  /** See `CommandContext.hosted`. Default: `false`. */
+  readonly hosted?: boolean;
+  /** Why there's no API address, when `config` has none: said in place of the general line. */
+  readonly noAddress?: string;
+  /** Called on each `token()` that returns a key, and on `noteOwnAddressKey()`, before it's sent: main's line ahead of it. */
+  readonly onToken?: () => void;
   /** The command as typed (`kindgi runs list`), for a refusal to name. Default: `kindgi`. */
   readonly commandLabel?: string;
   readonly fetchImpl?: typeof fetch;
@@ -203,6 +232,7 @@ export interface BuildContextInputs {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly devRunners?: DevRunners;
   readonly stopSignal?: AbortSignal;
+  readonly progress?: ((text: string) => void) | undefined;
   readonly buildRunners?: BuildRunners;
   readonly buildConfigLoader?: (packDir: string) => Promise<{ readonly [k: string]: unknown }>;
   readonly deployRunners?: DeployRunners;
@@ -219,13 +249,15 @@ export interface BuildContextInputs {
   readonly openUrl?: OpenUrl;
   readonly rateLimitWaits?: RateLimitWaitSeam;
   readonly exportsSeam?: ExportsSeam;
+  readonly connectionsSeam?: ConnectionsSeam;
 }
 
 export function buildContext(inputs: BuildContextInputs): CommandContext {
   const apiUrl = (): string => {
     if (inputs.config.apiUrl === undefined) {
       throw new Error(
-        'API URL not configured. Set KINDGI_API_URL, pass --url=..., or run `kindgi auth login`.',
+        inputs.noAddress ??
+          'API URL not configured. Set KINDGI_API_URL, pass --url=..., or run `kindgi auth login`.',
       );
     }
     return inputs.config.apiUrl;
@@ -239,6 +271,7 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     // A stored key goes only to the address stored with it.
     const refusal = ownAddressKeyRefusal(inputs.commandLabel ?? 'kindgi', inputs.config);
     if (refusal !== undefined) throw new Error(refusal);
+    inputs.onToken?.();
     return inputs.config.token;
   };
   const factory =
@@ -250,16 +283,19 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     positionals: inputs.positionals,
     options: inputs.options,
     config: inputs.config,
+    hosted: inputs.hosted ?? false,
     client: () => factory(apiUrl(), token()),
     clientFor: (url, tok) => factory(url, tok),
     apiUrl,
     token,
+    noteOwnAddressKey: () => inputs.onToken?.(),
     fetch: inputs.fetchImpl ?? fetch,
     home: inputs.home,
     cwd: inputs.cwd ?? process.cwd(),
     env: inputs.env ?? {},
     devRunners: inputs.devRunners,
     stopSignal: inputs.stopSignal,
+    progress: inputs.progress,
     buildRunners: inputs.buildRunners,
     buildConfigLoader: inputs.buildConfigLoader,
     deployRunners: inputs.deployRunners,
@@ -276,5 +312,6 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     openUrl: inputs.openUrl,
     ...(inputs.rateLimitWaits !== undefined && { rateLimitWaits: inputs.rateLimitWaits }),
     ...(inputs.exportsSeam !== undefined && { exportsSeam: inputs.exportsSeam }),
+    ...(inputs.connectionsSeam !== undefined && { connectionsSeam: inputs.connectionsSeam }),
   };
 }

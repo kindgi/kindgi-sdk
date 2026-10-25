@@ -17,7 +17,7 @@ whether it should be a fallback.
 
 ## Before you start
 
-- **A pack** with `kindgi dev` running, from Kindgi 0.1's CLI.
+- **A pack** with `kindgi dev` running, from Kindgi 0.2's CLI.
 - **A server that answers the OpenAI Chat Completions API,** with tool
   calling on and a model that supports it.
 - **An agent,** to try it. This guide uses `acme.order-desk`.
@@ -58,8 +58,8 @@ Register it, then start a turn. `--spec=@acme-llm.json` reads the spec from
 that file. `--agent` is the agent, and `--input` its input:
 
 ```sh
-kindgi providers register --spec=@acme-llm.json
-kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1002?"}'
+pnpm exec kindgi providers register --spec=@acme-llm.json
+pnpm exec kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1002?"}'
 ```
 
 `register` prints the provider's id, as JSON. The turn's run shows which

@@ -193,8 +193,8 @@ and every request body has a builder that checks it against the API's
 rules before it's sent (a `ValidationException` lists what's wrong).
 
 A newer Kindgi runtime may answer with an enum value or a kind of object
-this client doesn't know yet. The Java client keeps it (`status().value()`
-is `UNRECOGNIZED`), where the Python client refuses the whole answer.
+this client doesn't know yet. The client keeps it: `status().value()` is
+`UNRECOGNIZED`.
 
 More detail is in the client's
 [README](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java#readme):

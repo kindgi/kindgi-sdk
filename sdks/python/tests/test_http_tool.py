@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from kindgi import DefinitionError, Tool, http_tool
 from kindgi.pack.index import _spec, run_indexer
@@ -37,6 +37,17 @@ def lookup(**overrides: Any) -> Tool[..., Any]:
         **overrides,
     }
     return http_tool(**args)
+
+
+def test_an_http_tools_dict_schema_compiles_as_the_runtime_compiles_it() -> None:
+    with pytest.raises(DefinitionError) as raised:
+        lookup(
+            input={"type": "object", "properties": {"court": {"type": "string", "maxLenght": 9}}}
+        )
+    assert str(raised.value) == (
+        'Tool "acme.lookup": the input JSON Schema doesn\'t compile: '
+        'strict mode: unknown keyword: "maxLenght"'
+    )
 
 
 def test_the_spec_is_the_wire_shape() -> None:
@@ -110,6 +121,24 @@ def test_every_placeholder_is_a_field_of_the_input() -> None:
         )
     text = lookup(method="POST", request_body={"kind": "text", "template": "case {case_id}"})
     assert text.spec is not None
+
+
+class Docket(BaseModel):
+    case_id: str
+    court: str = Field(json_schema_extra={"x-acme-source": "docket"})
+
+
+def test_an_http_tools_model_schema_compiles_as_the_runtime_compiles_it() -> None:
+    with pytest.raises(DefinitionError) as raised:
+        lookup(input=Docket)
+    assert str(raised.value) == (
+        'Tool "acme.lookup": the input JSON Schema doesn\'t compile: '
+        'strict mode: unknown keyword: "x-acme-source"'
+    )
+    with pytest.raises(
+        DefinitionError, match="the output JSON Schema doesn't compile: strict mode"
+    ):
+        lookup(output=Docket)
 
 
 def test_id_version_and_description_are_checked() -> None:

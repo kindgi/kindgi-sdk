@@ -144,14 +144,31 @@ describe('an improve schedule', () => {
       input: {
         tiers: ['settings'],
         objective: 'weightedYesShare',
-        classWeights: 'restricted-only',
         budget: { maxCostUsd: 5, maxCandidates: 30 },
         threshold: { judgments: 5, runs: 3, judges: 2 },
         monthlyCapUsd: 20,
       },
     });
+    // classWeights is not defaulted onto the schedule: it's resolved against
+    // the project each time the schedule fires, so naming a restricted judge class
+    // later flips the default without editing the schedule.
+    expect(body.input).not.toHaveProperty('classWeights');
     expect(body).not.toHaveProperty('agentId');
     expect(body).not.toHaveProperty('flowId');
+  });
+
+  test('a schedule keeps an explicit classWeights instead of resolving it later', async () => {
+    const res = await app().built.request(
+      '/v1/schedules',
+      send('POST', {
+        ...hourly,
+        config: { cronExpression: '0 * * * *', input: { classWeights: 'as-recorded' } },
+      }),
+    );
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { input: unknown }).input).toMatchObject({
+      classWeights: 'as-recorded',
+    });
   });
 
   test('a prompt improve schedule keeps its model, and its own threshold and cap', async () => {
@@ -232,7 +249,8 @@ describe('an improve schedule', () => {
       scheduledFor: '2026-10-07T10:00:00.000Z',
       firedAt: '2026-10-07T10:00:01.000Z',
       outcome: 'skipped',
-      detail: '4 of 5 trusted "no" judgments since 2026-10-07T09:00:00.000Z (3 runs, 2 judges)',
+      detail:
+        "Not enough new experts' corrections since Improve last ran (2026-10-07T09:00:00.000Z): 4 of 5 answers experts marked wrong (enough: 3 runs, 2 experts).",
     });
     registry.recordFire({
       triggerId: id as TriggerId,

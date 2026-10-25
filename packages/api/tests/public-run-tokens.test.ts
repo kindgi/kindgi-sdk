@@ -194,6 +194,8 @@ describe('mintPublicRunToken / verifyPublicRunToken', () => {
 // ---------------- through the app ----------------
 
 const at = '2026-10-01T00:00:00.000Z' as Timestamp;
+// Whom the named run acts for: the run's readers see it, a public token never does.
+const ACTS_FOR = `user:${randomUUID()}` as const;
 
 function runRow(tenantId: TenantId, overrides: Partial<KernelRunRecord> = {}): KernelRunRecord {
   return {
@@ -219,7 +221,10 @@ function journalEntry(sequence: number, kind: string): JournalEntry {
     sequence,
     kind,
     nodeId: 'review',
-    payload: { secretInput: 'order details' },
+    payload: {
+      secretInput: 'order details',
+      ...(kind === 'run.started' && { actsFor: ACTS_FOR }),
+    },
     timestamp: new Date(Date.UTC(2026, 9, 1, 12, 0, sequence)).toISOString() as Timestamp,
   } as unknown as JournalEntry;
 }
@@ -236,7 +241,7 @@ interface Harness {
 function harness(
   options: { publicRunTokens?: PublicRunTokenConfig | false; denyAll?: boolean } = {},
 ): Harness {
-  const parent = runRow(tenantA);
+  const parent = runRow(tenantA, { actsFor: ACTS_FOR });
   const child = runRow(tenantA, { parentRunId: parent.runId });
   const grandchild = runRow(tenantA, { parentRunId: child.runId });
   const other = runRow(tenantA);
@@ -358,6 +363,14 @@ describe('what a public token can read', () => {
       updatedAt: at,
       completedAt: at,
     });
+    expect(JSON.stringify(res.json)).not.toContain(ACTS_FOR);
+  });
+
+  test('an API token reads whom the run acts for, which the public view leaves out', async () => {
+    const h = harness();
+    const res = await get(h.app, `/v1/runs/${h.parent.runId}`, API_TOKEN);
+    expect(res.status).toBe(200);
+    expect(res.json.actsFor).toBe(ACTS_FOR);
   });
 
   test('descendants of a named run are readable; other runs are 404', async () => {
@@ -469,6 +482,7 @@ describe('GET /v1/runs/:runId/progress/stream', () => {
       ]);
     }
     expect(body).not.toContain('order details');
+    expect(body).not.toContain(ACTS_FOR);
   });
 
   test('the full stream still sends everything to an API token', async () => {
@@ -476,7 +490,10 @@ describe('GET /v1/runs/:runId/progress/stream', () => {
     const res = await h.app.request(`/v1/runs/${h.parent.runId}/stream`, {
       headers: { authorization: `Bearer ${API_TOKEN}` },
     });
-    expect(await res.text()).toContain('order details');
+    const body = await res.text();
+    expect(body).toContain('order details');
+    // `run.started` says whom the run acts for, to the run's readers.
+    expect(body).toContain(ACTS_FOR);
   });
 
   test('a run outside the grant is 404', async () => {

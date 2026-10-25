@@ -193,6 +193,45 @@ describe('a render in a worker gives what it gives in-process', () => {
   });
 });
 
+/** A stock pack's file as `kindgi init` writes it for a pack named `acme`. */
+function scaffolded(file: URL): string {
+  return readFileSync(file, 'utf8')
+    .replaceAll('{{PACK_ID}}', 'acme')
+    .replaceAll('{{PACK_VERSION}}', '0.1.0');
+}
+
+/** Instructions an agent's source gives inline: its lines, joined with newlines. */
+function inlineInstructions(name: string, source: string): string {
+  const block =
+    /\binstructions:\s*\[([\s\S]*?)\]\.join\('\\n'\)/.exec(source)?.[1] ??
+    /\binstructions:\s*(\n\s*'.*',)/.exec(source)?.[1];
+  if (block === undefined) throw new Error(`${name}: no instructions found`);
+  const lines = [...block.matchAll(/^\s*(['"`])(.*)\1,?\s*$/gm)].map(([, quote, text]) =>
+    // A tool's name, where the template computes one.
+    quote === '`' ? (text as string).replace(/\$\{[^}]*\}/g, 'acme.tool') : (text as string),
+  );
+  if (lines.length === 0) throw new Error(`${name}: no instruction lines found`);
+  return lines.join('\n');
+}
+
+/** The prompt block `id`'s template in a stock pack's `blocks/`, as the pack's index reads it. */
+function promptTemplate(blocks: URL, id: string): string {
+  for (const name of existsSync(blocks) ? readdirSync(blocks) : []) {
+    if (!name.endsWith('.json.tmpl')) continue;
+    const block = JSON.parse(scaffolded(new URL(name, blocks))) as {
+      readonly id: string;
+      readonly kind: string;
+      readonly content: { readonly template?: string; readonly templateFile?: string };
+    };
+    if (block.id !== id || block.kind !== 'prompt') continue;
+    if (block.content.template !== undefined) return block.content.template;
+    if (block.content.templateFile !== undefined) {
+      return scaffolded(new URL(`${block.content.templateFile}.tmpl`, blocks));
+    }
+  }
+  throw new Error(`${id}: no prompt block with a template in ${fileURLToPath(blocks)}`);
+}
+
 /** The stock packs' agents' instructions, as `kindgi init` writes them for a pack named `acme`. */
 function stockInstructions(): { readonly name: string; readonly template: string }[] {
   const templates = new URL('../../cli/src/templates/', import.meta.url);
@@ -203,19 +242,15 @@ function stockInstructions(): { readonly name: string; readonly template: string
     for (const agent of readdirSync(agents)) {
       const file = new URL(`${agent}/index.ts.tmpl`, agents);
       if (!existsSync(file)) continue;
-      const source = readFileSync(file, 'utf8')
-        .replaceAll('{{PACK_ID}}', 'acme')
-        .replaceAll('{{PACK_VERSION}}', '0.1.0');
-      const block =
-        /\binstructions:\s*\[([\s\S]*?)\]\.join\('\\n'\)/.exec(source)?.[1] ??
-        /\binstructions:\s*(\n\s*'.*',)/.exec(source)?.[1];
-      if (block === undefined) throw new Error(`${pack}/${agent}: no instructions found`);
-      const lines = [...block.matchAll(/^\s*(['"`])(.*)\1,?\s*$/gm)].map(([, quote, text]) =>
-        // A tool's name, where the template computes one.
-        quote === '`' ? (text as string).replace(/\$\{[^}]*\}/g, 'acme.tool') : (text as string),
-      );
-      if (lines.length === 0) throw new Error(`${pack}/${agent}: no instruction lines found`);
-      found.push({ name: `${pack}/${agent}`, template: lines.join('\n') });
+      const source = scaffolded(file);
+      const name = `${pack}/${agent}`;
+      // Instructions a prompt block of the pack holds: the block's template.
+      const prompt = /\binstructions:\s*\{\s*prompt:\s*'([^']+)'/.exec(source)?.[1];
+      const template =
+        prompt === undefined
+          ? inlineInstructions(name, source)
+          : promptTemplate(new URL(`${pack}/blocks/`, templates), prompt);
+      found.push({ name, template });
     }
   }
   return found;
@@ -256,9 +291,10 @@ describe('the built renderer', () => {
 
   test('close() settles after an idle render, so a top-level await on it doesn’t hang', async () => {
     // The fixture renders, then `await`s close() and prints DONE. An idle
-    // worker is unref'd, so without stop() re-refing it before the kill the
-    // process would exit before close() settled — execFile would then see a
-    // non-zero exit (an unsettled top-level await) and no DONE.
+    // worker is unref'd, so unless stop() holds the loop with its own ref'd
+    // timer while it waits, the process could exit before close() settled —
+    // execFile would then see a non-zero exit (an unsettled top-level await)
+    // and no DONE.
     const { stdout } = await promisify(execFile)(
       process.execPath,
       [

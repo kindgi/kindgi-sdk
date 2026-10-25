@@ -1,14 +1,16 @@
 ---
 title: Live versions reference
-description: How a run gets its agent version, what conversations and flows keep, what rollbacks and unpins refuse, the promotion history, gate policies, and the console's Live versions page.
+description: How a run gets its agent version, what conversations and flows keep, what rollbacks and unpins refuse, the go-live history, release gate policies, and the console's Live versions page.
 sidebar:
   order: 5.5
 ---
 
 This page lists everything about live agent versions: how a run gets its
-version, what conversations and flows keep, what promotions, rollbacks and
-unpins refuse, the history, gate policies, and what the console shows. To
-release a version, follow [Release an agent version](../release-an-agent-version/).
+version, what conversations and flows keep, what requests to make a version
+live, rollbacks and unpins refuse, the go-live history, release gate
+policies, and what the console shows. On the CLI, making a version live is
+`kindgi agents promote`. To release a version, follow
+[Release an agent version](../release-an-agent-version/).
 
 ## How a run gets its version
 
@@ -27,13 +29,14 @@ the **project**, the project's **org**, the **tenant**, and then the latest
 version. Without `--project`, a run is in its agent's own project, which is
 Default for what `kindgi deploy` registers.
 
-A version only goes live by a promotion: publishing a newer version doesn't
-change what a scope with a live version runs.
+A version only goes live when you make it live: publishing a newer version
+doesn't change what a scope with a live version runs.
 
 ## Conversations keep their version
 
 A follow-up turn in a conversation keeps the version the conversation started
-with, even after a promotion, so the conversation stays consistent. Here a
+with, even after another version goes live, so the conversation stays
+consistent. Here a
 conversation started on 1.2.0. Then 1.0.0 went live for the tenant, and the
 conversation's next turn still ran 1.2.0:
 
@@ -55,7 +58,7 @@ Each agent step runs the version its node names, `config.version`. Otherwise
 it runs the one a run in the flow's project would get when the flow version
 is published: the live version, from the project, then the org, then the
 tenant, or the latest when none is live. Its turns say `"via": "flow-pin"`,
-and a promotion doesn't change them.
+and making another version live doesn't change them.
 
 Here `acme.order-flow` 1.0.0 was published while 1.3.0 was live. After the
 tenant went back to 1.0.0, its step still ran 1.3.0:
@@ -74,7 +77,8 @@ To run a new agent version in a flow, publish a new version of the flow.
 ## Rollbacks and unpins
 
 - **A rollback** puts a scope back on the version that was live there
-  before, or on `--to=<version>`, at once. It isn't gated.
+  before, or on `--to=<version>`, at once. No release gate policy checks
+  it.
 - **An unpin** removes a scope's own live version. Its runs then use a
   wider scope's live version, or the latest version when none is live.
 
@@ -86,20 +90,21 @@ What each refuses:
   `The scope had no live version before this one: unpin it to fall back to the scope above`;
 - an unpin where the scope has no live version of its own:
   `The scope has no live version of its own`;
-- an unpin of a gated scope, since a gated scope keeps its own live version:
+- an unpin of a scope with a release gate policy, since such a scope keeps
+  its own live version:
   `segment company:acme in project <project-id> has a gate policy for acme.order-desk, and a gated scope keeps its own live version: unregister the gate policy first, or roll back instead`.
 
-To retire a version that's live somewhere, roll back, unpin or promote
-another version in each of those scopes first. Until then,
+To retire a version that's live somewhere, roll back, unpin or make another
+version live in each of those scopes first. Until then,
 `kindgi agents unregister` refuses it with `409 agent-version-live`.
 
-## The history
+## Go-live history
 
-Every promotion, rollback and unpin is kept, with who asked and why, newest
-first:
+Every request to make a version live, rollback and unpin is kept, with who
+asked and why, newest first:
 
 ```sh
-kindgi agents promotions list acme.order-desk --table
+pnpm exec kindgi agents promotions list acme.order-desk --table
 ```
 
 `--table` prints a table. `STATUS` says how each ended, `done` for a
@@ -117,48 +122,55 @@ ea4e7c15-7990-41b6-b153-0847a83f2e9d  promote   promoted  tenant                
 
 - `--tenant`, `--org`, `--project` and `--segment` narrow it to one scope's
   history.
-- A promotion's `status` is `promoted`, `pending-approval`, `refused` or
-  `superseded`. A waiting request is `superseded` when another promotion of
-  the same scope goes live first.
-- `--eval-run=<eval-run-id>` on `promote` keeps the comparison behind the
-  decision on its record.
+- A request's `status` is `promoted`, `pending-approval`, `refused`,
+  `superseded`, `rejected` or `expired`. A waiting request is `superseded`
+  when something changed before it was approved: what serves the scope isn't
+  what the release gate policy measured against (another request went live
+  first, for example), the scope's release gate policy isn't the one it passed
+  (a new version, another policy, or none now), the version is no longer
+  registered, or making it live would move a narrower scope that has a release
+  gate policy of its own and follows this one.
+- `--eval-run=<eval-run-id>` on `promote` keeps the run on the test cases
+  behind the decision on its record.
 
-## Gate policies
+## Release gate policies
 
-A gate policy's parts, and what each asks of a promotion:
+A release gate policy's parts, and what each asks of a request to make a
+version live:
 
-| Part | A promotion must show |
+| Part | A request must show |
 | --- | --- |
-| `comparison.maxAgeHours` | a comparison of the version, finished at most this many hours ago |
-| `evidence.minCases` | each figure resting on at least this many judged cases, for the version and for the live one |
+| `comparison.maxAgeHours` | a run of the version on the test cases, finished at most this many hours ago |
+| `evidence.minCases` | each figure resting on at least this many corrected cases, for the version and for the live one |
 | `metrics` | each named figure at least `minCandidate`, and lower than the live version's by at most `maxDrop`. The figures are `weightedYesShare`, `judgedCoverage`, or `weightedPrecisionAtK` with its `k` |
 | `replay` | at most this many diverged cases, errors, refused tool calls and stopped cases: `maxDiverged`, `maxErrors`, `maxRefusedWrites`, `maxStopped`. `maxRefusedWrites` counts refused reads too, despite its name. Those left out are 0. A version with other settings runs read-only tools live, which [counts as diverged](../compare-an-agent-version/#what-a-replay-does), so `maxDiverged: 0` refuses it |
 | `approvals` | then a reviewer with this role approves it, `senior` if left out. It's someone other than whoever asked, unless `separateApprover: false` lets the one who asked approve it |
-| `onlyRestrictedClasses: true` | a comparison that [counted only restricted judges](../compare-an-agent-version/#count-only-restricted-judges) |
+| `onlyRestrictedClasses: true` | a run on the test cases that [counted only experts' corrections](../compare-an-agent-version/#count-only-experts-corrections) |
 
-- **A promotion must name its comparison** when the policy has
+- **A request must name its run on the test cases** when the policy has
   `comparison`, `evidence`, `metrics`, `replay` or `onlyRestrictedClasses`.
-  The comparison must be of the version you promote, with the same pins, and
-  its recorded runs must be from the version live for the scope now.
-- **With `onlyRestrictedClasses`,** a comparison that counted every class is
-  refused with
-  `` The policy counts only restricted judge classes; the comparison counted every class. Re-run it with `classWeights: 'restricted-only'`. ``.
-  So only the judges you restricted can release a version.
-- **To change a gate,** publish a new version of the policy.
+  The run must be of the version you make live, with the same pins, and its
+  recorded runs must be from the version live for the scope now.
+- **With `onlyRestrictedClasses`,** a run on the test cases that counted
+  everyone's judgments is refused with
+  `` The policy counts only experts' judgments; the test run counted everyone's. Re-run it with `classWeights: 'restricted-only'`. ``.
+  So only restricted judge classes can release a version.
+- **To change a release gate policy,** publish a new version of it.
   `kindgi gate-policies unregister acme.order-desk-release <version>` goes
   back to the one before.
 - **`kindgi agents gate-policy acme.order-desk --tenant`** shows the policy
   that applies to a scope.
 - **With [authorization](../../../deploy/authorization/) on,** publishing a
-  gate policy takes `admin` on the tenant. Reading one takes `read` on its
-  scope: its project, a segment's too, its org, or the tenant for a
+  release gate policy takes `admin` on the tenant. Reading one takes `read`
+  on its scope: its project, a segment's too, its org, or the tenant for a
   tenant-wide one. A policy you can't read is left out of lists, and answers
   `404 gate-policy-not-found`, as if it weren't there.
 
-### A gated scope needs a live version of its own
+### A scope with a release gate policy needs a live version of its own
 
-Otherwise, the next published version, or a promotion for a wider scope,
-would reach its runs without its gate. A policy for a scope without one is refused:
+Otherwise, the next published version, or making a version live for a wider
+scope, would reach its runs without its release gate policy. A policy for a
+scope without one is refused:
 
 ```text
 The tenant has no live version of acme.order-desk of its own, so publishing a version would make it live here ungated: pin a version for this scope first (1.2.0 serves it now)
@@ -171,34 +183,34 @@ segment that runs its project's version, is refused the same way, naming that pi
 Segment company:globex has no live version of acme.order-desk of its own, so a promotion for project <project-id> would change it without this gate: pin a version for this scope first (1.0.0 serves it now)
 ```
 
-**Pin it in place:** promote the version it serves now. That changes nothing
-for its runs, so it needs no comparison and no approval, even when a gate
-already applies:
+**Pin it in place:** make the version it serves now live there. That changes
+nothing for its runs, so it needs no run on the test cases and no approval,
+even when a release gate policy already applies:
 
 ```sh
-kindgi agents promote acme.order-desk 1.0.0 --project=<project-id> --segment=company:globex --reason="Pin globex before its gate"
+pnpm exec kindgi agents promote acme.order-desk 1.0.0 --project=<project-id> --segment=company:globex --reason="Pin globex before its gate"
 ```
 
 - `<project-id>` is the segment's project.
 - `--segment=company:globex` is the segment, `key:value`. A deeper segment
   repeats `--segment`, coarse to fine.
-- `--reason` says why, and is kept with the promotion.
+- `--reason` says why, and is kept with the request.
 
-Under a gate, the promotion's one check says why it went through, and its
-reason starts with `pin-in-place`:
+Under a release gate policy, the request's one check says why it went
+through, and its reason starts with `pin-in-place`:
 `acme.order-desk 1.0.0 already serves this scope (from a pin above it), so pinning it here changes nothing for runs: the gate's checks and approval don't apply.`
 `--check` answers `would-promote` with that same check.
 
-A gated scope that still follows a wider scope's pin, such as one set up by
-an older runtime, refuses a promotion, rollback or unpin in that wider scope
-with
+A scope with a release gate policy that still follows a wider scope's pin,
+such as one set up by an older runtime, refuses making a version live, a
+rollback or an unpin in that wider scope with
 `409 gate-policy-descendant-unpinned`, naming the scope and its version:
 
 ```text
 Promoting acme.order-desk for project <project-id> would also change segment company:acme, which a gate policy applies to and which has no live version of its own, without its gate. Pin it at its current version first: segment company:acme at 1.0.0
 ```
 
-Pin that scope in place, and promote again.
+Pin that scope in place, and make the version live again.
 
 ## In the console
 
@@ -209,29 +221,31 @@ Pin that scope in place, and promote again.
   key and a value, to see what a run on a path would get. It lists every pin
   that reaches this project with its part, each with **Roll back** and
   **Unpin**: "Runs here take it", or "Runs on this path take it" for a
-  segment. Then it has the history, with who and why.
-- **Promote a version** picks the version and the scope: this project, every
-  project in its org when it's in one, every project, or a segment path in
-  this project. It says what will happen before you promote, such as "Runs in
-  this project (Support) will use 1.3.0."
+  segment. Then it has the **Go-live history**, with who and why.
+- **Make a version live** picks the version and where it goes live: this
+  project, every project in its org when it's in one, every project, or a
+  segment path in this project. It says what will happen before you make it
+  live, such as "Runs in this project (Support) will use 1.3.0."
 - A run's page says why it ran its version, such as "Live for company = acme
   in this project (Default)".
-- **Gate policies,** on the Live versions page, has each policy in
-  sentences, with its versions, **New version** and **Add a gate policy**.
-  The sentences read like "Judged yes: at least 60%, and no more than 2
-  points below the live version" and "Then a senior reviewer approves it,
-  someone other than whoever asked".
-- **Add a gate policy** has **Only restricted judge classes count**: "The
-  comparison must count only judgments in classes restricted to some judges
-  (start it with "Count only restricted judge classes"), so a class anyone
-  may assert can't move the gate."
-- **Promote a version** has **Judged on**, a finished comparison of the
-  version. One that counted only restricted classes says "restricted classes
-  only". It runs the gate's check before anything is recorded: "The gate
-  passes (gate policy acme.order-desk-release 1.0.0) Then a senior reviewer
+- **Release gate policies,** on the Live versions page, has each policy in
+  sentences, with its versions, **New version** and **Add a release gate
+  policy**. The sentences read like "Share marked right: at least 60%, and no
+  more than 2 points below the live version" and "Then a senior reviewer
+  approves it, someone other than whoever asked".
+- **Add a release gate policy** has **Count only experts**: "The run must
+  count only experts' corrections (start it with "Count only experts"), so a
+  correction anyone may give can't change what the release gate policy
+  decides."
+- **Make a version live** has **Run on the test cases (optional)**, a
+  finished run of the version on the test cases. One that counted only
+  restricted classes says "restricted classes only". It runs the release gate
+  policy's check before anything is recorded: "The release gate policy passes
+  (release gate policy acme.order-desk-release 1.0.0) Then a senior reviewer
   approves it, someone other than you, and it goes live.", with each check.
-  Its button follows: **Ask to promote 1.3.0**, or "The gate refuses it".
+  Its button follows: **Ask to make 1.3.0 live**, or "The release gate policy
+  refuses it".
 - A request waiting for approval shows on Live versions, with **Open the
-  approval**. Its approval page shows the promotion, who asked and why, the
-  comparison and the policy, and each check. Once approved, it says
-  "Promoted 1.3.0, replacing 1.0.0".
+  approval**. Its approval page shows the request to make it live, who asked
+  and why, the run on the test cases and the policy, and each check. Once
+  approved, it says "Made 1.3.0 live, replacing 1.0.0".

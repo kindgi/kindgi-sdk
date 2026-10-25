@@ -6,10 +6,19 @@ import { describe, expect, test } from 'vitest';
 import type { ModelMessage } from '@kindgi/capabilities';
 import type { NodeContext } from '@kindgi/handler';
 import type { HitlSpec } from '@kindgi/policy-contract';
-import { RUN_STARTED_BY, type RunStartedBy, runIsAttended } from '@kindgi/runtime';
+import {
+  RUN_STARTED_BY,
+  type RunStartedBy,
+  needsPersonsYesUnattended,
+  runIsAttended,
+  toolNeedsPersonsYesUnattended,
+} from '@kindgi/runtime';
 import { defineTool } from '@kindgi/tools';
 import type { AnyTool } from '@kindgi/tools';
 import type { RunId, TenantId, ToolId } from '@kindgi/types';
+
+import { turnInputFromSnapshot } from '../src/invoke.js';
+import type { RunSnapshotRecord } from '../src/run-snapshot-binding.js';
 
 import type { TurnContext } from '../src/handlers/context.js';
 import {
@@ -70,6 +79,99 @@ describe('runIsAttended', () => {
   });
 });
 
+describe('needsPersonsYesUnattended — the one rule the gate and the runtime share', () => {
+  const declared = { id: 'pack.refund', needsApprovalWhenUnattended: true } as const;
+
+  test('a declared tool in a run no person started, unless its trigger lists it', () => {
+    for (const by of UNATTENDED) {
+      expect(needsPersonsYesUnattended(declared, by, undefined)).toBe(true);
+      expect(needsPersonsYesUnattended(declared, by, [])).toBe(true);
+      expect(needsPersonsYesUnattended(declared, by, ['pack.other'])).toBe(true);
+    }
+    for (const by of ['webhook', 'schedule'] as const) {
+      expect(needsPersonsYesUnattended(declared, by, ['pack.other', 'pack.refund'])).toBe(false);
+    }
+  });
+
+  test("only a webhook's or a schedule's run has a list: on any other, one lifts nothing", () => {
+    for (const by of ['key', 'event', undefined] as const) {
+      expect(needsPersonsYesUnattended(declared, by, ['pack.refund'])).toBe(true);
+    }
+  });
+
+  test('never in a run a person started, nor for a tool that declares nothing', () => {
+    expect(needsPersonsYesUnattended(declared, 'person', undefined)).toBe(false);
+    expect(needsPersonsYesUnattended({ id: 'pack.refund' }, 'webhook', undefined)).toBe(false);
+    expect(
+      needsPersonsYesUnattended(
+        { id: 'pack.refund', needsApprovalWhenUnattended: false },
+        'schedule',
+        undefined,
+      ),
+    ).toBe(false);
+  });
+
+  test('an id that only looks like it is no match: no prefix, case or pattern', () => {
+    for (const listed of [['pack.*'], ['pack'], ['PACK.REFUND'], ['pack.refund ']]) {
+      expect(needsPersonsYesUnattended(declared, 'schedule', listed)).toBe(true);
+    }
+  });
+});
+
+describe("toolNeedsPersonsYesUnattended — a change made with a person's connection counts", () => {
+  const asPerson = { mail: { app: 'google', permissions: ['gmail.send'], as: 'person' } } as const;
+  const asCompany = {
+    repo: { app: 'github', permissions: ['contents:write'], as: 'company' },
+  } as const;
+  const sends = { id: 'pack.send', needsSpec: { connections: asPerson } };
+
+  test("a tool that changes things with a person's connection, whatever its own flag says", () => {
+    expect(toolNeedsPersonsYesUnattended(sends)).toBe(true);
+    expect(toolNeedsPersonsYesUnattended({ ...sends, mutating: true })).toBe(true);
+    expect(toolNeedsPersonsYesUnattended({ ...sends, needsApprovalWhenUnattended: false })).toBe(
+      true,
+    );
+    // One person's connection among a company's is enough.
+    expect(
+      toolNeedsPersonsYesUnattended({
+        id: 'pack.both',
+        needsSpec: { connections: { ...asCompany, ...asPerson } },
+      }),
+    ).toBe(true);
+  });
+
+  test('so it waits in a run no person started, unless its trigger lists it', () => {
+    for (const by of UNATTENDED) expect(needsPersonsYesUnattended(sends, by, undefined)).toBe(true);
+    expect(needsPersonsYesUnattended(sends, 'person', undefined)).toBe(false);
+    for (const by of ['webhook', 'schedule'] as const) {
+      expect(needsPersonsYesUnattended(sends, by, ['pack.send'])).toBe(false);
+    }
+  });
+
+  test("not a read-only tool, a company's connection, or no connection", () => {
+    expect(
+      toolNeedsPersonsYesUnattended({
+        id: 'pack.read',
+        mutating: false,
+        needsSpec: { connections: asPerson },
+      }),
+    ).toBe(false);
+    expect(
+      toolNeedsPersonsYesUnattended({ id: 'pack.push', needsSpec: { connections: asCompany } }),
+    ).toBe(false);
+    expect(toolNeedsPersonsYesUnattended({ id: 'pack.plain', needsSpec: { env: {} } })).toBe(false);
+    expect(toolNeedsPersonsYesUnattended({ id: 'pack.plain' })).toBe(false);
+    // A declared flag counts, read-only or not.
+    expect(
+      toolNeedsPersonsYesUnattended({
+        id: 'pack.flag',
+        mutating: false,
+        needsApprovalWhenUnattended: true,
+      }),
+    ).toBe(true);
+  });
+});
+
 describe("resolveEffectiveToolHitl — a tool that needs a person's yes when unattended", () => {
   const ran: unknown[] = [];
 
@@ -77,7 +179,7 @@ describe("resolveEffectiveToolHitl — a tool that needs a person's yes when una
     const gate = resolveEffectiveToolHitl(
       resolveEffectiveHitlPolicy({ tenant: undefined, agent: agent() }),
       refundTool(ran, DECLARED),
-      runIsAttended(by),
+      by === undefined ? {} : { startedBy: by },
     );
     expect(gate.mode).toBe('always_ask');
   });
@@ -86,7 +188,7 @@ describe("resolveEffectiveToolHitl — a tool that needs a person's yes when una
     const gate = resolveEffectiveToolHitl(
       resolveEffectiveHitlPolicy({ tenant: undefined, agent: agent() }),
       refundTool(ran, DECLARED),
-      true,
+      { startedBy: 'person' },
     );
     expect(gate.mode).toBe('never_ask');
   });
@@ -96,13 +198,13 @@ describe("resolveEffectiveToolHitl — a tool that needs a person's yes when una
     const unattended = resolveEffectiveToolHitl(
       resolveEffectiveHitlPolicy({ tenant: undefined, agent: loose }),
       refundTool(ran, DECLARED),
-      false,
+      {},
     );
     expect(unattended.mode).toBe('always_ask');
     const attended = resolveEffectiveToolHitl(
       resolveEffectiveHitlPolicy({ tenant: undefined, agent: loose }),
       refundTool(ran, DECLARED),
-      true,
+      { startedBy: 'person' },
     );
     expect(attended.mode).toBe('never_ask');
   });
@@ -114,9 +216,48 @@ describe("resolveEffectiveToolHitl — a tool that needs a person's yes when una
     const gate = resolveEffectiveToolHitl(
       resolveEffectiveHitlPolicy({ tenant, agent: agent() }),
       refundTool(ran, DECLARED),
-      false,
+      {},
     );
     expect(gate).toEqual({ mode: 'always_ask', requiredRole: 'admin' });
+  });
+
+  test("listed by the run's trigger: the agent's rules again, as in a run a person started", () => {
+    for (const by of ['schedule', 'webhook'] as const) {
+      const gate = resolveEffectiveToolHitl(
+        resolveEffectiveHitlPolicy({ tenant: undefined, agent: agent() }),
+        refundTool(ran, DECLARED),
+        { startedBy: by, toolsAllowedUnattended: ['pack.refund'] },
+      );
+      expect(gate.mode).toBe('never_ask');
+    }
+    const unlisted = resolveEffectiveToolHitl(
+      resolveEffectiveHitlPolicy({ tenant: undefined, agent: agent() }),
+      refundTool(ran, DECLARED),
+      { startedBy: 'webhook', toolsAllowedUnattended: ['pack.other'] },
+    );
+    expect(unlisted.mode).toBe('always_ask');
+  });
+
+  test("listed: the tenant's and the agent's own rules still ask, with their reviewer role", () => {
+    const listed = { startedBy: 'schedule', toolsAllowedUnattended: ['pack.refund'] } as const;
+    const tenant: HitlSpec = {
+      tools: { 'pack.refund': { mode: 'always_ask', requiredRole: 'admin' } },
+    };
+    expect(
+      resolveEffectiveToolHitl(
+        resolveEffectiveHitlPolicy({ tenant, agent: agent() }),
+        refundTool(ran, DECLARED),
+        listed,
+      ),
+    ).toEqual({ mode: 'always_ask', requiredRole: 'admin' });
+    const strict = agent({ hitl: { tools: { overrides: { 'pack.refund': 'always_ask' } } } });
+    expect(
+      resolveEffectiveToolHitl(
+        resolveEffectiveHitlPolicy({ tenant: undefined, agent: strict }),
+        refundTool(ran, DECLARED),
+        listed,
+      ).mode,
+    ).toBe('always_ask');
   });
 
   test("a tool that doesn't declare it follows the agent's rules, attended or not", () => {
@@ -124,7 +265,7 @@ describe("resolveEffectiveToolHitl — a tool that needs a person's yes when una
       const gate = resolveEffectiveToolHitl(
         resolveEffectiveHitlPolicy({ tenant: undefined, agent: agent() }),
         refundTool(ran, declared),
-        false,
+        {},
       );
       expect(gate.mode).toBe('never_ask');
     }
@@ -135,6 +276,7 @@ describe("resolveEffectiveToolHitl — a tool that needs a person's yes when una
 async function dispatchStartedBy(
   startedBy: RunStartedBy | undefined,
   declared: { needsApprovalWhenUnattended?: boolean },
+  toolsAllowedUnattended?: readonly string[],
 ) {
   const ran: unknown[] = [];
   const tool = refundTool(ran, declared);
@@ -148,6 +290,7 @@ async function dispatchStartedBy(
       conversationId: 'conv-1',
       agent: a,
       ...(startedBy !== undefined && { startedBy }),
+      ...(toolsAllowedUnattended !== undefined && { toolsAllowedUnattended }),
     },
     bindings: {
       conversationBinding: {
@@ -219,5 +362,42 @@ describe('dispatch-tools — a turn no person started', () => {
     expect(enqueued).toEqual([]);
     expect(waits).toEqual([]);
     expect(ran).toEqual([{ order: '7' }]);
+  });
+
+  test("a declared tool the turn's trigger lists runs at once; one it doesn't list still waits", async () => {
+    const listed = await dispatchStartedBy('schedule', DECLARED, ['pack.refund']);
+    expect([listed.enqueued, listed.waits, listed.ran]).toEqual([[], [], [{ order: '7' }]]);
+    const unlisted = await dispatchStartedBy('schedule', DECLARED, ['pack.other']);
+    expect(unlisted.enqueued).toHaveLength(1);
+    expect(unlisted.waits).toHaveLength(1);
+  });
+});
+
+describe('a resumed turn', () => {
+  const snapshot = (over: Record<string, unknown>) =>
+    ({
+      runId: 'run-1',
+      tenantId: 't-1',
+      projectId: 'p-1',
+      agentId: 'pack.agent',
+      agentVersion: '1.0.0',
+      conversationId: 'conv-1',
+      userMessage: 'go',
+      dryRun: false,
+      startedBy: 'webhook',
+      ...over,
+    }) as unknown as RunSnapshotRecord;
+
+  test('gets the list its run started with, from the snapshot, never from whoever resumes it', () => {
+    expect(
+      turnInputFromSnapshot(snapshot({ toolsAllowedUnattended: ['pack.refund'] }), {
+        agent: agent(),
+      }).toolsAllowedUnattended,
+    ).toEqual(['pack.refund']);
+    for (const none of [{}, { toolsAllowedUnattended: null }]) {
+      expect(turnInputFromSnapshot(snapshot(none), { agent: agent() })).not.toHaveProperty(
+        'toolsAllowedUnattended',
+      );
+    }
   });
 });
