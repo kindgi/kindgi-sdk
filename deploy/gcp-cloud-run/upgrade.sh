@@ -95,7 +95,8 @@ readonly POLL_INTERVAL=10
 readonly POLL_TRIES=60
 
 # How long to wait for a new bucket grant to reach Cloud SQL (step 3): Google
-# says an IAM change usually takes effect in 2 minutes, and can take 7.
+# says an IAM change typically takes effect in 2 minutes, and potentially 7
+# minutes or longer.
 readonly GRANT_WAIT_INTERVAL=15
 readonly GRANT_WAIT_SECONDS=420
 
@@ -568,6 +569,37 @@ EOT
   0.2.0:
    - The runtime image now comes from registry.kindgi.com, with your license
      key as the password; this script copies it from there.
+   - If public_url is empty, set it to the URL people open the console at:
+     once it's set, console sessions are accepted from that origin only. A
+     paused tool call's link is made from it; without it, the link is made
+     from the address the server is bound to, which another system can't
+     reach, and the server logs that at the first pause. Connections stay
+     off until it's set, and the server logs what else they need as it
+     starts. Each app's sign-in sends people back to
+       <public_url>/console/connect/callback
+   - First start runs five additive migrations (new tables, new columns that
+     can be empty, nothing rewritten) in seconds. Three of them take a short
+     lock on kernel_runs, kernel_triggers, hitl_approvals or judgments: a
+     long transaction holding one makes the new revision fail after about a
+     minute, naming the session that holds it (end it with
+     pg_terminate_backend, or let it finish). The old revision keeps serving
+     meanwhile.
+   - With openfga_api_url empty (no authorization store), check who changes
+     the tenant's settings (model providers, policies, adapters, trusted
+     signing keys, sign-in providers): a script or a person that isn't a
+     tenant admin now gets 403 permission-denied when it changes them, and
+     on any call to the outgoing webhook endpoints or the compliance
+     evidence. Without a store, a tenant admin is the deployment's API
+     token, an admin key, or a console signed in with either; a person
+     signed in with an emailed link or an identity provider isn't one.
+   - A pack built for 0.1.10 keeps working without a rebuild. To use 0.2.0's
+     features in it (a tool that pauses, a connection, data blocks), move its
+     pins to 0.2.0 first: --pack-dir builds what they say. A Python pack made
+     by a 0.1 CLI pins kindgi>=0.1,<0.2 and kindgi-cli>=0.1,<0.2:
+       uv add "kindgi==0.2.0" && uv add --dev "kindgi-cli==0.2.0"
+   - With a pack service, the plan also changes it in place, with or without
+     --pack-dir: CPU only while a call runs, a start boost, and quicker
+     readiness checks.
 EOT
         ;;
     esac
@@ -747,7 +779,7 @@ if [[ $REBUILD_PACK == true ]]; then
   fi
   info "new pack image $NEW_PACK_IMAGE"
 elif [[ $HAS_PACK == true ]]; then
-  warn "the deployment has a pack service, but no --pack-dir was given: the pack image is left unchanged. If 0.1.10 needs a pack rebuilt (e.g. to drop production-only installs or secretScopes), rebuild it with 'kindgi build --local --push' and run again with --pack-dir."
+  warn "the deployment has a pack service, but no --pack-dir was given: the pack image is left unchanged. If a release crossed needs the pack rebuilt (its steps to confirm by hand, above, say so), rebuild it with 'kindgi build --local --push' and run again with --pack-dir."
 else
   info "no pack service (tenancy=$TENANCY); nothing to build."
 fi
