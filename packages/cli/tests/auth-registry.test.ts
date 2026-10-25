@@ -294,6 +294,32 @@ describe('logging in', () => {
     expect(out.stderr).toContain('docker: WARNING! Your credentials are stored unencrypted');
   });
 
+  test("--quiet: docker's warnings alone; a login without any says nothing", async () => {
+    const warned = fakeDocker({
+      login: {
+        code: 0,
+        stdout: 'Login Succeeded\n',
+        stderr:
+          "WARNING! Your credentials are stored unencrypted in '/home/dev/.docker/config.json'.\n",
+      },
+    });
+    const out = await runRegistry(['--username', 'robot', '--password-stdin', '--quiet'], {
+      docker: warned.run,
+      readStdin: async () => TOKEN,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toBe(
+      "    docker: WARNING! Your credentials are stored unencrypted in '/home/dev/.docker/config.json'.\n",
+    );
+
+    const quiet = await runRegistry(['--username', 'robot', '--password-stdin', '--quiet'], {
+      docker: fakeDocker().run,
+      readStdin: async () => TOKEN,
+    });
+    expect(quiet.exitCode, quiet.stderr).toBe(0);
+    expect([quiet.stdout, quiet.stderr]).toEqual(['', '']);
+  });
+
   test('--json prints a summary on stdout, without the token', async () => {
     const fake = fakeDocker();
     const out = await runRegistry(['--username', 'robot', '--password-stdin', '--json'], {

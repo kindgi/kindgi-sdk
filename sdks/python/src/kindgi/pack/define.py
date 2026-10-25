@@ -57,7 +57,13 @@ from typing import (
 from pydantic import TypeAdapter
 from pydantic_core import to_jsonable_python
 
-from .._schema import SchemaValidator, compile_problem, pattern_problem, wire_schema
+from .._schema import (
+    SchemaValidator,
+    compile_problem,
+    pattern_problem,
+    runtime_compile_problem,
+    wire_schema,
+)
 from .context import PauseAnswer, ToolContext
 from .needs import needs_spec_problem
 from .trace import CheckResult, RunTrace
@@ -694,14 +700,20 @@ def _schema(source: Any, mode: Any, where: str, what: str) -> dict[str, Any]:
         # compiles it, so a schema the runtime refuses fails here, not at the deploy or on a dev
         # server's first call.
         problem = compile_problem(schema)
-        if problem is not None:
-            raise DefinitionError(f"{where}: the {what} JSON Schema doesn't compile: {problem}")
+    elif what != "config":
+        # A tool's derived input or output: the runtime compiles it as strictly, when the tool is
+        # registered or deployed, so check it the same way. pydantic checks its data, so a pattern
+        # Python's `re` can't read, such as `\p{L}`, isn't refused, as it is in a dict.
+        problem = runtime_compile_problem(schema)
     else:
-        # A derived schema's patterns are the tool's, written for pydantic's engine: check them as
-        # the runtime reads them, so one it refuses fails here, not at the deploy.
+        # A guardrail config's derived schema: only its patterns, which are the guardrail's,
+        # written for pydantic's engine, so one the runtime refuses fails here, not at the deploy.
+        # The rest is pydantic's, and the runtime checks a config against it non-strict, as the
+        # pack service does with jsonschema: a keyword or a format strict mode doesn't know is
+        # refused nowhere, so it isn't refused here.
         problem = pattern_problem(schema)
-        if problem is not None:
-            raise DefinitionError(f"{where}: the {what} JSON Schema doesn't compile: {problem}")
+    if problem is not None:
+        raise DefinitionError(f"{where}: the {what} JSON Schema doesn't compile: {problem}")
     if what == "input" and schema.get("type") != "object":
         # A model calls a tool with an object of arguments.
         raise DefinitionError(

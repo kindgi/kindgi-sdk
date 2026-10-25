@@ -2826,7 +2826,7 @@ describe('improvement passes', () => {
     ).toBe(400);
   });
 
-  test('a prompt pass on a version with inline instructions is refused (400)', async () => {
+  test('a prompt pass on a version with inline instructions is refused (400), with reason no-pinned-prompt-block', async () => {
     const passes = inMemoryPasses();
     const h = await harness({ passes: passes.binding, inlineInstructions: true });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
@@ -2836,16 +2836,20 @@ describe('improvement passes', () => {
       model: { providerId: 'acme-llm', model: 'm-1' },
     });
     expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('validation-failed');
+    expect(res.body.error.details).toEqual({ reason: 'no-pinned-prompt-block', issues: [] });
     expect(res.body.error.message).toContain('pinned prompt block');
     expect(passes.started).toHaveLength(0);
   });
 
-  test('a version that pins nothing tunable is refused (400), saying how to mark keys', async () => {
+  test('a version that pins nothing tunable is refused (400), with reason no-tunable-keys, saying how to mark keys', async () => {
     const passes = inMemoryPasses();
     const h = await harness({ passes: passes.binding });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('validation-failed');
+    expect(res.body.error.details).toEqual({ reason: 'no-tunable-keys', issues: [] });
     expect(res.body.error.message).toContain('x-kindgi-tunable');
     expect(passes.started).toHaveLength(0);
   });
@@ -2874,6 +2878,7 @@ describe('improvement passes', () => {
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status).toBe(400);
+    expect(res.body.error.details.reason).toBe('no-tunable-keys');
     expect(res.body.error.message).toBe(
       `${AGENT} 1.0.0 pins no settings block with keys marked "x-kindgi-tunable": there's nothing for a pass to tune. Mark the keys it may tune in the block's schema (a number or integer with a minimum and maximum, or an enum) and publish it. In its model-settings block, "model" can't be tried: the agent version names its model (preferredProvider or preferredModel), and a model-settings block that named one too would name it twice.`,
     );

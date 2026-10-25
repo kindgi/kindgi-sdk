@@ -7079,79 +7079,6 @@ class Changes(BaseModel):
     new: list[NewItem]
 
 
-class Differences(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tool: str
-    kind: Literal["count"]
-    expected: Annotated[int, Field(ge=0)]
-    actual: Annotated[int, Field(ge=0)]
-    refused: Annotated[int | None, Field(ge=1)] = None
-    """
-    How many of the actual calls were refused on the replay. Absent when none were.
-    """
-
-
-class Differences1(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tool: str
-    kind: Literal["must-not-call"]
-    actual: Annotated[int, Field(ge=1)]
-    refused: Annotated[int | None, Field(ge=1)] = None
-    """
-    How many of the forbidden calls were refused on the replay. Absent when none were.
-    """
-
-
-class Differences2(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tool: str
-    kind: Literal["missing-field"]
-    field: str
-    expected: Any
-    refused: bool | None = None
-    """
-    Present and true when the call blamed for the miss was refused on the replay.
-    """
-
-
-class Differences3(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tool: str
-    kind: Literal["field-value"]
-    field: str
-    expected: Any
-    actual: Any
-    refused: bool | None = None
-    """
-    Present and true when the call blamed for the miss was refused on the replay.
-    """
-
-
-class CorrectionDifference(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    judgment_id: Annotated[str, Field(alias="judgmentId")]
-    repetition: Annotated[int, Field(ge=1)]
-    """
-    Which repetition (1-based) these differences are from.
-    """
-    differences: list[Differences | Differences1 | Differences2 | Differences3]
-
-
 class CostUsdItem(RootModel[float]):
     root: Annotated[float, Field(ge=0.0)]
 
@@ -11778,6 +11705,82 @@ class ComparisonCandidateFlow(BaseModel):
     versions: FlowVersionOverrides | None = None
 
 
+class CallDifferenceCount(BaseModel):
+    """
+    One way a run's calls differed from a correction; it can quote argument values.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["count"]
+    expected: Annotated[int, Field(ge=0)]
+    actual: Annotated[int, Field(ge=0)]
+    refused: Annotated[int | None, Field(ge=1)] = None
+    """
+    How many of the actual calls were refused on the replay. Absent when none were.
+    """
+
+
+class CallDifferenceMustNotCall(BaseModel):
+    """
+    One way a run's calls differed from a correction; it can quote argument values.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["must-not-call"]
+    actual: Annotated[int, Field(ge=1)]
+    refused: Annotated[int | None, Field(ge=1)] = None
+    """
+    How many of the forbidden calls were refused on the replay. Absent when none were.
+    """
+
+
+class CallDifferenceMissingField(BaseModel):
+    """
+    One way a run's calls differed from a correction; it can quote argument values.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["missing-field"]
+    field: str
+    expected: Any
+    refused: bool | None = None
+    """
+    Present and true when the call blamed for the miss was refused on the replay.
+    """
+
+
+class CallDifferenceFieldValue(BaseModel):
+    """
+    One way a run's calls differed from a correction; it can quote argument values.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["field-value"]
+    field: str
+    expected: Any
+    actual: Any
+    refused: bool | None = None
+    """
+    Present and true when the call blamed for the miss was refused on the replay.
+    """
+
+
 class ScopeTenant(BaseModel):
     """
     Discriminated Scope primitive (Tenant / Org / Project). Source of truth: `Scope` in `@kindgi/platform`.
@@ -14545,6 +14548,24 @@ class JudgedComparisonSummary(BaseModel):
     Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.
     """
     cost_usd: Annotated[JudgedComparisonCost | None, Field(alias="costUsd")] = None
+
+
+class CorrectionDifference(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    repetition: Annotated[int, Field(ge=1)]
+    """
+    Which repetition (1-based) these differences are from.
+    """
+    differences: list[
+        CallDifferenceCount
+        | CallDifferenceMustNotCall
+        | CallDifferenceMissingField
+        | CallDifferenceFieldValue
+    ]
 
 
 class ComparisonCaseResult(BaseModel):

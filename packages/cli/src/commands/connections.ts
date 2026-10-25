@@ -7,7 +7,7 @@ import type { ConnectRequest, Connection, ConnectionEntry, ConnectionPage } from
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
-import { type Rendered, renderJson } from '../output.js';
+import { type Rendered, renderJson, successNote } from '../output.js';
 import {
   type TableSpec,
   givenFlag,
@@ -325,7 +325,11 @@ async function afterWaiting(
   if (waited.kind === 'stopped') {
     return {
       stdout: '',
-      stderr: `Stopped waiting. The link works until ${String(request.expiresAt)}; \`kindgi connections list --app=${request.app}\` shows the connection once it's made.\n`,
+      // Ctrl-C stopped the wait, not the connect: a note; the exit code says it.
+      stderr: successNote(
+        ctx.globals.format,
+        `Stopped waiting. The link works until ${String(request.expiresAt)}; \`kindgi connections list --app=${request.app}\` shows the connection once it's made.\n`,
+      ),
       exitCode: 130,
     };
   }
