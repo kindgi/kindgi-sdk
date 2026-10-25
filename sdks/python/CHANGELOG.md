@@ -84,6 +84,24 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   calls in a webhook's or a schedule's runs needn't wait for a person's yes.
   Naming it takes `admin` on the trigger's project, and each id must be a tool
   the trigger's flow or agent calls. A take-over keeps it.
+- `kindgi`: **a judgment can carry an expert's correction, graded when a
+  version is replayed on the run.** `judgments.create` takes `correction`
+  (`Correction`): `calls`, the tool calls the agent should have made, each an
+  `ExpectedCall` with its `tool` and, in `args`, the argument fields that
+  matter; and `not_called`, the tools it should not have called at all. A
+  correction judges the run's whole output, so it goes on the reserved item
+  `kindgi:correction` at pointer `""`, one per run per expert: saving again
+  replaces it. A `Judgment` returns it as `correction`, and a judged test
+  set's cases carry theirs (`JudgedEvalCase.corrections`,
+  `JudgedEvalCaseCorrection`). A judged comparison grades each one: a case
+  result gains `corrections` (`ComparisonCaseResultCorrection`: `pass_` and
+  how many repetitions passed) and `correction_differences`
+  (`CorrectionDifference`: by judgment, the first repetition that failed and
+  how its calls differed, each a `CallDifferenceCount`,
+  `CallDifferenceMustNotCall`, `CallDifferenceMissingField` or
+  `CallDifferenceFieldValue`), and the summary's `corrections`
+  (`Corrections`) counts those `checked` and `passed`. Shown for a promotion
+  gate, not enforced. Matches the TypeScript client's.
 - `kindgi`: **a test set's cases name their judgments, and a proposal says
   how many it rests on.** A judged case's items gain `judgment_ids`, and their
   `restricted` gains `judgment_ids` too. A proposal's `evidence` is now the
