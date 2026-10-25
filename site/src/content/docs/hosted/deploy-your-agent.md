@@ -277,6 +277,15 @@ version and every version that's waiting read the same values:
 - **Going live is refused at the limit.** Take another project out of
   production first, or see
   [projects in production](../limits/#projects-in-production).
+- **A tool's call to a site fails with `fetch failed`, or the site's host
+  answers `403`, while the site answers in your browser.** The site may
+  admit only calls from addresses it knows. `kindgi egress --hosted`
+  prints the addresses your workspace's calls come from: allow the
+  `deployments` ones there for your tools' calls, and the `server` ones
+  for an MCP server or a receiver of the runtime's webhooks. Every Kindgi
+  Cloud workspace calls from the same addresses, so keep the site's own
+  check too, such as its API key
+  ([Admit them at a site](../../deploy/self-hosted/egress-addresses/#admit-them-at-a-site)).
 
 ## What's next
 

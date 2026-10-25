@@ -173,6 +173,19 @@ your own account.
    runtime keeps it in its secrets store. Never write it in the code, a
    config file or the chat.
 
+If your store's host has a firewall or bot protection, allow the addresses
+the deployed pack's calls come from. With the CLI signed in to the runtime
+you deploy to, `{{KINDGI}} egress --hosted` prints them, and the
+`deployments` ones are where your tools' calls to the store come from.
+`--hosted` sends the command to that runtime, not to `{{KINDGI}} dev`'s,
+whose calls come from your own computer. Until the host allows them, a
+tool can fail with `fetch failed`, often after about 10 seconds, or with
+`WooCommerce answered 403` and the start of the host's own page, while the
+store answers in your browser. Every tenant on the runtime calls from the
+same addresses (on Kindgi Cloud, every workspace), so allowing them lets
+their calls through too, not only yours. The Application Password stays
+the check on who gets in.
+
 Refunds are recorded in WooCommerce, and the money moves however your shop
 moves it. To have the payment gateway refund the money too, set
 `{{KINDGI}} env set WOO_REFUND_THROUGH_GATEWAY true --env=local --scope=tenant`.
