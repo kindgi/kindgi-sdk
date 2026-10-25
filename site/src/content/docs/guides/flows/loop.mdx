@@ -326,7 +326,9 @@ object CheckOrderStock {
   when the loop starts.
 - **`body`** has its own steps and edges, from `$loop-start` to `$loop-end`.
   Each pass gets one element as its input: here `{ "sku": "desk", "quantity": 1 }`,
-  which is `acme.check-stock`'s input as it is.
+  which is `acme.check-stock`'s input as it is. A body can hold another
+  loop, but not a `fanout` step: a flow with one there is refused when it's
+  loaded or deployed.
 - **`concurrency`** runs that many passes at a time, 1 by default and at most
   32.
 - **`maxIterations`** caps the passes, and **`outputSchema`** is what each pass
