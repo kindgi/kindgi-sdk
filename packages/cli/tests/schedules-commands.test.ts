@@ -215,7 +215,8 @@ describe('kindgi schedules', () => {
                   runId: undefined,
                   missedCount: undefined,
                   outcome: 'skipped',
-                  detail: '4 of 5 trusted "no" judgments',
+                  detail:
+                    "Not enough new experts' corrections so far: 4 of 5 answers experts marked wrong (enough: 3 runs, 2 experts).",
                 },
               ],
               hasMore: false,
@@ -225,7 +226,9 @@ describe('kindgi schedules', () => {
     });
     expect(fires.exitCode, fires.stderr).toBe(0);
     expect(fires.stdout).toContain(`pass ${passId}`);
-    expect(fires.stdout).toMatch(/skipped\s+4 of 5 trusted "no" judgments/);
+    expect(fires.stdout).toMatch(
+      /skipped\s+Not enough new experts' corrections so far: 4 of 5 answers experts marked wrong/,
+    );
   });
 
   test('list as a table, with what each schedule runs', async () => {

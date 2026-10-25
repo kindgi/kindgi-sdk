@@ -146,7 +146,7 @@ describe('the comparison', () => {
         'comparison.suite',
       )?.message,
     ).toBe(
-      'The comparison ran test set acme.drafting-set 1.0.0; the policy needs acme.drafting-set 2.0.0.',
+      'The test run used test cases acme.drafting-set 1.0.0; the policy needs acme.drafting-set 2.0.0.',
     );
   });
 });
@@ -161,7 +161,7 @@ describe('sameContents', () => {
       candidate: { kind: 'agent', agentId: 'acme.drafting', version: '1.3.0', pinsDigest: 'x' },
     });
     expect(check(gate({}, { summary: other }), 'sameContents')?.message).toBe(
-      'The comparison ran acme.drafting 1.3.0, not acme.drafting 1.2.0.',
+      'The test run tried acme.drafting 1.3.0, not acme.drafting 1.2.0.',
     );
     expect(check(gate({}, { pinsDigest: 'sha-other' }), 'sameContents')?.message).toContain(
       'other pins',
@@ -171,7 +171,7 @@ describe('sameContents', () => {
       candidate: { kind: 'agent', agentId: 'acme.drafting', version: '1.2.0' },
     });
     expect(check(gate({}, { summary: old }), 'sameContents')?.message).toContain(
-      're-run the comparison',
+      '(its pinsDigest): re-run it.',
     );
     const flow = summary({ candidate: { kind: 'flow', flowId: 'acme.intake', version: '1.0.0' } });
     expect(check(gate({}, { summary: flow }), 'sameContents')?.passed).toBe(false);
@@ -199,7 +199,7 @@ describe('baselineIsLive', () => {
       },
     });
     expect(check(gate({}, { summary: mixed }), 'baselineIsLive')?.message).toContain(
-      'mixes 2 versions',
+      'measured this version against 2 versions',
     );
   });
 });
@@ -219,13 +219,22 @@ describe('scopeCovered', () => {
 
   test('an org promotion: tenant-wide judgments, or a project in the org', () => {
     const org: LiveScope = { kind: 'org', orgId: ORG };
-    expect(check(gate({}, { scope: org, summaryProjectOrgId: ORG }), 'scopeCovered')?.passed).toBe(
-      true,
+    const inOrg = check(gate({}, { scope: org, summaryProjectOrgId: ORG }), 'scopeCovered');
+    expect(inOrg?.passed).toBe(true);
+    expect(inOrg?.message).toBe(`The judgments came from project ${PROJECT}, within org ${ORG}.`);
+    const outside = check(gate({}, { scope: org }), 'scopeCovered');
+    expect(outside?.passed).toBe(false);
+    expect(outside?.message).toBe(
+      `The judgments came from project ${PROJECT}, outside org ${ORG}.`,
     );
-    expect(check(gate({}, { scope: org }), 'scopeCovered')?.passed).toBe(false);
-    expect(
-      check(gate({}, { scope: org, summary: summary({ scope: {} }) }), 'scopeCovered')?.passed,
-    ).toBe(true);
+    const everywhere = check(
+      gate({}, { scope: org, summary: summary({ scope: {} }) }),
+      'scopeCovered',
+    );
+    expect(everywhere?.passed).toBe(true);
+    expect(everywhere?.message).toBe(
+      `The judgments came from every project, which covers org ${ORG}.`,
+    );
   });
 
   test('a tenant promotion takes any judgments', () => {
@@ -246,6 +255,26 @@ describe('replay', () => {
       threshold: 3,
     });
     expect(check(r, 'replay.maxStopped')?.passed).toBe(true);
+  });
+
+  test('says what it counted: refused tool calls, and cases stopped at one', () => {
+    const one = gate(
+      { replay: { maxRefusedWrites: 1 } },
+      { summary: summary({ refusedWrites: 1, stopped: 1 }) },
+    );
+    expect(check(one, 'replay.maxRefusedWrites')?.message).toBe(
+      '1 tool call was refused; the policy allows 1.',
+    );
+    expect(check(one, 'replay.maxStopped')?.message).toBe(
+      '1 case stopped at a refused tool call; the policy allows 0.',
+    );
+    const many = gate({ replay: {} }, { summary: summary({ refusedWrites: 2, stopped: 2 }) });
+    expect(check(many, 'replay.maxRefusedWrites')?.message).toBe(
+      '2 tool calls were refused; the policy allows 0.',
+    );
+    expect(check(many, 'replay.maxStopped')?.message).toBe(
+      '2 cases stopped at a refused tool call; the policy allows 0.',
+    );
   });
 
   test('no replay block: no replay checks', () => {

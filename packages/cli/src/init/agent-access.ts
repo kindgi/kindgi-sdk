@@ -27,6 +27,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 
 import { KINDGI_SECRETS_FILE } from '@kindgi/secrets-dotenv';
 
+import { type SaidLine, note, warning } from '../progress-lines.js';
 import { type PatchResult, patchIgnoreFile } from './gitignore-patcher.js';
 
 /**
@@ -382,7 +383,7 @@ function repoRootRows(
 export async function writeAgentAccess(
   projectDir: string,
   options: PatchAgentAccessOptions = {},
-): Promise<{ readonly files: readonly string[]; readonly lines: readonly string[] }> {
+): Promise<{ readonly files: readonly string[]; readonly lines: readonly SaidLine[] }> {
   const result = await patchAgentAccess(projectDir, options);
   const files: string[] = [];
   if (result.claude.kind === 'created' || result.claude.kind === 'patched') {
@@ -396,8 +397,11 @@ export async function writeAgentAccess(
 }
 
 /** The lines init prints for `rows`, whatever else it summarizes: what it wrote outside the pack's folder, and the warnings. */
-export function agentAccessLines(rows: AgentAccessRows): readonly string[] {
-  return [...rows.outside.map((l) => `✓ ${l}`), ...rows.warnings.map((w) => `⚠ ${w}`)];
+export function agentAccessLines(rows: AgentAccessRows): readonly SaidLine[] {
+  return [
+    ...rows.outside.map((l) => note(`✓ ${l}`)),
+    ...rows.warnings.map((w) => warning(`⚠ ${w}`)),
+  ];
 }
 
 /** The file's indentation, as `JSON.stringify` takes it: a tab, or a number of spaces (2 by default). */

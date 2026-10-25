@@ -83,10 +83,14 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
   checked when the tool is defined, as the runtime compiles it, strictly: one
   the runtime would refuse raises `DefinitionError`. So does a `pattern` only
   JavaScript reads, such as `\p{L}`: the SDK checks data against it with
-  Python's `re`. A model's patterns are checked as the runtime reads them
-  too; pydantic checks data against them, and reads `\p{L}`. Field aliases
-  are the names on the wire. The input is an object: a model calls a tool
-  with an object of arguments.
+  Python's `re`. A schema derived from a type is compiled the same way, so a
+  keyword `json_schema_extra` adds, or a `format` the runtime doesn't know (a
+  `Path` field's `"format": "path"`, `UUID4`'s `"uuid4"`), raises it too; a
+  plain `uuid.UUID` or `str`, or pydantic's `WithJsonSchema`, gives such a
+  field a schema the runtime compiles. In a derived schema, a `\p{L}`
+  pattern doesn't raise: pydantic checks data against it, and reads it.
+  Field aliases are the names on the wire.
+  The input is an object: a model calls a tool with an object of arguments.
 - The description is the docstring (or `description=`); the version is the
   pack's (or `version=`, an exact semver).
 - `mutating=False` declares a tool read-only: it runs in a dry run, and an

@@ -13,6 +13,22 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a tool's schema derived from a model or a type is checked as
+  the runtime compiles it, as one given as a dict is.** `@tool` and
+  `http_tool` raise `DefinitionError` for a derived input or output schema
+  the runtime would refuse when it registers or deploys the tool: a keyword
+  `json_schema_extra` adds (`strict mode: unknown keyword: "x-acme-unit"`), a
+  `format` pydantic writes that the runtime doesn't know (`"format": "path"`
+  for a `pathlib.Path` field; `UUID4`, `IPvAnyAddress`, `FilePath`,
+  `Base64Bytes`, `PostgresDsn`, `MongoDsn` and `NatsDsn` write one too), or
+  a schema that isn't valid Draft 2020-12. Before, only a derived schema's
+  patterns were checked, and the deploy refused the rest. For such a field, a
+  plain `uuid.UUID` or `str`, or pydantic's `WithJsonSchema`, gives a schema
+  the runtime compiles. A pattern only JavaScript and pydantic read, such as
+  `\p{L}`, still passes, since pydantic checks the data. A guardrail's config
+  schema derived from a model still has only its patterns checked: the
+  runtime checks a config against it non-strict. Matches the TypeScript
+  `@kindgi/tools` definition check.
 - `kindgi`: **a tool or an agent whose model has a pydantic tagged union
   deploys.** With `Field(discriminator=...)`, pydantic writes OpenAPI's
   `discriminator` keyword beside the union's `oneOf`, and the runtime refused
@@ -68,6 +84,27 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   calls in a webhook's or a schedule's runs needn't wait for a person's yes.
   Naming it takes `admin` on the trigger's project, and each id must be a tool
   the trigger's flow or agent calls. A take-over keeps it.
+- `kindgi`: **a judgment can carry an expert's correction, graded when a
+  version is replayed on the run.** `judgments.create` takes `correction`
+  (`Correction`): `calls`, the tool calls the agent should have made, each an
+  `ExpectedCall` with its `tool` and, in `args`, the argument fields that
+  matter; and `not_called`, the tools it should not have called at all. A
+  correction judges the run's whole output, so it goes on the reserved item
+  `kindgi:correction` at pointer `""`, one per run per expert: saving again
+  replaces it. A `Judgment` returns it as `correction`, and a judged test
+  set's cases carry theirs (`JudgedEvalCase.corrections`,
+  `JudgedEvalCaseCorrection`). A judged comparison grades each one: a case
+  result gains `corrections` (`ComparisonCaseResultCorrection`: `pass_` and
+  how many repetitions passed) and `correction_differences`
+  (`CorrectionDifference`: by judgment, the first repetition that failed and
+  how its calls differed, each a `CallDifferenceCount`,
+  `CallDifferenceMustNotCall`, `CallDifferenceMissingField` or
+  `CallDifferenceFieldValue`), and the summary's `corrections`
+  (`Corrections`) counts those `checked` and `passed`, and lists each by
+  judgment (`judgments`, `JudgedComparisonSummaryCorrectionsJudgment`). Shown
+  for a promotion gate, not enforced. `correction_differences` quotes argument
+  values, so an erasure clears it; the verdicts and counts stay in
+  `corrections`. Matches the TypeScript client's.
 - `kindgi`: **a test set's cases name their judgments, and a proposal says
   how many it rests on.** A judged case's items gain `judgment_ids`, and their
   `restricted` gains `judgment_ids` too. A proposal's `evidence` is now the
@@ -78,8 +115,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `cheaper`), `cost_usd` (`ProposalCost`) and `decisions`
   (`ProposalDecisions`). A proposal kept as `cheaper` is `evaluated` with
   `better` false. A judged comparison's summary gains `cost_usd`
-  (`JudgedComparisonCost`) and `corrections.judgments`, and each case result
-  gains `cost_usd`, one per repetition.
+  (`JudgedComparisonCost`), and each case result gains `cost_usd`, one per
+  repetition.
 - `kindgi`: **`secrets.revoke`'s docstrings say what a hard revoke does**: it
   erases the value at Kindgi and hard-deletes it in a secret manager, and
   can't be undone; backups, and a secret manager's own retention, may keep
@@ -135,6 +172,14 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   still refused, since the SDK checks data against it with Python's `re`. In
   a model, pydantic checks the data, and reads `\p{L}`. A `"format": "regex"`
   value is checked as the runtime checks it, too.
+- `kindgi`: **`proposals.improve`'s docstrings say how a refusal names why an
+  Improve run has nothing to work on**: a `validation-failed` error's
+  `details.reason` is `no-tunable-keys` or, on the agent's instructions (the
+  `prompt` tier), `no-pinned-prompt-block`.
+- `kindgi`: **`refused_writes` and `max_refused_writes` say what they count:
+  every tool call the replay refused, reads included.** The names don't
+  change. `stopped` says "a refused tool call" where it said "a refused
+  write".
 
 ## 0.1.10
 

@@ -425,7 +425,7 @@ describe('the gate', () => {
   const check = (s: JudgedComparisonSummary, name: string) =>
     gate(s).checks.find((c) => c.name === name);
 
-  test('a comparison with overrides fails sameContents: compare the published version', () => {
+  test('a test run with overrides fails sameContents: try the published version', () => {
     const s = summary({
       candidate: {
         kind: 'agent',
@@ -436,7 +436,9 @@ describe('the gate', () => {
       },
     });
     expect(check(s, 'sameContents')).toMatchObject({ passed: false });
-    expect(check(s, 'sameContents')?.message).toContain('compare the published version');
+    expect(check(s, 'sameContents')?.message).toContain(
+      'try the published version on the test cases',
+    );
     expect(gate(s).passed).toBe(false);
     const prompts = summary({
       candidate: {

@@ -393,12 +393,13 @@ tool with the same arguments.
   always runs live.
 - **A read that reaches outside,** with a `network` or
   `sensitive-data-egress` effect, only ever gets the past run's result for
-  the same call.
+  the same call. Without one, it's refused, as below.
 - **Any other tool** gets the past run's result for the same call, or doesn't
   run. The model is told
   `replay: this call changes things and has no recorded result`, or that the
   call needs an approval, or reaches outside. The case shows what it would
-  have done, and `refusedWrites` counts these calls.
+  have done. `refusedWrites` counts every call a replay refuses, reads
+  included, despite its name.
 - **A case with a correction that says what the run should have done
   replays strictly** (runtime 0.2.0 or later): no tool runs live, even
   with `--reads=live`, or when the version pins other settings blocks. A
@@ -512,7 +513,7 @@ tool:
 - **A `--with` the flow doesn't use is refused:**
   `flow acme-ops.suggest-articles 0.1.0 doesn't use acme-ops.article-picker`.
 
-**A flow stops at a write the replay refuses.** `acme-ops.suggest-and-log`
+**A flow stops at a tool call the replay refuses.** `acme-ops.suggest-and-log`
 also records the articles it suggested. With 0.2.0 of the tool, it would have
 recorded other articles than the past run did for one question, so that case
 stops there:
@@ -528,11 +529,11 @@ stops there:
 }
 ```
 
-A stopped case isn't an error: nothing was written, and it has no output to
-rate, so it's left out of the metrics. The summary counts it in `stopped`,
-and the refused call in `refusedWrites`. The other cases are rated as usual.
-A step's agent turn doesn't stop the flow: its refused calls go back to the
-model, as they do when you try an agent version.
+A stopped case isn't an error: the refused call wasn't carried out, and the
+case has no output to rate, so it's left out of the metrics. The summary
+counts it in `stopped`, and the refused call in `refusedWrites`. The other
+cases are rated as usual. A step's agent turn doesn't stop the flow: its
+refused calls go back to the model, as they do when you try an agent version.
 
 When a version does better, make it live where you choose, as
 [Release an agent version](../release-an-agent-version/) shows.
@@ -560,10 +561,10 @@ A flow's test cases have **Try a flow version on the test cases** instead,
 with a picker for each agent its steps run, to run it at another version.
 Tools are swapped from the CLI and the clients. The page of a flow's run on
 the test cases shows the recorded output beside the version's, and a stopped
-case says what it would have done: "It
-stopped before a write the recorded run didn't make: it would have called
-acme-ops.log-suggestion with `{"articles":[…],"question":"…"}`. Nothing was
-written, and there's no output to rate."
+case says what it would have done: "It stopped at a tool call the replay
+refused: it would have called acme-ops.log-suggestion with
+`{"articles":[…],"question":"…"}`. That call wasn't carried out, and there's
+no output to rate."
 
 ## Next
 

@@ -1456,7 +1456,8 @@
               },
               "maxRefusedWrites": {
                 "type": "integer",
-                "minimum": 0
+                "minimum": 0,
+                "description": "At most this many tool calls the replay refused (the comparison summary's `refusedWrites`). Reads count too, despite the name."
               },
               "maxStopped": {
                 "type": "integer",
@@ -15211,7 +15212,7 @@
           "refusedWrites": {
             "type": "integer",
             "minimum": 0,
-            "description": "Tool calls refused across the cases (what the candidate would have done)."
+            "description": "Tool calls the replay refused across the cases (what the candidate would have done). Reads count too, despite the name: the replay refuses a call it can't run live (a write, or a read that needs an approval or reaches outside, say) that has no recording of the same call."
           },
           "errors": {
             "type": "integer",
@@ -15235,7 +15236,7 @@
           "stopped": {
             "type": "integer",
             "minimum": 0,
-            "description": "Flow cases that stopped at a write the replay refused: no output to score, so they're left out of the metrics."
+            "description": "Flow cases that stopped at a refused tool call: no output to score, so they're left out of the metrics."
           },
           "reads": {
             "type": "string",
@@ -15385,6 +15386,134 @@
             "description": "The cases whose every repetition reported a cost: the ones totalled."
           }
         }
+      },
+      "CallDifference": {
+        "description": "One way a run's calls differed from a correction; it can quote argument values.",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tool",
+              "kind",
+              "expected",
+              "actual"
+            ],
+            "properties": {
+              "tool": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "count"
+                ]
+              },
+              "expected": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "actual": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "refused": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "How many of the actual calls were refused on the replay. Absent when none were."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tool",
+              "kind",
+              "actual"
+            ],
+            "properties": {
+              "tool": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "must-not-call"
+                ]
+              },
+              "actual": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "refused": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "How many of the forbidden calls were refused on the replay. Absent when none were."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tool",
+              "kind",
+              "field",
+              "expected"
+            ],
+            "properties": {
+              "tool": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "missing-field"
+                ]
+              },
+              "field": {
+                "type": "string"
+              },
+              "expected": {},
+              "refused": {
+                "type": "boolean",
+                "description": "Present and true when the call blamed for the miss was refused on the replay."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tool",
+              "kind",
+              "field",
+              "expected",
+              "actual"
+            ],
+            "properties": {
+              "tool": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "field-value"
+                ]
+              },
+              "field": {
+                "type": "string"
+              },
+              "expected": {},
+              "actual": {},
+              "refused": {
+                "type": "boolean",
+                "description": "Present and true when the call blamed for the miss was refused on the replay."
+              }
+            }
+          }
+        ]
       },
       "ComparisonCaseResult": {
         "description": "One case of a comparison: its replay runs, the scores, the items kept, dropped and new, the tool calls, and why it didn't run when it didn't.",
@@ -15740,131 +15869,7 @@
                 "differences": {
                   "type": "array",
                   "items": {
-                    "oneOf": [
-                      {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": [
-                          "tool",
-                          "kind",
-                          "expected",
-                          "actual"
-                        ],
-                        "properties": {
-                          "tool": {
-                            "type": "string"
-                          },
-                          "kind": {
-                            "type": "string",
-                            "enum": [
-                              "count"
-                            ]
-                          },
-                          "expected": {
-                            "type": "integer",
-                            "minimum": 0
-                          },
-                          "actual": {
-                            "type": "integer",
-                            "minimum": 0
-                          },
-                          "refused": {
-                            "type": "integer",
-                            "minimum": 1,
-                            "description": "How many of the actual calls were refused on the replay. Absent when none were."
-                          }
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": [
-                          "tool",
-                          "kind",
-                          "actual"
-                        ],
-                        "properties": {
-                          "tool": {
-                            "type": "string"
-                          },
-                          "kind": {
-                            "type": "string",
-                            "enum": [
-                              "must-not-call"
-                            ]
-                          },
-                          "actual": {
-                            "type": "integer",
-                            "minimum": 1
-                          },
-                          "refused": {
-                            "type": "integer",
-                            "minimum": 1,
-                            "description": "How many of the forbidden calls were refused on the replay. Absent when none were."
-                          }
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": [
-                          "tool",
-                          "kind",
-                          "field",
-                          "expected"
-                        ],
-                        "properties": {
-                          "tool": {
-                            "type": "string"
-                          },
-                          "kind": {
-                            "type": "string",
-                            "enum": [
-                              "missing-field"
-                            ]
-                          },
-                          "field": {
-                            "type": "string"
-                          },
-                          "expected": {},
-                          "refused": {
-                            "type": "boolean",
-                            "description": "Present and true when the call blamed for the miss was refused on the replay."
-                          }
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": [
-                          "tool",
-                          "kind",
-                          "field",
-                          "expected",
-                          "actual"
-                        ],
-                        "properties": {
-                          "tool": {
-                            "type": "string"
-                          },
-                          "kind": {
-                            "type": "string",
-                            "enum": [
-                              "field-value"
-                            ]
-                          },
-                          "field": {
-                            "type": "string"
-                          },
-                          "expected": {},
-                          "actual": {},
-                          "refused": {
-                            "type": "boolean",
-                            "description": "Present and true when the call blamed for the miss was refused on the replay."
-                          }
-                        }
-                      }
-                    ]
+                    "$ref": "#/components/schemas/CallDifference"
                   }
                 }
               }
@@ -15883,7 +15888,8 @@
           },
           "refusedWrites": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Tool calls the replay refused in this case: the most in any one of its repetitions. Reads count too, despite the name."
           },
           "noContext": {
             "type": "boolean"
@@ -15901,7 +15907,7 @@
               "toolId",
               "arguments"
             ],
-            "description": "Set when the replay stopped at a refused write: what it would have done.",
+            "description": "Set when the replay stopped at a refused tool call: what it would have done.",
             "properties": {
               "toolId": {
                 "type": "string"
@@ -16008,7 +16014,7 @@
           "result": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: \"agent\", agentId, version }` or `{ kind: \"flow\", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a write the replay refused, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship."
+            "description": "Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: \"agent\", agentId, version }` or `{ kind: \"flow\", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship."
           },
           "error": {
             "type": "string"
@@ -22733,7 +22739,7 @@
           },
           "improve": {
             "$ref": "#/components/schemas/ImproveScheduleTarget",
-            "description": "A schedule that starts improvement passes: on this agent, for this scope, when enough new trusted \"no\" judgments have come in (`input`: the threshold, the monthly cap and the pass options)."
+            "description": "A schedule that starts Improve runs: on this agent, for this scope, when enough answers have been marked wrong since its last Improve run (`input`: the threshold, the monthly cap and the Improve options)."
           },
           "projectId": {
             "type": "string",
@@ -25133,7 +25139,7 @@
       "ImproveScheduleInput": {
         "type": "object",
         "additionalProperties": false,
-        "description": "An improve schedule's `config.input`. Each fire counts the trusted \"no\" judgments (recorded under a restricted judge class) on the agent's runs in the scope since its last pass. When there are enough, across enough runs and judges, it starts a pass on a fresh test set of those runs; otherwise the fire is `skipped`, saying which count was short. A pass that proposes asks for the review at once.",
+        "description": "An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `classWeights` counts them: by default everyone's corrections until a restricted (experts') judge class is named, then experts' only. When there are enough, across enough runs and judges, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.",
         "properties": {
           "tiers": {
             "type": "array",
@@ -39155,7 +39161,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body, `validation-failed`, or a project or segment scope that isn't in `projectId`. Or `reference-out-of-scope`: a project or segment scope doesn't reach the agent, the version doesn't reach the pass's project (`/fromVersion`), or the test set isn't one that project reaches (`details.issues`).",
+            "description": "Malformed request body, `validation-failed` (with `details.reason` when the version has nothing for the pass to work on: `no-tunable-keys` or `no-pinned-prompt-block`), or a project or segment scope that isn't in `projectId`. Or `reference-out-of-scope`: a project or segment scope doesn't reach the agent, the version doesn't reach the pass's project (`/fromVersion`), or the test set isn't one that project reaches (`details.issues`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -39225,7 +39231,7 @@
             }
           }
         },
-        "description": "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.",
+        "description": "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.",
         "parameters": [
           {
             "name": "Idempotency-Key",

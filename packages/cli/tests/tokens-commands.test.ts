@@ -201,6 +201,13 @@ describe('kindgi tokens', () => {
     expect(calls).toEqual([['tokens.create', {}]]);
   });
 
+  test('create --quiet: the secret alone on stdout, and the warning without "above"', async () => {
+    const { out } = await run(['tokens', 'create', '--quiet']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe('kgi_ak_secret\n');
+    expect(out.stderr).toBe('⚠ The secret of key tok-1 is shown once: store it now.\n');
+  });
+
   test.each([
     [['--for=team:x'], '--for must be user:<id> or sa:<id>'],
     [['--for=user:'], '--for must be'],

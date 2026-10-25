@@ -17,8 +17,10 @@
  */
 export const CLI_DEFAULTS = {
   'auth registry': {
-    registry: "`quay.io`, the runtime image's registry",
-    username: 'required (except with `--check`)',
+    'key-from': 'none',
+    registry: "`registry.kindgi.com`, the runtime image's registry",
+    username:
+      '`kindgi` on `registry.kindgi.com`; required on another registry (except with `--check`)',
   },
   init: {
     'pack-id': "derived from the existing app's name",
@@ -1136,6 +1138,11 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Log in in a script, reading the token from stdin.',
       line: 'kindgi auth registry --username=acme+reader --password-stdin < registry-token.txt',
+    },
+    {
+      purpose:
+        'Log in to registry.kindgi.com with the license key a deployment already keeps, so it never passes through your shell.',
+      line: 'kindgi auth registry --key-from env-file:kindgi.env#KINDGI_LICENSE_KEY',
     },
     {
       purpose: 'Check that Docker can already pull the image, without logging in.',

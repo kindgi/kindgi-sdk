@@ -161,13 +161,13 @@ import { PYPI_NO_BUNDLER } from '../esbuild-loader.js';
 import { openUrlInBrowser } from '../open-url.js';
 import { renderJson } from '../output.js';
 import { binDisplay, cliInstall, detectBinRunner } from '../package-manager.js';
+import type { SaidLine } from '../progress-lines.js';
 import { MODELS_GUIDE } from '../providers/models-guide.js';
 import { loadProviderPresets } from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
 import { consoleUrlOf, couldNotOpen } from './console.js';
 import { defaultSdkSkillsRoot } from './init.js';
 import { describeDevSkillsRefresh, refreshSkillsForDev } from './skills.js';
-import type { DevSkillsLine } from './skills.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 export const devCommand: LeafCommand = {
@@ -689,7 +689,7 @@ async function runDevForPack(
       emitProgress('🧹 --reset: removed .kindgirc.json (a new token this boot)');
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        emitProgress(`  --reset: could not remove .kindgirc.json: ${(err as Error).message}`);
+        emitProblem(`⚠ --reset: could not remove .kindgirc.json: ${(err as Error).message}`);
       }
     }
     if (projectDatabases === undefined) {
@@ -800,8 +800,8 @@ async function runDevForPack(
       return { kind: 'error', stderr: refused, exitCode: 1 };
     }
     if (previous.packServicePort === undefined) throw err;
-    emitProgress(
-      `  the pack service's port ${previous.packServicePort} is taken: using another one${args.runtimeUrl !== undefined ? ' (restart your runtime with the new runtime.env)' : ''}`,
+    emitProblem(
+      `⚠ the pack service's port ${previous.packServicePort} is taken: using another one${args.runtimeUrl !== undefined ? ' (restart your runtime with the new runtime.env)' : ''}`,
     );
     await pack.close().catch(() => undefined);
     pack = dev.createPackService(packOptions);
@@ -1031,31 +1031,14 @@ async function runDevForPack(
   // tenant row and orphans the pack's registered primitives under old
   // tenant UUIDs. Persisting keeps the "run this pack" identity
   // stable across restarts.
-  let kindgircWritten = false;
-  try {
-    await writeFile(
-      kindgircPath,
-      `${JSON.stringify(
-        {
-          apiUrl: server.baseUrl,
-          token: server.token,
-          tenantId: server.tenantId as unknown as string,
-          userId: server.userId,
-          packServicePort: packFront.port,
-          packServiceToken: pack.token,
-        },
-        null,
-        2,
-      )}\n`,
-      // It holds the dev token and the pack service's token.
-      { encoding: 'utf8', mode: 0o600 },
-    );
-    await chmod(kindgircPath, 0o600);
-    kindgircWritten = true;
-  } catch {
-    // Best effort — if the pack dir is read-only or something goes wrong,
-    // don't fail boot. The user can still pass --url/--token flags.
-  }
+  const kindgircWritten = await writeKindgirc(kindgircPath, {
+    apiUrl: server.baseUrl,
+    token: server.token,
+    tenantId: server.tenantId as unknown as string,
+    userId: server.userId,
+    packServicePort: packFront.port,
+    packServiceToken: pack.token,
+  });
 
   // Where it serves, for a second kindgi dev to say (`dev.lock`).
   await lock
@@ -1126,11 +1109,10 @@ async function runDevForPack(
   if (args.open) {
     if (server.consoleMounted === true) {
       const opened = await (ctx.openUrl ?? openUrlInBrowser)(consoleUrlOf(server.baseUrl));
-      emitProgress(
-        opened.ok ? '  Opened the console in your browser.' : `  ${couldNotOpen(opened.reason)}`,
-      );
+      if (opened.ok) emitProgress('  Opened the console in your browser.');
+      else emitProblem(`⚠ ${couldNotOpen(opened.reason)}`);
     } else {
-      emitProgress('  --open: this runtime serves no console, so there is nothing to open.');
+      emitProblem('⚠ --open: this runtime serves no console, so there is nothing to open.');
     }
     emitProgress('');
   }
@@ -1693,6 +1675,33 @@ function pickRunners(ctx: CommandContext): RunnersOutcome {
 }
 
 /**
+ * Write `.kindgirc.json`, readable by its owner only, since it holds the dev
+ * token and the pack service's token: whether it was written. Best effort:
+ * what goes wrong is a warning, and boot goes on. Without the file, the CLI
+ * in the folder can still pass --url and --token.
+ */
+async function writeKindgirc(
+  path: string,
+  rc: Readonly<Record<string, unknown>>,
+): Promise<boolean> {
+  try {
+    await writeFile(path, `${JSON.stringify(rc, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  } catch (err) {
+    emitProblem(
+      `⚠ couldn't write .kindgirc.json (${(err as Error).message}): the CLI in this folder needs --url and --token to reach this runtime`,
+    );
+    return false;
+  }
+  // A file that was there keeps its mode through the write.
+  await chmod(path, 0o600).catch((err: unknown) => {
+    emitProblem(
+      `⚠ couldn't make .kindgirc.json readable by its owner only (${(err as Error).message}): it holds this runtime's tokens, and keeps the mode it had`,
+    );
+  });
+  return true;
+}
+
+/**
  * Read the persisted `.kindgirc.json` if present. Returns `undefined`
  * for any missing field — all missing cases fall back to
  * server-generated on this boot. Called at boot so the previous run's
@@ -1972,7 +1981,7 @@ async function emitSkillsRefresh(
 ): Promise<void> {
   const skillsRoot = defaultSdkSkillsRoot();
   if (skillsRoot === undefined) return;
-  let lines: readonly DevSkillsLine[];
+  let lines: readonly SaidLine[];
   try {
     const refresh = await refreshSkillsForDev({ skillsRoot, targetDir: packDir, language });
     lines = describeDevSkillsRefresh(refresh, commands);
