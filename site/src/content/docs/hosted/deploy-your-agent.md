@@ -39,7 +39,7 @@ into the chat.
 **Store secrets**. The secret shows once: **Copy** it.
 
 This key is the one every command in this guide uses. If you also run
-`kindgi dev`, its console and the token it prints belong to the runtime on
+`kindgi dev`, its console and its token belong to the runtime on
 your machine, not to Kindgi Cloud: paste only the key you made here.
 
 **Sign the CLI in, in a terminal of your own,** in the pack's folder. Paste

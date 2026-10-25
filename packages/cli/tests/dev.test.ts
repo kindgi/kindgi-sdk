@@ -32,6 +32,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { createLogger } from '@kindgi/log';
 
+import { describeDevToken } from '../src/commands/dev.js';
 import { defaultSdkSkillsRoot } from '../src/commands/init.js';
 import { syncSkills } from '../src/commands/skills.js';
 import { LocalPortsRefused } from '../src/dev/blocked.js';
@@ -1278,7 +1279,10 @@ describe('kindgi dev — boot flow (no watch)', () => {
     });
     expect(out.stderr).toContain('Starting Kindgi locally');
     expect(out.stderr).toContain('http://localhost:4000');
-    expect(out.stderr).toContain('kgi_bt_test-token');
+    expect(out.stderr).toContain(
+      "Bearer token       kgi_bt_…   (in full in the pack's .kindgirc.json)\n",
+    );
+    expect(out.stderr).not.toContain('kgi_bt_test-token');
     expect(out.stderr).toContain('1 tools');
     expect(out.stderr).toContain('1 guardrails');
     expect(out.stderr).toContain('1 agents');
@@ -1569,6 +1573,83 @@ describe('kindgi dev — boot flow (no watch)', () => {
   // Since the disk-binding switch, every primitive is served from
   // disk and the CLI never POSTs them — there's no 409 path to test.
   // The fixture's `toolStatus: 409` option is unused.
+});
+
+describe("kindgi dev — the banners' token line", () => {
+  // As kindgi dev makes one: `kgi_bt_` and 43 URL-safe base64 characters.
+  const TOKEN = `kgi_bt_${'q'.repeat(39)}Wz9-`;
+  const SHOWN = "kgi_bt_…Wz9-   (in full in the pack's .kindgirc.json)";
+
+  function withToken(fixtures: Fixtures, token: string): void {
+    vi.spyOn(fixtures.runners, 'startApiServer').mockResolvedValue({ ...fixtures.server, token });
+  }
+
+  test('a token shows as the runtime shows it, its kgi_bt_ prefix and last four, with the file it is in', () => {
+    expect(describeDevToken(TOKEN, '.kindgirc.json')).toBe(SHOWN);
+    // Too short for its last four to say little about it: the prefix alone.
+    expect(describeDevToken('kgi_bt_test-token', '.kindgirc.json')).toBe(
+      "kgi_bt_…   (in full in the pack's .kindgirc.json)",
+    );
+  });
+
+  test('a token pinned in another shape shows its last four at most', () => {
+    expect(describeDevToken('my-own-dev-token-1234', '.kindgirc.json')).toBe(
+      "…1234   (in full in the pack's .kindgirc.json)",
+    );
+    expect(describeDevToken('devtoken', '.kindgirc.json')).toBe(
+      "…   (in full in the pack's .kindgirc.json)",
+    );
+    // Kindgi's shape only up to a space: nothing after it shows.
+    const partly = describeDevToken('kgi_bt_abcdefghijklmnopqrstu secret-tail', '.kindgirc.json');
+    expect(partly).toBe("…tail   (in full in the pack's .kindgirc.json)");
+  });
+
+  test('the --no-watch banner never prints the token, and .kindgirc.json has it in full', async () => {
+    const fixtures = makeFixtures();
+    withToken(fixtures, TOKEN);
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(0);
+    expect(out.stderr).toContain(`    Bearer token       ${SHOWN}\n`);
+    expect(out.stderr).not.toContain(TOKEN);
+    const rc = JSON.parse(await readFile(join(packDir, '.kindgirc.json'), 'utf8'));
+    expect(rc.token).toBe(TOKEN);
+  });
+
+  test('the live "Kindgi is up" block never prints the token either', async () => {
+    const fixtures = makeFixtures();
+    withToken(fixtures, TOKEN);
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    try {
+      await runCli({ ...baseInputs(fixtures), argv: ['dev', '--no-watch', `--path=${packDir}`] });
+    } finally {
+      spy.mockRestore();
+    }
+    const up = writes.join('').split('✓ Kindgi is up')[1] ?? '';
+    expect(up).toContain(`  Token      ${SHOWN}\n`);
+    expect(writes.join('')).not.toContain(TOKEN);
+  });
+
+  test(".kindgirc.json can't be written: the token line names runtime.env, which has it", async () => {
+    // A folder where the file goes: reading it finds nothing, and writing it fails.
+    await mkdir(join(packDir, '.kindgirc.json'));
+    const fixtures = makeFixtures();
+    withToken(fixtures, TOKEN);
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.stderr).toContain(
+      "    Bearer token       kgi_bt_…Wz9-   (in full in the pack's .kindgi/dev/runtime.env)\n",
+    );
+    expect(out.stderr).not.toContain(TOKEN);
+  });
 });
 
 describe('kindgi dev — the PyPI CLI (kindgi-cli)', () => {

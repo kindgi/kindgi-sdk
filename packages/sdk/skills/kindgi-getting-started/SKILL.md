@@ -126,8 +126,9 @@ pnpm exec kindgi dev
 
 `kindgi dev` boots a local Kindgi runtime (starting the services it
 needs on first run), indexes the pack, registers every primitive, and
-re-registers on every save. The banner prints the API URL, the seeded
-bearer token, and (if the console is bundled) the `/console/` URL.
+re-registers on every save. The banner prints the API URL, the dev
+token's last four characters (the pack's `.kindgirc.json` has it in full,
+as `token`), and (if the console is bundled) the `/console/` URL.
 
 One `kindgi dev` per pack. When one is already running (the person's
 terminal, say), `kindgi dev` exits with code 3 and prints where it is

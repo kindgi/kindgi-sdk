@@ -207,8 +207,9 @@ for event in client.runs.follow(run.id):  # to the run's end, reconnecting
     print(event.kind)
 ```
 
-`AsyncKindgi` is the asyncio twin. `kindgi dev` prints the URL and the
-token; `.kindgirc.json` in the pack holds them for the CLI.
+`AsyncKindgi` is the asyncio twin. With `kindgi dev`, the URL and the
+token are `apiUrl` and `token` in the pack's `.kindgirc.json`, which the
+CLI reads too; the banner shows only the token's last four characters.
 
 ## Your app and Kindgi's data
 

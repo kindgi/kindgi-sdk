@@ -71,6 +71,7 @@ import {
   PUBLIC_TOKEN_KEY_PATH_VAR,
   parseCorsOrigins,
 } from '@kindgi/env-schema';
+import { scrubText } from '@kindgi/log';
 
 import { indexerPredatesBlocks, packIndexerName } from '../build/pack-blocks.js';
 import type { CommandContext } from '../context.js';
@@ -999,21 +1000,6 @@ async function runDevForPack(
   );
   if (previewWarning !== undefined) emitProblem(previewWarning);
 
-  const bannerLines = renderDevBanner({
-    baseUrl: server.baseUrl,
-    consoleMounted: server.consoleMounted === true,
-    tenantId: server.tenantId,
-    token: server.token,
-    providers,
-    packDir: args.packDir,
-    bootIndex,
-    bootReport,
-    discoveryRoots: discoveryRoots(projectEnv.discoveryPatterns),
-    ...(servicesHandle !== undefined && { autoStartedServices: servicesHandle.services }),
-    corsOrigins: publicRunTokens.corsOrigins,
-    ...(google.credentials !== undefined && { googleCredentials: google.credentials }),
-  });
-
   // Write `.kindgirc.json` to the pack root so a SECOND terminal in
   // the same directory (`cd <pack>; kindgi runs start ...`) picks up
   // the api URL + bearer token automatically. Same file the config
@@ -1038,6 +1024,24 @@ async function runDevForPack(
     userId: server.userId,
     packServicePort: packFront.port,
     packServiceToken: pack.token,
+  });
+  // Where the token is in full: the banners show only its ends.
+  const tokenFile = kindgircWritten ? '.kindgirc.json' : join('.kindgi', 'dev', 'runtime.env');
+
+  const bannerLines = renderDevBanner({
+    baseUrl: server.baseUrl,
+    consoleMounted: server.consoleMounted === true,
+    tenantId: server.tenantId,
+    token: server.token,
+    tokenFile,
+    providers,
+    packDir: args.packDir,
+    bootIndex,
+    bootReport,
+    discoveryRoots: discoveryRoots(projectEnv.discoveryPatterns),
+    ...(servicesHandle !== undefined && { autoStartedServices: servicesHandle.services }),
+    corsOrigins: publicRunTokens.corsOrigins,
+    ...(google.credentials !== undefined && { googleCredentials: google.credentials }),
   });
 
   // Where it serves, for a second kindgi dev to say (`dev.lock`).
@@ -1064,7 +1068,7 @@ async function runDevForPack(
     emitProgress(`  Project    ${project.name} · database ${project.database}`);
   }
   emitProgress(`  Tenant     ${server.tenantId}`);
-  emitProgress(`  Token      ${server.token}`);
+  emitProgress(`  Token      ${describeDevToken(server.token, tokenFile)}`);
   if (providers !== undefined) {
     emitProgress(`  Models     ${describeModels(providers)}`);
   }
@@ -2171,6 +2175,8 @@ interface DevBannerInputs {
   readonly consoleMounted?: boolean;
   readonly tenantId: string;
   readonly token: string;
+  /** The file in the pack that has the token in full (see `describeDevToken`). */
+  readonly tokenFile: string;
   /** The tenant's model providers; `undefined` leaves the line out. */
   readonly providers?: readonly BannerProvider[] | undefined;
   readonly packDir: string;
@@ -2187,6 +2193,21 @@ interface DevBannerInputs {
   readonly corsOrigins?: readonly string[];
   /** The Google credentials mounted for Vertex AI (`KINDGI_DEV_GOOGLE_CREDENTIALS`). Absent: no line. */
   readonly googleCredentials?: DevGoogleCredentials;
+}
+
+/**
+ * The dev token as the banners show it: as the runtime's own startup line
+ * does, `kgi_bt_…` and its last four characters, so a dev log someone
+ * pastes doesn't give the token away. A token pinned with `--dev-token` in
+ * another shape shows only its last four, and none under 16 characters.
+ * `tokenFile`, in the pack, has it in full.
+ */
+export function describeDevToken(token: string, tokenFile: string): string {
+  const scrubbed = scrubText(token);
+  const shown = /^kgi_[a-z]{2,3}_…[^…]{0,4}$/u.test(scrubbed)
+    ? scrubbed
+    : `…${token.length >= 16 ? token.slice(-4) : ''}`;
+  return `${shown}   (in full in the pack's ${tokenFile})`;
 }
 
 /** The browser origins line: who may follow runs with public run tokens (`KINDGI_CORS_ORIGINS`). */
@@ -2234,7 +2255,7 @@ export function renderDevBanner(inputs: DevBannerInputs): readonly string[] {
   }
   lines.push(`    API server         ${inputs.baseUrl}`);
   lines.push(`    Tenant             ${inputs.tenantId}`);
-  lines.push(`    Bearer token       ${inputs.token}`);
+  lines.push(`    Bearer token       ${describeDevToken(inputs.token, inputs.tokenFile)}`);
   lines.push(`    Pack dir           ${inputs.packDir}`);
   if (inputs.providers !== undefined) {
     lines.push(`    Models             ${describeModels(inputs.providers)}`);

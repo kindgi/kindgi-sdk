@@ -359,7 +359,7 @@ request field; dots nest).
   API        http://127.0.0.1:4000
   Console    http://127.0.0.1:4000/console/
   Tenant     c9a4…
-  Token      kgi_bt_…
+  Token      kgi_bt_…Wz9-   (in full in the pack's .kindgirc.json)
   Models     none yet. Agents give placeholder replies until you connect a model: https://docs.kindgi.com/…
   Origins    …
 
@@ -370,6 +370,12 @@ request field; dots nest).
   Watching /path/to/my-pack
   Ctrl+C to stop.
 ```
+
+The token shows as the runtime's own startup line shows it, its `kgi_bt_`
+prefix and last four characters, so a log you share doesn't give it away.
+The pack's `.kindgirc.json` has it in full, as `token`: readable only by
+you, and in the `.gitignore` that `kindgi init` writes. The CLI's other
+commands in the pack's folder read it from there.
 
 Progress and the runtime's own log lines (`[runtime] …`, `[pack] …`) go to
 stderr. With `--log-format=json`, the log records go to stdout instead, one
