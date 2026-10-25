@@ -59,9 +59,12 @@ shows.
 ## Durable
 
 A run's state is the journal, not a process's memory. A run that waits for
-a person's approval is parked at a **waitpoint**. It continues when a
-reviewer decides the approval, as
-[Decide an approval](../../guides/approvals/decide-an-approval/) shows.
+a person's approval, or for another system's answer to a tool's call, is
+parked at a **waitpoint**. It continues when a reviewer decides the
+approval, as [Decide an approval](../../guides/approvals/decide-an-approval/)
+shows, or when the answer comes, as
+[Wait for another system's answer](../../guides/tools/wait-for-another-system/)
+shows.
 
 A start repeated with the same **idempotency key** never starts a second
 run. Once the first call has answered, the repeat returns the run the first
@@ -87,8 +90,8 @@ out:
 Within about a lease plus a sweep:
 
 - **A run that was executing fails**, and `run.finished` tells your app.
-- **A run whose wait was resolved** (its approval decided) but that nothing
-  resumed **is resumed**. After three failed attempts it fails:
+- **A run whose wait was resolved** (its approval decided, or another
+  system's answer taken) but that nothing resumed **is resumed**. After three failed attempts it fails:
   `Interrupted: the run was ready to continue, but every attempt to resume it failed.`
 - **A flow waiting on a child run that already ended is woken**, and goes on.
 - **A run whose parent run ended is ended too:** cancelled when the parent

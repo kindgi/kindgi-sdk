@@ -188,6 +188,21 @@ export interface JudgingRulePreview {
   readonly matched: number;
 }
 
+/** The outcome of queueing a rule's matches among recent runs ({@link JudgingQueueBinding.queueRecent}). */
+export interface JudgingRecentQueued {
+  /** Matching recent runs this call newly queued for the rule: a new queue item, or the rule added to one already waiting for another rule. */
+  readonly queued: number;
+  /** Matching recent runs this rule had already queued and that are still open (deduped per `(rule, run)`). */
+  readonly alreadyQueued: number;
+  /**
+   * Matching recent runs whose run was already judged or dismissed: left as
+   * they are, not re-queued. An already-erased run is no longer a match and
+   * is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed`
+   * together are the matches.
+   */
+  readonly alreadyReviewed: number;
+}
+
 export type JudgingErrorCode =
   | 'judging-rule-not-found'
   | 'judging-item-not-found'
@@ -288,4 +303,22 @@ export interface JudgingQueueBinding {
       readonly ruleId?: string;
     },
   ): Promise<JudgingRulePreview>;
+  /**
+   * Queue the runs an existing rule matches among the project's recent
+   * runs — `last` of them (newest first) and/or those completed at or
+   * after `since` — sampled as the rule samples, deduped per `(rule, run)`
+   * as run-end matching is. For catching a rule up on past runs; `maxOpen`
+   * is not applied. At least one of `last`, `since` is given. The answer
+   * splits the matches into `queued`, `alreadyQueued` and `alreadyReviewed`:
+   * a run already judged or dismissed is left as it is, and an erased run is
+   * no longer a match.
+   */
+  queueRecent(
+    input: InProject & {
+      readonly ruleId: string;
+      readonly last?: number;
+      readonly since?: Timestamp;
+      readonly by?: string;
+    },
+  ): Promise<Result<JudgingRecentQueued, JudgingError>>;
 }

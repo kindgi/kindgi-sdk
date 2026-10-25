@@ -56,7 +56,7 @@ license key, and pull it:
 
 ```sh
 docker login registry.kindgi.com --username kindgi
-docker pull quay.io/kindgi/runtime:0.1.9
+docker pull quay.io/kindgi/runtime:0.1.10
 ```
 
 `docker login` asks for the password: paste your key. It prints
@@ -206,7 +206,7 @@ With `--push`, as here, the image is for `linux/amd64`, and on Apple silicon it 
 Your tools' code runs in the pack's own container. The runtime calls it with a token both sides share:
 
 ```sh
-echo "KINDGI_PACK_SERVICE_TOKEN=$(openssl rand -base64 32)" > pack.env
+echo "KINDGI_PACK_SERVICE_TOKEN=$(openssl rand -hex 32)" > pack.env
 chmod 600 pack.env
 
 docker run -d --name kindgi-pack --network kindgi --env-file pack.env \
@@ -268,7 +268,7 @@ It holds the API token and the license key, so keep it to yourself:
 
 Every setting is in the [environment variable reference](../../../reference/env-vars/). These are worth knowing now:
 
-- **`KINDGI_DATABASE_URL`** connects to Postgres directly, or through a pooler in session mode. The runtime holds session locks on its connection while it migrates. A pooler in transaction mode, such as PgBouncer's `pool_mode = transaction`, doesn't keep them, as [PgBouncer's pooling modes](https://www.pgbouncer.org/features.html) describes.
+- **`KINDGI_DATABASE_URL`** connects to Postgres directly, or through a pooler in session mode. The runtime holds session locks on its connection while it migrates. A pooler in transaction mode, such as PgBouncer's `pool_mode = transaction`, doesn't keep them, as [PgBouncer's pooling modes](https://www.pgbouncer.org/features.html) describes. `sslmode=require` in it encrypts the connection but takes any certificate: [Check the database's certificate](../database-tls/) shows how the runtime checks that the server it reached is your database.
   - **Through PgBouncer:** on runtime 0.1.9 or later, the runtime sends its [database timeouts](../../../reference/env-vars/#kindgi_db_statement_timeout_ms) as startup parameters. A PgBouncer on its default settings refuses them, so the runtime can't connect (`unsupported startup parameter: statement_timeout`). On PgBouncer 1.26.0 or later, have it pass them on with `track_extra_parameters = statement_timeout, lock_timeout, idle_in_transaction_session_timeout` ([PgBouncer's settings](https://www.pgbouncer.org/config.html#track_extra_parameters)). Earlier versions mishandle a tracked parameter that Postgres doesn't report, as it doesn't these three, when a client sends it at startup (fixed in 1.26.0, [PgBouncer's changelog](https://www.pgbouncer.org/changelog.html)). `ignore_startup_parameters` with the same names lets the runtime connect, but PgBouncer drops them, and your role's, database's or server's settings hold instead. The runtime's admin commands (`kindgi-runtime tenants …` and `kindgi-runtime check …`) send theirs the same way, with no statement timeout, and don't read back what's in effect. So behind a PgBouncer that drops them, a long purge or check runs under those settings, and can be ended by them.
   - **The runtime checks at boot:** its startup line shows the timeouts Postgres has in effect, and it logs a warning for each one that differs from what it sent.
 - **`KINDGI_ENV`** names the environment your tools' secrets resolve in.
@@ -284,7 +284,7 @@ Start the runtime:
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.9
+  quay.io/kindgi/runtime:0.1.10
 ```
 
 - **`--restart unless-stopped`** brings the runtime back by itself after a

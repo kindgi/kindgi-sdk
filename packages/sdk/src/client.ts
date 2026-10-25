@@ -108,7 +108,6 @@ export type {
   CapabilitiesClient,
   CapabilityFilter,
   ClientOptions,
-  CompleteTokenInput,
   ConversationFilter,
   ConversationsClient,
   CostClient,

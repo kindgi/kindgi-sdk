@@ -20,6 +20,7 @@ import type {
 } from '@kindgi/types';
 
 import { callerRef } from '../caller.js';
+import { sameJson } from '../canonical-json.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -46,6 +47,8 @@ import { generateSigningSecret } from '../webhook-signing-secret.js';
 import { clampLimit } from './pagination.js';
 import {
   type TriggerOwnerNames,
+  editMovingOwner,
+  ownerAfterEdit,
   ownerJson,
   ownerNamesOf,
   recordOwnerSet,
@@ -649,20 +652,26 @@ export function webhooksRouter(
       ...(tools.kind === 'ok' && { toolsAllowedUnattended: tools.value }),
     };
 
-    const result = await binding.update(updateInput);
-    if (result.kind === 'err') {
-      c.status(statusFor(result.error.code) as never);
-      return c.json(
-        toWireError(
-          {
-            code: result.error.code,
-            message: result.error.message,
-            triggerId: triggerId as unknown as string,
-          },
-          requestId,
-        ),
-      );
+    // Someone other than the person who owns it who changes what it runs
+    // becomes its owner (`ownerAfterEdit`): its flow version, its input, its
+    // tool list, its signing secret. Not the label or the delivery settings.
+    const changesWhatItRuns =
+      (typeof body.flowVersion === 'string' && body.flowVersion !== found.value.flowVersion) ||
+      ('input' in cfg && !sameJson(cfg.input, found.value.config.input)) ||
+      (tools.kind === 'ok' && !sameToolList(kept, tools.value)) ||
+      (typeof body.hmacSecretName === 'string' &&
+        body.hmacSecretName !== found.value.hmacSecretName);
+    const result = await editMovingOwner(c, {
+      binding,
+      auditEvents,
+      trigger: found.value,
+      to: ownerAfterEdit(c, found.value.owner, changesWhatItRuns),
+      edit: () => binding.update(updateInput),
+    });
+    if (result.kind === 'unsupported') {
+      return unsupported(c, requestId, "moving a trigger's owner to whoever changes what it runs");
     }
+    if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
     if (tools.kind === 'ok' && !sameToolList(kept, tools.value)) {
       await recordToolsAllowedUnattendedSet({
         auditEvents,

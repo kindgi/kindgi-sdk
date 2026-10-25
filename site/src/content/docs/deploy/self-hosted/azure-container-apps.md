@@ -41,6 +41,12 @@ password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or tr
   ([A new VNet, or yours](#a-new-vnet-or-yours)).
 - **Log Analytics** for both apps' logs.
 
+**One tenant:** the runtime serves the tenant it seeds (`seed_tenant_id`),
+and the plan refuses `KINDGI_TENANCY` or `KINDGI_PACK_ROUTING` other than
+`single`. [Serving many tenants](../serve-many-tenants/) needs a container
+app for each deployment's pack service, run by an orchestrator of your own,
+which this module doesn't make.
+
 Who calls whom:
 
 - your app calls the runtime, with its API token;
@@ -187,8 +193,8 @@ digest, with every platform it was built for:
 ```sh
 ACR=$(terraform output -raw image_registry)
 az acr login -n "${ACR%%.*}"
-docker buildx imagetools create --tag "$ACR/runtime:0.1.9" \
-  quay.io/kindgi/runtime:0.1.9@sha256:604e283abed492f5bd50c88dcf582d13e38e19534ee7ddad817ba08012f99523
+docker buildx imagetools create --tag "$ACR/runtime:0.1.10" \
+  quay.io/kindgi/runtime:0.1.10@sha256:b6bdf6bcc6fb86fd1e16a2fce7d37dc066b766a0b4313dd3f19e2c904b3b01b3
 ```
 
 - `ACR` is the registry's address, from the foundation's output, and
@@ -383,6 +389,15 @@ Then the lines name the license and the pack's service it reached:
   Pack service: https://acme-pack.internal.… — acme (artifact 20261008.211554), protocol 2, 3 tools, 1 check
 ```
 
+**Keep the pack's service warm when response time matters.** The default,
+`pack_min_instances = 1`, keeps one replica running, so the first tool call
+after a quiet spell doesn't wait for one to start. That replica runs around
+the clock
+([Azure Container Apps pricing](https://azure.microsoft.com/pricing/details/container-apps/)).
+`pack_min_instances = 0` lets the service scale to zero when it's idle,
+which suits a dev deployment: the first tool call after that waits for a
+replica to start.
+
 ### How the runtime calls your pack's service
 
 The pack's service has environment-internal ingress, and the environment holds
@@ -511,6 +526,122 @@ npx --yes @kindgi/cli@0.2 runs start --flow=acme.greet-flow --input='{"name":"Az
 In the verification run, that flow (one tool step) completed in 399 ms, start
 to finish, with the output `{"greeting":"Hello, Azure!"}`.
 
+## 7. Turn on sign-in
+
+Nobody can sign in to the console until you turn sign-in on. The API, the
+CLI and the SDKs take API tokens either way. Until then, the startup lines
+say so:
+
+```text
+  ⚠ Console sign-in: nobody can sign in to the console. KINDGI_CONSOLE_TOKEN_SIGN_IN=on allows an API token; KINDGI_AUTH_SECRET_PATH turns on sign-in with identity providers.
+```
+
+The runtime's own settings go in two variables, as the pack's do:
+`server_env` for plain values, and `server_secret_env` for Key Vault
+secrets, read with the runtime's identity. You create each secret in the
+module's vault with `put` ([3. The secrets](#3-the-secrets)), and the
+runtime gets read access to exactly those. The plan refuses a name the
+module sets itself (its own variables cover those, such as `public_url`
+below), `KINDGI_DEV`, a name in both maps, and a secret given as a plain
+value: a name with `SECRET` in it, or the SMTP URL.
+
+**With an API token,** which the console's sign-in page then takes:
+
+```hcl excerpt
+server_env = {
+  KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+}
+```
+
+**With an emailed link,** you need the runtime's sign-in secret, an SMTP
+server and `public_url`:
+
+```sh
+# In the shell from step 3: it defines `put` and keeps az's log file off. No `--debug`.
+# The sign-in secret: 32 bytes, base64.
+openssl rand 32 | base64 | tr -d '\n' | put auth-secret
+# The SMTP URL, password included: paste it; it never goes in a file.
+read -rs SMTP_URL && printf '%s' "$SMTP_URL" | put smtp-url && unset SMTP_URL
+```
+
+```hcl excerpt
+public_url = "https://kindgi-server.<environment domain>" # terraform output -raw server_url
+server_env = {
+  KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+  KINDGI_AUTH_EMAIL_FROM       = "kindgi@acme.example"
+}
+server_secret_env = {
+  KINDGI_AUTH_SECRET         = { secret = "auth-secret", version = "<the version put printed>" }
+  KINDGI_AUTH_EMAIL_SMTP_URL = { secret = "smtp-url", version = "<the version put printed>" }
+}
+```
+
+Pin each secret to a version, as here, rather than `latest`: a new version
+then reaches the runtime only when you change `version`, not whenever
+Container Apps picks it up.
+
+- **`public_url`** (`KINDGI_PUBLIC_URL`) is the address people open the
+  console at: `terraform output -raw server_url` after the first apply, so
+  the emailed link comes with a second apply, or your own domain in front.
+  Console sessions are then accepted from that address only. The plan
+  refuses `KINDGI_AUTH_SECRET` without it, because the runtime wouldn't
+  start. A tool that pauses hands other systems a link made from it too
+  ([On a server you run](../../../guides/tools/wait-for-another-system/#on-a-server-you-run)).
+
+**With Continue with Google,** you need the sign-in secret and `public_url`,
+as for the emailed link, and an OAuth client of type **Web application** in
+the Google Cloud console ([Google](../sign-in/#google)). Its authorized
+redirect URI is `public_url` followed by
+`/auth/kindgi/social/callback/google`:
+
+```text
+https://kindgi-server.<environment domain>/auth/kindgi/social/callback/google
+```
+
+Store the client's secret, then give the runtime the client's ID and the
+secret:
+
+```sh
+# In the shell from step 3. The Google client's secret: paste it; it never goes in a file.
+read -rs GOOGLE_SECRET && printf '%s' "$GOOGLE_SECRET" | put google-client-secret && unset GOOGLE_SECRET
+```
+
+```hcl excerpt
+public_url = "https://kindgi-server.<environment domain>"
+server_env = {
+  KINDGI_AUTH_GOOGLE_CLIENT_ID = "<client id>"
+}
+server_secret_env = {
+  KINDGI_AUTH_SECRET               = { secret = "auth-secret", version = "<the version put printed>" }
+  KINDGI_AUTH_GOOGLE_CLIENT_SECRET = { secret = "google-client-secret", version = "<the version put printed>" }
+}
+```
+
+- `<client id>` is the client's ID in the Google Cloud console, ending in
+  `.apps.googleusercontent.com`.
+- **Microsoft and GitHub** go the same way, with `MICROSOFT` or `GITHUB` in
+  the names, and a redirect URI ending in `microsoft` or `github`
+  ([Continue with Google, Microsoft or GitHub](../sign-in/#continue-with-google-microsoft-or-github)).
+  So do verified domains and Turnstile: `KINDGI_AUTH_VERIFIED_DOMAINS` and
+  the Turnstile site key in `server_env`, and `KINDGI_AUTH_TURNSTILE_SECRET`
+  in `server_secret_env`.
+- **Several ways in** share the two maps: with the emailed link too, they
+  hold both sets of settings.
+- **The module mounts no files,** so use the value forms of the settings,
+  such as `KINDGI_AUTH_GOOGLE_CLIENT_SECRET`, not their `…_PATH` forms.
+
+**Check it worked:** after the apply, the new revision's startup lines
+([4. The services](#4-the-services)) say which ways in the console has,
+instead of the warning. With Continue with Google alone:
+
+```text
+  Console sign-in: identity providers (KINDGI_CONSOLE_TOKEN_SIGN_IN=on also allows an API token)
+  …
+  Continue with: Google (the deployment's own apps)
+```
+
+What each setting does, and the ways in: [Turn on sign-in](../sign-in/).
+
 ## The roles it sets up
 
 | Who | Role | On |
@@ -525,10 +656,9 @@ to finish, with the output `{"greeting":"Hello, Azure!"}`.
 
 ## Operate it
 
-- **Upgrade at least every 90 days while Kindgi is in preview.** Until
-  Kindgi 1.0, a release stops starting 90 days after it was released.
-  Container Apps starts new replicas on its own, and after that day none
-  comes up. The runtime warns from 30 days before, at startup and once a
+- **Upgrade at least every 90 days.** A preview release stops starting 90
+  days after it was released. Container Apps starts new replicas on its
+  own, and after that day none comes up. The runtime warns from 30 days before, at startup and once a
   day, in a log record with `"event": "kindgi.preview_expiry"`: alert on it
   in Log Analytics
   ([Licensing](../../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
@@ -614,3 +744,4 @@ terraform destroy -var-file=dev.tfvars
 - [Renew the license key](../renew-the-license-key/): on the module's
   schedule.
 - [Logs](../logs/): what the runtime logs, and how to follow a run.
+- [Turn on sign-in](../sign-in/): every way in, and what each setting does.

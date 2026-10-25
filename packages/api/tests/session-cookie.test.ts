@@ -32,7 +32,7 @@ const CONSOLE = 'https://kindgi.example.com';
 const FAR = '2099-01-01T00:00:00.000Z' as Timestamp;
 
 const bearerResolver: TokenResolver = async (token) =>
-  token === BEARER ? { tenantId, scopes: [] } : null;
+  token === BEARER ? { tenantId, scopes: ['tenant-admin'] } : null;
 
 const noProviders: IdentityProviderBinding = {
   list: async () => ({ data: [] }),

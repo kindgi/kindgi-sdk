@@ -1421,6 +1421,7 @@ describe('writeContext, with a cut-down install', () => {
       containerfilePath: join(root, 'Containerfile'),
       includes: [],
       extensionFiles: [],
+      blockFiles: [],
     });
     const host = join(contextDir, 'host');
     expect(await readFile(join(host, 'package.json'), 'utf8')).toBe(written['package.json']);

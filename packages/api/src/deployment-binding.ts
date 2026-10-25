@@ -375,7 +375,9 @@ export interface Deployment {
   /**
    * Its pack service's status, when the server routes pack calls per
    * deployment. Absent otherwise (one pack service for every deployment),
-   * and from a binding that doesn't track it.
+   * for a deployment that ships nothing a pack service serves (no tool, and
+   * no guardrail check but built-in ones: a pack of agents and flows only),
+   * which needs none, and from a binding that doesn't track it.
    */
   readonly endpoint?: DeploymentEndpoint;
   /**

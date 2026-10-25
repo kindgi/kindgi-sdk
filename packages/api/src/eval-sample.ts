@@ -12,24 +12,30 @@ function position(seed: string, caseId: string): number {
   return Number.parseInt(hex, 16) / 0x1_0000_0000;
 }
 
-/** A case's stratum: whether anyone judged one of its items "no". */
-function stratum(c: JudgedEvalCase): 'no' | 'yes' {
+/**
+ * A case's stratum: whether it carries a correction, else whether anyone
+ * judged one of its items "no".
+ */
+function stratum(c: JudgedEvalCase): 'correction' | 'no' | 'yes' {
+  if ((c.corrections?.length ?? 0) > 0) return 'correction';
   return c.items.some((item) => item.yesWeight < item.totalWeight) ? 'no' : 'yes';
 }
 
 /**
- * The cases of a sample's part. The split is stratified by judgment: the
- * cases with a "no" and the cases without are each split on their own,
- * about `holdOutShare` of each into the hold-out part, in the order of a
- * hash of the case id and `seed` (a stratum of two or more cases puts at
- * least one in each part). The same seed and test set split the same way.
+ * The cases of a sample's part. The split is stratified: the cases that
+ * carry a correction, then of the others the cases with a "no" and the
+ * cases without, are each split on their own, about `holdOutShare` of
+ * each into the hold-out part, in the order of a hash of the case id and
+ * `seed` (a stratum of two or more cases puts at least one in each part,
+ * so both parts check a correction when two cases carry one). The same
+ * seed and test set split the same way.
  */
 export function sampleCases(
   cases: readonly JudgedEvalCase[],
   sample: EvalSample,
 ): JudgedEvalCase[] {
   const holdOut = new Set<string>();
-  for (const s of ['no', 'yes'] as const) {
+  for (const s of ['correction', 'no', 'yes'] as const) {
     const ordered = cases
       .filter((c) => stratum(c) === s)
       .map((c) => ({ id: c.caseId, at: position(sample.seed, c.caseId) }))

@@ -5,7 +5,9 @@ package com.kindgi.pack.testpacks.service;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.kindgi.pack.ConnectionRejectedException;
 import com.kindgi.pack.Tool;
+import com.kindgi.pack.ToolConnection;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -88,6 +90,30 @@ public final class Tools {
    * Logs through its context: a record with a field, and one that tries to show the context itself
    * (its secrets must not appear).
    */
+  /**
+   * Reads its connection and logs its context; a 401 from the app is a refusal, thrown as is
+   * ({@code reject}) or as the cause of the tool's own exception ({@code wrapped}).
+   */
+  public static final Tool<Map<String, Object>, Map<String, Object>> MAIL = Tool.define("acme.mail")
+      .handler((input, ctx) -> {
+        ConnectionRejectedException refused = new ConnectionRejectedException("mail", "the app answered 401");
+        if ("reject".equals(input.get("message"))) {
+          throw refused;
+        }
+        if ("wrapped".equals(input.get("message"))) {
+          throw new IllegalStateException("send failed", refused);
+        }
+        ToolConnection mail = ctx.connections().get("mail");
+        ctx.log().info("sending as " + mail + " in " + ctx, Map.of("ctx", ctx, "mail", mail));
+        return Map.of("label", mail.account().label(), "length", mail.accessToken().length());
+      });
+
+  /** Its future fails with a refusal, as a {@code supplyAsync} that throws one does. */
+  public static final Tool<Map<String, Object>, Map<String, Object>> MAIL_LATER = Tool.define("acme.mailLater")
+      .asyncHandler((input, ctx) -> CompletableFuture.supplyAsync(() -> {
+        throw new ConnectionRejectedException("mail");
+      }));
+
   public static final Tool<Map<String, Object>, Map<String, Object>> LOGS = Tool.define("acme.logs")
       .handler((input, ctx) -> {
         ctx.log().info("looked up order", Map.of("orderId", "o-1"));

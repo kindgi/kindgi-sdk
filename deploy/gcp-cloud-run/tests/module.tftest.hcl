@@ -11,6 +11,15 @@ mock_provider "google" {
       number = "123456789012"
     }
   }
+  # Private-IP mode's CAs: the one in use, and one added for a rotation.
+  mock_data "google_sql_ca_certs" {
+    defaults = {
+      certs = [
+        { cert = "-----BEGIN CERTIFICATE-----\nacme in use\n-----END CERTIFICATE-----\n" },
+        { cert = "-----BEGIN CERTIFICATE-----\nacme upcoming\n-----END CERTIFICATE-----\n" },
+      ]
+    }
+  }
   # Stands in for a restore instance (database_instance) and a host instance
   # (database_host_instance): a public IP, Postgres 16.
   mock_data "google_sql_database_instance" {
@@ -432,6 +441,187 @@ run "the_refused_names_cover_every_option_kms_signing" {
   }
 }
 
+run "backups_keep_cloud_sqls_defaults" {
+  command = plan
+
+  assert {
+    condition     = length(google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].backup_retention_settings) == 0
+    error_message = "Without database_backup_retention, the module sets no retention: Cloud SQL's default (7) stays."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].location == null
+    error_message = "Without database_backup_location, the module sets no location: Cloud SQL's choice stays."
+  }
+}
+
+run "backups_kept_where_and_as_long_as_asked" {
+  command = plan
+
+  variables {
+    database_backup_retention   = 30
+    database_backup_location    = "us"
+    database_point_in_time_days = 7
+  }
+
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].backup_retention_settings[0].retained_backups == 30
+    error_message = "database_backup_retention reaches the instance's retained backups."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].backup_retention_settings[0].retention_unit == "COUNT"
+    error_message = "Retention counts backups."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].location == "us"
+    error_message = "database_backup_location reaches the backups' location."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].transaction_log_retention_days == 7
+    error_message = "database_point_in_time_days reaches the transaction logs' retention."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].enabled && google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].point_in_time_recovery_enabled
+    error_message = "Backups and point-in-time recovery stay on."
+  }
+}
+
+run "backup_retention_refuses_none_or_a_fraction" {
+  command = plan
+
+  variables {
+    database_backup_retention = 0
+  }
+
+  expect_failures = [var.database_backup_retention]
+}
+
+run "backup_location_takes_a_region" {
+  command = plan
+
+  variables {
+    database_backup_location = "northamerica-northeast2"
+  }
+
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].location == "northamerica-northeast2"
+    error_message = "A region reaches the backups' location."
+  }
+}
+
+run "backup_location_refuses_a_zone" {
+  command = plan
+
+  variables {
+    database_backup_location = "us-central1-a"
+  }
+
+  expect_failures = [var.database_backup_location]
+}
+
+run "backup_location_refuses_another_multi_region_name" {
+  command = plan
+
+  variables {
+    database_backup_location = "europe"
+  }
+
+  expect_failures = [var.database_backup_location]
+}
+
+run "backup_location_refuses_a_bucket_like_name" {
+  command = plan
+
+  variables {
+    database_backup_location = "gs://acme-backups"
+  }
+
+  expect_failures = [var.database_backup_location]
+}
+
+run "point_in_time_days_refuses_more_than_35" {
+  command = plan
+
+  variables {
+    database_point_in_time_days = 36
+  }
+
+  expect_failures = [var.database_point_in_time_days]
+}
+
+run "point_in_time_days_over_7_need_enterprise_plus" {
+  command = plan
+
+  variables {
+    database_point_in_time_days = 14
+  }
+
+  expect_failures = [google_sql_database_instance.kindgi]
+}
+
+run "fewer_backups_than_the_default_log_days_are_refused" {
+  # ENTERPRISE keeps 7 days of logs unless told otherwise.
+  command = plan
+
+  variables {
+    database_backup_retention = 3
+  }
+
+  expect_failures = [google_sql_database_instance.kindgi]
+}
+
+run "more_log_days_than_backups_are_refused" {
+  command = plan
+
+  variables {
+    database_backup_retention   = 4
+    database_point_in_time_days = 5
+  }
+
+  expect_failures = [google_sql_database_instance.kindgi]
+}
+
+run "more_log_days_than_the_default_backups_are_refused" {
+  # ENTERPRISE_PLUS keeps 15 backups unless told otherwise.
+  command = plan
+
+  variables {
+    database_edition            = "ENTERPRISE_PLUS"
+    database_tier               = "db-perf-optimized-N-2"
+    database_point_in_time_days = 20
+  }
+
+  expect_failures = [google_sql_database_instance.kindgi]
+}
+
+run "as_many_log_days_as_backups_plan" {
+  command = plan
+
+  variables {
+    database_backup_retention   = 5
+    database_point_in_time_days = 5
+  }
+
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].transaction_log_retention_days == 5
+    error_message = "As many days of logs as backups kept is Cloud SQL's limit, and plans."
+  }
+}
+
+run "point_in_time_days_up_to_35_on_enterprise_plus" {
+  command = plan
+
+  variables {
+    database_edition            = "ENTERPRISE_PLUS"
+    database_tier               = "db-perf-optimized-N-2"
+    database_point_in_time_days = 14
+  }
+
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].backup_configuration[0].transaction_log_retention_days == 14
+    error_message = "ENTERPRISE_PLUS keeps more than 7 days of transaction logs."
+  }
+}
+
 # ---- tenancy ------------------------------------------------------------------
 
 # "single", the default: the tenant, the seed user and the one pack service,
@@ -479,6 +669,23 @@ run "with_a_pack_image_the_server_calls_the_one_pack_service" {
   assert {
     condition     = length(setintersection(toset([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name]), toset(["KINDGI_PACK_SERVICE_TOKEN", "KINDGI_PACK_SERVICE_AUTH"]))) == 2
     error_message = "The server calls the pack service with the shared token and an ID token."
+  }
+}
+
+run "the_pack_service_has_cpu_only_during_calls" {
+  command = plan
+
+  assert {
+    condition     = google_cloud_run_v2_service.pack[0].template[0].containers[0].resources[0].cpu_idle == true
+    error_message = "The pack service gets CPU only while a call runs, so its idle instance bills at the idle rate."
+  }
+  assert {
+    condition     = google_cloud_run_v2_service.pack[0].template[0].containers[0].resources[0].startup_cpu_boost == true
+    error_message = "The pack service starts with boosted CPU."
+  }
+  assert {
+    condition     = google_cloud_run_v2_service.server.template[0].containers[0].resources[0].cpu_idle == false
+    error_message = "The server keeps its CPU between requests: a run started with wait:false keeps executing after its 202."
   }
 }
 
@@ -863,6 +1070,96 @@ run "unset_the_server_serves_from_its_own_instance" {
   }
 }
 
+run "the_cloudsql_socket_has_no_server_ca" {
+  command = plan
+
+  assert {
+    condition     = length(data.google_sql_ca_certs.kindgi) == 0
+    error_message = "Through /cloudsql, the instance's CAs aren't read: the connector checks the instance."
+  }
+  assert {
+    condition = length([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e
+      if startswith(e.name, "KINDGI_DATABASE_SERVER_CA")
+    ]) == 0
+    error_message = "Through /cloudsql, the server gets no database CA, which the runtime refuses with a socket."
+  }
+}
+
+run "private_ip_mode_checks_the_database_against_every_instance_ca" {
+  # Apply (mocked): the CAs are read once the instance exists. Without KMS:
+  # the key's prevent_destroy would stop a later run's apply and the teardown.
+  command = apply
+  variables {
+    database_private_network = "projects/acme-app-dev/global/networks/acme"
+    secrets_backend          = "none"
+    secrets_aad_key_version  = null
+  }
+
+  assert {
+    condition = [
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_DATABASE_SERVER_CA"
+      ] == [
+      "-----BEGIN CERTIFICATE-----\nacme in use\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nacme upcoming\n-----END CERTIFICATE-----"
+    ]
+    error_message = "Private-IP mode sets KINDGI_DATABASE_SERVER_CA to every CA the instance lists, the upcoming one too."
+  }
+  assert {
+    condition     = length(google_cloud_run_v2_service.server.template[0].volumes) == 0
+    error_message = "Private-IP mode has no /cloudsql volume."
+  }
+}
+
+run "private_ip_mode_refuses_an_instance_without_a_ca" {
+  # The run above's settings, so the plan changes nothing it reads and the
+  # CAs are read at plan time (with a change pending, the read waits).
+  command = plan
+  variables {
+    database_private_network = "projects/acme-app-dev/global/networks/acme"
+    secrets_backend          = "none"
+    secrets_aad_key_version  = null
+  }
+  override_data {
+    target = data.google_sql_ca_certs.kindgi
+    values = {
+      certs = []
+    }
+  }
+  expect_failures = [data.google_sql_ca_certs.kindgi]
+}
+
+run "the_database_ca_settings_are_the_modules" {
+  command = plan
+  variables {
+    server_env = { KINDGI_DATABASE_SERVER_CA_PATH = "/etc/kindgi/db-ca.pem" }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "the_inline_database_ca_is_the_modules" {
+  command = plan
+  variables {
+    server_env = { KINDGI_DATABASE_SERVER_CA = "-----BEGIN CERTIFICATE-----" }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+# The grant's condition keeps the title and description earlier releases
+# applied: the Google provider replaces the grant when either changes.
+run "the_sql_grant_keeps_its_condition_text" {
+  command = plan
+
+  assert {
+    condition     = google_project_iam_member.server_sql_client[0].condition[0].title == "kindgi-instance-only"
+    error_message = "The server's Cloud SQL grant keeps its condition's title, kindgi-instance-only."
+  }
+  assert {
+    condition     = google_project_iam_member.server_sql_client[0].condition[0].description == "Kindgi's own Cloud SQL instance only."
+    error_message = "The server's Cloud SQL grant keeps its condition's description, \"Kindgi's own Cloud SQL instance only.\""
+  }
+}
+
 run "database_instance_moves_the_server_and_keeps_its_own_instance" {
   command = plan
 
@@ -1071,6 +1368,33 @@ run "host_refuses_an_instance_without_a_public_ip" {
       database_version = "POSTGRES_16"
       settings         = [{ ip_configuration = [{ ipv4_enabled = false }] }]
     }
+  }
+  expect_failures = [data.google_sql_database_instance.host]
+}
+
+run "host_refuses_a_backup_location" {
+  command = plan
+  variables {
+    database_host_instance   = "acme-app-db"
+    database_backup_location = "us"
+  }
+  expect_failures = [data.google_sql_database_instance.host]
+}
+
+run "host_refuses_a_backup_retention" {
+  command = plan
+  variables {
+    database_host_instance    = "acme-app-db"
+    database_backup_retention = 30
+  }
+  expect_failures = [data.google_sql_database_instance.host]
+}
+
+run "host_refuses_point_in_time_days" {
+  command = plan
+  variables {
+    database_host_instance      = "acme-app-db"
+    database_point_in_time_days = 3
   }
   expect_failures = [data.google_sql_database_instance.host]
 }
@@ -1310,4 +1634,97 @@ run "an_idle_backstop_in_part_milliseconds_is_refused" {
   }
 
   expect_failures = [var.database_idle_in_transaction_timeout_ms]
+}
+
+
+# ---- README step 1: the first apply, with only its targets -----------------
+# Step 3 reads `terraform output -raw sql_connection_name`: an output is only
+# written by a targeted apply when every resource it reads is in the targets'
+# graph.
+
+run "the_first_apply_gives_the_connection_name_on_a_host" {
+  command = apply
+  # Without KMS: the key's prevent_destroy would stop the teardown.
+  variables {
+    database_host_instance  = "acme-app-db"
+    secrets_backend         = "none"
+    secrets_aad_key_version = null
+  }
+  override_data {
+    target = data.google_sql_database_instance.host
+    values = {
+      connection_name  = "acme-app-dev:northamerica-northeast2:acme-app-db"
+      database_version = "POSTGRES_16"
+      settings         = [{ ip_configuration = [{ ipv4_enabled = true }] }]
+    }
+  }
+  plan_options {
+    target = [
+      google_project_service.apis,
+      google_compute_router_nat.nat,
+      google_artifact_registry_repository_iam_member.server_reads_images,
+      google_kms_crypto_key_iam_member.server_wraps,
+      google_sql_database.kindgi,
+      google_secret_manager_secret_iam_member.server_reads,
+      google_secret_manager_secret_iam_member.pack_reads_token,
+      google_project_iam_member.server_sql_client,
+    ]
+  }
+
+  assert {
+    condition     = output.sql_connection_name == "acme-app-dev:northamerica-northeast2:acme-app-db"
+    error_message = "README step 1's apply leaves sql_connection_name in state (the host's), for step 3."
+  }
+}
+
+run "the_first_apply_gives_the_connection_name_of_the_own_instance" {
+  command = apply
+  variables {
+    secrets_backend         = "none"
+    secrets_aad_key_version = null
+  }
+  plan_options {
+    target = [
+      google_project_service.apis,
+      google_compute_router_nat.nat,
+      google_artifact_registry_repository_iam_member.server_reads_images,
+      google_kms_crypto_key_iam_member.server_wraps,
+      google_sql_database.kindgi,
+      google_secret_manager_secret_iam_member.server_reads,
+      google_secret_manager_secret_iam_member.pack_reads_token,
+      google_project_iam_member.server_sql_client,
+    ]
+  }
+
+  assert {
+    condition     = output.sql_connection_name == google_sql_database_instance.kindgi[0].connection_name
+    error_message = "README step 1's apply leaves sql_connection_name in state (the module's own instance's), for step 3."
+  }
+}
+
+run "the_first_apply_checks_the_host" {
+  command = plan
+  variables {
+    database_host_instance = "acme-app-db"
+  }
+  override_data {
+    target = data.google_sql_database_instance.host
+    values = {
+      database_version = "POSTGRES_15"
+      settings         = [{ ip_configuration = [{ ipv4_enabled = true }] }]
+    }
+  }
+  plan_options {
+    target = [
+      google_project_service.apis,
+      google_compute_router_nat.nat,
+      google_artifact_registry_repository_iam_member.server_reads_images,
+      google_kms_crypto_key_iam_member.server_wraps,
+      google_sql_database.kindgi,
+      google_secret_manager_secret_iam_member.server_reads,
+      google_secret_manager_secret_iam_member.pack_reads_token,
+      google_project_iam_member.server_sql_client,
+    ]
+  }
+  expect_failures = [data.google_sql_database_instance.host]
 }

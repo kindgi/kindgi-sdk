@@ -272,6 +272,11 @@ function describeSource(entry: PackEnvPlanEntry): string {
 }
 
 export function describePackEnvPlan(plan: PackEnvPlan): string[] {
+  return [...packEnvPlanLines(plan), ...packEnvPlanWarnings(plan)];
+}
+
+/** `describePackEnvPlan` but its warnings: each declared name, then what's wrong. */
+export function packEnvPlanLines(plan: PackEnvPlan): string[] {
   const lines = [`  The pack service's env in ${plan.envName}:`];
   if (plan.entries.length === 0) {
     lines.push('    (the pack declares none: add env.required / env.optional to kindgi.config)');
@@ -284,6 +289,10 @@ export function describePackEnvPlan(plan: PackEnvPlan): string[] {
     lines.push(`  ✗ ${name} is required and has no value in environments.${plan.envName}.env`);
   }
   for (const problem of plan.problems) lines.push(`  ✗ ${problem}`);
-  for (const warning of plan.warnings) lines.push(`  ⚠ ${warning}`);
   return lines;
+}
+
+/** The plan's warnings, as `describePackEnvPlan` ends with them. */
+export function packEnvPlanWarnings(plan: PackEnvPlan): string[] {
+  return plan.warnings.map((warning) => `  ⚠ ${warning}`);
 }
