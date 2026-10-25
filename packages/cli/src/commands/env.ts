@@ -37,6 +37,8 @@ import type { EnvName } from '@kindgi/types';
 import type { CommandContext } from '../context.js';
 import {
   describePackEnvPlan,
+  packEnvPlanLines,
+  packEnvPlanWarnings,
   planPackEnv,
   renderGcloud,
   renderTerraform,
@@ -45,8 +47,9 @@ import { ENV_KEY_REGEX } from '../env/parser.js';
 import { describeEnvDiagnostics, loadLocalEnvSettings } from '../env/project-env.js';
 import type { EnvRunners } from '../env/runners.js';
 import { EnvValueNotRepresentableError, setKey, unsetKey } from '../env/writer.js';
-import { renderJson } from '../output.js';
+import { renderJson, successNote } from '../output.js';
 import type { PackConfigRecord } from '../pack-config.js';
+import { type SaidLine, note, renderLines, warning } from '../progress-lines.js';
 import { type ResolvedEnvironment, valueTargetFor, withEnvironmentNote } from '../value-target.js';
 import { projectOfEnv } from './build.js';
 import {
@@ -284,12 +287,19 @@ const listCmd: LeafCommand = {
 
     const bannerLines = [
       ...listBanner(paths.envName, summary.envFiles, reveal, rows, warnings),
-      ...projectFileNote(paths, "These are the pack's env files' values.", 'lists the values of'),
+      ...projectFileNote(
+        paths,
+        "These are the pack's env files' values.",
+        'lists the values of',
+      ).map(note),
     ];
     const rendered = renderJson(summary, ctx.globals.format);
     return {
       kind: 'ok',
-      rendered: { stdout: rendered.stdout, stderr: `${bannerLines.join('\n')}\n` },
+      rendered: {
+        stdout: rendered.stdout,
+        stderr: renderLines(bannerLines, ctx.globals.format === 'quiet'),
+      },
     };
   },
 };
@@ -336,23 +346,29 @@ function listBanner(
   reveal: boolean,
   rows: readonly ListRow[],
   warnings: readonly string[],
-): string[] {
-  const lines: string[] = ['', `  Environment: ${envName}`];
+): SaidLine[] {
+  const lines: SaidLine[] = [note(''), note(`  Environment: ${envName}`)];
   for (const f of envFiles) {
-    lines.push(`  Env file:    ${f.file}${f.exists ? '' : '  (does not exist)'}`);
+    lines.push(note(`  Env file:    ${f.file}${f.exists ? '' : '  (does not exist)'}`));
   }
-  lines.push(`  Reveal:      ${reveal ? 'YES (values shown)' : 'NO (redacted; --reveal to show)'}`);
-  lines.push('');
-  lines.push(rows.length === 0 ? '  (no keys resolved)' : `  ${rows.length} key(s):`);
+  lines.push(
+    note(`  Reveal:      ${reveal ? 'YES (values shown)' : 'NO (redacted; --reveal to show)'}`),
+  );
+  lines.push(note(''));
+  lines.push(note(rows.length === 0 ? '  (no keys resolved)' : `  ${rows.length} key(s):`));
   for (const row of rows) {
     const where = row.file ?? row.source;
     const tag = row.runtime ? `${where}, Kindgi runtime` : where;
-    lines.push(`    ${row.key.padEnd(24, ' ')} ${row.value}    [${tag}]`);
+    lines.push(note(`    ${row.key.padEnd(24, ' ')} ${row.value}    [${tag}]`));
   }
   if (warnings.length > 0) {
-    lines.push('', `  ⚠ ${warnings.length} warning(s):`, ...warnings.map((w) => `      ${w}`));
+    lines.push(
+      note(''),
+      warning(`  ⚠ ${warnings.length} warning(s):`),
+      ...warnings.map((w) => warning(`      ${w}`)),
+    );
   }
-  lines.push('');
+  lines.push(note(''));
   return lines;
 }
 
@@ -462,7 +478,7 @@ const setCmd: LeafCommand = {
     const rendered = renderJson(summary, ctx.globals.format);
     return {
       kind: 'ok',
-      rendered: { stdout: rendered.stdout, stderr: `${banner}\n` },
+      rendered: { stdout: rendered.stdout, stderr: successNote(ctx.globals.format, `${banner}\n`) },
     };
   },
 };
@@ -590,16 +606,17 @@ async function unsetLocal(ctx: CommandContext, key: string): Promise<CommandResu
       : next.removed
         ? `Removed ${key} from ${paths.envFilePath}`
         : `${key} was not present in ${paths.envFilePath} — no change.`;
-  const note = projectFileNote(
+  const scopeNote = projectFileNote(
     paths,
     `${shown(paths, paths.envFilePath)} is the pack's env file.`,
     'removes it from',
   ).map((line) => `${line}\n`);
-  const banner = `\n  ✓ ${outcome}\n${still}${note.join('')}\n`;
+  const banner = `\n  ✓ ${outcome}\n${still}${scopeNote.join('')}\n`;
   const rendered = renderJson(summary, ctx.globals.format);
   return {
     kind: 'ok',
-    rendered: { stdout: rendered.stdout, stderr: banner },
+    // A value still set in another file is a warning: said under --quiet too.
+    rendered: { stdout: rendered.stdout, stderr: ctx.globals.format === 'quiet' ? still : banner },
   };
 }
 
@@ -707,8 +724,15 @@ const pullCmd: LeafCommand = {
       ].join('\n');
       const rendered = renderJson(summary, ctx.globals.format);
       return withEnvironmentNote(
-        { kind: 'ok', rendered: { stdout: rendered.stdout, stderr: `${banner}\n` } },
+        {
+          kind: 'ok',
+          rendered: {
+            stdout: rendered.stdout,
+            stderr: successNote(ctx.globals.format, `${banner}\n`),
+          },
+        },
         { envName: remoteEnv, ...(environment !== undefined && { environment }) },
+        ctx.globals.format,
       );
     } catch (err) {
       return envErrorResult(err, ctx, 'kindgi env pull');
@@ -990,7 +1014,10 @@ const initCmd: LeafCommand = {
       kind: 'ok',
       rendered: {
         stdout: renderJson(summary, ctx.globals.format).stdout,
-        stderr: `\n  Wrote ${vars.length} env-var entries → ${outPath}\n  Target: ${JSON.stringify(target)}\n\n`,
+        stderr: successNote(
+          ctx.globals.format,
+          `\n  Wrote ${vars.length} env-var entries → ${outPath}\n  Target: ${JSON.stringify(target)}\n\n`,
+        ),
       },
     };
   },
@@ -1084,11 +1111,16 @@ const planCmd: LeafCommand = {
     }
     const plan = planned.plan;
     const stdout = format === 'terraform' ? renderTerraform(plan) : renderGcloud(plan);
-    const stderr = `${describePackEnvPlan(plan).join('\n')}\n`;
     const blocked = plan.missing.length > 0 || plan.problems.length > 0;
-    return blocked
-      ? { kind: 'error', stderr, exitCode: 1 }
-      : { kind: 'ok', rendered: { stdout, stderr } };
+    if (blocked) {
+      return { kind: 'error', stderr: `${describePackEnvPlan(plan).join('\n')}\n`, exitCode: 1 };
+    }
+    // The plan's lines are notes; its warnings are said under --quiet too.
+    const stderr = renderLines(
+      [...packEnvPlanLines(plan).map(note), ...packEnvPlanWarnings(plan).map(warning)],
+      ctx.globals.format === 'quiet',
+    );
+    return { kind: 'ok', rendered: { stdout, stderr } };
   },
 };
 

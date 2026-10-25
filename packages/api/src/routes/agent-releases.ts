@@ -515,7 +515,7 @@ export function promotionResponse(
       toWireError(
         {
           code: 'gate-failed',
-          message: `The gate refused ${promotion.agentId} ${promotion.toVersion as unknown as string}: ${checks
+          message: `The release gate policy refused ${promotion.agentId} ${promotion.toVersion as unknown as string}: ${checks
             .filter((check) => !check.passed)
             .map((check) => check.message)
             .join(' ')}`,

@@ -44,7 +44,7 @@ variable "kindgi_env" {
 # ---- images -------------------------------------------------------------------
 
 variable "server_image" {
-  description = "The Kindgi runtime image, by digest, in this module's Container Registry (mirrored from Quay; see README)."
+  description = "The Kindgi runtime image, by digest, in this module's Container Registry (mirrored from registry.kindgi.com; see README)."
   type        = string
 
   validation {

@@ -410,6 +410,27 @@ assert_out "the export failed (above). Nothing has changed."
 assert_absent "$STUB_MARKER_APPLY" "apply"
 assert_varfile_unchanged
 
+# 24. Past the newest release this script knows: refused before anything is
+# read, mirrored or backed up, though 0.1.9 and 0.1.10 lie on the way.
+case_start "target past the newest known release"
+reset_env; export STUB_TAGS="0.1.8"
+run "yes" --to 0.2.0
+assert_rc 1 "a later target refused"
+assert_out "knows the steps up to 0.1.10"
+assert_out "as of the @kindgi/sdk@0.2.0 tag"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_varfile_unchanged
+
+# 25. An rc of a later release counts as that release.
+case_start "rc of a later release"
+reset_env; export STUB_TAGS="0.1.9"
+run "yes" --to 0.2.0-rc.1
+assert_rc 1 "a later rc refused"
+assert_out "knows the steps up to 0.1.10"
+assert_out "as of the @kindgi/sdk@0.2.0 tag (before it's out, that release's newest @kindgi/sdk@0.2.0-rc tag)"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [[ $FAIL -eq 0 ]]
