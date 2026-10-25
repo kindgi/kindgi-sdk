@@ -499,7 +499,8 @@ The console's sign-in page can link your terms and privacy policy
 (runtime 0.1.9 or later). So can the console's other pages without its
 menus, which are in the sign-in page's frame (runtime 0.2.0 or later): a
 link to connect an app, the page the app sends a person back to, an
-approval's link, and signing out.
+approval's link, signing out, and the console's error and not-found pages
+when they show without the menus.
 
 ```sh
 # kindgi.env
