@@ -495,3 +495,33 @@ describe('kindgi key revoke', () => {
     expect(calls).toEqual([]);
   });
 });
+
+describe('kindgi key --quiet', () => {
+  test('create, list (with keys or none) and trust print nothing; each does its work', async () => {
+    const none = await runCli(baseInputs(makeFixtures(), ['key', 'list', '--quiet']));
+    const fixtures = makeFixtures();
+    const created = await runCli(
+      baseInputs(fixtures, ['key', 'create', 'acme-signing', '--env=staging', '--quiet']),
+    );
+    expect([...fixtures.state.files.keys()].sort()).toEqual([
+      `${KEYS_DIR}/acme-signing.pem`,
+      `${KEYS_DIR}/acme-signing.pub.pem`,
+    ]);
+    const listed = await runCli(baseInputs(fixtures, ['key', 'list', '--quiet']));
+    const calls: unknown[] = [];
+    const trusted = await runCli(
+      remoteInputs(fixtures, ['key', 'trust', 'acme-signing', '--quiet'], {
+        signingKeys: {
+          trust: async (input: unknown) => {
+            calls.push(input);
+            return { keyId: 'acme-signing', publicKey: RAW_PUBLIC_KEY_BASE64 };
+          },
+        },
+      }),
+    );
+    expect(calls).toEqual([{ keyId: 'acme-signing', publicKey: RAW_PUBLIC_KEY_BASE64 }]);
+    for (const out of [none, created, listed, trusted]) {
+      expect([out.exitCode, out.stdout, out.stderr]).toEqual([0, '', '']);
+    }
+  });
+});

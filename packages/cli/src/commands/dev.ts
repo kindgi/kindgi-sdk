@@ -1031,34 +1031,14 @@ async function runDevForPack(
   // tenant row and orphans the pack's registered primitives under old
   // tenant UUIDs. Persisting keeps the "run this pack" identity
   // stable across restarts.
-  let kindgircWritten = false;
-  try {
-    await writeFile(
-      kindgircPath,
-      `${JSON.stringify(
-        {
-          apiUrl: server.baseUrl,
-          token: server.token,
-          tenantId: server.tenantId as unknown as string,
-          userId: server.userId,
-          packServicePort: packFront.port,
-          packServiceToken: pack.token,
-        },
-        null,
-        2,
-      )}\n`,
-      // It holds the dev token and the pack service's token.
-      { encoding: 'utf8', mode: 0o600 },
-    );
-    await chmod(kindgircPath, 0o600);
-    kindgircWritten = true;
-  } catch (err) {
-    // Best effort — if the pack dir is read-only or something goes wrong,
-    // don't fail boot. The user can still pass --url/--token flags.
-    emitProblem(
-      `⚠ couldn't write .kindgirc.json (${(err as Error).message}): the CLI in this folder needs --url and --token to reach this runtime`,
-    );
-  }
+  const kindgircWritten = await writeKindgirc(kindgircPath, {
+    apiUrl: server.baseUrl,
+    token: server.token,
+    tenantId: server.tenantId as unknown as string,
+    userId: server.userId,
+    packServicePort: packFront.port,
+    packServiceToken: pack.token,
+  });
 
   // Where it serves, for a second kindgi dev to say (`dev.lock`).
   await lock
@@ -1692,6 +1672,33 @@ function pickRunners(ctx: CommandContext): RunnersOutcome {
       'Rebuild the CLI (`pnpm --filter @kindgi/cli build`).\n',
     exitCode: 1,
   };
+}
+
+/**
+ * Write `.kindgirc.json`, readable by its owner only, since it holds the dev
+ * token and the pack service's token: whether it was written. Best effort:
+ * what goes wrong is a warning, and boot goes on. Without the file, the CLI
+ * in the folder can still pass --url and --token.
+ */
+async function writeKindgirc(
+  path: string,
+  rc: Readonly<Record<string, unknown>>,
+): Promise<boolean> {
+  try {
+    await writeFile(path, `${JSON.stringify(rc, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  } catch (err) {
+    emitProblem(
+      `⚠ couldn't write .kindgirc.json (${(err as Error).message}): the CLI in this folder needs --url and --token to reach this runtime`,
+    );
+    return false;
+  }
+  // A file that was there keeps its mode through the write.
+  await chmod(path, 0o600).catch((err: unknown) => {
+    emitProblem(
+      `⚠ couldn't make .kindgirc.json readable by its owner only (${(err as Error).message}): it holds this runtime's tokens, and keeps the mode it had`,
+    );
+  });
+  return true;
 }
 
 /**

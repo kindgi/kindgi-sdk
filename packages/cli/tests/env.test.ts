@@ -827,6 +827,31 @@ describe('kindgi env init', () => {
     expect(written).toContain('# KINDGI_API_PORT=4000');
   });
 
+  test('--quiet: writes the same file, and says nothing', async () => {
+    const outPath = join(packDir, '.env.example');
+    const written = async (quiet: readonly string[]) => {
+      const fixtures = makeFixtures();
+      const out = await runCli(
+        baseInputs(fixtures, [
+          'env',
+          'init',
+          '--secrets-backend=postgres',
+          '--kms=gcp',
+          `--out=${outPath}`,
+          '--non-interactive',
+          ...quiet,
+        ]),
+      );
+      return { out, file: fixtures.state.files.get(outPath) };
+    };
+    const loud = await written([]);
+    const quiet = await written(['--quiet']);
+    expect(loud.out.stderr).toContain(`env-var entries → ${outPath}`);
+    expect([quiet.out.exitCode, quiet.out.stdout, quiet.out.stderr]).toEqual([0, '', '']);
+    expect(quiet.file).toBeDefined();
+    expect(quiet.file).toBe(loud.file);
+  });
+
   test('non-interactive: --kms=azure writes the Key Vault key (required) and no GCP vars', async () => {
     const fixtures = makeFixtures();
     const outPath = join(packDir, '.env.example');

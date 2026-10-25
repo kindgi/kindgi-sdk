@@ -24,7 +24,7 @@
  */
 
 import { generateKeyPairSync } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -3428,6 +3428,22 @@ describe('kindgi dev — what --quiet keeps (warnings)', () => {
       expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
     }
   });
+
+  test.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'a .kindgirc.json written whose mode could not be changed is said as such, under --quiet too',
+    async () => {
+      // Written through to /dev/null, whose mode only root may change.
+      await symlink('/dev/null', join(packDir, '.kindgirc.json'));
+      for (const flags of LOUD_AND_QUIET) {
+        const said = await bootSaid(makeFixtures(), flags);
+        expect(said).toMatch(
+          / {2}⚠ couldn't make \.kindgirc\.json readable by its owner only \(EPERM: .+\): it holds this runtime's tokens, and keeps the mode it had\n/,
+        );
+        expect(said).not.toContain("couldn't write .kindgirc.json");
+        expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
+      }
+    },
+  );
 
   test("a saved pack service port that's taken is said under --quiet too", async () => {
     for (const flags of LOUD_AND_QUIET) {
