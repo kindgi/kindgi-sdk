@@ -1,5 +1,58 @@
 # @kindgi/secrets-dotenv
 
+## 0.1.10
+
+### Patch Changes
+
+- Updated dependencies [2d2ee60]
+- Updated dependencies [997470e]
+- Updated dependencies [b9a68d5]
+- Updated dependencies [6c5006c]
+- Updated dependencies [43eafb2]
+- Updated dependencies [019a6fd]
+- Updated dependencies [d6f844d]
+- Updated dependencies [8111046]
+- Updated dependencies [01964ed]
+- Updated dependencies [05b762e]
+- Updated dependencies [25a7309]
+- Updated dependencies [c90dd53]
+- Updated dependencies [9b6da8a]
+  - @kindgi/api@0.1.10
+  - @kindgi/platform@0.1.10
+  - @kindgi/dotenv-file@0.1.10
+  - @kindgi/types@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/api@0.1.10-rc.1
+  - @kindgi/dotenv-file@0.1.10-rc.1
+  - @kindgi/platform@0.1.10-rc.1
+  - @kindgi/types@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- Updated dependencies [2d2ee60]
+- Updated dependencies [997470e]
+- Updated dependencies [b9a68d5]
+- Updated dependencies [6c5006c]
+- Updated dependencies [43eafb2]
+- Updated dependencies [019a6fd]
+- Updated dependencies [d6f844d]
+- Updated dependencies [8111046]
+- Updated dependencies [01964ed]
+- Updated dependencies [05b762e]
+- Updated dependencies [25a7309]
+- Updated dependencies [c90dd53]
+- Updated dependencies [9b6da8a]
+  - @kindgi/api@0.1.10-rc.0
+  - @kindgi/platform@0.1.10-rc.0
+  - @kindgi/dotenv-file@0.1.10-rc.0
+  - @kindgi/types@0.1.10-rc.0
+
 ## 0.1.9
 
 ### Patch Changes

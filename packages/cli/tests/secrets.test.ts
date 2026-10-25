@@ -13,12 +13,13 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import type { SecretsValueInputSeam } from '../src/commands/secrets.js';
 import type { EnvRunners } from '../src/env/runners.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
 import { PromptCancelled, type TtySeam } from '../src/terminal-input.js';
+import { stubOutGitRepoVars } from './git-env.js';
 
 let packDir: string;
 
@@ -109,11 +110,13 @@ function baseInputs(
 }
 
 beforeEach(async () => {
+  stubOutGitRepoVars();
   packDir = await mkdtemp(join(tmpdir(), 'kindgi-cli-secrets-'));
   await writeFile(join(packDir, 'kindgi.config.ts'), 'export default {};\n', 'utf8');
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await rm(packDir, { recursive: true, force: true });
 });
 
@@ -562,6 +565,29 @@ describe("kindgi secrets copy (Kindgi's own copy; the app's files untouched)", (
     expect(out.stdout + out.stderr).not.toContain(SECRET);
   });
 
+  test('--quiet: a copy says nothing; a key git has seen, and a runtime it could not ask, are still said', async () => {
+    await writeFile(join(packDir, '.env.local'), `ANTHROPIC_API_KEY=${SECRET}\n`);
+    const copied = await copy(['ANTHROPIC_API_KEY', '--quiet']);
+    expect(copied.exitCode, copied.stderr).toBe(0);
+    expect([copied.stdout, copied.stderr]).toEqual(['', '']);
+    expect(await readFile(join(packDir, '.kindgi', 'secrets.env'), 'utf8')).toBe(
+      `ANTHROPIC_API_KEY=${SECRET}\n`,
+    );
+
+    const unasked = await copy(['--quiet'], () => ({
+      secrets: {},
+      env: {},
+      providers: {
+        list: async () => {
+          throw new Error('ECONNREFUSED');
+        },
+      },
+    }));
+    expect(unasked.exitCode, unasked.stderr).toBe(0);
+    expect(unasked.stderr).toContain("Couldn't reach Kindgi's runtime");
+    expect(unasked.stderr).not.toContain('nothing to copy');
+  });
+
   test("no names: the runtime's providers' keys (their check's secretRef), and only those", async () => {
     await writeFile(join(packDir, '.env.local'), `ACME_CLAUDE_KEY=${SECRET}\nSTORE_URL=s\n`);
     const out = await copy([], () =>
@@ -868,6 +894,35 @@ describe('kindgi secrets revoke', () => {
     const call = fixtures.state.revokeCalls[0] as { hard?: boolean; reason?: string };
     expect(call.hard).toBe(true);
     expect(call.reason).toBe('compromised');
+    expect(out.stderr).not.toContain('recoverable copy');
+    expect(JSON.parse(out.stdout)).not.toHaveProperty('recoverableUntil');
+  });
+
+  test('a hard revoke that left a recoverable copy says until when', async () => {
+    const until = '2026-11-22T21:00:00.000Z';
+    const fixtures = makeFixtures();
+    const clientFactory = (): unknown =>
+      makeFakeClient({
+        revoke: async () => ({ revoked: true, hard: true, recoverableUntil: until }),
+      });
+    const out = await runCli({
+      ...baseInputs(fixtures, [
+        'secrets',
+        'revoke',
+        'stripe.key',
+        '--env=staging',
+        '--scope=tenant',
+        '--hard',
+        '--url=https://api.example.com',
+        '--token=t',
+      ]),
+      clientFactory: clientFactory as never,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain(
+      `Your secret manager keeps a recoverable copy until ${until}, then purges it on its own. If you set this name again before then, Kindgi purges the copy if it now can; if it still can't, the copy stays, disabled, until you hard-revoke it again.`,
+    );
+    expect(JSON.parse(out.stdout)).toMatchObject({ hard: true, recoverableUntil: until });
   });
 });
 
@@ -1027,5 +1082,48 @@ describe('kindgi secrets — the scope it prints and sends', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('stripe.key already exists (version 3)');
     expect(out.stderr).not.toContain('Set stripe.key');
+  });
+
+  test('--quiet: set, rotate, revoke and pull print nothing; a recoverable copy is still said', async () => {
+    const fixtures = makeFixtures({ stdinValue: 'sk_live_x' });
+    const done = [
+      await run(
+        fixtures,
+        { set: async () => okRecord({ kind: 'tenant', tenantId: SERVER_TENANT }) },
+        ['set', 'stripe.key', '--scope=tenant', '--from-stdin', '--quiet'],
+      ),
+      await run(
+        fixtures,
+        { rotate: async () => ({ kind: 'ok', newVersionId: 2, oldVersionId: 1 }) },
+        ['rotate', 'stripe.key', '--scope=tenant', '--quiet'],
+      ),
+      await run(fixtures, { revoke: async () => ({ revoked: true, hard: false }) }, [
+        'revoke',
+        'stripe.key',
+        '--scope=tenant',
+        '--quiet',
+      ]),
+      await run(fixtures, { list: async () => ({ data: [] }) }, [
+        'pull',
+        '--scope=tenant',
+        `--path=${packDir}`,
+        '--quiet',
+      ]),
+    ];
+    for (const out of done) {
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect([out.stdout, out.stderr]).toEqual(['', '']);
+    }
+
+    const until = '2026-11-22T21:00:00.000Z';
+    const hard = await run(
+      fixtures,
+      { revoke: async () => ({ revoked: true, hard: true, recoverableUntil: until }) },
+      ['revoke', 'stripe.key', '--scope=tenant', '--hard', '--quiet'],
+    );
+    expect(hard.exitCode, hard.stderr).toBe(0);
+    expect(hard.stderr).toBe(
+      `  Your secret manager keeps a recoverable copy until ${until}, then purges it on its own. If you set this name again before then, Kindgi purges the copy if it now can; if it still can't, the copy stays, disabled, until you hard-revoke it again.\n\n`,
+    );
   });
 });

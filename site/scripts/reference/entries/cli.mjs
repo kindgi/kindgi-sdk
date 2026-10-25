@@ -17,7 +17,7 @@
  */
 export const CLI_DEFAULTS = {
   'auth registry': {
-    registry: "`quay.io`, the runtime image's registry",
+    registry: "`registry.kindgi.com`, the runtime image's registry",
     username: 'required (except with `--check`)',
   },
   init: {
@@ -36,7 +36,7 @@ export const CLI_DEFAULTS = {
     log: 'none',
     'log-format': '`pretty`',
     'log-level':
-      "`KINDGI_LOG_LEVEL` (the shell's, then the env files'), else info; with `--quiet`, error",
+      "`KINDGI_LOG_LEVEL` (the shell's, then the env files'), else info; with `--quiet`, warn",
     path: 'the current directory',
     port: "`4000`, or the next free port when it's taken",
     'runtime-image': 'the image this CLI release pins',
@@ -302,6 +302,10 @@ export const CLI_DEFAULTS = {
     project: "the tenant's Default project",
     segment: 'none',
   },
+  'runs resume': {
+    output: 'none: the command only says what the run waits for',
+    waitpoint: "the run's only wait for another system's answer (only with `--output`)",
+  },
   'agents list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
@@ -490,15 +494,22 @@ export const CLI_DEFAULTS = {
   },
   'proposals improve': {
     agent: 'required',
+    'class-weights':
+      "none (counts everyone until the test cases' project, its tenant, or the agent improved there has a restricted judge class, then only those)",
+    drafts: '`3` (`1` to `5`; with `--tier=prompt` only)',
     'from-version': 'the version serving the scope',
     'idempotency-key': 'none',
     'max-candidates': '`30`',
     'max-cost': '`5` (US dollars)',
+    model: 'none (needed with `--tier=prompt`, with `--provider`)',
     objective: '`weightedYesShare`',
     org: 'none',
+    'pass-project': "the scope's project, else the agent version's",
     project: 'none',
+    provider: 'none (needed with `--tier=prompt`, with `--model`)',
     segment: 'none',
     'test-set': 'required',
+    tier: '`settings`',
   },
   'proposals passes list': {
     agent: 'none',
@@ -728,7 +739,8 @@ export const CLI_DEFAULTS = {
     spec: 'required',
   },
   'judgments add': {
-    class: 'none (the judgment is unclassified)',
+    class: 'none (the correction is unclassified)',
+    correction: 'none (an ordinary correction, without what the agent should have done)',
     item: 'required',
     no: 'off (exactly one of `--yes` or `--no` is required)',
     participant: 'none',
@@ -760,7 +772,7 @@ export const CLI_DEFAULTS = {
   'judge-classes add': {
     agent: 'none',
     description: 'none',
-    'min-reviewer-role': 'none (anyone who may judge the run may assert)',
+    'min-reviewer-role': 'none (anyone who may correct the run may assert)',
     name: 'required',
     'principal-id': 'none (no restriction)',
     'principal-kind': 'none (no restriction)',
@@ -774,6 +786,84 @@ export const CLI_DEFAULTS = {
     'principal-id': 'unchanged',
     'principal-kind': 'unchanged',
     weight: 'unchanged',
+  },
+  'judging-rules create': {
+    project: "the tenant's Default project",
+    name: 'required',
+    agent: 'none (runs of any agent)',
+    flow: 'none (runs of any flow)',
+    'agent-version': 'none (any version)',
+    status: '`completed` (only completed runs match)',
+    sample: '`1` (every matching run)',
+    'max-open': 'none (no cap)',
+    class: 'none (any correction closes an item)',
+    'queue-last':
+      'none (nothing is queued on create unless `--queue-last` or `--queue-since` is given)',
+    'queue-since': 'none',
+  },
+  'judging-rules list': {
+    project: "the tenant's Default project",
+    limit: '`25` (at most `100`)',
+    cursor: 'none',
+  },
+  'judging-rules show': {
+    project: "the tenant's Default project",
+  },
+  'judging-rules update': {
+    project: "the tenant's Default project",
+    name: 'unchanged',
+    agent: 'unchanged (any match flag replaces `when` whole)',
+    flow: 'unchanged (any match flag replaces `when` whole)',
+    'agent-version': 'unchanged (any match flag replaces `when` whole)',
+    status: 'unchanged (any match flag replaces `when` whole)',
+    sample: 'unchanged',
+    'max-open': 'unchanged',
+    class: 'unchanged',
+  },
+  'judging-rules remove': {
+    project: "the tenant's Default project",
+  },
+  'judging-rules versions': {
+    project: "the tenant's Default project",
+    limit: '`25` (at most `100`)',
+    cursor: 'none',
+  },
+  'judging-rules results': {
+    project: "the tenant's Default project",
+    since: 'none (every result)',
+  },
+  'judging-rules preview': {
+    project: "the tenant's Default project",
+    agent: 'none (runs of any agent)',
+    flow: 'none (runs of any flow)',
+    'agent-version': 'none (any version)',
+    status: '`completed` (only completed runs match)',
+    sample: '`1` (every matching run)',
+    last: '`100` (1 to 500)',
+    rule: 'none (preview the given flags, not an existing rule)',
+  },
+  'judging-rules queue-recent': {
+    project: "the tenant's Default project",
+    last: 'none (give `--last` and/or `--since`)',
+    since: 'none (give `--last` and/or `--since`)',
+  },
+  'judging-queue list': {
+    project: "the tenant's Default project",
+    state: 'none (every state)',
+    agent: 'none',
+    rule: 'none',
+    class: 'none',
+    'added-after': 'none',
+    'closed-after': 'none',
+    limit: '`25` (at most `100`)',
+    cursor: 'none',
+  },
+  'judging-queue dismiss': {
+    project: "the tenant's Default project",
+    reason: 'none',
+  },
+  'judging-queue reopen': {
+    project: "the tenant's Default project",
   },
   'eval-runs start': {
     project: 'required',
@@ -900,6 +990,32 @@ export const CLI_DEFAULTS = {
   },
   'service-accounts ungrant': {
     project: 'none',
+  },
+  'connections list': {
+    app: 'none',
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+    project: 'none',
+  },
+  'connections connect': {
+    'app-id': "none: the app's one registration",
+    permissions:
+      "none picked: at a terminal it asks about each one the app's entry offers; required without one",
+    project: 'none',
+  },
+  'connection-apps list': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
+  'connection-apps add': {
+    'client-id': 'required',
+    'client-secret-ref': 'required',
+    'github-app-id': 'required for `github`',
+    'private-key-ref': 'required for `github`',
+    projects: 'none: every project',
+    slug: 'required for `github`',
+    tenant: "none: required where the app's entry names no default (`microsoft`)",
+    'webhook-secret-ref': 'required for `github`',
   },
   'people add': {
     email: 'none',
@@ -1132,7 +1248,7 @@ export const CLI_EXAMPLES = {
     },
     {
       purpose:
-        'Promote to prod and make each agent the build carries live there, each through its gate.',
+        'Promote to prod and make each agent the build carries live there, each through its release gate policy.',
       line: 'kindgi promote --from=staging --to=prod --make-live --reason="release 12"',
     },
     {
@@ -1365,7 +1481,7 @@ export const CLI_EXAMPLES = {
   ],
   'agents gate-policy': [
     {
-      purpose: 'Show the gate policy for the whole tenant.',
+      purpose: 'Show the release gate policy for the whole tenant.',
       line: 'kindgi agents gate-policy acme.order-desk --tenant',
     },
     {
@@ -1375,7 +1491,7 @@ export const CLI_EXAMPLES = {
   ],
   'agents promotions get': [
     {
-      purpose: 'Show one promotion of an agent.',
+      purpose: "Show one entry of an agent's go-live history.",
       line: 'kindgi agents promotions get acme.order-desk <promotion-id>',
     },
   ],
@@ -1385,7 +1501,7 @@ export const CLI_EXAMPLES = {
       line: 'kindgi conversations list --status=open',
     },
     {
-      purpose: 'List only comparison replays, a page at a time.',
+      purpose: 'List only the replays of runs on the test cases, a page at a time.',
       line: 'kindgi conversations list --replays=only --limit=10',
     },
   ],
@@ -1706,6 +1822,99 @@ export const CLI_EXAMPLES = {
       line: 'kindgi judge-classes remove <judge-class-id>',
     },
   ],
+  'judging-rules create': [
+    {
+      purpose: "Queue a quarter of an agent's completed runs for correction.",
+      line: 'kindgi judging-rules create --name="refund tone" --agent=acme.refunds --sample=0.25',
+    },
+    {
+      purpose: 'Create a rule and catch it up at once on the last 500 finished runs.',
+      line: 'kindgi judging-rules create --name="all refunds" --agent=acme.refunds --queue-last=500',
+    },
+  ],
+  'judging-rules list': [
+    {
+      purpose: "List a project's judging rules.",
+      line: 'kindgi judging-rules list --project=<project-id>',
+    },
+  ],
+  'judging-rules show': [
+    {
+      purpose: "Show a rule's latest version.",
+      line: 'kindgi judging-rules show <rule-id>',
+    },
+  ],
+  'judging-rules update': [
+    {
+      purpose: "Raise a rule's open-items cap and enable it.",
+      line: 'kindgi judging-rules update <rule-id> --max-open=50 --enable',
+    },
+    {
+      purpose: 'Replace what the rule matches and drop its cap.',
+      line: 'kindgi judging-rules update <rule-id> --agent=acme.refunds --clear-max-open',
+    },
+  ],
+  'judging-rules remove': [
+    {
+      purpose: 'Unregister a rule so it queues nothing more; its queued items stay.',
+      line: 'kindgi judging-rules remove <rule-id>',
+    },
+  ],
+  'judging-rules versions': [
+    {
+      purpose: 'List every version of a rule, newest first.',
+      line: 'kindgi judging-rules versions <rule-id>',
+    },
+  ],
+  'judging-rules results': [
+    {
+      purpose:
+        "Show a rule's results for runs queued since a date, by the rule's version and the agent's.",
+      line: 'kindgi judging-rules results <rule-id> --since=2026-10-01',
+    },
+  ],
+  'judging-rules preview': [
+    {
+      purpose: 'See how many of the last 200 runs a rule would queue, changing nothing.',
+      line: 'kindgi judging-rules preview --agent=acme.refunds --last=200',
+    },
+    {
+      purpose: 'Preview exactly what an existing rule would take.',
+      line: 'kindgi judging-rules preview --rule=<rule-id>',
+    },
+  ],
+  'judging-rules queue-recent': [
+    {
+      purpose: 'Catch a rule up on the last 1,000 finished runs.',
+      line: 'kindgi judging-rules queue-recent <rule-id> --last=1000',
+    },
+    {
+      purpose: 'Queue its matches among runs finished on or after a date.',
+      line: 'kindgi judging-rules queue-recent <rule-id> --since=2026-10-01',
+    },
+  ],
+  'judging-queue list': [
+    {
+      purpose: 'List the runs waiting for a correction, as a table.',
+      line: 'kindgi judging-queue list --state=open --table',
+    },
+    {
+      purpose: 'List the open items one of your corrections would close.',
+      line: 'kindgi judging-queue list --state=open --for-me',
+    },
+  ],
+  'judging-queue dismiss': [
+    {
+      purpose: 'Dismiss a queued run that needs no correction.',
+      line: 'kindgi judging-queue dismiss <run-id> --reason="not a refund"',
+    },
+  ],
+  'judging-queue reopen': [
+    {
+      purpose: 'Reopen a dismissed item so it waits for a correction again.',
+      line: 'kindgi judging-queue reopen <run-id>',
+    },
+  ],
   'eval-runs list': [
     {
       purpose: 'List the newest eval runs of one suite.',
@@ -1724,7 +1933,7 @@ export const CLI_EXAMPLES = {
   ],
   'eval-runs rescore': [
     {
-      purpose: 'Rescore a completed comparison and wait for the new run.',
+      purpose: 'Rescore a completed run on the test cases and wait for the new run.',
       line: 'kindgi eval-runs rescore <run-id> --wait',
     },
     {
@@ -1754,7 +1963,7 @@ export const CLI_EXAMPLES = {
   ],
   'eval-suites cases': [
     {
-      purpose: "List the first page of a test set's cases.",
+      purpose: 'List the first page of the test cases.',
       line: 'kindgi eval-suites cases acme.article-picks --suite-version=1.0.0',
     },
     {
@@ -1764,7 +1973,7 @@ export const CLI_EXAMPLES = {
   ],
   'blocks list': [
     {
-      purpose: 'List the prompt blocks of a project.',
+      purpose: "List a project's instructions (its prompt blocks).",
       line: 'kindgi blocks list --project=<project-id> --kind=prompt',
     },
     {
@@ -1806,7 +2015,7 @@ export const CLI_EXAMPLES = {
   ],
   'gate-policies list': [
     {
-      purpose: 'List the gate policies of one agent.',
+      purpose: 'List the release gate policies of one agent.',
       line: 'kindgi gate-policies list --agent=acme.order-desk --table',
     },
     {
@@ -1832,13 +2041,13 @@ export const CLI_EXAMPLES = {
   ],
   'gate-policies unregister': [
     {
-      purpose: 'Unregister a gate policy version.',
+      purpose: 'Unregister a release gate policy version.',
       line: 'kindgi gate-policies unregister acme.order-desk-release 1.0.0',
     },
   ],
   'gate-policies reinstate': [
     {
-      purpose: 'Reinstate an unregistered gate policy version.',
+      purpose: 'Reinstate an unregistered release gate policy version.',
       line: 'kindgi gate-policies reinstate acme.order-desk-release 1.0.0',
     },
   ],
@@ -1894,6 +2103,84 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Unregister a service account and revoke its keys.',
       line: 'kindgi service-accounts unregister <service-account-id>',
+    },
+  ],
+  'connections list': [
+    {
+      purpose: 'List your own connections to Google, as a table.',
+      line: 'kindgi connections list --app=google --mine --table',
+    },
+    {
+      purpose: "List the connections a project's registrations allow.",
+      line: 'kindgi connections list --project=<project-id>',
+    },
+    {
+      purpose: 'List connections, removed ones too, as a table.',
+      line: 'kindgi connections list --include-removed --table',
+    },
+  ],
+  'connections get': [
+    {
+      purpose: 'Show one connection: whose account, its permissions and its state.',
+      line: 'kindgi connections get <connection-id>',
+    },
+  ],
+  'connections connect': [
+    {
+      purpose: 'Connect your Google account to send email; open the link it prints.',
+      line: 'kindgi connections connect google --permissions=gmail.send',
+    },
+    {
+      purpose: "Connect the company's GitHub installation for a project (tenant admins).",
+      line: 'kindgi connections connect github --project=<project-id> --for-company',
+    },
+  ],
+  'connections disconnect': [
+    {
+      purpose: 'Disconnect a connection without being asked (for scripts).',
+      line: 'kindgi connections disconnect <connection-id> --yes',
+    },
+  ],
+  'connection-apps list': [
+    {
+      purpose: "List the tenant's registrations, as a table.",
+      line: 'kindgi connection-apps list --table',
+    },
+    {
+      purpose: 'List every registration, removed ones too, as a table.',
+      line: 'kindgi connection-apps list --include-removed --table',
+    },
+  ],
+  'connection-apps get': [
+    {
+      purpose: 'Show a registration, with the redirect and notices addresses to give the app.',
+      line: 'kindgi connection-apps get <app-id>',
+    },
+  ],
+  'connection-apps add': [
+    {
+      purpose:
+        "Register the company's Google client, its secret stored first with `kindgi secrets set`.",
+      line: 'kindgi connection-apps add google --client-id=<client-id> --client-secret-ref=production/ACME_GOOGLE_CONNECT_SECRET',
+    },
+    {
+      purpose:
+        "Register the company's Microsoft Entra app, a single-tenant one, at its own directory.",
+      line: 'kindgi connection-apps add microsoft --client-id=<client-id> --client-secret-ref=production/ACME_MICROSOFT_CONNECT_SECRET --tenant=<tenant-id>',
+    },
+    {
+      purpose: "Register the company's GitHub App.",
+      line: 'kindgi connection-apps add github --github-app-id=<n> --slug=<slug> --client-id=<client-id> --client-secret-ref=production/ACME_GITHUB_CLIENT_SECRET --private-key-ref=production/ACME_GITHUB_PRIVATE_KEY --webhook-secret-ref=production/ACME_GITHUB_WEBHOOK_SECRET',
+    },
+    {
+      purpose: "Register the company's LinkedIn app.",
+      line: 'kindgi connection-apps add linkedin --client-id=<client-id> --client-secret-ref=production/ACME_LINKEDIN_CONNECT_SECRET',
+    },
+  ],
+  'connection-apps remove': [
+    {
+      purpose: 'Remove a registration and disconnect every connection through it.',
+      line: 'kindgi connection-apps remove <app-id> --with-connections',
     },
   ],
   'people add': [
@@ -2078,6 +2365,8 @@ export const CLI_GROUP_SEE_ALSO = {
   'mcp-launch': ['guides/tools/mcp-servers'],
   deployments: ['hosted/deploy-your-agent', 'guides/secrets/pack-env'],
   projects: ['guides/projects/organize-by-org-and-project'],
+  connections: ['deploy/people-and-keys'],
+  'connection-apps': ['guides/secrets/store-a-secret', 'deploy/people-and-keys'],
   tenant: ['guides/projects/organize-by-org-and-project'],
   environments: ['guides/projects/organize-by-org-and-project'],
   promote: ['guides/projects/organize-by-org-and-project'],
@@ -2089,4 +2378,6 @@ export const CLI_GROUP_SEE_ALSO = {
   health: ['deploy/self-hosted/operate'],
   version: ['start/install'],
   usage: ['guides/observability/cost-per-run', 'guides/projects/organize-by-org-and-project'],
+  'judging-rules': ['guides/evals/judge-a-runs-output', 'guides/evals/judging-reference'],
+  'judging-queue': ['guides/evals/judge-a-runs-output', 'guides/evals/judging-reference'],
 };

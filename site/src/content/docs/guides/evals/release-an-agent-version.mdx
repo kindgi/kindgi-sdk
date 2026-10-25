@@ -8,11 +8,11 @@ sidebar:
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 This guide makes an agent version live where you choose, checks which
-version a run gets, rolls back, and gates a release behind your test set.
+version a run gets, rolls back, and gates a release behind your test cases.
 
 A run that names no version gets the agent's latest version. Once a new
-version has done better on your test set, as
-[Compare a version on a test set](../compare-an-agent-version/) shows, you
+version has done better on your test cases, as
+[Try a version on the test cases](../compare-an-agent-version/) shows, you
 can make it **live** where you choose: the whole tenant, an org, a project, or
 a segment of a project's runs, such as one company's. Runs there use it from
 the next run, nothing changes anywhere else, and you can roll back at once.
@@ -26,8 +26,8 @@ refusal and console page.
   with versions 1.0.0, 1.1.0, 1.2.0 and 1.3.0.
 - **A project's id,** for a project or a segment: `kindgi projects list`
   lists them.
-- **For a gate:** a comparison of the version on your test set, and a second
-  reviewer to approve.
+- **For a release gate policy:** a run of the version on your test cases, and
+  a second reviewer to approve.
 - **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
   Kindgi 0.2's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
 
@@ -72,7 +72,7 @@ uv run kindgi agents promote acme.order-desk 1.0.0 --tenant --reason="1.0.0 is t
 - `--tenant` is the scope: the whole tenant.
 - `--reason` is kept on the record.
 
-It prints the promotion:
+It prints the request to make it live:
 
 ```json
 {
@@ -181,7 +181,7 @@ uv run kindgi agents promote acme.order-desk 1.1.0 --project=<project-id> --segm
 - `--segment=company:acme` is the segment path in it.
 - `--org=<org-id>` names an org instead.
 
-It prints the promotion, with the segment as its `scope`.
+It prints the request to make it live, with the segment as its `scope`.
 
 A run started with that segment gets 1.1.0:
 
@@ -459,23 +459,26 @@ uv run kindgi agents unpin acme.order-desk --tenant --reason="Back to the latest
 </TabItem>
 </Tabs>
 
-Every promotion, rollback and unpin is kept, with who asked and why.
+Every request to make a version live, rollback and unpin is kept, with who
+asked and why.
 `kindgi agents promotions list acme.order-desk --table` lists them, as
-[The history](../live-versions-reference/#the-history) shows.
+[The history](../live-versions-reference/#go-live-history) shows.
 [Rollbacks and unpins](../live-versions-reference/#rollbacks-and-unpins)
 lists what each refuses.
 
 ## Gate a release
 
-A **gate policy** says what a promotion must show before a version goes live
-for a scope: a recent comparison on your test set, enough judged cases,
-figures at least this good, a clean replay and, if you want, a reviewer's
-approval. An agent has one policy per scope. A promotion is checked by the
-most specific one covering its scope, at its latest version.
+A **release gate policy** says what a request to make a version live must
+show before the version goes live for a scope: a recent run on your test
+cases, enough corrected cases, figures at least this good, a clean replay and,
+if you want, a reviewer's approval. An agent has one policy per scope. A
+request to make a version live is checked by the most specific one covering
+its scope, at its latest version.
 
-### Set a gate
+### Set a release gate policy
 
-A gated scope needs a live version of its own, so give the tenant one first:
+A scope with a release gate policy needs a live version of its own, so give
+the tenant one first:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -511,7 +514,7 @@ uv run kindgi agents promote acme.order-desk 1.0.0 --tenant --reason="1.0.0 is t
 Ask your coding agent to write the policy:
 
 ```text
-Before a new version of my agent goes live, I want it to have done well on my test set, and a senior reviewer to approve it.
+Before a new version of my agent goes live, I want it to have done well on my test cases, and a senior reviewer to approve it.
 ```
 
 For reference, the policy it writes looks like this. This guide saves it as
@@ -565,13 +568,14 @@ uv run kindgi gate-policies publish acme.order-desk-release --policy-version=1.0
 - `--agent` and `--tenant` are the agent and the scope it gates.
 - `--spec=@gate.json` reads the policy from the file.
 
-The tenant's promotions of `acme.order-desk` now go through the gate.
-[Gate policies](../live-versions-reference/#gate-policies) has what each
-part asks, and who may publish one.
+Requests to make `acme.order-desk` live anywhere in the tenant now go
+through the release gate policy, unless a narrower scope has one of its own.
+[Release gate policies](../live-versions-reference/#release-gate-policies) has what
+each part asks, and who may publish one.
 
-### Check before you promote
+### Check before you make it live
 
-`--check` asks the gate without recording anything:
+`--check` asks the release gate policy without recording anything:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -604,17 +608,17 @@ uv run kindgi agents promote acme.order-desk 1.3.0 --tenant --eval-run=<comparis
 </TabItem>
 </Tabs>
 
-`--eval-run=<comparison-id>` names the comparison of 1.3.0, where
-`<comparison-id>` is its eval run's id. It prints what the gate would say:
+`--eval-run=<comparison-id>` names the run of 1.3.0 on the test cases, where
+`<comparison-id>` is its eval run's id. It prints what the policy would say:
 
 ```json
 {
   "outcome": "needs-approval",
   "policy": { "id": "acme.order-desk-release", "version": "1.0.0" },
   "checks": [
-    { "name": "comparison.freshness", "passed": true, "message": "The comparison finished 0.013 hours ago; the policy accepts up to 168.", … },
-    { "name": "baselineIsLive", "passed": true, "message": "The baseline is acme.order-desk 1.0.0, the version live for the scope.", … },
-    { "name": "metric.weightedYesShare.minCandidate", "passed": true, "message": "The weighted yes share is 1; the policy needs at least 0.6.", … },
+    { "name": "comparison.freshness", "passed": true, "message": "The test run finished 0.013 hours ago; the policy accepts up to 168.", … },
+    { "name": "baselineIsLive", "passed": true, "message": "The test run measured this version against the live version, acme.order-desk 1.0.0.", … },
+    { "name": "metric.weightedYesShare.minCandidate", "passed": true, "message": "The weighted share marked right is 1; the policy needs at least 0.6.", … },
     …
   ],
   "approval": { "role": "senior", "count": 1, "separateApprover": true }
@@ -622,12 +626,19 @@ uv run kindgi agents promote acme.order-desk 1.3.0 --tenant --eval-run=<comparis
 ```
 
 `gate-failed` lists each check that failed, such as
-`` This policy needs a comparison: name one with `evalRunId` (a finished comparison eval run of this version). ``
+`` This policy needs a test run: name one with `evalRunId` (a finished eval run that tried this version on the test cases). ``
 when there's no `--eval-run`.
 
-### Promote through the gate
+When the test cases have corrections that say what the run should have
+done, the summary of the run on the test cases also says how many the
+version passed, in `corrections`
+([What it should have done](../compare-an-agent-version/#what-it-should-have-done)).
+No release gate policy checks it, so name it in the `--reason`, such as
+`--reason="Passes 3 of 3 corrections"`.
 
-Promote it the same way, without `--check`:
+### Make it live through the release gate policy
+
+Ask to make it live the same way, without `--check`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -660,14 +671,14 @@ uv run kindgi agents promote acme.order-desk 1.3.0 --tenant --eval-run=<comparis
 </TabItem>
 </Tabs>
 
-It prints the promotion or the gate's refusal:
+It prints the request, with its status, or the policy's refusal:
 
-- **When the policy has no `approvals`,** a promotion that passes goes live
+- **When the policy has no `approvals`,** a request that passes goes live
   at once, `"status": "promoted"`.
 - **When it has,** it waits: `"status": "pending-approval"`, with an
   `approvalId`. The scope keeps its version until a reviewer approves.
 - **When it fails,** nothing changes. It's refused with every failed check,
-  such as `The gate refused acme.order-desk 1.3.0: The weighted yes share rests on 3 judged cases for the candidate; the policy needs at least 20. …`,
+  such as `The release gate policy refused acme.order-desk 1.3.0: The weighted share marked right rests on 3 judged cases for this version; the policy needs at least 20. …`,
   and kept in the history as `refused`.
 
 ### Approve it
@@ -706,8 +717,8 @@ uv run kindgi approvals complete <approval-id> --decision=approve --rationale="C
 </TabItem>
 </Tabs>
 
-`<approval-id>` is the promotion's `approvalId`. The version goes live, and
-the promotion is `promoted`. Whoever asked can't approve their own request:
+`<approval-id>` is the request's `approvalId`. The version goes live, and
+the request is `promoted`. Whoever asked can't approve their own request:
 
 ```text
 Approval <approval-id> was asked for by you: someone else must approve it
@@ -715,16 +726,17 @@ Approval <approval-id> was asked for by you: someone else must approve it
 
 That holds unless the policy's `approvals` has `"separateApprover": false`.
 A deployment that one person uses with the API token has nobody else to
-approve, so its gates with `approvals` need `"separateApprover": false`.
+approve, so its release gate policies with `approvals` need
+`"separateApprover": false`.
 With [people of their own](../../../deploy/people-and-keys/), register a
 second reviewer instead.
 
-### Promote from your app
+### Make it live from your app
 
-Your app checks the gate, then promotes. Ask your coding agent: "Check the
-release gate for my new agent version, and promote it unless the gate
-refuses." For reference, the script looks like this, with the comparison's id
-as its argument:
+Your app checks the release gate policy, then makes the version live. Ask your
+coding agent: "Check the release gate policy for my new agent version, and
+make it live unless the policy refuses." For reference, the script looks like
+this, with the id of the run on the test cases as its argument:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -785,7 +797,8 @@ if check.outcome != "gate-failed":
 </TabItem>
 </Tabs>
 
-It prints the gate's outcome, then the promotion waiting for its approval:
+It prints the release gate policy's outcome, then the request waiting for its
+approval:
 
 ```text
 needs-approval
@@ -799,6 +812,6 @@ pending-approval fa6fbbcf-7b0d-4c70-b462-d6a78bbcfd11
 ## Next
 
 - [Live versions reference](../live-versions-reference/)
-- [Compare a version on a test set](../compare-an-agent-version/)
+- [Try a version on the test cases](../compare-an-agent-version/)
 - [Decide an approval](../../approvals/decide-an-approval/)
 - [Agent and tool versions](../../agents/agent-and-tool-versions/)

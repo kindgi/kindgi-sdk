@@ -80,7 +80,7 @@ function runRegistry(argv: readonly string[], seam: RegistryAuthSeam) {
 describe('the registry', () => {
   test('is derived from the pinned image', () => {
     expect(RUNTIME_IMAGE_REGISTRY).toBe(registryOf(DEFAULT_RUNTIME_IMAGE));
-    expect(RUNTIME_IMAGE_REGISTRY).toBe('quay.io');
+    expect(RUNTIME_IMAGE_REGISTRY).toBe('registry.kindgi.com');
   });
 
   test('is read from a reference the way Docker reads it', () => {
@@ -92,9 +92,11 @@ describe('the registry', () => {
   });
 
   test('a mirror carries the same repository, tag and digest', () => {
-    expect(imageOnRegistry(DEFAULT_RUNTIME_IMAGE, 'quay.io')).toBe(DEFAULT_RUNTIME_IMAGE);
+    expect(imageOnRegistry(DEFAULT_RUNTIME_IMAGE, 'registry.kindgi.com')).toBe(
+      DEFAULT_RUNTIME_IMAGE,
+    );
     expect(imageOnRegistry(DEFAULT_RUNTIME_IMAGE, 'mirror.example.com')).toBe(
-      DEFAULT_RUNTIME_IMAGE.replace(/^quay\.io\//, 'mirror.example.com/'),
+      DEFAULT_RUNTIME_IMAGE.replace(/^registry\.kindgi\.com\//, 'mirror.example.com/'),
     );
     expect(imageOnRegistry('busybox:1.36', '127.0.0.1:5000')).toBe(
       '127.0.0.1:5000/library/busybox:1.36',
@@ -151,11 +153,17 @@ describe('logging in', () => {
     expect(out.exitCode).toBe(0);
     expect(fake.commands()).toEqual([
       'version --format {{.Server.Version}}',
-      'login quay.io --username',
+      'login registry.kindgi.com --username',
       'buildx imagetools inspect',
     ]);
     const login = fake.calls[1];
-    expect(login?.args).toEqual(['login', 'quay.io', '--username', 'robot', '--password-stdin']);
+    expect(login?.args).toEqual([
+      'login',
+      'registry.kindgi.com',
+      '--username',
+      'robot',
+      '--password-stdin',
+    ]);
     // The trailing newline isn't part of the token, as docker reads it.
     expect(login?.options).toEqual({ stdin: TOKEN });
     for (const call of fake.calls) {
@@ -163,7 +171,7 @@ describe('logging in', () => {
       if (call !== login) expect(call.options?.stdin).toBeUndefined();
     }
     expect(out.stdout + out.stderr).not.toContain(TOKEN);
-    expect(out.stderr).toContain('✓ Logged in to quay.io as robot');
+    expect(out.stderr).toContain('✓ Logged in to registry.kindgi.com as robot');
     expect(out.stderr).toContain(
       `✓ You can pull ${DEFAULT_RUNTIME_IMAGE}, the image this CLI runs.`,
     );
@@ -181,7 +189,7 @@ describe('logging in', () => {
       },
     });
     expect(out.exitCode).toBe(0);
-    expect(prompt.state.prompts).toEqual(['Token for robot at quay.io: ']);
+    expect(prompt.state.prompts).toEqual(['Token for robot at registry.kindgi.com: ']);
     expect(prompt.state.closed).toBe(true);
     expect(fake.calls.find((c) => c.args[0] === 'login')?.options).toEqual({ stdin: TOKEN });
     expect(out.stdout + out.stderr).not.toContain(TOKEN);
@@ -261,7 +269,7 @@ describe('logging in', () => {
       login: {
         code: 1,
         stdout: '',
-        stderr: `Error response from daemon: Get "https://quay.io/v2/": unauthorized: bad credentials for ${TOKEN}\n`,
+        stderr: `Error response from daemon: Get "https://registry.kindgi.com/v2/": unauthorized: bad credentials for ${TOKEN}\n`,
       },
     });
     const out = await runRegistry(['--username', 'robot', '--password-stdin'], {
@@ -269,7 +277,9 @@ describe('logging in', () => {
       readStdin: async () => TOKEN,
     });
     expect(out.exitCode).toBe(1);
-    expect(out.stderr).toContain('docker login quay.io failed: Error response from daemon');
+    expect(out.stderr).toContain(
+      'docker login registry.kindgi.com failed: Error response from daemon',
+    );
     expect(out.stderr).toContain('unauthorized: bad credentials for ***');
     expect(out.stderr).toContain('Signing in at https://access.kindgi.com shows both.');
     expect(out.stderr).not.toContain(TOKEN);
@@ -294,6 +304,32 @@ describe('logging in', () => {
     expect(out.stderr).toContain('docker: WARNING! Your credentials are stored unencrypted');
   });
 
+  test("--quiet: docker's warnings alone; a login without any says nothing", async () => {
+    const warned = fakeDocker({
+      login: {
+        code: 0,
+        stdout: 'Login Succeeded\n',
+        stderr:
+          "WARNING! Your credentials are stored unencrypted in '/home/dev/.docker/config.json'.\n",
+      },
+    });
+    const out = await runRegistry(['--username', 'robot', '--password-stdin', '--quiet'], {
+      docker: warned.run,
+      readStdin: async () => TOKEN,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toBe(
+      "    docker: WARNING! Your credentials are stored unencrypted in '/home/dev/.docker/config.json'.\n",
+    );
+
+    const quiet = await runRegistry(['--username', 'robot', '--password-stdin', '--quiet'], {
+      docker: fakeDocker().run,
+      readStdin: async () => TOKEN,
+    });
+    expect(quiet.exitCode, quiet.stderr).toBe(0);
+    expect([quiet.stdout, quiet.stderr]).toEqual(['', '']);
+  });
+
   test('--json prints a summary on stdout, without the token', async () => {
     const fake = fakeDocker();
     const out = await runRegistry(['--username', 'robot', '--password-stdin', '--json'], {
@@ -302,7 +338,7 @@ describe('logging in', () => {
     });
     expect(JSON.parse(out.stdout)).toEqual({
       ok: true,
-      registry: 'quay.io',
+      registry: 'registry.kindgi.com',
       loggedIn: true,
       username: 'robot',
       image: DEFAULT_RUNTIME_IMAGE,
@@ -356,7 +392,7 @@ describe('--check', () => {
         code: 1,
         stdout: '',
         stderr:
-          'ERROR: unexpected status from HEAD request to https://quay.io/v2/kindgi/runtime/manifests/sha256:91cb: 401 UNAUTHORIZED\n',
+          'ERROR: unexpected status from HEAD request to https://registry.kindgi.com/v2/kindgi/runtime/manifests/sha256:91cb: 401 UNAUTHORIZED\n',
       },
     });
     const out = await runRegistry(['--check'], { docker: fake.run });
@@ -374,14 +410,14 @@ describe('--check', () => {
   test('a missing image or an unreachable registry is not found: the image or the network', async () => {
     for (const stderr of [
       `ERROR: ${DEFAULT_RUNTIME_IMAGE}: not found\n`,
-      'ERROR: failed to do request: Head "https://quay.io/v2/": dial tcp: lookup quay.io: no such host\n',
+      'ERROR: failed to do request: Head "https://registry.kindgi.com/v2/": dial tcp: lookup registry.kindgi.com: no such host\n',
     ]) {
       const fake = fakeDocker({ 'buildx imagetools inspect': { code: 1, stdout: '', stderr } });
       const out = await runRegistry(['--check'], { docker: fake.run });
       expect(out.exitCode).toBe(1);
       expect(out.stderr).toContain(`✗ Couldn't find ${DEFAULT_RUNTIME_IMAGE}`);
       expect(out.stderr).toContain(
-        "Either the image isn't on quay.io, or this machine can't reach quay.io",
+        "Either the image isn't on registry.kindgi.com, or this machine can't reach registry.kindgi.com",
       );
       expect(out.stderr).not.toContain('access.kindgi.com');
     }
@@ -396,8 +432,8 @@ describe('--check', () => {
       readStdin: async () => TOKEN,
     });
     expect(out.exitCode).toBe(1);
-    expect(out.stderr).toContain('✓ Logged in to quay.io as robot');
-    expect(out.stderr).toContain("robot is logged in to quay.io but can't pull it");
+    expect(out.stderr).toContain('✓ Logged in to registry.kindgi.com as robot');
+    expect(out.stderr).toContain("robot is logged in to registry.kindgi.com but can't pull it");
     expect(out.stderr).toContain(
       'sign in at https://access.kindgi.com for your current pull credential (questions: contact@kindgi.com)',
     );
@@ -464,7 +500,7 @@ describe('without docker buildx', () => {
   const DIGEST_ONLY = DEFAULT_RUNTIME_IMAGE.replace(/:\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?@/, '@');
 
   test('the digest-only reference: the tag goes, the digest stays', () => {
-    expect(DIGEST_ONLY).toMatch(/^quay\.io\/kindgi\/runtime@sha256:[0-9a-f]{64}$/);
+    expect(DIGEST_ONLY).toMatch(/^registry\.kindgi\.com\/kindgi\/runtime@sha256:[0-9a-f]{64}$/);
     expect(digestOnly(DEFAULT_RUNTIME_IMAGE)).toBe(DIGEST_ONLY);
     expect(digestOnly('127.0.0.1:5000/kindgi/runtime:1@sha256:abc')).toBe(
       '127.0.0.1:5000/kindgi/runtime@sha256:abc',
@@ -531,7 +567,7 @@ describe('without docker buildx', () => {
     expect(notFound.stderr).toContain(`✗ Couldn't find ${DEFAULT_RUNTIME_IMAGE}`);
     // Without credentials, docker manifest inspect says "no such manifest" too.
     expect(notFound.stderr).toContain(
-      "docker manifest inspect says this both when the image isn't on quay.io and when Docker has no access to it",
+      "docker manifest inspect says this both when the image isn't on registry.kindgi.com and when Docker has no access to it",
     );
   });
 

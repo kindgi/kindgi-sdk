@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { type Agent, modelSettingsIssues } from '@kindgi/agents';
+import { type Agent, modelNamedTwice, modelSettingsIssues } from '@kindgi/agents';
 import { pickVersion } from '@kindgi/tools';
 import type { Cursor, TenantId } from '@kindgi/types';
 
@@ -22,6 +22,9 @@ export interface Ref {
   readonly role: 'prompt' | 'settings' | 'model-settings';
 }
 
+/** The registry reads pinning needs: a deploy adds its pack's new versions (`withPackVersions`). */
+export type BlockVersionReads = Pick<BlockRegistryBinding, 'listVersions' | 'getVersion'>;
+
 /** Page size for reading a block's versions. */
 const VERSIONS_PAGE = 200;
 
@@ -29,16 +32,20 @@ const VERSIONS_PAGE = 200;
  * Pin the data blocks an agent references (its prompt block, settings
  * blocks and model-settings block) when a version of it is published:
  * each range resolves by `pickVersion` over the block's active versions,
- * as a turn of an unpinned agent would. A reference that matches no
- * published version, names a block of the other kind, or names model
- * settings that aren't (`MODEL_SETTINGS_SCHEMA`) is an issue: the
- * caller refuses the publish. So is any reference on a runtime with no
- * block registry.
+ * as a turn of an unpinned agent would. A block a deploy's pack brings
+ * (`pack`: its id and version) pins the pack's version only, as the
+ * pack's files are the agent: a newer version published on the runtime
+ * isn't picked. A reference that matches no published version (or not
+ * the pack's), names a block of the other kind, or names model settings
+ * that aren't (`MODEL_SETTINGS_SCHEMA`), or that name the model the
+ * agent names too (`modelNamedTwice`), is an issue: the caller refuses
+ * the publish. So is any reference on a runtime with no block registry.
  */
 export async function resolveBlockPins(
-  blocks: BlockRegistryBinding | undefined,
+  blocks: BlockVersionReads | undefined,
   tenantId: TenantId,
   agent: Agent,
+  pack?: ReadonlyMap<string, string>,
 ): Promise<BlockPins> {
   const prompts: Record<string, string> = {};
   const settings: Record<string, string> = {};
@@ -51,23 +58,21 @@ export async function resolveBlockPins(
       });
       continue;
     }
-    const available = await activeBlockVersions(blocks, tenantId, ref.id);
+    const packVersion = pack?.get(ref.id);
+    const available =
+      packVersion !== undefined
+        ? [packVersion]
+        : await activeBlockVersions(blocks, tenantId, ref.id);
     const pick = pickVersion(available, ref.range);
     if (pick.kind !== 'ok') {
-      issues.push({
-        path: ref.path,
-        message:
-          available.length === 0
-            ? `${describe(ref)} has no published version; publish the block first`
-            : `${describe(ref)} has no published version in "${ref.range}" (published: ${available.join(', ')})`,
-      });
+      issues.push({ path: ref.path, message: missed(ref, available, packVersion) });
       continue;
     }
     const block = await blocks.getVersion({ tenantId, blockId: ref.id, version: pick.version });
     const problem =
       block === null
         ? `${describe(ref)} version ${pick.version} can't be read`
-        : misfit(ref, block);
+        : misfit(ref, block, agent);
     if (problem !== undefined) {
       issues.push({ path: ref.path, message: problem });
       continue;
@@ -102,19 +107,32 @@ export function blockRefs(agent: Agent): Ref[] {
   return refs;
 }
 
+/** Why no version can serve a reference: none the runtime holds in range, or not the pack's. */
+function missed(ref: Ref, available: readonly string[], packVersion: string | undefined): string {
+  if (packVersion !== undefined) {
+    return `${describe(ref)}: the pack brings version ${packVersion}, which "${ref.range}" doesn't take; change the agent's range or the block's version`;
+  }
+  return available.length === 0
+    ? `${describe(ref)} has no published version; publish the block first`
+    : `${describe(ref)} has no published version in "${ref.range}" (published: ${available.join(', ')})`;
+}
+
 /** Why a block version can't serve its reference; undefined when it can. */
 function misfit(
   ref: Ref,
   block: { readonly kind: string; readonly version: string; readonly content: unknown },
+  agent: Agent,
 ): string | undefined {
   const wanted = ref.role === 'prompt' ? 'prompt' : 'settings';
   if (block.kind !== wanted) return `${describe(ref)} is a ${block.kind} block`;
   if (ref.role !== 'model-settings') return undefined;
   const values = (block.content as { readonly values?: unknown }).values;
   const issues = modelSettingsIssues(values);
-  return issues.length === 0
-    ? undefined
-    : `${describe(ref)} version ${block.version} isn't model settings: ${issues.map((i) => `${i.path} ${i.message}`).join('; ')}`;
+  if (issues.length > 0) {
+    return `${describe(ref)} version ${block.version} isn't model settings: ${issues.map((i) => `${i.path} ${i.message}`).join('; ')}`;
+  }
+  const twice = modelNamedTwice(agent, values);
+  return twice === undefined ? undefined : `${describe(ref)} version ${block.version}: ${twice}`;
 }
 
 function describe(ref: Ref): string {
@@ -129,7 +147,7 @@ function describe(ref: Ref): string {
 
 /** Every active version of a block, newest published first. */
 async function activeBlockVersions(
-  blocks: BlockRegistryBinding,
+  blocks: BlockVersionReads,
   tenantId: TenantId,
   blockId: string,
 ): Promise<readonly string[]> {

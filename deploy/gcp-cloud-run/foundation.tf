@@ -124,9 +124,14 @@ resource "google_project_iam_member" "server_sql_client" {
   role    = "roles/cloudsql.client"
   member  = "serviceAccount:${google_service_account.server.email}"
 
+  # The expression is what covers database_host_instance. Keep the title and
+  # the description as they are: the Google provider replaces the grant when
+  # any of the condition's fields changes, so an upgrade that changed one would
+  # take the server's access away and give it back while the new revision
+  # starts.
   condition {
     title       = "kindgi-instance-only"
-    description = "Kindgi's Cloud SQL instance only (the module's own, or database_host_instance's)."
+    description = "Kindgi's own Cloud SQL instance only."
     expression  = "resource.name == \"projects/${var.project_id}/instances/${var.database_host_instance != null ? var.database_host_instance : var.name_prefix}\""
   }
 }
@@ -206,10 +211,10 @@ resource "google_cloud_run_v2_service_iam_member" "pack_invokes" {
 }
 
 # ---- images -------------------------------------------------------------------
-# One repository for the runtime image (mirrored from Quay, see the
-# README) and the pack images `kindgi build` pushes: the module's own, or
-# an existing one (var.image_repository). Cloud Run pulls with its service
-# agent; the server reads deployments' images with its own identity
+# One repository for the runtime image (mirrored from registry.kindgi.com,
+# see the README) and the pack images `kindgi build` pushes: the module's
+# own, or an existing one (var.image_repository). Cloud Run pulls with its
+# service agent; the server reads deployments' images with its own identity
 # (KINDGI_IMAGE_REGISTRY_AUTH=google).
 
 locals {

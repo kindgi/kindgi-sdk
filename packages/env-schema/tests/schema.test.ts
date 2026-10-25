@@ -491,6 +491,9 @@ describe('validateEnvForTarget', () => {
     const server = new Map(envVarsForTarget({}).map((v) => [v.name, v]));
     expect(server.has('KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH')).toBe(true);
     expect(server.has('KINDGI_PUBLIC_TOKEN_SIGNING_KEY')).toBe(true);
+    expect(server.get('KINDGI_DATABASE_SERVER_CA_PATH')?.required).toBe(false);
+    expect(server.get('KINDGI_DATABASE_SERVER_CA')?.required).toBe(false);
+    expect(server.get('KINDGI_DATABASE_SERVER_CA')?.example).toBe('');
   });
 
   test("the database timeouts are the server's, none required, each example its default", () => {

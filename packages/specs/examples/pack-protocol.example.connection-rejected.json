@@ -1,0 +1,8 @@
+{
+  "v": 2,
+  "kind": "error",
+  "code": "connection-rejected",
+  "message": "Tool \"acme.mail.send\": the app answered 401",
+  "toolId": "acme.mail.send",
+  "connection": "mail"
+}

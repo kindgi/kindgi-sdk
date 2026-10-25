@@ -461,6 +461,23 @@ describe('kindgi key revoke', () => {
     expect(out.stderr).toContain("acme-signing wasn't revoked");
   });
 
+  test("--quiet: a revoke says nothing; one that wasn't revoked still says so", async () => {
+    const revoked = revoker({ keyId: 'acme-signing', revoked: true });
+    const done = await runCli(
+      remoteInputs(makeFixtures(), ['key', 'revoke', 'acme-signing', '--quiet'], revoked.client),
+    );
+    expect(done.exitCode, done.stderr).toBe(0);
+    expect([done.stdout, done.stderr]).toEqual(['', '']);
+
+    const unknown = revoker({ keyId: 'acme-signing', revoked: false });
+    const out = await runCli(
+      remoteInputs(makeFixtures(), ['key', 'revoke', 'acme-signing', '--quiet'], unknown.client),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toContain("acme-signing wasn't revoked");
+  });
+
   test("an id `kindgi key create` wouldn't make still goes to the runtime", async () => {
     const { calls, client } = revoker({ keyId: 'Release:2026', revoked: true });
     const out = await runCli(
@@ -476,5 +493,35 @@ describe('kindgi key revoke', () => {
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Missing required argument: keyId');
     expect(calls).toEqual([]);
+  });
+});
+
+describe('kindgi key --quiet', () => {
+  test('create, list (with keys or none) and trust print nothing; each does its work', async () => {
+    const none = await runCli(baseInputs(makeFixtures(), ['key', 'list', '--quiet']));
+    const fixtures = makeFixtures();
+    const created = await runCli(
+      baseInputs(fixtures, ['key', 'create', 'acme-signing', '--env=staging', '--quiet']),
+    );
+    expect([...fixtures.state.files.keys()].sort()).toEqual([
+      `${KEYS_DIR}/acme-signing.pem`,
+      `${KEYS_DIR}/acme-signing.pub.pem`,
+    ]);
+    const listed = await runCli(baseInputs(fixtures, ['key', 'list', '--quiet']));
+    const calls: unknown[] = [];
+    const trusted = await runCli(
+      remoteInputs(fixtures, ['key', 'trust', 'acme-signing', '--quiet'], {
+        signingKeys: {
+          trust: async (input: unknown) => {
+            calls.push(input);
+            return { keyId: 'acme-signing', publicKey: RAW_PUBLIC_KEY_BASE64 };
+          },
+        },
+      }),
+    );
+    expect(calls).toEqual([{ keyId: 'acme-signing', publicKey: RAW_PUBLIC_KEY_BASE64 }]);
+    for (const out of [none, created, listed, trusted]) {
+      expect([out.exitCode, out.stdout, out.stderr]).toEqual([0, '', '']);
+    }
   });
 });
