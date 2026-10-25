@@ -103,8 +103,8 @@ resource "azurerm_container_app" "pack" {
       # request until the probe passes, so a cold start's first tool call
       # waits about 1 s for it, where every 5 s made that about 2.5 s. The
       # timeout stays under the period. Azure's API reference gives 10 as
-      # failureThreshold's maximum, but Azure applies more: its own default
-      # startup probe uses 240.
+      # failureThreshold's maximum, but Azure applies more: this module's
+      # live run used 24, and the portal's default startup probe uses 240.
       startup_probe {
         transport               = "HTTP"
         path                    = "/readyz"
