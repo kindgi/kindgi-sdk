@@ -35,6 +35,21 @@ export function registryOf(image: string): string {
 export const RUNTIME_IMAGE_REGISTRY = registryOf(DEFAULT_RUNTIME_IMAGE);
 
 /**
+ * Kindgi's own registry. It takes Basic auth with a license key as the
+ * password: the username is ignored, and is `KINDGI_REGISTRY_USERNAME` by
+ * convention.
+ */
+export const KINDGI_REGISTRY = 'registry.kindgi.com';
+
+/** The username `kindgi auth registry` logs in to `KINDGI_REGISTRY` as. */
+export const KINDGI_REGISTRY_USERNAME = 'kindgi';
+
+/** Whether `host` is `KINDGI_REGISTRY`, in any case: a hostname is case-insensitive. */
+export function isKindgiRegistry(host: string): boolean {
+  return host.toLowerCase() === KINDGI_REGISTRY;
+}
+
+/**
  * The same image on another registry: its repository path, tag and digest
  * under `registry`, the way a mirror carries it.
  */
