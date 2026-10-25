@@ -8,6 +8,9 @@
  * `@kindgi/crypto` directly.
  */
 
+import { homedir } from 'node:os';
+import { resolve } from 'node:path';
+
 import { describe, expect, test } from 'vitest';
 
 import { KindgiApiError } from '@kindgi/client';
@@ -252,6 +255,62 @@ describe('kindgi key create', () => {
       expect(out.stderr).not.toContain('has these now');
       expect(out.stderr).not.toContain('already names this key');
     }
+  });
+
+  test('--env --home: outside the home, the hint names the file the key went to, since the build reads `~` as the home', async () => {
+    for (const [home, signingKey] of [
+      ['/override/root', "'/override/root/.kindgi/keys/prod-signer.pem'"],
+      // A relative --home: the key went to it from here.
+      ['keys-home', "'/tmp/fake-cwd/keys-home/.kindgi/keys/prod-signer.pem'"],
+      // A sibling whose name starts with the home's is not under it.
+      ['/tmp/fake-home-2', "'/tmp/fake-home-2/.kindgi/keys/prod-signer.pem'"],
+      // A quote in the path: the hint is still one string in kindgi.config.ts.
+      ["/srv/o'brien", "'/srv/o\\'brien/.kindgi/keys/prod-signer.pem'"],
+    ] as const) {
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures, ['key', 'create', 'prod-signer', '--env=prod', `--home=${home}`]),
+        buildConfigLoader: async () => ({}),
+      });
+      expect(out.exitCode).toBe(0);
+      expect(out.stderr).toContain('Next step: add to environments.prod in kindgi.config.ts:');
+      expect(out.stderr).toContain(`signingKey: ${signingKey},`);
+      expect(out.stderr).not.toContain('~/.kindgi/keys/');
+    }
+  });
+
+  test('--env: under the home the build reads `~` as, the hint gives the key from `~`', async () => {
+    for (const [homeFlag, signingKey] of [
+      // No --home, and a --home that is the home.
+      [[], "'~/.kindgi/keys/prod-signer.pem'"],
+      [['--home=/tmp/fake-home/'], "'~/.kindgi/keys/prod-signer.pem'"],
+      // A --home under the home (`--home ~/work`), given whole or from here.
+      [['--home=/tmp/fake-home/work'], "'~/work/.kindgi/keys/prod-signer.pem'"],
+      [['--home=../fake-home/work'], "'~/work/.kindgi/keys/prod-signer.pem'"],
+    ] as const) {
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures, ['key', 'create', 'prod-signer', '--env=prod', ...homeFlag]),
+        buildConfigLoader: async () => ({}),
+      });
+      expect(out.exitCode).toBe(0);
+      expect(out.stderr).toContain(`signingKey: ${signingKey},`);
+    }
+    // With no HOME, the build reads `~` as nothing: the hint names the file.
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      argv: ['key', 'create', 'prod-signer', '--env=prod'],
+      env: {},
+      cwd: '/tmp/fake-cwd',
+      keyRunners: fixtures.runners,
+      buildConfigLoader: async () => ({}),
+    });
+    expect(out.exitCode).toBe(0);
+    const file = resolve(homedir(), '.kindgi', 'keys', 'prod-signer.pem');
+    expect(out.stderr).toContain(
+      `signingKey: '${file.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}',`,
+    );
+    expect(out.stderr).not.toContain('~/.kindgi/keys/');
   });
 
   test('--home overrides HOME env + ctx home', async () => {
