@@ -4823,8 +4823,9 @@ export const CorrectionSchema: JsonSchema = {
   },
 };
 
-/** One way a candidate's calls differed from a correction; it can quote argument values. */
-const correctionDifference = {
+/** One way a run's calls differed from a correction; it can quote argument values. */
+export const CallDifferenceSchema: JsonSchema = {
+  description: "One way a run's calls differed from a correction; it can quote argument values.",
   oneOf: [
     {
       type: 'object',
@@ -9257,7 +9258,7 @@ export const ComparisonCaseResultSchema: JsonSchema = {
             minimum: 1,
             description: 'Which repetition (1-based) these differences are from.',
           },
-          differences: { type: 'array', items: correctionDifference },
+          differences: { type: 'array', items: { $ref: '#/components/schemas/CallDifference' } },
         },
       },
     },
@@ -15496,6 +15497,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ComparisonCandidate', ComparisonCandidateSchema],
   ['JudgedComparisonSummary', JudgedComparisonSummarySchema],
   ['JudgedComparisonCost', JudgedComparisonCostSchema],
+  ['CallDifference', CallDifferenceSchema],
   ['ComparisonCaseResult', ComparisonCaseResultSchema],
   ['JudgedComparisonResult', JudgedComparisonResultSchema],
   ['EvalRun', EvalRunSchema],
