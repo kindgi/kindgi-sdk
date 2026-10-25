@@ -935,7 +935,7 @@ export const ERROR_ENTRIES = {
       {
         key: 'limit',
         meaning:
-          "the cap reached: the agent's own, or for steps 32 when its `maxSteps` is higher, since a turn makes at most 32 model calls",
+          "the cap reached: the agent's own, or, for steps, 32 when its `maxSteps` is higher, since a turn makes at most 32 model calls",
       },
       {
         key: 'observed',
