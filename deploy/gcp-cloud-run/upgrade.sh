@@ -95,7 +95,8 @@ readonly POLL_INTERVAL=10
 readonly POLL_TRIES=60
 
 # How long to wait for a new bucket grant to reach Cloud SQL (step 3): Google
-# says an IAM change usually takes effect in 2 minutes, and can take 7.
+# says an IAM change typically takes effect in 2 minutes, and potentially 7
+# minutes or longer.
 readonly GRANT_WAIT_INTERVAL=15
 readonly GRANT_WAIT_SECONDS=420
 
@@ -568,6 +569,25 @@ EOT
   0.2.0:
    - The runtime image now comes from registry.kindgi.com, with your license
      key as the password; this script copies it from there.
+   - If public_url is empty, set it. A paused tool call's link is now made
+     from it; without it, the link names the address the server is bound to,
+     which other systems can't reach (the log warns). Connections to other
+     apps also stay off until it's set. Each app's OAuth redirect is then
+       <public_url>/console/connect/callback
+   - First start adds columns and tables (seconds), with a brief lock on
+     kernel_runs, kernel_triggers, hitl_approvals and judgments. A session
+     holding one makes the new revision fail after about a minute, naming it
+     (end it with pg_terminate_backend, or let it finish). The old revision
+     keeps serving meanwhile.
+   - With openfga_api_url empty, changing model providers, policies,
+     adapters, trusted signing keys or sign-in providers, and any call to
+     webhook endpoints or compliance evidence, now needs the API token or an
+     admin key: a member key or an identity-provider sign-in gets 403.
+   - 0.2.0 needs no pack rebuild: a pack built for 0.1.10 keeps serving. To
+     use 0.2.0 in it, move its pins first (--pack-dir builds what they say);
+     a Python pack made by a 0.1 CLI pins kindgi and kindgi-cli "<0.2".
+   - With a pack service, the plan also updates it in place (CPU only while
+     it serves, a quicker startup probe), with or without --pack-dir.
 EOT
         ;;
     esac
