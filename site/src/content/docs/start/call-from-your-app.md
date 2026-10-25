@@ -21,7 +21,9 @@ In development, `kindgi dev` is enough: it writes the API's URL and a token
 to `.kindgirc.json`, and the client finds them there, with a one-time warning
 to set them. For production, and to silence the warning, give them to your
 app as `KINDGI_API_URL` and `KINDGI_API_TOKEN` in your env file (`.env` /
-`.env.local`). `kindgi dev` prints them (`API` and `Token` in its banner):
+`.env.local`). The URL is the `API` line of `kindgi dev`'s banner. The
+token is `token` in the pack's `.kindgirc.json`: the banner shows only its
+last four characters, so a log you share doesn't give it away.
 
 ```sh
 # .env.local
@@ -45,8 +47,8 @@ with **Sign in as seeded user**, or with the same token.
 The token stays the same when you restart `kindgi dev`. `kindgi dev --reset`
 starts the project over, dropping its database
 ([after asking](../install/#where-kindgi-dev-keeps-its-data)), with a new
-token: copy the new token after it (the client warns when the token in your
-env file no longer matches).
+token: copy the new token from `.kindgirc.json` after it (the client warns
+when the token in your env file no longer matches).
 In production they're your deployment's URL and API token. To pass them
 yourself instead: `createClient({ apiUrl, auth: { kind: 'apiToken', token } })`,
 or `Kindgi(url, token=…)` in Python.

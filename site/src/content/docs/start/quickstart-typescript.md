@@ -76,7 +76,7 @@ pnpm exec kindgi dev
 
 `kindgi dev` starts the Kindgi runtime in Docker, indexes the pack,
 registers every tool, agent, guardrail and flow, and does it again on every
-save. It prints the API's URL and a token, and writes them to
+save. It prints the API's URL, and writes it with a token to
 `.kindgirc.json` in the pack, so the next commands find the runtime by
 themselves. Leave it running.
 
