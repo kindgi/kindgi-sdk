@@ -8,7 +8,7 @@
  * pay the crypto load.
  */
 
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 
 import {
   generateEd25519KeyPair,
@@ -30,6 +30,11 @@ export const REAL_KEY_RUNNERS: KeyRunners = {
   },
   mkdir: async (path, mode) => {
     await mkdir(path, { recursive: true, mode });
+    // One made earlier, by hand or by an older tool, may be looser. Windows
+    // has no such modes.
+    if (process.platform !== 'win32' && ((await stat(path)).mode & 0o777 & ~mode) !== 0) {
+      await chmod(path, mode);
+    }
   },
   writeFile: async ({ path, contents, mode }) => {
     await writeFile(path, contents, { mode });

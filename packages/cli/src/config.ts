@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { isLocalAddress, storedKeyFor } from './api-address.js';
@@ -233,10 +233,18 @@ function parseJson(raw: string, path: string): FileConfig {
   }
 }
 
+/** `~/.kindgi` and its config file hold the API key: this account's only. */
+const HOME_DIR_MODE = 0o700;
+const HOME_CONFIG_FILE_MODE = 0o600;
+
 /**
  * Persist a config file at `~/.kindgi/config.json`. Called by
  * `kindgi auth login`. Merges with any existing file so a partial
  * write does not clobber other keys.
+ *
+ * The file is `0600` and `~/.kindgi` `0700`, an older looser one
+ * included; an old file is tightened before the key goes in. Windows
+ * has no such modes: the write there is as before.
  */
 export async function saveHomeConfig(
   patch: FileConfig,
@@ -247,7 +255,18 @@ export async function saveHomeConfig(
   const existing = await defaultReadFile(path);
   const base = existing === null ? {} : (JSON.parse(existing) as FileConfig);
   const next = { ...base, ...patch };
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+  const text = `${JSON.stringify(next, null, 2)}\n`;
+  if (process.platform === 'win32') {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, text, 'utf8');
+    return path;
+  }
+  await mkdir(dirname(path), { recursive: true, mode: HOME_DIR_MODE });
+  if (((await stat(dirname(path))).mode & 0o777 & ~HOME_DIR_MODE) !== 0) {
+    await chmod(dirname(path), HOME_DIR_MODE);
+  }
+  // The mode below applies only to a new file; an old one is set first.
+  if (existing !== null) await chmod(path, HOME_CONFIG_FILE_MODE);
+  await writeFile(path, text, { encoding: 'utf8', mode: HOME_CONFIG_FILE_MODE });
   return path;
 }
