@@ -509,9 +509,9 @@ KINDGI_AUTH_PRIVACY_URL=https://www.acme-live.example/privacy
 
 Set either one, or both. Each is an absolute `https` URL, with no username
 or password in it: with anything else, the runtime doesn't start. Unset,
-the pages link neither. The links show beside kindgi.com and Docs, or
-under the form, or what the page says, on a narrow screen. The pages with
-the console's menus don't show these two; links for every page are
+the pages link neither. The links show beside kindgi.com and Docs, or on
+a narrow screen under the form, or under what the page says. The pages
+with the console's menus don't show these two; links for every page are
 [your own links](#your-own-links-in-the-console).
 
 ## Your own links in the console
