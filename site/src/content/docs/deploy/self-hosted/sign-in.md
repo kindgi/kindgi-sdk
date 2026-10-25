@@ -496,7 +496,10 @@ admin removes it.
 ## Terms and privacy links
 
 The console's sign-in page can link your terms and privacy policy
-(runtime 0.1.9 or later):
+(runtime 0.1.9 or later). So can the console's other pages without its
+menus, which are in the sign-in page's frame (runtime 0.2.0 or later): a
+link to connect an app, the page the app sends a person back to, an
+approval's link, and signing out.
 
 ```sh
 # kindgi.env
@@ -506,9 +509,9 @@ KINDGI_AUTH_PRIVACY_URL=https://www.acme-live.example/privacy
 
 Set either one, or both. Each is an absolute `https` URL, with no username
 or password in it: with anything else, the runtime doesn't start. Unset,
-the page links neither. The links
-show beside kindgi.com and Docs, or under the form on a narrow screen.
-These two are for the sign-in page alone; links for every page are
+the pages link neither. The links show beside kindgi.com and Docs, or on
+a narrow screen under the form, or under what the page says. The pages
+with the console's menus don't show these two; links for every page are
 [your own links](#your-own-links-in-the-console).
 
 ## Your own links in the console
