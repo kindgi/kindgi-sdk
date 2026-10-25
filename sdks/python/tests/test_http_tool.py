@@ -123,24 +123,22 @@ def test_every_placeholder_is_a_field_of_the_input() -> None:
     assert text.spec is not None
 
 
-class Priced(BaseModel):
-    amount: int = Field(json_schema_extra={"x-acme-unit": "cents"})
+class Docket(BaseModel):
+    case_id: str
+    court: str = Field(json_schema_extra={"x-acme-source": "docket"})
 
 
-def test_a_schema_the_runtime_refuses_is_a_definition_error() -> None:
-    docket = {
-        "type": "object",
-        "properties": {"case_id": {"type": "string"}, "court": {"type": "string"}},
-        "x-acme-source": "docket",
-    }
+def test_an_http_tools_model_schema_compiles_as_the_runtime_compiles_it() -> None:
     with pytest.raises(DefinitionError) as raised:
-        lookup(input=docket)
+        lookup(input=Docket)
     assert str(raised.value) == (
-        'Tool "acme.lookup": the input schema doesn\'t compile: '
+        'Tool "acme.lookup": the input JSON Schema doesn\'t compile: '
         'strict mode: unknown keyword: "x-acme-source"'
     )
-    with pytest.raises(DefinitionError, match="the output schema doesn't compile: strict mode"):
-        lookup(output=Priced)
+    with pytest.raises(
+        DefinitionError, match="the output JSON Schema doesn't compile: strict mode"
+    ):
+        lookup(output=Docket)
 
 
 def test_id_version_and_description_are_checked() -> None:

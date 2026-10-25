@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Annotated, Any
 
 import pytest
@@ -86,45 +87,36 @@ class Priced(BaseModel):
     amount: int = Field(json_schema_extra={"x-acme-unit": "cents"})
 
 
-def test_a_schema_the_runtime_refuses_fails_where_declared() -> None:
-    # The runtime compiles a tool's schemas strictly, when the tool is registered or deployed.
-    with pytest.raises(DefinitionError) as raised:
+class Stored(BaseModel):
+    at: Path
 
-        @tool(id="acme.x", description="x")
-        def handler(input: Priced) -> Out: ...
 
-    assert str(raised.value) == (
-        'Tool "acme.x": the input schema doesn\'t compile: strict mode: unknown keyword: "x-acme-unit"'
-    )
-
-    with pytest.raises(DefinitionError, match="the output schema doesn't compile: strict mode"):
-
-        @tool(id="acme.x", description="x")
-        def handler2(input: In) -> Priced: ...
+class Mistyped(BaseModel):
+    text: str = Field(json_schema_extra={"type": "strng"})
 
 
 @pytest.mark.parametrize(
-    ("schema", "why"),
+    ("slot", "model", "why"),
     [
-        (
-            {"type": "object", "properties": {"text": {"type": "strng"}}},
-            "'strng' is not valid under any of the given schemas",
-        ),
-        (
-            {"type": "object", "properties": {"text": {"$ref": "#/$defs/Text"}}},
-            "can't resolve reference #/$defs/Text from id #",
-        ),
+        ("input", Priced, 'strict mode: unknown keyword: "x-acme-unit"'),
+        ("output", Priced, 'strict mode: unknown keyword: "x-acme-unit"'),
+        ("input", Stored, 'unknown format "path" ignored in schema at path "#/properties/at"'),
+        ("input", Mistyped, "'strng' is not valid under any of the given schemas"),
     ],
 )
-def test_a_json_schema_the_runtime_refuses_fails_where_declared(
-    schema: dict[str, Any], why: str
+def test_a_models_schema_compiles_as_the_runtime_compiles_it(
+    slot: str, model: type[BaseModel], why: str
 ) -> None:
+    # The runtime compiles a tool's schemas strictly, derived or not, when the tool is registered
+    # or deployed. pydantic writes `json_schema_extra` as it is, and `"format": "path"` for a Path.
+    # It doesn't check what it writes against the meta-schema, either.
+    schemas: dict[str, Any] = {"input": In, "output": Out, slot: model}
     with pytest.raises(DefinitionError) as raised:
 
-        @tool(id="acme.x", description="x", input=schema)
-        def handler(input: dict[str, Any]) -> Out: ...
+        @tool(id="acme.x", description="x", **schemas)
+        def handler(input: Any) -> Any: ...
 
-    assert str(raised.value) == f'Tool "acme.x": the input schema doesn\'t compile: {why}'
+    assert str(raised.value) == f'Tool "acme.x": the {slot} JSON Schema doesn\'t compile: {why}'
 
 
 OBJECT: dict[str, Any] = {"type": "object"}
@@ -219,6 +211,26 @@ def test_a_models_pattern_both_engines_read_is_kept() -> None:
     def handler(input: Letters) -> Out: ...
 
     assert handler.input_schema["properties"]["q"]["pattern"] == r"^\p{L}+$"
+
+
+def test_a_guardrail_configs_model_is_checked_for_its_patterns_only() -> None:
+    # The runtime checks a config against its schema non-strict, so a keyword pydantic writes
+    # is kept. A pattern JavaScript can't read is refused, as in a tool's.
+    @guardrail(id="acme.priced", on_violation="halt", config_type=Priced)
+    def priced(config: Any, trace: RunTrace) -> bool: ...
+
+    assert priced.config_schema is not None
+    assert priced.config_schema["properties"]["amount"]["x-acme-unit"] == "cents"
+
+    with pytest.raises(DefinitionError) as raised:
+
+        @guardrail(id="acme.named", on_violation="halt", config_type=NamedGroup)
+        def named(config: Any, trace: RunTrace) -> bool: ...
+
+    assert str(raised.value) == (
+        'Guardrail "acme.named": the config JSON Schema doesn\'t compile: '
+        r"Invalid regular expression: /^(?P<q>\w+)$/u: Invalid group"
+    )
 
 
 def test_a_handler_takes_one_or_two_parameters() -> None:
