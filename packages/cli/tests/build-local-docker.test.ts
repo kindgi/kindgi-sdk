@@ -7,8 +7,9 @@
  * the local one, and the image serves the pack's tool — a TypeScript
  * tool that imports a module of the app, bundled. Once with npm, once
  * with a pnpm workspace whose pack sits in a member folder, and once more
- * with a build step, whose prune leaves no dev dependency in the image. And a Python
- * pack, from its `uv.lock`, with a tool that imports a module beside it.
+ * with a build step, whose prune leaves no dev dependency in the image.
+ * And a Python pack, from its `uv.lock`, with a tool that imports a
+ * module beside it.
  *
  * Gated: `KINDGI_DOCKER_TESTS=1` (needs Docker, and the network for the
  * base image and corepack's pnpm).

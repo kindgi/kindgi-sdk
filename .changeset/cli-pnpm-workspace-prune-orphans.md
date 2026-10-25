@@ -8,4 +8,5 @@
 - **Unchanged:**
   - what the build steps and the build scripts wrote stays;
   - a pack without build steps installs production dependencies only, as before;
-  - a pack outside a workspace (`pnpm prune --prod`), npm, yarn and `image.dependencies: 'loaded'` already left no dev dependency behind.
+  - a pack outside a workspace prunes with `pnpm prune --prod`, which already drops them on pnpm 10 to 12;
+  - npm, yarn and `image.dependencies: 'loaded'` are unchanged.
