@@ -616,9 +616,9 @@ uv run kindgi agents promote acme.order-desk 1.3.0 --tenant --eval-run=<comparis
   "outcome": "needs-approval",
   "policy": { "id": "acme.order-desk-release", "version": "1.0.0" },
   "checks": [
-    { "name": "comparison.freshness", "passed": true, "message": "The comparison finished 0.013 hours ago; the policy accepts up to 168.", … },
-    { "name": "baselineIsLive", "passed": true, "message": "The baseline is acme.order-desk 1.0.0, the version live for the scope.", … },
-    { "name": "metric.weightedYesShare.minCandidate", "passed": true, "message": "The weighted yes share is 1; the policy needs at least 0.6.", … },
+    { "name": "comparison.freshness", "passed": true, "message": "The test run finished 0.013 hours ago; the policy accepts up to 168.", … },
+    { "name": "baselineIsLive", "passed": true, "message": "The test run measured this version against the live version, acme.order-desk 1.0.0.", … },
+    { "name": "metric.weightedYesShare.minCandidate", "passed": true, "message": "The weighted share marked right is 1; the policy needs at least 0.6.", … },
     …
   ],
   "approval": { "role": "senior", "count": 1, "separateApprover": true }
@@ -626,7 +626,7 @@ uv run kindgi agents promote acme.order-desk 1.3.0 --tenant --eval-run=<comparis
 ```
 
 `gate-failed` lists each check that failed, such as
-`` This policy needs a comparison: name one with `evalRunId` (a finished comparison eval run of this version). ``
+`` This policy needs a test run: name one with `evalRunId` (a finished eval run that tried this version on the test cases). ``
 when there's no `--eval-run`.
 
 When the test cases have corrections that say what the run should have
@@ -678,7 +678,7 @@ It prints the request, with its status, or the policy's refusal:
 - **When it has,** it waits: `"status": "pending-approval"`, with an
   `approvalId`. The scope keeps its version until a reviewer approves.
 - **When it fails,** nothing changes. It's refused with every failed check,
-  such as `The gate refused acme.order-desk 1.3.0: The weighted yes share rests on 3 judged cases for the candidate; the policy needs at least 20. …`,
+  such as `The gate refused acme.order-desk 1.3.0: The weighted share marked right rests on 3 judged cases for this version; the policy needs at least 20. …`,
   and kept in the history as `refused`.
 
 ### Approve it

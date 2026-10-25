@@ -152,8 +152,8 @@ version live:
   The run must be of the version you make live, with the same pins, and its
   recorded runs must be from the version live for the scope now.
 - **With `onlyRestrictedClasses`,** a run on the test cases that counted
-  every class is refused with
-  `` The policy counts only restricted judge classes; the comparison counted every class. Re-run it with `classWeights: 'restricted-only'`. ``.
+  everyone's judgments is refused with
+  `` The policy counts only experts' judgments; the test run counted everyone's. Re-run it with `classWeights: 'restricted-only'`. ``.
   So only restricted judge classes can release a version.
 - **To change a release gate policy,** publish a new version of it.
   `kindgi gate-policies unregister acme.order-desk-release <version>` goes

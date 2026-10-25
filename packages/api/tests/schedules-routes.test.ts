@@ -249,7 +249,8 @@ describe('an improve schedule', () => {
       scheduledFor: '2026-10-07T10:00:00.000Z',
       firedAt: '2026-10-07T10:00:01.000Z',
       outcome: 'skipped',
-      detail: '4 of 5 trusted "no" judgments since 2026-10-07T09:00:00.000Z (3 runs, 2 judges)',
+      detail:
+        "Not enough new experts' corrections since Improve last ran (2026-10-07T09:00:00.000Z): 4 of 5 answers experts marked wrong (enough: 3 runs, 2 experts).",
     });
     registry.recordFire({
       triggerId: id as TriggerId,
