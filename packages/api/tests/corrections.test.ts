@@ -6,7 +6,7 @@ import { describe, expect, test } from 'vitest';
 import {
   type CandidateCall,
   type Correction,
-  describeCorrectionDifference,
+  describeCallDifference,
   gradeCorrection,
 } from '../src/corrections.js';
 
@@ -318,19 +318,19 @@ describe('gradeCorrection — reporting the nearest miss', () => {
   });
 });
 
-describe('describeCorrectionDifference', () => {
+describe('describeCallDifference', () => {
   test('the default words for each kind', () => {
-    expect(
-      describeCorrectionDifference({ tool: 'refund', kind: 'count', expected: 1, actual: 2 }),
-    ).toBe('refund: expected 1 call, got 2');
-    expect(
-      describeCorrectionDifference({ tool: 'refund', kind: 'count', expected: 2, actual: 0 }),
-    ).toBe('refund: expected 2 calls, got 0');
-    expect(describeCorrectionDifference({ tool: 'refund', kind: 'must-not-call', actual: 1 })).toBe(
+    expect(describeCallDifference({ tool: 'refund', kind: 'count', expected: 1, actual: 2 })).toBe(
+      'refund: expected 1 call, got 2',
+    );
+    expect(describeCallDifference({ tool: 'refund', kind: 'count', expected: 2, actual: 0 })).toBe(
+      'refund: expected 2 calls, got 0',
+    );
+    expect(describeCallDifference({ tool: 'refund', kind: 'must-not-call', actual: 1 })).toBe(
       'refund: expected no calls, got 1',
     );
     expect(
-      describeCorrectionDifference({
+      describeCallDifference({
         tool: 'refund',
         kind: 'missing-field',
         field: 'amount',
@@ -338,7 +338,7 @@ describe('describeCorrectionDifference', () => {
       }),
     ).toBe('refund amount: expected 25, got nothing');
     expect(
-      describeCorrectionDifference({
+      describeCallDifference({
         tool: 'refund',
         kind: 'field-value',
         field: 'amount',
@@ -347,7 +347,7 @@ describe('describeCorrectionDifference', () => {
       }),
     ).toBe('refund amount: expected 25, got 80');
     expect(
-      describeCorrectionDifference({
+      describeCallDifference({
         tool: 'refund',
         kind: 'field-value',
         field: 'currency',
@@ -359,7 +359,7 @@ describe('describeCorrectionDifference', () => {
 
   test('a string value reads quoted, so it is not mistaken for the number it looks like', () => {
     expect(
-      describeCorrectionDifference({
+      describeCallDifference({
         tool: 'refund',
         kind: 'field-value',
         field: 'amount',
@@ -368,7 +368,7 @@ describe('describeCorrectionDifference', () => {
       }),
     ).toBe('refund amount: expected 25, got "25"');
     expect(
-      describeCorrectionDifference({
+      describeCallDifference({
         tool: 'refund',
         kind: 'field-value',
         field: 'note',
@@ -380,7 +380,7 @@ describe('describeCorrectionDifference', () => {
 
   test('the default words name a refused call', () => {
     expect(
-      describeCorrectionDifference({
+      describeCallDifference({
         tool: 'refund',
         kind: 'count',
         expected: 1,
@@ -389,7 +389,7 @@ describe('describeCorrectionDifference', () => {
       }),
     ).toBe('refund: expected 1 call, got 2 (1 refused)');
     expect(
-      describeCorrectionDifference({
+      describeCallDifference({
         tool: 'refund',
         kind: 'must-not-call',
         actual: 1,
@@ -397,7 +397,7 @@ describe('describeCorrectionDifference', () => {
       }),
     ).toBe('refund: expected no calls, got 1 (1 refused)');
     expect(
-      describeCorrectionDifference({
+      describeCallDifference({
         tool: 'refund',
         kind: 'field-value',
         field: 'amount',
