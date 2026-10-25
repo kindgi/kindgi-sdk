@@ -814,11 +814,11 @@ A new grant can take a minute or two to apply.
   (`network_mode = "none"`, on runtime 0.1.8 or later) can run it instead,
   to 0.2.0 or later. It copies the new image from `registry.kindgi.com`, so
   [log in there](../pull-the-runtime-image/) first. It runs the upgrade
-  checks against the database before it changes anything, backs the
-  database up, and applies only when you type `yes`. If the new revision
-  doesn't come up, it prints the way back rather than rolling back on its
-  own. Use the `upgrade.sh` as of the `@kindgi/sdk@<version>` tag of the
-  release you're upgrading to, or, before that release is out, its newest
+  checks against the database, then backs the database up, and changes the
+  running deployment only when you type `yes`. If the new revision doesn't
+  come up, it prints the way back rather than rolling back on its own. Use
+  the `upgrade.sh` as of the `@kindgi/sdk@<version>` tag of the release
+  you're upgrading to, or, before that release is out, its newest
   `@kindgi/sdk@<version>-rc.N` tag: it knows the steps up to its own release,
   and refuses a later `--to`. The module's README has the rest, under
   [Upgrading](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading),
