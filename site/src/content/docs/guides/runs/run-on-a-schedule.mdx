@@ -232,9 +232,12 @@ A project's **Schedules** page lists its schedules. Each row says:
 
 Each row has **Pause** or **Resume**, **Run now** and **Remove**. Remove
 can't be undone: the runs it started stay, and you create it again to start
-over. Times are on your own clock, **Local**, to start with; **Times**, in
-the menu under your name, switches this browser to **UTC**. A cron's words
-keep the schedule's own zone. The list has a search box and sorts by a
+over. Times are on your own clock to start with: **Times**, in the menu
+under your name, has **Local** with your city, such as **Local (Toronto)**,
+and **UTC**
+([The menu under your name](../../sso/sign-in/#the-menu-under-your-name)).
+A cron's words keep the schedule's own zone. The list has a search box
+and sorts by a
 column's header. **Columns** chooses which columns it shows. **Schedule Improve**, at the top,
 makes a schedule that starts Improve runs
 ([Schedule Improve in the console](#schedule-improve-in-the-console)).
@@ -258,15 +261,15 @@ A schedule's page has:
   "Started a run (run now)". The table sorts by a column's header, and
   **Columns** chooses which columns it shows.
 
-![The nightly digest's page: Active, with Pause, Run now and Unregister, "Starts the agent demo.echo-agent (its live version). Next in 13 h (2026-10-12 02:00 UTC).", its next five times from 2026-10-12 02:00 UTC, "Runs as you, with your access.", and What it fired: "Of its 2 fires, 2 started a run.", with the Columns menu and two fires, each "Started a run (run now)" and linking its run.](../../../../assets/schedules/schedule-fires.png)
+![The nightly digest's page: Active, with Pause, Run now, Change owner… and Remove, "Starts the agent Dev-Echo Agent (its live version). Next in 21h (25 Oct 2026, 10:00 PM EDT).", When: "Every day at 2:00 AM UTC", 0 2 * * * and its next five times in UTC, each also on the viewer's clock in EDT, "Runs as you, with your access.", and What it fired: "Of its 2 fires, 2 started a run.", with Runs it started →, the Columns menu and two fires, each for run now, "Started a run (run now)" and its run.](../../../../assets/schedules/schedule-fires.png)
 
 Project editors and up have, on the list and on the page:
 - **Pause** and **Resume**;
 - **Run now:** "It starts a run now, as its owner, with its usual input. Its
   next scheduled fire doesn't change.";
-- **Unregister:** "It stops firing. The runs it started stay, with their
-  record of what started them." It can't be brought back from the console:
-  register it again.
+- **Remove:** "Remove this schedule? It stops firing. The runs it started
+  stay, with their record of what started them. It can't be brought back:
+  create it again to start over."
 
 On a schedule that runs as someone else, project admins also get **Take
 over**: "Its next runs start as you, with your access. Runs already started
@@ -279,7 +282,7 @@ the new owner's access.
 After it, the page says "Runs as you, with your access.", and a paused
 schedule stays paused:
 
-![The weekly report's page after Take over: Paused, with Resume, Run now and Unregister, "Starts the flow acme.refunds 1.0.0. Paused.", "It doesn’t fire while paused.", "Runs as you, with your access.", and "It hasn’t fired yet. Its runs →".](../../../../assets/schedules/schedule-page.png)
+![The weekly report's page after Take over: Paused, with Resume, Run now, Change owner… and Remove, "Starts the flow Refunds 1.0.0. Paused.", When: "Mondays at 9:00 AM UTC", 0 9 * * 1 and "It doesn’t fire while paused.", "Runs as you, with your access.", and What it fired: "It hasn’t fired yet. Runs it started →".](../../../../assets/schedules/schedule-page.png)
 
 A tenant admin gets **Change owner…** instead (runtime 0.1.9 or later),
 whenever the tenant has a registered service account the schedule doesn't
@@ -295,11 +298,13 @@ to what this schedule starts." After **Change owner**, the page reads:
 [`--run-as`](#run-as-a-service-account) needs, and a refusal shows in the
 runtime's words.
 
-A run a schedule started says so at the top of its page: "Started by the
-schedule “nightly digest” (0 2 * * *).", with **Its other runs →**, the runs
-list filtered to that schedule.
+A run a schedule started says so on its page, under **Started by**: "The
+schedule “nightly digest”", when it fires, such as "Every day at 2:00 AM
+UTC", and for a scheduled fire the time it was for. Then whom the run acts
+for, such as "Acts for you", and **Its other runs →**, the runs list
+filtered to that schedule.
 
-![A run's page with "Started by the schedule “nightly digest” (0 2 * * *). Its other runs →" under its header.](../../../../assets/schedules/run-started-by-schedule.png)
+![A run's page whose Started by says "The schedule “nightly digest”", "Every day at 2:00 AM UTC", "Acts for you" and Its other runs →.](../../../../assets/schedules/run-started-by-schedule.png)
 
 ## Improve on a schedule
 
