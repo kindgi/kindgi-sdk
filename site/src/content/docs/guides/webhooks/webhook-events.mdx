@@ -180,21 +180,24 @@ signature and deduplicate.
 
 ## In the console
 
-Tenant admins have a **Webhooks** page: every endpoint the tenant sends to,
-and how its deliveries went. Times are UTC.
+Tenant admins have **Outgoing webhooks**, in the tenant's sections: "Where
+Kindgi tells your other systems that something happened, and how each
+delivery went." It lists every endpoint the tenant sends to. Times are on
+your own clock, or UTC
+([The menu under your name](../../sso/sign-in/#the-menu-under-your-name)).
 
-![The Webhooks page: "2 endpoints; 1 is failing (its last delivery isn't getting through).", a search box and the Columns menu, Order system (a run finished, signed with dev/hooks-signing, "Of its 1 delivery, 1 was delivered.") and Old CRM ("Of its 1 delivery, 0 were delivered and 1 is still being sent.").](../../../../assets/webhooks/webhooks-list.png)
+![Outgoing webhooks: a search box and the Columns menu, then Order system (a run finished, signed with dev/HOOKS_SIGNING, "Of its 1 delivery, 1 was delivered.") and Old CRM ("Of its 1 delivery, 0 were delivered and 1 is still being sent.").](../../../../assets/webhooks/webhooks-list.png)
 
-- **The headline** counts the endpoints and the failing ones: "2 endpoints; 1
-  is failing (its last delivery isn't getting through)."
-- **Each endpoint** says what it sends, such as "a run finished", and the
-  secret it signs with, by name only. It also says how its recent deliveries
-  went: "Of its 1 delivery, 1 was delivered."
+- **Each endpoint** has its address and its description, what it sends,
+  such as "a run finished", and the secret it signs with, by name only.
+  **Recently** says how its recent deliveries went: "Of its 1 delivery, 1
+  was delivered." It's in red when its last delivery failed, or is being
+  tried again after a failed attempt.
 - **The list** has a search box and sorts by a column's header.
   **Columns** chooses which columns it shows.
 
 An endpoint's page says what it sends and how it signs: "Sends a run
-finished, signed with the secret dev/hooks-signing (its value stays in the
+finished, signed with the secret dev/HOOKS_SIGNING (its value stays in the
 secrets store)." Then it tells each delivery, newest first, as a story:
 
 - "Delivered after 1 attempt";
@@ -209,18 +212,19 @@ certificate wasn't accepted" and "the connection failed". **All**,
 **Failed**, **Being sent** and **Delivered** filter the list, and it sorts
 by a column's header.
 
-![An endpoint's page: what it sends and its secret by name, Send a test and Unregister, "Of its 2 deliveries, 2 were delivered.", the All, Failed, Being sent and Delivered filters, the Columns menu, and two deliveries: a test and a run finished (Completed, Open the run), each "Delivered after 1 attempt" with Send again.](../../../../assets/webhooks/webhook-endpoint.png)
+![An endpoint's page: what it sends and its secret by name, Send a test and Remove, "Of its 2 deliveries, 2 were delivered.", the All, Failed, Being sent and Delivered filters, the Columns menu, and two deliveries: a test and a run finished (Completed, Open the run), each "Delivered after 1 attempt" with its Send again button.](../../../../assets/webhooks/webhook-endpoint.png)
 
 - **Send a test** queues a test event: "Queued: follow it below." It shows in
   the list as "a test".
-- **Send again** queues that delivery once more: "Queued."
-- **Unregister** says "Nothing more is sent to it. Deliveries still waiting
-  are marked failed." An unregistered endpoint can't be brought back from
-  the console: add it again. Its old address then says "No endpoint by that
-  id here: it was unregistered, or never existed."
+- **Send again**, the button at the end of a delivery's row, queues that
+  delivery once more: "Queued."
+- **Remove** asks first: "Remove this endpoint? Nothing more is sent to it.
+  Deliveries still waiting are marked failed. It can't be brought back: add
+  it again to start over." Its old address then says "No endpoint by that id
+  here: it was removed, or never existed.", with **All outgoing webhooks**.
 
 A runtime without a secrets store sends no webhooks, and the page says so:
-"Outbound webhooks aren't turned on here". Endpoints sign with a secret kept
+"Outgoing webhooks aren't turned on here". Endpoints sign with a secret kept
 in the store, so set `KINDGI_SECRETS_BACKEND` and restart the runtime.
 
-![The Webhooks page on a runtime without a secrets store: "Outbound webhooks aren't turned on here", and that they need a secrets store, set with KINDGI_SECRETS_BACKEND.](../../../../assets/webhooks/webhooks-off.png)
+![Outgoing webhooks on a runtime without a secrets store: "Outgoing webhooks aren't turned on here", and that they need a secrets store, set with KINDGI_SECRETS_BACKEND.](../../../../assets/webhooks/webhooks-off.png)
