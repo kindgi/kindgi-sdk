@@ -48,6 +48,12 @@ the plugin, through the store's own API and its webhooks:
   shows. On Kindgi Cloud, that's an MCP server the store serves on the
   internet.
 
+If the store's host has a firewall or bot protection, allow the addresses
+`kindgi egress --hosted` prints: the `deployments` ones for the template's
+tools, which call the store's API from your deployed pack, and the
+`server` ones for an MCP server's tools, which the runtime calls itself
+([Admit them at a site](../../deploy/self-hosted/egress-addresses/#admit-them-at-a-site)).
+
 Without the plugin, a person approves what waits in the console or with
 the CLI
 ([Approve it](../../guides/approvals/ask-before-a-tool-runs/#approve-it)).
@@ -468,6 +474,11 @@ the store's actions (look up an order, refund it) as
   new call, with its own approval and its own idempotency key. If the first
   call refunded before it failed, the retry refunds again. Have the tool
   check the store's existing refunds first.
+- **Behind a firewall or bot protection, the store admits the `server`
+  addresses.** The runtime calls the MCP endpoint itself, so the calls
+  come from the addresses `kindgi egress` lists as `server`, not from your
+  deployed code's
+  ([Admit them at a site](../../deploy/self-hosted/egress-addresses/#admit-them-at-a-site)).
 
 ## What the plugin keeps on the site
 
