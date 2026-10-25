@@ -304,7 +304,8 @@ async function runInteractiveEditor(seed: string): Promise<string> {
     tmpdir(),
     `kindgi-feedback-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.md`,
   );
-  await writeFile(tmpPath, seed, 'utf8');
+  // The draft may get a pasted secret, and the temp folder may be shared.
+  await writeFile(tmpPath, seed, { encoding: 'utf8', mode: 0o600 });
   await new Promise<void>((resolve_, reject) => {
     const child = spawn(editor, [tmpPath], { stdio: 'inherit' });
     child.on('exit', (code) => {

@@ -52,7 +52,8 @@ pnpm exec kindgi auth whoami
 ```
 
 `auth whoami` checks the key with Kindgi Cloud. The CLI keeps the key in
-`~/.kindgi/config.json`, for that address only.
+`~/.kindgi/config.json`, for that address only. On macOS and Linux, only
+your account can read that file.
 :::
 
 ## Sign the pack
