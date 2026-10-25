@@ -19,8 +19,8 @@ export const REAL_ENV_RUNNERS: EnvRunners = {
     }
   },
   writeFile: async (path, contents) => {
-    // A new env file is owner-only, as `kindgi secrets` makes one; a file
-    // already there keeps its mode.
+    // A new env file is owner-only; a file already there keeps its mode,
+    // which its owner may have set on purpose.
     await writeFile(path, contents, { encoding: 'utf8', mode: 0o600 });
   },
 };
