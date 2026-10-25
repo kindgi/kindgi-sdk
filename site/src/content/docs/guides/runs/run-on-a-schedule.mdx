@@ -373,15 +373,16 @@ pnpm exec kindgi schedules fires <schedule-id> --table
 
 ```text
 FIRED                     FOR      OUTCOME          STARTED                                    NOTE
-────────────────────────  ───────  ───────────────  ─────────────────────────────────────────  ──────────────────────────────────────────────────────────────────────────────────────────────────────
-2026-10-09T13:25:40.917Z  run-now  skipped-overlap                                             Its previous pass 3599f4ab-8788-433f-af66-7990ddfa9f47 is still running.
+────────────────────────  ───────  ───────────────  ─────────────────────────────────────────  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+2026-10-09T13:25:40.917Z  run-now  skipped-overlap                                             Its previous Improve run 3599f4ab-8788-433f-af66-7990ddfa9f47 is still running.
 2026-10-09T13:25:40.341Z  run-now  started          pass 3599f4ab-8788-433f-af66-7990ddfa9f47
-2026-10-09T13:25:39.201Z  run-now  skipped                                                     Not enough new trusted judgments so far: 1 of 2 judges (trusted "no" judgments met: 10, runs met: 10).
+2026-10-09T13:25:39.201Z  run-now  skipped                                                     Not enough new experts' corrections so far: 1 of 2 experts (enough: 10 answers experts marked wrong, 10 runs).
 ```
 
 This project has a restricted judge class, so the Improve run counts
-experts' corrections, and the skip note calls them trusted judgments.
-Without one, it would count every "no", and the note would drop "trusted".
+experts' corrections, and the skip note says "answers experts marked wrong"
+and "experts". Without one, it would count every answer marked wrong, and the
+note would say "answers marked wrong" and "people who corrected".
 
 - **Its scope** is the schedule's project, `--project`, or a segment of it,
   `--segment=<key:value>`, repeated for a path. It's never the tenant or an
