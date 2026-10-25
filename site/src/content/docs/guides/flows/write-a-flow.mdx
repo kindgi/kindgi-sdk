@@ -697,8 +697,9 @@ chooses which columns it shows.
 
 ![The Flows page: "A flow runs agents and tools as its steps: in order, side by side or repeated, all in one run. Each flow is shown at its latest version; retired ones last.", a search box and the Columns menu, then Refunds ("Triage, check each item, then answer.") at 2.0.0 with 3 steps: 2 agents, 1 repeating step, and acme.single at 1.0.0 with 2 steps: 2 agents, each Locked when published.](../../../../assets/flows/flows-list.png)
 
-A flow's page has **Runs**, **Cost** and **Start run** at the top, and says
-which version it shows: "2.0.0 (its latest): 3 steps: 2 agents, 1 repeating
+A flow's page has **Runs** and **Cost** at the top, and **Start run** while a
+version is in use, only to people who may run the flow. It says which version
+it shows: "2.0.0 (its latest): 3 steps: 2 agents, 1 repeating
 step." It draws that version as a graph, from Start to End: each step with
 what it runs, by name, and at which version, such as "locked at 1.0.0", and
 a repeating step in words ("For each item of the run's items, at most 50
@@ -713,10 +714,10 @@ times: Dev-Echo Agent"). Below it:
   each with the version it starts, such as "Schedule: Every day at 2:00 AM
   UTC · version 2.0.0".
 
-![Refunds' page at 2.0.0, its latest: Runs, Cost and Start run; the graph Start, triage, a step repeating for each of the run's items, answer, End, each agent locked at 1.0.0; What 2.0.0 uses: Dev-Echo Agent, locked at 1.0.0; Versions: 2.0.0 (latest) and 1.1.0, each with Runs → and Retire, and 1.0.0 (retired) with Runs → and Bring back; and What triggers it: the nightly refunds schedule and the Refund requests incoming webhook, each starting version 2.0.0.](../../../../assets/flows/flow-page.png)
+![Refunds' page at 2.0.0, its latest: Runs, Cost and Start run; the graph Start, triage, a step repeating for each of the run's items, answer, End, each agent locked at 1.0.0; What 2.0.0 uses: Dev-Echo Agent, locked at 1.0.0; Versions: 2.0.0 (latest) and 1.1.0, each with Runs → and Retire's archive icon at the row's end, and 1.0.0 (retired) with Runs → and Bring back; and What triggers it: the nightly refunds schedule and the Refund requests incoming webhook, each starting version 2.0.0.](../../../../assets/flows/flow-page.png)
 
-For flow admins, each version in use has **Retire**. It asks first, saying
-what changes:
+For flow admins, each version in use has **Retire**: the archive icon at the
+row's end, with the word only on hover. It asks first, saying what changes:
 
 ```text
 Retire 1.0.0?
