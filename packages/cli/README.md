@@ -373,9 +373,9 @@ request field; dots nest).
 
 The token shows as the runtime's own startup line shows it, its `kgi_bt_`
 prefix and last four characters, so a log you share doesn't give it away.
-The pack's `.kindgirc.json` has it in full: readable only by you, and in
-the `.gitignore` that `kindgi init` writes. The CLI's other commands in the
-pack's folder read it from there.
+The pack's `.kindgirc.json` has it in full, as `token`: readable only by
+you, and in the `.gitignore` that `kindgi init` writes. The CLI's other
+commands in the pack's folder read it from there.
 
 Progress and the runtime's own log lines (`[runtime] …`, `[pack] …`) go to
 stderr. With `--log-format=json`, the log records go to stdout instead, one

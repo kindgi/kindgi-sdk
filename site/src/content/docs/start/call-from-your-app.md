@@ -47,8 +47,8 @@ with **Sign in as seeded user**, or with the same token.
 The token stays the same when you restart `kindgi dev`. `kindgi dev --reset`
 starts the project over, dropping its database
 ([after asking](../install/#where-kindgi-dev-keeps-its-data)), with a new
-token: copy the new token from `.kindgirc.json` after it (the client warns
-when the token in your env file no longer matches).
+token: copy the new `token` from the pack's `.kindgirc.json` after it (the
+client warns when the token in your env file no longer matches).
 In production they're your deployment's URL and API token. To pass them
 yourself instead: `createClient({ apiUrl, auth: { kind: 'apiToken', token } })`,
 or `Kindgi(url, token=…)` in Python.
