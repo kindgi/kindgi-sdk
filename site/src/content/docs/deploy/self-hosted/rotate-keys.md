@@ -71,13 +71,13 @@ on both sides.
 Make a new one:
 
 ```sh
-openssl rand -base64 32
+openssl rand -hex 32
 ```
 
-It prints 32 random bytes in base64, elided here:
+It prints 32 random bytes as 64 hex characters, elided here:
 
 ```text
-YT0L…qlM=
+4be0…9c2d
 ```
 
 Put it in both files, as `KINDGI_PACK_SERVICE_TOKEN` in `pack.env` and in

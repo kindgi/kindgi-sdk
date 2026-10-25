@@ -290,7 +290,7 @@ describe('approvals.audit.export — POST /v1/approvals/{id}/audit-bundle', () =
 });
 
 describe('approvals not-yet-wired surface', () => {
-  it('batch / assign / completeToken / audit.get / audit.list / reviewers.updateRole throw not-yet-wired', async () => {
+  it('batch / assign / audit.get / audit.list / reviewers.updateRole throw not-yet-wired', async () => {
     const stub = recordingFetch([]);
     const client = createClient({
       apiUrl: 'https://api.example.com',
@@ -307,12 +307,6 @@ describe('approvals not-yet-wired surface', () => {
 
     await expect(client.approvals.assign('a-1' as never, 'r-1' as never)).rejects.toMatchObject({
       error: { code: 'not-yet-wired', method: 'approvals.assign' },
-    });
-
-    await expect(
-      client.approvals.completeToken('a-1' as never, { value: 42 }),
-    ).rejects.toMatchObject({
-      error: { code: 'not-yet-wired', method: 'approvals.completeToken' },
     });
 
     await expect(client.approvals.audit.get('bundle-1' as never)).rejects.toMatchObject({

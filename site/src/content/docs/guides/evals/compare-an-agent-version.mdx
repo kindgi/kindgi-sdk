@@ -1,6 +1,6 @@
 ---
-title: Compare a version on a test set
-description: Replay a new agent or flow version on a test set's cases, without doing anything the past runs didn't, and see whether people's judgments rate it higher.
+title: Try a version on the test cases
+description: Replay a new agent or flow version on the test cases, without doing anything the past runs didn't, and see whether people's corrections rate it higher.
 sidebar:
   order: 3
 ---
@@ -8,31 +8,31 @@ sidebar:
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 This guide shows whether people would rate a new agent or flow version
-higher than the runs they judged, before anyone uses it.
+higher than the runs they corrected, before anyone uses it.
 
-A **comparison** runs an agent version on each case of a
-[test set](../build-a-test-set/), as a replay of the past run. It rates the
-version's answers with the judgments people already made, beside the
+A **run on the test cases** tries an agent version on each case of the
+[test cases](../build-a-test-set/), as a replay of the past run. It rates the
+version's answers with the corrections people already made, beside the
 recorded runs.
 
 ## Before you start
 
-- **A test set,** as [Build a test set](../build-a-test-set/) shows, and the
-  new version of its agent or flow. Under `kindgi dev`, saving the agent's
-  file with its new `version` is enough. On a runtime you deploy to, deploy
-  the new version first.
+- **Test cases,** as [Build test cases from corrections](../build-a-test-set/)
+  shows, and the new version of their agent or flow. Under `kindgi dev`,
+  saving the agent's file with its new `version` is enough. On a runtime you
+  deploy to, deploy the new version first.
 - **Kindgi 0.2's CLI**, and the project's id.
-- **The right to start one:** an editor of the test set's project, or anyone
-  who may execute the test set, who may write to the project the run lands
+- **The right to start one:** an editor of the test cases' project, or anyone
+  who may execute the test cases, who may write to the project the run lands
   in and run its agent or flow.
 - **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
   Kindgi 0.2's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
 
-## Compare a version
+## Try a version on the test cases
 
-A comparison replays the version on the test set's cases. Version 0.1.0 of
+A run on the test cases replays the version on each case. Version 0.1.0 of
 `acme-ops.article-picker` answered with three articles each time, and people
-said no to most of them. Version 0.2.0 changes its instructions. Ask your
+marked most of them wrong. Version 0.2.0 changes its instructions. Ask your
 coding agent: "Make a new version of my agent that answers with only
 the articles that answer the question." For reference, 0.2.0's instructions
 look like this:
@@ -42,7 +42,7 @@ instructions:
   "Call acme-ops.search-articles with the customer's question. Answer with only the articles that answer it, most relevant first: one is often enough.",
 ```
 
-The test set keeps its copies of the 0.1.0 runs. Compare 0.2.0 on it:
+The test cases keep their copies of the 0.1.0 runs. Try 0.2.0 on them:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -75,12 +75,12 @@ uv run kindgi eval-runs start acme.article-picks --project=<project-id> --agent=
 </TabItem>
 </Tabs>
 
-- `acme.article-picks` is the test set.
+- `acme.article-picks` names the test cases.
 - `--project=<project-id>` is the project the replay runs land in.
-- `--agent` and `--agent-version` are the version to compare.
-- `--wait` waits for the comparison to finish.
+- `--agent` and `--agent-version` are the version to try.
+- `--wait` waits for the run to finish.
 
-It prints the comparison, with its metrics:
+It prints the run, with its metrics:
 
 ```json
 {
@@ -111,8 +111,8 @@ It prints the comparison, with its metrics:
 Without `--wait`, the command returns the run's id at once, and
 `kindgi eval-runs show <run-id>` reads it later.
 
-From your code, ask your coding agent: "I want a script that compares my
-new agent version on my test set, and shows me the scores." For reference,
+From your code, ask your coding agent: "I want a script that tries my
+new agent version on my test cases, and shows me the scores." For reference,
 the script looks like this, with the project's id as its argument:
 
 <Tabs syncKey="lang">
@@ -263,48 +263,48 @@ Scala apps use the Java helper: call `Comparisons.comparisonOf` from `com.kindgi
 </TabItem>
 </Tabs>
 
-`comparisonOf` reads a finished comparison's result, typed: its `summary`
+`comparisonOf` reads a finished run's result, typed: its `summary`
 and each case. It's `comparison_of` in Python, and `Comparisons.comparisonOf`
-in Java and Scala. For a comparison that hasn't finished, or a dry run, it
+in Java and Scala. For a run that hasn't finished, or a dry run, it
 returns `undefined`: `None` in Python, an empty `Optional` in Java and Scala.
 
-A model doesn't answer the same way every time: run the same comparison
-again, and the scores may differ. `--repetitions=<n>` runs each case several
-times, up to 10, and each metric gets a `spread`: its highest value minus its
-lowest. In the clients, it's `repetitions`.
+A model doesn't answer the same way every time: try the same version on the
+test cases again, and the scores may differ. `--repetitions=<n>` runs each
+case several times, up to 10, and each metric gets a `spread`: its highest
+value minus its lowest. In the clients, it's `repetitions`.
 
 ## Read the result
 
 Each metric has its value for the recorded runs (`baseline`) and for the
 version (`candidate`), the `delta`, and `n`, the cases it's based on.
 
-- **`weightedYesShare`,** "Judged yes" in the console: of the items in the
-  answer that people judged, the share they said yes to, weighted by judge
-  class. 0.1.0's answers had 3 yes of 9 judged articles. 0.2.0's had 3 of 3:
-  it kept only the right article each time.
-- **`judgedCoverage`,** "Judged items": the share of the answer's items that
-  people judged. Items no one judged bring it down. Here, each answer's text
-  is an item too, and no one judged it.
-- **`weightedPrecisionAtK`,** "Top 10 judged yes": judged yes among the first
-  `k` items of a ranked list. `k` is 10 unless you set `--k`.
+- **`weightedYesShare`,** "Share marked right" in the console: of the items in
+  the answer that people corrected, the share they marked right, weighted by
+  judge class. 0.1.0's answers had 3 marked right of 9 corrected articles.
+  0.2.0's had 3 of 3: it kept only the right article each time.
+- **`judgedCoverage`,** "Corrected items": the share of the answer's items
+  that people corrected. Items no one corrected bring it down. Here, each
+  answer's text is an item too, and no one corrected it.
+- **`weightedPrecisionAtK`,** "Top 10 marked right": marked right among the
+  first `k` items of a ranked list. `k` is 10 unless you set `--k`.
 
-**How a judgment carries over.** An item with its own id, an `id` or `key`
+**How a correction carries over.** An item with its own id, an `id` or `key`
 field, is the same item when the id matches, at any place in the list. So
 the `yes` on `kb-301` counts for 0.2.0 too. The answer's text, and a list
-element without an id, carry a judgment only when they're unchanged. A
-reworded answer is a new item, with no judgments yet.
+element without an id, carry a correction only when they're unchanged. A
+reworded answer is a new item, with no corrections yet.
 
-### Count only restricted judges
+### Count only experts' corrections
 
-`--class-weights=restricted-only` counts only the judgments made under a
-[restricted class](../judge-a-runs-output/#restrict-who-may-judge-as-a-class).
-An item none of them judged counts as unjudged. In TypeScript, it's
+`--class-weights=restricted-only` counts only the corrections made under a
+[restricted class](../judge-a-runs-output/#restrict-who-may-correct-as-a-class).
+An item none of them corrected counts as not corrected. In TypeScript, it's
 `classWeights: 'restricted-only'`, and in Python
 `class_weights="restricted-only"`. The summary says which it used, in
 `classWeights`, `as-recorded` by default.
 
-On a test set of three cases, one of them judged only under a class
-restricted afterwards:
+On three test cases, one of them corrected only under a class restricted
+afterwards:
 
 | | `as-recorded` | `restricted-only` |
 | --- | --- | --- |
@@ -337,13 +337,45 @@ restricted afterwards:
 }
 ```
 
-- **`changes`:** the judged items the version kept, with their place before
-  and now, the ones it dropped, and the new ones, for people to judge.
+- **`changes`:** the corrected items the version kept, with their place
+  before and now, the ones it dropped, and the new ones, for people to
+  correct.
 - **`tools`:** each tool call, and what happened to it: `live` when it ran,
   `recorded` when it got the past run's result, or `refused`.
 - **`diverged`:** the version read something the past run didn't, so the
   read ran live. Here, 0.2.0 left the final period off the customer's
   question when it searched, so the call wasn't the same as 0.1.0's.
+
+### What it should have done
+
+When the test cases' runs have corrections that say
+[what the run should have done](../judge-a-runs-output/#say-what-it-should-have-done)
+(runtime 0.2.0 or later), each one is checked against what the version
+did on that case:
+
+```text
+CAPTURE: one perCase entry with "corrections": [{ "judgmentId": …, "pass": false, "repetitionsPassed": 0, "repetitions": 1 }] and "correctionDifferences": [{ "judgmentId": …, "repetition": 1, "differences": [ … ] }]
+```
+
+- **`corrections`:** for each one, whether it passed, and in how many of
+  the case's repetitions (`repetitionsPassed` of `repetitions`). It passes
+  only when every repetition did.
+- **`correctionDifferences`:** for one that failed, what differed in the
+  first repetition that failed it, and that repetition's number. A
+  difference is a call count (`count`), a call that shouldn't have been
+  made (`must-not-call`), or an argument that's missing (`missing-field`)
+  or has another value (`field-value`). `refused` marks a call the replay
+  refused.
+- **The summary's `corrections`** counts the ones `checked`, and how many
+  `passed`:
+
+```text
+CAPTURE: "corrections": { "checked": …, "passed": … } from the same run's summary
+```
+
+With `--class-weights=restricted-only`, only the ones made under a
+restricted judge class are checked. No release gate policy checks them: read them
+before you [make the version live](../release-an-agent-version/#check-before-you-make-it-live).
 
 ## What a replay does
 
@@ -354,19 +386,27 @@ tool with the same arguments.
   read-only tool is `mutating: false`, has no effect that changes things, and
   no approval to ask for. It runs live when the past run didn't make the
   call, and the case is then `diverged`.
-- **A read-only tool also runs live** when the version you compare pins other
+- **A read-only tool also runs live** when the version you try pins other
   settings blocks than the past run's version. So a tool that reads its
   [settings](../change-a-prompt-or-setting/) shows the change. That counts as
   `diverged` too. With `--reads=live`, or `reads: 'live'` in the clients, it
   always runs live.
 - **A read that reaches outside,** with a `network` or
   `sensitive-data-egress` effect, only ever gets the past run's result for
-  the same call.
+  the same call. Without one, it's refused, as below.
 - **Any other tool** gets the past run's result for the same call, or doesn't
   run. The model is told
   `replay: this call changes things and has no recorded result`, or that the
   call needs an approval, or reaches outside. The case shows what it would
-  have done, and `refusedWrites` counts these calls.
+  have done. `refusedWrites` counts every call a replay refuses, reads
+  included, despite its name.
+- **A case with a correction that says what the run should have done
+  replays strictly** (runtime 0.2.0 or later): no tool runs live, even
+  with `--reads=live`, or when the version pins other settings blocks. A
+  read gets the past run's result for the same call, or doesn't run: the
+  model is told
+  `replay: this read has no recorded result`, and `refusedWrites` counts
+  it. So the version is checked on the results the expert saw.
 - **A replay never waits for an approval.** Where the past run's conversation
   was approved or rejected, the replay follows that decision. Where there's
   no decision, the case says `approvalSkipped`.
@@ -386,21 +426,21 @@ tool with the same arguments.
 
 **The replay runs** are ordinary runs, marked with `replayOf`, the past run,
 and `evalRunId`. Lists of runs leave them out. `kindgi runs list
---eval-run=<run-id>` lists one comparison's, and `--replays=include` or
-`--replays=only` adds them to any list. Conversation lists leave out their
-conversations the same way: `kindgi conversations list --replays=only` lists
-them. You can [judge](../judge-a-runs-output/) them like any run: that's how
-a version's new items get their judgments.
+--eval-run=<run-id>` lists those of one run on the test cases, and
+`--replays=include` or `--replays=only` adds them to any list. Conversation
+lists leave out their conversations the same way: `kindgi conversations list
+--replays=only` lists them. You can [correct](../judge-a-runs-output/) them
+like any run: that's how a version's new items get their corrections.
 
-**A comparison stopped** before it finished, because the runtime stopped,
-ends `failed` with the cases it got through:
+**A run on the test cases stopped** before it finished, because the runtime
+stopped, ends `failed` with the cases it got through:
 `Interrupted: the eval run's executor stopped before it finished. 2 of 3 cases finished.`
 Start it again.
 
-## Compare a flow version
+## Try a flow version on the test cases
 
-A test set built from a flow's judged runs, with
-`kindgi eval-suites from-judgments … --flow=<flow-id>`, compares a flow
+Test cases built from a flow's corrected runs, with
+`kindgi eval-suites from-judgments … --flow=<flow-id>`, try a flow
 version. Each case runs the past run's input through that version, as a
 replay. The flow's whole output is rated: the output itself, the `output`
 item, and each element of a list in it.
@@ -441,7 +481,7 @@ uv run kindgi eval-runs start acme.flow-picks --project=<project-id> --flow=acme
 </TabItem>
 </Tabs>
 
-`--flow` and `--flow-version` are the flow version to compare, and
+`--flow` and `--flow-version` are the flow version to try, and
 `--reads=live` runs read-only tools live. Its summary names the swapped
 tool:
 
@@ -466,14 +506,14 @@ tool:
   under `agents`.
 - **A read-only tool's new version shows only with live reads.** With the
   default, recorded reads, its call gets the past run's result. So the same
-  comparison without `--reads=live` rates 50% before and after.
+  run on the test cases without `--reads=live` rates 50% before and after.
 - **Under `kindgi dev`,** a pack serves two versions of a tool side by side,
   so a tool swap works there. An agent has one version there, its file's, so
   swapping an agent needs a runtime you deploy to.
 - **A `--with` the flow doesn't use is refused:**
   `flow acme-ops.suggest-articles 0.1.0 doesn't use acme-ops.article-picker`.
 
-**A flow stops at a write the replay refuses.** `acme-ops.suggest-and-log`
+**A flow stops at a tool call the replay refuses.** `acme-ops.suggest-and-log`
 also records the articles it suggested. With 0.2.0 of the tool, it would have
 recorded other articles than the past run did for one question, so that case
 stops there:
@@ -489,44 +529,45 @@ stops there:
 }
 ```
 
-A stopped case isn't an error: nothing was written, and it has no output to
-rate, so it's left out of the metrics. The summary counts it in `stopped`,
-and the refused call in `refusedWrites`. The other cases are rated as usual.
-A step's agent turn doesn't stop the flow: its refused calls go back to the
-model, as in an agent comparison.
+A stopped case isn't an error: the refused call wasn't carried out, and the
+case has no output to rate, so it's left out of the metrics. The summary
+counts it in `stopped`, and the refused call in `refusedWrites`. The other
+cases are rated as usual. A step's agent turn doesn't stop the flow: its
+refused calls go back to the model, as they do when you try an agent version.
 
 When a version does better, make it live where you choose, as
 [Release an agent version](../release-an-agent-version/) shows.
 
 ## In the console
 
-A test set's page has **Compare an agent version**: pick the version, how
-many runs per case, whether to read live data instead of the past runs'
-results, and **Count only restricted judge classes**. Its **Comparisons**
-list links each one to its page, which has:
+The test cases' page has **Try an agent version on the test cases**: pick the
+version, how many runs per case, whether to read live data instead of the
+past runs' results, and **Count only experts**. Its **Runs
+on the test cases** list links each one to its page, which has:
 
-- a headline in words: "People's judgments rate acme-ops.article-picker 0.2.0
-  better than the recorded runs: 33% yes before, 100% now, on the 3 of 3 cases
-  with answers people judged. In 1 case it read something the recording didn't
-  have.";
-- the metrics, for the recorded runs and the version, with the change. A
-  comparison that counted only restricted classes says so: "Only judgments
-  in judge classes restricted to some judges counted; the others weighed
-  0.", and lists mark it "restricted classes only";
-- **Case by case:** the recorded answer beside the version's, the judged items
-  it kept and the ones no longer there, the new ones, and each tool call;
-- **The raw result**, as JSON.
+- a headline in words: "People's corrections rate acme-ops.article-picker
+  0.2.0 better than the recorded runs: 33% marked right before, 100% now, on
+  the 3 of 3 cases with answers people corrected. In 1 case it read something
+  the recording didn't have.";
+- the metrics, for the recorded runs and the version, with the change. A run
+  that counted only restricted classes says so: "Only experts'
+  corrections counted; the others weighed 0.", and lists mark
+  it "restricted classes only";
+- **Case by case:** the recorded answer beside the version's, the corrected
+  items it kept and the ones no longer there, the new ones, and each tool call;
+- **The whole result**, as JSON.
 
-A flow's test set has **Compare a flow version** instead, with a picker for
-each agent its steps run, to run it at another version. Tools are swapped
-from the CLI and the clients. A flow comparison's page shows the recorded output
-beside the version's, and a stopped case says what it would have done: "It
-stopped before a write the recorded run didn't make: it would have called
-acme-ops.log-suggestion with `{"articles":[…],"question":"…"}`. Nothing was
-written, and there's no output to rate."
+A flow's test cases have **Try a flow version on the test cases** instead,
+with a picker for each agent its steps run, to run it at another version.
+Tools are swapped from the CLI and the clients. The page of a flow's run on
+the test cases shows the recorded output beside the version's, and a stopped
+case says what it would have done: "It stopped at a tool call the replay
+refused: it would have called acme-ops.log-suggestion with
+`{"articles":[…],"question":"…"}`. That call wasn't carried out, and there's
+no output to rate."
 
 ## Next
 
 - [Release an agent version](../release-an-agent-version/)
 - [Change a prompt or a setting without a deploy](../change-a-prompt-or-setting/)
-- [Judge a run's output](../judge-a-runs-output/)
+- [Correct a run's output](../judge-a-runs-output/)

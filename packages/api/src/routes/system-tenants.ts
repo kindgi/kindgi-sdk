@@ -149,12 +149,15 @@ export interface SystemTenantsBinding {
     | { readonly kind: 'cursor-unreadable' }
   >;
   read(tenantId: TenantId): Promise<SystemTenant | null>;
-  /** Sets `closing` (idempotent: a second close keeps the first time), cancelling its running runs. */
+  /**
+   * Sets `closing` (idempotent: a second close keeps the first time),
+   * cancelling its unfinished runs, waiting ones included.
+   */
   close(tenantId: TenantId): Promise<SystemTenant>;
   /**
-   * Sets or clears `suspended`: setting cancels its running runs (a second
-   * suspend keeps the first time and reason); clearing clears both and
-   * resumes what was on.
+   * Sets or clears `suspended`: setting cancels its unfinished runs,
+   * waiting ones included (a second suspend keeps the first time and
+   * reason); clearing clears both and resumes what was on.
    */
   setSuspended(tenantId: TenantId, suspended: boolean, reason?: string): Promise<SystemTenant>;
   /**
@@ -169,8 +172,8 @@ export interface SystemTenantsBinding {
   >;
   /**
    * Suspends one of its projects (`true`) or restores it (`false`): nothing
-   * new runs or deploys in it, its running runs are cancelled, and its
-   * deployments are retired; the rest of the tenant is untouched. A second
+   * new runs or deploys in it, its unfinished runs, waiting ones included,
+   * are cancelled, and its deployments are retired; the rest of the tenant is untouched. A second
    * suspend keeps the first time and reason; restoring clears both.
    */
   setProjectSuspended(

@@ -18,14 +18,18 @@
 
 // ---- Tools ----
 export {
+  ConnectionRejectedError,
   defineTool,
   defineToolAsync,
   invokeTool,
   invokeToolForTest,
+  isConnectionRejectedError,
   registerToolSpecSynthesizer,
   toolContextForTest,
 } from '@kindgi/tools';
 export type {
+  ConnectionAccount,
+  ConnectionNeed,
   DefinedTool,
   DefineToolSpec,
   HttpAuthSpec,
@@ -36,6 +40,7 @@ export type {
   InferInput,
   InferOutput,
   Tool,
+  ToolConnection,
   ToolContext,
   ToolManifest,
   ToolSecretRef,

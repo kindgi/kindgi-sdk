@@ -34,7 +34,7 @@ import {
   resolveKeyPaths,
 } from '../key/paths.js';
 import type { KeyRunners } from '../key/runners.js';
-import { renderJson } from '../output.js';
+import { renderJson, successNote } from '../output.js';
 import {
   commandResultFromThrown,
   requiredPositional,
@@ -191,7 +191,10 @@ const createCmd: LeafCommand = {
     const rendered = renderJson(summary, ctx.globals.format);
     return {
       kind: 'ok',
-      rendered: { stdout: rendered.stdout, stderr: `${banner.join('\n')}\n` },
+      rendered: {
+        stdout: rendered.stdout,
+        stderr: successNote(ctx.globals.format, `${banner.join('\n')}\n`),
+      },
     };
   },
 };
@@ -350,7 +353,7 @@ const listCmd: LeafCommand = {
         kind: 'ok',
         rendered: {
           stdout: rendered.stdout,
-          stderr: `\n  (no keys under ${paths.keysDir})\n\n`,
+          stderr: successNote(ctx.globals.format, `\n  (no keys under ${paths.keysDir})\n\n`),
         },
       };
     }
@@ -366,7 +369,10 @@ const listCmd: LeafCommand = {
     const rendered = renderJson(summary, ctx.globals.format);
     return {
       kind: 'ok',
-      rendered: { stdout: rendered.stdout, stderr: `${banner.join('\n')}\n` },
+      rendered: {
+        stdout: rendered.stdout,
+        stderr: successNote(ctx.globals.format, `${banner.join('\n')}\n`),
+      },
     };
   },
 };
@@ -453,7 +459,10 @@ const trustCmd: LeafCommand = {
       ];
       return {
         kind: 'ok',
-        rendered: { stdout: rendered.stdout, stderr: `${banner.join('\n')}\n` },
+        rendered: {
+          stdout: rendered.stdout,
+          stderr: successNote(ctx.globals.format, `${banner.join('\n')}\n`),
+        },
       };
     } catch (err) {
       const failed = commandResultFromThrown(err, ctx, 'kindgi key trust');
@@ -505,7 +514,12 @@ const revokeCmd: LeafCommand = {
             `  ${keyId} wasn't revoked: the runtime doesn't trust a key with that id, or it's revoked already.`,
             '',
           ];
-      return { stdout: rendered.stdout, stderr: `${banner.join('\n')}\n` };
+      // A key that wasn't revoked is a warning: said under --quiet too.
+      const said = `${banner.join('\n')}\n`;
+      return {
+        stdout: rendered.stdout,
+        stderr: result.revoked ? successNote(ctx.globals.format, said) : said,
+      };
     });
   },
 };

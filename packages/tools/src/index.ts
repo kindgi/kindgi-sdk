@@ -9,6 +9,7 @@ export {
   TOOL_SCHEMA_URI_EXPORTED as TOOL_SCHEMA_URI,
 } from './define.js';
 export type {
+  DefinePausingToolSpec,
   DefineToolOptions,
   DefineToolSpec,
   DefinedTool,
@@ -21,14 +22,49 @@ export type {
 import './http.js';
 export { registerToolSpecSynthesizer, getToolSpecSynthesizer } from './spec-registry.js';
 export type { ToolSpecSynthesizer, ToolSpecSynthesizerOptions } from './spec-registry.js';
-export { invokeTool } from './invoke.js';
+export { invokeTool, invokeToolOrPause, toolOutputIssues } from './invoke.js';
+export {
+  DEFAULT_PAUSE_TIMEOUT_MS,
+  MAX_PAUSE_NAME_LENGTH,
+  MAX_PAUSE_TIMEOUT_MS,
+  PAUSE_TOKEN_PREFIX,
+  ToolRerunsExhaustedError,
+  isToolRerunsExhaustedError,
+  pauseOf,
+  pauseOutcome,
+} from './pause.js';
+export type {
+  PauseContext,
+  ToolPause,
+  ToolPauseAnswer,
+  ToolPauseOptions,
+  WaitToken,
+} from './pause.js';
 export { invokeToolForTest, toolContextForTest } from './test-context.js';
 export { toolSecretNames } from './secret-names.js';
 export { toolOptionalSecretNames, toolRequiredEnvNames } from './env-names.js';
 export { ToolPreconditionError, isToolPreconditionError } from './precondition.js';
+export {
+  ConnectionRejectedError,
+  ConnectionRenewError,
+  connectionRejectionOf,
+  isConnectionRejectedError,
+  isConnectionRenewError,
+} from './connections.js';
+export type {
+  ConnectionAccount,
+  ConnectionNeed,
+  ConnectionRejection,
+  ConnectionResolver,
+  ResolveConnectionsInput,
+  ResolveConnectionsOutcome,
+  ToolConnection,
+  WaitingForConnection,
+} from './connections.js';
+export { REDACTED_TOKEN, withoutConnectionTokens } from './connection-redaction.js';
 export { TOOL_ENV_RECORD_KEY, toolCallRecordKey } from './record-keys.js';
 export { TOOL_IDEMPOTENCY_NAMESPACE, toolIdempotencyKey } from './idempotency-key.js';
-export type { InvokeToolOptions } from './invoke.js';
+export type { InvokeToolOptions, ToolOutcome } from './invoke.js';
 export { createToolRegistry } from './registry.js';
 export type { ToolRegisterOptions, ToolRegistry, ToolResolution } from './registry.js';
 export { latestVersion, nextVersion, pickVersion } from './versions.js';
@@ -70,7 +106,10 @@ export type {
   PreconditionFailedError,
   ToolError,
   ToolNotFoundError,
+  ToolPauseUnsupportedError,
   ToolVersionNotFoundError,
   ToolVersionUnresolvableError,
   UnknownEffectError,
+  WaitTokenRerunsExhaustedError,
+  WaitTokenTimedOutError,
 } from './errors.js';

@@ -517,12 +517,15 @@ describe('what kindgi dev says', () => {
       expect.stringMatching(/^✓ dev sandbox: bubblewrap: your tools' code can't read your keys/),
       '  also reads /home/me/.aws (dev.sandbox.allowRead)',
     ]);
+    // Nothing to warn about: the lines are all progress.
+    expect(outcome.kind === 'ok' && outcome.warnings).toEqual([]);
   });
 
   test('on and not available: a loud warning with why and the fix, and it runs without', async () => {
     const outcome = await resolveDevSandbox({ ...base, env: {}, detect: missing });
-    expect(outcome).toMatchObject({ kind: 'ok', sandbox: undefined });
-    expect(outcome.kind === 'ok' && outcome.lines).toEqual([
+    expect(outcome).toMatchObject({ kind: 'ok', sandbox: undefined, lines: [] });
+    // A warning, not progress: it's said under --quiet too.
+    expect(outcome.kind === 'ok' && outcome.warnings).toEqual([
       '⚠ Your tools run without the dev sandbox on this system: they can read your files and keys.',
       "  Why: bubblewrap (bwrap) isn't installed. Install bubblewrap.",
       expect.stringContaining('KINDGI_DEV_SANDBOX=required'),
@@ -585,7 +588,8 @@ describe('what kindgi dev says', () => {
     expect(outcome).toMatchObject({
       kind: 'ok',
       sandbox: undefined,
-      lines: [expect.stringContaining('dev sandbox: off (KINDGI_DEV_SANDBOX=off)')],
+      lines: [],
+      warnings: [expect.stringContaining('dev sandbox: off (KINDGI_DEV_SANDBOX=off)')],
     });
     expect(detected).toBe(false);
   });

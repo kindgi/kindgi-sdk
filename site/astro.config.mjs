@@ -46,6 +46,7 @@ const guideAreas = [
   ['Guardrails', 'guardrails'],
   ['Approvals', 'approvals'],
   ['Secrets and env', 'secrets'],
+  ['Connections', 'connections'],
   ['Sign-in', 'sso'],
   ['Cost and provenance', 'observability'],
   ['Evals', 'evals'],

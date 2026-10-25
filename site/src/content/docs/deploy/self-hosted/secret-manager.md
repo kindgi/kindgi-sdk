@@ -195,9 +195,9 @@ KINDGI_SECRETS_AZURE_VAULT_URL=https://<vault>.vault.azure.net
 - **The vault:** one for these secrets alone, not the one your deployment's
   own secrets are in.
 - **The identity:** the server's managed identity needs the **Key Vault
-  Secrets Officer** role on the vault, to create, version, disable and
-  recover secrets. `KINDGI_AZURE_CLIENT_ID` names a user-assigned identity;
-  without it, the server uses its system-assigned one.
+  Secrets Officer** role on the vault, to create, version, disable, delete,
+  recover and purge secrets. `KINDGI_AZURE_CLIENT_ID` names a user-assigned
+  identity; without it, the server uses its system-assigned one.
 - **What Kindgi writes:** one Key Vault secret per Kindgi secret, under a
   hashed name (`kindgi-…`), each version tagged with Kindgi's number
   (`kindgi-version`).
@@ -361,15 +361,35 @@ What's left after that follows where the values were:
 - **HashiCorp Vault or OpenBao:** every version is destroyed, then the
   secret's metadata. Backups of Vault's own storage keep them until they age
   out.
-- **Azure Key Vault:** the secret is deleted, and Key Vault keeps it
-  soft-deleted for the vault's retention period: 7 to 90 days, set when the
-  vault was made
+- **Azure Key Vault:** every version is disabled, the secret is deleted,
+  then purged, so Key Vault keeps no recoverable copy. That needs two things:
+  - **A vault that allows a purge:** soft delete without purge protection.
+    With soft delete off, the delete itself erases the secret.
+  - **An identity that may read and purge deleted secrets**
+    (`Microsoft.KeyVault/vaults/secrets/purge/action`). Key Vault Secrets
+    Officer has both. With access policies instead of Azure RBAC, give it
+    **Get** and **Purge** in the secret permissions.
+
+  Where Kindgi can't purge, the revoke still succeeds. Key Vault then keeps
+  the deleted secret recoverable, with every version disabled, until its
+  scheduled purge date: the vault's retention period, 7 to 90 days, set when
+  the vault was made
   ([Microsoft](https://learn.microsoft.com/en-us/azure/key-vault/general/soft-delete-overview)).
-  - Within that period, a vault admin can recover it, with its versions as
-    they were.
-  - Setting the name again in Kindgi within that period recovers it too,
-    old versions included, before the new value is written. Kindgi never
-    reads the old ones, but they're back in the vault as they were.
+  - **Why it can't:** purge protection, or a protected subscription, lets
+    nothing purge it before then. An identity without the permission gets a
+    403 from Key Vault.
+  - **The answer says until when,** in `recoverableUntil`, and
+    `kindgi secrets revoke` prints it: "Your secret manager keeps a
+    recoverable copy until …, then purges it on its own."
+  - **The runtime logs a `secrets` warning** that names the Key Vault
+    secret and why it's kept. On a 403, it also says which permission
+    would let it purge.
+  - **Within that period,** a vault admin can recover the secret, with its
+    versions still disabled.
+  - **Setting the name again in Kindgi** purges the deleted copy if it now
+    can. If it still can't, it recovers the secret with every old version
+    disabled, then writes the new value. The old versions stay in the vault,
+    disabled, until the secret is deleted again. Kindgi never reads them.
 
 ## Next
 

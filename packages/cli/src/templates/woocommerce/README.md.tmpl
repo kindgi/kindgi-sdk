@@ -36,6 +36,9 @@ Scaffolded by `kindgi init --template=woocommerce`.
 │   ├── store-agent/index.test.ts               # what it's told about the tools that wait
 │   ├── order-reviewer/index.ts
 │   └── order-reviewer/index.test.ts            # what its instructions may take from an order
+├── blocks/
+│   ├── store-agent-prompt.json                 # the store agent's instructions, a prompt block
+│   └── store-agent-prompt.liquid               # their text
 ├── flows/
 │   └── order-review/index.ts                   # order event → check → order reviewer
 └── fixtures/order-created.json                 # a sample order event
@@ -76,13 +79,32 @@ rejection (`--decision=reject --rationale=…`) means the tool never runs.
 The audit records the decision, and the agent says the change wasn't made.
 
 The agent doesn't see the approval itself: a call that waited comes back
-with its result once a person decided. So its instructions say what that
-means: `{"status": "rejected", "rationale": …}` is a reviewer declining,
+with its result once a person decided. So its instructions
+(`blocks/store-agent-prompt.liquid`) say what that means:
+`{"status": "rejected", "rationale": …}` is a reviewer declining,
 `{"status": "failed", "error": …}` is a change that was approved but didn't
 go through (the store refused it, say), and any other result is a change
 that was approved and made. The order may have changed while the call
-waited, so they also say to look it up again before stating its totals. `agents/store-agent/index.test.ts` keeps them
-naming every tool the approval policy holds back.
+waited, so they also say to look it up again before stating its totals.
+`agents/store-agent/index.test.ts` keeps them naming every tool the
+approval policy holds back.
+
+### The store agent's instructions are a block
+
+They're the prompt block `{{PACK_ID}}.store-agent-prompt`: its file is
+`blocks/store-agent-prompt.json`, and its text is in
+`blocks/store-agent-prompt.liquid`. The agent names it by range:
+`instructions: { prompt: '{{PACK_ID}}.store-agent-prompt', version: '^{{PACK_VERSION}}' }`.
+`{{KINDGI}} dev` reads it from these files, and `{{KINDGI}} deploy`
+publishes it before the agent. Since they're a block, an improvement pass
+can draft new instructions: `{{KINDGI}} proposals improve --tier=prompt`,
+with a test set of the agent's cases and a model of yours to draft with
+(`--provider` and `--model`).
+
+A block's version never changes. When you change the text, give the block
+a new version in its `.json`, within the agent's range: a deploy refuses a
+version it already holds with other content, and a version the agent's
+range doesn't take.
 
 ### Why refunds are two tools
 

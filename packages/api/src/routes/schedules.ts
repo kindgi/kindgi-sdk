@@ -10,6 +10,7 @@ import type { ProjectBinding } from '@kindgi/platform';
 import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
 import { callerRef } from '../caller.js';
+import { sameJson } from '../canonical-json.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn, writeWhereMade } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -36,6 +37,8 @@ import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
 import {
   type TriggerOwnerNames,
+  editMovingOwner,
+  ownerAfterEdit,
   ownerJson,
   ownerNamesOf,
   recordOwnerSet,
@@ -481,20 +484,24 @@ export function schedulesRouter(
       ...(tools.kind === 'ok' && { toolsAllowedUnattended: tools.value }),
     };
 
-    const result = await binding.update(updateInput);
-    if (result.kind === 'err') {
-      c.status(statusFor(result.error.code) as never);
-      return c.json(
-        toWireError(
-          {
-            code: result.error.code,
-            message: result.error.message,
-            triggerId: triggerId as unknown as string,
-          },
-          requestId,
-        ),
-      );
+    // Someone other than the person who owns it who changes what it runs
+    // becomes its owner (`ownerAfterEdit`): its target or version, its input,
+    // its tool list. Not the label, the cron line or the policy.
+    const changesWhatItRuns =
+      (target !== undefined && !sameJson(target.value, found.value.target)) ||
+      ('input' in cfg && !sameJson(cfg.input, found.value.config.input)) ||
+      (tools.kind === 'ok' && !sameToolList(kept, tools.value));
+    const result = await editMovingOwner(c, {
+      binding,
+      auditEvents,
+      trigger: found.value,
+      to: ownerAfterEdit(c, found.value.owner, changesWhatItRuns),
+      edit: () => binding.update(updateInput),
+    });
+    if (result.kind === 'unsupported') {
+      return unsupported(c, requestId, "moving a schedule's owner to whoever changes what it runs");
     }
+    if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
     // A change of the list is audited; so is a new target it names again.
     if (
       tools.kind === 'ok' &&

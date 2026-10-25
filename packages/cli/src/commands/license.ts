@@ -36,13 +36,20 @@ import {
   enrollLine,
   generateRenewerKey,
 } from '../license/protocol.js';
-import { type CountsSent, networkReason, renewLicense } from '../license/renew.js';
+import {
+  type CountsSent,
+  PRODUCTION_NO_COUNTS,
+  networkReason,
+  renewLicense,
+} from '../license/renew.js';
 import {
   SecretRefError,
   type SecretStore,
   runCloudCli,
   secretStoreFor,
 } from '../license/stores.js';
+import { type Rendered, renderJson } from '../output.js';
+import { type SaidLine, note, renderLines, warning } from '../progress-lines.js';
 import { commandResultFromThrown, stringFlag } from './helpers.js';
 import type { CommandResult, GroupCommand, LeafCommand } from './types.js';
 
@@ -164,19 +171,46 @@ function usageProblem(runtime: string, cause: unknown): string {
 /**
  * The counts line, when a runtime was asked. The Azure module's counts alert
  * reads it, leaving out the production key's reason: the tests run renew
- * against that query (deploy/azure-container-apps/license-renewal.tf).
+ * against that query (deploy/azure-container-apps/license-renewal.tf). Not
+ * sent is a warning, as that alert fires on it; the production key's reason
+ * is how every such renewal goes, so a note.
  */
-function countsLine(counts: CountsSent | undefined): string[] {
+function countsLine(counts: CountsSent | undefined): SaidLine[] {
   if (counts === undefined) return [];
   if (!counts.sent) {
-    return [`counts: not sent (${counts.reason}); this renewal goes without them.`];
+    const line = `counts: not sent (${counts.reason}); this renewal goes without them.`;
+    return [counts.reason === PRODUCTION_NO_COUNTS ? note(line) : warning(line)];
   }
   const u = counts.usage;
   const production =
     u.projectsInProduction === undefined ? '' : `, ${u.projectsInProduction} in production`;
   return [
-    `counts: sent (${u.runs} runs, ${u.people} people${production} since ${day(new Date(u.since))}, runtime ${u.runtimeVersion})`,
+    note(
+      `counts: sent (${u.runs} runs, ${u.people} people${production} since ${day(new Date(u.since))}, runtime ${u.runtimeVersion})`,
+    ),
   ];
+}
+
+/**
+ * What a license command prints. With no format asked for, its lines on
+ * stdout, as ever: the Azure module's alerts read renew's there. With
+ * `--json`, `--raw` or `--table`, the result as JSON on stdout and the
+ * lines on stderr. Under `--quiet` (which wins over the others), the
+ * warnings alone on stderr, and on stdout only `shown`: what the command
+ * is for, when there's one.
+ */
+function licenseRendered(
+  ctx: CommandContext,
+  result: unknown,
+  lines: readonly SaidLine[],
+  shown?: string,
+): Rendered {
+  const { format, formatRequested } = ctx.globals;
+  if (!formatRequested) return { stdout: renderLines(lines, false), stderr: '' };
+  if (format === 'quiet') {
+    return { stdout: shown === undefined ? '' : `${shown}\n`, stderr: renderLines(lines, true) };
+  }
+  return { stdout: renderJson(result, format).stdout, stderr: renderLines(lines, false) };
 }
 
 function required(ctx: CommandContext, flag: string, what: string): string {
@@ -233,19 +267,31 @@ const enroll: LeafCommand = {
       const reuse = kept !== undefined && ctx.options.replace !== true;
       const key = reuse ? kept : generateRenewerKey();
       if (!reuse) await where.write(encodeRenewerPrivateKey(key));
-      const stdout = [
+      const line = enrollLine(key, login, origin);
+      const renewCommand = `kindgi license renew --key <where the license key is> --renewer ${renewerRef}${origin === KINDGI_ACCESS_ORIGIN ? '' : ` --access-url ${origin}`}`;
+      const lines = [
         `Renewer ${key.renewerId}: its private key is ${reuse ? 'already ' : ''}in ${where.describe}.`,
         '',
         `Add this deployment on ${origin}, signed in as ${login}, under "Renew the key from your deployment":`,
         '',
-        `  ${enrollLine(key, login, origin)}`,
+        `  ${line}`,
         '',
         'Then renew the key whenever you like, by hand or on your own schedule:',
         '',
-        `  kindgi license renew --key <where the license key is> --renewer ${renewerRef}${origin === KINDGI_ACCESS_ORIGIN ? '' : ` --access-url ${origin}`}`,
-        '',
-      ].join('\n');
-      return { kind: 'ok', rendered: { stdout, stderr: '' } };
+        `  ${renewCommand}`,
+      ].map(note);
+      const result = {
+        renewerId: key.renewerId,
+        renewer: renewerRef,
+        changed: !reuse,
+        overwritten: !reuse && existing !== undefined,
+        login,
+        accessUrl: origin,
+        enrollLine: line,
+        nextSteps: [renewCommand],
+      };
+      // The enroll line is what enroll is for: under --quiet, it alone.
+      return { kind: 'ok', rendered: licenseRendered(ctx, result, lines, line) };
     } catch (err) {
       return commandResultFromThrown(err, ctx, 'license enroll');
     }
@@ -321,7 +367,11 @@ const renew: LeafCommand = {
       if (outcome.kind === 'refused') {
         return {
           kind: 'error',
-          stderr: [...countsLine(outcome.counts), `refused (${outcome.error}): ${outcome.message}`]
+          // An error keeps every line, under --quiet too.
+          stderr: [
+            ...countsLine(outcome.counts).map((l) => l.text),
+            `refused (${outcome.error}): ${outcome.message}`,
+          ]
             .map((l) => `${l}\n`)
             .join(''),
           exitCode: 1,
@@ -339,21 +389,37 @@ const renew: LeafCommand = {
       const nextKey = isSelfServe(outcome.claims.subject)
         ? `stop this deployment's renewer at ${origin}, then sign in there for a new key`
         : 'write to contact@kindgi.com to extend the term';
+      const expiring = `It expires in ${daysLeft} days. If renew keeps answering unchanged, ${nextKey}.`;
       const lines = [
-        `${outcome.kind}: ${describeKey(outcome.claims)} (renewer ${outcome.renewerId})`,
+        note(`${outcome.kind}: ${describeKey(outcome.claims)} (renewer ${outcome.renewerId})`),
         ...countsLine(outcome.counts),
         ...(outcome.kind === 'renewed'
           ? [
-              'The runtime uses the new key from its next start; until then it runs on the one it started with.',
+              note(
+                'The runtime uses the new key from its next start; until then it runs on the one it started with.',
+              ),
             ]
           : []),
         ...(daysLeft <= LICENSE_WARN_DAYS
           ? // The Azure module's expiring alert reads this line's days: the tests
             // run renew against its query (deploy/azure-container-apps).
-            [`⚠ It expires in ${daysLeft} days. If renew keeps answering unchanged, ${nextKey}.`]
+            [warning(`⚠ ${expiring}`)]
           : []),
       ];
-      return { kind: 'ok', rendered: { stdout: `${lines.join('\n')}\n`, stderr: '' } };
+      const result = {
+        status: outcome.kind,
+        renewerId: outcome.renewerId,
+        // daysLeft is negative once it has expired, as the ⚠ line says it.
+        license: {
+          name: outcome.claims.name,
+          use: outcome.claims.use,
+          expiresAt: outcome.claims.expiresAt.toISOString(),
+          daysLeft,
+        },
+        ...(outcome.counts !== undefined && { counts: outcome.counts }),
+        warnings: lines.filter((l) => l.problem).map((l) => l.text.replace(/^⚠ /, '')),
+      };
+      return { kind: 'ok', rendered: licenseRendered(ctx, result, lines) };
     } catch (err) {
       return commandResultFromThrown(err, ctx, 'license renew');
     }
