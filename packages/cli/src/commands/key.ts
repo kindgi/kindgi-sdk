@@ -20,7 +20,7 @@
  * and `revoke` call the runtime through the SDK client (`--url`, `--token`).
  */
 
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { parsePublicKeyPem, serializePublicKeyBase64 } from '@kindgi/crypto';
 
@@ -104,14 +104,22 @@ function buildKeyFile(ctx: CommandContext, value: string): string {
 }
 
 /**
- * The `signingKey` the hint gives for the key at `privPath`:
- * `~/.kindgi/keys/<keyId>.pem` when the build reads that as this file, else
- * this file's absolute path (a --home that isn't the home, or no HOME).
+ * The `signingKey` the hint gives for the key at `privPath`: `~/` and its
+ * path under the home when the build reads that as this file, so no one's
+ * home is written into the config; else this file's absolute path (a
+ * --home outside the home, or no HOME).
  */
-function hintSigningKey(ctx: CommandContext, keyId: string, privPath: string): string {
+function hintSigningKey(ctx: CommandContext, privPath: string): string {
   const file = resolve(ctx.cwd, privPath);
-  const underHome = `~/.kindgi/keys/${keyId}.pem`;
-  return buildKeyFile(ctx, underHome) === file ? underHome : file;
+  const home = ctx.home ?? ctx.env.HOME ?? '';
+  if (home !== '') {
+    const rest = relative(resolve(ctx.cwd, home), file);
+    if (rest !== '..' && !rest.startsWith(`..${sep}`) && !isAbsolute(rest)) {
+      const underHome = `~/${rest.split(sep).join('/')}`;
+      if (buildKeyFile(ctx, underHome) === file) return underHome;
+    }
+  }
+  return file;
 }
 
 /** `value` as a single-quoted string in `kindgi.config.ts`. */
@@ -279,7 +287,7 @@ const createCmd: LeafCommand = {
         '',
         `    ${envName}: {`,
         '      // …existing fields…',
-        `      signingKey: ${configString(hintSigningKey(ctx, keyId, privPath))},`,
+        `      signingKey: ${configString(hintSigningKey(ctx, privPath))},`,
         `      signerKeyId: ${configString(keyId)},`,
         '    },',
         '',
