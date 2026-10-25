@@ -207,7 +207,8 @@ lines above on stderr:
 ```
 
 - `status` is `renewed` or `unchanged`.
-- `daysLeft` is negative once the key has expired, as the ⚠ line says it.
+- `daysLeft` is the number the ⚠ line prints, so it's negative once the key
+  has expired.
 - With `--runtime`, `counts` says what the renewal carried:
   `{"sent": true, "usage": {…}}` with the counts, or
   `{"sent": false, "reason": "…"}`.
