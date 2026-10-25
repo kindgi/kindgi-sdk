@@ -193,7 +193,8 @@ print_go_back() {
   if [[ $CURRENT == *-rc.* ]]; then
     rc_note=$'\n'"    This deployment runs a pre-release, ${CURRENT}. Until $(release_of "$CURRENT") is out,"
     rc_note+=$'\n'"    npx finds no ${cli}: in this step and in step 6, name the"
-    rc_note+=$'\n'"    CLI's own pre-release of $(release_of "$CURRENT") instead (npm view @kindgi/cli versions)."
+    rc_note+=$'\n'"    CLI's own pre-release instead, as @kindgi/cli@$(release_of "$CURRENT")-rc.N"
+    rc_note+=$'\n'"    (npm view @kindgi/cli versions lists them)."
   fi
   cat <<EOT >&2
 
@@ -682,8 +683,9 @@ fi
 # a registry that takes a password, like registry.kindgi.com). The mirror keeps
 # the release digest. This adds an image; it serves nothing until step 5.
 # The copy goes through this machine, every layer down and back up, and takes
-# both platforms: copying only linux/amd64 would make a new index, whose digest
-# isn't the release's that step 5 pins. On a slow uplink that's most of an hour.
+# both platforms: copying only linux/amd64 would make a new index with a digest
+# of its own, not the release digest step 5 pins. On a slow uplink that's most
+# of an hour.
 step "Mirroring runtime ${TARGET} into Artifact Registry"
 gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet >/dev/null 2>&1 || true
 info "This copies the runtime through this machine, down from ${RUNTIME_REPO%%/*} and up to Artifact Registry. It takes both platforms (linux/amd64 and linux/arm64), so your copy keeps the release digest."
