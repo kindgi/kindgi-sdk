@@ -11,16 +11,17 @@
  *   when, so a session-start `status` asks at most once a day, and the pack's
  *   `FEEDBACK.md` doesn't churn.
  *
- * Each change is a read, a change and an atomic replace under a lock file,
- * so two commands at once never lose a key. A file that isn't what this
- * module wrote is refused, never overwritten.
+ * Each change is a read, a change and an atomic replace (`writePrivateFile`;
+ * in place on Windows) under a lock file, so two commands at once never lose
+ * a key. A file that isn't what this module wrote is refused, never
+ * overwritten.
  */
 
-import { randomBytes } from 'node:crypto';
-import { chmod, mkdir, open, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, open, readFile, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { KEYS_DIR_MODE, PRIVATE_KEY_FILE_MODE } from '../key/paths.js';
+import { writePrivateFile } from '../private-file.js';
 import type { ReportStatus } from './protocol.js';
 
 export const FEEDBACK_SUBDIR = ['.kindgi', 'feedback'] as const;
@@ -86,7 +87,7 @@ async function update(
   await withLock(join(files.dir, '.lock'), async () => {
     const records = await readRecords(path);
     change(records);
-    await replaceFile(path, `${JSON.stringify({ reports: records }, null, 2)}\n`);
+    await writePrivateFile(path, `${JSON.stringify({ reports: records }, null, 2)}\n`);
   });
 }
 
@@ -111,19 +112,6 @@ async function readRecords(path: string): Promise<Record<string, unknown>> {
     );
   }
   return { ...(reports as Record<string, unknown>) };
-}
-
-/** Replace `path` with `text` in one step, 0600 (`license/stores.ts`'s way). */
-async function replaceFile(path: string, text: string): Promise<void> {
-  const temp = `${path}.${randomBytes(6).toString('hex')}.kindgi-tmp`;
-  try {
-    await writeFile(temp, text, { mode: PRIVATE_KEY_FILE_MODE, flag: 'wx' });
-    await chmod(temp, PRIVATE_KEY_FILE_MODE);
-    await rename(temp, path);
-  } catch (cause) {
-    await unlink(temp).catch(() => undefined);
-    throw cause;
-  }
 }
 
 /** Run `fn` holding `lock` (a file made with `wx`); a lock older than 30 s is a dead command's. */

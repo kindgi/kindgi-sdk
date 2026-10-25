@@ -6,6 +6,7 @@
  * an older looser one included. Windows has no such modes.
  */
 
+import { execFileSync } from 'node:child_process';
 import {
   chmod,
   lstat,
@@ -22,13 +23,28 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { saveHomeConfig } from '../src/config.js';
+import { writeRuntimeEnv } from '../src/dev/runtime-env.js';
 import { REAL_ENV_RUNNERS } from '../src/env/defaults.js';
 import { REAL_KEY_RUNNERS } from '../src/key/defaults.js';
 import { runCli } from '../src/main.js';
 import { writePrivateFile } from '../src/private-file.js';
+
+/** On, the next renames fail: a rename is the one step a real disk won't fail on cue. */
+const renames = vi.hoisted(() => ({ fail: false }));
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...real,
+    rename: async (from: string, to: string) => {
+      if (renames.fail) throw new Error(`the rename of ${from} failed`);
+      return real.rename(from, to);
+    },
+  };
+});
 
 let home: string;
 let cwd: string;
@@ -156,12 +172,55 @@ describe.skipIf(process.platform === 'win32')(
   },
 );
 
+describe.skipIf(process.platform === 'win32')("`kindgi dev`'s .kindgi/dev/runtime.env", () => {
+  test('a new one is 0600; an old 0644 one is replaced by a new 0600 file', async () => {
+    const path = join(cwd, '.kindgi', 'dev', 'runtime.env');
+    await writeRuntimeEnv(path, { ACME_TOKEN: 'old' });
+    expect(await modeOf(path)).toBe(0o600);
+    await chmod(path, 0o644);
+    // Another program that opened the old file keeps the old file, not the new token.
+    const held = await open(path, 'r');
+    try {
+      await writeRuntimeEnv(path, { ACME_TOKEN: 'acme' });
+      const seen = await held.readFile('utf8');
+      expect(seen).toContain('ACME_TOKEN=old\n');
+      expect(seen).not.toContain('ACME_TOKEN=acme');
+      expect((await held.stat()).mode & 0o777).toBe(0o644);
+    } finally {
+      await held.close();
+    }
+    expect(await modeOf(path)).toBe(0o600);
+    expect(await readFile(path, 'utf8')).toContain('ACME_TOKEN=acme\n');
+  });
+});
+
 describe.skipIf(process.platform === 'win32')('writePrivateFile', () => {
-  test('a write that fails leaves what was there, and no temp file', async () => {
-    // A folder where the file goes: the rename onto it fails.
+  test('a rename that fails leaves the old file as it was, and no temp file', async () => {
     const path = join(cwd, 'config.json');
-    await mkdir(path);
-    await expect(writePrivateFile(path, '{}\n')).rejects.toThrow();
+    await writeFile(path, '{"token":"kgi_tk_old"}\n');
+    renames.fail = true;
+    try {
+      await expect(writePrivateFile(path, '{}\n')).rejects.toThrow(/the rename of .+ failed/);
+    } finally {
+      renames.fail = false;
+    }
+    expect(await readFile(path, 'utf8')).toBe('{"token":"kgi_tk_old"}\n');
     expect(await readdir(cwd)).toEqual(['config.json']);
+  });
+
+  test("a folder, or a link to a pipe, isn't a regular file: refused and left as it is, with no temp file", async () => {
+    const refused = /isn't a regular file, so it was left as it is\./;
+    const folder = join(cwd, 'config.json');
+    await mkdir(folder);
+    await expect(writePrivateFile(folder, '{}\n')).rejects.toThrow(refused);
+    // A rename over the pipe would put a file in its place.
+    const pipe = join(cwd, 'pipe');
+    execFileSync('mkfifo', [pipe]);
+    const link = join(cwd, 'kindgi-config.json');
+    await symlink(pipe, link);
+    await expect(writePrivateFile(link, '{}\n')).rejects.toThrow(refused);
+    expect((await lstat(pipe)).isFIFO()).toBe(true);
+    expect((await lstat(link)).isSymbolicLink()).toBe(true);
+    expect((await readdir(cwd)).sort()).toEqual(['config.json', 'kindgi-config.json', 'pipe']);
   });
 });
