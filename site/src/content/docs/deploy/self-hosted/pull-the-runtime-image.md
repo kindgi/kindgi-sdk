@@ -135,12 +135,12 @@ docker buildx imagetools create --tag "$REPO/runtime:0.1.11" \
   registry.kindgi.com/kindgi/runtime:0.1.11
 ```
 
-`REPO` is your registry and repository. `crane copy` does the same. A plain
-`docker pull`, `tag` and `push` copies only your machine's platform. Either
-copy goes through the machine you run it on, so on a slow uplink it can take
-most of an hour. The
-deployment pages copy by digest, and a deployment then runs from your copy, so
-a key's expiry never stops it. See
+`REPO` is your registry and repository. `crane copy` does the same. Either one
+goes through the machine you run it on, every layer down and back up, so on a
+slow uplink it can take most of an hour. A plain `docker pull`, `tag` and
+`push` copies only your machine's platform. The deployment pages copy by
+digest, and a deployment then runs from your copy, so a key's expiry never
+stops it. See
 [Cloud Run](../cloud-run/#2-the-images-into-artifact-registry) and
 [Azure Container Apps](../azure-container-apps/#2-the-images-into-the-registry).
 

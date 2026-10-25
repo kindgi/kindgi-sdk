@@ -153,7 +153,8 @@ from an Apple silicon machine pushes only the arm64 image, which Cloud Run
 can't run.
 
 The copy goes through the machine you run it on, every layer down and back up,
-and takes every platform, so on a slow uplink it can take most of an hour.
+and takes both platforms (amd64 and arm64), so on a slow uplink it can take
+most of an hour.
 
 **A repository you already have** instead of the module's own:
 `image_repository = { project, location, repository }`. The module then creates
