@@ -16,7 +16,7 @@ Each person acts as themselves. A decision names Jane, shown as "Jane, via
 Acme store", never "the store".
 
 This page sets it up:
-- the runtime;
+- site sign-in, on a runtime you run (Kindgi Cloud has it on);
 - the site in Kindgi;
 - the plugin.
 
@@ -24,13 +24,20 @@ It also covers what the site's people can and can't do in Kindgi.
 
 ## On Kindgi Cloud
 
-Site sign-in is off on Kindgi Cloud. So the plugin can't connect a site to
-a Kindgi Cloud workspace, and its **Kindgi** page doesn't sign anyone in
-there. The rest of this page is for a runtime you run, with site sign-in
-on.
+Site sign-in is on for every Kindgi Cloud workspace, so there's nothing to
+turn on: skip
+[Self-hosted: turn site sign-in on](#self-hosted-turn-site-sign-in-on).
+The steps after it are the same, with these two:
+- **Register the site with the CLI signed in to Kindgi Cloud**
+  ([Sign the CLI in](../../hosted/deploy-your-agent/#sign-the-cli-in)).
+  It takes a workspace admin's key, with **How far it goes** set to
+  **Admin** and **Where it works** to **Every project it can reach**. A
+  **Member** key, or one for only one project, gets
+  `403 permission-denied`.
+- **The plugin's Kindgi URL is `https://platform.kindgi.com`.**
 
-An agent on Kindgi Cloud can still work with a WooCommerce store, through
-the store's own API and its webhooks:
+An agent on Kindgi Cloud can also work with a WooCommerce store without
+the plugin, through the store's own API and its webhooks:
 
 - **The `woocommerce` template:** `kindgi init --template=woocommerce`
   makes agents for a WooCommerce store, where a larger refund, a price
@@ -41,7 +48,8 @@ the store's own API and its webhooks:
   shows. On Kindgi Cloud, that's an MCP server the store serves on the
   internet.
 
-A person approves what waits, in the console or with the CLI
+Without the plugin, a person approves what waits in the console or with
+the CLI
 ([Approve it](../../guides/approvals/ask-before-a-tool-runs/#approve-it)).
 
 ## How the site signs its people in
@@ -149,6 +157,7 @@ It needs WordPress 6.4 or later and PHP 7.4 or later.
    "Connected: your staff can use the Kindgi page now."
 
 About the Kindgi URL:
+- **On Kindgi Cloud, it's `https://platform.kindgi.com`.**
 - **It must be `https://`.** An `http://` URL works only to this computer
   (`localhost`), or from a local or development site
   (`WP_ENVIRONMENT_TYPE`).
