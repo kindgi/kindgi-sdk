@@ -678,7 +678,7 @@ It prints the request, with its status, or the policy's refusal:
 - **When it has,** it waits: `"status": "pending-approval"`, with an
   `approvalId`. The scope keeps its version until a reviewer approves.
 - **When it fails,** nothing changes. It's refused with every failed check,
-  such as `The gate refused acme.order-desk 1.3.0: The weighted share marked right rests on 3 judged cases for this version; the policy needs at least 20. …`,
+  such as `The release gate policy refused acme.order-desk 1.3.0: The weighted share marked right rests on 3 judged cases for this version; the policy needs at least 20. …`,
   and kept in the history as `refused`.
 
 ### Approve it
