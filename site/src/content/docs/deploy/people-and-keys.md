@@ -698,7 +698,7 @@ where you may:
 - **Projects and teams:** change a role, **Take away** one, or **Give
   access** to another project or team, with a role. Each project role says
   what it gives, such as "Also changes it: registers and runs agents,
-  judges, publishes." for an editor.
+  corrects answers, publishes." for an editor.
 - **Reviewer:** their tier, or none; **Take off the roster**.
 - **Tenant admin:** making or unmaking one. "A tenant always keeps one
   admin: removing the only one is refused."

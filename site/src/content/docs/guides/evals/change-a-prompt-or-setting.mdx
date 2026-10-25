@@ -830,16 +830,18 @@ print(derived.version, derived.pins.settings if derived.pins else None, derived.
   `Agent "acme-ops.reply-drafter" version "1.0.1" is already registered, and versions never change; publish it as 1.0.2, the next free version`.
 
 Before anyone uses the new version,
-[compare it on a test set](../compare-an-agent-version/). Because 1.0.1 pins
-another settings block version than 1.0.0, the comparison runs read-only
-tools such as `acme-ops.refund-check` live, rather than reusing the recorded
-results. So the new refund limit shows in the answers. Those cases count as
-`diverged`, which a gate with `replay` and `maxDiverged: 0` refuses.
+[try it on the test cases](../compare-an-agent-version/). Because 1.0.1 pins
+another settings block version than 1.0.0, the run on the test cases runs
+read-only tools such as `acme-ops.refund-check` live, rather than reusing the
+recorded results. So the new refund limit shows in the answers. Those cases
+count as `diverged`, which a release gate policy with `replay` and
+`maxDiverged: 0` refuses.
 
 ## In the console
 
-A project's **Data blocks** section lists its blocks. A block's page shows its
-template or values, its versions with **Retire**, and the agents using it.
+A project's **Prompts & settings** section lists its blocks. A block's page
+shows its template or values, its versions with **Retire**, and the agents
+using it.
 
 1. **Edit as a new version** starts from the version you're viewing and
    proposes the next number, with an optional note for this version.
@@ -849,8 +851,8 @@ template or values, its versions with **Retire**, and the agents using it.
    drafter with acme.reply-prompt 1.0.1?"
 
 An agent's page says where its instructions and settings come from, and where
-a derived version came from: "Derived from 1.0.0 with new data-block versions
-("Refund limit 100")".
+a derived version came from: "Derived from 1.0.0 with new prompt or settings
+versions ("Refund limit 100")".
 
 Under `kindgi dev`, a block's page says each pack agent "Runs the pack's
 version on each run (kindgi dev)", and offers no edit and no derive: change
@@ -858,6 +860,6 @@ the block's file instead.
 
 ## Next
 
-- [Compare a version on a test set](../compare-an-agent-version/)
+- [Try a version on the test cases](../compare-an-agent-version/)
 - [Release an agent version](../release-an-agent-version/)
-- [Propose a change, and test it](../propose-a-change/)
+- [Suggest a change, and test it](../propose-a-change/)

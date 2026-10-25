@@ -181,7 +181,9 @@ where no scope sets one.
   with keywords such as `enum`, `pattern` or `minLength`. A name with a
   `default` is optional. Every other declared name is required. Each schema
   must compile as the runtime compiles it, strictly: an unknown keyword is
-  an error. A `default` must be a string. A tool with a schema that doesn't
+  an error. A `pattern` must be one JavaScript and your SDK's language both
+  read ([Write a tool](../write-a-tool/#the-tool)). A `default` must be a
+  string. A tool with a schema that doesn't
   compile is refused when it's defined, registered or deployed:
 
   ```text
@@ -196,7 +198,7 @@ where no scope sets one.
   gives the command that sets it.
 - **The values a call used are recorded with it.** A call re-run after a
   wait or a retry sees the same ones, even after someone changes them. An
-  approval is one such wait. A comparison that replays the run sends a read-only tool it
+  approval is one such wait. A run on the test cases that replays the run sends a read-only tool it
   runs live the values the run's call saw, so a changed value can't skew it.
 - **The context** holds only what the tool declares. `ctx.env` is optional in
   the TypeScript type because a unit test builds its own context.
@@ -425,7 +427,7 @@ A pack's code gets four kinds of values. Pick by what the value is:
 
 | The value… | Use | The code reads |
 |---|---|---|
-| should change only with a new agent version, judged before it goes live (a threshold, a prompt parameter) | a [settings block](../../evals/change-a-prompt-or-setting/) | `ctx.settings` |
+| should change only with a new agent version, evaluated before it goes live (a threshold, a prompt parameter) | a [settings block](../../evals/change-a-prompt-or-setting/) | `ctx.settings` |
 | differs per tenant, org or project, and isn't secret (a base URL, a region) | an env value | `ctx.env` |
 | is a credential (an API key, a signing key) | a secret | `ctx.secrets` |
 | is the pack service's own setup (its database, its SDK's config) | the pack's environment | `process.env` / `os.environ` |

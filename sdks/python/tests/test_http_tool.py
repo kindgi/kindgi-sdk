@@ -39,6 +39,17 @@ def lookup(**overrides: Any) -> Tool[..., Any]:
     return http_tool(**args)
 
 
+def test_an_http_tools_dict_schema_compiles_as_the_runtime_compiles_it() -> None:
+    with pytest.raises(DefinitionError) as raised:
+        lookup(
+            input={"type": "object", "properties": {"court": {"type": "string", "maxLenght": 9}}}
+        )
+    assert str(raised.value) == (
+        'Tool "acme.lookup": the input JSON Schema doesn\'t compile: '
+        'strict mode: unknown keyword: "maxLenght"'
+    )
+
+
 def test_the_spec_is_the_wire_shape() -> None:
     tool = lookup(
         headers={"Accept": "application/json"},

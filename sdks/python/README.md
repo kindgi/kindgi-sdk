@@ -79,9 +79,14 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
 
 - The input and output schemas come from the handler's annotations — a
   pydantic model, a `TypedDict`, a dataclass, anything pydantic understands —
-  or from `input=` / `output=` (a type, or a JSON Schema dict). Field aliases
-  are the names on the wire. The input is an object: a model calls a tool with
-  an object of arguments.
+  or from `input=` / `output=` (a type, or a JSON Schema dict). A dict is
+  checked when the tool is defined, as the runtime compiles it, strictly: one
+  the runtime would refuse raises `DefinitionError`. So does a `pattern` only
+  JavaScript reads, such as `\p{L}`: the SDK checks data against it with
+  Python's `re`. A model's patterns are checked as the runtime reads them
+  too; pydantic checks data against them, and reads `\p{L}`. Field aliases
+  are the names on the wire. The input is an object: a model calls a tool
+  with an object of arguments.
 - The description is the docstring (or `description=`); the version is the
   pack's (or `version=`, an exact semver).
 - `mutating=False` declares a tool read-only: it runs in a dry run, and an

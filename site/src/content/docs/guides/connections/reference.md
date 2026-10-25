@@ -29,7 +29,9 @@ it. Registering an app is for workspace admins only.
   when the app hands out a new one. People's own secret commands can't
   read or change it.
 - **Access tokens** are kept only in the runtime's memory, until shortly
-  before they expire.
+  before they expire. When the app gives no refresh token, as LinkedIn
+  does for most apps, the access token is kept as that one secret
+  instead, until it ends.
 - **A GitHub App connection keeps no token.** Each call's token is made from
   the app's private key, which stays in your secret store.
 
@@ -67,7 +69,14 @@ connection and account a call used.
 ## Disconnecting
 
 The connection's owner, or a workspace admin, disconnects it from the
-console's **Connections** page. Kindgi then:
+console's **Connections** page, or from a terminal, by its id from
+`kindgi connections list`:
+
+```sh
+npx --yes @kindgi/cli@0.2 connections disconnect <connection-id>
+```
+
+It asks first, unless `--yes`, and prints what was done. Kindgi then:
 
 1. **Stops new uses** at once, on every replica.
 2. **Withdraws access at the app,** where that's safe:
@@ -152,7 +161,9 @@ already gone at the app, so Kindgi only destroys the stored token.
 - **`connection-timed-out`:** nobody connected before the wait ran out.
 - **`connection-rejected`:** the app refused the token, after one renewal
   and one more try. The connection stays as it is: a refusal can mean the
-  call lacks a permission.
+  call lacks a permission. A connection with no refresh token isn't
+  renewed: one refusal and it needs reconnecting, and the call fails with
+  `connection-missing`.
 - **`connection-renew-failed`:** the app couldn't give a new token just
   now. The connection stays as it is, and a later call tries again.
 - **`connection-approver-not-a-reviewer`:** the person whose connection it

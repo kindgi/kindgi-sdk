@@ -392,10 +392,9 @@ Edit the file and save: `kindgi dev` reloads it, and the next run uses it.
 
 `{{ today }}` above is filled in when the turn starts. The template language
 is Liquid, so tags such as `{% if %}` work too. Partials (`{% include %}`,
-`{% render %}`, `{% layout %}`) don't: an agent or prompt block whose
-template uses one is refused with "templates can't use include, render or
-layout". To write `{{` or `{%` as text, put it in
-`{% raw %}…{% endraw %}`. These variables are always there:
+`{% render %}`, `{% layout %}`) don't: when the agent's instructions use
+one, they're refused with "templates can't use include, render or layout".
+To write `{{` or `{%` as text, put it in `{% raw %}…{% endraw %}`. These variables are always there:
 
 | Variable | Example |
 | --- | --- |

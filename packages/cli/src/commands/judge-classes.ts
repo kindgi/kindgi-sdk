@@ -127,13 +127,13 @@ const add: LeafCommand = {
   kind: 'leaf',
   name: 'add',
   description:
-    'Add a judge class: a named kind of judge with a weight, for the tenant, a project, or an agent. The restriction flags limit who may assert it; without them, anyone who may judge the run may.',
+    'Add a judge class: a named kind of judge with a weight, for the tenant, a project, or an agent. The restriction flags limit who may assert it; without them, anyone who may correct the run may.',
   usage: `kindgi judge-classes add --name=<name> --weight=<w> (--tenant | --project=<id> | --agent=<id> --project=<id>) [--description=<text>] ${ASSERTABLE_USAGE}`,
   optionSpec: {
     name: { type: 'string', description: 'The class name, e.g. `expert`. Required.' },
     weight: {
       type: 'string',
-      description: 'How much a judgment of this class counts, a number of 0 or more. Required.',
+      description: 'How much a correction of this class counts, a number of 0 or more. Required.',
     },
     ...SCOPE_FLAGS,
     description: { type: 'string', description: 'What the class is for.' },
@@ -170,7 +170,7 @@ const set: LeafCommand = {
     ...ASSERTABLE_FLAGS,
     unrestricted: {
       type: 'boolean',
-      description: 'Lift the restriction: anyone who may judge the run may assert the class.',
+      description: 'Lift the restriction: anyone who may correct the run may assert the class.',
     },
   },
   run: (ctx) =>
@@ -198,7 +198,7 @@ const set: LeafCommand = {
 const remove: LeafCommand = {
   kind: 'leaf',
   name: 'remove',
-  description: 'Retire a judge class: no new judgments may name it; existing ones keep it.',
+  description: 'Retire a judge class: no new corrections may name it; existing ones keep it.',
   usage: 'kindgi judge-classes remove <judge-class-id>',
   run: (ctx) =>
     runSdk(ctx, 'judge-classes remove', async () => {

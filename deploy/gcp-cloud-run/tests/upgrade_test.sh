@@ -50,7 +50,15 @@ case "$*" in
     exit 0 ;;
   "run jobs create"*) printf '%s\n' "$*" >>"${STUB_JOBS_LOG:-/dev/null}"; exit "${STUB_JOB_CREATE_RC:-0}" ;;
   "run jobs execute"*) exit "${STUB_CHECK_RC:-0}" ;;
-  "sql export sql"*) : >"${STUB_MARKER_EXPORT:-/dev/null}"; exit "${STUB_EXPORT_RC:-0}" ;;
+  "sql export sql"*)
+    # Counts each try; the first STUB_EXPORT_412 tries are refused as Cloud SQL
+    # refuses one before its bucket grant takes effect.
+    n=$(( $(cat "$STUB_EXPORT_TRIES" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$STUB_EXPORT_TRIES"
+    if (( n <= ${STUB_EXPORT_412:-0} )); then
+      echo 'ERROR: (gcloud.sql.export.sql) HTTPError 412: The service account does not have the required permissions for the bucket.' >&2
+      exit 1
+    fi
+    : >"${STUB_MARKER_EXPORT:-/dev/null}"; exit "${STUB_EXPORT_RC:-0}" ;;
   *) exit 0 ;;
 esac
 STUB
@@ -127,7 +135,7 @@ fail() { FAIL=$((FAIL + 1)); printf '  FAIL: %s\n' "$*"; }
 # A fresh case directory, var-file and markers. $1 = a pack_image line to add.
 reset_env() {
   unset STUB_TAGS STUB_DB_VERSION STUB_DB_PUBLIC STUB_JOB_CREATE_RC STUB_CHECK_RC \
-        STUB_EXPORT_RC STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC \
+        STUB_EXPORT_RC STUB_EXPORT_412 STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC \
         V_NET V_HOST V_TENANCY V_PACK V_AAD V_PREFIX V_DBI
   CASE_DIR="$(mktemp -d "$TMP/case.XXXXXX")"
   OUT="$CASE_DIR/out.txt"
@@ -144,6 +152,7 @@ reset_env() {
   export STUB_SERVICE_JSON="$SERVICE_READY"
   export STUB_QUAY_DIGEST="$NEW_DIGEST"
   export STUB_MARKER_EXPORT="$CASE_DIR/exported"
+  export STUB_EXPORT_TRIES="$CASE_DIR/export-tries"
   export STUB_MARKER_APPLY="$CASE_DIR/applied"
   export STUB_MARKER_MIRROR="$CASE_DIR/mirrored"
   export STUB_PLAN_SAW="$CASE_DIR/plan-saw"
@@ -360,6 +369,46 @@ ARGS=(--var-file "$VAR_FILE" --runtime-digest "$NEW_DIGEST" --backup-bucket "gs:
 run "yes"
 assert_rc 0 "json var-file runs"
 if [[ "$(jq -r .server_image "$VAR_FILE")" == "$NEW_IMAGE" ]]; then pass; else fail "json var-file not rewritten"; fi
+
+# The export's tries, as the stub counted them.
+assert_export_tries() {
+  if [[ "$(cat "$STUB_EXPORT_TRIES" 2>/dev/null)" == "$1" ]]; then pass; else fail "$2 (export tried $(cat "$STUB_EXPORT_TRIES" 2>/dev/null || echo 0) times, wanted $1)"; fi
+}
+
+# 21. A new bucket grant that hasn't reached Cloud SQL yet: the export waits
+# for it, saying so, then goes on.
+case_start "export waits for the bucket grant"
+reset_env; export STUB_TAGS="0.1.8" STUB_EXPORT_412=2
+run "yes"
+assert_rc 0 "the export goes on once the grant takes effect"
+assert_export_tries 3 "two refusals, then the export"
+assert_out "hasn't taken effect yet"
+assert_out "trying the export again (30s waited)"
+if [[ "$(grep -c 'HTTPError 412' "$OUT")" == 1 ]]; then pass; else fail "gcloud's refusal should be shown once"; fi
+if grep -q "Fix the cause" "$OUT"; then fail "a grant still taking effect was called a cause to fix"; else pass; fi
+assert_present "$STUB_MARKER_APPLY" "apply"
+
+# 22. A grant that never takes effect: it stops after 7 minutes, and nothing
+# has changed.
+case_start "the bucket grant never takes effect"
+reset_env; export STUB_TAGS="0.1.8" STUB_EXPORT_412=99
+run "yes"
+assert_rc 1 "a grant that never takes effect stops it"
+assert_export_tries 29 "the first try, then one every 15s for 7 minutes"
+assert_out "still can't write to gs://backups after 7 minutes"
+assert_out "get-iam-policy gs://backups"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+
+# 23. Any other export failure stops at once.
+case_start "export fails otherwise"
+reset_env; export STUB_TAGS="0.1.8" STUB_EXPORT_RC=1
+run "yes"
+assert_rc 1 "an export failure stops it"
+assert_export_tries 1 "no second try"
+assert_out "the export failed (above). Nothing has changed."
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

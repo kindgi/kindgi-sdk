@@ -495,8 +495,8 @@ export const CLI_DEFAULTS = {
   'proposals improve': {
     agent: 'required',
     'class-weights':
-      "none (counts everyone until the test set's project, its tenant, or the agent improved there has a restricted judge class, then only those)",
-    drafts: '`3` (`1` to `5`; a prompt pass only)',
+      "none (counts everyone until the test cases' project, its tenant, or the agent improved there has a restricted judge class, then only those)",
+    drafts: '`3` (`1` to `5`; with `--tier=prompt` only)',
     'from-version': 'the version serving the scope',
     'idempotency-key': 'none',
     'max-candidates': '`30`',
@@ -739,8 +739,8 @@ export const CLI_DEFAULTS = {
     spec: 'required',
   },
   'judgments add': {
-    class: 'none (the judgment is unclassified)',
-    correction: 'none (an ordinary judgment, with no correction)',
+    class: 'none (the correction is unclassified)',
+    correction: 'none (an ordinary correction, without what the agent should have done)',
     item: 'required',
     no: 'off (exactly one of `--yes` or `--no` is required)',
     participant: 'none',
@@ -772,7 +772,7 @@ export const CLI_DEFAULTS = {
   'judge-classes add': {
     agent: 'none',
     description: 'none',
-    'min-reviewer-role': 'none (anyone who may judge the run may assert)',
+    'min-reviewer-role': 'none (anyone who may correct the run may assert)',
     name: 'required',
     'principal-id': 'none (no restriction)',
     'principal-kind': 'none (no restriction)',
@@ -796,7 +796,7 @@ export const CLI_DEFAULTS = {
     status: '`completed` (only completed runs match)',
     sample: '`1` (every matching run)',
     'max-open': 'none (no cap)',
-    class: 'none (any judgment closes an item)',
+    class: 'none (any correction closes an item)',
     'queue-last':
       'none (nothing is queued on create unless `--queue-last` or `--queue-since` is given)',
     'queue-since': 'none',
@@ -1248,7 +1248,7 @@ export const CLI_EXAMPLES = {
     },
     {
       purpose:
-        'Promote to prod and make each agent the build carries live there, each through its gate.',
+        'Promote to prod and make each agent the build carries live there, each through its release gate policy.',
       line: 'kindgi promote --from=staging --to=prod --make-live --reason="release 12"',
     },
     {
@@ -1481,7 +1481,7 @@ export const CLI_EXAMPLES = {
   ],
   'agents gate-policy': [
     {
-      purpose: 'Show the gate policy for the whole tenant.',
+      purpose: 'Show the release gate policy for the whole tenant.',
       line: 'kindgi agents gate-policy acme.order-desk --tenant',
     },
     {
@@ -1491,7 +1491,7 @@ export const CLI_EXAMPLES = {
   ],
   'agents promotions get': [
     {
-      purpose: 'Show one promotion of an agent.',
+      purpose: "Show one entry of an agent's go-live history.",
       line: 'kindgi agents promotions get acme.order-desk <promotion-id>',
     },
   ],
@@ -1501,7 +1501,7 @@ export const CLI_EXAMPLES = {
       line: 'kindgi conversations list --status=open',
     },
     {
-      purpose: 'List only comparison replays, a page at a time.',
+      purpose: 'List only the replays of runs on the test cases, a page at a time.',
       line: 'kindgi conversations list --replays=only --limit=10',
     },
   ],
@@ -1824,7 +1824,7 @@ export const CLI_EXAMPLES = {
   ],
   'judging-rules create': [
     {
-      purpose: "Queue a quarter of an agent's completed runs for judging.",
+      purpose: "Queue a quarter of an agent's completed runs for correction.",
       line: 'kindgi judging-rules create --name="refund tone" --agent=acme.refunds --sample=0.25',
     },
     {
@@ -1895,23 +1895,23 @@ export const CLI_EXAMPLES = {
   ],
   'judging-queue list': [
     {
-      purpose: 'List the runs waiting for a judgment, as a table.',
+      purpose: 'List the runs waiting for a correction, as a table.',
       line: 'kindgi judging-queue list --state=open --table',
     },
     {
-      purpose: 'List the open items one of your judgments would close.',
+      purpose: 'List the open items one of your corrections would close.',
       line: 'kindgi judging-queue list --state=open --for-me',
     },
   ],
   'judging-queue dismiss': [
     {
-      purpose: 'Dismiss a queued run that needs no judgment.',
+      purpose: 'Dismiss a queued run that needs no correction.',
       line: 'kindgi judging-queue dismiss <run-id> --reason="not a refund"',
     },
   ],
   'judging-queue reopen': [
     {
-      purpose: 'Reopen a dismissed item so it waits for a judgment again.',
+      purpose: 'Reopen a dismissed item so it waits for a correction again.',
       line: 'kindgi judging-queue reopen <run-id>',
     },
   ],
@@ -1933,7 +1933,7 @@ export const CLI_EXAMPLES = {
   ],
   'eval-runs rescore': [
     {
-      purpose: 'Rescore a completed comparison and wait for the new run.',
+      purpose: 'Rescore a completed run on the test cases and wait for the new run.',
       line: 'kindgi eval-runs rescore <run-id> --wait',
     },
     {
@@ -1963,7 +1963,7 @@ export const CLI_EXAMPLES = {
   ],
   'eval-suites cases': [
     {
-      purpose: "List the first page of a test set's cases.",
+      purpose: 'List the first page of the test cases.',
       line: 'kindgi eval-suites cases acme.article-picks --suite-version=1.0.0',
     },
     {
@@ -1973,7 +1973,7 @@ export const CLI_EXAMPLES = {
   ],
   'blocks list': [
     {
-      purpose: 'List the prompt blocks of a project.',
+      purpose: "List a project's instructions (its prompt blocks).",
       line: 'kindgi blocks list --project=<project-id> --kind=prompt',
     },
     {
@@ -2015,7 +2015,7 @@ export const CLI_EXAMPLES = {
   ],
   'gate-policies list': [
     {
-      purpose: 'List the gate policies of one agent.',
+      purpose: 'List the release gate policies of one agent.',
       line: 'kindgi gate-policies list --agent=acme.order-desk --table',
     },
     {
@@ -2041,13 +2041,13 @@ export const CLI_EXAMPLES = {
   ],
   'gate-policies unregister': [
     {
-      purpose: 'Unregister a gate policy version.',
+      purpose: 'Unregister a release gate policy version.',
       line: 'kindgi gate-policies unregister acme.order-desk-release 1.0.0',
     },
   ],
   'gate-policies reinstate': [
     {
-      purpose: 'Reinstate an unregistered gate policy version.',
+      purpose: 'Reinstate an unregistered release gate policy version.',
       line: 'kindgi gate-policies reinstate acme.order-desk-release 1.0.0',
     },
   ],
@@ -2171,6 +2171,10 @@ export const CLI_EXAMPLES = {
     {
       purpose: "Register the company's GitHub App.",
       line: 'kindgi connection-apps add github --github-app-id=<n> --slug=<slug> --client-id=<client-id> --client-secret-ref=production/ACME_GITHUB_CLIENT_SECRET --private-key-ref=production/ACME_GITHUB_PRIVATE_KEY --webhook-secret-ref=production/ACME_GITHUB_WEBHOOK_SECRET',
+    },
+    {
+      purpose: "Register the company's LinkedIn app.",
+      line: 'kindgi connection-apps add linkedin --client-id=<client-id> --client-secret-ref=production/ACME_LINKEDIN_CONNECT_SECRET',
     },
   ],
   'connection-apps remove': [

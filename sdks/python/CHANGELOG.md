@@ -103,6 +103,44 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   test resolves env the way the runtime does; names the tool doesn't declare
   are dropped and `secrets=` pass through.
   Matches the TypeScript `@kindgi/tools` definition check and test context.
+- `kindgi`: **a tool's schema given as a dict is checked when the tool is
+  defined.** `@tool(input={...}, output={...})` and `http_tool` raise
+  `DefinitionError` when the runtime would refuse the schema (it isn't valid
+  JSON Schema Draft 2020-12, or it has a keyword or a `format` the runtime
+  doesn't know, or a `$ref` that points nowhere), the check `needs_spec`'s
+  schemas get. Before, such a schema reached the pack index as written, and
+  the deploy refused it (under `kindgi dev`, the tool's first call failed).
+  Matches the TypeScript `@kindgi/tools` definition check.
+- `kindgi`: **the definition check refuses what the runtime's strict
+  compile refuses besides unknown names**, word for word as the runtime
+  says it:
+  - a keyword with no `type` it applies to (`minLength` with no
+    `"type": "string"`, say), or a `type` its context can't be;
+  - a `required` property nothing defines;
+  - a `prefixItems` tuple without matching `minItems` and `maxItems`
+    (or `items: false`);
+  - `nullable` without a `type`;
+  - `then`/`else` without `if`, and `minContains`/`maxContains` without
+    `contains`;
+  - an empty `enum`;
+  - a format bound without a `format` it can compare;
+  - a `patternProperties` pattern that matches a property `properties`
+    also names;
+  - a chain of `$ref`s that only leads back to itself.
+
+  A corpus of schemas, with the runtime's answer to each, keeps the two in
+  step.
+- `kindgi`: **a pattern is checked as the runtime's JavaScript reads it.**
+  When a tool is defined, a `pattern`, or a `patternProperties` pattern,
+  that the runtime's `RegExp` refuses raises `DefinitionError` in the
+  runtime's words (`Invalid regular expression: /(/u: Unterminated group`),
+  in a schema given as a dict and in one derived from a model alike. Before,
+  a dict's went by Python's `re` and a model's wasn't checked: a pattern only
+  Python or pydantic reads, such as `(?P<name>…)`, reached the deploy, which
+  refused it. In a dict, a pattern only JavaScript reads, such as `\p{L}`, is
+  still refused, since the SDK checks data against it with Python's `re`. In
+  a model, pydantic checks the data, and reads `\p{L}`. A `"format": "regex"`
+  value is checked as the runtime checks it, too.
 
 ## 0.1.10
 

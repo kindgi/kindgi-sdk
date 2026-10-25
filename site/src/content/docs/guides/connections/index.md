@@ -40,7 +40,8 @@ secret), its runs act as them from then on, with their connections
    ([Google](google/), [Microsoft](microsoft/), [GitHub](github/),
    [LinkedIn](linkedin/)).
 2. **People connect** on the app's own sign-in page: from the console's
-   **Connections** page, or from a run that's waiting for them.
+   **Connections** page, from a terminal with `kindgi connections connect`,
+   or from a run that's waiting for them.
 3. **A tool says which app and which permissions it needs**
    ([Use a connection in a tool](use-a-connection/)). Before each call,
    Kindgi finds the connection and hands that call its current
@@ -50,13 +51,29 @@ secret), its runs act as them from then on, with their connections
 
 ## When nobody has connected yet
 
-- **Your own connection, in a run you started:** the run waits, and its
-  page shows a **Connect** button. Once you've connected, the run goes on.
+- **Your own connection, in a run you started:** an agent's call waits,
+  and the run's page asks you to connect, as in **Connect Google**, with
+  a link. Once you've connected, the run goes on. A flow's tool step
+  can't wait, so it fails with `connection-missing`.
 - **Anything else** fails the call with `connection-missing`, naming the
   app and what's missing: a person's connection in a schedule's or a
   webhook's run, where nobody is there to connect, and the company's
   connection in any run, since only an admin connects it. The console's
   **Connections** page shows what's missing.
+
+So connect before a schedule or a webhook needs it. From a terminal, this
+prints the link to open, and waits until you've connected:
+
+```sh
+npx --yes @kindgi/cli@0.2 connections connect google --permissions=gmail.send
+```
+
+- **`--permissions`** names what to ask for, by the app's permission keys.
+  Left out, it asks you about each one at the terminal.
+- **`--for-company`** connects the company's account instead, which only
+  a workspace admin can.
+- **`kindgi connections list --mine --table`** lists your connections, with
+  their state. A workspace admin sees everyone's without `--mine`.
 
 ## What you need
 

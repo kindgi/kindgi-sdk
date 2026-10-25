@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Annotated, Any
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from kindgi import CheckResult, DefinitionError, RunTrace, ToolContext, guardrail, tool
 
@@ -125,6 +125,100 @@ def test_a_json_schema_the_runtime_refuses_fails_where_declared(
         def handler(input: dict[str, Any]) -> Out: ...
 
     assert str(raised.value) == f'Tool "acme.x": the input schema doesn\'t compile: {why}'
+
+
+OBJECT: dict[str, Any] = {"type": "object"}
+
+
+@pytest.mark.parametrize(
+    ("slot", "schema", "why"),
+    [
+        (
+            "input",
+            {"type": "object", "properties": {"q": {"type": "strng"}}},
+            "'strng' is not valid under any of the given schemas",
+        ),
+        (
+            "input",
+            {"type": "object", "properties": {"q": {"type": "string", "minLenght": 1}}},
+            'strict mode: unknown keyword: "minLenght"',
+        ),
+        (
+            "output",
+            {"type": "object", "properties": {"at": {"type": "string", "format": "datetime"}}},
+            'unknown format "datetime" ignored in schema at path "#/properties/at"',
+        ),
+        (
+            "output",
+            {"type": "object", "properties": {"a": {"$ref": "#/$defs/nope"}}},
+            "can't resolve reference #/$defs/nope from id #",
+        ),
+    ],
+)
+def test_a_dict_schema_compiles_as_the_runtime_compiles_it(
+    slot: str, schema: dict[str, Any], why: str
+) -> None:
+    schemas = {"input": OBJECT, "output": OBJECT, slot: schema}
+    with pytest.raises(DefinitionError) as raised:
+
+        @tool(id="acme.x", description="x", **schemas)
+        def handler(input: dict[str, Any]) -> dict[str, Any]: ...
+
+    assert str(raised.value) == f'Tool "acme.x": the {slot} JSON Schema doesn\'t compile: {why}'
+
+
+def test_a_dict_schema_that_compiles_is_kept_as_written() -> None:
+    schema = {"type": "object", "properties": {"q": {"type": "string", "minLength": 1}}}
+
+    @tool(id="acme.x", description="x", input=schema, output=OBJECT)
+    def handler(input: dict[str, Any]) -> dict[str, Any]: ...
+
+    assert handler.input_schema == schema
+    assert handler.output_schema == OBJECT
+
+
+class NamedGroup(BaseModel):
+    q: str = Field(pattern=r"^(?P<q>\w+)$")
+
+
+class NamedKeys(BaseModel):
+    tags: dict[Annotated[str, StringConstraints(pattern=r"^(?P<t>\w+)$")], int]
+
+
+class Letters(BaseModel):
+    q: str = Field(pattern=r"^\p{L}+$")
+
+
+@pytest.mark.parametrize(
+    ("slot", "model", "source"),
+    [
+        ("input", NamedGroup, r"^(?P<q>\w+)$"),
+        ("input", NamedKeys, r"^(?P<t>\w+)$"),
+        ("output", NamedGroup, r"^(?P<q>\w+)$"),
+    ],
+)
+def test_a_models_pattern_is_read_as_the_runtime_reads_it(
+    slot: str, model: type[BaseModel], source: str
+) -> None:
+    # pydantic's engine reads `(?P<name>…)`; JavaScript's doesn't, so the deploy would refuse it.
+    schemas: dict[str, Any] = {"input": In, "output": Out, slot: model}
+    with pytest.raises(DefinitionError) as raised:
+
+        @tool(id="acme.x", description="x", **schemas)
+        def handler(input: Any) -> Any: ...
+
+    assert str(raised.value) == (
+        f'Tool "acme.x": the {slot} JSON Schema doesn\'t compile: '
+        f"Invalid regular expression: /{source}/u: Invalid group"
+    )
+
+
+def test_a_models_pattern_both_engines_read_is_kept() -> None:
+    # JavaScript and pydantic's engine both read `\p{L}`: the tool checks data against it.
+    @tool(id="acme.x", description="x")
+    def handler(input: Letters) -> Out: ...
+
+    assert handler.input_schema["properties"]["q"]["pattern"] == r"^\p{L}+$"
 
 
 def test_a_handler_takes_one_or_two_parameters() -> None:

@@ -10,6 +10,7 @@ import { connectionRejectionOf, isConnectionRenewError } from '@kindgi/tools';
 import type {
   ConnectionAccount,
   ConnectionNeed,
+  ConnectionRejection,
   ResolveConnectionsOutcome,
   Tool,
   ToolConnection,
@@ -37,19 +38,24 @@ import type { ConnectWaitResult } from './tool-hitl.js';
  *
  * A call the connections stop runs nothing: it fails with a
  * `connection-*` code, the model reads why as its result, and the turn
- * goes on.
+ * goes on. So does a call the app refuses again with its renewed token
+ * (`connection-rejected`), and the connection stays as it is.
  */
 
 /** The record key prefix of a call's connection gate. */
 const CONNECTION_GATE_RECORD_PREFIX = 'connection-gate:';
 
-/** Why a call that needs connections didn't run. */
+/**
+ * Why a call that needs connections failed: it didn't run, or
+ * (`connection-rejected`) the app refused its renewed token too.
+ */
 export type ConnectionCallCode =
   | 'connection-app-missing'
   | 'connection-needs-a-person'
   | 'connection-missing'
   | 'connection-declined'
   | 'connection-timed-out'
+  | 'connection-rejected'
   | 'connection-renew-failed'
   | 'connection-approval-conflict'
   | 'connection-approver-not-a-reviewer';
@@ -196,12 +202,33 @@ export async function freshConnections(
  * more.
  */
 export function rejectedConnectionOf(error: unknown, tool: Tool): string | undefined {
+  return declaredRejectionOf(error, tool)?.connection;
+}
+
+/**
+ * The call's renewed token refused too: it fails with
+ * `connection-rejected`, naming the connection, with what the app said.
+ * The connection stays as it is, as a refusal can mean the call lacks a
+ * permission. `error` comes with the call's tokens already redacted.
+ */
+export function rejectedAgainOf(error: unknown, tool: Tool): ConnectionCallFailure | undefined {
+  const rejection = declaredRejectionOf(error, tool);
+  if (rejection === undefined) return undefined;
+  return {
+    code: 'connection-rejected',
+    connection: rejection.connection,
+    message: rejection.message,
+  };
+}
+
+/** The refusal a failed call's error holds, of a connection the tool declares. */
+function declaredRejectionOf(error: unknown, tool: Tool): ConnectionRejection | undefined {
   const needs = connectionNeedsOf(tool);
   if (needs === undefined) return undefined;
   // A thrown error comes wrapped: dispatch's error, then the tool's.
   const rejection = connectionRejectionOf(error);
   return rejection !== undefined && Object.hasOwn(needs, rejection.connection)
-    ? rejection.connection
+    ? rejection
     : undefined;
 }
 

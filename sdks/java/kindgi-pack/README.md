@@ -143,7 +143,13 @@ The service's validator answers as the TypeScript service's Ajv does, issue
 for issue: a differential test runs every value of its corpus through both
 (see [Build from source](#build-from-source)). It takes the JSON Schema
 keywords tool schemas use, and the indexer refuses a schema with any other
-keyword (`if`, `prefixItems`, a remote `$ref`, …).
+keyword (`if`, `prefixItems`, a remote `$ref`, …). It also refuses what the
+runtime's strict compile refuses: a keyword with no `type` it applies to
+(`minLength` with no `"type": "string"`), a `type` its context can't be, a
+`required` property nothing defines, an empty `enum`, references that only
+lead back to themselves, and a `pattern` the runtime's JavaScript `RegExp`
+refuses. A pattern only JavaScript reads, such as `[^]`, is refused too: the
+service checks data against it with Java's `Pattern`.
 
 A JVM language's own types (Scala's `Option`, `Seq`, a case class's defaults)
 come from its layer: it implements `com.kindgi.pack.spi.SchemaTypeAdapter` and
