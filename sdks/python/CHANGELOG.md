@@ -100,8 +100,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   how its calls differed, each a `CallDifferenceCount`,
   `CallDifferenceMustNotCall`, `CallDifferenceMissingField` or
   `CallDifferenceFieldValue`), and the summary's `corrections`
-  (`Corrections`) counts those `checked` and `passed`. Shown for a promotion
-  gate, not enforced. Matches the TypeScript client's.
+  (`Corrections`) counts those `checked` and `passed`, and lists each by
+  judgment (`judgments`, `JudgedComparisonSummaryCorrectionsJudgment`). Shown
+  for a promotion gate, not enforced. `correction_differences` quotes argument
+  values, so an erasure clears it; the verdicts and counts stay in
+  `corrections`. Matches the TypeScript client's.
 - `kindgi`: **a test set's cases name their judgments, and a proposal says
   how many it rests on.** A judged case's items gain `judgment_ids`, and their
   `restricted` gains `judgment_ids` too. A proposal's `evidence` is now the
@@ -112,8 +115,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `cheaper`), `cost_usd` (`ProposalCost`) and `decisions`
   (`ProposalDecisions`). A proposal kept as `cheaper` is `evaluated` with
   `better` false. A judged comparison's summary gains `cost_usd`
-  (`JudgedComparisonCost`) and `corrections.judgments`, and each case result
-  gains `cost_usd`, one per repetition.
+  (`JudgedComparisonCost`), and each case result gains `cost_usd`, one per
+  repetition.
 - `kindgi`: **`secrets.revoke`'s docstrings say what a hard revoke does**: it
   erases the value at Kindgi and hard-deletes it in a secret manager, and
   can't be undone; backups, and a secret manager's own retention, may keep
