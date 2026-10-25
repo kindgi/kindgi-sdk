@@ -162,9 +162,10 @@ describe('kindgi key create', () => {
 
   test('--env prints the kindgi.config.ts tip', async () => {
     const fixtures = makeFixtures();
-    const out = await runCli(
-      baseInputs(fixtures, ['key', 'create', 'staging-signer', '--env=staging']),
-    );
+    const out = await runCli({
+      ...baseInputs(fixtures, ['key', 'create', 'staging-signer', '--env=staging']),
+      buildConfigLoader: async () => ({}),
+    });
     expect(out.exitCode).toBe(0);
     expect(out.stderr).toContain('environments.staging');
     expect(out.stderr).toContain("signingKey: '~/.kindgi/keys/staging-signer.pem'");
@@ -176,6 +177,8 @@ describe('kindgi key create', () => {
       { signingKey: '~/.kindgi/keys/prod-signer.pem', signerKeyId: 'prod-signer' },
       // The path written out, and no signerKeyId: the build names the key by its file.
       { signingKey: '/tmp/fake-home/.kindgi/keys/prod-signer.pem' },
+      // A relative path: the build reads it from the folder it runs in.
+      { signingKey: '../fake-home/.kindgi/keys/prod-signer.pem' },
     ]) {
       const fixtures = makeFixtures();
       const out = await runCli({
@@ -215,7 +218,23 @@ describe('kindgi key create', () => {
     }
   });
 
-  test("--env: no config, or one that won't load, keeps the hint and makes the key", async () => {
+  test('--env: with no HOME, a `~` path is not this key: the build reads `~` as nothing', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      argv: ['key', 'create', 'prod-signer', '--env=prod'],
+      env: {},
+      cwd: '/tmp/fake-cwd',
+      keyRunners: fixtures.runners,
+      buildConfigLoader: async () => ({
+        environments: { prod: { signingKey: '~/.kindgi/keys/prod-signer.pem' } },
+      }),
+    });
+    expect(out.exitCode).toBe(0);
+    expect(out.stderr).toContain('environments.prod in kindgi.config.ts has these now:');
+    expect(out.stderr).not.toContain('already names this key');
+  });
+
+  test("--env: a config without the block, or one that won't load, keeps the hint and makes the key", async () => {
     for (const buildConfigLoader of [
       async () => ({ pack: { id: 'acme.app', version: '1.0.0' } }),
       async () => {

@@ -135,12 +135,9 @@ async function envKeyState(
       ? fields.signerKeyId
       : undefined;
   if (signingKey === undefined && signerKeyId === undefined) return { kind: 'unset' };
-  // `kindgi build` reads `~` as the home (not --home's) and a relative path
-  // from here.
-  const home = pickHome({
-    ...(ctx.home !== undefined ? { ctxHome: ctx.home } : {}),
-    ...(typeof ctx.env.HOME === 'string' && ctx.env.HOME !== '' ? { envHome: ctx.env.HOME } : {}),
-  });
+  // `kindgi build` reads `~` as the home (not --home's, and '' with no HOME)
+  // and a relative path from here.
+  const home = ctx.home ?? ctx.env.HOME ?? '';
   const keyFile =
     signingKey === undefined
       ? undefined

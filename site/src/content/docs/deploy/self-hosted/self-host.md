@@ -139,7 +139,8 @@ npx --yes @kindgi/cli@0.2 key create acme-selfhost --env selfhost
 It prints the key's JSON, then the paths of its private and public key files
 and its fingerprint.
 [Rotate a signing key](../rotate-keys/#rotate-a-signing-key) shows that
-output in full.
+output in full for a second key, with the key lines the `selfhost` block has
+by then.
 
 Add an environment for this deployment to `kindgi.config.ts`:
 

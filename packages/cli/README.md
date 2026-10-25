@@ -843,7 +843,7 @@ Ed25519 signing keys for `kindgi build`, as files under `~/.kindgi/keys/`
 
 - **`create`** generates a key pair and refuses to overwrite an existing
   one. With `--env`, it prints what to add to that env block in
-  `kindgi.config.ts`.
+  `kindgi.config.ts`, or that the block already names this key.
 - **`export`** prints the public key only, never the private one.
 - **`list`** shows each key pair's id, fingerprint and paths.
 - **`trust`** adds a local key's public key to the runtime's trust list
