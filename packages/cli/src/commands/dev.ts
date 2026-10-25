@@ -34,7 +34,7 @@
 
 import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { chmod, readFile, unlink, writeFile } from 'node:fs/promises';
+import { readFile, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -162,6 +162,7 @@ import { PYPI_NO_BUNDLER } from '../esbuild-loader.js';
 import { openUrlInBrowser } from '../open-url.js';
 import { renderJson } from '../output.js';
 import { binDisplay, cliInstall, detectBinRunner } from '../package-manager.js';
+import { writePrivateFile } from '../private-file.js';
 import type { SaidLine } from '../progress-lines.js';
 import { MODELS_GUIDE } from '../providers/models-guide.js';
 import { loadProviderPresets } from '../providers/preset-loader.js';
@@ -1680,7 +1681,9 @@ function pickRunners(ctx: CommandContext): RunnersOutcome {
 
 /**
  * Write `.kindgirc.json`, readable by its owner only, since it holds the dev
- * token and the pack service's token: whether it was written. Best effort:
+ * token and the pack service's token: a new `0600` file that replaces the old
+ * one (`writePrivateFile`), so a program that opened an older, looser one
+ * can't read the new tokens through it. Whether it was written. Best effort:
  * what goes wrong is a warning, and boot goes on. Without the file, the CLI
  * in the folder can still pass --url and --token.
  */
@@ -1689,19 +1692,13 @@ async function writeKindgirc(
   rc: Readonly<Record<string, unknown>>,
 ): Promise<boolean> {
   try {
-    await writeFile(path, `${JSON.stringify(rc, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+    await writePrivateFile(path, `${JSON.stringify(rc, null, 2)}\n`);
   } catch (err) {
     emitProblem(
       `⚠ couldn't write .kindgirc.json (${(err as Error).message}): the CLI in this folder needs --url and --token to reach this runtime`,
     );
     return false;
   }
-  // A file that was there keeps its mode through the write.
-  await chmod(path, 0o600).catch((err: unknown) => {
-    emitProblem(
-      `⚠ couldn't make .kindgirc.json readable by its owner only (${(err as Error).message}): it holds this runtime's tokens, and keeps the mode it had`,
-    );
-  });
   return true;
 }
 
