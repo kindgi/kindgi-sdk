@@ -111,6 +111,16 @@ first email goes at once, then a digest every five minutes at most.
   leave out an Approve button they can't use.
 - **`escalatedFrom` and `escalatedTo`** are the approval ids an escalation
   came from and went to.
+- **`approver`** is there when only one person may decide the approval: a
+  tool call that acts with that person's own connection. It's
+  `{ "kind": "member", "userId": "<id>" }`. Only they decide it, with a
+  reviewer seat at its `requiredRole` or above, as
+  [Approvals](../../connections/use-a-connection/#approvals) in Use a
+  connection in a tool describes.
+- **`connection`** is the account such a call would use:
+  `{ "app": "google", "appName": "Google", "account": "lee@acme.com" }`.
+  `app` is the app's entry id, and `account` is the account's label at the
+  app, such as an email address or a login.
 - **`withdrawnBecause`** is `run-cancelled` or `run-ended` on an approval its
   run withdrew, as [Withdrawn by its run](#withdrawn-by-its-run) describes.
 
@@ -152,6 +162,19 @@ From your app, `runs.get(runId)` answers what a suspended run waits for, as
 `waitingFor`. It's the API's answer to the CLI's `kindgi runs resume`:
 
 - **`approvals`** are the approvals still to be decided.
+- **`connections`** are the connects it waits for: each names the app
+  (`appName`), what it asks for (`says`), and the link the person who
+  started the run connects from (`connectUrl`), until `expiresAt`. It's
+  left out when there are none
+  ([When the connection is missing](../../connections/use-a-connection/#when-the-connection-is-missing)).
+- **`tokens`** are its waits for another system's answer: a tool's call that
+  paused. Each has the wait's `tokenId`, for `runs.resume`, what it waits
+  for (`name`), the tool and its call (`tool`), the flow's step (`nodeId`),
+  when it began waiting (`createdAt`) and when it times out (`timesOutAt`),
+  never the link. It's left out on a
+  runtime that pauses no run. When the waits can't be read, they're in
+  `other`, as `unattributed`
+  ([Wait for another system's answer](../../tools/wait-for-another-system/)).
 - **`other`** is the rest: a child run to finish, an approval already
   decided, or a wait no approval is linked to.
 
@@ -205,6 +228,12 @@ run has moved on by the time the call returns.
   ended. It's refused with `409 run-already-terminal`. Its `details` name
   the run that ended, which may be the run the approval's run is a step of,
   and its `status`.
+- **By anyone but its `approver`,** on an approval addressed to one person.
+  A tenant admin, who can read it, gets `403 named-approver-required`. To
+  any other reviewer it doesn't exist: `404 approval-not-found`.
+- **An escalation of an approval addressed to one person:** it's theirs at
+  every role, so it's refused with `409 invalid-transition`. They approve
+  or reject it.
 
 A decision recorded before its run ended stands, however close the two are.
 The answer then has `waitpointResolved: false` and the run's `runStatus`.
@@ -215,8 +244,8 @@ person's outcome, not an error:
 - `hitl-rejected`: a reviewer rejected the turn, at its session gate. A
   rejected tool call skips only the tool, and the turn goes on.
 - `hitl-withdrawn`: a reviewer withdrew the approval.
-- `hitl-cancelled`: nobody decided in time, so the approval expired at the
-  `admin` role.
+- `hitl-cancelled`: nobody decided in time, so the approval expired: at the
+  `admin` role, or at its deadline for one addressed to one person.
 
 A run cancelled while it waits ends `cancelled`, with no failure code.
 
@@ -256,10 +285,14 @@ deadline passes with no decision:
 
   The run's `failure` says the same as data: `code: "hitl-cancelled"`,
   `reason: "timeout"`. Read `reason` rather than the message.
+- **Addressed to one person** (`approver`), at any role, the approval
+  becomes `expired`, and the run's turn fails the same way. One tier up
+  it would wait on the same person, whose seat may be below it.
 
-A decision made before the deadline always wins. A deadline always escalates
-this way: `hitl.onTimeout` takes only `'escalate'`, the default. An agent that
-asks for anything else is refused when it's defined:
+A decision made before the deadline always wins. Apart from an approval
+addressed to one person, a deadline always escalates this way:
+`hitl.onTimeout` takes only `'escalate'`, the default. An agent that asks
+for anything else is refused when it's defined:
 
 ```text
 hitl.onTimeout 'auto-approve' isn't supported: an approval that times out escalates one reviewer tier, and at admin it expires (the turn fails with hitl-cancelled). Use 'escalate', or leave it out.
@@ -367,11 +400,11 @@ admin reviewer**. An approval that needs an `admin` has none.
 
 ![An approval's page, "Approve the next turn of acme.support", pending, needing a standard reviewer. Your decision offers Approve, Reject, Send to a senior reviewer and Withdraw this request; Send to a senior reviewer is chosen, with "A new approval opens for senior reviewers; the run waits for that one.", a rationale, and a Send to a senior reviewer button. Then: the subject, required role, when it was requested and when it expires, and the waiting run, agent and conversation.](../../../../assets/approvals/decide.png)
 
-An agent promotion's approval says what each does to the version instead:
-"The version goes live where it was asked for.", or "The promotion is
-dropped; nothing changes where it runs." Once a decision is recorded, the
-page says what it did, such as "The waiting run continues." or "The waiting
-run is told no.", with **Open the run**.
+An approval to make an agent version live says what each does to the
+version instead: "The version goes live where it was asked for.", or "The
+request to make it live is dropped; nothing changes where it runs." Once a
+decision is recorded, the page says what it did, such as "The waiting run
+continues." or "The waiting run is told no.", with **Open the run**.
 
 - **Someone who can't decide it** reads why, in place of the choices: "You
   aren't on the reviewer roster, so you can't decide approvals. A tenant

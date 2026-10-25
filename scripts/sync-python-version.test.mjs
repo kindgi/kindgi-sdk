@@ -16,11 +16,13 @@ import { dirname, join } from 'node:path';
 import { after, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { scratchRepoEnv } from './lib/git-env.mjs';
 import {
   NO_CHANGES,
   SyncError,
   fixedGroupVersion,
   lockedVersion,
+  prereleasesOf,
   projectString,
   toPep440,
 } from './sync-python-version.mjs';
@@ -28,6 +30,8 @@ import {
 const SCRIPT = fileURLToPath(new URL('./sync-python-version.mjs', import.meta.url));
 const REPO = dirname(dirname(SCRIPT));
 const HAS_UV = spawnSync('uv', ['--version']).status === 0;
+/** git's repository variables dropped, so a shell pointing at another repository leaves it alone. */
+const scratchEnv = scratchRepoEnv();
 const scratch = mkdtempSync(join(tmpdir(), 'kindgi-sync-python-version-'));
 after(() => rmSync(scratch, { recursive: true, force: true }));
 
@@ -57,6 +61,27 @@ describe('toPep440', () => {
       assert.throws(() => toPep440(version), SyncError, version);
     }
     assert.throws(() => toPep440('1.0.0-preview.3'), /has no PEP 440 spelling/);
+  });
+});
+
+describe('prereleasesOf', () => {
+  test("a release's are its own a, b and rc versions; a prerelease has none", () => {
+    const of = prereleasesOf('1.2.0');
+    for (const section of ['1.2.0rc0', '1.2.0rc12', '1.2.0a1', '1.2.0b3']) {
+      assert.ok(of(section), section);
+    }
+    for (const section of [
+      '1.2.0',
+      '1.1.0rc0',
+      '1.2.1rc0',
+      '11.2.0rc0',
+      '1x2.0rc0',
+      '1.2.0rc01',
+      '1.2.0-rc.0',
+    ]) {
+      assert.ok(!of(section), section);
+    }
+    assert.equal(prereleasesOf('1.2.0rc1'), undefined);
   });
 });
 
@@ -270,7 +295,10 @@ function workspace({ sdk, cli = sdk, python = '1.2.0', changelog = CHANGELOG }) 
     LOCK.replace('"acme-x"', '"acme-x-cli"').replace('"1.2.0"', `"${cliPython}"`),
   );
   if (changelog !== null) write('sdks/python/CHANGELOG.md', changelog);
-  execFileSync('git', ['-c', 'init.defaultBranch=main', 'init', '-q'], { cwd: root });
+  execFileSync('git', ['-c', 'init.defaultBranch=main', 'init', '-q'], {
+    cwd: root,
+    env: scratchEnv,
+  });
   return root;
 }
 
@@ -279,7 +307,7 @@ function run(root, args, env = {}) {
   return spawnSync(process.execPath, [SCRIPT, ...args], {
     cwd: root,
     encoding: 'utf8',
-    env: { ...process.env, UV_OFFLINE: '1', ...env },
+    env: { ...scratchEnv, UV_OFFLINE: '1', ...env },
   });
 }
 
@@ -395,6 +423,21 @@ describe('sync-python-version (writing)', () => {
       assert.equal(
         read(root, 'sdks/python/CHANGELOG.md'),
         `# Acme Python\n\n## Unreleased\n\n## 1.2.1\n\n${NO_CHANGES}\n\n## 1.2.0\n\n- the first release\n`,
+      );
+    },
+  );
+
+  test(
+    "--release of a release gathers its release candidates' entries",
+    { skip: HAS_UV ? false : 'uv is not installed' },
+    () => {
+      const candidate =
+        '# Acme Python\n\n## Unreleased\n\n- a fix\n\n## 1.2.1rc0\n\n- a change\n\n## 1.2.0\n\n- the first release\n';
+      const root = workspace({ sdk: '1.2.1', changelog: candidate });
+      assert.equal(run(root, ['--release']).status, 0);
+      assert.equal(
+        read(root, 'sdks/python/CHANGELOG.md'),
+        '# Acme Python\n\n## Unreleased\n\n## 1.2.1\n\n- a fix\n- a change\n\n## 1.2.1rc0\n\n- a change\n\n## 1.2.0\n\n- the first release\n',
       );
     },
   );

@@ -23,6 +23,11 @@
  * The child's environment is exactly `env()` plus the token and `PORT=0`
  * — nothing of this process's own environment reaches pack code.
  *
+ * Under `kindgi dev`, the front also takes `POST /v1/blocks` (token-gated,
+ * like a call) when it's given `writeBlock`: making an Improve candidate
+ * live writes the block's new version into the pack's files. Without
+ * `writeBlock` the route isn't there (404), as on a deployment.
+ *
  * Forwarding has two parts. The relay ({@link PackRelay}) takes a request
  * body and the call's options — deadline, run and request ids, a cancel
  * signal — and calls the serving child. The HTTP listener maps headers and
@@ -39,6 +44,7 @@ import { createInterface } from 'node:readline';
 
 import type { Result } from '@kindgi/types';
 
+import type { PackBlockWrite, PackBlockWriteOutcome } from '../pack-blocks.js';
 import { PACK_HEADERS } from '../protocol.js';
 import { PACK_SERVICE_DRAIN_MS } from './main.js';
 
@@ -95,6 +101,12 @@ export interface PackServiceSupervisorOptions {
   readonly restartDelayMs?: number;
   /** Largest request body the front accepts. Default 10 MiB (the pack service's own limit). */
   readonly maxBodyBytes?: number;
+  /**
+   * Writes a block's new version into the pack (`writePackBlock`), behind
+   * `POST /v1/blocks`. Only `kindgi dev` gives it; without it the route
+   * answers 404.
+   */
+  readonly writeBlock?: (write: PackBlockWrite) => Promise<PackBlockWriteOutcome>;
   /** Test seam: run `fn` on the event loop's next turn (`setImmediate`). */
   readonly nextTurn?: (fn: () => void) => void;
 }
@@ -408,6 +420,10 @@ export function createPackServiceSupervisor(
     if (typeof admitted !== 'string') {
       return sendJson(res, admitted.status, admitted.body, admitted.headers);
     }
+    if (admitted === 'write-block') {
+      const reply = await writeBlockReply(req);
+      return sendJson(res, reply.status, reply.body);
+    }
     const body =
       admitted === 'invoke'
         ? await readBody(req, options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES)
@@ -428,13 +444,43 @@ export function createPackServiceSupervisor(
    * The relay route for a request, or the front's own answer: an unknown
    * route, a wrong method, a probe, a bad token.
    */
-  function admit(req: IncomingMessage): Reply | 'invoke' | 'info' {
+  function admit(req: IncomingMessage): Reply | 'invoke' | 'info' | 'write-block' {
     const route = FRONT_ROUTES[(req.url ?? '/').split('?')[0] ?? ''];
-    if (route === undefined) return { status: 404, body: { error: `No route ${req.url ?? '/'}` } };
+    if (route === undefined || (route.name === 'write-block' && options.writeBlock === undefined)) {
+      return { status: 404, body: { error: `No route ${req.url ?? '/'}` } };
+    }
     if (req.method !== route.method) return { status: 405, body: { error: `Use ${route.method}` } };
     if (route.name === 'healthz' || route.name === 'readyz') return probe(route.name);
     if (!authorized(req)) return { status: 401, body: { error: 'Bad pack token' } };
     return route.name;
+  }
+
+  /** `POST /v1/blocks`: `{ id, version, content }` written into the pack, or why not. */
+  async function writeBlockReply(req: IncomingMessage): Promise<Reply> {
+    const writeBlock = options.writeBlock;
+    if (writeBlock === undefined) return { status: 404, body: { error: 'No route /v1/blocks' } };
+    const text = await readBody(req, options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES);
+    if (text === undefined) return { status: 413, body: { error: 'Request body too large' } };
+    const write = blockWriteOf(text);
+    if (write === undefined) {
+      return {
+        status: 400,
+        body: { error: 'The body is a block write: { id, version, content }', reason: 'invalid' },
+      };
+    }
+    const outcome = await writeBlock(write);
+    if (outcome.kind === 'ok') {
+      return {
+        status: 200,
+        body: {
+          file: outcome.file,
+          ...(outcome.templateFile !== undefined && { templateFile: outcome.templateFile }),
+          replaced: outcome.replaced,
+        },
+      };
+    }
+    const status = { 'not-in-pack': 404, invalid: 400, 'not-newer': 409 }[outcome.reason];
+    return { status, body: { error: outcome.message, reason: outcome.reason } };
   }
 
   /** `/healthz`: the front listens. `/readyz`: a child serves. Neither needs the token. */
@@ -598,16 +644,31 @@ interface Reply {
 const RETRY_AFTER: Readonly<Record<string, string>> = { 'retry-after': '1' };
 
 interface FrontRoute {
-  readonly name: 'invoke' | 'info' | 'healthz' | 'readyz';
+  readonly name: 'invoke' | 'info' | 'write-block' | 'healthz' | 'readyz';
   readonly method: 'GET' | 'POST';
 }
 
 const FRONT_ROUTES: Readonly<Record<string, FrontRoute>> = {
   '/v1/invoke': { name: 'invoke', method: 'POST' },
+  '/v1/blocks': { name: 'write-block', method: 'POST' },
   '/v1/info': { name: 'info', method: 'GET' },
   '/healthz': { name: 'healthz', method: 'GET' },
   '/readyz': { name: 'readyz', method: 'GET' },
 };
+
+/** A block write's body, or `undefined` when it isn't one. */
+function blockWriteOf(text: string): PackBlockWrite | undefined {
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  const { id, version, content } = (body ?? {}) as Record<string, unknown>;
+  if (typeof id !== 'string' || typeof version !== 'string') return undefined;
+  if (content === null || typeof content !== 'object' || Array.isArray(content)) return undefined;
+  return { id, version, content: content as Readonly<Record<string, unknown>> };
+}
 
 /** A connection that never reached a listener: the call did not run. */
 function refused(cause: unknown): boolean {

@@ -23,6 +23,7 @@ import type {
   TokenResolver,
 } from '../src/index.js';
 import type { Authorizer } from '../src/middleware/authorize.js';
+import type { RegistryReadOnly } from '../src/registry-read-only.js';
 import { agentsRouter } from '../src/routes/agents.js';
 import type { AppEnv } from '../src/types.js';
 
@@ -168,13 +169,13 @@ function registryWith(versions: readonly string[]): AgentRegistryBinding {
   };
 }
 
-function makeApp(versions: readonly string[] = ['1.0.0', '1.1.0']) {
+function makeApp(versions: readonly string[] = ['1.0.0', '1.1.0'], readOnly?: RegistryReadOnly) {
   const fake = fakeReleases();
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
     runHandler,
-    agentRegistry: registryWith(versions),
+    agentRegistry: { ...registryWith(versions), ...(readOnly !== undefined && { readOnly }) },
     agentReleases: fake.bindings,
   });
   return { app, ...fake };
@@ -635,5 +636,81 @@ describe('POST /v1/agents/:agentId/versions/:version/unregister, a live version'
       { method: 'POST', headers: auth },
     );
     expect(res.status).toBe(404);
+  });
+});
+
+describe("an agent registry that takes Improve's candidates (kindgi dev)", () => {
+  const MARKER: RegistryReadOnly = {
+    reason: "Under kindgi dev, the pack is the source of agents: edit the pack's files.",
+    takesCandidates: {
+      undoReason: "Under kindgi dev, the pack's files are what's live: undo a change with git.",
+      scopeReason: "Under kindgi dev, the pack's files serve every scope: use the whole tenant.",
+    },
+  };
+
+  test('a promotion gets through to the releases binding → 201', async () => {
+    const { app, calls } = makeApp(undefined, MARKER);
+    const res = await app.request(
+      `/v1/agents/${AGENT}/promotions`,
+      post({ version: '1.1.0', scope: { kind: 'tenant' } }),
+    );
+    expect(res.status).toBe(201);
+    expect(calls.map((c) => c.method)).toContain('promote');
+  });
+
+  test('a promotion check gets through', async () => {
+    const { app } = makeApp(undefined, MARKER);
+    const res = await app.request(
+      `/v1/agents/${AGENT}/promotions/check`,
+      post({ version: '1.1.0', scope: { kind: 'tenant' } }),
+    );
+    expect(res.status).not.toBe(409);
+    expect(JSON.stringify(await res.json())).not.toContain('registry-read-only');
+  });
+
+  test.each(['/live/rollback', '/live/unpin'])(
+    'POST %s is refused with the undo reason, and the binding is never called',
+    async (path) => {
+      const { app, calls } = makeApp(undefined, MARKER);
+      const res = await app.request(
+        `/v1/agents/${AGENT}${path}`,
+        post({ scope: { kind: 'tenant' }, toVersion: '1.0.0' }),
+      );
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: unknown }).error).toMatchObject({
+        code: 'registry-read-only',
+        message: MARKER.takesCandidates?.undoReason,
+      });
+      expect(calls.map((c) => c.method)).not.toContain(path.slice('/live/'.length));
+    },
+  );
+
+  test.each([
+    '/v1/agents',
+    `/v1/agents/${AGENT}/versions`,
+    `/v1/agents/${AGENT}/versions/1.0.0/unregister`,
+    `/v1/agents/${AGENT}/versions/1.0.0/reinstate`,
+  ])('POST %s is still refused with the registry reason', async (path) => {
+    const { app } = makeApp(undefined, MARKER);
+    const res = await app.request(path, post({ id: AGENT, version: '1.2.0', from: '1.1.0' }));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: unknown }).error).toMatchObject({
+      code: 'registry-read-only',
+      message: MARKER.reason,
+    });
+  });
+
+  test('without the marker, a read-only registry refuses a promotion too', async () => {
+    const { app, calls } = makeApp(undefined, { reason: MARKER.reason });
+    const res = await app.request(
+      `/v1/agents/${AGENT}/promotions`,
+      post({ version: '1.1.0', scope: { kind: 'tenant' } }),
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: unknown }).error).toMatchObject({
+      code: 'registry-read-only',
+      message: MARKER.reason,
+    });
+    expect(calls).toEqual([]);
   });
 });

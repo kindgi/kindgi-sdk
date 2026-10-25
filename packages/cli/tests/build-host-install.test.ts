@@ -22,7 +22,7 @@ import {
   whyDevDependencies,
   withoutInstallScripts,
 } from '../src/build/host-install.js';
-import { installLine, skippedScriptLines } from '../src/commands/build.js';
+import { installLine, patchPackageWarnings, skippedScriptLines } from '../src/commands/build.js';
 
 let root: string;
 const put = async (rel: string, body = '{}\n'): Promise<void> => {
@@ -667,27 +667,29 @@ describe('withoutInstallScripts', () => {
 });
 
 describe('skippedScriptLines', () => {
-  test('lists the skipped scripts, and says how to apply patch-package patches', () => {
-    const lines = skippedScriptLines([
+  test('lists the skipped scripts; a warning says how to apply patch-package patches', () => {
+    const skipped = [
       {
         manifest: 'package.json',
         name: 'postinstall',
         command: 'prisma generate && patch-package',
       },
       { manifest: 'services/api/package.json', name: 'prepare', command: 'husky' },
-    ]);
-    expect(lines[0]).toBe(
+    ];
+    expect(skippedScriptLines(skipped)).toEqual([
       "    ✓ The app's own install scripts don't run in the image: postinstall (`prisma generate && patch-package`), services/api/package.json prepare (`husky`)",
+    ]);
+    const warnings = patchPackageWarnings(skipped);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain(
+      "    ⚠ postinstall runs patch-package, so its patches aren't applied in the image",
     );
-    expect(lines).toHaveLength(2);
-    expect(lines[1]).toContain(
-      "postinstall runs patch-package, so its patches aren't applied in the image",
-    );
-    expect(lines[1]).toContain("postInstall: [{ bin: 'patch-package' }]");
+    expect(warnings[0]).toContain("postInstall: [{ bin: 'patch-package' }]");
   });
 
   test('nothing skipped, nothing said', () => {
     expect(skippedScriptLines([])).toEqual([]);
+    expect(patchPackageWarnings([])).toEqual([]);
   });
 });
 

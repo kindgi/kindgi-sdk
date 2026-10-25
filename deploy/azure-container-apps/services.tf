@@ -332,6 +332,16 @@ resource "azurerm_container_app" "server" {
       condition     = length(setintersection(local.server_extra_env, toset(["KINDGI_AUTH_SECRET", "KINDGI_AUTH_SECRET_PATH"]))) == 0 || var.public_url != ""
       error_message = "Sign-in with identity providers (KINDGI_AUTH_SECRET) needs public_url: the URL people open the console at, where identity providers send them back. The server won't start without it."
     }
+    # One tenant: the one the server seeds. A runtime serving many calls a
+    # pack service of each deployment's own, never this module's shared one.
+    precondition {
+      condition     = contains(["", "single"], lookup(var.server_env, "KINDGI_TENANCY", "")) && !contains(keys(var.server_secret_env), "KINDGI_TENANCY")
+      error_message = "This module runs one tenant: server_env's KINDGI_TENANCY, if set, is \"single\", and server_secret_env doesn't set it. A server serving many tenants wouldn't start here: it refuses the KINDGI_TENANT_ID this module sets (seed_tenant_id), and calls a pack service of each deployment's own, never the one this module makes. Serving many tenants needs a container app for each deployment's pack service, run by an orchestrator of your own."
+    }
+    precondition {
+      condition     = contains(["", "single"], trimspace(lookup(var.server_env, "KINDGI_PACK_ROUTING", ""))) && !contains(keys(var.server_secret_env), "KINDGI_PACK_ROUTING")
+      error_message = "This module runs one tenant, with one pack service: server_env's KINDGI_PACK_ROUTING, if set, is empty or \"single\", and server_secret_env doesn't set it. The server refuses \"per-deployment\" at boot: it needs KINDGI_TENANCY = \"multi\", which this module doesn't run."
+    }
   }
 
   depends_on = [

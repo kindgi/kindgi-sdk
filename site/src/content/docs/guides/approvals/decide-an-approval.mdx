@@ -152,8 +152,9 @@ runtime refuses to start.
 The runtime then emails reviewers when an approval starts waiting, and when a
 waiting approval is assigned:
 
-- **Who:** the people the approvals list would show it to: its assigned
-  reviewer, or else every active reviewer of its required role or above.
+- **Who:** the people the approvals list would show it to: the one person
+  it's addressed to (its `approver`), else its assigned reviewer, or else
+  every active reviewer of its required role or above.
   Only those who may read its project are emailed.
 - **Assigned later:** a reviewer an approval is assigned to after it started
   waiting is emailed then, unless they were already emailed about it.
@@ -342,6 +343,12 @@ Its exit code says which:
 | `0` | isn't waiting: `Run … is completed: it isn't waiting, so there's nothing to resume.` |
 | `3` | waits for an approval, named in the sentence |
 | `4` | waits on the runtime: a queued start, a child run, a retry, a lease |
+| `5` | waits for another system's answer to a tool's call, which `kindgi runs resume <run-id> --output=<json>` can also give |
+| `6` | waits for the person who started it to [connect an app](../../connections/use-a-connection/#when-the-connection-is-missing), and the sentence ends with the link they connect from |
+
+A run that waits for more than one of these exits with the first that
+applies, in this order: `3`, `5`, `6`, `4`. `1` and `2` stay the CLI's
+error and usage codes.
 
 Once the approval is decided, the run goes on by itself. From your app,
 `runs.get` answers the same as the run's
@@ -469,6 +476,15 @@ It prints the escalated approval and the new one:
 The new approval needs a `senior` reviewer, so the `standard` reviewer no
 longer sees it. A `senior` or `admin` reviewer approves or rejects
 `a65cd23c-…`, and the run continues.
+
+**An approval addressed to one person can't be escalated.** That's a tool
+call that acts with the person's own connection: only its `approver`
+decides it, and only they see it among the reviewers. A tenant admin sees
+it too, but can't decide it (`403 named-approver-required`). An escalation
+is refused with `409 invalid-transition`, and at its deadline it expires
+instead ([When nobody decides](../approvals-reference/#when-nobody-decides)).
+The person approves or rejects it
+([Use a connection in a tool](../../connections/use-a-connection/#approvals)).
 
 ### Withdraw
 
