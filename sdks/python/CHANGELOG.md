@@ -135,6 +135,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   still refused, since the SDK checks data against it with Python's `re`. In
   a model, pydantic checks the data, and reads `\p{L}`. A `"format": "regex"`
   value is checked as the runtime checks it, too.
+- `kindgi`: **`proposals.improve`'s docstrings say how a refusal names why a
+  pass has nothing to work on**: a `validation-failed` error's
+  `details.reason` is `no-tunable-keys` or, for a prompt pass,
+  `no-pinned-prompt-block`.
 
 ## 0.1.10
 
