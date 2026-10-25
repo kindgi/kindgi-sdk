@@ -164,6 +164,34 @@ describe('a call that waits', () => {
     ).toEqual({ kind: 'pause', pause });
   });
 
+  test('a pause out of bounds says why, its causes included, masked', async () => {
+    const pause = {
+      get tokenId(): string {
+        throw new Error('the token lookup failed', {
+          cause: new Error(
+            'Bearer bk-0123456789 rejected at https://wait.acme.example/?token=t-0123',
+          ),
+        });
+      },
+      timeoutMs: 60_000,
+    };
+    const forged = { [Symbol.for('kindgi.tool-pause')]: true, pause };
+    expect(
+      await invokeToolOrPause(
+        wrapped(() => forged),
+        {},
+        ctx(),
+      ),
+    ).toMatchObject({
+      kind: 'err',
+      error: {
+        code: 'handler-error',
+        message:
+          'Tool "acme.carrier.book-pickup" paused out of bounds: the token lookup failed; caused by Error: Bearer [redacted] rejected at https://wait.acme.example/?token=[redacted]',
+      },
+    });
+  });
+
   test("a pause from a tool that doesn't declare pauses is tool-pause-unsupported", async () => {
     const tool = wrapped(() => pauseOutcome({ tokenId: 'wt-1', timeoutMs: 60_000 }), false);
     expect(await invokeToolOrPause(tool, {}, ctx())).toMatchObject({
