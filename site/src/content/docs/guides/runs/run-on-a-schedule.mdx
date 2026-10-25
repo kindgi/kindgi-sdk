@@ -222,8 +222,9 @@ A project's **Schedules** page lists its schedules. Each row says:
 - its label, its cron in words, such as "Every day at 2:00 AM UTC", and the
   cron;
 - whether it's **Active** or **Paused**;
-- what it runs, such as "the agent Dev-Echo Agent (its live version)" or
-  "the flow Refunds 1.0.0";
+- what it runs, such as "the agent Dev-Echo Agent (its live version)", "the
+  flow Refunds 1.0.0" or, for a schedule that starts Improve runs, "Improve
+  runs on Acme Rank Scorer, when enough new answers have been marked wrong";
 - when it next fires, such as "Next in 23h (25 Oct 2026, 10:00 PM EDT)", or
   that it's paused;
 - its last scheduled fire, and **Runs it started →**. A **Run now** fire is
@@ -241,8 +242,10 @@ makes a schedule that starts Improve runs
 ![The Schedules page, with Schedule Improve at the top, a search box and the Columns menu: the active nightly digest (every day at 2:00 AM UTC, 0 2 * * *; the agent Dev-Echo Agent, its live version; next in 23h) with Pause, and the paused weekly report (Mondays at 9:00 AM UTC, 0 9 * * 1; the flow Refunds 1.0.0) with Resume, neither fired yet, each with Runs it started →, Run now and Remove.](../../../../assets/schedules/schedules-list.png)
 
 A schedule's page has:
-- **When:** its cron in UTC and its next five times. A paused one says
-  "It doesn’t fire while paused." instead.
+- **When:** its cron in words and the cron, in the schedule's own zone, and
+  its next five times, each in that zone (named when it isn't UTC) and also
+  on your clock when that reads differently. A paused one says "It doesn’t
+  fire while paused." instead.
 - **Runs as:** whose access its runs have, checked again at every fire, such
   as "Runs as you, with your access."
 - **Tools allowed unattended:** the tools its runs call without waiting
@@ -425,6 +428,9 @@ take, with the same defaults:
 
 - **What to improve:** **Settings values**, or **The agent's instructions**
   with a **Drafting model** and how many **Drafts of the instructions**;
+- **Better means a higher:** share marked right, or weighted precision@k;
+- **Learn from experts' corrections only (recommended)**, ticked to start
+  with, for `classWeights` `restricted-only`; unticked, it's `as-recorded`;
 - its scope: the project, or a segment of it;
 - **When (cron)** and **Time zone**, an IANA name, UTC to start with. Under
   them it puts the cron in words, and it holds back one that fires more than
@@ -433,13 +439,11 @@ take, with the same defaults:
 - **Starts an Improve run at:** **Corrections marking an answer wrong**, **On
   runs** and **From judges**, 5, 3 and 2 to start with. "Runs and judges
   can't be more than corrections: each correction is on one run, by one
-  judge." **Learn from experts' corrections only (recommended)** is ticked
-  to start with, for `classWeights` `restricted-only`; unticked, it's
-  `as-recorded`.
-- **Better means a higher:** share marked right, or weighted precision@k;
+  judge."
 - **Each Improve run spends at most (US$)**, 5, and for settings values
   **And tries at most**, 30; **Its Improve runs spend at most, a month
-  (US$)**, 20, "A calendar month, UTC.";
+  (US$)**, 20: "A calendar month, UTC. An Improve run never spends more than
+  what's left of it.";
 - **Label (optional)**.
 
 **Create** makes it, running as you, and opens its page. Under `kindgi dev`,
