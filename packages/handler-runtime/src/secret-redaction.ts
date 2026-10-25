@@ -29,9 +29,11 @@ const LEFT_OUT: unique symbol = Symbol('left out');
  * writes it, for a request body quoted in a message. Matches that overlap
  * or touch become one `[redacted]`.
  *
- * The first part of a secret counts too, when the text stops right after
- * it: at a line break, at the string's end, or just before `"...`, where
- * a quoted value was shortened. It must be `MIN_SECRET_LENGTH` characters
+ * A secret's first part counts too, up to the last place in it where the
+ * text stops: a line break, the string's end, or just before `"...`, where
+ * a quoted value was shortened. So a key of several lines that the text
+ * quotes only in part loses every line up to the one where the text goes
+ * on differently. The first part must be `MIN_SECRET_LENGTH` characters
  * or more.
  *
  * It looks where `withoutConnectionTokens` (@kindgi/tools) does: every
@@ -102,19 +104,18 @@ function asJson(value: object, spellings: readonly string[]): unknown {
 }
 
 /**
- * `text` with every stretch a secret spells, whole or as a first part the
- * text stops after, replaced; stretches that overlap or touch become one
- * `[redacted]`.
+ * `text` with every stretch a secret spells, whole or as a first part up
+ * to where the text stops, replaced; stretches that overlap or touch
+ * become one `[redacted]`.
  */
 function mask(text: string, spellings: readonly string[]): string {
   const hidden = new Uint8Array(text.length);
   for (const spelling of spellings) {
-    // Every place the secret's first characters appear: from each, how far
-    // the text goes on spelling it.
+    // Every place the secret's first characters appear: from each, how much
+    // of it the text spells there.
     const opening = spelling.slice(0, MIN_SECRET_LENGTH);
     for (let at = text.indexOf(opening); at !== -1; at = text.indexOf(opening, at + 1)) {
-      const run = spelledFrom(text, at, spelling);
-      if (run === spelling.length || stopsAt(text, at + run)) hidden.fill(1, at, at + run);
+      hidden.fill(1, at, at + hiddenLength(text, at, spelling));
     }
   }
   let out = '';
@@ -123,6 +124,22 @@ function mask(text: string, spellings: readonly string[]): string {
     else if (i === 0 || hidden[i - 1] === 0) out += REDACTED;
   }
   return out;
+}
+
+/**
+ * How many characters of `text` from `at` are `spelling`'s to hide: all it
+ * spells there when that's the whole of it; else up to the last place in
+ * what it spells, `MIN_SECRET_LENGTH` characters in or more, where the text
+ * stops (the secret's own line break, when the text goes on differently
+ * after it, is one); else none.
+ */
+function hiddenLength(text: string, at: number, spelling: string): number {
+  const run = spelledFrom(text, at, spelling);
+  if (run === spelling.length) return run;
+  for (let end = run; end >= MIN_SECRET_LENGTH; end -= 1) {
+    if (stopsAt(text, at + end)) return end;
+  }
+  return 0;
 }
 
 /** How many of `spelling`'s characters `text` has in order from `at`. */

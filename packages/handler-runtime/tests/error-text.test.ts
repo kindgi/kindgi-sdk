@@ -318,6 +318,11 @@ describe('withoutSecrets', () => {
     );
   });
 
+  test('a secret of several lines is hidden up to the line where the text goes on differently', () => {
+    const err = new Error('got abcd\nefgh\nijkX');
+    expect(withoutSecrets(err, ['abcd\nefgh\nijkl']).message).toBe('got [redacted]\nijkX');
+  });
+
   test("a secret's first part the text goes on from is left as it is", () => {
     const err = new Error('key sk-acme-0123 is the test key');
     expect(withoutSecrets(err, ['sk-acme-0123456789abcdef'])).toBe(err);
@@ -326,6 +331,9 @@ describe('withoutSecrets', () => {
   test('a first part of three characters is left as it is', () => {
     const err = new Error('the step sk-');
     expect(withoutSecrets(err, ['sk-acme-0123456789abcdef'])).toBe(err);
+    // Nor two, before the secret's own line break.
+    const broken = new Error('x ab\ncX');
+    expect(withoutSecrets(broken, ['ab\ncdefgh'])).toBe(broken);
   });
 
   test('matches that overlap or touch become one [redacted]', () => {
