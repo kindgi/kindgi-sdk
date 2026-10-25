@@ -3550,18 +3550,22 @@ describe('kindgi dev — what --quiet keeps (warnings)', () => {
   test.skipIf(process.platform === 'win32')(
     'a .kindgirc.json that links to something other than a file is left as it is, and said as not written, under --quiet too',
     async () => {
-      // A link to /dev/null: a new file renamed over it would take the device's place.
-      await symlink('/dev/null', join(packDir, '.kindgirc.json'));
+      // A folder, not the real /dev/null: if the check regressed, a test run as
+      // root would rename a file over the device. Without the check, the
+      // rename over the folder fails with another message.
+      const folder = join(cwd, 'kindgirc-folder');
+      await mkdir(folder);
+      await symlink(folder, join(packDir, '.kindgirc.json'));
       for (const flags of LOUD_AND_QUIET) {
         const said = await bootSaid(makeFixtures(), flags);
         expect(said).toMatch(
-          / {2}⚠ couldn't write \.kindgirc\.json \(\/dev\/null isn't a regular file, so it was left as it is\.\): the CLI in this folder needs --url and --token to reach this runtime\n/,
+          / {2}⚠ couldn't write \.kindgirc\.json \(.+ isn't a regular file, so it was left as it is\.\): the CLI in this folder needs --url and --token to reach this runtime\n/,
         );
         expect(said).not.toContain('readable by its owner only');
         expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
       }
       expect((await lstat(join(packDir, '.kindgirc.json'))).isSymbolicLink()).toBe(true);
-      expect((await stat('/dev/null')).isCharacterDevice()).toBe(true);
+      expect((await stat(folder)).isDirectory()).toBe(true);
     },
   );
 

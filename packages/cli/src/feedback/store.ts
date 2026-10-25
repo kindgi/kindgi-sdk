@@ -11,17 +11,18 @@
  *   when, so a session-start `status` asks at most once a day, and the pack's
  *   `FEEDBACK.md` doesn't churn.
  *
- * Each change is a read, a change and an atomic replace (`writePrivateFile`;
- * in place on Windows) under a lock file, so two commands at once never lose
- * a key. A file that isn't what this module wrote is refused, never
- * overwritten.
+ * Each change is a read, a change and an atomic replace (`replacePrivateFile`)
+ * under a lock file, so two commands at once never lose a key. The replace
+ * is a rename on Windows too: a read takes no lock, so it must never see a
+ * half-written file. A file that isn't what this module wrote is refused,
+ * never overwritten.
  */
 
 import { chmod, mkdir, open, readFile, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { KEYS_DIR_MODE, PRIVATE_KEY_FILE_MODE } from '../key/paths.js';
-import { writePrivateFile } from '../private-file.js';
+import { replacePrivateFile } from '../private-file.js';
 import type { ReportStatus } from './protocol.js';
 
 export const FEEDBACK_SUBDIR = ['.kindgi', 'feedback'] as const;
@@ -87,7 +88,7 @@ async function update(
   await withLock(join(files.dir, '.lock'), async () => {
     const records = await readRecords(path);
     change(records);
-    await writePrivateFile(path, `${JSON.stringify({ reports: records }, null, 2)}\n`);
+    await replacePrivateFile(path, `${JSON.stringify({ reports: records }, null, 2)}\n`);
   });
 }
 

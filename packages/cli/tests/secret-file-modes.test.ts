@@ -28,6 +28,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { saveHomeConfig } from '../src/config.js';
 import { writeRuntimeEnv } from '../src/dev/runtime-env.js';
 import { REAL_ENV_RUNNERS } from '../src/env/defaults.js';
+import { feedbackFiles, readKeys, updateKeys } from '../src/feedback/store.js';
 import { REAL_KEY_RUNNERS } from '../src/key/defaults.js';
 import { runCli } from '../src/main.js';
 import { writePrivateFile } from '../src/private-file.js';
@@ -193,6 +194,42 @@ describe.skipIf(process.platform === 'win32')("`kindgi dev`'s .kindgi/dev/runtim
     expect(await readFile(path, 'utf8')).toContain('ACME_TOKEN=acme\n');
   });
 });
+
+describe.skipIf(process.platform === 'win32')(
+  "`kindgi feedback`'s ~/.kindgi/feedback/keys.json",
+  () => {
+    test('an old 0644 one is replaced by a new 0600 file', async () => {
+      const files = feedbackFiles(home);
+      const sent = (withdrawKey: string, entry: string) => ({
+        withdrawKey,
+        entry,
+        submittedAt: 'x',
+      });
+      await updateKeys(files, (keys) => {
+        keys.fbr_AAAAAAAAAAAAAAAA = sent('kgi_fw_old', '2026-10-25.1');
+      });
+      await chmod(files.keys, 0o644);
+      // Another program that opened the old file keeps the old file, not the new key.
+      const held = await open(files.keys, 'r');
+      try {
+        await updateKeys(files, (keys) => {
+          keys.fbr_BBBBBBBBBBBBBBBB = sent('kgi_fw_acme', '2026-10-25.2');
+        });
+        const seen = await held.readFile('utf8');
+        expect(seen).toContain('kgi_fw_old');
+        expect(seen).not.toContain('kgi_fw_acme');
+        expect((await held.stat()).mode & 0o777).toBe(0o644);
+      } finally {
+        await held.close();
+      }
+      expect(await modeOf(files.keys)).toBe(0o600);
+      expect(Object.keys(await readKeys(files)).sort()).toEqual([
+        'fbr_AAAAAAAAAAAAAAAA',
+        'fbr_BBBBBBBBBBBBBBBB',
+      ]);
+    });
+  },
+);
 
 describe.skipIf(process.platform === 'win32')('writePrivateFile', () => {
   test('a rename that fails leaves the old file as it was, and no temp file', async () => {
