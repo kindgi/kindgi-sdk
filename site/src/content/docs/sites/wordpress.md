@@ -27,7 +27,7 @@ It also covers what the site's people can and can't do in Kindgi.
 Site sign-in is on for every Kindgi Cloud workspace, so there's nothing to
 turn on: skip
 [Self-hosted: turn site sign-in on](#self-hosted-turn-site-sign-in-on).
-The steps after it are the same, with these two:
+The steps after it are the same, with two differences:
 - **Register the site with the CLI signed in to Kindgi Cloud**
   ([Sign the CLI in](../../hosted/deploy-your-agent/#sign-the-cli-in)).
   It takes a workspace admin's key, with **How far it goes** set to
@@ -219,7 +219,7 @@ About the Kindgi URL:
 ## Reviewer email
 
 With [`KINDGI_REVIEWER_EMAIL=on`](../../guides/approvals/decide-an-approval/#reviewer-email),
-Kindgi emails the site's reviewers too:
+which Kindgi Cloud has, Kindgi emails the site's reviewers too:
 - **At the address the site sends for them:** the person's WordPress email.
   The `kindgi_statement_email` filter changes it, or sends none.
 - **The link opens the approval on the site's page** (its approvals URL),
