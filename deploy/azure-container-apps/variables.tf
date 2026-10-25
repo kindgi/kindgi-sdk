@@ -339,7 +339,7 @@ variable "erasure_ledger_key_version" {
 # ---- the server's own settings ------------------------------------------------------
 
 variable "public_url" {
-  description = "KINDGI_PUBLIC_URL on the server: the URL people open the console at, such as `terraform output -raw server_url` after the first apply, or your own domain. Sign-in with identity providers and the emailed link need it; console sign-in with an API token doesn't. When set, console sessions are accepted from this origin only. Empty leaves it unset."
+  description = "KINDGI_PUBLIC_URL on the server: the URL people open the console at, such as `terraform output -raw server_url` after the first apply, or your own domain. Sign-in with identity providers and the emailed link need it; console sign-in with an API token doesn't. Connections to other apps need it too, and a paused tool call's link is made from it: without it, that link names the address the server is bound to, which another system can't reach. When set, console sessions are accepted from this origin only. Empty leaves it unset."
   type        = string
   default     = ""
 

@@ -569,25 +569,34 @@ EOT
   0.2.0:
    - The runtime image now comes from registry.kindgi.com, with your license
      key as the password; this script copies it from there.
-   - If public_url is empty, set it. A paused tool call's link is now made
-     from it; without it, the link names the address the server is bound to,
-     which other systems can't reach (the log warns). Connections to other
-     apps also stay off until it's set. Each app's OAuth redirect is then
+   - If public_url is empty, set it. A paused tool call's link is made from
+     it; without it, the link is made from the address the server is bound
+     to, which another system can't reach, and the server logs that at the
+     first pause. Connections stay off until it's set, and the server logs
+     what else they need as it starts. Each app's sign-in sends people
+     back to
        <public_url>/console/connect/callback
-   - First start adds columns and tables (seconds), with a brief lock on
-     kernel_runs, kernel_triggers, hitl_approvals and judgments. A session
-     holding one makes the new revision fail after about a minute, naming it
-     (end it with pg_terminate_backend, or let it finish). The old revision
-     keeps serving meanwhile.
-   - With openfga_api_url empty, changing model providers, policies,
-     adapters, trusted signing keys or sign-in providers, and any call to
-     webhook endpoints or compliance evidence, now needs the API token or an
-     admin key: a member key or an identity-provider sign-in gets 403.
-   - 0.2.0 needs no pack rebuild: a pack built for 0.1.10 keeps serving. To
-     use 0.2.0 in it, move its pins first (--pack-dir builds what they say);
-     a Python pack made by a 0.1 CLI pins kindgi and kindgi-cli "<0.2".
-   - With a pack service, the plan also updates it in place (CPU only while
-     it serves, a quicker startup probe), with or without --pack-dir.
+   - First start runs five additive migrations (new tables, new columns that
+     can be empty, nothing rewritten) in seconds. Each takes a short lock on
+     kernel_runs, kernel_triggers, hitl_approvals or judgments: a long
+     transaction holding one makes the new revision fail after about a
+     minute, naming the session that holds it (end it with
+     pg_terminate_backend, or let it finish). The old revision keeps serving
+     meanwhile.
+   - With openfga_api_url empty (no authorization store), check who changes
+     the tenant's settings (model providers, policies, adapters, trusted
+     signing keys, sign-in providers): a script or a person that isn't a
+     tenant admin now gets 403 permission-denied when it changes them, and
+     on any call to the outgoing webhook endpoints or the compliance
+     evidence. Use the deployment's API token or an admin key.
+   - A pack built for 0.1.10 keeps working without a rebuild. To use 0.2.0's
+     features in it (a tool that pauses, a connection, data blocks), move its
+     pins to 0.2.0 first: --pack-dir builds what they say. A Python pack made
+     by a 0.1 CLI pins kindgi>=0.1,<0.2 and kindgi-cli>=0.1,<0.2:
+       uv add "kindgi==0.2.0" && uv add --dev "kindgi-cli==0.2.0"
+   - With a pack service, the plan also changes it in place, with or without
+     --pack-dir: CPU only while a call runs, a start boost, and quicker
+     readiness checks.
 EOT
         ;;
     esac
@@ -767,7 +776,7 @@ if [[ $REBUILD_PACK == true ]]; then
   fi
   info "new pack image $NEW_PACK_IMAGE"
 elif [[ $HAS_PACK == true ]]; then
-  warn "the deployment has a pack service, but no --pack-dir was given: the pack image is left unchanged. If 0.1.10 needs a pack rebuilt (e.g. to drop production-only installs or secretScopes), rebuild it with 'kindgi build --local --push' and run again with --pack-dir."
+  warn "the deployment has a pack service, but no --pack-dir was given: the pack image is left unchanged. If a release crossed needs the pack rebuilt (its steps to confirm by hand, above, say so), rebuild it with 'kindgi build --local --push' and run again with --pack-dir."
 else
   info "no pack service (tenancy=$TENANCY); nothing to build."
 fi

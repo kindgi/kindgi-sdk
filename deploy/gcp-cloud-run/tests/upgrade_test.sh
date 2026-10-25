@@ -473,10 +473,10 @@ assert_out "0.2.0:"
 assert_out "now comes from registry.kindgi.com"
 assert_out "If public_url is empty, set it."
 assert_out "<public_url>/console/connect/callback"
-assert_out "kernel_runs, kernel_triggers, hitl_approvals and judgments"
-assert_out "With openfga_api_url empty,"
-assert_out "0.2.0 needs no pack rebuild"
-assert_out "the plan also updates it in place"
+assert_out "kernel_runs, kernel_triggers, hitl_approvals or judgments"
+assert_out "With openfga_api_url empty (no authorization store)"
+assert_out "A pack built for 0.1.10 keeps working without a rebuild."
+assert_out "the plan also changes it in place"
 if grep -q "autoCloseAfterInactiveSeconds" "$OUT"; then fail "0.1.10's steps shown for 0.1.10 -> 0.2.0"; else pass; fi
 assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.2.0 " "the release tag is read on registry.kindgi.com"
 assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.2.0@$NEW_DIGEST" "the mirror copies from registry.kindgi.com"
@@ -774,6 +774,18 @@ assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_varfile_unchanged
 
 SCRIPT="$REAL_SCRIPT"
+
+# 47. A real run with a pack service and no --pack-dir leaves the pack image,
+# and its warning names no release: the steps to confirm by hand say which
+# release needs a rebuild.
+case_start "a pack service without --pack-dir"
+reset_env "$OLD_PACK"; export STUB_TAGS="0.1.10"; V_PACK="$OLD_PACK"
+run "yes"
+assert_rc 0 "0.1.10 -> 0.2.0 runs without --pack-dir"
+assert_out "no --pack-dir was given: the pack image is left unchanged"
+assert_out "If a release crossed needs the pack rebuilt (its steps to confirm by hand, above, say so)"
+if grep -q "If 0.1.10 needs" "$OUT"; then fail "the warning names a release"; else pass; fi
+assert_out "0.1.10 -> 0.2.0 applied"
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
