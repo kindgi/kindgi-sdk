@@ -30,8 +30,9 @@ a new key instead, or write to contact@kindgi.com.
 
 ## Before you start
 
-- **A non-production key from access.kindgi.com,** and the GitHub login you
-  sign in there with.
+- **A non-production key from access.kindgi.com.** After you sign in there,
+  your key page shows the account a renewer is for, under **Renew the key
+  from your deployment**: your GitHub login, or an `em-…` id.
 - **The `kindgi` CLI, 0.1.7 or later,** on a machine that can read and write
   where your keys are kept. It runs from any folder as
   `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
@@ -86,11 +87,11 @@ Whatever runs `renew` needs to read these, and to write the license key's.
 access.kindgi.com trusts.
 
 ```sh
-npx --yes @kindgi/cli@0.2 license enroll --for <your GitHub login> --renewer gcp:projects/acme-prod/secrets/kindgi-license-renewer
+npx --yes @kindgi/cli@0.2 license enroll --for <your GitHub login or em- id> --renewer gcp:projects/acme-prod/secrets/kindgi-license-renewer
 ```
 
-- `--for` is the GitHub login you sign in to access.kindgi.com with. The
-  renewer works for it alone.
+- `--for` is that account: your GitHub login, or the `em-…` id your key page
+  shows. The renewer works for it alone.
 - `--renewer` is where to keep the renewer's private key, as a reference
   from [Where the keys are kept](#where-the-keys-are-kept).
 
@@ -101,7 +102,7 @@ command to run next:
 ```text
 Renewer lr_c1DXmGBUpkAT6wd10BARbp: its private key is in ….
 
-Add this deployment on https://access.kindgi.com, signed in as …, under "Renew the key from your deployment":
+Add this deployment on https://access.kindgi.com, signed in as the person it's for (…), under "Renew the key from your deployment":
 
   kgi_lrp_…
 
@@ -123,8 +124,9 @@ prints the `kgi_lrp_…` line alone.
 
 ## 2. Add the renewer at access.kindgi.com
 
-Sign in at access.kindgi.com as the login you gave `--for`. Under **Renew the
-key from your deployment**, add the `kgi_lrp_…` line that `enroll` printed.
+Sign in at access.kindgi.com, with GitHub or your email address, as the person
+you gave `--for`. Under **Renew the key from your deployment**, add the
+`kgi_lrp_…` line that `enroll` printed.
 access.kindgi.com keeps only the renewer's public key.
 
 ## 3. Renew
@@ -225,7 +227,7 @@ alerting sees it. The key is left as it was. A failure says what's wrong.
 Here, a scheduled run on Azure for a deployment that wasn't enrolled:
 
 ```text
-There's no renewer key in the Key Vault secret license-renewer (vault …). Enroll this deployment first: kindgi license enroll --for <your GitHub login> --renewer <where to keep its key>.
+There's no renewer key in the Key Vault secret license-renewer (vault …). Enroll this deployment first: kindgi license enroll --for <your GitHub login, or the em- id your key page shows> --renewer <where to keep its key>.
 ```
 
 A refusal from access.kindgi.com names its code, `refused (<code>): …`:

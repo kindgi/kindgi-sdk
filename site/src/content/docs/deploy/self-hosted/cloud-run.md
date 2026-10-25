@@ -17,9 +17,9 @@ Cloud SQL. A tool call from the runtime to your pack took 42 ms at the
 median, and 100 ms at p95.
 
 :::note[Access to the runtime image]
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
-runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your
+email address for a license key. The key is also the runtime image's
+password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## What you'll have
@@ -74,10 +74,11 @@ Who calls whom:
   `pnpm exec kindgi`.
 - **Runtime 0.1.1 or later.** Cloud SQL has no superuser; 0.1.0 can't start
   on it.
-- **Access to the runtime image** (`kindgi auth registry`; see
-  [Install](../../../start/install/)).
-- **A license key:** a non-production key covers staging. Write to
-  contact@kindgi.com for one.
+- **A license key:** a non-production key covers staging, and it also pulls
+  the runtime image. Get one at
+  [access.kindgi.com](https://access.kindgi.com), or from contact@kindgi.com.
+- **Docker logged in to `registry.kindgi.com`** with that key
+  ([Pull the runtime image](../pull-the-runtime-image/)).
 - **A pack** that `kindgi build --local --push` builds, with an environment
   block for this deployment in its config.
 
@@ -130,9 +131,10 @@ otherwise defaults to `ENTERPRISE_PLUS`, which takes only the
 
 ## 2. The images into Artifact Registry
 
-Cloud Run pulls from Artifact Registry, not from the runtime's private
-registry. Copy the runtime image there by digest, with every platform it was
-built for:
+Cloud Run pulls from Artifact Registry. It can't pull from
+`registry.kindgi.com`, which takes your license key as its password. With
+Docker logged in there, copy the runtime image into Artifact Registry by
+digest, with every platform it was built for:
 
 ```sh
 REPO=$(terraform output -raw image_repository)
