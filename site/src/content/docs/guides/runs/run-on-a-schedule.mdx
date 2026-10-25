@@ -251,15 +251,16 @@ A schedule's page has:
   fire while paused." instead.
 - **Runs as:** whose access its runs have, checked again at every fire, such
   as "Runs as you, with your access."
-- **Tools allowed unattended:** the tools its runs call without waiting
-  for a person's yes, or "None"
-  ([Tools allowed unattended](../../approvals/ask-before-a-tool-runs/#tools-allowed-unattended)).
 - **What it fired:** a summary, such as "Of its 2 fires, 2 started a run.",
   and a table of its fires, newest first. Each fire has when it fired, the
   time it was for, what happened or why the fire was refused, and the run it
   started. A fire started by hand is for "run now", and what happened reads
   "Started a run (run now)". The table sorts by a column's header, and
   **Columns** chooses which columns it shows.
+- **Details,** folded at the foot of the page: its trigger and schedule
+  ids, its owner, and **Tools allowed unattended**, the tools its runs call
+  without waiting for a person's yes, or "None"
+  ([Tools allowed unattended](../../approvals/ask-before-a-tool-runs/#tools-allowed-unattended)).
 
 ![The nightly digest's page: Active, with Pause, Run now, Change owner… and Remove, "Starts the agent Dev-Echo Agent (its live version). Next in 21h (25 Oct 2026, 10:00 PM EDT).", When: "Every day at 2:00 AM UTC", 0 2 * * * and its next five times in UTC, each also on the viewer's clock in EDT, "Runs as you, with your access.", and What it fired: "Of its 2 fires, 2 started a run.", with Runs it started →, the Columns menu and two fires, each for run now, "Started a run (run now)" and its run.](../../../../assets/schedules/schedule-fires.png)
 

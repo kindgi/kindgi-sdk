@@ -116,14 +116,14 @@ Its clock reads 12 or 24 hours as your browser's language does: 12 in
 American English, 24 in British English, French or German. Only what the
 console shows changes: the runtime keeps and sends times in UTC, so the API
 and its clients see UTC. A few stay in UTC and say so: cost by day ("Spend
-by day (UTC)"), the project overview's "The last 7 days, by UTC day", and
+by day (UTC), by agent"), the project overview's "The last 7 days, by UTC
+day", and
 an Improve schedule's monthly cap ("A calendar month, UTC."). A schedule's
 cron reads in the schedule's own zone
 ([Run on a schedule](../../runs/run-on-a-schedule/#in-the-console)).
 
-This browser keeps your Theme and Times, for you alone. Another browser, or
-one that keeps nothing, such as a private window, starts at System and
-Local.
+Your Theme and Times are kept in this browser, not with your account:
+another browser, or a new private window, starts at System and Local.
 
 ## Next
 
