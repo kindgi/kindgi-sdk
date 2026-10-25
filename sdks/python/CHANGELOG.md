@@ -13,6 +13,22 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a tool's schema derived from a model or a type is checked as
+  the runtime compiles it, as one given as a dict is.** `@tool` and
+  `http_tool` raise `DefinitionError` for a derived input or output schema
+  the runtime would refuse when it registers or deploys the tool: a keyword
+  `json_schema_extra` adds (`strict mode: unknown keyword: "x-acme-unit"`), a
+  `format` pydantic writes that the runtime doesn't know (`"format": "path"`
+  for a `pathlib.Path` field; `UUID4`, `IPvAnyAddress`, `FilePath`,
+  `Base64Bytes`, `PostgresDsn`, `MongoDsn` and `NatsDsn` write one too), or
+  a schema that isn't valid Draft 2020-12. Before, only a derived schema's
+  patterns were checked, and the deploy refused the rest. For such a field, a
+  plain `uuid.UUID` or `str`, or pydantic's `WithJsonSchema`, gives a schema
+  the runtime compiles. A pattern only JavaScript and pydantic read, such as
+  `\p{L}`, still passes, since pydantic checks the data. A guardrail's config
+  schema derived from a model still has only its patterns checked: the
+  runtime checks a config against it non-strict. Matches the TypeScript
+  `@kindgi/tools` definition check.
 - `kindgi`: **a tool or an agent whose model has a pydantic tagged union
   deploys.** With `Field(discriminator=...)`, pydantic writes OpenAPI's
   `discriminator` keyword beside the union's `oneOf`, and the runtime refused

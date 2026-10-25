@@ -4823,8 +4823,9 @@ export const CorrectionSchema: JsonSchema = {
   },
 };
 
-/** One way a candidate's calls differed from a correction; it can quote argument values. */
-const correctionDifference = {
+/** One way a run's calls differed from a correction; it can quote argument values. */
+export const CallDifferenceSchema: JsonSchema = {
+  description: "One way a run's calls differed from a correction; it can quote argument values.",
   oneOf: [
     {
       type: 'object',
@@ -9257,7 +9258,7 @@ export const ComparisonCaseResultSchema: JsonSchema = {
             minimum: 1,
             description: 'Which repetition (1-based) these differences are from.',
           },
-          differences: { type: 'array', items: correctionDifference },
+          differences: { type: 'array', items: { $ref: '#/components/schemas/CallDifference' } },
         },
       },
     },
@@ -13218,7 +13219,7 @@ export const ScheduleRecordSchema: JsonSchema = {
     improve: {
       $ref: '#/components/schemas/ImproveScheduleTarget',
       description:
-        'A schedule that starts improvement passes: on this agent, for this scope, when enough new trusted "no" judgments have come in (`input`: the threshold, the monthly cap and the pass options).',
+        'A schedule that starts Improve runs: on this agent, for this scope, when enough answers have been marked wrong since its last Improve run (`input`: the threshold, the monthly cap and the Improve options).',
     },
     projectId: {
       type: 'string',
@@ -13319,7 +13320,7 @@ export const ImproveScheduleInputSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'An improve schedule\'s `config.input`. Each fire counts the trusted "no" judgments (recorded under a restricted judge class) on the agent\'s runs in the scope since its last pass. When there are enough, across enough runs and judges, it starts a pass on a fresh test set of those runs; otherwise the fire is `skipped`, saying which count was short. A pass that proposes asks for the review at once.',
+    "An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `classWeights` counts them: by default everyone's corrections until a restricted (experts') judge class is named, then experts' only. When there are enough, across enough runs and judges, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.",
   properties: {
     tiers: { type: 'array', items: { type: 'string', enum: ['settings', 'prompt'] } },
     objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
@@ -15496,6 +15497,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ComparisonCandidate', ComparisonCandidateSchema],
   ['JudgedComparisonSummary', JudgedComparisonSummarySchema],
   ['JudgedComparisonCost', JudgedComparisonCostSchema],
+  ['CallDifference', CallDifferenceSchema],
   ['ComparisonCaseResult', ComparisonCaseResultSchema],
   ['JudgedComparisonResult', JudgedComparisonResultSchema],
   ['EvalRun', EvalRunSchema],

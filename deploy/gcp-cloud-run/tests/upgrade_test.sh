@@ -415,7 +415,29 @@ assert_out "the export failed (above). Nothing has changed."
 assert_absent "$STUB_MARKER_APPLY" "apply"
 assert_varfile_unchanged
 
-# 24. 0.1.10 -> 0.2.0: crosses 0.2.0 alone, copies it from registry.kindgi.com.
+# 24. Past the newest release this script knows: refused before anything is
+# read, mirrored or backed up, though 0.1.9 to 0.2.0 lie on the way.
+case_start "target past the newest known release"
+reset_env; export STUB_TAGS="0.1.8"
+run "yes" --to 0.3.0
+assert_rc 1 "a later target refused"
+assert_out "knows the steps up to 0.2.0"
+assert_out "as of the @kindgi/sdk@0.3.0 tag"
+assert_absent "$STUB_DOCKER_LOG" "a registry read"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_varfile_unchanged
+
+# 25. An rc of a later release counts as that release.
+case_start "rc of a later release"
+reset_env; export STUB_TAGS="0.1.9"
+run "yes" --to 0.3.0-rc.1
+assert_rc 1 "a later rc refused"
+assert_out "knows the steps up to 0.2.0"
+assert_out "as of the @kindgi/sdk@0.3.0 tag (before it's out, that release's newest @kindgi/sdk@0.3.0-rc tag)"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+
+# 26. 0.1.10 -> 0.2.0: crosses 0.2.0 alone, copies it from registry.kindgi.com.
 case_start "0.1.10 to 0.2.0"
 reset_env; export STUB_TAGS="0.1.10"
 run "yes"
@@ -429,7 +451,7 @@ assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.2.0@$NE
 if grep -q "quay.io" "$STUB_DOCKER_LOG"; then fail "an image was read from quay.io"; else pass; fi
 assert_out "0.1.10 -> 0.2.0 applied"
 
-# 25. 0.1.10 -> an rc of 0.2.0: its steps are included, and it gets to the mirror.
+# 27. 0.1.10 -> an rc of 0.2.0: its steps are included, and it gets to the mirror.
 case_start "0.1.10 to 0.2.0-rc.0"
 reset_env; export STUB_TAGS="0.1.10"
 run "yes" --to 0.2.0-rc.0
@@ -438,7 +460,7 @@ assert_out "crossing: 0.2.0$"
 assert_present "$STUB_MARKER_MIRROR" "mirror"
 assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.2.0-rc.0@$NEW_DIGEST" "the rc is copied from registry.kindgi.com"
 
-# 26. A target before 0.2.0 isn't on registry.kindgi.com: refused at the start.
+# 28. A target before 0.2.0 isn't on registry.kindgi.com: refused at the start.
 case_start "target before 0.2.0"
 reset_env; export STUB_TAGS="0.1.8"
 run "yes" --to 0.1.10
@@ -449,7 +471,7 @@ assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_varfile_unchanged
 
-# 27. Not logged in to registry.kindgi.com: the login line, before the mirror.
+# 29. Not logged in to registry.kindgi.com: the login line, before the mirror.
 case_start "not logged in to registry.kindgi.com"
 reset_env; export STUB_TAGS="0.1.10" STUB_INSPECT_ERR="ERROR: unexpected status from HEAD request: 401 Unauthorized"
 run "yes"
@@ -460,7 +482,7 @@ assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_absent "$STUB_MARKER_EXPORT" "backup"
 assert_varfile_unchanged
 
-# 28. 0.1.11 never had a final release (its changes ship in 0.2.0): neither it
+# 30. 0.1.11 never had a final release (its changes ship in 0.2.0): neither it
 # nor one of its rcs is a target.
 case_start "0.1.11 isn't a target"
 reset_env; export STUB_TAGS="0.1.10"
@@ -471,7 +493,7 @@ assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_varfile_unchanged
 
-# 29. A deployment on a 0.1.11 rc upgrades to 0.2.0, crossing 0.2.0 alone.
+# 31. A deployment on a 0.1.11 rc upgrades to 0.2.0, crossing 0.2.0 alone.
 case_start "0.1.11-rc.0 to 0.2.0"
 reset_env; export STUB_TAGS="0.1.11-rc.0"
 run "yes"

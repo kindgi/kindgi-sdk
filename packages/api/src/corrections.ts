@@ -24,9 +24,9 @@
  *     compared. Order of the calls is not compared.
  *   - Must not call: a `notCalled` tool has zero calls.
  *
- * A {@link CorrectionDifference} can quote argument values (a person's
+ * A {@link CallDifference} can quote argument values (a person's
  * words), so the differences erase with the run; the pass/fail does not.
- * {@link describeCorrectionDifference} renders the default words — the only
+ * {@link describeCallDifference} renders the default words — the only
  * place the wording lives, so a surface or the docs can change it in one
  * spot.
  */
@@ -75,7 +75,7 @@ export interface CandidateCall {
  * One way a candidate's calls differ from a correction. It can quote
  * argument values, so it is part of what erases with the run.
  */
-export type CorrectionDifference =
+export type CallDifference =
   | {
       readonly tool: string;
       readonly kind: 'count';
@@ -112,7 +112,7 @@ export type CorrectionDifference =
 export interface CorrectionResult {
   readonly pass: boolean;
   /** Every way the calls differed; empty when it passed. */
-  readonly differences: readonly CorrectionDifference[];
+  readonly differences: readonly CallDifference[];
 }
 
 /** Grade a candidate's calls against one correction. */
@@ -120,7 +120,7 @@ export function gradeCorrection(
   correction: Correction,
   calls: readonly CandidateCall[],
 ): CorrectionResult {
-  const differences: CorrectionDifference[] = [];
+  const differences: CallDifference[] = [];
 
   // Must-not-call: a named tool has zero calls.
   for (const tool of distinct(correction.notCalled)) {
@@ -157,7 +157,7 @@ export function gradeCorrection(
 }
 
 /** The default wording for a difference — the one place it lives. */
-export function describeCorrectionDifference(d: CorrectionDifference): string {
+export function describeCallDifference(d: CallDifference): string {
   switch (d.kind) {
     case 'count':
       return `${d.tool}: expected ${d.expected} call${d.expected === 1 ? '' : 's'}, got ${d.actual}${refusedCount(d.refused)}`;
@@ -186,13 +186,13 @@ function diffNamedTool(
   tool: string,
   expected: readonly ExpectedCall[],
   actual: readonly CandidateCall[],
-): CorrectionDifference[] {
+): CallDifference[] {
   const matchedActual = maximumMatching(expected, actual);
   // Which expected calls found a partner, and which actual calls are free.
   const expectedMatched = new Set(matchedActual.filter((j) => j !== undefined));
   const free: number[] = actual.map((_, j) => j).filter((j) => !expectedMatched.has(j));
 
-  const differences: CorrectionDifference[] = [];
+  const differences: CallDifference[] = [];
   for (let i = 0; i < expected.length; i++) {
     const e = expected[i];
     if (e === undefined || matchedActual[i] !== undefined) continue;
@@ -286,9 +286,9 @@ function fieldDifferences(
   tool: string,
   e: ExpectedCall,
   a: CandidateCall | undefined,
-): CorrectionDifference[] {
+): CallDifference[] {
   const refused = a?.refused === true ? { refused: true as const } : {};
-  const differences: CorrectionDifference[] = [];
+  const differences: CallDifference[] = [];
   for (const [field, value] of Object.entries(e.args)) {
     if (a === undefined || !present(a.args, field)) {
       differences.push({ tool, kind: 'missing-field', field, expected: value, ...refused });

@@ -7079,79 +7079,6 @@ class Changes(BaseModel):
     new: list[NewItem]
 
 
-class Differences(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tool: str
-    kind: Literal["count"]
-    expected: Annotated[int, Field(ge=0)]
-    actual: Annotated[int, Field(ge=0)]
-    refused: Annotated[int | None, Field(ge=1)] = None
-    """
-    How many of the actual calls were refused on the replay. Absent when none were.
-    """
-
-
-class Differences1(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tool: str
-    kind: Literal["must-not-call"]
-    actual: Annotated[int, Field(ge=1)]
-    refused: Annotated[int | None, Field(ge=1)] = None
-    """
-    How many of the forbidden calls were refused on the replay. Absent when none were.
-    """
-
-
-class Differences2(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tool: str
-    kind: Literal["missing-field"]
-    field: str
-    expected: Any
-    refused: bool | None = None
-    """
-    Present and true when the call blamed for the miss was refused on the replay.
-    """
-
-
-class Differences3(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tool: str
-    kind: Literal["field-value"]
-    field: str
-    expected: Any
-    actual: Any
-    refused: bool | None = None
-    """
-    Present and true when the call blamed for the miss was refused on the replay.
-    """
-
-
-class CorrectionDifference(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    judgment_id: Annotated[str, Field(alias="judgmentId")]
-    repetition: Annotated[int, Field(ge=1)]
-    """
-    Which repetition (1-based) these differences are from.
-    """
-    differences: list[Differences | Differences1 | Differences2 | Differences3]
-
-
 class CostUsdItem(RootModel[float]):
     root: Annotated[float, Field(ge=0.0)]
 
@@ -11153,7 +11080,7 @@ class Threshold(BaseModel):
 
 class ImproveScheduleInput(BaseModel):
     """
-    An improve schedule's `config.input`. Each fire counts the trusted "no" judgments (recorded under a restricted judge class) on the agent's runs in the scope since its last pass. When there are enough, across enough runs and judges, it starts a pass on a fresh test set of those runs; otherwise the fire is `skipped`, saying which count was short. A pass that proposes asks for the review at once.
+    An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `classWeights` counts them: by default everyone's corrections until a restricted (experts') judge class is named, then experts' only. When there are enough, across enough runs and judges, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.
     """
 
     model_config = ConfigDict(
@@ -11776,6 +11703,82 @@ class ComparisonCandidateFlow(BaseModel):
     flow_id: Annotated[str, Field(alias="flowId")]
     version: str
     versions: FlowVersionOverrides | None = None
+
+
+class CallDifferenceCount(BaseModel):
+    """
+    One way a run's calls differed from a correction; it can quote argument values.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["count"]
+    expected: Annotated[int, Field(ge=0)]
+    actual: Annotated[int, Field(ge=0)]
+    refused: Annotated[int | None, Field(ge=1)] = None
+    """
+    How many of the actual calls were refused on the replay. Absent when none were.
+    """
+
+
+class CallDifferenceMustNotCall(BaseModel):
+    """
+    One way a run's calls differed from a correction; it can quote argument values.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["must-not-call"]
+    actual: Annotated[int, Field(ge=1)]
+    refused: Annotated[int | None, Field(ge=1)] = None
+    """
+    How many of the forbidden calls were refused on the replay. Absent when none were.
+    """
+
+
+class CallDifferenceMissingField(BaseModel):
+    """
+    One way a run's calls differed from a correction; it can quote argument values.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["missing-field"]
+    field: str
+    expected: Any
+    refused: bool | None = None
+    """
+    Present and true when the call blamed for the miss was refused on the replay.
+    """
+
+
+class CallDifferenceFieldValue(BaseModel):
+    """
+    One way a run's calls differed from a correction; it can quote argument values.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["field-value"]
+    field: str
+    expected: Any
+    actual: Any
+    refused: bool | None = None
+    """
+    Present and true when the call blamed for the miss was refused on the replay.
+    """
 
 
 class ScopeTenant(BaseModel):
@@ -14547,6 +14550,24 @@ class JudgedComparisonSummary(BaseModel):
     cost_usd: Annotated[JudgedComparisonCost | None, Field(alias="costUsd")] = None
 
 
+class CorrectionDifference(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    repetition: Annotated[int, Field(ge=1)]
+    """
+    Which repetition (1-based) these differences are from.
+    """
+    differences: list[
+        CallDifferenceCount
+        | CallDifferenceMustNotCall
+        | CallDifferenceMissingField
+        | CallDifferenceFieldValue
+    ]
+
+
 class ComparisonCaseResult(BaseModel):
     """
     One case of a comparison: its replay runs, the scores, the items kept, dropped and new, the tool calls, and why it didn't run when it didn't.
@@ -16472,7 +16493,7 @@ class ScheduleRecord(BaseModel):
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     improve: ImproveScheduleTarget | None = None
     """
-    A schedule that starts improvement passes: on this agent, for this scope, when enough new trusted "no" judgments have come in (`input`: the threshold, the monthly cap and the pass options).
+    A schedule that starts Improve runs: on this agent, for this scope, when enough answers have been marked wrong since its last Improve run (`input`: the threshold, the monthly cap and the Improve options).
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """

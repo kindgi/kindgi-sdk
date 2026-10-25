@@ -20,7 +20,7 @@ import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { Cursor, RunId, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from './agent-binding.js';
-import { type CandidateCall, type CorrectionDifference, gradeCorrection } from './corrections.js';
+import { type CallDifference, type CandidateCall, gradeCorrection } from './corrections.js';
 import type {
   EvalCaseStoreBinding,
   JudgedCaseCorrection,
@@ -253,7 +253,7 @@ export interface JudgedCaseResult {
     readonly judgmentId: string;
     /** Which repetition (1-based) these differences are from. */
     readonly repetition: number;
-    readonly differences: readonly CorrectionDifference[];
+    readonly differences: readonly CallDifference[];
   }[];
   /**
    * What each repetition's replay cost in model calls, as the runtime
@@ -463,7 +463,7 @@ class CaseTally {
    */
   private readonly firstFailure = new Map<
     string,
-    { readonly repetition: number; readonly differences: readonly CorrectionDifference[] }
+    { readonly repetition: number; readonly differences: readonly CallDifference[] }
   >();
   private correctionRepetitions = 0;
   /** Each repetition's reported cost, in order (undefined where one reported none). */

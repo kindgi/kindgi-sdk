@@ -848,11 +848,11 @@ export type {
   OutputItem,
   OutputScore,
 } from './judged-items.js';
-export { describeCorrectionDifference, gradeCorrection } from './corrections.js';
+export { describeCallDifference, gradeCorrection } from './corrections.js';
 export type {
+  CallDifference,
   CandidateCall,
   Correction,
-  CorrectionDifference,
   CorrectionResult,
   ExpectedCall,
 } from './corrections.js';
