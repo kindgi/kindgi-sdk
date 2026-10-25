@@ -18,7 +18,7 @@ published in. For what `kindgi deploy` registers, that's the project the
 deploy named (`--project`), else Default. A turn in a conversation stays in
 the conversation's project.
 
-An agent, flow, tool or test set belongs to the project its first version
+An agent, flow, tool or set of test cases belongs to the project its first version
 was published into, and never moves. Publishing a version of it into another
 project is refused with a `409`, and nothing is written. Its code names the
 kind, such as `agent-project-mismatch`, `flow-…`, `tool-…` or
@@ -28,7 +28,7 @@ able to read that project. A deploy that includes one is refused whole and
 deploys nothing, even when that agent or flow is unchanged. Publish new
 versions in its own project.
 
-Reading an agent, flow, tool, test set or guardrail says which project
+Reading an agent, flow, tool, test cases or guardrail says which project
 it's in: its `projectId`, with the runtime 0.1.6 or later. A pack
 `kindgi dev` serves from disk has none.
 
@@ -262,8 +262,8 @@ What a deploy into a project does, with the runtime 0.1.8 or later:
 - **A suspended project** takes no deploy, where the runtime suspends
   projects: `409 project-suspended`, before anything is written. No run
   starts in it either: `POST /v1/runs` answers the same, as do an eval run
-  started in it and an improvement pass for one of its agents. An eval run
-  or a pass already going stops at its next case and ends `cancelled`, with
+  started in it and an Improve run for one of its agents. An eval run
+  or an Improve run already going stops at its next case and ends `cancelled`, with
   `project-suspended` in its `cancelReason`. A delivery to one of its
   webhook triggers is answered `202` and skipped, with nothing recorded on
   the trigger's fires.
@@ -277,7 +277,7 @@ which gives every id the new pack's id.
 ## What a project's runs can use
 
 A run uses its own project's tools, agents, flows, guardrails, data blocks
-and test sets, and the tools of an MCP server registered for its project,
+and test cases, and the tools of an MCP server registered for its project,
 its org or the tenant. Anything else is refused with
 `reference-out-of-scope`: a publish, a deploy or a run start that names it
 answers `400` before anything is written, and a tool call from the run

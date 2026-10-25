@@ -33,7 +33,7 @@ shows how.
 A run is in one project, and it can use only what that project reaches:
 
 - **A pack's items**, its tools, agents, flows, guardrails, data blocks and
-  test sets, reach only runs in their own project.
+  test cases, reach only runs in their own project.
 - **An MCP server's tools** reach the projects its endpoint was registered
   for: every project in the tenant, every project in one org, or one
   project

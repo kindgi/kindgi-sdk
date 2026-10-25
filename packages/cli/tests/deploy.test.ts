@@ -1016,7 +1016,7 @@ describe('kindgi deploy — dry-run + safety gates', () => {
     });
     expect(out.exitCode).toBe(0);
     expect(fixtures.state.postCalls).toBe(0);
-    expect(out.stderr).toContain('Dry run');
+    expect(out.stderr).toContain('  Dry run — would POST the following:\n');
     expect(out.stderr).toContain('curl -X POST');
     expect(out.stderr).toContain('/v1/deployments');
     expect(out.stderr).toContain('Idempotency-Key: sha256:');
@@ -1072,6 +1072,53 @@ describe('kindgi deploy — dry-run + safety gates', () => {
         '  ⚠ Envelope is unsigned — --dry-run is proceeding for inspection only.\n',
       );
       expect(out.stderr.includes('Environment:')).toBe(!quiet);
+    }
+  });
+
+  test('unsigned envelope + --dry-run: shows the body less the signature, exits 0', async () => {
+    const unsigned = makeEnvelope();
+    (unsigned as Record<string, unknown>).signature = undefined;
+    (unsigned as Record<string, unknown>).signerKeyId = undefined;
+    (unsigned as Record<string, unknown>).signerPublicKey = undefined;
+    await writeAutoEnvelope();
+    const dir = join(packDir, '.kindgi', 'build');
+    await writeFile(join(dir, 'deploy-envelope.json'), JSON.stringify(unsigned, null, 2), 'utf8');
+    for (const key of [undefined, 'acme-deploy-1']) {
+      const fixtures = makeFixtures({ envelope: unsigned });
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        argv: [
+          'deploy',
+          '--env=staging',
+          '--dry-run',
+          `--path=${packDir}`,
+          ...(key !== undefined ? [`--idempotency-key=${key}`] : []),
+        ],
+      });
+      expect(out.exitCode).toBe(0);
+      expect(fixtures.state.postCalls).toBe(0);
+      expect(out.stderr).not.toContain('Internal error');
+      // The whole lead line: the key is said to be missing only when none was passed.
+      expect(out.stderr).toContain(
+        key === undefined
+          ? '  Dry run — would POST the following, plus the signerKeyId, signerPublicKey and signature a signed build adds, and the Idempotency-Key, which hashes that body:\n'
+          : '  Dry run — would POST the following, plus the signerKeyId, signerPublicKey and signature a signed build adds:\n',
+      );
+      expect(out.stderr).toContain(`"imageRef": "${unsigned.imageRef as string}"`);
+      expect(out.stderr).not.toContain('"signature"');
+      expect(out.stderr).not.toContain('Idempotency-Key: sha256:');
+      expect(out.stderr.includes(`-H "Idempotency-Key: ${key}"`)).toBe(key !== undefined);
+      const summary = JSON.parse(out.stdout) as {
+        dryRun: boolean;
+        idempotencyKey?: string;
+        wouldPost: Record<string, unknown>;
+      };
+      expect(summary.dryRun).toBe(true);
+      expect(summary.idempotencyKey).toBe(key);
+      expect(summary.wouldPost.imageRef).toBe(unsigned.imageRef);
+      expect(summary.wouldPost).not.toHaveProperty('signature');
+      expect(summary.wouldPost).not.toHaveProperty('signerKeyId');
+      expect(summary.wouldPost).not.toHaveProperty('signerPublicKey');
     }
   });
 
@@ -1678,6 +1725,18 @@ describe('kindgi deploy --project: one project per client', () => {
     expect(fixtures.state.postCalls).toBe(0);
     const summary = JSON.parse(out.stdout) as { wouldPost?: Record<string, unknown> };
     expect(summary.wouldPost?.projectId).toBe(ACME);
+  });
+
+  test("an unsigned envelope's --dry-run shows the project too", async () => {
+    const unsigned = { signature: undefined, signerKeyId: undefined, signerPublicKey: undefined };
+    await writeAutoEnvelope(unsigned);
+    const fixtures = makeFixtures({ projects, envelope: makeEnvelope(unsigned) });
+    const out = await deploy(fixtures, '--project=acme-shop', '--dry-run');
+    expect(out.exitCode).toBe(0);
+    expect(fixtures.state.postCalls).toBe(0);
+    const summary = JSON.parse(out.stdout) as { wouldPost?: Record<string, unknown> };
+    expect(summary.wouldPost?.projectId).toBe(ACME);
+    expect(summary.wouldPost).not.toHaveProperty('signature');
   });
 });
 

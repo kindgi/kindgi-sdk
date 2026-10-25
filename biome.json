@@ -20,6 +20,7 @@
       "scripts/forbidden-names.json",
       "sdks/java/kindgi-pack/src/test/resources/ajv/oracle.json",
       "sdks/java/kindgi-pack/src/test/resources/derive/golden.json",
+      "packages/specs/test-vectors/regexp-syntax/answers.json",
       "packages/specs/test-vectors/strict-schemas/answers.json",
       "pnpm-lock.yaml",
       "**/.astro/**",

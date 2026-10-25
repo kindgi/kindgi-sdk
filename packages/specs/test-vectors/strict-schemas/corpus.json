@@ -1836,6 +1836,388 @@
           "minLength": 1
         }
       }
+    },
+    "pattern syntax: a property name the u flag doesn't know": {
+      "type": "string",
+      "pattern": "\\p{Foo}"
+    },
+    "pattern syntax: a class range JavaScript takes only without the u flag": {
+      "type": "string",
+      "pattern": "[\\d-a]"
+    },
+    "pattern syntax: in propertyNames": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "("
+      }
+    },
+    "pattern syntax: before the format bounds": {
+      "type": "string",
+      "format": "email",
+      "formatMinimum": "a",
+      "pattern": "a{2,1}"
+    },
+    "pattern syntax: after an unknown format": {
+      "type": "string",
+      "format": "nope",
+      "pattern": "("
+    },
+    "patternProperties syntax: no properties, the u flag only": {
+      "type": "object",
+      "patternProperties": {
+        "[\\d-a]": {}
+      }
+    },
+    "patternProperties syntax: empty properties, the u flag only": {
+      "type": "object",
+      "properties": {},
+      "patternProperties": {
+        "[\\d-a]": {}
+      }
+    },
+    "patternProperties syntax: an unused property name still tries it without the u flag": {
+      "type": "object",
+      "properties": {
+        "zz": {}
+      },
+      "patternProperties": {
+        "[\\uD83D\\uDE00-\\uD83D\\uDE01]": {}
+      }
+    },
+    "patternProperties syntax: no name matches, then the u flag": {
+      "type": "object",
+      "properties": {
+        "zz": {}
+      },
+      "patternProperties": {
+        "[\\d-a]": {}
+      }
+    },
+    "patternProperties syntax: a __proto__ property tries it without the u flag": {
+      "type": "object",
+      "properties": {
+        "__proto__": {}
+      },
+      "patternProperties": {
+        "[\\uD83D\\uDE00-\\uD83D\\uDE01]": {}
+      }
+    },
+    "patternProperties syntax: a __proto__ pattern is skipped, the next isn't": {
+      "type": "object",
+      "patternProperties": {
+        "__proto__": {},
+        "(": {}
+      }
+    },
+    "patternProperties syntax: the second pattern": {
+      "type": "object",
+      "patternProperties": {
+        "^a": {
+          "type": "string"
+        },
+        "(": {}
+      }
+    },
+    "patternProperties syntax: the first pattern's schema before the second pattern": {
+      "type": "object",
+      "patternProperties": {
+        "^a": {
+          "minLength": 1
+        },
+        "(": {}
+      }
+    },
+    "patternProperties syntax: after every pattern schema's unknown keywords": {
+      "type": "object",
+      "patternProperties": {
+        "^a": {},
+        "(": {
+          "x-unknown": 1
+        }
+      }
+    },
+    "patternProperties syntax: a pattern whose schema is true still compiles": {
+      "type": "object",
+      "patternProperties": {
+        "(": true
+      }
+    },
+    "patternProperties syntax: true schemas still compile before unevaluatedProperties": {
+      "type": "object",
+      "patternProperties": {
+        "(": true
+      },
+      "unevaluatedProperties": false
+    },
+    "patternProperties syntax: an integer-like pattern comes first": {
+      "type": "object",
+      "patternProperties": {
+        "(": {},
+        "1": {
+          "minLength": 1
+        }
+      }
+    },
+    "additionalProperties syntax: before the patterns' own compile without the u flag": {
+      "type": "object",
+      "properties": {
+        "zz": {}
+      },
+      "additionalProperties": false,
+      "patternProperties": {
+        "[\\uD83D\\uDE00-\\uD83D\\uDE01]": {},
+        "(": {}
+      }
+    },
+    "additionalProperties syntax: the patterns before its schema": {
+      "type": "object",
+      "additionalProperties": {
+        "minLength": 1
+      },
+      "patternProperties": {
+        "(": {}
+      }
+    },
+    "additionalProperties syntax: after its unknown keywords": {
+      "type": "object",
+      "additionalProperties": {
+        "x-unknown": 1
+      },
+      "patternProperties": {
+        "(": {}
+      }
+    },
+    "additionalProperties syntax: before properties": {
+      "type": "object",
+      "properties": {
+        "a": {
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "patternProperties": {
+        "(": {}
+      }
+    },
+    "additionalProperties syntax: a __proto__ pattern isn't compiled": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "__proto__": {}
+      }
+    },
+    "additionalProperties syntax: patterns it takes, then the matching check": {
+      "type": "object",
+      "properties": {
+        "zz": {}
+      },
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z]+$": {
+          "type": "string"
+        }
+      }
+    },
+    "pattern syntax: a duplicate group name, in a ref's target": {
+      "type": "object",
+      "properties": {
+        "a": {
+          "$ref": "#/$defs/d"
+        }
+      },
+      "$defs": {
+        "d": {
+          "type": "string",
+          "pattern": "(?<a>x)(?<a>y)"
+        }
+      }
+    },
+    "pattern syntax: a named reference with no named group, in an item": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "\\k<a>"
+      }
+    },
+    "patternProperties syntax: \\k<a> passes without the u flag, then fails with it": {
+      "type": "object",
+      "properties": {
+        "zz": {}
+      },
+      "patternProperties": {
+        "\\k<a>": {}
+      }
+    },
+    "pattern syntax: pattern is compiled with the u flag": {
+      "type": "string",
+      "pattern": "("
+    },
+    "patternProperties syntax: compiled with the u flag": {
+      "type": "object",
+      "patternProperties": {
+        "(": {}
+      }
+    },
+    "patternProperties syntax: with properties, first without the u flag": {
+      "type": "object",
+      "properties": {
+        "a": {}
+      },
+      "patternProperties": {
+        "(": {}
+      }
+    },
+    "patternProperties syntax: with properties, a pattern only the u flag takes": {
+      "type": "object",
+      "properties": {
+        "a": {}
+      },
+      "patternProperties": {
+        "[\\uD83D\\uDE00-\\uD83D\\uDE01]": {}
+      }
+    },
+    "additionalProperties syntax: a schema compiles every pattern first": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "patternProperties": {
+        "(": {}
+      }
+    },
+    "additionalProperties syntax: false compiles every pattern with the u flag": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "(": {}
+      }
+    },
+    "patternProperties syntax: a pattern before the next one's schema": {
+      "type": "object",
+      "patternProperties": {
+        "^a": {},
+        "(": {
+          "minLength": 1
+        }
+      }
+    },
+    "patternProperties syntax: after its own schema's unknown keywords": {
+      "type": "object",
+      "patternProperties": {
+        "(": {
+          "x-unknown": 1
+        }
+      }
+    },
+    "pattern syntax: an escape the u flag refuses": {
+      "type": "string",
+      "pattern": "a\\Z"
+    },
+    "pattern syntax: the regex format is known": {
+      "type": "string",
+      "format": "regex"
+    },
+    "pattern syntax: a group Python reads and JavaScript doesn't": {
+      "type": "string",
+      "pattern": "(?P<a>.)"
+    },
+    "pattern syntax: before a format bound of the wrong type": {
+      "type": "string",
+      "format": "date",
+      "formatMinimum": 1,
+      "pattern": "("
+    },
+    "pattern syntax: before a format bound without a format": {
+      "type": "string",
+      "formatMinimum": "2020-01-01",
+      "pattern": "("
+    },
+    "pattern syntax: with a union type, before a format bound": {
+      "type": ["string", "number"],
+      "format": "date",
+      "formatMinimum": 1,
+      "pattern": "("
+    },
+    "pattern syntax: after an allOf member": {
+      "type": "string",
+      "pattern": "(",
+      "allOf": [
+        {
+          "format": "nope"
+        }
+      ]
+    },
+    "pattern syntax: after an empty enum": {
+      "type": "string",
+      "pattern": "(",
+      "enum": []
+    },
+    "pattern syntax: after not": {
+      "type": "string",
+      "pattern": "(",
+      "not": {
+        "type": "number"
+      }
+    },
+    "pattern syntax: before patternProperties": {
+      "type": ["string", "object"],
+      "pattern": "(",
+      "patternProperties": {
+        ")": {}
+      }
+    },
+    "pattern syntax: before prefixItems": {
+      "type": ["string", "array"],
+      "pattern": "(",
+      "prefixItems": [{}]
+    },
+    "pattern syntax: after a ref's target": {
+      "type": "string",
+      "pattern": "(",
+      "$ref": "#/$defs/a",
+      "$defs": {
+        "a": {
+          "minLength": 1
+        }
+      }
+    },
+    "patternProperties syntax: every property evaluated, a pattern with a schema still compiles": {
+      "type": "object",
+      "allOf": [
+        {
+          "additionalProperties": true
+        }
+      ],
+      "patternProperties": {
+        "(": {
+          "type": "string"
+        }
+      }
+    },
+    "pattern syntax: the message has the source as written": {
+      "type": "string",
+      "pattern": "a/("
+    },
+    "pattern syntax: in an allOf member": {
+      "type": "string",
+      "allOf": [
+        {
+          "pattern": "[z-a]"
+        }
+      ]
+    },
+    "pattern syntax: a group name that can't start a name, in a dependent schema": {
+      "type": "object",
+      "dependentSchemas": {
+        "a": {
+          "properties": {
+            "b": {
+              "type": "string",
+              "pattern": "(?<1a>x)"
+            }
+          }
+        }
+      }
     }
   },
   "unchecked": {
@@ -1872,10 +2254,10 @@
     "matching: a pattern Python reads otherwise": {
       "type": "object",
       "properties": {
-        "fooZ": {}
+        "aa": {}
       },
       "patternProperties": {
-        "foo\\Z": {
+        "(a)\\1": {
           "type": "string"
         }
       }

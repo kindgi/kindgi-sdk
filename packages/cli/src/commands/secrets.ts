@@ -758,7 +758,7 @@ const revokeCmd: LeafCommand = {
       const recoverable =
         out.recoverableUntil === undefined
           ? ''
-          : `  Your secret manager keeps a recoverable copy until ${out.recoverableUntil}, then purges it on its own. If you set this name again before then, the copy stays, disabled, until you hard-revoke it again.\n\n`;
+          : `  Your secret manager keeps a recoverable copy until ${out.recoverableUntil}, then purges it on its own. If you set this name again before then, Kindgi purges the copy if it now can; if it still can't, the copy stays, disabled, until you hard-revoke it again.\n\n`;
       return {
         kind: 'ok',
         rendered: {
