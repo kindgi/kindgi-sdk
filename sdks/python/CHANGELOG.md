@@ -176,6 +176,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   Improve run has nothing to work on**: a `validation-failed` error's
   `details.reason` is `no-tunable-keys` or, on the agent's instructions (the
   `prompt` tier), `no-pinned-prompt-block`.
+- `kindgi`: **`refused_writes` and `max_refused_writes` say what they count:
+  every tool call the replay refused, reads included.** The names don't
+  change. `stopped` says "a refused tool call" where it said "a refused
+  write".
 
 ## 0.1.10
 

@@ -280,6 +280,9 @@ class Replay(BaseModel):
     max_diverged: Annotated[int | None, Field(alias="maxDiverged", ge=0)] = None
     max_errors: Annotated[int | None, Field(alias="maxErrors", ge=0)] = None
     max_refused_writes: Annotated[int | None, Field(alias="maxRefusedWrites", ge=0)] = None
+    """
+    At most this many tool calls the replay refused (the comparison summary's `refusedWrites`). Reads count too, despite the name.
+    """
     max_stopped: Annotated[int | None, Field(alias="maxStopped", ge=0)] = None
 
 
@@ -7085,7 +7088,7 @@ class CostUsdItem(RootModel[float]):
 
 class Stopped(BaseModel):
     """
-    Set when the replay stopped at a refused write: what it would have done.
+    Set when the replay stopped at a refused tool call: what it would have done.
     """
 
     model_config = ConfigDict(
@@ -7127,7 +7130,7 @@ class EvalRun(BaseModel):
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
     result: dict[str, Any] | None = None
     """
-    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a write the replay refused, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.
+    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.
     """
     error: str | None = None
     cancel_reason: Annotated[str | None, Field(alias="cancelReason")] = None
@@ -14507,7 +14510,7 @@ class JudgedComparisonSummary(BaseModel):
     """
     refused_writes: Annotated[int, Field(alias="refusedWrites", ge=0)]
     """
-    Tool calls refused across the cases (what the candidate would have done).
+    Tool calls the replay refused across the cases (what the candidate would have done). Reads count too, despite the name: the replay refuses a call it can't run live (a write, or a read that needs an approval or reaches outside, say) that has no recording of the same call.
     """
     errors: Annotated[int, Field(ge=0)]
     """
@@ -14527,7 +14530,7 @@ class JudgedComparisonSummary(BaseModel):
     """
     stopped: Annotated[int, Field(ge=0)]
     """
-    Flow cases that stopped at a write the replay refused: no output to score, so they're left out of the metrics.
+    Flow cases that stopped at a refused tool call: no output to score, so they're left out of the metrics.
     """
     reads: Literal["recorded", "live"]
     class_weights: Annotated[
@@ -14614,12 +14617,15 @@ class ComparisonCaseResult(BaseModel):
     """
     diverged: bool
     refused_writes: Annotated[int, Field(alias="refusedWrites", ge=0)]
+    """
+    Tool calls the replay refused in this case: the most in any one of its repetitions. Reads count too, despite the name.
+    """
     no_context: Annotated[bool, Field(alias="noContext")]
     approval_skipped: Annotated[bool, Field(alias="approvalSkipped")]
     error: str | None = None
     stopped: Stopped | None = None
     """
-    Set when the replay stopped at a refused write: what it would have done.
+    Set when the replay stopped at a refused tool call: what it would have done.
     """
     rescored: Literal[False] | None = None
     """

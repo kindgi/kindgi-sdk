@@ -1456,7 +1456,8 @@
               },
               "maxRefusedWrites": {
                 "type": "integer",
-                "minimum": 0
+                "minimum": 0,
+                "description": "At most this many tool calls the replay refused (the comparison summary's `refusedWrites`). Reads count too, despite the name."
               },
               "maxStopped": {
                 "type": "integer",
@@ -15211,7 +15212,7 @@
           "refusedWrites": {
             "type": "integer",
             "minimum": 0,
-            "description": "Tool calls refused across the cases (what the candidate would have done)."
+            "description": "Tool calls the replay refused across the cases (what the candidate would have done). Reads count too, despite the name: the replay refuses a call it can't run live (a write, or a read that needs an approval or reaches outside, say) that has no recording of the same call."
           },
           "errors": {
             "type": "integer",
@@ -15235,7 +15236,7 @@
           "stopped": {
             "type": "integer",
             "minimum": 0,
-            "description": "Flow cases that stopped at a write the replay refused: no output to score, so they're left out of the metrics."
+            "description": "Flow cases that stopped at a refused tool call: no output to score, so they're left out of the metrics."
           },
           "reads": {
             "type": "string",
@@ -15887,7 +15888,8 @@
           },
           "refusedWrites": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Tool calls the replay refused in this case: the most in any one of its repetitions. Reads count too, despite the name."
           },
           "noContext": {
             "type": "boolean"
@@ -15905,7 +15907,7 @@
               "toolId",
               "arguments"
             ],
-            "description": "Set when the replay stopped at a refused write: what it would have done.",
+            "description": "Set when the replay stopped at a refused tool call: what it would have done.",
             "properties": {
               "toolId": {
                 "type": "string"
@@ -16012,7 +16014,7 @@
           "result": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: \"agent\", agentId, version }` or `{ kind: \"flow\", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a write the replay refused, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship."
+            "description": "Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: \"agent\", agentId, version }` or `{ kind: \"flow\", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship."
           },
           "error": {
             "type": "string"

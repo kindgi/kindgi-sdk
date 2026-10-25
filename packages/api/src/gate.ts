@@ -350,8 +350,13 @@ const REPLAY_KNOBS = [
     'cases diverged from their recorded reads',
   ],
   ['maxErrors', 'errors', 'case errored', 'cases errored'],
-  ['maxRefusedWrites', 'refusedWrites', 'write was refused', 'writes were refused'],
-  ['maxStopped', 'stopped', 'case stopped at a refused write', 'cases stopped at a refused write'],
+  ['maxRefusedWrites', 'refusedWrites', 'tool call was refused', 'tool calls were refused'],
+  [
+    'maxStopped',
+    'stopped',
+    'case stopped at a refused tool call',
+    'cases stopped at a refused tool call',
+  ],
 ] as const;
 
 function replayChecks(

@@ -257,6 +257,26 @@ describe('replay', () => {
     expect(check(r, 'replay.maxStopped')?.passed).toBe(true);
   });
 
+  test('says what it counted: refused tool calls, and cases stopped at one', () => {
+    const one = gate(
+      { replay: { maxRefusedWrites: 1 } },
+      { summary: summary({ refusedWrites: 1, stopped: 1 }) },
+    );
+    expect(check(one, 'replay.maxRefusedWrites')?.message).toBe(
+      '1 tool call was refused; the policy allows 1.',
+    );
+    expect(check(one, 'replay.maxStopped')?.message).toBe(
+      '1 case stopped at a refused tool call; the policy allows 0.',
+    );
+    const many = gate({ replay: {} }, { summary: summary({ refusedWrites: 2, stopped: 2 }) });
+    expect(check(many, 'replay.maxRefusedWrites')?.message).toBe(
+      '2 tool calls were refused; the policy allows 0.',
+    );
+    expect(check(many, 'replay.maxStopped')?.message).toBe(
+      '2 cases stopped at a refused tool call; the policy allows 0.',
+    );
+  });
+
   test('no replay block: no replay checks', () => {
     expect(gate({}).checks.some((c) => c.name.startsWith('replay.'))).toBe(false);
   });
