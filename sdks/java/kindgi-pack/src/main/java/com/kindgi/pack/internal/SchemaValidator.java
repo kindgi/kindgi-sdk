@@ -151,11 +151,17 @@ public final class SchemaValidator {
         }
       }
     }
-    if (s.containsKey("pattern")) {
-      pattern((String) s.get("pattern"), at);
-    }
     if (s.containsKey("format") && !Formats.KNOWN.contains(s.get("format"))) {
       throw new SchemaException(at + "/format: unknown format \"" + s.get("format") + "\"");
+    }
+    if (s.containsKey("pattern")) {
+      // The runtime compiles a pattern with the u flag, after it checks the format's name.
+      String source = (String) s.get("pattern");
+      String reason = RegExp.problem(source, true);
+      if (reason != null) {
+        throw new SchemaException(at + "/pattern: Invalid regular expression: /" + source + "/u: " + reason);
+      }
+      pattern(source, at);
     }
     if (s.containsKey("items")) {
       if (!passesAnything(s.get("items"))) {

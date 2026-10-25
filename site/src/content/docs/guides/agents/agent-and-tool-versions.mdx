@@ -252,10 +252,10 @@ Under kindgi dev, the pack is the source of agents: change the agent in the pack
   one waiting for an approval included, finishes on the version it started.
 
 - **A version live somewhere can't be unregistered.** First roll back, unpin
-  or promote another version in each scope where it's live, as
+  or make another version live everywhere this one is live, as
   [Release an agent version](../../evals/release-an-agent-version/#roll-back-or-unpin)
-  shows. Until then, it's refused with `409 agent-version-live`, naming the
-  scopes in `details.scopes`:
+  shows. Until then, it's refused with `409 agent-version-live`, naming
+  where it's live in `details.scopes`:
 
   ```text
   acme.order-desk 1.0.0 is live in a scope: roll back, unpin, or promote another version there first, then unregister it.
@@ -266,8 +266,8 @@ Under kindgi dev, the pack is the source of agents: change the agent in the pack
   runs as before.
 - **You can still read it:** it keeps its pins, and fetching it shows
   `unregisteredAt`. Reinstating it makes it choosable again.
-- **Finding one to reinstate:** an agent's, flow's, tool's or test set's
-  versions list includes unregistered versions when you ask, each with
+- **Finding one to reinstate:** the versions list of an agent, flow, tool
+  or set of test cases includes unregistered versions when you ask, each with
   `unregisteredAt`. Ask with `?includeTombstoned=true`, or
   `kindgi agents versions <id> --include-unregistered`, and the same for
   `flows` and `tools`.

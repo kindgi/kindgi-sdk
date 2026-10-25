@@ -69,7 +69,14 @@ connection and account a call used.
 ## Disconnecting
 
 The connection's owner, or a workspace admin, disconnects it from the
-console's **Connections** page. Kindgi then:
+console's **Connections** page, or from a terminal, by its id from
+`kindgi connections list`:
+
+```sh
+npx --yes @kindgi/cli@0.2 connections disconnect <connection-id>
+```
+
+It asks first, unless `--yes`, and prints what was done. Kindgi then:
 
 1. **Stops new uses** at once, on every replica.
 2. **Withdraws access at the app,** where that's safe:

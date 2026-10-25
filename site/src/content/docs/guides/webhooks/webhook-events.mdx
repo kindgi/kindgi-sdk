@@ -13,7 +13,7 @@ them. To set an endpoint up, follow
 | Event | Sent when | Carries |
 |---|---|---|
 | `run.finished` | a run your app or the CLI started completes, fails or is cancelled | `data.run` |
-| `improvement-pass.finished` | an improvement pass ends | `data.pass` |
+| `improvement-pass.finished` | an Improve run ends | `data.pass` |
 | `approval.requested` | an approval starts waiting for a reviewer | `data.approval` |
 
 An endpoint gets the events its `events` list names. `parseEvent` in
@@ -106,16 +106,16 @@ the same with `flowId` `agent.turn`. Its `agent` says which agent ran:
   `parse_event` gives them as `event.data.run.agent`.
 - A flow's run has no `agent`.
 
-## Improvement passes
+## Improve runs
 
 An endpoint that lists `improvement-pass.finished` in its `events` gets one
-when any [improvement pass](../../evals/improve-an-agent/) ends, whoever
-started it. The pass ends `completed`, `failed` or `cancelled`.
+when any [Improve run](../../evals/improve-an-agent/) ends, whoever started
+it. The Improve run ends `completed`, `failed` or `cancelled`.
 
-- **`data.pass`** is the pass as `GET /v1/improvement-passes/<pass-id>` shows
-  it.
-- **Its outcome** names the proposal it wrote, if it wrote one.
-- **Of the filter, only `projectId` applies,** the pass's project. `flowIds`
+- **`data.pass`** is the Improve run as `GET /v1/improvement-passes/<pass-id>`
+  shows it.
+- **Its outcome** names the suggested change it wrote, if it wrote one.
+- **Of the filter, only `projectId` applies,** the Improve run's project. `flowIds`
   and `includeDryRuns` are about runs.
 
 ## Approvals
