@@ -69,7 +69,7 @@ the agent's definition:
 
 | Field | Caps | Default |
 | --- | --- | --- |
-| `maxSteps` | Model calls in the turn. | 8 |
+| `maxSteps` | Model calls in the turn, up to 32. | 8 |
 | `maxCostUsd` | The turn's model spend, in US dollars. | none |
 | `maxWallMs` | The turn's time, in milliseconds. | 120000 |
 
@@ -78,6 +78,7 @@ Each turn of the agent now stops at the first limit it reaches.
 A **step** is one model call. The tool calls the model asks for run between
 steps, so a turn that looks an order up and then answers takes two. Repairing
 a [typed answer](../typed-answer/#when-the-answer-doesnt-fit) takes a step too.
+A turn makes at most 32 model calls, so a `maxSteps` above 32 stops it at 32.
 
 Cost is what the models' registered prices make of the tokens each call used,
 as [Models](../../models/) describes. A model registered with a price of zero
@@ -97,6 +98,10 @@ left:
 ```text
 Error [budget-exceeded]: Agent turn steps budget exceeded (limit 1, observed 1)
 ```
+
+With a `maxSteps` above 32, the 32nd model call fails the turn the same way,
+with `limit` 32, and the message adds that a turn makes at most 32 model
+calls.
 
 **Cost.** Checked after each model call, against the turn's total so far:
 

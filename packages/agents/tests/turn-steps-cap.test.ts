@@ -5,6 +5,9 @@
  * The turn's step cap and its loop. `agent-loop` runs at most
  * `AGENT_TURN_LOOP_MAX_ITERATIONS` iterations, one model call each, and
  * `budget-check` decides at the end of each whether the turn goes on.
+ * It holds `budget.maxSteps` to the loop's iterations, so a turn that
+ * would go on past them fails as `budget-exceeded`, and a typed answer
+ * gets no repair the loop couldn't make.
  */
 
 import { describe, expect, test } from 'vitest';
@@ -110,19 +113,52 @@ describe("the turn's loop", () => {
   });
 });
 
-describe('a maxSteps above the loop', () => {
+describe('a maxSteps above the loop is held to it', () => {
   const wide = agent({ budget: { maxSteps: 64 } });
 
-  test('the last iteration asks for a tool: the turn goes on, past the loop', async () => {
-    const out = await check(wide, 32, iteration(32, '', true));
+  test('the 31st iteration asks for a tool: the turn goes on', async () => {
+    const out = await check(wide, 31, iteration(31, '', true));
     expect(out.finishedTurn).toBe(false);
   });
 
-  test('a typed answer that does not fit on the last iteration: a repair the loop never makes', async () => {
+  test('the last iteration asks for a tool: budget-exceeded at the loop, saying why', async () => {
+    const error = await failureOf(() => check(wide, 32, iteration(32, '', true)));
+    expect(error).toEqual({
+      code: 'budget-exceeded',
+      message:
+        'Agent turn steps budget exceeded (limit 32, observed 32): a turn makes at most 32 model calls, fewer than its maxSteps of 64',
+      kind: 'steps',
+      limit: 32,
+      observed: 32,
+    });
+  });
+
+  test('a count already past the loop (a resumed turn) fails the same way', async () => {
+    const error = await failureOf(() => check(wide, 33, iteration(33, '', true)));
+    expect(error).toMatchObject({
+      code: 'budget-exceeded',
+      kind: 'steps',
+      limit: 32,
+      observed: 33,
+    });
+  });
+
+  test('a typed answer that does not fit on the 31st: a repair, which the loop still runs', async () => {
     const typed = agent({ budget: { maxSteps: 64 }, output: ORDER });
-    const out = await check(typed, 32, iteration(32, 'not json', false));
+    const out = await check(typed, 31, iteration(31, 'not json', false));
     expect(out.finishedTurn).toBe(false);
     expect(repairsSoFar(out.nextMessages)).toBe(1);
+  });
+
+  test('a typed answer that does not fit on the last iteration: no repair, the turn fails', async () => {
+    const typed = agent({ budget: { maxSteps: 64 }, output: ORDER });
+    const error = await failureOf(() => check(typed, 32, iteration(32, 'not json', false)));
+    expect(error).toMatchObject({ code: 'output-schema-violation', attempts: 1 });
+  });
+
+  test('a final answer on the last iteration still finishes the turn', async () => {
+    const out = await check(wide, 32, iteration(32, 'Order 7 ships Monday.', false));
+    expect(out.finishedTurn).toBe(true);
   });
 });
 

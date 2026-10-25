@@ -142,8 +142,8 @@ brief_writer = Agent(
   loosen them. `"separateApprover"` in `hitl` (`True`, or
   `{"overrides": {"<tool id>": True}}`) makes a tool's approval need
   someone other than whoever asked.
-- **`budget`** — per turn: `maxSteps` (model calls, default 8),
-  `maxCostUsd`, `maxWallMs` (default 120 000). Steps or cost exceeded
+- **`budget`** — per turn: `maxSteps` (model calls, default 8, at most
+  32), `maxCostUsd`, `maxWallMs` (default 120 000). Steps or cost exceeded
   fails the turn (`budget-exceeded`); out of wall time aborts it. Leave
   room for real models: a turn with tool calls can take tens of seconds.
 - **`output`** — a typed answer: a pydantic model class (or any type

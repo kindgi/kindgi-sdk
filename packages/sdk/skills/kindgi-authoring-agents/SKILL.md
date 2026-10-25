@@ -138,9 +138,9 @@ export default defined.value;
   `hitl.separateApprover` (`true`, or `{ overrides: { '<tool id>': true } }`)
   makes a tool's approval need someone other than whoever asked.
 - **`budget`** — per-turn ceiling. `maxSteps` caps model-call cycles
-  (default 8); `maxCostUsd` caps model spend; `maxWallMs` caps wall
-  time (default 120 000). Exceeding steps or cost fails the turn with
-  `budget-exceeded`; running out of wall time aborts it
+  (default 8, at most 32); `maxCostUsd` caps model spend; `maxWallMs`
+  caps wall time (default 120 000). Exceeding steps or cost fails the
+  turn with `budget-exceeded`; running out of wall time aborts it
   (`agent-turn-aborted`, reason `timeout`).
 
 - **`output`** — optional typed result: `{ schema, name?, maxRepairs? }`
