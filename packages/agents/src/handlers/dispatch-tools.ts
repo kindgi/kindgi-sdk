@@ -594,7 +594,8 @@ function batchLength(step: StepCalls, calls: readonly ModelToolCall[], at: numbe
  * again, so a call that may park runs alone, as calls did before they ran
  * together: one to a tool that pauses (`Tool.pauses`) may wait for another
  * system's answer, and one to a tool that declares connections
- * (`needsSpec.connections`) may wait for its person to connect.
+ * (`needsSpec.connections`) may wait for the person who started the run to
+ * connect an app.
  */
 function readsOnly(step: StepCalls, call: ModelToolCall | undefined): boolean {
   const binding = call === undefined ? undefined : step.tools.byName.get(call.name);

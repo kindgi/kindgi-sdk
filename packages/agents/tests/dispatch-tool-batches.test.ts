@@ -353,7 +353,7 @@ describe('dispatch-tools — read-only calls run together', () => {
         // May wait for another system's answer.
         { name: 'p', mutating: false, pauses: true },
         { name: 'rb', mutating: false },
-        // May wait for its person to connect an app.
+        // May wait for the person who started the run to connect an app.
         { name: 'c', mutating: false, connects: true },
         { name: 'rc', mutating: false },
       ],

@@ -449,7 +449,8 @@ export interface ToolManifest {
    * It also decides what runs together: calls to read-only tools that a
    * model step asks for one after another run at the same time, up to 8 at
    * once, unless the agent sets `parallelToolCalls: false`; a call to a
-   * mutating tool runs on its own.
+   * mutating tool runs on its own, and so does a call to a read-only tool
+   * that pauses or declares connections, since it may wait.
    */
   readonly mutating?: boolean;
   /**

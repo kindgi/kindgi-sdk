@@ -241,8 +241,10 @@ export interface DefineAgentSpec {
   /**
    * Whether calls to read-only tools (`mutating: false`, no changing
    * effect) that a model step asks for one after another run at the same
-   * time, up to 8 at once. Default: on. `false`: every call runs on its
-   * own, in the order the model asked for them. Either way, a step's results reach the conversation and the
+   * time, up to 8 at once. A call to a read-only tool that pauses or
+   * declares connections runs on its own, since it may wait. Default: on.
+   * `false`: every call runs on its own, in the order the model asked for
+   * them. Either way, a step's results reach the conversation and the
    * model in that order, and once a call needs a review, the step's calls
    * that haven't started run one at a time. It doesn't change what the
    * model may ask for.

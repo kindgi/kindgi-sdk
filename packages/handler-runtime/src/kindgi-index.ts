@@ -402,7 +402,10 @@ export interface IndexedAgent {
   readonly output?: Readonly<Record<string, unknown>>;
   /** How the agent's turns retry failed tool calls (`{ maxRetries?, retryOn? }`). */
   readonly toolErrors?: Readonly<Record<string, unknown>>;
-  /** Whether a step's read-only tool calls in a row run at the same time, up to 8. */
+  /**
+   * Whether a step's read-only tool calls in a row run at the same time, up to 8: not one
+   * to a tool that pauses or declares connections, which may wait.
+   */
   readonly parallelToolCalls?: boolean;
   /** How the agent uses what it retrieves (`{ instructionTypes? }`). */
   readonly memory?: Readonly<Record<string, unknown>>;
