@@ -114,6 +114,13 @@ Run `enroll` again with the same `--renewer`, and it reuses the key it finds
 there. `--replace` makes a new one instead. The old one stops working once
 you add the new line.
 
+For a script, `enroll --json` prints the result as JSON on stdout, and the
+lines above on stderr: `renewerId`, `renewer` (the reference you gave),
+`changed` (`false` when it reused the key it found), `overwritten` (`true`
+when `--replace` overwrote what `--renewer` held), `login`, `accessUrl`,
+`enrollLine` (the `kgi_lrp_…` line to add) and `nextSteps`. `enroll --quiet`
+prints the `kgi_lrp_…` line alone.
+
 ## 2. Add the renewer at access.kindgi.com
 
 Sign in at access.kindgi.com as the login you gave `--for`. Under **Renew the
@@ -181,6 +188,36 @@ module raises this alert itself ([On a schedule](#on-a-schedule)).
 In the key's last 30 days, `renew` adds a line that starts
 `⚠ It expires in <N> days`. It says how to get a key if `renew` keeps
 answering `unchanged`.
+
+For a script, `renew --json` prints the result as JSON on stdout, and the
+lines above on stderr:
+
+```json
+{
+  "status": "renewed",
+  "renewerId": "lr_c1DXmGBUpkAT6wd10BARbp",
+  "license": {
+    "name": "acme.example",
+    "use": "non-production",
+    "expiresAt": "2026-12-09T00:00:00.000Z",
+    "daysLeft": 45
+  },
+  "warnings": []
+}
+```
+
+- `status` is `renewed` or `unchanged`.
+- `daysLeft` is negative once the key has expired, as the ⚠ line says it.
+- With `--runtime`, `counts` says what the renewal carried:
+  `{"sent": true, "usage": {…}}` with the counts, or
+  `{"sent": false, "reason": "…"}`.
+- `warnings` holds the lines `--quiet` keeps, without the ⚠: the
+  `It expires in <N> days` line, and a `counts: not sent (…)` line other
+  than a production key's.
+
+`renew --quiet` prints only those warnings, on stderr, and nothing on
+stdout: the exit code says the rest. With none of these flags, `renew`
+prints its lines on stdout, as above.
 
 A refusal or a failure goes to stderr and exits `1`, so your scheduler's
 alerting sees it. The key is left as it was. A failure says what's wrong.
