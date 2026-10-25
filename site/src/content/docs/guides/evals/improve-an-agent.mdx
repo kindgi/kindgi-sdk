@@ -192,10 +192,10 @@ most 30 minutes, and prints it:
   - **`approvals`:** someone other than you, with its role or a higher one.
     With `"separateApprover": false`, that holds only while there's such a
     reviewer; if there isn't, you can approve it yourself.
-- **`nothing-found`**, with why. No candidate beat the current version by more
-  than the spread of the current version's repeated runs on the 70%. Or the
-  best one didn't beat the recorded outputs on the 30%, and the outcome's run
-  on those cases gives both figures there.
+- **`nothing-found`**, with why. Nothing Improve tried beat the current version
+  by more than the spread of the current version's repeated runs on the 70%.
+  Or the best one didn't beat the recorded outputs on the 30%, and the
+  outcome's run on those cases gives both figures there.
   Or a model-settings change wasn't
   [kept under its rule](#let-it-try-a-cheaper-model-or-another-temperature).
   Or the best one is a change an existing suggested change already holds. Or
@@ -227,7 +227,7 @@ The cost is 0 on `dev-echo`, which costs nothing:
   "costUsd": "0",
   "outcome": {
     "kind": "nothing-found",
-    "reason": "The best candidate is the change of proposal 19b0f480-146a-4545-bd6b-37742b592dfe, which is evaluated."
+    "reason": "The best change Improve tried is already suggested change 19b0f480-146a-4545-bd6b-37742b592dfe, which is evaluated."
   },
   "comparisons": [
     {
@@ -364,7 +364,7 @@ pnpm exec kindgi proposals passes get <pass-id>
           "message": "it reads \"score\", which the agent doesn't have (a declared parameter, a variable the current template reads, or a settings block the version pins)"
         }
       ],
-      "failed": "The drafted template was refused: it reads \"score\", which the agent doesn't have (a declared parameter, a variable the current template reads, or a settings block the version pins)."
+      "failed": "The drafted instructions were refused: it reads \"score\", which the agent doesn't have (a declared parameter, a variable the current template reads, or a settings block the version pins)."
     }
   ],
   …
