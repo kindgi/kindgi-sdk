@@ -2,7 +2,7 @@
 "@kindgi/cli": patch
 ---
 
-**`--quiet` prints errors and warnings only.** The global flag's help now reads "Print errors and warnings only: the exit code reports the result."
+**`--quiet` prints errors and warnings only.** The global flag's help now reads "Print errors and warnings only, and what's shown only once (a link, a secret, a code) alone on stdout: the exit code reports the result."
 - **`kindgi deploy`** leaves out its own progress lines. It still prints:
   - a refused deployment's error, and the error of a deploy that stops before it is sent;
   - a secret sync that fails. The exit code stays 0, since the deployment is in place. A sync that never reaches the server now also says the deployment landed and how to sync again;

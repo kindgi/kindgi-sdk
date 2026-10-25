@@ -10,6 +10,7 @@ import { projectOfEnv } from './commands/build.js';
 import type { CommandResult } from './commands/types.js';
 import type { CommandContext } from './context.js';
 import { UsageError, extractKindgiError } from './errors.js';
+import { type OutputFormat, successNote } from './output.js';
 import { loadPackConfig } from './pack-config.js';
 import { resolveProjectRef } from './project-ref.js';
 
@@ -299,11 +300,13 @@ export async function valueTargetFor(
 
 /**
  * A command's result, with the line saying which project and env a pack
- * environment named by `--env` stood for. Nothing for any other target.
+ * environment named by `--env` stood for. Nothing for any other target,
+ * and, under `--quiet`, nothing for a result that's not an error.
  */
 export function withEnvironmentNote(
   result: CommandResult,
   target: { readonly envName: string; readonly environment?: ResolvedEnvironment },
+  format: OutputFormat,
 ): CommandResult {
   const { environment } = target;
   if (environment === undefined) return result;
@@ -312,9 +315,9 @@ export function withEnvironmentNote(
       ? environment.projectId
       : `${environment.projectRef} (${environment.projectId})`;
   const note = `Environment ${environment.name}: project ${shown}, values under ${target.envName}.\n`;
-  return result.kind === 'ok'
-    ? { ...result, rendered: { ...result.rendered, stderr: `${note}${result.rendered.stderr}` } }
-    : { ...result, stderr: `${note}${result.stderr}` };
+  if (result.kind === 'error') return { ...result, stderr: `${note}${result.stderr}` };
+  const stderr = `${successNote(format, note)}${result.rendered.stderr}`;
+  return { ...result, rendered: { ...result.rendered, stderr } };
 }
 
 /** Where `local` is, when that's the env a refused value named; otherwise nothing. */

@@ -81,7 +81,7 @@ import {
   SEVERITIES,
 } from '../feedback/entries.js';
 import { runStatus, runSubmit, runWithdraw } from '../feedback/run.js';
-import { renderJson } from '../output.js';
+import { renderJson, successNote } from '../output.js';
 import { resolveSdkPackageRoot } from '../sdk-package.js';
 import { commandResultFromThrown, stringFlag } from './helpers.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
@@ -246,7 +246,10 @@ const write: LeafCommand = {
       // interactive user sees the write happened while the JSON goes
       // to stdout (respecting the CLI's format convention).
       process.stderr.write(
-        `✓ appended entry ${report.id} to ${report.path}\n  To mark items fixed, add \`> **Fixed:** <note>\` right after their header.\n  Send it to Kindgi with kindgi feedback submit --preview (it shows exactly what's sent first).\n`,
+        successNote(
+          ctx.globals.format,
+          `✓ appended entry ${report.id} to ${report.path}\n  To mark items fixed, add \`> **Fixed:** <note>\` right after their header.\n  Send it to Kindgi with kindgi feedback submit --preview (it shows exactly what's sent first).\n`,
+        ),
       );
       return {
         kind: 'ok',

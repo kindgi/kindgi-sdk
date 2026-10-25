@@ -173,6 +173,20 @@ describe('kindgi webhooks register', () => {
     );
   });
 
+  test('--generate-secret --quiet: the signing secret alone on stdout, and no notes', async () => {
+    const value = 'Q7mZp2Lk9Xv4Rt8Bn3Wc6Yh1Jd5Fg0Sa2Ke7Uo4Hi';
+    const { out } = await webhooks([...GENERATE, '--quiet'], {
+      trigger: {
+        ...TRIGGER,
+        hmacSecretScope: { kind: 'project', projectId: 'p-1' },
+        signingSecret: value,
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe(`${value}\n`);
+    expect(out.stderr).toBe('');
+  });
+
   test('a secret its registrant administers no scope for: said plainly, with the fix', async () => {
     const { out } = await webhooks(
       GENERATE.filter((a) => a !== '--generate-secret'),
@@ -184,6 +198,32 @@ describe('kindgi webhooks register', () => {
     expect(out.stderr).toContain(
       `Nothing is read for acme-woo-secret until a project admin names it again (\`kindgi webhooks update ${ID} --secret=acme-woo-secret\`)`,
     );
+  });
+
+  test('--quiet: a secret nothing reads, and no receive URL, are still said; the notes are not', async () => {
+    const { receiveUrl: _, ...noUrl } = TRIGGER;
+    const { out } = await webhooks(
+      [...GENERATE.filter((a) => a !== '--generate-secret'), '--quiet'],
+      { trigger: { ...noUrl, hmacSecretScope: null } },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toBe(
+      [
+        `  No receive URL: this deployment has no public URL configured. Set KINDGI_PUBLIC_URL on the runtime to the address your sender reaches it at, then \`kindgi webhooks get ${ID}\` shows it.`,
+        `  Nothing is read for acme-woo-secret until a project admin names it again (\`kindgi webhooks update ${ID} --secret=acme-woo-secret\`): you don't administer a scope it could be read at. Or register with --generate-secret, which stores a new one in the project.`,
+        '',
+      ].join('\n'),
+    );
+  });
+
+  test('--quiet with a receive URL and a readable secret: nothing on stderr', async () => {
+    const { out } = await webhooks([
+      ...GENERATE.filter((a) => a !== '--generate-secret'),
+      '--quiet',
+    ]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toBe('');
   });
 
   test('a named secret: nothing is made, and nothing is shown', async () => {
@@ -378,5 +418,27 @@ describe('kindgi webhooks: the rest of the group', () => {
     expect(listed.out.stderr).toContain(`kindgi webhooks update ${ID} --allow-unattended=none`);
     const none = await webhooks(['take-ownership', ID]);
     expect(none.out.stderr).not.toContain('allowed unattended');
+  });
+
+  test('--quiet: get, pause and take-ownership say nothing; no receive URL and kept tools are still said', async () => {
+    for (const argv of [
+      ['get', ID],
+      ['pause', ID],
+      ['take-ownership', ID],
+    ]) {
+      const { out } = await webhooks([...argv, '--quiet']);
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect([argv, out.stdout, out.stderr]).toEqual([argv, '', '']);
+    }
+    const { receiveUrl: _, ...noUrl } = TRIGGER;
+    const got = await webhooks(['get', ID, '--quiet'], { trigger: noUrl });
+    expect(got.out.stderr).toBe(
+      `  No receive URL: this deployment has no public URL configured. Set KINDGI_PUBLIC_URL on the runtime to the address your sender reaches it at, then \`kindgi webhooks get ${ID}\` shows it.\n`,
+    );
+    const taken = await webhooks(['take-ownership', ID, '--quiet'], {
+      trigger: { ...TRIGGER, toolsAllowedUnattended: ['acme.refund'] },
+    });
+    expect(taken.out.stderr).toContain('It keeps its tools allowed unattended (acme.refund)');
+    expect(taken.out.stderr).not.toContain('now runs as');
   });
 });

@@ -8,6 +8,7 @@ import { KINDGI_JSON_CONFIG_FILENAME, findKindgiConfig } from '@kindgi/handler-r
 
 import { CLI_PIN_KEY, PINNABLE_VERSION, writeCliPin } from '../cli-pin.js';
 import { renderJson } from '../output.js';
+import { note, renderLines, warning } from '../progress-lines.js';
 import { CLI_VERSION } from '../version-info.js';
 import { defaultTemplatesRoot } from './init.js';
 import type { CommandResult, LeafCommand } from './types.js';
@@ -90,14 +91,17 @@ export const upgradeCommand: LeafCommand = {
       changes.push(`wrote ${wrapper}`);
     }
 
-    const stderr = [
-      `✓ ${packDir} now runs the Kindgi CLI ${target}`,
-      ...changes.map((c) => `  ${c}`),
-      ...(pomNote === undefined ? [] : [`  ${pomNote}`]),
-      '',
-      'Run it as ./kindgiw <command> (kindgiw.cmd on Windows).',
-      '',
-    ].join('\n');
+    // A version left to set by hand is a warning: said under --quiet too.
+    const stderr = renderLines(
+      [
+        note(`✓ ${packDir} now runs the Kindgi CLI ${target}`),
+        ...changes.map((c) => note(`  ${c}`)),
+        ...(pomNote === undefined ? [] : [warning(`  ${pomNote}`)]),
+        note(''),
+        note('Run it as ./kindgiw <command> (kindgiw.cmd on Windows).'),
+      ],
+      ctx.globals.format === 'quiet',
+    );
     return {
       kind: 'ok',
       rendered: {
