@@ -282,9 +282,9 @@ version and every version that's waiting read the same values:
   admit only calls from addresses it knows. `kindgi egress --hosted`
   prints the addresses your workspace's calls come from: allow the
   `deployments` ones there for your tools' calls, and the `server` ones
-  for an MCP server or a webhook receiver. Every Kindgi Cloud workspace
-  calls from the same addresses, so keep the site's own check too, such as
-  its API key
+  for an MCP server or a receiver of the runtime's webhooks. Every Kindgi
+  Cloud workspace calls from the same addresses, so keep the site's own
+  check too, such as its API key
   ([Admit them at a site](../../deploy/self-hosted/egress-addresses/#admit-them-at-a-site)).
 
 ## What's next
