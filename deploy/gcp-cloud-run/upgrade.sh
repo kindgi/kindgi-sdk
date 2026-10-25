@@ -35,7 +35,7 @@
 #   ./upgrade.sh --var-file dev.tfvars \
 #                --runtime-digest sha256:<64 hex> \
 #                --backup-bucket gs://<bucket>[/<prefix>] \
-#                [--to 0.1.11] [--from 0.1.8|0.1.9|0.1.10] \
+#                [--to 0.2.0] [--from 0.1.8|0.1.9|0.1.10] \
 #                [--pack-dir <path to the pack project>] \
 #                [--check-tenant <uuid>]
 #
@@ -49,8 +49,8 @@
 #   --backup-bucket    A GCS bucket (optionally a prefix) the database export
 #                      is written to. The export is one database, never an
 #                      instance backup.
-#   --to               The target runtime version, 0.1.11 or later (default
-#                      0.1.11; an rc such as 0.1.11-rc.0 works too). Earlier
+#   --to               The target runtime version, 0.2.0 or later (default
+#                      0.2.0; an rc such as 0.2.0-rc.0 works too). Earlier
 #                      releases aren't on registry.kindgi.com: for those, use
 #                      this script as of the @kindgi/sdk@0.1.10 tag.
 #   --from             Assert the current version when it can't be read from the
@@ -72,10 +72,10 @@ umask 077
 
 readonly RUNTIME_REPO="registry.kindgi.com/kindgi/runtime"
 readonly VERSION_FLOOR="0.1.8"         # upgrades from before this are refused
-readonly TARGET_FLOOR="0.1.11"         # the first release on registry.kindgi.com
-readonly DEFAULT_TARGET="0.1.11"
+readonly TARGET_FLOOR="0.2.0"          # the first release on registry.kindgi.com
+readonly DEFAULT_TARGET="0.2.0"
 # Releases this script knows the upgrade steps for, oldest first.
-readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.1.11")
+readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0")
 
 # How long to wait for the new revision to become ready (step 6).
 readonly POLL_INTERVAL=10
@@ -225,7 +225,7 @@ done
 [[ $RUNTIME_DIGEST =~ ^sha256:[0-9a-f]{64}$ ]] || die "--runtime-digest must look like sha256:<64 hex>."
 [[ -n $BACKUP_BUCKET ]] || die "--backup-bucket is required (see --help)."
 [[ $BACKUP_BUCKET =~ ^gs://[a-z0-9][-a-z0-9._]*(/.*)?$ ]] || die "--backup-bucket must look like gs://<bucket>[/<prefix>]."
-is_semver "$TARGET" || die "--to \"$TARGET\" isn't a version like 0.1.11."
+is_semver "$TARGET" || die "--to \"$TARGET\" isn't a version like 0.2.0."
 [[ "$(ver_num "${TARGET%%-*}")" -ge "$(ver_num "$TARGET_FLOOR")" ]] \
   || die "--to $TARGET: this script copies the runtime from registry.kindgi.com, which has $TARGET_FLOOR and later. For an earlier release, use this script as of the @kindgi/sdk@0.1.10 tag."
 if [[ -n $FROM_OVERRIDE ]]; then is_semver "$FROM_OVERRIDE" || die "--from \"$FROM_OVERRIDE\" isn't a version like 0.1.8."; fi
@@ -535,12 +535,11 @@ EOT
      definition you read back from the server.
 EOT
       ;;
-    0.1.11)
+    0.2.0)
       cat <<'EOT'
-  0.1.11:
-   - Nothing to do by hand. The runtime image now comes from
-     registry.kindgi.com, with your license key as the password; this run
-     copied it from there.
+  0.2.0:
+   - The runtime image now comes from registry.kindgi.com, with your license
+     key as the password; this run copied it from there.
 EOT
       ;;
   esac

@@ -182,7 +182,7 @@ assert_varfile_unchanged() {
   if cmp -s "$VAR_FILE" "$CASE_DIR/original.tfvars"; then pass; else fail "the var-file changed but shouldn't have"; fi
 }
 
-# 1. Happy path: 0.1.8 -> 0.1.11, own instance, no pack, confirm yes.
+# 1. Happy path: 0.1.8 -> 0.2.0, own instance, no pack, confirm yes.
 case_start "happy path"
 reset_env; export STUB_TAGS="0.1.8"
 run "yes"
@@ -190,7 +190,7 @@ assert_rc 0 "happy path exits 0"
 assert_present "$STUB_MARKER_MIRROR" "mirror"
 assert_present "$STUB_MARKER_EXPORT" "backup"
 assert_present "$STUB_MARKER_APPLY" "apply"
-assert_out "0.1.8 -> 0.1.11 applied"
+assert_out "0.1.8 -> 0.2.0 applied"
 assert_file_has "$VAR_FILE" "server_image = \"$NEW_IMAGE\"  # mirrored 0.1.8" "var-file pins the new image, comment kept"
 assert_file_has "$STUB_PLAN_SAW" "$NEW_IMAGE" "the plan read the new image from the var-file"
 if grep -q "plan got -var" "$STUB_PLAN_SAW"; then fail "plan was given -var"; else pass; fi
@@ -208,10 +208,10 @@ assert_varfile_unchanged
 
 # 3. Already at the target.
 case_start "already at target"
-reset_env; export STUB_TAGS="0.1.11"
+reset_env; export STUB_TAGS="0.2.0"
 run "yes"
 assert_rc 1 "already at target"
-assert_out "already on 0.1.11"
+assert_out "already on 0.2.0"
 assert_absent "$STUB_MARKER_APPLY" "apply"
 
 # 4. A runtime check fails: stop before the backup, say so.
@@ -267,25 +267,25 @@ assert_absent "$STUB_MARKER_EXPORT" "backup"
 
 # 9. An rc goes to its final.
 case_start "rc to its final"
-reset_env; export STUB_TAGS="0.1.11-rc.0"
+reset_env; export STUB_TAGS="0.2.0-rc.0"
 run "yes"
 assert_rc 0 "rc -> final runs"
-assert_out "0.1.11-rc.0 -> 0.1.11 applied"
+assert_out "0.2.0-rc.0 -> 0.2.0 applied"
 
 # 10. To an rc: its release's steps are included.
 case_start "0.1.8 to an rc"
 reset_env; export STUB_TAGS="0.1.8"
-run "yes" --to 0.1.11-rc.0
+run "yes" --to 0.2.0-rc.0
 assert_rc 0 "to an rc runs"
-assert_out "crossing: 0.1.9 0.1.10 0.1.11"
+assert_out "crossing: 0.1.9 0.1.10 0.2.0"
 assert_out "autoCloseAfterInactiveSeconds"
 
 # 11. An rc promoted to its final carries both tags: the final is the version.
 case_start "rc and final tags on one digest"
-reset_env; export STUB_TAGS="0.1.11-rc.0;0.1.11"
+reset_env; export STUB_TAGS="0.2.0-rc.0;0.2.0"
 run "yes"
 assert_rc 1 "final read from the two tags"
-assert_out "already on 0.1.11,"
+assert_out "already on 0.2.0,"
 
 # 12. The release's tag isn't the digest given: refused before the mirror.
 case_start "digest doesn't match the release tag"
@@ -415,35 +415,35 @@ assert_out "the export failed (above). Nothing has changed."
 assert_absent "$STUB_MARKER_APPLY" "apply"
 assert_varfile_unchanged
 
-# 24. 0.1.10 -> 0.1.11: crosses 0.1.11 alone, copies it from registry.kindgi.com.
-case_start "0.1.10 to 0.1.11"
+# 24. 0.1.10 -> 0.2.0: crosses 0.2.0 alone, copies it from registry.kindgi.com.
+case_start "0.1.10 to 0.2.0"
 reset_env; export STUB_TAGS="0.1.10"
 run "yes"
-assert_rc 0 "0.1.10 -> 0.1.11 runs"
-assert_out "crossing: 0.1.11$"
-assert_out "0.1.11:"
-assert_out "Nothing to do by hand"
-if grep -q "autoCloseAfterInactiveSeconds" "$OUT"; then fail "0.1.10's steps shown for 0.1.10 -> 0.1.11"; else pass; fi
-assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.1.11 " "the release tag is read on registry.kindgi.com"
-assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.1.11@$NEW_DIGEST" "the mirror copies from registry.kindgi.com"
+assert_rc 0 "0.1.10 -> 0.2.0 runs"
+assert_out "crossing: 0.2.0$"
+assert_out "0.2.0:"
+assert_out "now comes from registry.kindgi.com"
+if grep -q "autoCloseAfterInactiveSeconds" "$OUT"; then fail "0.1.10's steps shown for 0.1.10 -> 0.2.0"; else pass; fi
+assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.2.0 " "the release tag is read on registry.kindgi.com"
+assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.2.0@$NEW_DIGEST" "the mirror copies from registry.kindgi.com"
 if grep -q "quay.io" "$STUB_DOCKER_LOG"; then fail "an image was read from quay.io"; else pass; fi
-assert_out "0.1.10 -> 0.1.11 applied"
+assert_out "0.1.10 -> 0.2.0 applied"
 
-# 25. 0.1.10 -> an rc of 0.1.11: its steps are included, and it gets to the mirror.
-case_start "0.1.10 to 0.1.11-rc.0"
+# 25. 0.1.10 -> an rc of 0.2.0: its steps are included, and it gets to the mirror.
+case_start "0.1.10 to 0.2.0-rc.0"
 reset_env; export STUB_TAGS="0.1.10"
-run "yes" --to 0.1.11-rc.0
-assert_rc 0 "0.1.10 -> 0.1.11-rc.0 runs"
-assert_out "crossing: 0.1.11$"
+run "yes" --to 0.2.0-rc.0
+assert_rc 0 "0.1.10 -> 0.2.0-rc.0 runs"
+assert_out "crossing: 0.2.0$"
 assert_present "$STUB_MARKER_MIRROR" "mirror"
-assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.1.11-rc.0@$NEW_DIGEST" "the rc is copied from registry.kindgi.com"
+assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.2.0-rc.0@$NEW_DIGEST" "the rc is copied from registry.kindgi.com"
 
-# 26. A target before 0.1.11 isn't on registry.kindgi.com: refused at the start.
-case_start "target before 0.1.11"
+# 26. A target before 0.2.0 isn't on registry.kindgi.com: refused at the start.
+case_start "target before 0.2.0"
 reset_env; export STUB_TAGS="0.1.8"
 run "yes" --to 0.1.10
 assert_rc 1 "0.1.10 target refused"
-assert_out "has 0.1.11 and later"
+assert_out "has 0.2.0 and later"
 assert_out "as of the @kindgi/sdk@0.1.10 tag"
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
@@ -459,6 +459,25 @@ assert_out "401 Unauthorized"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_absent "$STUB_MARKER_EXPORT" "backup"
 assert_varfile_unchanged
+
+# 28. 0.1.11 never had a final release (its changes ship in 0.2.0): neither it
+# nor one of its rcs is a target.
+case_start "0.1.11 isn't a target"
+reset_env; export STUB_TAGS="0.1.10"
+run "yes" --to 0.1.11-rc.0
+assert_rc 1 "a 0.1.11 target refused"
+assert_out "has 0.2.0 and later"
+assert_absent "$STUB_DOCKER_LOG" "a registry read"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_varfile_unchanged
+
+# 29. A deployment on a 0.1.11 rc upgrades to 0.2.0, crossing 0.2.0 alone.
+case_start "0.1.11-rc.0 to 0.2.0"
+reset_env; export STUB_TAGS="0.1.11-rc.0"
+run "yes"
+assert_rc 0 "0.1.11-rc.0 -> 0.2.0 runs"
+assert_out "crossing: 0.2.0$"
+assert_out "0.1.11-rc.0 -> 0.2.0 applied"
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
